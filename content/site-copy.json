@@ -1,0 +1,358 @@
+{
+  "home": {
+    "heroEyebrow": "Agentic AI Voice Analysis for Call Centers",
+    "heroH1": "Every call has a companion.",
+    "heroSub": "Homayar puts a team of specialized AI agents on every customer call — transcribing, scoring, and surfacing what matters. Your QA coverage goes from 2% of calls to 100%, without adding a single reviewer.",
+    "heroPrimaryCta": "Request a demo",
+    "heroSecondaryCta": "See how it works",
+    "logosLabel": "Trusted by teams in banking, healthcare, insurance, telecom, retail, and government",
+    "steps": [
+      {
+        "title": "Connect or upload",
+        "description": "Bring calls in from your telephony platform, contact-center suite, or simple file upload. Batch recordings or scheduled syncs — no rip-and-replace, no agent-side software."
+      },
+      {
+        "title": "AI agents analyze",
+        "description": "A coordinated team of AI agents transcribes each call, evaluates it against your QA scorecard, flags compliance risks, detects customer issues, and identifies coaching moments — in minutes, not weeks."
+      },
+      {
+        "title": "Act on insights",
+        "description": "Supervisors get scored calls, ranked issues, and ready-to-deliver coaching notes. Leaders get dashboards that show exactly where service quality, revenue, and risk are trending."
+      }
+    ],
+    "featureSections": [
+      {
+        "eyebrow": "Full-coverage QA",
+        "title": "Score 100% of calls, not a 2% sample",
+        "description": "Manual QA reviews a handful of calls per agent per month and hopes the sample is representative. Homayar evaluates every call against your existing scorecard with consistent, auditable criteria — so quality scores reflect reality, not luck of the draw.",
+        "bullets": [
+          "Every call scored against your rubric, with evidence linked to the exact transcript moment",
+          "Calibrated, consistent scoring — no reviewer drift between Monday and Friday",
+          "Human-in-the-loop review queue for disputed or borderline scores"
+        ]
+      },
+      {
+        "eyebrow": "Agentic analysis",
+        "title": "A team of AI specialists on every call",
+        "description": "One model doing everything produces shallow results. Homayar assigns each call to seven specialized agents — transcription, scoring, compliance, issue detection, sentiment, coaching, and trend analysis — each tuned for its job and cross-checking the others.",
+        "bullets": [
+          "Seven purpose-built agents collaborate on each call, not one generic summarizer",
+          "Agents cite transcript evidence for every finding — nothing is a black box",
+          "Disagreements between agents are surfaced for human review, not hidden"
+        ]
+      },
+      {
+        "eyebrow": "Coaching, not policing",
+        "title": "Turn every call into a coaching opportunity",
+        "description": "Homayar is built as a companion for agents, not a surveillance system. It highlights what each agent does well, pinpoints specific skills to develop, and gives supervisors concrete, transcript-backed talking points for one-on-ones.",
+        "bullets": [
+          "Per-agent strength and growth profiles built from their own real calls",
+          "Coaching recommendations tied to specific call moments, not vague labels",
+          "Agents see their own scores and trends — transparency builds trust"
+        ]
+      },
+      {
+        "eyebrow": "Compliance & risk",
+        "title": "Catch compliance gaps before they become incidents",
+        "description": "Required disclosures, prohibited language, identity verification steps, complaint-handling obligations — Homayar checks every call against your compliance checklist and escalates violations the same day, with the transcript evidence attached.",
+        "bullets": [
+          "Configurable compliance rules for disclosures, scripts, and prohibited phrases",
+          "Same-day escalation of high-severity violations with full audit trail",
+          "Complaint and dispute detection routed directly to the right reviewer"
+        ]
+      },
+      {
+        "eyebrow": "Insights & reporting",
+        "title": "Your call center becomes measurable",
+        "description": "Beyond individual calls, Homayar aggregates what customers are actually saying: rising complaint topics, product confusion, churn signals, competitor mentions, and process failures. The voice of the customer becomes a dashboard, not an anecdote.",
+        "bullets": [
+          "Trend dashboards for issue topics, sentiment, and QA scores across teams and time",
+          "Root-cause views that connect call drivers to products, policies, and processes",
+          "Scheduled reports and exports for executives, QA leads, and operations"
+        ]
+      },
+      {
+        "eyebrow": "Enterprise-ready",
+        "title": "Built for organizations that can't compromise",
+        "description": "Banks, hospitals, insurers, and government agencies run Homayar because it meets them where their security and procurement requirements are: role-based access, encryption everywhere, deployment options including private cloud, and clear data-retention controls.",
+        "bullets": [
+          "Role-based access control, SSO, and full audit logging",
+          "Encryption in transit and at rest; configurable data retention and redaction",
+          "Cloud, private cloud, or on-premises deployment options"
+        ]
+      }
+    ],
+    "metricsBand": [
+      { "value": "100%", "label": "of calls analyzed and scored" },
+      { "value": "85%", "label": "less time spent on manual QA review" },
+      { "value": "< 5 min", "label": "from call end to scored insights" },
+      { "value": "7", "label": "specialized AI agents on every call" }
+    ],
+    "testimonial": {
+      "quote": "We went from reviewing 50 calls a month to analyzing all 40,000 — and our QA team now spends their time coaching instead of listening. The first quarter alone surfaced a billing-script issue that had been costing us complaints for over a year.",
+      "author": "Sara Mahmoudi",
+      "role": "Head of Customer Experience, regional banking group"
+    },
+    "ctaBand": {
+      "title": "Hear every customer. Miss nothing.",
+      "sub": "See Homayar analyze your own calls in a 30-minute walkthrough — bring a recording, leave with a scored report.",
+      "cta": "Request a demo"
+    }
+  },
+  "platform": {
+    "heroH1": "From raw audio to actionable insight, in one pipeline",
+    "heroSub": "Homayar ingests your call recordings, transcribes them with high accuracy, runs them through a coordinated team of AI agents, and delivers scores, risks, and coaching guidance to the people who can act on them.",
+    "pipeline": [
+      {
+        "step": "01",
+        "title": "Ingest",
+        "description": "Calls arrive via API, scheduled sync from your telephony or contact-center platform, or direct file upload. Homayar handles common audio formats, stereo and mono recordings, and high-volume batch imports."
+      },
+      {
+        "step": "02",
+        "title": "Transcribe",
+        "description": "Speech-to-text converts every call into a speaker-separated, timestamped transcript. Channel separation distinguishes agent from customer; noisy audio and domain vocabulary are handled with configurable language models."
+      },
+      {
+        "step": "03",
+        "title": "Multi-agent analysis",
+        "description": "Seven specialized AI agents work the transcript in parallel: evaluating quality, checking compliance, detecting issues, reading sentiment, and extracting business signals. Each agent cites the transcript evidence behind its findings."
+      },
+      {
+        "step": "04",
+        "title": "Score",
+        "description": "Every call receives a quality score against your own rubric — greeting, discovery, resolution, tone, closure, and any custom criteria. Scores are consistent, explainable, and linked to the exact moments that earned or lost points."
+      },
+      {
+        "step": "05",
+        "title": "Surface insights",
+        "description": "Findings roll up into dashboards: issue topics trending across thousands of calls, sentiment shifts by team or product line, compliance exposure, and the operational root causes behind repeat contacts."
+      },
+      {
+        "step": "06",
+        "title": "Coach",
+        "description": "For each agent, Homayar builds a profile of strengths and development areas, then generates concrete coaching recommendations with example calls attached — ready for a supervisor's next one-on-one."
+      }
+    ],
+    "security": {
+      "title": "Security and deployment, enterprise-grade by default",
+      "items": [
+        {
+          "title": "Encryption everywhere",
+          "description": "Audio, transcripts, and analysis results are encrypted in transit (TLS 1.2+) and at rest (AES-256). Sensitive fields such as payment card numbers can be automatically redacted from transcripts."
+        },
+        {
+          "title": "Access control and audit",
+          "description": "Role-based access control with SSO/SAML support. Every view, export, and configuration change is recorded in an immutable audit log, so you always know who accessed which call and when."
+        },
+        {
+          "title": "Data residency and retention",
+          "description": "Configurable retention windows per data type — keep transcripts longer than audio, or purge both on your schedule. Deployment options support regional data-residency requirements."
+        },
+        {
+          "title": "Flexible deployment",
+          "description": "Run Homayar as managed cloud, single-tenant private cloud, or fully on-premises for regulated environments such as banking, healthcare, and government. Same platform, your infrastructure rules."
+        }
+      ]
+    },
+    "architecture": {
+      "title": "Built to sit alongside your stack, not replace it",
+      "description": "Homayar integrates with your existing telephony, CRM, and BI tools through APIs and scheduled exports. The platform is horizontally scalable — from a few hundred calls a day to hundreds of thousands — with processing isolation per tenant and no agent-side software to install. Your recordings stay under your governance; Homayar adds the analysis layer on top."
+    }
+  },
+  "aiAgents": {
+    "heroH1": "Meet the team that listens to every call",
+    "heroSub": "Homayar isn't one model summarizing audio. It's seven specialized AI agents — each with a defined role, each citing evidence, each checking the others' work — collaborating on every single call.",
+    "agents": [
+      {
+        "name": "Listener",
+        "role": "Audio intake and signal quality",
+        "description": "Listener is the first agent on every call. It validates the recording, separates speakers, detects hold time, silence, talk-over, and audio defects, and prepares the call for accurate downstream analysis. If a recording is unusable, Listener flags it instead of letting bad data pollute your metrics.",
+        "capabilities": [
+          "Speaker separation and channel mapping (agent vs. customer)",
+          "Hold, silence, dead-air, and talk-over detection",
+          "Audio quality validation and unusable-recording flagging",
+          "Call segmentation for long or transferred conversations"
+        ]
+      },
+      {
+        "name": "Scribe",
+        "role": "Transcription and structuring",
+        "description": "Scribe converts speech to a precise, timestamped, speaker-attributed transcript. It handles domain vocabulary, numbers, and names carefully, and structures the conversation into phases — opening, discovery, resolution, closure — that every other agent builds on.",
+        "capabilities": [
+          "High-accuracy speech-to-text with timestamps and speaker labels",
+          "Custom vocabulary for products, plans, and industry terms",
+          "Conversation phase detection (opening, discovery, resolution, closure)",
+          "Automatic redaction of sensitive data such as card numbers"
+        ]
+      },
+      {
+        "name": "Judge",
+        "role": "Quality scoring",
+        "description": "Judge evaluates each call against your QA scorecard — the same rubric your human reviewers use today. It scores every criterion with linked transcript evidence and applies the rubric identically across thousands of calls, eliminating reviewer drift.",
+        "capabilities": [
+          "Scorecard evaluation with per-criterion evidence citations",
+          "Consistent scoring calibrated to your QA team's standards",
+          "Confidence flags that route borderline calls to human review",
+          "Score trend tracking per agent, team, and queue"
+        ]
+      },
+      {
+        "name": "Guardian",
+        "role": "Compliance and risk",
+        "description": "Guardian checks every call for regulatory and policy adherence: required disclosures, identity verification, prohibited language, and complaint-handling obligations. High-severity findings are escalated the same day with full evidence attached.",
+        "capabilities": [
+          "Configurable compliance rules and mandatory-script verification",
+          "Prohibited-phrase and high-risk-language detection",
+          "Complaint, dispute, and escalation identification",
+          "Same-day alerting with audit-ready evidence trails"
+        ]
+      },
+      {
+        "name": "Scout",
+        "role": "Issue and signal detection",
+        "description": "Scout hunts for what customers are actually telling you: product problems, process failures, churn signals, competitor mentions, and emerging complaint topics. It tags each call so patterns become visible across thousands of conversations.",
+        "capabilities": [
+          "Issue and intent classification across every call",
+          "Churn-risk and dissatisfaction signal detection",
+          "Competitor and pricing mention tracking",
+          "Emerging-topic discovery before issues become trends"
+        ]
+      },
+      {
+        "name": "Coach",
+        "role": "Agent development",
+        "description": "Coach translates analysis into growth. It builds a strengths-and-gaps profile for each agent from their own real calls, then produces specific, transcript-backed coaching recommendations a supervisor can deliver in the next one-on-one. Coach celebrates what's working as deliberately as it flags what isn't.",
+        "capabilities": [
+          "Per-agent skill profiles built from real call evidence",
+          "Specific coaching recommendations with example call moments",
+          "Best-call highlighting for peer learning and recognition",
+          "Progress tracking across coaching cycles"
+        ]
+      },
+      {
+        "name": "Analyst",
+        "role": "Business insight and reporting",
+        "description": "Analyst aggregates everything the other agents find into the numbers leadership needs: quality trends, issue-driver rankings, sentiment movement, compliance exposure, and the operational root causes behind repeat contacts. It turns a call center's daily noise into a measurable system.",
+        "capabilities": [
+          "Cross-call trend analysis for topics, sentiment, and scores",
+          "Root-cause rollups connecting calls to products and processes",
+          "Scheduled executive and operational reporting",
+          "Exports and API access for your BI stack"
+        ]
+      }
+    ],
+    "orchestration": {
+      "title": "How the team works a call",
+      "description": "When a call arrives, Listener validates and prepares the audio, then hands a clean recording to Scribe for transcription. The structured transcript fans out to Judge, Guardian, Scout, and Coach in parallel — each analyzing from its own specialty and citing the transcript moments behind every finding. Where agents disagree — for example, Judge scores a call well but Guardian flags a missed disclosure — the conflict is surfaced for human review rather than silently averaged away. Analyst collects the verified results from every call into trends, dashboards, and reports. The whole pass completes in minutes, and every conclusion traces back to evidence you can hear for yourself."
+    }
+  },
+  "solutions": {
+    "heroH1": "Built for the industries where every call carries weight",
+    "heroSub": "Homayar adapts to the regulations, vocabulary, and quality standards of your sector — and to the teams inside it who live on call outcomes.",
+    "industries": [
+      {
+        "slug": "banking",
+        "name": "Banking & Financial Services",
+        "headline": "Compliance coverage on every call, not every fiftieth",
+        "description": "Banks face strict disclosure, verification, and complaint-handling requirements on every customer interaction. Homayar verifies required scripts and disclosures across 100% of calls, flags potential mis-selling or prohibited language, and produces audit-ready evidence trails that stand up to regulator scrutiny.",
+        "outcomes": [
+          "100% verification of mandatory disclosures and identity checks",
+          "Same-day escalation of complaint and mis-selling risk with evidence attached",
+          "Audit-ready reporting that cuts compliance review preparation time"
+        ]
+      },
+      {
+        "slug": "healthcare",
+        "name": "Healthcare",
+        "headline": "Patient conversations handled with care — and proof of it",
+        "description": "Hospital call centers and patient-access teams handle scheduling, billing, and clinical routing calls where empathy and accuracy both matter. Homayar measures whether patients were heard, verified correctly, and routed safely — while keeping sensitive data redacted and access tightly controlled.",
+        "outcomes": [
+          "Consistent quality scoring for scheduling, billing, and triage-routing calls",
+          "Early detection of patient frustration, access barriers, and repeat-call drivers",
+          "Privacy-conscious analysis with redaction, RBAC, and full audit logging"
+        ]
+      },
+      {
+        "slug": "insurance",
+        "name": "Insurance",
+        "headline": "See claims friction before it becomes churn",
+        "description": "Claims and policy-service calls are where insurers win or lose trust. Homayar scores every claims interaction, detects disputed denials and escalation risk, verifies required policy disclosures, and shows leadership exactly which products and processes generate the most call friction.",
+        "outcomes": [
+          "Every claims call scored for clarity, empathy, and resolution quality",
+          "Dispute and escalation signals surfaced while the claim is still active",
+          "Product-level insight into which policies drive confusion and complaints"
+        ]
+      },
+      {
+        "slug": "telecom",
+        "name": "Telecom",
+        "headline": "Measure millions of conversations without sampling",
+        "description": "Telecom contact centers operate at a volume where manual QA is statistically meaningless. Homayar scales to hundreds of thousands of calls, tracking churn signals, billing-dispute drivers, and retention-offer effectiveness across every queue and outsourced site with the same rubric.",
+        "outcomes": [
+          "Uniform QA standards across in-house and outsourced (BPO) sites",
+          "Churn-intent and save-offer effectiveness measured on real calls",
+          "Billing and network complaint trends connected to root causes"
+        ]
+      },
+      {
+        "slug": "retail",
+        "name": "Retail & E-commerce",
+        "headline": "The voice of the customer, finally at dashboard scale",
+        "description": "Order issues, returns, delivery failures, product confusion — your customers explain their problems on every call. Homayar classifies and quantifies those reasons across all of them, so merchandising, logistics, and CX teams fix root causes instead of refunding symptoms.",
+        "outcomes": [
+          "Contact-reason analytics that rank the true drivers of call volume",
+          "Early warning on product and delivery issues before reviews turn negative",
+          "Service quality scored consistently across peak-season ramp staff"
+        ]
+      },
+      {
+        "slug": "government",
+        "name": "Government & Public Sector",
+        "headline": "Accountable, measurable citizen service",
+        "description": "Public-sector contact centers answer to citizens and oversight bodies alike. Homayar delivers transparent, consistent quality measurement, accessibility and fairness signals, and deployment options — including fully on-premises — that meet government security and data-sovereignty requirements.",
+        "outcomes": [
+          "Consistent, defensible service-quality measurement across all calls",
+          "Detection of unresolved citizen issues and repeat-contact patterns",
+          "On-premises and sovereign deployment options with full audit trails"
+        ]
+      }
+    ],
+    "teams": [
+      {
+        "name": "QA Teams",
+        "headline": "Stop sampling. Start covering.",
+        "description": "Replace the 2% random sample with 100% scored coverage. Your reviewers shift from listening to calibrating: validating borderline scores, refining the rubric, and spending recovered hours on the calls that genuinely need human judgment."
+      },
+      {
+        "name": "Support Operations",
+        "headline": "Find the process failures hiding in call volume",
+        "description": "Repeat contacts, long handle times, and escalations have root causes. Homayar connects them to specific products, policies, and process gaps — so operations leaders fix the source instead of staffing around the symptom."
+      },
+      {
+        "name": "Sales Leaders",
+        "headline": "Know why deals close — and why they don't",
+        "description": "Homayar analyzes sales and retention calls for discovery quality, objection handling, and offer effectiveness. See which talk patterns your best closers share, and coach the rest of the team toward them with real call evidence."
+      },
+      {
+        "name": "Compliance Teams",
+        "headline": "Evidence-grade monitoring across every interaction",
+        "description": "Move from periodic spot checks to continuous verification. Every disclosure, script, and prohibited-phrase rule is checked on every call, violations arrive with transcript evidence the same day, and the audit trail builds itself."
+      }
+    ]
+  },
+  "contact": {
+    "heroH1": "See Homayar analyze your calls",
+    "heroSub": "Tell us about your team and we'll set up a 30-minute walkthrough — bring a sample recording and leave with a scored, agent-analyzed report. No commitment, no setup required.",
+    "formLabels": {
+      "name": "Full name",
+      "email": "Work email",
+      "company": "Company",
+      "teamSize": "Call center team size",
+      "message": "What would you like to analyze?",
+      "submit": "Request a demo"
+    },
+    "successMessage": "Thank you — your request is in. A member of the Homayar team will reach out within one business day to schedule your walkthrough.",
+    "alternativeNote": "Prefer email? Reach us directly at info@ksf.ir and we'll respond within one business day."
+  }
+}

@@ -1,0 +1,1639 @@
+[
+  {
+    "slug": "homayar-starter",
+    "name": "Homayar Starter",
+    "category": "platform-plans",
+    "tagline": "Full call coverage from day one",
+    "shortDescription": "The complete Homayar analysis pipeline sized for smaller teams: speech-to-text, core AI agents, quality scoring, and issue detection for up to 2,000 analyzed calls per month.",
+    "longDescription": "Most teams under 25 agents review fewer than 2% of their calls. A supervisor samples a handful of recordings each week, scores them by hand, and hopes the sample is representative. It rarely is — the calls that cost you customers are usually the ones nobody listened to.\n\nHomayar Starter closes that gap without an enterprise budget. Upload recordings or connect your existing storage, and every call is transcribed, scored against your quality rubric, and checked for recurring issues by Homayar's core AI agent team. Within 48 hours of setup, you have a scored baseline for your entire call volume — not a sample, all of it.\n\nStarter is built as a companion for small teams, not a surveillance layer. Scores come with the evidence behind them: the transcript moment, the issue category, the trend over time. Supervisors spend their hours coaching instead of listening, and agents see exactly what a strong call looks like. When your volume grows past 2,000 calls a month, your scorecards, history, and configuration move to Professional unchanged.",
+    "whoItsFor": "Customer-service and sales leads at startups and small businesses running their first structured QA program — teams of roughly 5 to 25 agents who need full call visibility without enterprise overhead.",
+    "keyOutcomes": [
+      "100% of calls analyzed, replacing the typical 1-2% manual QA sample",
+      "Up to 70% less supervisor time spent on manual call review",
+      "First scored calls and quality baseline within 48 hours of setup",
+      "Top 10 recurring customer issues surfaced automatically every week"
+    ],
+    "priceUsd": 499,
+    "billingType": "monthly",
+    "features": [
+      "Up to 2,000 analyzed calls per month",
+      "Speech-to-text transcription with speaker separation",
+      "Core AI agent team: QA scoring, sentiment analysis, and issue detection",
+      "Standard quality scorecard with adjustable criteria weighting",
+      "Weekly issue and trend digest delivered to your inbox",
+      "Team dashboard for up to 10 agent seats",
+      "Audio upload and recording import via CSV, S3, or SFTP",
+      "Email support with 1-business-day response"
+    ],
+    "seoTitle": "Homayar Starter — AI Call Analysis for Small Teams",
+    "seoDescription": "Homayar Starter analyzes up to 2,000 calls a month with AI agents, QA scoring, and issue detection. Full call coverage for smaller teams at $499/mo.",
+    "seoKeywords": [
+      "call center QA software",
+      "AI call analysis",
+      "small team call analytics",
+      "speech analytics pricing",
+      "automated quality scoring",
+      "call center starter plan"
+    ],
+    "teamSize": [
+      "startup",
+      "smb"
+    ],
+    "industries": [
+      "technology",
+      "retail",
+      "telecom"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A row of cyan bars stepping upward left to right across a dark navy field, the tallest bar breaking into a small burst of scored data points in the upper right, with generous negative space below."
+  },
+  {
+    "slug": "homayar-professional",
+    "name": "Homayar Professional",
+    "category": "platform-plans",
+    "tagline": "Every queue measured, every agent coached",
+    "shortDescription": "The full Homayar AI agent team for mid-market operations: 10,000 analyzed calls per month, compliance and churn-risk detection, coaching workflows, and custom dashboards.",
+    "longDescription": "At 25 to 200 agents, the problem changes shape. It is no longer whether you can review calls — it is whether quality means the same thing across queues, campaigns, and shifts. Two supervisors scoring the same call five points apart is not a people problem; it is a measurement problem.\n\nHomayar Professional applies one consistent standard to up to 10,000 calls a month. The full AI agent team runs on every conversation: QA scoring, sentiment, issue detection, compliance phrase checks, churn-risk signals, and per-agent coaching recommendations. Each team, queue, or campaign gets its own scorecard, and every score traces back to the transcript moment that produced it — so calibration debates end with evidence, not opinion.\n\nThe coaching workspace turns analysis into action. Supervisors see each agent's strongest and weakest criteria, ready-made improvement plans, and trend lines that show whether coaching is working. Custom dashboards and scheduled reports give operations leadership the numbers they ask for in the format they read, without anyone exporting spreadsheets on a Friday afternoon.\n\nProfessional connects to the stack you already run — Genesys, Five9, Twilio, Salesforce, or anything with a REST API — and adds role-based access control so the right people see the right data. Teams typically see average handle time drop 8-12% within the first quarter as coaching gets specific.",
+    "whoItsFor": "CX, QA, and operations managers at mid-market companies with 25 to 200 agents across multiple queues who need consistent scoring, structured coaching workflows, and reporting their leadership will actually read.",
+    "keyOutcomes": [
+      "Up to 10,000 analyzed calls per month across unlimited teams and queues",
+      "8-12% reduction in average handle time within the first quarter via targeted coaching",
+      "Scoring calibration variance between reviewers reduced to near zero",
+      "Compliance phrase coverage verified on 100% of calls, not a sample",
+      "Churn-risk conversations flagged within hours of the call ending"
+    ],
+    "priceUsd": 1499,
+    "billingType": "monthly",
+    "features": [
+      "Everything in Starter",
+      "Up to 10,000 analyzed calls per month",
+      "Full AI agent team: compliance checks, churn-risk signals, and coaching recommendations",
+      "Custom scorecards per team, queue, or campaign",
+      "Coaching workspace with per-agent improvement plans and trend tracking",
+      "Custom dashboards and scheduled leadership reports",
+      "Telephony and CRM integrations: Genesys, Five9, Twilio, Salesforce, REST API",
+      "Role-based access control with full audit log",
+      "Priority support with 4-business-hour response"
+    ],
+    "seoTitle": "Homayar Professional — Mid-Market Call Analytics",
+    "seoDescription": "Homayar Professional scales AI call analysis to 10,000 calls a month with the full agent team, coaching workflows, and custom dashboards. $1,499/mo.",
+    "seoKeywords": [
+      "mid-market call analytics",
+      "AI coaching recommendations",
+      "call center compliance monitoring",
+      "conversation intelligence platform",
+      "QA scorecard software",
+      "churn risk detection",
+      "call center dashboards"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "telecom",
+      "retail",
+      "technology"
+    ],
+    "popular": true,
+    "recommended": true,
+    "imageConcept": "A violet radial gauge cluster — one large central quality dial orbited by five smaller agent-metric gauges — set symmetrically on charcoal with a faint waveform ring behind the composition."
+  },
+  {
+    "slug": "homayar-enterprise",
+    "name": "Homayar Enterprise",
+    "category": "platform-plans",
+    "tagline": "Unlimited scale on your security terms",
+    "shortDescription": "Unlimited analyzed call volume with SSO, on-premises or private-VPC deployment, domain-tuned AI agents, and contractual SLAs for regulated, large-scale operations.",
+    "longDescription": "Banks, hospitals, insurers, telecoms, and government agencies do not adopt call analytics on a credit card. They adopt it after a security review, a data-residency conversation, and a contract that names uptime numbers. Homayar Enterprise is built for exactly that process.\n\nDeploy Homayar in your private VPC or fully on-premises, so call audio and transcripts never leave your environment. SSO/SAML and SCIM provisioning plug into your identity stack, data-residency and retention policies are configurable to your jurisdiction, and our team supports your security review with SOC 2 reports, DPAs, and pen-test documentation. A 99.9% uptime SLA with contractual response times is standard.\n\nAt enterprise scale, the AI agents are tuned to your domain. A claims-handling call is not a loan-servicing call is not a patient-scheduling call — Enterprise includes custom agent configuration and scoring models calibrated to your scripts, your regulatory obligations, and your definition of a good conversation. Volume pricing keeps per-call economics predictable whether you analyze fifty thousand calls a month or five million.\n\nEvery Enterprise deployment includes a dedicated customer success manager and a structured onboarding program: integration, scorecard calibration with your QA leads, and supervisor training. The goal is the same as every Homayar plan — a companion for your teams, not a monitoring layer over them — delivered with the controls your organization requires.",
+    "whoItsFor": "Call-center operations leaders, enterprise IT, and compliance teams at banks, hospitals, insurers, telecoms, and government agencies that require security review, deployment control, and contractual guarantees.",
+    "keyOutcomes": [
+      "Unlimited analyzed call volume with predictable per-call economics",
+      "99.9% uptime SLA backed by contractual response times",
+      "Zero call data leaving your environment with on-prem or private-VPC deployment",
+      "Security review completed with SOC 2, DPA, and pen-test documentation provided",
+      "Domain-tuned scoring models calibrated to your scripts and regulatory obligations"
+    ],
+    "priceUsd": 0,
+    "billingType": "custom",
+    "features": [
+      "Everything in Professional",
+      "Unlimited analyzed call volume",
+      "SSO/SAML and SCIM provisioning",
+      "On-premises or private-VPC deployment options",
+      "Custom AI agent configuration and domain-tuned scoring models",
+      "Data-residency controls and configurable retention policies",
+      "99.9% uptime SLA with contractual response times",
+      "Dedicated customer success manager and structured onboarding program",
+      "Security review support: SOC 2 reports, DPA, pen-test documentation",
+      "Volume-based pricing with predictable per-call economics"
+    ],
+    "seoTitle": "Homayar Enterprise — Secure Call Analytics at Scale",
+    "seoDescription": "Homayar Enterprise delivers unlimited AI call analysis with SSO, on-prem or VPC deployment, and contractual SLAs. Custom pricing for regulated scale.",
+    "seoKeywords": [
+      "enterprise call analytics",
+      "on-premise speech analytics",
+      "VPC call center AI",
+      "SSO call analytics platform",
+      "call analytics SLA",
+      "regulated industry conversation intelligence",
+      "enterprise QA platform"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "retail",
+      "government",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "An amber shield lattice of interlocking hexagonal panels layered over a receding architecture diagram that fades into dark navy, anchored bottom-center with depth rising toward the top of the frame."
+  },
+  {
+    "slug": "multilingual-transcription-engine",
+    "name": "Multilingual Transcription Engine",
+    "category": "ai-voice-analysis",
+    "tagline": "Accurate transcripts in every language served",
+    "shortDescription": "Telephony-grade speech-to-text that converts 100% of your recorded calls into searchable, speaker-separated transcripts across 40+ languages and dialects.",
+    "longDescription": "Most contact centers review fewer than 5% of their calls because transcription has always been the bottleneck: too slow, too expensive, too inaccurate on real telephony audio. The Multilingual Transcription Engine removes that bottleneck. Upload recordings in batch or stream them through the API, and every call becomes a clean, timestamped, speaker-separated transcript — typically faster than 2x real time.\n\nThe engine is tuned for the audio call centers actually have: 8kHz lines, crosstalk, hold music, IVR fragments, and customers who switch languages mid-sentence. Automatic language detection and code-switching support mean a call that starts in English and shifts to Spanish stays coherent in one transcript, correctly attributed to each speaker.\n\nDomain lexicons let you teach the engine your product names, policy codes, and industry vocabulary, so 'HSA rollover' never becomes 'H.S. hey rollover.' Built-in PCI and PII redaction scrubs card numbers and personal identifiers before transcripts ever reach a reviewer's screen — protecting customers and keeping your QA program audit-ready.\n\nEvery downstream Homayar module — scoring, sentiment, intent, coaching — builds on this foundation. When the transcript layer is right, everything above it gets sharper.",
+    "whoItsFor": "Call-center operations leaders and enterprise IT teams who need every call converted to reliable text — especially organizations serving multilingual customer bases or operating under compliance requirements.",
+    "keyOutcomes": [
+      "100% of calls transcribed, up from 2-5% manual sampling",
+      "95%+ word accuracy on 8kHz telephony audio",
+      "Sub-2x real-time turnaround on batch uploads",
+      "PCI/PII redaction applied before any human review",
+      "Reviewer prep time cut from 12 minutes per call to zero"
+    ],
+    "priceUsd": 399,
+    "billingType": "monthly",
+    "features": [
+      "Automatic language detection across 40+ languages and dialects",
+      "Mid-call code-switching support in a single transcript",
+      "Speaker diarization with agent/customer role labeling",
+      "Custom domain lexicons for product and policy vocabulary",
+      "Word-level timestamps synced to audio playback",
+      "Automated PCI and PII redaction in text and audio",
+      "Batch upload, SFTP ingestion, and REST API streaming",
+      "Per-segment confidence scoring with low-confidence flags",
+      "Punctuation, casing, and number formatting normalization",
+      "Searchable transcript archive with full-text query"
+    ],
+    "seoTitle": "Homayar Multilingual Transcription Engine for Call Centers",
+    "seoDescription": "Convert 100% of contact-center calls into accurate, speaker-separated transcripts across 40+ languages. Telephony-tuned STT with PCI/PII redaction.",
+    "seoKeywords": [
+      "call center transcription",
+      "multilingual speech-to-text",
+      "speaker diarization",
+      "telephony transcription engine",
+      "PII redaction calls",
+      "contact center STT",
+      "call transcript software"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "retail",
+      "government",
+      "technology"
+    ],
+    "popular": true,
+    "recommended": false,
+    "imageConcept": "A flowing cyan waveform ribbon unspooling left-to-right into neat rows of typographic transcript lines on dark navy, with the transformation point glowing at the composition's golden-ratio third."
+  },
+  {
+    "slug": "acoustic-emotion-sentiment",
+    "name": "Acoustic Emotion & Sentiment Analysis",
+    "category": "ai-voice-analysis",
+    "tagline": "Measure how every customer actually feels",
+    "shortDescription": "Combines acoustic signals — pitch, pace, energy, silence — with transcript sentiment to track customer and agent emotional state second by second through every call.",
+    "longDescription": "Words tell half the story. A customer can say 'fine' in a way that means anything but. Acoustic Emotion & Sentiment Analysis listens to both layers: what was said, and how it was said. By fusing prosodic features — pitch variance, speaking rate, vocal energy, interruptions, and dead air — with transcript-level sentiment, it produces an emotion timeline for every call, both sides of the conversation.\n\nSupervisors see exactly where a call turned: the moment frustration spiked, the de-escalation that worked, the long silence after a price was quoted. Instead of vague labels like 'negative call,' you get a navigable timeline — click any emotional inflection point and the audio plays from that second.\n\nThe same lens applies to agents, framed as support rather than scrutiny. Rising agent stress across a shift is an early signal for burnout and attrition. Teams use these patterns to adjust schedules, route tougher call types to senior staff, and time coaching conversations before performance dips — a companion for the people on the phones, not a camera over their shoulder.\n\nEmotion data flows into every other Homayar module: QA scorecards can weight empathy criteria with acoustic evidence, CSAT prediction sharpens, and escalation alerts trigger on emotional trajectory rather than keywords alone.",
+    "whoItsFor": "CX and QA managers who need to understand emotional dynamics at scale, and operations leaders monitoring team wellbeing and escalation patterns across thousands of calls.",
+    "keyOutcomes": [
+      "Emotion timeline generated for 100% of analyzed calls",
+      "Escalation moments pinpointed to within 3 seconds of onset",
+      "30-40% faster call review via emotion-driven navigation",
+      "Early burnout signals surfaced weeks before attrition events",
+      "Empathy scoring backed by acoustic evidence, not reviewer guesswork"
+    ],
+    "priceUsd": 299,
+    "billingType": "monthly",
+    "features": [
+      "Second-by-second emotion timeline for customer and agent",
+      "Prosodic feature analysis: pitch, pace, energy, silence, interruptions",
+      "Fused acoustic + transcript sentiment scoring",
+      "Escalation and de-escalation moment detection",
+      "Click-to-listen navigation from any emotional inflection point",
+      "Agent stress trend dashboards framed for coaching, not policing",
+      "Configurable emotion-spike alerts for supervisor follow-up",
+      "Sentiment distribution reporting by queue, team, and call driver"
+    ],
+    "seoTitle": "Homayar Acoustic Emotion & Sentiment Analysis",
+    "seoDescription": "Track customer and agent emotion second by second. Acoustic signals plus transcript sentiment show where calls turn and how to coach better outcomes.",
+    "seoKeywords": [
+      "voice emotion analysis",
+      "call sentiment analysis",
+      "acoustic emotion detection",
+      "customer frustration detection",
+      "agent burnout signals",
+      "speech analytics sentiment",
+      "call center emotion AI"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "telecom",
+      "healthcare",
+      "retail"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "Stacked horizontal spectrogram bands in violet gradients rising and falling like an emotional EKG across a charcoal field, with one sharp peak haloed to mark an escalation moment off-center right."
+  },
+  {
+    "slug": "topic-intent-discovery",
+    "name": "Topic & Intent Discovery",
+    "category": "ai-voice-analysis",
+    "tagline": "Know why customers call, automatically",
+    "shortDescription": "Unsupervised topic clustering and intent classification that turns thousands of unstructured calls into a ranked, trending map of why customers actually contact you.",
+    "longDescription": "Ask three department heads why customers call and you'll get three different answers — all anecdotal. Topic & Intent Discovery replaces opinion with measurement. Specialized AI agents read every transcript, cluster conversations into topics, classify caller intent, and rank everything by volume, trend, handle time, and emotional charge.\n\nThe system discovers topics you didn't know to look for. A new billing-page bug shows up as an emerging cluster within hours, not as a quarterly-review surprise. A confusing policy change reveals itself as a fast-growing intent with above-average handle time and below-average sentiment. You define nothing upfront; the taxonomy emerges from the calls themselves, then becomes editable so business language stays consistent.\n\nFor planning teams, this is the missing demand signal. Deflection programs get built around the top self-serviceable intents. Training curricula target the topics with the worst first-call resolution. Product teams receive a weekly digest of what customers struggle with, quoted verbatim from real conversations — evidence, not anecdotes.\n\nEvery topic links back to its underlying calls, so any number on the dashboard is two clicks from the actual customer voice behind it.",
+    "whoItsFor": "Operations leaders sizing deflection and staffing opportunities, and CX or product teams who need a ground-truth answer to 'what are customers actually contacting us about?'",
+    "keyOutcomes": [
+      "Complete call-driver taxonomy live within the first week",
+      "Emerging issues detected within hours instead of quarterly reviews",
+      "15-25% of volume identified as deflectable to self-service",
+      "Top 10 call drivers quantified by volume, AHT, and sentiment",
+      "Product feedback digests backed by verbatim customer evidence"
+    ],
+    "priceUsd": 349,
+    "billingType": "monthly",
+    "features": [
+      "Unsupervised topic clustering across the full call archive",
+      "Intent classification with editable, business-friendly taxonomy",
+      "Emerging-topic alerts with configurable growth thresholds",
+      "Topic ranking by volume, handle time, repeat-contact rate, and sentiment",
+      "Trend lines per topic with week-over-week and seasonal views",
+      "Drill-through from any topic to underlying calls and quotes",
+      "Deflection opportunity scoring for self-service candidates",
+      "Scheduled topic digests for product, ops, and CX stakeholders"
+    ],
+    "seoTitle": "Homayar Topic & Intent Discovery for Voice Data",
+    "seoDescription": "Automatically cluster and rank why customers call. Spot emerging issues in hours, quantify call drivers, and find deflection opportunities from real calls.",
+    "seoKeywords": [
+      "call driver analysis",
+      "intent classification",
+      "topic discovery calls",
+      "contact reason analytics",
+      "call deflection analysis",
+      "speech analytics topics",
+      "voice of customer mining"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "telecom",
+      "banking",
+      "retail",
+      "insurance",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": true,
+    "imageConcept": "A constellation-style network graph of glowing teal nodes clustering into distinct topic islands on deep navy, with one small cluster pulsing brighter at the edge to suggest an emerging issue, composed with generous negative space at center."
+  },
+  {
+    "slug": "automated-qa-scorecards",
+    "name": "Automated QA Scorecards",
+    "category": "quality-control",
+    "tagline": "Score every call against your standards",
+    "shortDescription": "AI agents evaluate 100% of calls against your existing QA scorecard — greeting, verification, compliance, resolution, empathy — with evidence cited for every score.",
+    "longDescription": "Manual QA reviews 2-5% of calls and takes a week to do it. Automated QA Scorecards evaluates all of them, usually within minutes of the recording landing. You bring your existing scorecard — the criteria your QA team already trusts — and Homayar's evaluation agents apply it consistently to every conversation, every day.\n\nEach criterion gets more than a pass/fail. The system cites its evidence: the exact transcript segment where identity verification happened (or didn't), the timestamp where the required disclosure was read, the exchange that justified the empathy score. Reviewers stop hunting through 20-minute recordings and start verifying targeted moments. Most teams find a reviewer's throughput triples while their judgment stays firmly in the loop.\n\nCompliance-critical criteria can be set to zero-tolerance: a missed disclosure or skipped verification flags the call for human review within minutes, not at month-end when the regulatory exposure has already compounded. Auto-fail patterns that took weeks to surface now page a supervisor the same morning.\n\nScores roll up by agent, team, queue, and criterion, so coaching conversations start from trends across hundreds of calls rather than one unlucky sample. The framing matters: agents see their own dashboards, their best calls get flagged as exemplars, and the scorecard becomes a shared standard instead of a monthly verdict.",
+    "whoItsFor": "QA managers and compliance officers who need full-coverage evaluation without scaling headcount, and operations leaders replacing sample-based QA with population-level quality data.",
+    "keyOutcomes": [
+      "QA coverage expanded from ~3% sampling to 100% of calls",
+      "Compliance breaches flagged within minutes, not at month-end",
+      "3x reviewer throughput with human judgment kept in the loop",
+      "Score consistency variance reduced below 5% across reviewers",
+      "Coaching priorities ranked by criterion-level trend data"
+    ],
+    "priceUsd": 499,
+    "billingType": "monthly",
+    "features": [
+      "Bring-your-own scorecard with weighted sections and criteria",
+      "Evidence citations linking every score to transcript and timestamp",
+      "Zero-tolerance compliance criteria with same-day alerting",
+      "Auto-fail detection with immediate supervisor notification",
+      "Human-in-the-loop review queue for low-confidence scores",
+      "Agent-facing dashboards with exemplar call highlighting",
+      "Score rollups by agent, team, queue, and criterion",
+      "Side-by-side AI and human score comparison view",
+      "Scorecard versioning with effective-date history",
+      "Export to BI tools and workforce management systems"
+    ],
+    "seoTitle": "Homayar Automated QA Scorecards for Call Centers",
+    "seoDescription": "Score 100% of calls against your own QA scorecard with cited evidence per criterion. Catch compliance misses in minutes and 3x reviewer throughput.",
+    "seoKeywords": [
+      "automated call QA",
+      "AI QA scorecards",
+      "call center quality assurance",
+      "100% call coverage QA",
+      "compliance call monitoring",
+      "auto-fail detection",
+      "QA automation software"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "healthcare",
+      "telecom",
+      "government"
+    ],
+    "popular": true,
+    "recommended": false,
+    "imageConcept": "An isometric scorecard grid of amber-edged cells on charcoal, most cells filled with calm check glyphs and a single cell lit hot amber with a thread connecting it down to a small waveform snippet, weighted toward the lower-left quadrant."
+  },
+  {
+    "slug": "calibration-workspace",
+    "name": "Calibration Workspace",
+    "category": "quality-control",
+    "tagline": "Align every reviewer on one standard",
+    "shortDescription": "A structured workspace for QA calibration sessions: blind scoring rounds, variance analytics, AI-vs-human alignment tracking, and a documented decision log for every criterion.",
+    "longDescription": "Every QA leader knows the quiet problem: the same call scored by three reviewers gets three different numbers. Calibration sessions are supposed to fix this, but they run on spreadsheets, screen-shares, and whoever argues loudest. The Calibration Workspace turns calibration into an instrumented process.\n\nSession leads pick calls — randomly, by disputed score, or by AI/human disagreement — and reviewers score them blind, without seeing each other's marks or the AI's evaluation. The workspace then reveals everything at once: per-criterion variance, each reviewer's drift from the group, and exactly where the AI's interpretation diverged from the team's. Discussion happens where the data says it should, not where opinions are strongest.\n\nEvery resolution becomes a documented precedent. When the team decides what 'acknowledged the customer's frustration' actually requires, that decision is recorded against the criterion, with the example call attached, and feeds back into how Homayar's evaluation agents score going forward. The AI calibrates to your team's standard — not the other way around.\n\nOver time, the workspace becomes the institutional memory of your quality program: a searchable history of every scoring decision, ready for auditor questions, new-reviewer onboarding, and the inevitable 'why did this call get an 82?'",
+    "whoItsFor": "QA program leads and quality directors running multi-reviewer teams or BPO partnerships, where score consistency across evaluators is contractually or operationally critical.",
+    "keyOutcomes": [
+      "Inter-rater variance cut by 40-60% within three calibration cycles",
+      "AI-human score alignment lifted above 90% agreement",
+      "Calibration session prep reduced from hours to minutes",
+      "Every scoring precedent documented and searchable for audits",
+      "New reviewer ramp time shortened by structured precedent library"
+    ],
+    "priceUsd": 249,
+    "billingType": "monthly",
+    "features": [
+      "Blind scoring rounds with simultaneous reveal",
+      "Per-criterion variance and reviewer-drift analytics",
+      "AI-vs-human disagreement queues for session selection",
+      "Decision log with precedent calls attached per criterion",
+      "Feedback loop that tunes AI scoring to team consensus",
+      "Calibration trend reporting across sessions and quarters",
+      "BPO and multi-site reviewer cohort comparisons",
+      "Audit-ready export of calibration history and rationale"
+    ],
+    "seoTitle": "Homayar Calibration Workspace for QA Teams",
+    "seoDescription": "Run instrumented QA calibration: blind scoring, variance analytics, AI-human alignment, and a documented decision log. Cut inter-rater variance by half.",
+    "seoKeywords": [
+      "QA calibration software",
+      "inter-rater reliability",
+      "call scoring consistency",
+      "calibration session tool",
+      "QA reviewer alignment",
+      "quality assurance calibration",
+      "BPO QA management"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "telecom",
+      "government",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "Three translucent violet circles sliding into a single aligned Venn overlap on dark navy, ghost outlines of their previously misaligned positions fading behind, centered with symmetric breathing room."
+  },
+  {
+    "slug": "dispute-appeal-workflow",
+    "name": "Dispute & Appeal Workflow",
+    "category": "quality-control",
+    "tagline": "Fair scores agents can trust",
+    "shortDescription": "A transparent appeal process for QA scores: agents contest with evidence, reviewers respond against the recording, and every outcome feeds back into scoring accuracy.",
+    "longDescription": "A QA program agents don't trust is a QA program that doesn't change behavior. When scores feel arbitrary and there's no recourse, agents disengage from feedback entirely — and the quality data quietly loses its meaning. The Dispute & Appeal Workflow gives every score a fair, fast, documented path to challenge.\n\nAn agent who disagrees with a score files an appeal directly from their scorecard, pointing to the specific criterion and the moment in the call they believe was misjudged. The reviewer — or a designated second evaluator — responds against the same evidence: the transcript, the audio, the criterion definition, and any calibration precedents on record. No hallway debates, no he-said-she-said. The recording settles it.\n\nEvery resolution is tracked. Appeals upheld against AI-scored criteria automatically flow into Homayar's scoring feedback loop, improving future accuracy. Appeals upheld against human reviewers surface as calibration topics. Patterns — one criterion drawing 30% of all disputes, one team appealing at triple the rate — show leaders exactly where the scorecard or the training needs work.\n\nThis is the companion philosophy made concrete: a quality system with due process built in. Teams that deploy it consistently report higher feedback acceptance, lower grievance escalations, and agents who engage with QA results instead of bracing against them.",
+    "whoItsFor": "QA managers and HR-adjacent operations leaders in unionized, regulated, or high-attrition environments where score fairness directly affects engagement and retention.",
+    "keyOutcomes": [
+      "Appeal resolution time under 48 hours on average",
+      "Feedback acceptance rates up 25%+ after rollout",
+      "Dispute-prone criteria identified and rewritten within one quarter",
+      "Upheld appeals automatically improve AI scoring accuracy",
+      "Complete due-process audit trail for HR and labor reviews"
+    ],
+    "priceUsd": 199,
+    "billingType": "monthly",
+    "features": [
+      "One-click appeal filing from any scored criterion",
+      "Evidence-anchored review with transcript and audio side by side",
+      "Second-evaluator routing for contested human scores",
+      "SLA timers and escalation rules for stalled appeals",
+      "Automatic AI-scoring feedback loop from upheld appeals",
+      "Dispute-pattern analytics by criterion, team, and reviewer",
+      "Calibration topic suggestions from recurring disputes",
+      "Immutable audit trail of every appeal and resolution"
+    ],
+    "seoTitle": "Homayar Dispute & Appeal Workflow for QA Scores",
+    "seoDescription": "Give agents a fair, evidence-based path to contest QA scores. Resolve appeals in under 48 hours and turn every outcome into better scoring accuracy.",
+    "seoKeywords": [
+      "QA score appeals",
+      "agent dispute workflow",
+      "fair QA process",
+      "call score contest",
+      "QA transparency",
+      "agent engagement QA",
+      "quality score disputes"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "government",
+      "banking",
+      "telecom",
+      "healthcare",
+      "insurance"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A split-path flow diagram in thin teal lines on charcoal where two diverging tracks reconverge at a balanced scale node, resolution states marked by softly lit teal checkpoints, arranged in a clean horizontal S-curve."
+  },
+  {
+    "slug": "csat-prediction",
+    "name": "CSAT Prediction",
+    "category": "customer-experience",
+    "tagline": "Predicted satisfaction for every single call",
+    "shortDescription": "Models trained on your survey responses predict a CSAT score for every call — including the 90%+ of customers who never answer a survey.",
+    "longDescription": "Survey response rates in most contact centers sit between 5% and 15%, and the customers who respond skew toward the very happy and the very angry. Every CSAT number on your dashboard is built on that thin, biased slice. CSAT Prediction fills in the rest: a satisfaction score for every call, modeled from the conversation itself.\n\nThe system learns from your own ground truth. Calls that did receive survey responses become training signal, mapping conversational features — resolution language, emotional trajectory, hold patterns, repeat-contact markers — to actual scores your customers gave. The result is a per-call prediction with a confidence band, validated continuously against incoming survey data so you can see precisely how well it tracks reality.\n\nWith full coverage, satisfaction becomes operational instead of retrospective. A predicted-detractor call triggers a same-day callback while the relationship is still recoverable. A queue whose predicted CSAT slides mid-week gets attention Wednesday, not in next month's review. Team and site comparisons rest on tens of thousands of data points rather than a few hundred survey replies.\n\nFor agents, predicted CSAT works as a companion metric: visibility into how their conversations likely landed, on every call, without waiting for the survey lottery. Coaching gets anchored to specific, recent, representative interactions.",
+    "whoItsFor": "CX leaders accountable for satisfaction targets, and operations managers who need satisfaction signal on every interaction — not just the few customers who answer surveys.",
+    "keyOutcomes": [
+      "CSAT visibility on 100% of calls vs. 5-15% survey coverage",
+      "Predicted-detractor callbacks triggered same day",
+      "Model validated continuously against live survey responses",
+      "Satisfaction dips detected mid-week instead of month-end",
+      "Survey program costs reduced while coverage expands 10x"
+    ],
+    "priceUsd": 449,
+    "billingType": "monthly",
+    "features": [
+      "Per-call CSAT prediction with confidence intervals",
+      "Training on your historical surveys and call recordings",
+      "Continuous validation dashboard against live survey data",
+      "Predicted-detractor alerts with callback queue integration",
+      "Drill-down from any prediction to its driving call moments",
+      "Trend views by agent, team, queue, and call driver",
+      "Survey-bias analysis comparing responders vs. full population",
+      "API export of predictions to CRM and BI platforms"
+    ],
+    "seoTitle": "Homayar CSAT Prediction for Every Customer Call",
+    "seoDescription": "Predict CSAT for 100% of calls, not the 10% who answer surveys. Trigger same-day saves for likely detractors and track satisfaction continuously.",
+    "seoKeywords": [
+      "CSAT prediction",
+      "predicted customer satisfaction",
+      "survey-less CSAT",
+      "AI CSAT scoring",
+      "detractor detection",
+      "customer satisfaction analytics",
+      "call center CSAT software"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "retail",
+      "telecom",
+      "banking",
+      "insurance",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": true,
+    "imageConcept": "An ascending cyan forecast curve with a translucent confidence band widening toward the future, sparse survey-dot stars scattered beneath it on dark navy, the curve cresting in the upper-right third of the frame."
+  },
+  {
+    "slug": "churn-risk-signals",
+    "name": "Churn Risk Signals",
+    "category": "customer-experience",
+    "tagline": "Catch at-risk customers before they leave",
+    "shortDescription": "Detects cancellation language, competitor mentions, unresolved-issue patterns, and emotional trajectories across calls to flag accounts at risk of churn — with enough lead time to act.",
+    "longDescription": "Customers rarely leave without telling you first. They tell you in calls: a competitor's name dropped casually, a third contact about the same unresolved issue, a shift in tone from frustrated to flat. Churn Risk Signals listens for these patterns across every conversation and turns them into account-level risk scores your retention team can actually work.\n\nThe model goes beyond keyword spotting. A single 'thinking about switching' matters less than the trajectory: rising contact frequency, declining sentiment across consecutive calls, escalations that ended without resolution language, requests for contract terms or cancellation policies. Signals compound at the account level, so a customer whose last three calls each looked routine in isolation still surfaces when the pattern across them does not.\n\nRisk scores flow to your CRM with the evidence attached — the specific calls, quotes, and unresolved issues behind each flag — so retention outreach starts informed rather than generic. Win-back offers reach customers while the decision is still forming, which is where save rates are won.\n\nFor enterprises, the deployment is tailored: risk models tuned to your churn definitions and renewal cycles, integration with your CRM and customer-data platform, and thresholds calibrated against your historical churn cohorts. Engagement is scoped with your team, including on-premise and VPC deployment options.",
+    "whoItsFor": "Retention and CX leaders at subscription, contract, or relationship-revenue businesses — telecoms, insurers, banks, and SaaS companies — where saving an account is far cheaper than replacing it.",
+    "keyOutcomes": [
+      "At-risk accounts flagged 30-60 days before typical churn events",
+      "Retention outreach armed with call-level evidence per account",
+      "Save-rate lift of 10-20% on flagged accounts in early cohorts",
+      "Competitor-mention and cancellation-intent trends by segment",
+      "Risk scores synced to CRM within minutes of call completion"
+    ],
+    "priceUsd": 0,
+    "billingType": "custom",
+    "features": [
+      "Account-level churn risk scoring across call history",
+      "Cancellation-intent and competitor-mention detection",
+      "Cross-call trajectory analysis of sentiment and contact frequency",
+      "Unresolved-issue tracking with repeat-contact linkage",
+      "Evidence packets attached to every risk flag",
+      "CRM and CDP integration with near-real-time sync",
+      "Threshold calibration against your historical churn cohorts",
+      "Segment-level churn driver reporting for leadership",
+      "VPC and on-premise deployment options"
+    ],
+    "seoTitle": "Homayar Churn Risk Signals from Voice Data",
+    "seoDescription": "Flag at-risk accounts 30-60 days early using call-based churn signals: cancellation intent, competitor mentions, and sentiment trajectories synced to CRM.",
+    "seoKeywords": [
+      "churn prediction calls",
+      "churn risk detection",
+      "customer retention AI",
+      "cancellation intent detection",
+      "competitor mention tracking",
+      "voice churn signals",
+      "account risk scoring"
+    ],
+    "teamSize": [
+      "enterprise"
+    ],
+    "industries": [
+      "telecom",
+      "insurance",
+      "banking",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A wide amber funnel rendered in thin luminous contour lines on charcoal, with a few glowing account particles escaping through a gap mid-funnel and one being pulled back by a bright amber tether, composed diagonally from upper-left."
+  },
+  {
+    "slug": "journey-friction-audit",
+    "name": "Journey Friction Audit",
+    "category": "customer-experience",
+    "tagline": "Find where your customer journeys break",
+    "shortDescription": "A one-time, fixed-scope analysis of 60 days of call recordings that maps repeat contacts, transfers, and failed self-service into a ranked, evidence-backed friction report.",
+    "longDescription": "No customer journey map survives contact with reality. The flows on the whiteboard say 'customer calls, issue resolved'; the calls themselves say 'customer called twice, was transferred three times, repeated their account number to four people, and mentioned the broken web form each time.' The Journey Friction Audit builds the map from the evidence.\n\nYou provide 60 days of call recordings; Homayar's analysis agents stitch interactions into journeys — repeat contacts about the same issue, transfers within calls, references to failed self-service attempts ('I tried the app first'), and explicit effort language ('this is the third time I'm calling'). Each journey stage receives a friction score built from contact recurrence, resolution latency, transfer depth, and customer-stated effort.\n\nThe deliverable is a ranked friction report with an executive readout. Maybe 18% of billing calls reference a failed portal payment first — that's a quantified business case for the digital team, with call evidence attached. Maybe transfers between two specific departments add four minutes and a sentiment drop on every occurrence — that's a routing fix with a measurable payoff. Friction stops being a workshop topic and becomes a prioritized backlog.\n\nThe engagement is fixed-price and fixed-timeline: recordings in, findings delivered within 15 business days, no subscription required. Many teams repeat the audit annually to verify their fixes moved the numbers — same methodology, year over year.",
+    "whoItsFor": "CX strategy and operations executives who need hard call evidence to prioritize self-service, routing, and process fixes — or an independent benchmark before funding a journey program.",
+    "keyOutcomes": [
+      "Top 10 friction points ranked by volume and effort cost",
+      "Repeat-contact rate attributed to specific journey stages",
+      "Failed self-service attempts quantified from call evidence",
+      "Transfer patterns mapped with time and sentiment cost per hop",
+      "Board-ready report and readout within 15 business days"
+    ],
+    "priceUsd": 2900,
+    "billingType": "one-time",
+    "features": [
+      "Full analysis of a 60-day call recording sample",
+      "Cross-call journey stitching by issue and account",
+      "Friction scoring per stage from recurrence, latency, and effort",
+      "Customer effort language detection and quantification",
+      "Failed self-service and channel-switch attribution",
+      "Transfer-path mapping with time and sentiment cost",
+      "Ranked friction backlog with call evidence excerpts",
+      "Executive readout session with prioritized 90-day fix plan",
+      "Secure handling with PII redaction and post-engagement data deletion"
+    ],
+    "seoTitle": "Homayar Journey Friction Audit | One-Time CX Report",
+    "seoDescription": "Fixed-price audit mapping where customer journeys break: repeat contacts, transfers, failed self-service — ranked with call evidence in 15 business days.",
+    "seoKeywords": [
+      "customer journey audit",
+      "customer effort score",
+      "repeat contact analysis",
+      "journey friction mapping",
+      "transfer analysis call center",
+      "self-service failure analytics",
+      "CX audit report"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "retail",
+      "banking",
+      "telecom",
+      "insurance",
+      "healthcare",
+      "government"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A horizontal journey path of connected violet waypoints across dark navy where two segments bulge into heat-glow friction knots with small looping detour arcs, the path resolving to a smooth thin line at the far right."
+  },
+  {
+    "slug": "objection-competitor-intelligence",
+    "name": "Objection & Competitor Intelligence",
+    "category": "sales-intelligence",
+    "tagline": "Know exactly what blocks your deals",
+    "shortDescription": "Tracks every objection, competitor mention, and pricing pushback across your sales calls, then aggregates them into a live intelligence feed your revenue team can act on.",
+    "longDescription": "Most sales teams learn about a new competitor talking point three weeks after it starts costing them deals — usually from an anecdote in a pipeline review. By then, dozens of calls have already gone the wrong way. Objection & Competitor Intelligence closes that gap by listening to every recorded sales call and cataloging each objection, competitor reference, and pricing concern the moment it appears in a transcript.\n\nHomayar's analysis agents classify objections into a structured taxonomy you control: pricing, integration, security, contract terms, switching cost, and any custom categories you define. Each mention is linked back to the exact call, timestamp, and rep, so a sales leader can move from \"we keep losing on price\" to \"price objections rose 34% this quarter, concentrated in mid-market renewals, and here are the 12 calls where reps handled it best.\"\n\nThe competitor layer works the same way. When a prospect names a rival, Homayar captures the context — what feature they cited, what claim they repeated, whether the rep had a response. Over weeks, this builds a verifiable map of how competitors are positioned against you in real conversations, not in analyst reports.\n\nNothing here is about grading individual reps. The module exists to give the whole team a shared, evidence-backed view of the market as customers actually describe it — a companion for your battlecards, not a scoreboard.",
+    "whoItsFor": "Sales leaders, revenue operations managers, and product marketing teams who need objection and competitive data sourced from real calls rather than CRM notes.",
+    "keyOutcomes": [
+      "Detect new competitor talking points within 24 hours of first mention",
+      "Reduce time-to-updated-battlecard from weeks to days",
+      "Quantify objection frequency by segment, region, and deal stage",
+      "Surface the top 10 best-handled objection responses for enablement reuse",
+      "Cut lost-deal post-mortem research time by up to 60%"
+    ],
+    "priceUsd": 449,
+    "billingType": "monthly",
+    "features": [
+      "Automatic objection detection and classification across all analyzed calls",
+      "Custom objection taxonomy with unlimited categories",
+      "Competitor mention tracking with surrounding conversation context",
+      "Timestamp-linked evidence for every detected mention",
+      "Trend dashboards by segment, region, team, and deal stage",
+      "Weekly intelligence digest delivered to email or Slack",
+      "Best-response library built from highest-rated objection handling",
+      "CSV and API export for CRM and BI enrichment",
+      "Alert rules for spikes in any objection or competitor category"
+    ],
+    "seoTitle": "Objection & Competitor Call Tracking | Homayar",
+    "seoDescription": "Track every sales objection and competitor mention across recorded calls. Homayar turns conversations into structured competitive intelligence.",
+    "seoKeywords": [
+      "objection tracking software",
+      "competitor mention detection",
+      "sales call analysis",
+      "competitive intelligence calls",
+      "call center sales analytics",
+      "objection handling insights",
+      "revenue intelligence"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "telecom",
+      "technology",
+      "retail"
+    ],
+    "popular": true,
+    "recommended": false,
+    "imageConcept": "A mosaic of overlapping violet speech-bubble tiles on dark navy, one rival bubble outlined hot and tethered to a small timestamp evidence chip, with the mosaic densest in the upper-right third of the frame."
+  },
+  {
+    "slug": "deal-risk-scoring",
+    "name": "Deal Risk Scoring",
+    "category": "sales-intelligence",
+    "tagline": "Hear the warning signs before forecasts slip",
+    "shortDescription": "Scores every open deal for risk based on what was actually said on calls — hesitation, stalled next steps, single-threaded contacts, and unresolved objections.",
+    "longDescription": "Pipeline reviews run on what reps remember and what CRM fields say. Deals slip because of what neither captures: the prospect who stopped asking implementation questions, the champion who went quiet on the last two calls, the \"we'll circle back after the board meeting\" that never got a follow-up date. Deal Risk Scoring listens for these signals in the calls themselves.\n\nFor every opportunity with associated call recordings, Homayar's agents evaluate a set of conversation-derived risk factors: whether a concrete next step was agreed, whether decision-makers beyond a single contact have joined calls, whether pricing and security objections were resolved or merely deferred, and how the prospect's engagement language has shifted across the deal's call history. Each factor contributes to a 0–100 risk score with a plain-language explanation and links to the supporting call moments.\n\nThe score is built to be argued with, not obeyed. Every component is traceable to a specific exchange in a specific call, so a rep can challenge it in a pipeline review and a manager can verify it in two clicks. Teams that adopt it typically stop debating whether a deal is at risk and start debating what to do about it — which is the conversation that actually saves quarters.",
+    "whoItsFor": "VPs of sales, sales managers, and revenue operations teams running weekly pipeline reviews on deals worth defending.",
+    "keyOutcomes": [
+      "Identify at-risk deals an average of 2–3 weeks before stage regression",
+      "Improve forecast accuracy by grounding commit calls in conversation evidence",
+      "Reduce single-threaded deals through multi-contact participation tracking",
+      "Cut pipeline review prep time by up to 50% with auto-generated risk briefs",
+      "Increase save rate on flagged deals with prioritized intervention lists"
+    ],
+    "priceUsd": 599,
+    "billingType": "monthly",
+    "features": [
+      "0–100 risk score per opportunity, recalculated after every new call",
+      "Factor-level breakdown: next steps, multi-threading, objection resolution, engagement shift",
+      "Plain-language risk explanations with timestamp-linked call evidence",
+      "Deal timeline view showing risk trajectory across the full call history",
+      "Configurable risk thresholds and stage-specific scoring weights",
+      "CRM sync for Salesforce and HubSpot opportunity records",
+      "Weekly at-risk deal brief for pipeline reviews",
+      "Alerting when a deal's score degrades beyond a set delta"
+    ],
+    "seoTitle": "Deal Risk Scoring from Sales Calls | Homayar",
+    "seoDescription": "Homayar scores deal risk from real call evidence — stalled next steps, quiet champions, unresolved objections — weeks before forecasts slip.",
+    "seoKeywords": [
+      "deal risk scoring",
+      "sales forecast accuracy",
+      "pipeline risk analysis",
+      "conversation intelligence sales",
+      "at-risk deal detection",
+      "revenue forecasting AI",
+      "sales call scoring"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "telecom",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": true,
+    "imageConcept": "Concentric amber deal-orbit rings circling a glowing core on a charcoal field, with one orbit visibly decaying into a dotted inward spiral and a thin warning tick marking the breach point."
+  },
+  {
+    "slug": "winning-talk-patterns",
+    "name": "Winning Talk Patterns",
+    "category": "sales-intelligence",
+    "tagline": "Learn what your best calls do differently",
+    "shortDescription": "Analyzes talk ratio, question cadence, discovery depth, and pacing across won and lost deals to identify the conversational behaviors that correlate with closing.",
+    "longDescription": "Every sales team has a top performer whose calls just work — and a coaching program built on guesses about why. Winning Talk Patterns replaces the guesses with measurement. It compares the conversational structure of calls attached to won deals against calls attached to lost ones, across your own team, in your own market.\n\nThe module measures the behaviors that research and your own data say matter: talk-to-listen ratio, how early and how often discovery questions appear, monologue length, interruption frequency, pacing of pricing discussions, and how next steps get proposed and confirmed. Rather than declaring universal rules, it surfaces the patterns that distinguish your winning calls — because the right ratio for enterprise banking software is not the right ratio for telecom renewals.\n\nFindings flow directly into coaching. Each pattern comes with example clips from your team's strongest calls, so enablement sessions move from abstract advice (\"ask better questions\") to concrete demonstrations (\"here are four openings where early budget questions reshaped the deal\"). Reps see their own metrics privately, framed as a companion benchmark, never a leaderboard — the goal is replication of what works, not ranking of who doesn't.",
+    "whoItsFor": "Sales enablement leaders, frontline sales managers, and team leads who want coaching content grounded in their own win/loss data instead of generic best practices.",
+    "keyOutcomes": [
+      "Identify 5–8 statistically distinct behaviors separating won from lost calls",
+      "Shorten new-rep ramp time by up to 30% with pattern-based onboarding",
+      "Lift discovery-question rate per call by giving reps measurable targets",
+      "Build a clip library of best-practice moments from real team calls",
+      "Replace opinion-driven coaching debates with measured baselines"
+    ],
+    "priceUsd": 399,
+    "billingType": "monthly",
+    "features": [
+      "Talk-to-listen ratio analysis per call, rep, team, and deal outcome",
+      "Discovery question detection with timing and depth metrics",
+      "Monologue length and interruption frequency measurement",
+      "Won-versus-lost pattern comparison with statistical confidence indicators",
+      "Auto-curated clip library of exemplary moments from team calls",
+      "Private per-rep benchmark view framed against team patterns",
+      "Coaching playlist builder for enablement sessions",
+      "Quarterly pattern report tracking behavior shifts over time"
+    ],
+    "seoTitle": "Winning Talk Pattern Analysis | Homayar",
+    "seoDescription": "Discover the talk patterns behind your won deals. Homayar measures talk ratio, discovery depth, and pacing across real calls to power coaching.",
+    "seoKeywords": [
+      "talk ratio analysis",
+      "sales coaching analytics",
+      "winning call behaviors",
+      "conversation analytics",
+      "sales enablement AI",
+      "discovery question tracking",
+      "call pattern analysis"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "telecom",
+      "technology",
+      "insurance",
+      "retail",
+      "banking"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "Two cyan conversation strands braiding into a double-helix pattern across dark navy, with measurement ticks at each crossover and the winning strand glowing brighter as the pair diverges at the right edge."
+  },
+  {
+    "slug": "team-pulse-dashboard",
+    "name": "Team Pulse Dashboard",
+    "category": "supervisor-tools",
+    "tagline": "Your whole floor, one calm view",
+    "shortDescription": "A live operational dashboard that rolls up call volume, sentiment, quality scores, and emerging issues across every agent and queue — built for supervisors, not surveillance.",
+    "longDescription": "Supervisors managing 15 to 50 agents make dozens of judgment calls a day with almost no real-time information: who needs help, which queue is heating up, whether this morning's product issue is spreading. Team Pulse Dashboard gives them a single screen that answers those questions as calls are analyzed, without anyone listening over anyone's shoulder.\n\nThe dashboard aggregates Homayar's per-call analysis into team-level signals: rolling sentiment by queue, quality score distribution, average handle time against baseline, first-contact resolution trends, and a live feed of detected issues ranked by frequency. When the same complaint shows up on eight calls in an hour, supervisors see it as a pattern — not as eight isolated tickets discovered tomorrow.\n\nIndividual agent views are designed around the companion principle. A supervisor sees who might benefit from support — an agent absorbing a streak of difficult calls, or one whose scores dipped after a process change — framed as a prompt to help, with the evidence attached. There are no public leaderboards, no real-time monitoring of audio, and agents can see their own data on the same terms their supervisor does. Teams adopt it faster because nobody has to be talked into being watched.",
+    "whoItsFor": "Call center supervisors, team leads, and floor managers responsible for daily operational decisions across multi-agent teams.",
+    "keyOutcomes": [
+      "Detect emerging issue patterns within the hour instead of next-day reporting",
+      "Reduce supervisor time spent compiling daily status reports by up to 70%",
+      "Spot agents needing support 2–3 days earlier via sentiment and score trends",
+      "Track queue-level sentiment and FCR against rolling 30-day baselines",
+      "Improve same-day staffing decisions with live volume and handle-time data"
+    ],
+    "priceUsd": 349,
+    "billingType": "monthly",
+    "features": [
+      "Live team dashboard with sentiment, quality, and volume rollups per queue",
+      "Issue feed ranking detected problems by frequency and recency",
+      "Agent support prompts based on call-difficulty streaks and score trends",
+      "Rolling 7/30/90-day baselines for every team metric",
+      "Transparent agent self-view showing the same data supervisors see",
+      "Configurable thresholds for queue-level alerts",
+      "Drill-down from any metric to the underlying analyzed calls",
+      "Multi-team and multi-site rollup views for senior supervisors",
+      "Slack and Microsoft Teams alert delivery"
+    ],
+    "seoTitle": "Live Team Pulse Dashboard for Call Centers | Homayar",
+    "seoDescription": "One calm view of your call center floor: live sentiment, quality scores, and emerging issues by queue. Built for supervisors, not surveillance.",
+    "seoKeywords": [
+      "call center dashboard",
+      "supervisor tools",
+      "team performance monitoring",
+      "live call analytics",
+      "agent support software",
+      "queue sentiment tracking",
+      "contact center operations"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "retail",
+      "government"
+    ],
+    "popular": true,
+    "recommended": false,
+    "imageConcept": "A teal-accented heatmap grid of softly glowing cells on charcoal, arranged like a call-center floor plan seen from above, with one warm cluster of cells gently pulsing brighter near the grid's edge."
+  },
+  {
+    "slug": "escalation-radar",
+    "name": "Escalation Radar",
+    "category": "supervisor-tools",
+    "tagline": "Catch escalations while they're still conversations",
+    "shortDescription": "Flags calls showing escalation signals — rising frustration, repeat-contact patterns, legal or churn language — so supervisors can intervene before a complaint becomes a case.",
+    "longDescription": "Most escalations are visible in the call before they become official. The customer who says \"this is the third time I've called,\" the shift from frustration to resignation, the first mention of a regulator or a competitor — these signals are all in the audio, and they almost never make it into the wrap-up notes. Escalation Radar is the module that listens for them.\n\nAfter each call is analyzed, Homayar's agents check for a configurable set of escalation indicators: sentiment trajectory across the call, repeat-contact history on the same issue, explicit cancellation or legal language, unresolved promises from prior calls, and mismatches between the customer's stated urgency and the resolution offered. Calls crossing your thresholds appear on the radar ranked by severity, each with a 30-second summary and links to the relevant moments.\n\nThe payoff is timing. A supervisor who learns about a brewing escalation the same afternoon can call the customer back, fix the process gap, or coach the handoff — quietly, before anything formal happens. Banks and insurers also use the radar's audit trail to demonstrate proactive complaint handling to regulators, with every flagged call documented from detection through resolution.",
+    "whoItsFor": "Call center supervisors, escalation managers, and complaint-handling teams in regulated and high-stakes service environments.",
+    "keyOutcomes": [
+      "Identify 80%+ of formal complaints at the earlier flagged-call stage",
+      "Cut average escalation response time from days to same-shift",
+      "Reduce repeat-contact escalations through unresolved-promise tracking",
+      "Lower churn on flagged accounts with prioritized save-call lists",
+      "Produce a complete detection-to-resolution audit trail for compliance review"
+    ],
+    "priceUsd": 299,
+    "billingType": "monthly",
+    "features": [
+      "Severity-ranked escalation feed updated as calls are analyzed",
+      "Configurable detection rules: sentiment trajectory, churn language, legal terms, repeat contacts",
+      "30-second call summaries with timestamp-linked evidence per flag",
+      "Repeat-contact stitching across calls on the same customer issue",
+      "Unresolved-promise tracking against prior call commitments",
+      "Assignment and resolution workflow with full audit trail",
+      "Daily escalation digest per supervisor and queue",
+      "Compliance export for regulated complaint-handling documentation"
+    ],
+    "seoTitle": "Escalation Radar for Call Centers | Homayar",
+    "seoDescription": "Detect escalation signals in calls — frustration, churn language, repeat contacts — and intervene same-shift. Full audit trail for compliance.",
+    "seoKeywords": [
+      "escalation detection",
+      "complaint management software",
+      "call center escalation",
+      "churn risk detection",
+      "customer frustration analysis",
+      "proactive complaint handling",
+      "regulated contact center"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "government"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "An amber-accented radar sweep on dark navy with faint concentric range rings, a luminous sweep arm frozen mid-rotation, and three escalation blips at varying distances — the nearest one ringed in amber."
+  },
+  {
+    "slug": "shift-handover-digests",
+    "name": "Shift Handover Digests",
+    "category": "supervisor-tools",
+    "tagline": "Every shift starts fully briefed",
+    "shortDescription": "Auto-generated end-of-shift summaries covering open issues, escalations in progress, notable calls, and queue health — so the next supervisor inherits context, not chaos.",
+    "longDescription": "Shift handovers in most call centers are a five-minute hallway conversation and a half-finished spreadsheet. Whatever the outgoing supervisor forgets to mention becomes the incoming supervisor's surprise: the irate customer promised a callback at 6 PM, the billing issue that generated forty calls, the new agent who struggled all afternoon and needs a check-in. Shift Handover Digests makes the handover automatic and complete.\n\nAt configurable shift boundaries, Homayar compiles everything its agents observed during the shift into a structured digest: escalations opened and their current status, recurring issues with call counts and example summaries, commitments made to customers with their deadlines, queue metrics against baseline, and notable calls worth a listen. The outgoing supervisor reviews, annotates, and sends it in two minutes instead of writing it for twenty.\n\nFor 24/7 operations — hospital lines, banking support, government services — the digest becomes the institutional memory between shifts. Nothing depends on who remembered to mention what, and a supervisor returning from two days off can read three digests and be current. Operations leaders get a searchable archive of every handover, which turns \"what happened last Tuesday night?\" from an investigation into a lookup.",
+    "whoItsFor": "Shift supervisors and operations managers running multi-shift or 24/7 contact center operations.",
+    "keyOutcomes": [
+      "Cut handover preparation time from 20+ minutes to under 5 per shift",
+      "Eliminate dropped customer commitments across shift boundaries",
+      "Reduce repeat-explanation calls by giving incoming staff full issue context",
+      "Maintain a searchable archive of 100% of shift handovers",
+      "Bring returning supervisors current in minutes after days away"
+    ],
+    "priceUsd": 199,
+    "billingType": "monthly",
+    "features": [
+      "Automatic digest generation at configurable shift boundaries",
+      "Open escalation status with owner and next-action per item",
+      "Recurring issue summaries with call counts and example links",
+      "Customer commitment tracker with deadlines carried across shifts",
+      "Queue health snapshot versus rolling baseline",
+      "Notable-calls section with one-line summaries and audio links",
+      "Supervisor annotation and sign-off before send",
+      "Searchable handover archive with full-text search",
+      "Email, Slack, and Teams delivery options"
+    ],
+    "seoTitle": "Shift Handover Digests for Call Centers | Homayar",
+    "seoDescription": "Automatic end-of-shift summaries: open escalations, customer commitments, queue health. Every supervisor starts fully briefed. By Homayar.",
+    "seoKeywords": [
+      "shift handover software",
+      "call center shift management",
+      "supervisor handover report",
+      "24/7 contact center operations",
+      "shift summary automation",
+      "operations continuity",
+      "contact center supervisor tools"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "telecom",
+      "government",
+      "retail"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A violet-accented horizontal timeline of overlapping translucent shift cards on charcoal, each card passing a small glowing baton-dot to the next, with the active handover junction highlighted at center frame."
+  },
+  {
+    "slug": "private-deployment-package",
+    "name": "Private Deployment Package",
+    "category": "enterprise-deployment",
+    "tagline": "Homayar inside your perimeter, fully managed",
+    "shortDescription": "A fixed-scope implementation that deploys the complete Homayar platform into your VPC or on-premise environment, with your data never leaving your infrastructure.",
+    "longDescription": "For banks, hospitals, insurers, and government agencies, the question is rarely whether call analysis is valuable — it's whether the audio can leave the building. The Private Deployment Package answers it by not asking the data to move. Homayar's full platform — speech-to-text, the analysis agent team, scoring, dashboards, and reporting — runs inside your AWS, Azure, or GCP VPC, or on your own hardware.\n\nThe package is a defined engagement, not an open-ended consulting project. Over a typical 6–10 week timeline, our deployment engineers work with your infrastructure and security teams through four fixed phases: environment assessment and sizing, installation and telephony integration, security review support (including documentation for your internal audit), and a validated production cutover with two weeks of hypercare. You receive a runbook, architecture diagrams, and a trained internal operations contact at handoff.\n\nEvery component runs within your network boundary. Transcripts, audio, scores, and reports are stored in your databases under your encryption keys and your retention policies. Homayar's engineers access the environment only through channels you provision and audit. For organizations under GDPR, HIPAA, or national banking regulations, this is typically the difference between a stalled procurement and a signed one.",
+    "whoItsFor": "Enterprise IT, security, and infrastructure leaders at regulated organizations that require call data to remain within their own network boundary.",
+    "keyOutcomes": [
+      "Production deployment inside your VPC or data center in 6–10 weeks",
+      "Zero call audio or transcripts leaving your network boundary",
+      "Security review documentation pack accepted by internal audit teams",
+      "Validated cutover with two weeks of dedicated hypercare support",
+      "Full operational runbook and trained internal admin at handoff"
+    ],
+    "priceUsd": 18500,
+    "billingType": "implementation",
+    "features": [
+      "Complete platform deployment in AWS, Azure, GCP VPC, or on-premise",
+      "Environment assessment, capacity sizing, and architecture design",
+      "Telephony and call-recording system integration",
+      "Customer-managed encryption keys and retention policies",
+      "Security and compliance documentation pack for internal audit",
+      "Air-gapped deployment option for classified environments",
+      "Production cutover with two-week hypercare period",
+      "Operational runbook, architecture diagrams, and admin training",
+      "Optional managed update channel with customer-approved release gates"
+    ],
+    "seoTitle": "Private VPC & On-Prem Deployment | Homayar",
+    "seoDescription": "Deploy Homayar inside your VPC or data center. Fixed-scope implementation, 6-10 weeks, call data never leaves your infrastructure.",
+    "seoKeywords": [
+      "on-premise call analytics",
+      "VPC deployment",
+      "private cloud speech analytics",
+      "HIPAA call analysis",
+      "air-gapped AI deployment",
+      "enterprise call center software",
+      "data residency compliance"
+    ],
+    "teamSize": [
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "government",
+      "telecom"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A cyan-accented isometric layered-architecture stack on dark navy — platform planes nested inside a translucent perimeter cube — with a single cyan data path looping entirely within the cube's walls."
+  },
+  {
+    "slug": "sso-scim-provisioning",
+    "name": "SSO & SCIM Provisioning",
+    "category": "enterprise-deployment",
+    "tagline": "Identity-managed access from day one",
+    "shortDescription": "An identity add-on that connects Homayar to your IdP for single sign-on, automated user provisioning via SCIM, and role mapping driven by your directory groups.",
+    "longDescription": "A call analytics platform holds some of the most sensitive conversational data in your company — which makes manually managed accounts a liability your security team will rightly refuse. SSO & SCIM Provisioning brings Homayar under your existing identity governance: Okta, Microsoft Entra ID, Google Workspace, Ping, or any SAML 2.0 / OIDC-compliant provider.\n\nSingle sign-on means agents, supervisors, and analysts authenticate the way they do everywhere else, with your MFA and conditional access policies applied automatically. SCIM provisioning means lifecycle events flow without tickets: a new supervisor added to the right directory group gets the right Homayar role within minutes; a departing employee loses access the moment HR deactivates them, not three weeks later during an access review.\n\nRole mapping is where the add-on earns its keep in large deployments. Directory groups map to Homayar roles and data scopes — a site supervisor sees their site, a QA analyst sees their assigned queues, a CX executive sees rollups without raw audio. The annual plan includes configuration support, mapping reviews at your cadence, and priority support for identity incidents, because an SSO outage on a Monday morning is not the time to open a standard ticket.",
+    "whoItsFor": "Enterprise IT administrators, identity and access management teams, and security officers responsible for access governance across SaaS platforms.",
+    "keyOutcomes": [
+      "Reduce access provisioning time from days to under 15 minutes",
+      "Achieve 100% automated deprovisioning on employee offboarding",
+      "Pass access-control audit requirements with directory-driven role mapping",
+      "Eliminate standing manual accounts and shared credentials entirely",
+      "Cut identity-related support tickets by up to 80%"
+    ],
+    "priceUsd": 4800,
+    "billingType": "yearly",
+    "features": [
+      "SAML 2.0 and OIDC single sign-on with all major identity providers",
+      "SCIM 2.0 automated user provisioning and deprovisioning",
+      "Directory-group-to-role mapping with data scope controls",
+      "Just-in-time account creation on first login",
+      "Enforced MFA and conditional access via your IdP policies",
+      "Session policy controls: timeout, re-authentication, device rules",
+      "Full authentication and provisioning audit log with export",
+      "Annual role-mapping review with a Homayar identity engineer",
+      "Priority support channel for identity incidents"
+    ],
+    "seoTitle": "SSO & SCIM Provisioning Add-On | Homayar",
+    "seoDescription": "Connect Homayar to Okta, Entra ID, or any SAML/OIDC IdP. Automated SCIM provisioning, directory-driven roles, and full audit logging.",
+    "seoKeywords": [
+      "SSO integration",
+      "SCIM provisioning",
+      "enterprise identity management",
+      "SAML call analytics",
+      "Okta integration",
+      "automated user provisioning",
+      "access governance SaaS"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "government",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A teal key-shaped circuit trace traveling left to right through a row of three open gate frames on charcoal, each gate stamping a small role glyph onto the trace as it passes, composed with clean horizontal symmetry."
+  },
+  {
+    "slug": "dedicated-throughput-tier",
+    "name": "Dedicated Throughput Tier",
+    "category": "enterprise-deployment",
+    "tagline": "Guaranteed analysis capacity at any volume",
+    "shortDescription": "Reserved, contractually guaranteed processing capacity for organizations analyzing 100,000+ calls per month, with throughput SLAs, dedicated infrastructure, and a named technical account manager.",
+    "longDescription": "Shared infrastructure is the right answer until the day it isn't. A national telecom analyzing two million calls a month, a bank that needs yesterday's calls scored before the 8 AM compliance review, a retailer whose Black Friday volume triples overnight — these operations cannot queue behind anyone. The Dedicated Throughput Tier reserves processing capacity that belongs to you alone.\n\nYour contract specifies concrete numbers: calls processed per hour, maximum time from recording ingestion to completed analysis, and burst headroom for seasonal peaks. Those numbers carry SLAs with service credits, not best-effort language. Behind them sits infrastructure provisioned for your account — isolated processing queues, dedicated transcription and agent-analysis capacity, and priority scheduling that holds your latency steady regardless of platform-wide load.\n\nThe tier includes a named technical account manager who knows your call profile, your peak calendar, and your integration topology. Quarterly capacity reviews use your actual volume trends to recommend adjustments before you hit limits — scaling is a planning conversation, not an outage retrospective. Pricing is structured per analyzed-call-hour against committed volume, and is scoped with you directly because a 100,000-call operation and a 5-million-call operation are not the same engagement.",
+    "whoItsFor": "Heads of CX operations and enterprise IT at high-volume organizations — telecoms, national banks, large insurers, and government service lines — where analysis latency is an operational dependency.",
+    "keyOutcomes": [
+      "Contractual throughput SLA with service credits, not best-effort targets",
+      "Ingestion-to-analysis latency held steady through 3x seasonal volume spikes",
+      "Same-day analysis completion for 100% of compliance-critical call sets",
+      "Quarterly capacity planning that eliminates surprise scaling events",
+      "Single named technical contact with direct escalation path"
+    ],
+    "priceUsd": 0,
+    "billingType": "custom",
+    "features": [
+      "Reserved processing capacity with contractual calls-per-hour guarantees",
+      "Ingestion-to-analysis latency SLA with service credits",
+      "Isolated processing queues and dedicated transcription capacity",
+      "Burst headroom provisioning for seasonal and campaign peaks",
+      "Named technical account manager with direct escalation path",
+      "Quarterly capacity reviews driven by actual volume trends",
+      "Priority incident response with 15-minute acknowledgment",
+      "Custom data-pipeline integration for high-volume recording ingestion",
+      "Volume-committed pricing per analyzed call hour"
+    ],
+    "seoTitle": "Dedicated Throughput Tier | Homayar Enterprise",
+    "seoDescription": "Reserved analysis capacity for 100K+ calls/month. Contractual throughput SLAs, dedicated infrastructure, and a named technical account manager.",
+    "seoKeywords": [
+      "high volume call analytics",
+      "dedicated capacity tier",
+      "call analysis SLA",
+      "enterprise speech analytics",
+      "guaranteed throughput",
+      "large scale call processing",
+      "telecom call analytics"
+    ],
+    "teamSize": [
+      "enterprise"
+    ],
+    "industries": [
+      "telecom",
+      "banking",
+      "insurance",
+      "retail",
+      "government"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "An amber-accented array of parallel throughput pipes rendered as glowing horizontal channels on dark navy, with one wider reserved channel carrying a dense waveform stream while thinner shared channels fade behind it."
+  },
+  {
+    "slug": "script-adherence-monitor",
+    "name": "Script Adherence Monitor",
+    "category": "compliance-risk",
+    "tagline": "Every required disclosure, verified on every call",
+    "shortDescription": "Continuous monitoring that checks 100% of calls against your regulatory scripts, mandatory disclosures, and prohibited-language rules — with evidence-linked findings, not spot checks.",
+    "longDescription": "Most compliance teams audit 1-3% of calls and hope the sample is representative. When a regulator asks whether the Mini-Miranda was read, whether the recording disclosure was given, or whether the cooling-off terms were explained, a sample is not an answer. Script Adherence Monitor reviews every call, every day, against the exact wording requirements your legal team defines.\n\nYou model each requirement as a rule: mandatory phrases, ordered sequences (identity verification before account details), conditional disclosures (only when a sale occurs), and prohibited language. Homayar's compliance agents transcribe each call, locate where each rule was satisfied or missed, and attach the timestamped transcript segment as evidence. Supervisors see a per-call adherence score; compliance officers see trend lines by team, campaign, and rule.\n\nBecause Homayar is a companion rather than a surveillance tool, findings route first to the agent and their supervisor as a correctable coaching item — not as an automatic mark on a record. Repeat misses escalate on a schedule you configure, so agents get the chance to self-correct before compliance ever intervenes. Teams using this pattern typically see adherence climb within the first two scoring cycles, without the morale cost of gotcha-style QA.\n\nRule libraries ship pre-built for collections (FDCPA), insurance sales, banking disclosures, and healthcare intake, and every library is fully editable. Audit exports are formatted for regulator and internal-audit consumption out of the box.",
+    "whoItsFor": "Compliance officers, risk managers, and QA leaders at regulated contact centers — banking, collections, insurance, and healthcare operations that must prove script adherence to auditors.",
+    "keyOutcomes": [
+      "100% of calls checked for adherence, up from a 1-3% manual sample",
+      "Evidence-linked findings cut audit preparation time by 60-80%",
+      "Repeat disclosure misses reduced within two coaching cycles",
+      "Per-rule adherence trend lines across teams, campaigns, and sites",
+      "Regulator-ready exports generated in minutes, not weeks"
+    ],
+    "priceUsd": 699,
+    "billingType": "monthly",
+    "features": [
+      "Rule builder for mandatory phrases, ordered sequences, and conditional disclosures",
+      "Prohibited-language detection with severity tiers",
+      "Timestamped transcript evidence attached to every finding",
+      "Pre-built rule libraries for FDCPA, banking, insurance, and healthcare intake",
+      "Coaching-first escalation workflow with configurable thresholds",
+      "Per-call adherence scoring and per-rule trend dashboards",
+      "Campaign- and team-level adherence breakdowns",
+      "Regulator-ready audit export (PDF and CSV)",
+      "Alerting on adherence drops below a defined floor",
+      "Full versioning of rule changes for audit traceability"
+    ],
+    "seoTitle": "Script Adherence Monitor | Homayar Compliance",
+    "seoDescription": "Check 100% of calls against regulatory scripts and disclosures. Evidence-linked findings, coaching-first workflow, audit-ready exports from Homayar.",
+    "seoKeywords": [
+      "script adherence monitoring",
+      "call center compliance",
+      "regulatory disclosure tracking",
+      "FDCPA call monitoring",
+      "compliance QA automation",
+      "call compliance software",
+      "mandatory disclosure verification"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "healthcare",
+      "government"
+    ],
+    "popular": true,
+    "recommended": false,
+    "imageConcept": "A vertical checkpoint rail of ordered disclosure stops, each lighting up as a thin scanning beam passes down the rail and one skipped checkpoint glowing hollow midway, rendered in electric cyan on dark navy with the rail set off-center left."
+  },
+  {
+    "slug": "pci-pii-redaction-engine",
+    "name": "PCI & PII Redaction Engine",
+    "category": "compliance-risk",
+    "tagline": "Sensitive data removed before anyone hears it",
+    "shortDescription": "Automatic detection and redaction of card numbers, national IDs, health identifiers, and personal data from call audio and transcripts — applied before storage, search, or review.",
+    "longDescription": "Every recorded call is a liability surface. Card numbers read aloud during payment, national ID numbers given for verification, diagnosis details shared during a claims call — once they land in a recording archive, they are in scope for PCI DSS, HIPAA, and GDPR, and every person with playback access becomes part of your risk model.\n\nThe Redaction Engine sits at the front of the Homayar pipeline. As audio is ingested, detection models identify PANs, CVVs, IBANs, national identifiers, dates of birth, addresses, and health information in both the transcript and the underlying audio. Matched segments are masked in text and replaced with tone or silence in audio before the call ever reaches storage, search indexes, QA review queues, or AI analysis. The original sensitive spans are never persisted.\n\nDetection combines pattern validation (Luhn checks on card numbers, country-specific ID formats) with contextual models that catch data read out of order, spelled letter by letter, or embedded in conversational phrasing — the cases regex-only tools miss. Each redaction event is logged with type, timestamp, and confidence, giving your assessor a complete, queryable redaction record.\n\nFor QSA audits, the module produces a scope-reduction report documenting that cardholder data is not retained in the recording environment — frequently the single largest factor in shrinking PCI scope for a contact center.",
+    "whoItsFor": "Information security leaders, data protection officers, and compliance teams at organizations that record calls involving payments, identity verification, or health information.",
+    "keyOutcomes": [
+      "Cardholder data removed from recordings, materially reducing PCI DSS audit scope",
+      "Detection of spelled-out and conversationally embedded data that pattern-only tools miss",
+      "Complete redaction event log for every processed call",
+      "Zero sensitive spans persisted to storage, search, or review queues",
+      "Scope-reduction documentation prepared for QSA review"
+    ],
+    "priceUsd": 849,
+    "billingType": "monthly",
+    "features": [
+      "Dual-layer redaction across audio (tone/silence) and transcript (masking)",
+      "PAN detection with Luhn validation, plus CVV, IBAN, and routing numbers",
+      "National ID, date of birth, address, and contact-detail detection",
+      "Health information detection tuned for claims and intake calls",
+      "Contextual models for spelled-out and fragmented data",
+      "Redaction applied pre-storage; sensitive spans never persisted",
+      "Per-event redaction log with type, timestamp, and confidence",
+      "Configurable entity types and sensitivity per line of business",
+      "PCI scope-reduction report for QSA audits",
+      "Region-aware ID formats for multi-country operations"
+    ],
+    "seoTitle": "PCI & PII Redaction Engine | Homayar",
+    "seoDescription": "Automatically redact card numbers, IDs, and health data from call audio and transcripts before storage. Shrink PCI scope with Homayar's redaction engine.",
+    "seoKeywords": [
+      "PCI redaction call recording",
+      "PII redaction software",
+      "call recording compliance",
+      "audio redaction engine",
+      "HIPAA call recording",
+      "PCI DSS scope reduction",
+      "sensitive data masking"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "retail"
+    ],
+    "popular": false,
+    "recommended": true,
+    "imageConcept": "A horizontal audio strip whose midsection dissolves into solid redaction blocks with pixel particles falling away beneath each block, rendered in violet on charcoal with the strip running edge to edge across the lower third."
+  },
+  {
+    "slug": "executive-insights-report",
+    "name": "Executive Insights Report",
+    "category": "reports-dashboards",
+    "tagline": "Ninety days of calls, distilled for leadership",
+    "shortDescription": "A one-time, analyst-grade report built from up to 90 days of your call data: the issues driving volume, the moments costing revenue, and the actions ranked by impact.",
+    "longDescription": "Leadership teams rarely lack call data — they lack a defensible reading of it. The Executive Insights Report is a one-time engagement: you connect or upload up to 90 days of recorded calls, and Homayar's agent team performs a full analysis pass — transcription, issue classification, sentiment and escalation mapping, quality scoring, and root-cause clustering across every conversation.\n\nThe output is a 30-40 page report written for an executive audience. It opens with the five findings that matter most, each backed by call volume, trend direction, and estimated cost or revenue impact. It maps your top contact drivers against resolution rates, identifies the process failures generating repeat calls, quantifies where customers churn-signal inside conversations, and benchmarks quality variance across teams and sites.\n\nEvery claim in the report links back to evidence: anonymized call excerpts, frequency counts, and confidence levels. The final section is a prioritized action register — typically 8-12 recommendations ranked by estimated impact and implementation effort, written so an ops leader can assign owners the same week.\n\nMost buyers use this report one of three ways: as the business case for a broader analytics rollout, as board-level evidence for a CX investment decision, or as an annual independent read on operational health. Delivery is within 10 business days of data access.",
+    "whoItsFor": "VPs of customer experience, contact-center directors, and COOs who need a rigorous, evidence-backed read on call operations — often to support a budget or transformation decision.",
+    "keyOutcomes": [
+      "Top 5 cost and revenue findings quantified with call-volume evidence",
+      "Contact-driver map covering 100% of analyzed calls, not a sample",
+      "Repeat-call root causes identified with estimated cost per driver",
+      "8-12 prioritized recommendations ranked by impact and effort",
+      "Board-ready deliverable within 10 business days"
+    ],
+    "priceUsd": 2900,
+    "billingType": "one-time",
+    "features": [
+      "Full analysis of up to 90 days of recorded calls",
+      "Issue taxonomy and contact-driver clustering across all conversations",
+      "Sentiment, escalation, and churn-signal mapping",
+      "Quality-score variance analysis across teams and sites",
+      "Repeat-call and process-failure root-cause analysis",
+      "Estimated cost/revenue impact per finding",
+      "Anonymized call excerpts as evidence for every claim",
+      "Prioritized action register with impact-effort ranking",
+      "Executive summary formatted for board distribution",
+      "60-minute findings walkthrough with a Homayar analyst"
+    ],
+    "seoTitle": "Executive Insights Report | Homayar",
+    "seoDescription": "One-time analysis of 90 days of call data: contact drivers, cost findings, and ranked recommendations. Board-ready report from Homayar in 10 days.",
+    "seoKeywords": [
+      "call center analysis report",
+      "executive CX report",
+      "contact driver analysis",
+      "call center audit",
+      "voice of customer report",
+      "customer service insights",
+      "one-time call analytics"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "telecom",
+      "retail",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A distillation pyramid with a wide base of faint call-dot strata narrowing through analysis bands to five bright headline blocks at the apex, rendered in amber on dark navy with generous negative space around the peak."
+  },
+  {
+    "slug": "kpi-dashboard-builder",
+    "name": "KPI Dashboard Builder",
+    "category": "reports-dashboards",
+    "tagline": "Your metrics, your layout, live from every call",
+    "shortDescription": "A drag-and-drop builder for live dashboards over Homayar call analytics — compose quality, sentiment, compliance, and resolution metrics into views for each role on your team.",
+    "longDescription": "Every operations team measures differently. A collections floor watches promise-to-pay and adherence; a telecom support desk watches first-contact resolution and handle-time outliers; a sales team watches talk ratios and objection patterns. One fixed dashboard cannot serve all of them — so the KPI Dashboard Builder lets each team compose its own.\n\nStart from a library of 40+ metric widgets computed continuously from analyzed calls: quality scores, sentiment trajectories, issue frequencies, script adherence, silence and hold ratios, escalation rates, coaching-flag counts, and more. Drag widgets onto a grid, filter each one by team, campaign, queue, date range, or call tag, and choose its visualization — trend line, distribution, leaderboard, heatmap, or single-stat tile.\n\nDashboards are role-aware. A supervisor's view drills from team rollups into individual calls with transcript evidence one click away. An agent's personal view shows their own trends against team medians — framed as a progress companion, never a public ranking wall. Executives get rollup views with site and region comparisons. Each dashboard carries its own access scope, so agents see what helps them and nothing that polices them.\n\nEvery dashboard supports scheduled email snapshots, shareable read-only links for stakeholders outside the platform, and CSV export of any widget's underlying data.",
+    "whoItsFor": "Operations managers, QA leads, and workforce analysts who need live, role-specific views of call metrics without waiting on a BI team for every change.",
+    "keyOutcomes": [
+      "New dashboards composed in under 15 minutes, no BI ticket required",
+      "40+ pre-computed call metrics available as drag-and-drop widgets",
+      "Role-scoped views from agent self-view to executive rollups",
+      "One-click drill from any metric to the underlying call evidence",
+      "Scheduled snapshots keep stakeholders current without logins"
+    ],
+    "priceUsd": 399,
+    "billingType": "monthly",
+    "features": [
+      "Drag-and-drop grid layout with 40+ metric widgets",
+      "Trend, distribution, leaderboard, heatmap, and stat-tile visualizations",
+      "Per-widget filters: team, campaign, queue, date range, call tags",
+      "Role-aware access scopes for agents, supervisors, and executives",
+      "Agent self-view benchmarked against team medians, never public rankings",
+      "Drill-through from any metric to calls and transcript evidence",
+      "Scheduled email snapshots and shareable read-only links",
+      "CSV export of any widget's underlying data",
+      "Dashboard templates for support, sales, collections, and QA teams",
+      "Threshold alerts when a tracked KPI crosses a defined bound"
+    ],
+    "seoTitle": "KPI Dashboard Builder | Homayar",
+    "seoDescription": "Build live call-center dashboards from 40+ AI-computed metrics. Role-aware views, drill-to-evidence, scheduled snapshots. Homayar Dashboard Builder.",
+    "seoKeywords": [
+      "call center dashboard builder",
+      "custom KPI dashboard",
+      "call analytics dashboard",
+      "QA metrics dashboard",
+      "contact center reporting",
+      "agent performance dashboard",
+      "live call metrics"
+    ],
+    "teamSize": [
+      "startup",
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "retail",
+      "government",
+      "technology"
+    ],
+    "popular": true,
+    "recommended": false,
+    "imageConcept": "A modular grid of floating dashboard tiles at slightly different depths — one sparkline tile, one heatmap tile, one gauge tile — being snapped into place along visible guide lines, rendered in teal on charcoal with an asymmetric off-center composition."
+  },
+  {
+    "slug": "board-pack-reporting-plan",
+    "name": "Board Pack Reporting Plan",
+    "category": "reports-dashboards",
+    "tagline": "Scheduled, analyst-reviewed reporting your board trusts",
+    "shortDescription": "An annual service plan: Homayar compiles, an analyst reviews, and your leadership receives a polished call-operations board pack every month or quarter — on schedule, every cycle.",
+    "longDescription": "The hardest report to produce is the one due every quarter. Numbers must reconcile with the last pack, narratives must explain variance rather than restate it, and the whole document must survive a CFO's scrutiny. The Board Pack Reporting Plan turns that recurring burden into a subscription service with a human in the loop.\n\nOn your chosen cadence — monthly or quarterly — Homayar compiles a board pack from your live call analytics: quality and adherence trends, contact-driver shifts, customer-sentiment movement, cost-per-resolution indicators, and progress against the targets your leadership set. Each pack is then reviewed by a Homayar analyst, who verifies metric continuity with prior periods, writes the variance commentary, and flags anomalies worth a leadership conversation before they become surprises.\n\nPacks follow your template: your logo, your section order, your KPI definitions. Period-over-period deltas are computed automatically, and every figure is traceable to the underlying call data — so when a board member asks where a number came from, the answer is one link away.\n\nThe plan includes a quarterly definitions review with your team to keep KPIs aligned as the operation evolves, and priority support for ad-hoc data requests that arrive mid-cycle, because board questions rarely wait for the next pack.",
+    "whoItsFor": "Heads of customer operations and CX executives who report call-center performance to a board, executive committee, or parent company on a fixed cadence.",
+    "keyOutcomes": [
+      "Board pack delivered on schedule every cycle, 12 months guaranteed",
+      "Analyst-verified metric continuity across all reporting periods",
+      "Variance commentary written, not just charted",
+      "Every figure traceable to underlying call evidence",
+      "Mid-cycle ad-hoc board questions answered with priority support"
+    ],
+    "priceUsd": 7200,
+    "billingType": "yearly",
+    "features": [
+      "Monthly or quarterly board pack on a guaranteed schedule",
+      "Analyst review of every pack before delivery",
+      "Variance commentary explaining period-over-period movement",
+      "Custom template: your branding, section order, and KPI definitions",
+      "Automatic continuity checks against prior-period figures",
+      "Drill-through traceability from any figure to call data",
+      "Quarterly KPI definitions review with your team",
+      "Priority support for ad-hoc data requests between cycles",
+      "PDF and slide-deck delivery formats",
+      "Secure distribution list with access logging"
+    ],
+    "seoTitle": "Board Pack Reporting Plan | Homayar",
+    "seoDescription": "Annual plan: analyst-reviewed call-operations board packs delivered monthly or quarterly. Variance commentary and traceable figures from Homayar.",
+    "seoKeywords": [
+      "board reporting service",
+      "call center board pack",
+      "executive reporting plan",
+      "quarterly CX reporting",
+      "contact center KPI report",
+      "managed reporting service",
+      "operations board report"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "insurance",
+      "telecom",
+      "government",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A layered stack of horizontal document planes ascending like steps across a heatmap-calendar backdrop of twelve faint month cells, rendered in amber on dark navy with the stack anchored bottom-left and light rays tracing the delivery cadence."
+  },
+  {
+    "slug": "ai-coaching-plans",
+    "name": "AI Coaching Plans",
+    "category": "coaching-training",
+    "tagline": "A personal development plan for every agent",
+    "shortDescription": "Per-agent coaching plans generated from each agent's own calls: specific skill gaps, example moments, practice exercises, and measurable targets — refreshed every scoring cycle.",
+    "longDescription": "Most coaching fails for a simple reason: it is generic. An agent hears \"work on empathy\" in a monthly one-on-one, with no example, no exercise, and no way to know if they improved. AI Coaching Plans replaces that with evidence-based development built from each agent's actual conversations.\n\nAfter every scoring cycle, Homayar's coaching agents analyze each agent's calls and identify their two or three highest-leverage growth areas — not a laundry list, but the specific skills whose improvement would move their outcomes most. Each growth area comes with timestamped moments from the agent's own calls showing the pattern, a contrast example of the skill done well (drawn from anonymized top-quartile calls in your own operation), a concrete practice exercise, and a measurable target for the next cycle.\n\nSupervisors receive a coaching brief before each one-on-one: what to discuss, which call moments to play, and what was agreed last time — turning a vague check-in into a 20-minute structured session. Agents see their own plan and their own trend lines, framed as a companion to their growth rather than a verdict on their performance. Nothing in the plan feeds disciplinary workflows.\n\nAcross cycles, the module tracks skill movement per agent and per team, so training leaders can see which coaching themes are landing and which need a different approach.",
+    "whoItsFor": "Team leads, QA coaches, and training managers responsible for agent development — especially teams where supervisors coach 10-20 agents each and preparation time is scarce.",
+    "keyOutcomes": [
+      "Coaching prep time per agent reduced from hours to minutes",
+      "2-3 evidence-backed growth areas per agent, refreshed each cycle",
+      "Skill-movement tracking shows which coaching themes are landing",
+      "One-on-ones structured around real call moments, not impressions",
+      "Measurable per-cycle targets replace vague improvement goals"
+    ],
+    "priceUsd": 549,
+    "billingType": "monthly",
+    "features": [
+      "Per-agent coaching plan generated each scoring cycle",
+      "Highest-leverage skill-gap selection, capped at 2-3 areas",
+      "Timestamped example moments from the agent's own calls",
+      "Anonymized top-quartile contrast examples from your operation",
+      "Practice exercises mapped to each growth area",
+      "Measurable per-cycle improvement targets",
+      "Supervisor coaching brief for every one-on-one",
+      "Agent self-view with personal trends, isolated from disciplinary workflows",
+      "Team-level skill-movement analytics for training leaders",
+      "Acknowledgment and follow-up tracking between cycles"
+    ],
+    "seoTitle": "AI Coaching Plans for Agents | Homayar",
+    "seoDescription": "Per-agent coaching plans built from real calls: skill gaps, example moments, exercises, and measurable targets. Coaching that lands, from Homayar.",
+    "seoKeywords": [
+      "AI agent coaching",
+      "call center coaching software",
+      "agent development plans",
+      "QA coaching automation",
+      "personalized agent training",
+      "coaching from call recordings",
+      "agent performance coaching"
+    ],
+    "teamSize": [
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "retail",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": true,
+    "imageConcept": "A rising coaching arc drawn as a smooth ascending curve with small waypoint nodes, each node sprouting a tiny waveform snippet, rendered in electric cyan on dark navy with the arc sweeping from lower left to upper right through open space."
+  },
+  {
+    "slug": "onboarding-accelerator",
+    "name": "Onboarding Accelerator",
+    "category": "coaching-training",
+    "tagline": "New agents proficient in weeks, not months",
+    "shortDescription": "An implementation service that builds a curated call library, scenario curriculum, and milestone scoring track from your own best conversations — so new hires learn from what good actually sounds like.",
+    "longDescription": "New-agent ramp is one of the most expensive line items in any contact center: 8-12 weeks to proficiency, elevated error rates throughout, and attrition concentrated in the first 90 days. Most onboarding fails because it teaches policy instead of conversation. New hires read scripts and shadow a random colleague — they rarely hear a structured progression of what excellent actually sounds like.\n\nThe Onboarding Accelerator is a fixed-scope implementation. Homayar analyzes your historical calls and identifies your genuinely best conversations across your top contact types — the de-escalation handled cleanly, the complex billing dispute resolved in one call, the objection turned into a save. These become a curated, annotated call library: each example tagged by scenario, skill, and difficulty, with key moments highlighted and explained.\n\nAround the library, we build a milestone curriculum mapped to your contact mix: listen-and-annotate exercises in week one, scenario comparisons in week two, then live-call scoring against a new-hire rubric that tightens as the agent progresses. Homayar scores every new-hire call from day one, so trainers see exactly which skills each cohort member has landed and which need intervention — long before the traditional week-six review.\n\nDelivery takes 4-6 weeks and includes trainer enablement, so your team owns and extends the curriculum after handoff. The library refreshes automatically as new exemplary calls are detected in production.",
+    "whoItsFor": "Training managers, onboarding leads, and operations directors at contact centers hiring in cohorts — particularly those with seasonal ramps or persistent early-tenure attrition.",
+    "keyOutcomes": [
+      "Time-to-proficiency reduced by 30-40% against your current baseline",
+      "Curated library of 100+ annotated exemplar calls from your own operation",
+      "Every new-hire call scored from day one against a staged rubric",
+      "Skill gaps visible per cohort member by end of week two",
+      "Self-refreshing library keeps the curriculum current after handoff"
+    ],
+    "priceUsd": 9500,
+    "billingType": "implementation",
+    "features": [
+      "Historical call mining to identify your best conversations per contact type",
+      "Curated, annotated exemplar library (100+ calls) with highlighted key moments",
+      "Scenario taxonomy mapped to your actual contact mix",
+      "Staged milestone curriculum: listen, compare, practice, live scoring",
+      "New-hire scoring rubric that tightens with tenure",
+      "Day-one call scoring with per-skill cohort tracking",
+      "Trainer enablement and curriculum handoff workshop",
+      "Automatic library refresh as new exemplar calls are detected",
+      "Cohort dashboards comparing ramp curves across hiring classes",
+      "30-day post-launch tuning period included"
+    ],
+    "seoTitle": "Onboarding Accelerator | Homayar",
+    "seoDescription": "Cut new-agent ramp time 30-40% with a curated call library and milestone curriculum built from your best conversations. Implemented by Homayar.",
+    "seoKeywords": [
+      "call center onboarding",
+      "agent ramp time",
+      "new hire training calls",
+      "call library training",
+      "agent onboarding program",
+      "time to proficiency",
+      "contact center training implementation"
+    ],
+    "teamSize": [
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "telecom",
+      "retail",
+      "insurance",
+      "banking",
+      "technology"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "Parallel swim-lane tracks each carrying a small agent dot accelerating past milestone flags, the lead dot trailing a bright proficiency streak, rendered in violet on charcoal with strong left-to-right momentum."
+  },
+  {
+    "slug": "crm-helpdesk-connector-pack",
+    "name": "CRM & Helpdesk Connector Pack",
+    "category": "integrations",
+    "tagline": "Call intelligence inside the tools you already use",
+    "shortDescription": "Bi-directional connectors for Salesforce, HubSpot, Zendesk, Freshdesk, and ServiceNow — call scores, summaries, and detected issues appear on the records your teams already work in.",
+    "longDescription": "Analysis that lives in a separate tab is analysis that gets ignored. Supervisors work in the helpdesk; account teams work in the CRM. If a call's quality score, summary, and detected issues are not visible on the ticket or the contact record, they might as well not exist for the person who needs them.\n\nThe Connector Pack syncs Homayar output into Salesforce, HubSpot, Zendesk, Freshdesk, and ServiceNow. Each analyzed call is matched to its ticket, case, or contact using your existing identifiers — case ID, phone number, or interaction reference — and writes back a structured payload: AI summary, quality score, sentiment trajectory, detected issues, compliance flags, and a deep link to the full transcript and audio moments in Homayar.\n\nThe sync runs both directions. CRM and helpdesk context — customer tier, product line, open-case status, account value — flows into Homayar and becomes available as analysis dimensions, so you can ask questions like \"how does sentiment trend on calls from enterprise-tier customers with an open P1?\" Field mapping is fully configurable, and you control exactly which Homayar outputs are written to which objects, including the option to exclude agent-level scores from CRM visibility entirely — companion, not surveillance, extends to where the data lands.\n\nSetup for a standard object model takes under a day per platform. Custom objects and on-premise ServiceNow instances are supported through the configuration layer.",
+    "whoItsFor": "CX operations managers, CRM administrators, and IT teams who want call intelligence embedded in existing agent and supervisor workflows instead of another login.",
+    "keyOutcomes": [
+      "Call summaries and scores on 100% of matched tickets and records",
+      "Sub-day setup per platform for standard object models",
+      "CRM context enriches call analysis with tier, product, and case data",
+      "Manual after-call documentation time cut by 5-8 minutes per call",
+      "Granular control over which outputs reach which systems"
+    ],
+    "priceUsd": 349,
+    "billingType": "monthly",
+    "features": [
+      "Native connectors: Salesforce, HubSpot, Zendesk, Freshdesk, ServiceNow",
+      "Automatic call-to-record matching via case ID, phone, or interaction reference",
+      "Write-back of summaries, scores, sentiment, issues, and compliance flags",
+      "Deep links from records to transcript and audio moments in Homayar",
+      "Reverse sync of customer tier, product, and case context into analysis",
+      "Fully configurable field mapping per platform and object",
+      "Selective output control, including agent-score exclusion from CRM",
+      "Custom object and on-premise ServiceNow support",
+      "Sync health monitoring with retry and failure alerting",
+      "Sandbox-first deployment workflow for change-managed environments"
+    ],
+    "seoTitle": "CRM & Helpdesk Connector Pack | Homayar",
+    "seoDescription": "Sync Homayar call scores, summaries, and issues into Salesforce, Zendesk, HubSpot, Freshdesk, and ServiceNow. Bi-directional, configured in under a day.",
+    "seoKeywords": [
+      "Salesforce call analytics integration",
+      "Zendesk call insights",
+      "CRM call intelligence",
+      "helpdesk integration call center",
+      "ServiceNow voice analytics",
+      "call summary CRM sync",
+      "HubSpot call integration"
+    ],
+    "teamSize": [
+      "startup",
+      "smb",
+      "mid-market",
+      "enterprise"
+    ],
+    "industries": [
+      "technology",
+      "retail",
+      "telecom",
+      "insurance",
+      "banking"
+    ],
+    "popular": true,
+    "recommended": false,
+    "imageConcept": "A plug-and-socket lattice of five connector nodes arranged in an arc around a central waveform core, with luminous data threads flowing both directions along each link, rendered in teal on dark navy with the arc balanced symmetrically around the core."
+  },
+  {
+    "slug": "ccaas-ingestion-connectors",
+    "name": "CCaaS Ingestion Connectors",
+    "category": "integrations",
+    "tagline": "Every platform's calls, flowing into one analyzer",
+    "shortDescription": "Enterprise ingestion from Genesys Cloud, Five9, NICE CXone, Amazon Connect, Twilio Flex, Avaya, and SIPREC sources — with metadata mapping, backfill, and a guaranteed onboarding path.",
+    "longDescription": "Before any call can be analyzed, it has to arrive — reliably, with its metadata intact, from whatever mix of platforms your operation runs. For most enterprises that mix is genuinely messy: a primary CCaaS platform, a legacy PBX at two acquired sites, an outsourcer on a different stack, and an archive of historical recordings in object storage. The CCaaS Ingestion Connectors module is how all of it reaches Homayar.\n\nNative connectors cover Genesys Cloud, Five9, NICE CXone, Amazon Connect, Twilio Flex, and Avaya, pulling recordings and interaction metadata — queue, agent, ANI/DNIS, wrap-up codes, transfer chains — through each platform's APIs as calls complete. For on-premise and SBC-based estates, a SIPREC recording interface captures calls at the network layer. Batch pipelines ingest historical archives from S3, Azure Blob, or SFTP, preserving original timestamps so trend analysis reaches back before day one.\n\nMetadata from every source is normalized into a single schema, so a call from Five9 and a call from an Avaya site are filterable, comparable, and reportable side by side. Ingestion is monitored end to end: per-source volume baselines, gap detection when a feed goes quiet, and automatic backfill when a platform's API recovers from an outage.\n\nBecause every enterprise estate differs — platform versions, recording topologies, data-residency constraints, outsourcer access agreements — this module is scoped and priced per environment, with a dedicated integration engineer and a committed onboarding timeline in the statement of work.",
+    "whoItsFor": "Enterprise IT, telephony engineering, and contact-center platform owners running one or more CCaaS, PBX, or SIPREC-based recording environments — including multi-site and outsourced operations.",
+    "keyOutcomes": [
+      "All call sources unified into one normalized analysis pipeline",
+      "Historical archives backfilled with original timestamps preserved",
+      "Feed-gap detection catches silent recording failures within minutes",
+      "Single metadata schema across every platform and site",
+      "Committed onboarding timeline with a dedicated integration engineer"
+    ],
+    "priceUsd": 0,
+    "billingType": "custom",
+    "features": [
+      "Native connectors: Genesys Cloud, Five9, NICE CXone, Amazon Connect, Twilio Flex, Avaya",
+      "SIPREC interface for SBC and on-premise recording capture",
+      "Batch backfill from S3, Azure Blob, and SFTP archives",
+      "Unified metadata schema: queue, agent, ANI/DNIS, wrap-up codes, transfer chains",
+      "Per-source volume baselines with feed-gap alerting",
+      "Automatic backfill after upstream API outages",
+      "Stereo and dual-channel handling for speaker separation",
+      "Data-residency and region-pinning options per source",
+      "Outsourcer and multi-tenant access scoping",
+      "Dedicated integration engineer and committed onboarding SOW"
+    ],
+    "seoTitle": "CCaaS Ingestion Connectors | Homayar",
+    "seoDescription": "Ingest calls from Genesys, Five9, NICE CXone, Amazon Connect, Avaya, and SIPREC into Homayar. Unified metadata, backfill, and enterprise onboarding.",
+    "seoKeywords": [
+      "CCaaS integration",
+      "Genesys Cloud call export",
+      "Five9 recording integration",
+      "SIPREC call analytics",
+      "Amazon Connect analysis",
+      "call recording ingestion",
+      "telephony integration enterprise",
+      "NICE CXone integration"
+    ],
+    "teamSize": [
+      "enterprise"
+    ],
+    "industries": [
+      "banking",
+      "healthcare",
+      "insurance",
+      "telecom",
+      "government"
+    ],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "Seven thin tributary streams of light flowing in from the frame's edges and merging into one broad luminous river channel at bottom center, each tributary tagged with a faint platform glyph, rendered in electric cyan on charcoal."
+  }
+]

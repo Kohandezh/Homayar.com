@@ -1,0 +1,135 @@
+[
+  {
+    "slug": "homayar-starter",
+    "name": "Homayar Starter",
+    "category": "platform-plans",
+    "tagline": "Full call coverage from day one",
+    "shortDescription": "The complete Homayar analysis pipeline sized for smaller teams: speech-to-text, core AI agents, quality scoring, and issue detection for up to 2,000 analyzed calls per month.",
+    "longDescription": "Most teams under 25 agents review fewer than 2% of their calls. A supervisor samples a handful of recordings each week, scores them by hand, and hopes the sample is representative. It rarely is — the calls that cost you customers are usually the ones nobody listened to.\n\nHomayar Starter closes that gap without an enterprise budget. Upload recordings or connect your existing storage, and every call is transcribed, scored against your quality rubric, and checked for recurring issues by Homayar's core AI agent team. Within 48 hours of setup, you have a scored baseline for your entire call volume — not a sample, all of it.\n\nStarter is built as a companion for small teams, not a surveillance layer. Scores come with the evidence behind them: the transcript moment, the issue category, the trend over time. Supervisors spend their hours coaching instead of listening, and agents see exactly what a strong call looks like. When your volume grows past 2,000 calls a month, your scorecards, history, and configuration move to Professional unchanged.",
+    "whoItsFor": "Customer-service and sales leads at startups and small businesses running their first structured QA program — teams of roughly 5 to 25 agents who need full call visibility without enterprise overhead.",
+    "keyOutcomes": [
+      "100% of calls analyzed, replacing the typical 1-2% manual QA sample",
+      "Up to 70% less supervisor time spent on manual call review",
+      "First scored calls and quality baseline within 48 hours of setup",
+      "Top 10 recurring customer issues surfaced automatically every week"
+    ],
+    "priceUsd": 499,
+    "billingType": "monthly",
+    "features": [
+      "Up to 2,000 analyzed calls per month",
+      "Speech-to-text transcription with speaker separation",
+      "Core AI agent team: QA scoring, sentiment analysis, and issue detection",
+      "Standard quality scorecard with adjustable criteria weighting",
+      "Weekly issue and trend digest delivered to your inbox",
+      "Team dashboard for up to 10 agent seats",
+      "Audio upload and recording import via CSV, S3, or SFTP",
+      "Email support with 1-business-day response"
+    ],
+    "seoTitle": "Homayar Starter — AI Call Analysis for Small Teams",
+    "seoDescription": "Homayar Starter analyzes up to 2,000 calls a month with AI agents, QA scoring, and issue detection. Full call coverage for smaller teams at $499/mo.",
+    "seoKeywords": [
+      "call center QA software",
+      "AI call analysis",
+      "small team call analytics",
+      "speech analytics pricing",
+      "automated quality scoring",
+      "call center starter plan"
+    ],
+    "teamSize": ["startup", "smb"],
+    "industries": ["technology", "retail", "telecom"],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "A row of cyan bars stepping upward left to right across a dark navy field, the tallest bar breaking into a small burst of scored data points in the upper right, with generous negative space below."
+  },
+  {
+    "slug": "homayar-professional",
+    "name": "Homayar Professional",
+    "category": "platform-plans",
+    "tagline": "Every queue measured, every agent coached",
+    "shortDescription": "The full Homayar AI agent team for mid-market operations: 10,000 analyzed calls per month, compliance and churn-risk detection, coaching workflows, and custom dashboards.",
+    "longDescription": "At 25 to 200 agents, the problem changes shape. It is no longer whether you can review calls — it is whether quality means the same thing across queues, campaigns, and shifts. Two supervisors scoring the same call five points apart is not a people problem; it is a measurement problem.\n\nHomayar Professional applies one consistent standard to up to 10,000 calls a month. The full AI agent team runs on every conversation: QA scoring, sentiment, issue detection, compliance phrase checks, churn-risk signals, and per-agent coaching recommendations. Each team, queue, or campaign gets its own scorecard, and every score traces back to the transcript moment that produced it — so calibration debates end with evidence, not opinion.\n\nThe coaching workspace turns analysis into action. Supervisors see each agent's strongest and weakest criteria, ready-made improvement plans, and trend lines that show whether coaching is working. Custom dashboards and scheduled reports give operations leadership the numbers they ask for in the format they read, without anyone exporting spreadsheets on a Friday afternoon.\n\nProfessional connects to the stack you already run — Genesys, Five9, Twilio, Salesforce, or anything with a REST API — and adds role-based access control so the right people see the right data. Teams typically see average handle time drop 8-12% within the first quarter as coaching gets specific.",
+    "whoItsFor": "CX, QA, and operations managers at mid-market companies with 25 to 200 agents across multiple queues who need consistent scoring, structured coaching workflows, and reporting their leadership will actually read.",
+    "keyOutcomes": [
+      "Up to 10,000 analyzed calls per month across unlimited teams and queues",
+      "8-12% reduction in average handle time within the first quarter via targeted coaching",
+      "Scoring calibration variance between reviewers reduced to near zero",
+      "Compliance phrase coverage verified on 100% of calls, not a sample",
+      "Churn-risk conversations flagged within hours of the call ending"
+    ],
+    "priceUsd": 1499,
+    "billingType": "monthly",
+    "features": [
+      "Everything in Starter",
+      "Up to 10,000 analyzed calls per month",
+      "Full AI agent team: compliance checks, churn-risk signals, and coaching recommendations",
+      "Custom scorecards per team, queue, or campaign",
+      "Coaching workspace with per-agent improvement plans and trend tracking",
+      "Custom dashboards and scheduled leadership reports",
+      "Telephony and CRM integrations: Genesys, Five9, Twilio, Salesforce, REST API",
+      "Role-based access control with full audit log",
+      "Priority support with 4-business-hour response"
+    ],
+    "seoTitle": "Homayar Professional — Mid-Market Call Analytics",
+    "seoDescription": "Homayar Professional scales AI call analysis to 10,000 calls a month with the full agent team, coaching workflows, and custom dashboards. $1,499/mo.",
+    "seoKeywords": [
+      "mid-market call analytics",
+      "AI coaching recommendations",
+      "call center compliance monitoring",
+      "conversation intelligence platform",
+      "QA scorecard software",
+      "churn risk detection",
+      "call center dashboards"
+    ],
+    "teamSize": ["smb", "mid-market"],
+    "industries": ["banking", "insurance", "telecom", "retail", "technology"],
+    "popular": true,
+    "recommended": true,
+    "imageConcept": "A violet radial gauge cluster — one large central quality dial orbited by five smaller agent-metric gauges — set symmetrically on charcoal with a faint waveform ring behind the composition."
+  },
+  {
+    "slug": "homayar-enterprise",
+    "name": "Homayar Enterprise",
+    "category": "platform-plans",
+    "tagline": "Unlimited scale on your security terms",
+    "shortDescription": "Unlimited analyzed call volume with SSO, on-premises or private-VPC deployment, domain-tuned AI agents, and contractual SLAs for regulated, large-scale operations.",
+    "longDescription": "Banks, hospitals, insurers, telecoms, and government agencies do not adopt call analytics on a credit card. They adopt it after a security review, a data-residency conversation, and a contract that names uptime numbers. Homayar Enterprise is built for exactly that process.\n\nDeploy Homayar in your private VPC or fully on-premises, so call audio and transcripts never leave your environment. SSO/SAML and SCIM provisioning plug into your identity stack, data-residency and retention policies are configurable to your jurisdiction, and our team supports your security review with SOC 2 reports, DPAs, and pen-test documentation. A 99.9% uptime SLA with contractual response times is standard.\n\nAt enterprise scale, the AI agents are tuned to your domain. A claims-handling call is not a loan-servicing call is not a patient-scheduling call — Enterprise includes custom agent configuration and scoring models calibrated to your scripts, your regulatory obligations, and your definition of a good conversation. Volume pricing keeps per-call economics predictable whether you analyze fifty thousand calls a month or five million.\n\nEvery Enterprise deployment includes a dedicated customer success manager and a structured onboarding program: integration, scorecard calibration with your QA leads, and supervisor training. The goal is the same as every Homayar plan — a companion for your teams, not a monitoring layer over them — delivered with the controls your organization requires.",
+    "whoItsFor": "Call-center operations leaders, enterprise IT, and compliance teams at banks, hospitals, insurers, telecoms, and government agencies that require security review, deployment control, and contractual guarantees.",
+    "keyOutcomes": [
+      "Unlimited analyzed call volume with predictable per-call economics",
+      "99.9% uptime SLA backed by contractual response times",
+      "Zero call data leaving your environment with on-prem or private-VPC deployment",
+      "Security review completed with SOC 2, DPA, and pen-test documentation provided",
+      "Domain-tuned scoring models calibrated to your scripts and regulatory obligations"
+    ],
+    "priceUsd": 0,
+    "billingType": "custom",
+    "features": [
+      "Everything in Professional",
+      "Unlimited analyzed call volume",
+      "SSO/SAML and SCIM provisioning",
+      "On-premises or private-VPC deployment options",
+      "Custom AI agent configuration and domain-tuned scoring models",
+      "Data-residency controls and configurable retention policies",
+      "99.9% uptime SLA with contractual response times",
+      "Dedicated customer success manager and structured onboarding program",
+      "Security review support: SOC 2 reports, DPA, pen-test documentation",
+      "Volume-based pricing with predictable per-call economics"
+    ],
+    "seoTitle": "Homayar Enterprise — Secure Call Analytics at Scale",
+    "seoDescription": "Homayar Enterprise delivers unlimited AI call analysis with SSO, on-prem or VPC deployment, and contractual SLAs. Custom pricing for regulated scale.",
+    "seoKeywords": [
+      "enterprise call analytics",
+      "on-premise speech analytics",
+      "VPC call center AI",
+      "SSO call analytics platform",
+      "call analytics SLA",
+      "regulated industry conversation intelligence",
+      "enterprise QA platform"
+    ],
+    "teamSize": ["mid-market", "enterprise"],
+    "industries": ["banking", "healthcare", "insurance", "telecom", "retail", "government", "technology"],
+    "popular": false,
+    "recommended": false,
+    "imageConcept": "An amber shield lattice of interlocking hexagonal panels layered over a receding architecture diagram that fades into dark navy, anchored bottom-center with depth rising toward the top of the frame."
+  }
+]

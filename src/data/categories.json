@@ -1,0 +1,68 @@
+[
+  {
+    "slug": "platform-plans",
+    "name": "Platform Plans",
+    "description": "Complete Homayar platform subscriptions sized for every stage, from first QA program to regulated enterprise scale.",
+    "icon": "layers"
+  },
+  {
+    "slug": "ai-voice-analysis",
+    "name": "AI Voice Analysis",
+    "description": "Core speech intelligence modules that turn raw call audio into transcripts, emotion timelines, and ranked call drivers.",
+    "icon": "waveform"
+  },
+  {
+    "slug": "quality-control",
+    "name": "Quality Control",
+    "description": "Automated scoring, calibration, and appeal workflows that apply one consistent quality standard to 100% of calls.",
+    "icon": "gauge"
+  },
+  {
+    "slug": "customer-experience",
+    "name": "Customer Experience",
+    "description": "Satisfaction prediction, churn signals, and journey analysis that surface how customers actually feel — and where you lose them.",
+    "icon": "heart"
+  },
+  {
+    "slug": "sales-intelligence",
+    "name": "Sales Intelligence",
+    "description": "Conversation-derived objection tracking, deal risk scoring, and win-pattern analysis for revenue teams.",
+    "icon": "trend"
+  },
+  {
+    "slug": "supervisor-tools",
+    "name": "Supervisor Tools",
+    "description": "Live operational views, escalation alerts, and shift handover digests built for supervisors, not surveillance.",
+    "icon": "eye"
+  },
+  {
+    "slug": "enterprise-deployment",
+    "name": "Enterprise Deployment",
+    "description": "Private deployment, identity governance, and dedicated capacity options for organizations with strict security and scale requirements.",
+    "icon": "server"
+  },
+  {
+    "slug": "compliance-risk",
+    "name": "Compliance & Risk",
+    "description": "Script adherence monitoring and sensitive-data redaction that keep every recorded call audit-ready.",
+    "icon": "shield"
+  },
+  {
+    "slug": "reports-dashboards",
+    "name": "Reports & Dashboards",
+    "description": "Executive reports, custom KPI dashboards, and analyst-reviewed board packs that turn call data into decisions.",
+    "icon": "chart"
+  },
+  {
+    "slug": "coaching-training",
+    "name": "Coaching & Training",
+    "description": "Evidence-based coaching plans and onboarding programs built from each team's own best conversations.",
+    "icon": "graduation"
+  },
+  {
+    "slug": "integrations",
+    "name": "Integrations",
+    "description": "Connectors that flow call intelligence into your CRM and helpdesk, and pull recordings in from every telephony platform you run.",
+    "icon": "plug"
+  }
+]
