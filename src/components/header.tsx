@@ -4,8 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
+import { LangSwitcher } from "@/components/lang-switcher";
 import { CartIcon, CloseIcon, MenuIcon } from "@/components/icons";
-import { NAV_LINKS } from "@/lib/site";
+import { navLinks } from "@/lib/site-i18n";
+import { CONTENT } from "@/lib/content";
+import { useLocale } from "@/lib/locale";
 import { useCart } from "@/lib/cart";
 
 function CartBadge() {
@@ -28,7 +31,11 @@ function CartBadge() {
 
 export function Header() {
   const pathname = usePathname();
+  const { locale } = useLocale();
   const [open, setOpen] = useState(false);
+
+  const links = navLinks(locale);
+  const demoLabel = CONTENT[locale].cta.demo;
 
   useEffect(() => {
     setOpen(false);
@@ -42,13 +49,13 @@ export function Header() {
   }, [open]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-bg/85 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-line/70 bg-bg/70 backdrop-blur-xl backdrop-saturate-150">
       <div className="container-site flex h-16 items-center justify-between gap-4">
         <Logo />
 
         <nav aria-label="Main" className="hidden lg:block">
           <ul className="flex items-center gap-1">
-            {NAV_LINKS.map((link) => {
+            {links.map((link) => {
               const active =
                 pathname === link.href || pathname.startsWith(`${link.href}/`);
               return (
@@ -72,11 +79,14 @@ export function Header() {
 
         <div className="flex items-center gap-2.5">
           <CartBadge />
+          <div className="hidden sm:block">
+            <LangSwitcher />
+          </div>
           <Link
             href="/contact"
-            className="hidden h-10 items-center rounded-lg bg-accent px-4 text-sm font-semibold text-bg transition-colors hover:bg-accent-strong sm:flex"
+            className="hidden h-10 items-center rounded-lg bg-accent px-4 text-sm font-semibold text-bg transition-all duration-300 hover:bg-accent-strong hover:cta-glow hover:-translate-y-0.5 sm:flex"
           >
-            Book a demo
+            {demoLabel}
           </Link>
           <button
             type="button"
@@ -97,10 +107,10 @@ export function Header() {
       {open && (
         <nav
           aria-label="Mobile"
-          className="border-t border-line bg-bg lg:hidden"
+          className="glass-strong border-t border-line lg:hidden"
         >
           <ul className="container-site flex flex-col gap-1 py-4">
-            {NAV_LINKS.map((link) => {
+            {links.map((link) => {
               const active =
                 pathname === link.href || pathname.startsWith(`${link.href}/`);
               return (
@@ -119,12 +129,13 @@ export function Header() {
                 </li>
               );
             })}
-            <li className="mt-2">
+            <li className="mt-2 flex items-center gap-2.5">
+              <LangSwitcher />
               <Link
                 href="/contact"
-                className="flex h-11 items-center justify-center rounded-lg bg-accent px-4 text-sm font-semibold text-bg"
+                className="flex h-11 flex-1 items-center justify-center rounded-lg bg-accent px-4 text-sm font-semibold text-bg"
               >
-                Book a demo
+                {demoLabel}
               </Link>
             </li>
           </ul>

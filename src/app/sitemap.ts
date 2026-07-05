@@ -19,6 +19,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/case-studies",
     "/about",
     "/contact",
+    "/demo",
+    "/book",
     "/faq",
     "/blog",
     "/privacy",
@@ -26,7 +28,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ].map((path) => ({
     url: absoluteUrl(path || "/"),
     changeFrequency: "weekly" as const,
-    priority: path === "" ? 1 : 0.7,
+    // Home first, then high-intent conversion pages, then the rest.
+    priority:
+      path === "" ? 1 : path === "/demo" || path === "/book" ? 0.9 : 0.7,
   }));
 
   return [

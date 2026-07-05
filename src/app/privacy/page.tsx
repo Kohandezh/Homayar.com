@@ -1,29 +1,12 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Metadata } from "next";
-import { renderMarkdown } from "@/lib/markdown";
+import { PrivacyContent } from "./content";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy",
+  title: "سیاست حفظ حریم خصوصی — همایار",
   description:
-    "How Homayar collects, uses, and protects personal data — including call recordings, transcripts, and AI-derived analysis processed on behalf of enterprise customers.",
+    "همایار چگونه داده‌های شخصی را جمع‌آوری، استفاده و محافظت می‌کند — شامل فایل‌های ضبط‌شده تماس، رونوشت‌ها و تحلیل‌های مشتق‌شده از هوش مصنوعی که از طرف مشتریان سازمانی پردازش می‌شوند.",
 };
 
 export default function PrivacyPage() {
-  const md = readFileSync(
-    join(process.cwd(), "content/legal/privacy.md"),
-    "utf8",
-  );
-  const html = renderMarkdown(md);
-
-  return (
-    <section className="container-site pt-16 pb-24 sm:pt-20">
-      <div className="mx-auto max-w-3xl">
-        <div
-          className="prose-dark"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      </div>
-    </section>
-  );
+  return <PrivacyContent />;
 }

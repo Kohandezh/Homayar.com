@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Homayar.com — Agentic AI Voice Analyzer
 
-## Getting Started
+Production SaaS commerce website for **Homayar**, the agentic AI voice analyzer
+for call centers and enterprise customer-service teams. AI agents listen,
+analyze, score, and coach — every customer conversation becomes insight.
 
-First, run the development server:
+Built by [KSF Company](mailto:info@ksf.ir).
+
+## Stack
+
+- **Next.js 16** (App Router, React Server Components, TypeScript)
+- **Tailwind CSS v4** — custom dark enterprise design system
+- **Neon PostgreSQL** + **Drizzle ORM** (with static-data fallback when no DB is configured)
+- **Stripe Checkout** (test mode) — hosted payment page + webhook order recording
+- **Playwright** — full E2E QA suite (desktop + mobile projects)
+- Programmatic product artwork — every product image is generated in-repo
+  (`scripts/generate-images.mjs`, SVG → PNG via sharp; no external image APIs)
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+cp .env.example .env.local   # fill in values (see below)
+pnpm dev                     # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The site is fully functional **without** any environment variables — the
+catalog serves the static seed data in `src/data/`, and checkout/demo forms
+degrade gracefully with clear messages.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment variables (`.env.local`)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Neon Postgres connection string |
+| `STRIPE_SECRET_KEY` | Stripe **test** secret key (`sk_test_…`) |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe **test** publishable key (`pk_test_…`) |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret for the `checkout.session.completed` webhook |
+| `NEXT_PUBLIC_APP_URL` | Canonical URL, e.g. `https://homayar.vercel.app` |
 
-## Learn More
+## Database (Neon)
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+pnpm db:push       # create tables from src/db/schema.ts
+pnpm db:seed       # load 30 products, categories, blog posts, case studies
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Schema lives in `src/db/schema.ts`; generated SQL migrations in `drizzle/`.
+Entities: categories, products, product_images, leads, demo_requests,
+checkout_sessions, orders, order_items, blog_posts, case_studies.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Stripe (test mode)
 
-## Deploy on Vercel
+1. Put test keys in `.env.local` (dashboard.stripe.com/test/apikeys).
+2. Register a webhook endpoint `https://<your-domain>/api/webhooks/stripe`
+   for the `checkout.session.completed` event; copy its signing secret into
+   `STRIPE_WEBHOOK_SECRET`.
+3. Test card: `4242 4242 4242 4242`, any future expiry, any CVC.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Carts mixing monthly **and** yearly subscriptions fall back to a one-time
+"first period" payment (Stripe Checkout cannot mix intervals in one session);
+single-interval carts create real subscriptions.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Product images
+
+```bash
+pnpm images        # regenerates public/hero.png, public/og.png, public/products/*.png
+```
+
+Deterministic per product slug — re-runs produce identical art.
+
+## QA
+
+```bash
+pnpm build && pnpm test:e2e                                  # local production build
+PLAYWRIGHT_BASE_URL=https://<deployment> pnpm test:e2e       # against deployed site
+```
+
+## Deploy (Vercel)
+
+```bash
+npx vercel --prod
+```
+
+Set the environment variables above in the Vercel project settings.
+`NEXT_PUBLIC_APP_URL` must match the deployment URL (used for SEO canonical
+URLs, OG tags, sitemap, and Stripe redirect URLs).

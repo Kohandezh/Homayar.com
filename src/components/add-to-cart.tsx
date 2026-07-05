@@ -3,8 +3,22 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/lib/cart";
+import { useLocale } from "@/lib/locale";
 import type { Product } from "@/lib/types";
 import { CheckIcon } from "@/components/icons";
+
+const LABELS = {
+  fa: {
+    talkToSales: "گفت‌وگو با فروش",
+    added: "به سبد افزوده شد",
+    addToCart: "افزودن به سبد",
+  },
+  en: {
+    talkToSales: "Talk to sales",
+    added: "Added to cart",
+    addToCart: "Add to cart",
+  },
+} as const;
 
 /**
  * Add-to-cart control. Custom-priced products route to sales instead.
@@ -18,6 +32,8 @@ export function AddToCartButton({
   size?: "sm" | "lg";
 }) {
   const { add } = useCart();
+  const { locale } = useLocale();
+  const t = locale === "fa" ? LABELS.fa : LABELS.en;
   const [added, setAdded] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -38,7 +54,7 @@ export function AddToCartButton({
         href="/contact"
         className={`inline-flex items-center justify-center gap-2 border border-line-strong font-semibold text-ink transition-colors hover:border-accent hover:text-accent ${sizing}`}
       >
-        Talk to sales
+        {t.talkToSales}
       </Link>
     );
   }
@@ -62,10 +78,10 @@ export function AddToCartButton({
       {added ? (
         <>
           <CheckIcon width={size === "lg" ? 18 : 15} height={size === "lg" ? 18 : 15} />
-          Added to cart
+          {t.added}
         </>
       ) : (
-        "Add to cart"
+        t.addToCart
       )}
     </button>
   );

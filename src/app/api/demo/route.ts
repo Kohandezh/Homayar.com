@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb, hasDb } from "@/lib/db";
 import { demoRequests, leads } from "@/db/schema";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 const demoSchema = z.object({
   name: z.string().min(1).max(200),
@@ -13,6 +14,9 @@ const demoSchema = z.object({
 
 /** Contact / book-a-demo form. Persists to Neon when configured. */
 export async function POST(request: Request) {
+  const limited = enforceRateLimit(request, "demo", 5, 60_000);
+  if (limited) return limited;
+
   let data: z.infer<typeof demoSchema>;
   try {
     data = demoSchema.parse(await request.json());

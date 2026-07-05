@@ -11,51 +11,186 @@ import type {
 } from "@/lib/types";
 import { ProductCard } from "@/components/product-card";
 import { CategoryIcon, ChevronDownIcon, CloseIcon } from "@/components/icons";
+import { useLocale } from "@/lib/locale";
+import type { Locale } from "@/lib/content";
+import { localizeCategories, localizeProducts } from "@/lib/data-i18n";
 
-/* ── Filter vocab ───────────────────────────────────────────────── */
+/* ── Filter vocab (values are stable URL params; labels are localized) ── */
 
-const PRICE_RANGES = [
-  { value: "under-300", label: "Under $300" },
-  { value: "300-800", label: "$300 – $800" },
-  { value: "over-800", label: "Over $800" },
-  { value: "custom", label: "Custom pricing" },
-] as const;
+const PRICE_VALUES = ["under-300", "300-800", "over-800", "custom"] as const;
+type PriceRange = (typeof PRICE_VALUES)[number];
 
-type PriceRange = (typeof PRICE_RANGES)[number]["value"];
-
-const BILLING_OPTIONS: { value: BillingType; label: string }[] = [
-  { value: "monthly", label: "Monthly" },
-  { value: "yearly", label: "Yearly" },
-  { value: "one-time", label: "One-time" },
-  { value: "implementation", label: "Implementation" },
-  { value: "custom", label: "Custom" },
+const BILLING_VALUES: BillingType[] = [
+  "monthly",
+  "yearly",
+  "one-time",
+  "implementation",
+  "custom",
 ];
 
-const TEAM_OPTIONS: { value: TeamSize; label: string }[] = [
-  { value: "startup", label: "Startup" },
-  { value: "smb", label: "SMB" },
-  { value: "mid-market", label: "Mid-market" },
-  { value: "enterprise", label: "Enterprise" },
+const TEAM_VALUES: TeamSize[] = ["startup", "smb", "mid-market", "enterprise"];
+
+const INDUSTRY_VALUES: Industry[] = [
+  "banking",
+  "healthcare",
+  "insurance",
+  "telecom",
+  "retail",
+  "government",
+  "technology",
 ];
 
-const INDUSTRY_OPTIONS: { value: Industry; label: string }[] = [
-  { value: "banking", label: "Banking" },
-  { value: "healthcare", label: "Healthcare" },
-  { value: "insurance", label: "Insurance" },
-  { value: "telecom", label: "Telecom" },
-  { value: "retail", label: "Retail" },
-  { value: "government", label: "Government" },
-  { value: "technology", label: "Technology" },
-];
+const SORT_VALUES = ["featured", "price-asc", "price-desc", "name"] as const;
+type SortKey = (typeof SORT_VALUES)[number];
 
-const SORT_OPTIONS = [
-  { value: "featured", label: "Featured" },
-  { value: "price-asc", label: "Price: low to high" },
-  { value: "price-desc", label: "Price: high to low" },
-  { value: "name", label: "Name A–Z" },
-] as const;
+/* ── Localized filter strings ───────────────────────────────────── */
 
-type SortKey = (typeof SORT_OPTIONS)[number]["value"];
+type ExplorerStrings = {
+  filters: string;
+  category: string;
+  all: string;
+  priceRange: string;
+  anyPrice: string;
+  billingType: string;
+  teamSize: string;
+  industry: string;
+  allIndustries: string;
+  highlights: string;
+  popular: string;
+  recommended: string;
+  clearAllFilters: string;
+  clearAll: string;
+  sortBy: string;
+  showing: (shown: number, total: number) => string;
+  noMatchTitle: string;
+  noMatchBody: string;
+  price: Record<PriceRange, string>;
+  billing: Record<BillingType, string>;
+  team: Record<TeamSize, string>;
+  industries: Record<Industry, string>;
+  sort: Record<SortKey, string>;
+};
+
+const en: ExplorerStrings = {
+  filters: "Filters",
+  category: "Category",
+  all: "All",
+  priceRange: "Price range",
+  anyPrice: "Any price",
+  billingType: "Billing type",
+  teamSize: "Team size",
+  industry: "Industry",
+  allIndustries: "All industries",
+  highlights: "Highlights",
+  popular: "Popular",
+  recommended: "Recommended",
+  clearAllFilters: "Clear all filters",
+  clearAll: "Clear all",
+  sortBy: "Sort by",
+  showing: (shown, total) => `Showing ${shown} of ${total} products`,
+  noMatchTitle: "No products match these filters",
+  noMatchBody:
+    "Try removing a filter or two — every Homayar module, plan, and service is one click away.",
+  price: {
+    "under-300": "Under $300",
+    "300-800": "$300 – $800",
+    "over-800": "Over $800",
+    custom: "Custom pricing",
+  },
+  billing: {
+    monthly: "Monthly",
+    yearly: "Yearly",
+    "one-time": "One-time",
+    implementation: "Implementation",
+    custom: "Custom",
+  },
+  team: {
+    startup: "Startup",
+    smb: "SMB",
+    "mid-market": "Mid-market",
+    enterprise: "Enterprise",
+  },
+  industries: {
+    banking: "Banking",
+    healthcare: "Healthcare",
+    insurance: "Insurance",
+    telecom: "Telecom",
+    retail: "Retail",
+    government: "Government",
+    technology: "Technology",
+  },
+  sort: {
+    featured: "Featured",
+    "price-asc": "Price: low to high",
+    "price-desc": "Price: high to low",
+    name: "Name A–Z",
+  },
+};
+
+const fa: ExplorerStrings = {
+  filters: "فیلترها",
+  category: "دسته‌بندی",
+  all: "همه",
+  priceRange: "بازه قیمت",
+  anyPrice: "هر قیمتی",
+  billingType: "نوع صورت‌حساب",
+  teamSize: "اندازه تیم",
+  industry: "صنعت",
+  allIndustries: "همه صنایع",
+  highlights: "برجسته‌ها",
+  popular: "پرطرفدار",
+  recommended: "پیشنهادی",
+  clearAllFilters: "پاک کردن همه فیلترها",
+  clearAll: "پاک کردن همه",
+  sortBy: "مرتب‌سازی بر اساس",
+  showing: (shown, total) => `نمایش ${shown} از ${total} محصول`,
+  noMatchTitle: "هیچ محصولی با این فیلترها مطابقت ندارد",
+  noMatchBody:
+    "یک یا دو فیلتر را بردارید — هر ماژول، طرح و خدمت همایار تنها یک کلیک فاصله دارد.",
+  price: {
+    "under-300": "زیر ۳۰۰ دلار",
+    "300-800": "۳۰۰ تا ۸۰۰ دلار",
+    "over-800": "بالای ۸۰۰ دلار",
+    custom: "قیمت سفارشی",
+  },
+  billing: {
+    monthly: "ماهانه",
+    yearly: "سالانه",
+    "one-time": "تک‌خرید",
+    implementation: "پیاده‌سازی",
+    custom: "سفارشی",
+  },
+  team: {
+    startup: "استارتاپ",
+    smb: "کسب‌وکار کوچک",
+    "mid-market": "متوسط",
+    enterprise: "سازمانی",
+  },
+  industries: {
+    banking: "بانکداری",
+    healthcare: "سلامت",
+    insurance: "بیمه",
+    telecom: "مخابرات",
+    retail: "خرده‌فروشی",
+    government: "دولتی",
+    technology: "فناوری",
+  },
+  sort: {
+    featured: "ویژه",
+    "price-asc": "قیمت: کم به زیاد",
+    "price-desc": "قیمت: زیاد به کم",
+    name: "نام: الفبایی",
+  },
+};
+
+const STRINGS: Record<Locale, ExplorerStrings> = {
+  fa,
+  en,
+  de: en,
+  ar: en,
+  fr: en,
+  es: en,
+};
 
 /* ── Param parsing helpers ──────────────────────────────────────── */
 
@@ -159,8 +294,8 @@ function SelectWrap({ children }: { children: ReactNode }) {
 /* ── Explorer ───────────────────────────────────────────────────── */
 
 export function CatalogExplorer({
-  products,
-  categories,
+  products: rawProducts,
+  categories: rawCategories,
 }: {
   products: Product[];
   categories: Category[];
@@ -168,7 +303,18 @@ export function CatalogExplorer({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { locale } = useLocale();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const t = STRINGS[locale] ?? en;
+  const products = useMemo(
+    () => localizeProducts(rawProducts, locale),
+    [rawProducts, locale],
+  );
+  const categories = useMemo(
+    () => localizeCategories(rawCategories, locale),
+    [rawCategories, locale],
+  );
 
   const categorySlugs = useMemo(
     () => categories.map((c) => c.slug),
@@ -181,29 +327,14 @@ export function CatalogExplorer({
 
   /* All filter state lives in the URL — shareable and back-button safe. */
   const category = parseOne(searchParams.get("category"), categorySlugs);
-  const price = parseOne(
-    searchParams.get("price"),
-    PRICE_RANGES.map((r) => r.value),
-  );
-  const billing = parseList(
-    searchParams.get("billing"),
-    BILLING_OPTIONS.map((o) => o.value),
-  );
-  const team = parseList(
-    searchParams.get("team"),
-    TEAM_OPTIONS.map((o) => o.value),
-  );
-  const industry = parseOne(
-    searchParams.get("industry"),
-    INDUSTRY_OPTIONS.map((o) => o.value),
-  );
+  const price = parseOne(searchParams.get("price"), PRICE_VALUES);
+  const billing = parseList(searchParams.get("billing"), BILLING_VALUES);
+  const team = parseList(searchParams.get("team"), TEAM_VALUES);
+  const industry = parseOne(searchParams.get("industry"), INDUSTRY_VALUES);
   const popular = searchParams.get("popular") === "1";
   const recommended = searchParams.get("recommended") === "1";
   const sort: SortKey =
-    parseOne(
-      searchParams.get("sort"),
-      SORT_OPTIONS.map((o) => o.value),
-    ) || "featured";
+    parseOne(searchParams.get("sort"), SORT_VALUES) || "featured";
 
   function setParams(updates: Record<string, string | null>) {
     const next = new URLSearchParams(searchParams.toString());
@@ -278,43 +409,42 @@ export function CatalogExplorer({
   if (price) {
     pills.push({
       key: `price-${price}`,
-      label: PRICE_RANGES.find((r) => r.value === price)?.label ?? price,
+      label: t.price[price],
       onRemove: () => setParams({ price: null }),
     });
   }
   for (const b of billing) {
     pills.push({
       key: `billing-${b}`,
-      label: BILLING_OPTIONS.find((o) => o.value === b)?.label ?? b,
+      label: t.billing[b],
       onRemove: () => toggleListValue("billing", b),
     });
   }
-  for (const t of team) {
+  for (const tm of team) {
     pills.push({
-      key: `team-${t}`,
-      label: TEAM_OPTIONS.find((o) => o.value === t)?.label ?? t,
-      onRemove: () => toggleListValue("team", t),
+      key: `team-${tm}`,
+      label: t.team[tm],
+      onRemove: () => toggleListValue("team", tm),
     });
   }
   if (industry) {
     pills.push({
       key: `industry-${industry}`,
-      label:
-        INDUSTRY_OPTIONS.find((o) => o.value === industry)?.label ?? industry,
+      label: t.industries[industry],
       onRemove: () => setParams({ industry: null }),
     });
   }
   if (popular) {
     pills.push({
       key: "popular",
-      label: "Popular",
+      label: t.popular,
       onRemove: () => setParams({ popular: null }),
     });
   }
   if (recommended) {
     pills.push({
       key: "recommended",
-      label: "Recommended",
+      label: t.recommended,
       onRemove: () => setParams({ recommended: null }),
     });
   }
@@ -325,10 +455,10 @@ export function CatalogExplorer({
 
   const renderFilters = (idPrefix: string) => (
     <div className="space-y-7">
-      <FilterGroup label="Category">
+      <FilterGroup label={t.category}>
         <div className="flex flex-wrap gap-2">
           <Chip active={!category} onClick={() => setParams({ category: null })}>
-            All
+            {t.all}
           </Chip>
           {categories.map((c) => (
             <Chip
@@ -350,7 +480,7 @@ export function CatalogExplorer({
           htmlFor={`${idPrefix}-price`}
           className="mb-2.5 block text-xs font-semibold uppercase tracking-wider text-ink-muted"
         >
-          Price range
+          {t.priceRange}
         </label>
         <SelectWrap>
           <select
@@ -359,39 +489,39 @@ export function CatalogExplorer({
             onChange={(e) => setParams({ price: e.target.value || null })}
             className={SELECT_CLASSES}
           >
-            <option value="">Any price</option>
-            {PRICE_RANGES.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
+            <option value="">{t.anyPrice}</option>
+            {PRICE_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {t.price[value]}
               </option>
             ))}
           </select>
         </SelectWrap>
       </div>
 
-      <FilterGroup label="Billing type">
+      <FilterGroup label={t.billingType}>
         <div className="flex flex-wrap gap-2">
-          {BILLING_OPTIONS.map((o) => (
+          {BILLING_VALUES.map((value) => (
             <Chip
-              key={o.value}
-              active={billing.includes(o.value)}
-              onClick={() => toggleListValue("billing", o.value)}
+              key={value}
+              active={billing.includes(value)}
+              onClick={() => toggleListValue("billing", value)}
             >
-              {o.label}
+              {t.billing[value]}
             </Chip>
           ))}
         </div>
       </FilterGroup>
 
-      <FilterGroup label="Team size">
+      <FilterGroup label={t.teamSize}>
         <div className="flex flex-wrap gap-2">
-          {TEAM_OPTIONS.map((o) => (
+          {TEAM_VALUES.map((value) => (
             <Chip
-              key={o.value}
-              active={team.includes(o.value)}
-              onClick={() => toggleListValue("team", o.value)}
+              key={value}
+              active={team.includes(value)}
+              onClick={() => toggleListValue("team", value)}
             >
-              {o.label}
+              {t.team[value]}
             </Chip>
           ))}
         </div>
@@ -402,7 +532,7 @@ export function CatalogExplorer({
           htmlFor={`${idPrefix}-industry`}
           className="mb-2.5 block text-xs font-semibold uppercase tracking-wider text-ink-muted"
         >
-          Industry
+          {t.industry}
         </label>
         <SelectWrap>
           <select
@@ -411,23 +541,23 @@ export function CatalogExplorer({
             onChange={(e) => setParams({ industry: e.target.value || null })}
             className={SELECT_CLASSES}
           >
-            <option value="">All industries</option>
-            {INDUSTRY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
+            <option value="">{t.allIndustries}</option>
+            {INDUSTRY_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {t.industries[value]}
               </option>
             ))}
           </select>
         </SelectWrap>
       </div>
 
-      <FilterGroup label="Highlights">
+      <FilterGroup label={t.highlights}>
         <div className="flex flex-wrap gap-2">
           <Chip
             active={popular}
             onClick={() => setParams({ popular: popular ? null : "1" })}
           >
-            Popular
+            {t.popular}
           </Chip>
           <Chip
             active={recommended}
@@ -435,7 +565,7 @@ export function CatalogExplorer({
               setParams({ recommended: recommended ? null : "1" })
             }
           >
-            Recommended
+            {t.recommended}
           </Chip>
         </div>
       </FilterGroup>
@@ -446,7 +576,7 @@ export function CatalogExplorer({
           onClick={clearAll}
           className="text-sm font-medium text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
         >
-          Clear all filters
+          {t.clearAllFilters}
         </button>
       )}
     </div>
@@ -464,7 +594,7 @@ export function CatalogExplorer({
           className="inline-flex w-full items-center justify-between rounded-xl border border-line bg-surface px-4 py-3 text-sm font-semibold text-ink transition-colors hover:border-line-strong"
         >
           <span>
-            Filters
+            {t.filters}
             {activeCount > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 font-mono text-xs font-bold text-bg">
                 {activeCount}
@@ -503,22 +633,14 @@ export function CatalogExplorer({
       <div className="mt-8 lg:mt-0">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p aria-live="polite" className="text-sm text-ink-soft">
-            Showing{" "}
-            <span className="font-mono font-semibold text-ink">
-              {sorted.length}
-            </span>{" "}
-            of{" "}
-            <span className="font-mono font-semibold text-ink">
-              {products.length}
-            </span>{" "}
-            products
+            {t.showing(sorted.length, products.length)}
           </p>
           <div className="flex items-center gap-2.5">
             <label
               htmlFor="catalog-sort"
               className="shrink-0 text-sm text-ink-muted"
             >
-              Sort by
+              {t.sortBy}
             </label>
             <SelectWrap>
               <select
@@ -531,9 +653,9 @@ export function CatalogExplorer({
                 }
                 className={SELECT_CLASSES}
               >
-                {SORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
+                {SORT_VALUES.map((value) => (
+                  <option key={value} value={value}>
+                    {t.sort[value]}
                   </option>
                 ))}
               </select>
@@ -565,7 +687,7 @@ export function CatalogExplorer({
               onClick={clearAll}
               className="ml-1 text-xs font-medium text-ink-muted underline underline-offset-4 transition-colors hover:text-accent"
             >
-              Clear all
+              {t.clearAll}
             </button>
           </div>
         )}
@@ -583,18 +705,17 @@ export function CatalogExplorer({
         ) : (
           <div className="card-surface mt-6 flex flex-col items-center gap-4 p-12 text-center">
             <p className="font-display text-xl font-semibold tracking-tight text-ink">
-              No products match these filters
+              {t.noMatchTitle}
             </p>
             <p className="max-w-md text-sm leading-relaxed text-ink-muted">
-              Try removing a filter or two — every Homayar module, plan, and
-              service is one click away.
+              {t.noMatchBody}
             </p>
             <button
               type="button"
               onClick={clearAll}
               className="inline-flex h-10 items-center justify-center rounded-lg bg-accent px-4 text-sm font-semibold text-bg transition-colors hover:bg-accent-strong"
             >
-              Clear all filters
+              {t.clearAllFilters}
             </button>
           </div>
         )}

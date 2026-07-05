@@ -1,7 +1,10 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import type { Product } from "@/lib/types";
-import { formatPrice, BILLING_LABELS } from "@/lib/types";
+import { useLocale } from "@/lib/locale";
+import { badgeLabels, billingLabel, formatPriceL } from "@/lib/ui-i18n";
 import { Badge } from "@/components/ui";
 import { AddToCartButton } from "@/components/add-to-cart";
 
@@ -12,8 +15,10 @@ export function ProductCard({
   product: Product;
   categoryName?: string;
 }) {
+  const { locale } = useLocale();
+  const badges = badgeLabels(locale);
   return (
-    <article className="card-surface group flex flex-col overflow-hidden transition-colors hover:border-line-strong">
+    <article className="card-surface lift liquid-edge group flex flex-col overflow-hidden">
       <Link
         href={`/catalog/${product.slug}`}
         className="relative block aspect-[4/3] overflow-hidden border-b border-line"
@@ -28,8 +33,10 @@ export function ProductCard({
         />
         {(product.popular || product.recommended) && (
           <div className="absolute left-3 top-3 flex gap-2">
-            {product.popular && <Badge tone="amber">Popular</Badge>}
-            {product.recommended && <Badge tone="accent">Recommended</Badge>}
+            {product.popular && <Badge tone="amber">{badges.popular}</Badge>}
+            {product.recommended && (
+              <Badge tone="accent">{badges.recommended}</Badge>
+            )}
           </div>
         )}
       </Link>
@@ -55,12 +62,12 @@ export function ProductCard({
         <div className="mt-auto flex items-end justify-between gap-3 pt-5">
           <div>
             <p className="font-mono text-lg font-semibold text-ink">
-              {formatPrice(product.priceUsd, product.billingType)}
+              {formatPriceL(product.priceUsd, product.billingType, locale)}
             </p>
             {(product.billingType === "one-time" ||
               product.billingType === "implementation") && (
               <p className="text-xs text-ink-faint">
-                {BILLING_LABELS[product.billingType]}
+                {billingLabel(product.billingType, locale)}
               </p>
             )}
           </div>

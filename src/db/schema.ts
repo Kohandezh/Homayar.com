@@ -56,7 +56,9 @@ export const productImages = pgTable("product_images", {
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  email: text("email").notNull(),
+  // Nullable: many inbound leads (esp. fa locale) leave a phone only. The phone
+  // is preserved in `message`, so a missing email must never drop the lead.
+  email: text("email"),
   company: text("company"),
   teamSize: text("team_size"),
   message: text("message"),
@@ -71,6 +73,22 @@ export const demoRequests = pgTable("demo_requests", {
   company: text("company"),
   teamSize: text("team_size"),
   message: text("message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const bookings = pgTable("bookings", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  company: text("company"),
+  message: text("message"),
+  // The booked slot as an absolute instant. Unique so the DB itself rejects a
+  // double-booking even under a race between two concurrent POSTs.
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull().unique(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  // The visitor's IANA timezone, kept for reference / reminders.
+  timezone: text("timezone"),
+  status: text("status").notNull().default("confirmed"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -62,24 +62,27 @@ export async function POST(request: Request) {
         .returning();
 
       if (order) {
+        // Expand each line item's product so we can read the slug we stamped on
+        // it at checkout — reliable attribution regardless of line-item order.
         const lineItems = await getStripe().checkout.sessions.listLineItems(
           session.id,
-          { limit: 100 },
+          { limit: 100, expand: ["data.price.product"] },
         );
-        let cartMeta: { slug: string; qty: number }[] = [];
-        try {
-          cartMeta = JSON.parse(session.metadata?.cart ?? "[]");
-        } catch {
-          cartMeta = [];
-        }
         await db.insert(orderItems).values(
-          lineItems.data.map((li, idx) => ({
-            orderId: order.id,
-            productSlug: cartMeta[idx]?.slug ?? "unknown",
-            name: li.description ?? "Item",
-            unitAmount: li.price?.unit_amount ?? 0,
-            quantity: li.quantity ?? 1,
-          })),
+          lineItems.data.map((li) => {
+            const product = li.price?.product;
+            const slug =
+              product && typeof product === "object" && "metadata" in product
+                ? (product.metadata?.slug ?? "unknown")
+                : "unknown";
+            return {
+              orderId: order.id,
+              productSlug: slug,
+              name: li.description ?? "Item",
+              unitAmount: li.price?.unit_amount ?? 0,
+              quantity: li.quantity ?? 1,
+            };
+          }),
         );
         await db
           .update(checkoutSessions)

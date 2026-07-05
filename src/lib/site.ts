@@ -1,8 +1,11 @@
 export const SITE = {
   name: "Homayar",
-  legalName: "KSF Company",
+  legalName: "Kohan System Farda",
   domain: "homayar.com",
-  url: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+  // Single source of truth for the canonical origin. Defaults to the production
+  // domain so sitemap/robots/OG never fall back to localhost in a deploy where
+  // NEXT_PUBLIC_APP_URL was forgotten. Override per-environment via the env var.
+  url: process.env.NEXT_PUBLIC_APP_URL ?? "https://homayar.com",
   tagline: "Every call has a companion.",
   description:
     "Homayar is an agentic AI voice analyzer for call centers and enterprise customer-service teams. AI agents listen, analyze, score, and coach — so every customer conversation becomes insight.",

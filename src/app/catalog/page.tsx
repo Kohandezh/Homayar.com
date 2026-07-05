@@ -1,14 +1,29 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { PageHero } from "@/components/ui";
 import { getCategories, getProducts } from "@/lib/catalog";
 import { CatalogExplorer } from "@/components/catalog/explorer";
+import { LocalizedHero } from "@/components/localized-hero";
 
 export const metadata: Metadata = {
-  title: "Product Catalog",
+  title: "کاتالوگ محصولات — همایار",
   description:
     "Browse 30 Homayar modules, platform plans, and services — AI voice analysis, automated quality scoring, compliance monitoring, coaching programs, and enterprise deployment. Filter by category, price, billing type, team size, and industry.",
 };
+
+const HERO = {
+  fa: {
+    eyebrow: "کاتالوگ",
+    title: "ماژول‌ها، طرح‌ها و خدمات",
+    description:
+      "همه قابلیت‌های همایار در یک‌جا — اشتراک‌های پلتفرم، ماژول‌های تحلیل صوت با هوش مصنوعی، خدمات انطباق و مربی‌گری، و گزینه‌های استقرار سازمانی. بر اساس نیاز تیم خود فیلتر کنید؛ هر نتیجه به مشخصات کامل و قیمت‌گذاری پیوند دارد.",
+  },
+  en: {
+    eyebrow: "Catalog",
+    title: "Modules, plans, and services",
+    description:
+      "Every Homayar capability in one place — platform subscriptions, AI voice analysis modules, compliance and coaching services, and enterprise deployment options. Filter by what your team needs; every result links to full specs and pricing.",
+  },
+} as const;
 
 function ExplorerFallback() {
   return (
@@ -44,11 +59,7 @@ export default async function CatalogPage() {
 
   return (
     <>
-      <PageHero
-        eyebrow="Catalog"
-        title="Modules, plans, and services"
-        description="Every Homayar capability in one place — platform subscriptions, AI voice analysis modules, compliance and coaching services, and enterprise deployment options. Filter by what your team needs; every result links to full specs and pricing."
-      />
+      <LocalizedHero copy={HERO} />
       <section aria-label="Product catalog">
         <div className="container-site py-12 sm:py-16">
           <Suspense fallback={<ExplorerFallback />}>

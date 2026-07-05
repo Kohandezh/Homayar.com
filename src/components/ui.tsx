@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 
 const BUTTON_VARIANTS = {
   primary:
-    "bg-accent text-bg hover:bg-accent-strong font-semibold transition-colors",
+    "bg-accent text-bg hover:bg-accent-strong font-semibold transition-[background-color,box-shadow,transform] duration-300 hover:cta-glow hover:-translate-y-0.5",
   secondary:
-    "border border-line-strong text-ink hover:border-accent hover:text-accent transition-colors",
+    "border border-line-strong text-ink hover:border-accent hover:text-accent hover:glow-soft transition-[color,border-color,box-shadow] duration-300",
   ghost: "text-ink-soft hover:text-ink transition-colors",
 } as const;
 
@@ -59,7 +59,7 @@ export function SectionHeading({
   return (
     <div className={`max-w-2xl ${center ? "mx-auto text-center" : ""}`}>
       {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-      <h2 className="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
+      <h2 className="font-display text-fluid-h2 font-semibold text-ink">
         {title}
       </h2>
       {description && (
@@ -95,7 +95,7 @@ export function PageHero({
       <div className="container-site relative py-16 sm:py-24">
         <div className="max-w-3xl">
           {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-          <h1 className="font-display text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
+          <h1 className="font-display text-fluid-display font-semibold text-ink">
             {title}
           </h1>
           {description && (

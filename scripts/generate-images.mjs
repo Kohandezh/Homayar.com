@@ -68,20 +68,20 @@ function sceneDefs(W, H, A, B) {
     <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="${A}"/><stop offset="1" stop-color="${B}"/></linearGradient>
     <linearGradient id="cardg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${P.bg2}" stop-opacity="0.92"/>
-      <stop offset="1" stop-color="${P.bg1}" stop-opacity="0.85"/></linearGradient>
-    <radialGradient id="ambA"><stop offset="0" stop-color="${A}" stop-opacity="0.17"/>
+      <stop offset="0" stop-color="#1a2545" stop-opacity="0.88"/>
+      <stop offset="1" stop-color="#101b36" stop-opacity="0.92"/></linearGradient>
+    <radialGradient id="ambA"><stop offset="0" stop-color="${A}" stop-opacity="0.22"/>
       <stop offset="1" stop-color="${A}" stop-opacity="0"/></radialGradient>
-    <radialGradient id="ambB"><stop offset="0" stop-color="${B}" stop-opacity="0.11"/>
+    <radialGradient id="ambB"><stop offset="0" stop-color="${B}" stop-opacity="0.15"/>
       <stop offset="1" stop-color="${B}" stop-opacity="0"/></radialGradient>
     <radialGradient id="vig"><stop offset="0.5" stop-color="#020409" stop-opacity="0"/>
       <stop offset="1" stop-color="#020409" stop-opacity="0.72"/></radialGradient>
-    <radialGradient id="gridFade"><stop offset="0" stop-color="#ffffff" stop-opacity="0.85"/>
-      <stop offset="0.72" stop-color="#ffffff" stop-opacity="0.35"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="gridFade"><stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.72" stop-color="#ffffff" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.06"/></radialGradient>
     <mask id="gridMask"><rect width="${W}" height="${H}" fill="url(#gridFade)"/></mask>
     <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-      <path d="M32 0H0V32" fill="none" stroke="${P.line}" stroke-opacity="0.55" stroke-width="1"/>
+      <path d="M32 0H0V32" fill="none" stroke="${P.line}" stroke-width="1"/>
     </pattern>
     <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
       <feGaussianBlur stdDeviation="9"/></filter>
@@ -99,7 +99,7 @@ function background(W, H, rng) {
   return `<rect width="${W}" height="${H}" fill="url(#bg)"/>
     <ellipse cx="${ax}" cy="${ay}" rx="${f(W * 0.52)}" ry="${f(H * 0.46)}" fill="url(#ambA)"/>
     <ellipse cx="${bx}" cy="${by}" rx="${f(W * 0.42)}" ry="${f(H * 0.38)}" fill="url(#ambB)"/>
-    <rect width="${W}" height="${H}" fill="url(#grid)" mask="url(#gridMask)" opacity="0.55"/>`;
+    <rect width="${W}" height="${H}" fill="url(#grid)" mask="url(#gridMask)" opacity="0.9"/>`;
 }
 const vignette = (W, H) => `<rect width="${W}" height="${H}" fill="url(#vig)"/>`;
 
@@ -120,9 +120,9 @@ function node(x, y, r, key, halo = 3.4) {
 
 /** Dashboard chrome: frosted rounded card with hairline border + top highlight. */
 function card(x, y, w, h, r = 16) {
-  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="url(#cardg)"
-      stroke="${P.line}" stroke-opacity="0.95"/>
-    <path d="M ${x + r} ${y + 1} H ${x + w - r}" stroke="${P.ink}" stroke-opacity="0.09"/>`;
+  return `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" rx="${r}" fill="url(#cardg)"
+      stroke="#2a3a63" stroke-width="1.5"/>
+    <path d="M ${f(x + r)} ${f(y + 1.5)} H ${f(x + w - r)}" stroke="${P.ink}" stroke-opacity="0.14"/>`;
 }
 
 /** Skeleton text rows inside a card (pure geometry, no fonts). */
@@ -130,8 +130,8 @@ function skeleton(rng, x, y, w, rows, gap = 22) {
   let s = '';
   for (let i = 0; i < rows; i++) {
     const rw = f(w * rr(rng, 0.45, 0.95));
-    s += `<rect x="${x}" y="${f(y + i * gap)}" width="${rw}" height="7" rx="3.5"
-      fill="${P.ink}" fill-opacity="${i === 0 ? 0.22 : 0.1}"/>`;
+    s += `<rect x="${f(x)}" y="${f(y + i * gap)}" width="${rw}" height="7" rx="3.5"
+      fill="${P.ink}" fill-opacity="${i === 0 ? 0.32 : 0.15}"/>`;
   }
   return s;
 }
@@ -145,8 +145,8 @@ function barChart(rng, x, y, w, h, n, key, key2) {
     const bh = f(h * (0.22 + 0.78 * (t * 0.62 + rng() * 0.38)));
     const bx = f(x + i * gap + (gap - bw) / 2); const by = f(y + h - bh);
     const k = i === n - 2 && key2 ? ACCENTS[key2] : hex;
-    s += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="${f(bw / 2)}"
-      fill="${k}" fill-opacity="${f(0.14 + t * 0.32)}"/>`;
+    s += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="${f(Math.min(bw / 2, 10))}"
+      fill="${k}" fill-opacity="${f(0.2 + t * 0.4)}"/>`;
     if (bh > best[2]) best = [bx + bw / 2, by, bh];
   }
   return s + node(best[0], best[1], 4, key);
@@ -205,8 +205,8 @@ function dotRow(x, y, key, n = 4, gap = 18) {
   let s = '';
   for (let i = 0; i < n; i++) {
     const on = i === n - 1;
-    s += `<circle cx="${x + i * gap}" cy="${y}" r="4" fill="${on ? ACCENTS[key] : P.ink}"
-      fill-opacity="${on ? 0.9 : 0.16}"/>`;
+    s += `<circle cx="${f(x + i * gap)}" cy="${f(y)}" r="4.5" fill="${on ? ACCENTS[key] : P.ink}"
+      fill-opacity="${on ? 0.9 : 0.28}"/>`;
   }
   return s;
 }
@@ -220,7 +220,7 @@ function mWaveform(rng, a, b, W, H) {
   const cy = H * 0.46 + rr(rng, -30, 30);
   const amp = H * 0.15;
   const main = wavePoints(rng, W * 0.06, W * 0.94, cy, amp, 26);
-  let s = `<path d="M ${f(W * 0.06)} ${f(cy)} H ${f(W * 0.94)}" stroke="${P.line}" stroke-opacity="0.9"/>`;
+  let s = `<path d="M ${f(W * 0.06)} ${f(cy)} H ${f(W * 0.94)}" stroke="${P.ink}" stroke-opacity="0.16"/>`;
   s += glowPath(smoothPath(wavePoints(rng, W * 0.09, W * 0.91, cy + 14, amp * 0.6, 24)), ACCENTS[b], 2.2, 0.45);
   s += glowPath(smoothPath(wavePoints(rng, W * 0.09, W * 0.91, cy - 10, amp * 0.75, 24)), ACCENTS[a], 2.2, 0.4);
   s += glowPath(smoothPath(main), 'url(#flow)', 5, 1);
@@ -238,25 +238,25 @@ function mWaveform(rng, a, b, W, H) {
 function mGauge(rng, a, b, W, H) {
   const cx = W * 0.5, cy = H * 0.48, R = H * 0.26;
   const a0 = 135, sweep = 270, frac = rr(rng, 0.6, 0.84);
-  let s = `<circle cx="${cx}" cy="${cy}" r="${f(R * 1.24)}" fill="none" stroke="${P.line}" stroke-opacity="0.7"/>`;
+  let s = `<circle cx="${cx}" cy="${cy}" r="${f(R * 1.24)}" fill="none" stroke="${P.line}"/>`;
   for (let i = 0; i <= 27; i++) {
     const ang = a0 + (sweep / 27) * i; const major = i % 3 === 0;
     const [x1, y1] = arcPoint(cx, cy, R * (major ? 1.1 : 1.07), ang);
     const [x2, y2] = arcPoint(cx, cy, R * 1.16, ang);
     s += `<path d="M ${f(x1)} ${f(y1)} L ${f(x2)} ${f(y2)}" stroke="${P.ink}"
-      stroke-opacity="${major ? 0.3 : 0.12}" stroke-width="${major ? 2 : 1}"/>`;
+      stroke-opacity="${major ? 0.45 : 0.18}" stroke-width="${major ? 2 : 1}"/>`;
   }
-  s += `<path d="${arcPath(cx, cy, R, a0, a0 + sweep)}" fill="none" stroke="${P.line}"
+  s += `<path d="${arcPath(cx, cy, R, a0, a0 + sweep)}" fill="none" stroke="#26365c"
     stroke-width="14" stroke-linecap="round"/>`;
   s += glowPath(arcPath(cx, cy, R, a0, a0 + sweep * frac), 'url(#flow)', 14, 0.95);
   s += `<path d="${arcPath(cx, cy, R * 0.78, a0, a0 + sweep * rr(rng, 0.3, 0.55))}" fill="none"
-    stroke="${ACCENTS[b]}" stroke-opacity="0.4" stroke-width="5" stroke-linecap="round"/>`;
+    stroke="${ACCENTS[b]}" stroke-opacity="0.55" stroke-width="6" stroke-linecap="round"/>`;
   const [ex, ey] = arcPoint(cx, cy, R, a0 + sweep * frac);
   s += node(ex, ey, 7, a);
-  s += `<circle cx="${cx}" cy="${cy}" r="5" fill="${P.ink}" fill-opacity="0.3"/>`;
-  s += `<rect x="${cx - 60}" y="${f(cy + R * 0.45)}" width="120" height="12" rx="6" fill="${P.ink}" fill-opacity="0.12"/>`;
+  s += `<circle cx="${cx}" cy="${cy}" r="5" fill="${P.ink}" fill-opacity="0.4"/>`;
+  s += `<rect x="${cx - 60}" y="${f(cy + R * 0.45)}" width="120" height="12" rx="6" fill="${P.ink}" fill-opacity="0.18"/>`;
   const px = W * 0.09, py = H * 0.76;
-  s += card(px, py, 270, 140) + barChart(rng, px + 28, py + 28, 214, 84, a, b);
+  s += card(px, py, 270, 140) + barChart(rng, px + 28, py + 28, 214, 84, 7, a, b);
   s += dotRow(W * 0.74, H * 0.14, a);
   return s;
 }
@@ -279,18 +279,18 @@ function mScorecard(rng, a, b, W, H) {
     s += dotRow(sx + 26, sy + 112, i ? b : a, 3);
   }
   const by = y + big.h + 28;
-  s += card(x, by, gw, 190, 20) + barChart(rng, x + 36, by + 34, gw - 72, 122, a, b);
+  s += card(x, by, gw, 190, 20) + barChart(rng, x + 36, by + 34, gw - 72, 122, 12, a, b);
   return s;
 }
 
 function mGraph(rng, a, b, W, H) {
   const pts = [];
-  for (let gy = 0; gy < 3; gy++) {
+  for (let gy = 0; gy < 4; gy++) {
     for (let gx = 0; gx < 4; gx++) {
-      if (rng() < 0.18) continue;
+      if (rng() < 0.12) continue;
       pts.push([
-        W * 0.16 + gx * W * 0.225 + rr(rng, -50, 50),
-        H * 0.2 + gy * H * 0.27 + rr(rng, -45, 45),
+        W * 0.15 + gx * W * 0.23 + rr(rng, -60, 60),
+        H * 0.16 + gy * H * 0.21 + rr(rng, -50, 50),
       ]);
     }
   }
@@ -304,17 +304,19 @@ function mGraph(rng, a, b, W, H) {
   pts.forEach((p, i) => pts.forEach((q, j) => {
     if (j <= i) return;
     const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
-    if (d > W * 0.3) return;
+    if (d > W * 0.34) return;
     const line = `M ${f(p[0])} ${f(p[1])} L ${f(q[0])} ${f(q[1])}`;
-    if (i === hub || j === hub) hi += glowPath(line, ACCENTS[a], 2, 0.55);
-    else s += `<path d="${line}" stroke="${P.line}" stroke-opacity="0.9" stroke-width="1.4"/>`;
+    if (i === hub || j === hub) hi += glowPath(line, ACCENTS[a], 2, 0.6);
+    else s += `<path d="${line}" stroke="${P.ink}" stroke-opacity="0.13" stroke-width="1.2"/>`;
   }));
   s += hi;
+  s += `<circle cx="${f(pts[hub][0])}" cy="${f(pts[hub][1])}" r="56" fill="none"
+    stroke="${ACCENTS[a]}" stroke-opacity="0.3" stroke-width="1.3" stroke-dasharray="3 8"/>`;
   pts.forEach((p, i) => {
     if (i === hub) s += node(p[0], p[1], 10, a, 4.5);
-    else if (rng() < 0.3) s += node(p[0], p[1], 5, b, 2.8);
+    else if (rng() < 0.34) s += node(p[0], p[1], 5, b, 2.8);
     else s += `<circle cx="${f(p[0])}" cy="${f(p[1])}" r="5" fill="${P.bg2}"
-      stroke="${P.ink}" stroke-opacity="0.4"/>`;
+      stroke="${P.ink}" stroke-opacity="0.55" stroke-width="1.4"/>`;
   });
   s += card(W * 0.66, H * 0.8, 250, 110) + skeleton(rng, W * 0.66 + 26, H * 0.8 + 30, 198, 2, 26);
   s += dotRow(W * 0.66 + 26, H * 0.8 + 86, a, 3);
@@ -322,8 +324,10 @@ function mGraph(rng, a, b, W, H) {
 }
 
 function mFunnel(rng, a, b, W, H) {
-  const cx = W / 2, top = H * 0.14, bandH = 96, gap = 30;
-  const widths = [0.66, 0.5, 0.36, 0.24].map((w) => w * rr(rng, 0.92, 1.08));
+  const cx = W / 2, top = H * 0.14, gap = 30;
+  const base = pick(rng, [[0.66, 0.5, 0.36, 0.24], [0.7, 0.57, 0.45, 0.34, 0.24]]);
+  const widths = base.map((w) => w * rr(rng, 0.92, 1.08));
+  const bandH = (H * 0.6 - (widths.length - 1) * gap) / widths.length;
   let s = '';
   widths.forEach((w, i) => {
     const w2 = widths[i + 1] ?? w * 0.66;
@@ -331,18 +335,22 @@ function mFunnel(rng, a, b, W, H) {
     const d = `M ${f(cx - W * w / 2)} ${y} L ${f(cx + W * w / 2)} ${y}
       L ${f(cx + W * w2 / 2)} ${y + bandH} L ${f(cx - W * w2 / 2)} ${y + bandH} Z`;
     const hex = i === widths.length - 1 ? ACCENTS[b] : ACCENTS[a];
-    s += `<path d="${d}" fill="${hex}" fill-opacity="${f(0.07 + i * 0.07)}"
-      stroke="${hex}" stroke-opacity="${f(0.3 + i * 0.16)}" stroke-width="1.6"/>`;
+    s += `<path d="${d}" fill="${hex}" fill-opacity="${f(0.04 + i * 0.025)}"
+      stroke="${hex}" stroke-opacity="${f(0.4 + i * 0.12)}" stroke-width="1.5"/>`;
     s += glowPath(`M ${f(cx - W * w / 2)} ${y} L ${f(cx + W * w / 2)} ${y}`, hex, 2.4, 0.5 + i * 0.12);
     if (i < widths.length - 1) {
-      s += `<path d="M ${cx} ${y + bandH + 4} L ${cx} ${y + bandH + gap - 4}"
-        stroke="${P.ink}" stroke-opacity="0.25" stroke-width="2" stroke-dasharray="2 6"/>`;
+      s += `<path d="M ${cx} ${f(y + bandH + 4)} L ${cx} ${f(y + bandH + gap - 4)}"
+        stroke="${P.ink}" stroke-opacity="0.35" stroke-width="2" stroke-dasharray="2 6"/>`;
+    }
+    for (let k = 0; k < 3; k++) {
+      s += `<circle cx="${f(cx + rr(rng, -W * w2 / 2, W * w2 / 2))}" cy="${f(y + rr(rng, bandH * 0.3, bandH * 0.9))}"
+        r="${f(rr(rng, 2, 3.6))}" fill="${hex}" fill-opacity="${f(rr(rng, 0.4, 0.8))}"/>`;
     }
   });
   const ly = top + widths.length * (bandH + gap) + 14;
   s += node(cx, ly, 8, 'amber');
-  s += card(W * 0.66, H * 0.13, 240, 104) + skeleton(rng, W * 0.66 + 26, H * 0.13 + 30, 188, 2, 26);
-  s += dotRow(W * 0.12, H * 0.85, a, 4);
+  s += card(W * 0.665, H * 0.76, 240, 104) + skeleton(rng, W * 0.665 + 26, H * 0.76 + 30, 188, 2, 26);
+  s += dotRow(W * 0.12, H * 0.84, a, 4);
   return s;
 }
 
@@ -355,12 +363,12 @@ function mHeatmap(rng, a, b, W, H) {
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       const dist = Math.hypot(c - hx, r - hy) / n;
-      const v = Math.max(0, Math.min(1, 1.05 - dist * 1.9 + rr(rng, -0.22, 0.22)));
+      const v = Math.max(0, Math.min(1, 1.15 - dist * 2.6 + rr(rng, -0.18, 0.18)));
       const x = x0 + c * (cell + gapC), y = y0 + r * (cell + gapC);
       const hex = v > 0.4 && rng() < 0.16 ? ACCENTS[b] : ACCENTS[a];
       s += `<rect x="${f(x)}" y="${f(y)}" width="${cell}" height="${cell}" rx="14"
-        fill="${hex}" fill-opacity="${f(0.05 + v * 0.5)}"
-        stroke="${P.line}" stroke-opacity="0.8"/>`;
+        fill="${hex}" fill-opacity="${f(0.04 + v * 0.52)}"
+        stroke="${P.line}" stroke-opacity="0.6"/>`;
       if (v > 0.82) hot.push([x, y, hex]);
     }
   }
@@ -387,16 +395,16 @@ function mStack(rng, a, b, W, H) {
     if (i < layers - 1) {
       s += `<path d="M ${f(cx - hw)} ${f(y)} V ${f(y + dy * 0.55)} M ${f(cx + hw)} ${f(y)}
         V ${f(y + dy * 0.55)} M ${cx} ${f(y + hh)} V ${f(y + hh + dy * 0.55)}"
-        stroke="${P.line}" stroke-width="1.5"/>`;
+        stroke="${P.ink}" stroke-opacity="0.22" stroke-width="1.5"/>`;
     }
-    s += `<path d="${dia(y)}" fill="${P.bg2}" fill-opacity="0.88"
-      stroke="${hex}" stroke-opacity="${i === 0 ? 0 : 0.45}" stroke-width="1.6"/>`;
+    s += `<path d="${dia(y)}" fill="${P.bg2}" fill-opacity="0.9"
+      stroke="${hex}" stroke-opacity="${i === 0 ? 0 : 0.6}" stroke-width="1.6"/>`;
     if (i === 0) s += glowPath(dia(y), ACCENTS[a], 2.6, 0.95);
     s += `<path d="${dia(y)}" fill="url(#orb-${i === 0 ? a : b})" fill-opacity="${i === 0 ? 0.35 : 0.12}"/>`;
   }
   s += node(cx, topY - hh, 7, a);
   s += `<path d="M ${cx} ${f(topY - hh - 18)} V ${f(H * 0.12)}" stroke="${ACCENTS[a]}"
-    stroke-opacity="0.5" stroke-width="1.6" stroke-dasharray="2 7"/>`;
+    stroke-opacity="0.7" stroke-width="1.6" stroke-dasharray="2 7"/>`;
   s += node(cx, H * 0.12, 4.5, 'amber', 2.6);
   const px = W * 0.64, py = H * 0.76;
   s += card(px, py, 270, 130) + skeleton(rng, px + 26, py + 32, 218, 2, 26) + dotRow(px + 26, py + 104, b, 3);
@@ -422,7 +430,7 @@ function mShield(rng, a, b, W, H) {
     stroke="${ACCENTS[b]}" stroke-opacity="0.4" stroke-width="1.6"/>`;
   s += node(cx, top + h * 0.46, 9, a, 4);
   s += `<circle cx="${cx}" cy="${f(top + h * 0.46)}" r="44" fill="none" stroke="${ACCENTS[a]}"
-    stroke-opacity="0.35" stroke-width="1.4" stroke-dasharray="3 8"/>`;
+    stroke-opacity="0.55" stroke-width="1.4" stroke-dasharray="3 8"/>`;
   const px = W * 0.085, py = H * 0.78;
   s += card(px, py, 260, 124) + skeleton(rng, px + 26, py + 32, 208, 2, 26) + dotRow(px + 26, py + 98, a, 4);
   s += dotRow(W * 0.74, H * 0.12, b, 3);
@@ -430,7 +438,11 @@ function mShield(rng, a, b, W, H) {
 }
 
 function mStaircase(rng, a, b, W, H) {
-  const n = 5, x0 = W * 0.12, y0 = H * 0.78, stepW = (W * 0.62) / n;
+  return rng() < 0.5 ? stairSteps(rng, a, b, W, H) : stairCurve(rng, a, b, W, H);
+}
+
+function stairSteps(rng, a, b, W, H) {
+  const n = 4 + Math.floor(rng() * 2), x0 = W * 0.12, y0 = H * 0.78, stepW = (W * 0.62) / n;
   let s = '';
   const tops = [];
   for (let i = 0; i < n; i++) {
@@ -456,6 +468,33 @@ function mStaircase(rng, a, b, W, H) {
   return s;
 }
 
+/** Forecast variant: rising curve with widening confidence band + waypoints. */
+function stairCurve(rng, a, b, W, H) {
+  const x0 = W * 0.12, x1 = W * 0.86, y0 = H * 0.76, y1 = H * 0.24, n = 9;
+  const pts = [], up = [], lo = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, x = x0 + (x1 - x0) * t;
+    const y = y0 - (y0 - y1) * t ** 1.3 + Math.sin(t * 8 + rng()) * 28 * Math.sin(Math.PI * t);
+    const spread = 10 + t ** 1.6 * 110;
+    pts.push([x, y]); up.push([x, y - spread]); lo.push([x, y + spread]);
+  }
+  const band = `${smoothPath(up)} L ${lo.slice().reverse().map(([x, y]) => `${f(x)} ${f(y)}`).join(' L ')} Z`;
+  let s = `<path d="M ${f(x0)} ${f(y0)} H ${f(x1 + 40)}" stroke="${P.ink}" stroke-opacity="0.18"/>`;
+  s += `<path d="${band}" fill="${ACCENTS[a]}" fill-opacity="0.09"
+    stroke="${ACCENTS[a]}" stroke-opacity="0.35" stroke-width="1.2"/>`;
+  s += glowPath(smoothPath(pts), 'url(#flow)', 4.5, 0.95);
+  for (const i of [2, 4, 6]) s += node(pts[i][0], pts[i][1], 4.5, a, 2.6);
+  s += node(pts[n][0], pts[n][1], 7, b);
+  for (let i = 0; i < 7; i++) {
+    s += `<circle cx="${f(rr(rng, x0 + 40, x1))}" cy="${f(rr(rng, y0 - 60, y0 + 90))}"
+      r="${f(rr(rng, 2, 3.5))}" fill="${P.ink}" fill-opacity="0.3"/>`;
+  }
+  s += node(rr(rng, x0 + 100, x1 - 100), y0 + rr(rng, 30, 70), 3.5, 'amber', 2.6);
+  const px = W * rr(rng, 0.6, 0.66), py = H * 0.12;
+  s += card(px, py, 260, 116) + skeleton(rng, px + 26, py + 30, 208, 2, 26) + dotRow(px + 26, py + 90, a, 3);
+  return s;
+}
+
 function mConnectors(rng, a, b, W, H) {
   const hubX = W / 2, hubY = H * 0.48, sq = 78;
   let s = '';
@@ -464,9 +503,9 @@ function mConnectors(rng, a, b, W, H) {
     const px = side > 0 ? x + sq : x, py = y + sq / 2;
     const d = `M ${f(px)} ${f(py)} C ${f(px + side * 130)} ${f(py)}, ${f(hubX - side * 170)} ${f(hubY)}, ${f(hubX)} ${f(hubY)}`;
     let g = lit ? glowPath(d, ACCENTS[key], 2.4, 0.8)
-      : `<path d="${d}" fill="none" stroke="${P.line}" stroke-width="1.6"/>`;
+      : `<path d="${d}" fill="none" stroke="#2a3a63" stroke-width="1.6"/>`;
     g += `<rect x="${f(x)}" y="${f(y)}" width="${sq}" height="${sq}" rx="18" fill="url(#cardg)"
-      stroke="${hex}" stroke-opacity="${lit ? 0.9 : 1}" stroke-width="1.6"/>
+      stroke="${lit ? hex : '#2a3a63'}" stroke-opacity="${lit ? 0.9 : 1}" stroke-width="1.6"/>
       <circle cx="${f(x + sq / 2)}" cy="${f(y + sq / 2)}" r="11" fill="none"
         stroke="${lit ? ACCENTS[key] : P.ink}" stroke-opacity="${lit ? 0.9 : 0.3}" stroke-width="2.5"/>
       <circle cx="${f(px)}" cy="${f(py)}" r="4" fill="${hex}"/>`;
@@ -477,7 +516,9 @@ function mConnectors(rng, a, b, W, H) {
     s += port(W * 0.13, y + rr(rng, -14, 14), 1, i === 1 ? a : b, i === 1);
     s += port(W * 0.87 - sq, y + rr(rng, -14, 14), -1, i === 2 ? b : a, i !== 1);
   }
-  s += `<circle cx="${hubX}" cy="${f(hubY)}" r="56" fill="${P.bg2}" stroke="${P.line}"/>`;
+  s += `<circle cx="${hubX}" cy="${f(hubY)}" r="84" fill="none" stroke="${ACCENTS[a]}"
+    stroke-opacity="0.25" stroke-width="1.3" stroke-dasharray="3 9"/>`;
+  s += `<circle cx="${hubX}" cy="${f(hubY)}" r="56" fill="${P.bg2}" stroke="#2a3a63" stroke-width="1.5"/>`;
   s += `<circle cx="${hubX}" cy="${f(hubY)}" r="56" fill="url(#orb-${a})" fill-opacity="0.5"/>`;
   s += glowPath(arcPath(hubX, hubY, 56, -60, 200), ACCENTS[a], 2.6, 0.9);
   s += node(hubX, hubY, 9, a, 3);
@@ -503,7 +544,7 @@ function mSentiment(rng, a, b, W, H) {
   s += glowPath(`M ${W / 2} ${f(y - 40)} V ${f(y + h + 40)}`, 'url(#flow)', 2, 0.5);
   s += node(W / 2, y - 40, 5, a, 2.8) + node(W / 2, y + h + 40, 5, b, 2.8);
   const by = H * 0.74;
-  s += card(lx, by, w * 2 + gap, 140, 20) + barChart(rng, lx + 34, by + 30, w * 2 + gap - 68, 84, a, b);
+  s += card(lx, by, w * 2 + gap, 140, 20) + barChart(rng, lx + 34, by + 30, w * 2 + gap - 68, 84, 14, a, b);
   return s;
 }
 
@@ -518,17 +559,18 @@ function mBubbles(rng, a, b, W, H) {
   spec.forEach(([dx, dy, r, key]) => {
     const x = cx + dx + rr(rng, -18, 18), y = cy + dy + rr(rng, -18, 18);
     if (Math.hypot(dx, dy) > 1) {
-      s += `<path d="M ${f(cx)} ${f(cy)} L ${f(x)} ${f(y)}" stroke="${P.line}" stroke-width="1.4"/>`;
+      s += `<path d="M ${f(cx)} ${f(cy)} L ${f(x)} ${f(y)}" stroke="${P.ink}"
+        stroke-opacity="0.14" stroke-width="1.3"/>`;
     }
-    s += `<circle cx="${f(x)}" cy="${f(y)}" r="${r}" fill="url(#orb-${key})" fill-opacity="0.42"/>
+    s += `<circle cx="${f(x)}" cy="${f(y)}" r="${r}" fill="url(#orb-${key})" fill-opacity="0.55"/>
       <circle cx="${f(x)}" cy="${f(y)}" r="${r}" fill="none" stroke="${ACCENTS[key]}"
-        stroke-opacity="0.55" stroke-width="1.6"/>`;
+        stroke-opacity="0.7" stroke-width="1.6"/>`;
   });
   s += glowPath(`M ${f(cx + 130)} ${f(cy)} A 130 130 0 1 1 ${f(cx)} ${f(cy - 130)}`, ACCENTS[a], 2.6, 0.9);
   s += node(cx, cy - 130, 6, a);
   for (let i = 0; i < 5; i++) {
     s += `<circle cx="${f(rr(rng, W * 0.12, W * 0.88))}" cy="${f(rr(rng, H * 0.12, H * 0.85))}"
-      r="${f(rr(rng, 2, 4))}" fill="${ACCENTS[i % 2 ? b : 'amber']}" fill-opacity="0.5"/>`;
+      r="${f(rr(rng, 2, 4))}" fill="${ACCENTS[i % 2 ? b : 'amber']}" fill-opacity="0.75"/>`;
   }
   s += card(W * 0.09, H * 0.79, 250, 116) + skeleton(rng, W * 0.09 + 26, H * 0.79 + 32, 198, 2, 26);
   s += dotRow(W * 0.09 + 26, H * 0.79 + 92, b, 4);
@@ -539,23 +581,29 @@ function mBubbles(rng, a, b, W, H) {
 // Motif registry + selection
 // ---------------------------------------------------------------------------
 const MOTIFS = [
-  ['waveform', /wave|ribbon|audio|voice|signal/, mWaveform],
-  ['gauge', /gauge|dial|meter|score(?!card)/, mGauge],
-  ['scorecard', /scorecard|kpi|dashboard|card grid|metric/, mScorecard],
-  ['graph', /graph|network|node|knowledge|mesh/, mGraph],
-  ['funnel', /funnel|pipeline|conversion|stage/, mFunnel],
-  ['heatmap', /heatmap|calendar|matrix|density/, mHeatmap],
-  ['stack', /stack|layer|architecture|platform|tier/, mStack],
-  ['shield', /shield|security|compliance|privacy|lattice|guard/, mShield],
-  ['staircase', /coach|staircase|step|growth|ladder|progress/, mStaircase],
-  ['connectors', /connector|plug|integrat|api|webhook|sync/, mConnectors],
-  ['sentiment', /sentiment|emotion|split|polarity|mood/, mSentiment],
-  ['bubbles', /topic|cluster|bubble|theme|cloud/, mBubbles],
+  ['waveform', /waveform|ribbon|audio|voice|spectrogram|strand|helix|braid|wave\b/, mWaveform],
+  ['gauge', /gauge|dial|meter|radial|radar|orbit|concentric|ring/, mGauge],
+  ['scorecard', /scorecard|kpi|dashboard|tile|card/, mScorecard],
+  ['graph', /graph|network|node|knowledge|mesh|constellation|waypoint|journey/, mGraph],
+  ['funnel', /funnel|pipeline|conversion|stage|pyramid|distill|tributary|merging/, mFunnel],
+  ['heatmap', /heatmap|calendar|matrix|density|cell/, mHeatmap],
+  ['stack', /layered|architecture|stack(?!ed)|tier\b|plane/, mStack],
+  ['shield', /shield|security|compliance|privacy|lattice|guard|perimeter/, mShield],
+  ['staircase', /coach|staircase|step(?:ping|s)?\b|ladder|milestone|checkpoint|forecast|curve/, mStaircase],
+  ['connectors', /connector|plug|socket|integrat|api\b|webhook|circuit|gate/, mConnectors],
+  ['sentiment', /sentiment|emotion|polarity|mood|split panel/, mSentiment],
+  ['bubbles', /bubble|cluster|topic|venn|orb\b/, mBubbles],
 ];
 
+/** Earliest keyword mention wins: concepts lead with the primary motif. */
 function chooseMotif(concept, slug) {
   const c = (concept || '').toLowerCase();
-  for (const [name, re, fn] of MOTIFS) if (re.test(c)) return [name, fn];
+  let best = null, bestIdx = Infinity;
+  for (const [name, re, fn] of MOTIFS) {
+    const m = re.exec(c);
+    if (m && m.index < bestIdx) { bestIdx = m.index; best = [name, fn]; }
+  }
+  if (best) return best;
   const [name, , fn] = MOTIFS[hashString(`motif:${slug}`) % MOTIFS.length];
   return [name, fn];
 }
@@ -580,7 +628,7 @@ function ribbonToAnalytics(rng, x0, x1, cy, amp, scale = 1) {
   for (const i of [8, 14, 21]) s += node(main[i][0], main[i][1], 4 * scale, i === 14 ? 'amber' : 'cyan');
   // Analytics zone: rising bars on a baseline.
   const bx = split + 40 * scale, bw = (x1 - bx) * 0.55;
-  s += `<path d="M ${f(bx)} ${f(cy + amp * 1.15)} H ${f(x1)}" stroke="${P.line}"/>`;
+  s += `<path d="M ${f(bx)} ${f(cy + amp * 1.15)} H ${f(x1)}" stroke="${P.ink}" stroke-opacity="0.18"/>`;
   s += barChart(rng, bx, cy - amp * 0.7, bw, amp * 1.8, 7, 'violet', 'amber');
   // Cards + nodes above and below the bars.
   const cw = 230 * scale, ch = 118 * scale;
@@ -590,7 +638,8 @@ function ribbonToAnalytics(rng, x0, x1, cy, amp, scale = 1) {
   s += skeleton(rng, bx + bw + 70 * scale + 22, cy + amp * 0.25 + 26, cw * 0.86 - 44, 2, 22 * scale);
   s += dotRow(bx + bw + 70 * scale + 22, cy + amp * 0.25 + ch * 0.8 - 20, 'amber', 3, 16);
   const n1 = [bx + bw * 0.5, cy - amp * 1.3], n2 = [bx + bw + 36 * scale + cw * 0.5, cy + amp * 1.05];
-  s += `<path d="M ${f(n1[0])} ${f(n1[1])} L ${f(n2[0] - 120)} ${f(n2[1] - 50)}" stroke="${P.line}" stroke-width="1.4"/>`;
+  s += `<path d="M ${f(n1[0])} ${f(n1[1])} L ${f(n2[0] - 120)} ${f(n2[1] - 50)}" stroke="${P.ink}"
+    stroke-opacity="0.16" stroke-width="1.4"/>`;
   s += node(n1[0], n1[1], 5, 'violet', 3) + node(n2[0] - 120, n2[1] - 50, 4, 'teal', 3);
   return s;
 }
@@ -656,14 +705,6 @@ const SAMPLE_PRODUCTS = [
   { slug: 'sample-agent-coaching', name: 'Agent Coaching', category: 'Enablement', imageConcept: 'coaching staircase motif with amber accent' },
   { slug: 'sample-integrations-hub', name: 'Integrations Hub', category: 'Platform', imageConcept: 'connector plug lattice with teal accent' },
   { slug: 'sample-topic-intelligence', name: 'Topic Intelligence', category: 'Analytics', imageConcept: 'topic cluster bubbles with violet accent' },
-  { slug: 'dev-waveform', name: 'x', category: 'x', imageConcept: 'voice waveform ribbon with cyan accent' },
-  { slug: 'dev-scorecard', name: 'x', category: 'x', imageConcept: 'kpi scorecard grid with violet accent' },
-  { slug: 'dev-graph', name: 'x', category: 'x', imageConcept: 'knowledge graph network with teal accent' },
-  { slug: 'dev-funnel', name: 'x', category: 'x', imageConcept: 'conversion funnel with cyan accent' },
-  { slug: 'dev-heatmap', name: 'x', category: 'x', imageConcept: 'heatmap calendar with violet accent' },
-  { slug: 'dev-stack', name: 'x', category: 'x', imageConcept: 'layered architecture stack with cyan accent' },
-  { slug: 'dev-shield', name: 'x', category: 'x', imageConcept: 'security shield lattice with teal accent' },
-  { slug: 'dev-sentiment', name: 'x', category: 'x', imageConcept: 'sentiment split panel with amber accent' },
 ];
 
 async function main() {

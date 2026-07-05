@@ -5,6 +5,7 @@ import { getStripe, hasStripe } from "@/lib/stripe";
 import { getDb, hasDb } from "@/lib/db";
 import { checkoutSessions } from "@/db/schema";
 import { SITE } from "@/lib/site";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 const checkoutSchema = z.object({
   items: z
@@ -24,11 +25,15 @@ const checkoutSchema = z.object({
  * sends slugs and quantities, so prices cannot be tampered with.
  *
  * Mode selection: if every recurring item shares one billing interval we
- * create a real subscription; carts that mix monthly + yearly items fall back
- * to a one-time payment for the first billing period of each subscription
- * (Stripe Checkout does not allow mixed intervals in a single session).
+ * create a real subscription. Stripe Checkout cannot mix billing intervals in a
+ * single session, so carts mixing monthly + yearly items are rejected with a
+ * clear message rather than silently downgraded to a one-time charge (which
+ * would look like a subscription to the customer but never bill again).
  */
 export async function POST(request: Request) {
+  const limited = enforceRateLimit(request, "checkout", 10, 60_000);
+  if (limited) return limited;
+
   if (!hasStripe()) {
     return NextResponse.json(
       {
@@ -70,6 +75,20 @@ export async function POST(request: Request) {
       .filter((r) => r.product.billingType === "monthly" || r.product.billingType === "yearly")
       .map((r) => (r.product.billingType === "monthly" ? "month" : "year")),
   );
+
+  // Stripe cannot bill monthly and yearly items in one subscription session.
+  // Reject rather than silently charge once — the customer must not think they
+  // subscribed when they didn't.
+  if (intervals.size > 1) {
+    return NextResponse.json(
+      {
+        error:
+          "Monthly and yearly plans can't be purchased together. Please check them out in separate orders.",
+      },
+      { status: 400 },
+    );
+  }
+
   const useSubscription = intervals.size === 1;
   const appUrl = SITE.url;
   const httpsImages = appUrl.startsWith("https://");
@@ -81,20 +100,18 @@ export async function POST(request: Request) {
         : product.billingType === "yearly"
           ? ("year" as const)
           : null;
-    const firstPeriodSuffix =
-      recurringInterval && !useSubscription
-        ? recurringInterval === "month"
-          ? " — first month"
-          : " — first year"
-        : "";
     return {
       quantity,
       price_data: {
         currency: "usd",
         unit_amount: product.priceUsd * 100,
         product_data: {
-          name: `${product.name}${firstPeriodSuffix}`,
+          name: product.name,
           description: product.tagline,
+          // Stamp the slug on the product so the webhook attributes order items
+          // by identity, not by array position (Stripe does not guarantee
+          // line-item order matches creation order).
+          metadata: { slug: product.slug },
           ...(httpsImages ? { images: [`${appUrl}${product.image}`] } : {}),
         },
         ...(useSubscription && recurringInterval
@@ -107,7 +124,7 @@ export async function POST(request: Request) {
   try {
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.create({
-      mode: useSubscription && intervals.size === 1 ? "subscription" : "payment",
+      mode: useSubscription ? "subscription" : "payment",
       line_items: lineItems,
       success_url: `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/cart`,
