@@ -18,14 +18,16 @@
     {
       "id": "WP01-T02",
       "description": "Agree product/website ownership and replace build dependence on an untracked nested checkout with pinned release artifacts.",
-      "status": "partial",
-      "progress_note": "infra/product-source.lock, infra/ci/check-source-contract.sh (+23 behavioural tests), .github/actions/product-source and CI wiring implemented and validated locally; the pinned commit 605cb074 does not satisfy the contract until the product overlay is committed (WP01-T03); remote CI not run; release-artifact consumption is the later end state.",
+      "status": "validated",
+      "progress_note": "Local scope validated: lock + checker (ref-ancestry check added after adversarial self-review), 26 synthetic tests pass, composite action fetches the declared ref before verifying, ci.yml gating wired. Remote CI execution not yet observed: needs the product ref pushed and, if private, PRODUCT_SOURCE_TOKEN (blocked_external).",
       "updated": "2026-09-07"
     },
     {
       "id": "WP01-T03",
       "description": "Reconcile the v1 overlay into reviewable changes; keep legacy routes disabled and document compatibility boundaries.",
-      "status": "not_started"
+      "status": "validated",
+      "updated": "2026-09-07",
+      "progress_note": "Overlay imported into an isolated clone at Homayar/ (worktree), reviewed, committed on feat/commercial-v1-overlay as ff93f89a89850912cc83ef550bec6fa5e74b545d; pyproject.toml+uv.lock authoritative, backend/requirements.txt regenerated via uv export; .claude/settings.local.json untracked; uv run --frozen pytest backend/tests -> 97 passed; check-source-contract.sh --mode ci -> exit 0. Branch not pushed (separate authorization)."
     },
     {
       "id": "WP01-T04",

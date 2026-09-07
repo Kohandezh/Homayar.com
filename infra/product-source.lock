@@ -14,8 +14,8 @@
 # not contain every required_path cannot satisfy the contract.
 
 repository=https://github.com/Kohandezh/HomaYar.git
-ref=dev
-sha=605cb074d1dbbb83e00ff259529bac06a229f3b7
+ref=feat/commercial-v1-overlay
+sha=ff93f89a89850912cc83ef550bec6fa5e74b545d
 
 # Paths that infra/docker/*.Dockerfile, infra/ci/check-migrations.sh and the
 # console/backend CI jobs read from the product checkout.
@@ -47,3 +47,6 @@ forbidden_path=.mypy_cache
 forbidden_path=.pytest_cache
 forbidden_path=.ruff_cache
 forbidden_path=backend/.pytest_cache
+forbidden_path=backend/.venv
+forbidden_path=data
+forbidden_path=.claude/settings.local.json

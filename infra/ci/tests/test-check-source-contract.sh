@@ -173,6 +173,19 @@ run_case "non-https repository in lock" 2 "must be an https://github.com" -- --l
 printf '  repository = https://github.com/Example/Product.git \r\n\t\nref=main\nsha = %s\nrequired_path=  pyproject.toml\n' "${good_sha}" >"${tmp}/spaced.lock"
 run_case "whitespace and CRLF tolerated in lock" 0 "RESULT: satisfied" -- --mode ci --lock "${tmp}/spaced.lock" --product-dir "${good}"
 
+# --- Ref / pin consistency ---------------------------------------------------
+diverged="${tmp}/diverged"
+cp -R "${good}" "${diverged}"
+git -C "${diverged}" checkout -q -b topic
+printf 'topic\n' >"${diverged}/backend/topic.py"
+topic_sha="$(commit_all "${diverged}" "topic commit")"
+write_lock "${tmp}/diverged.lock" "${topic_sha}"
+run_case "pinned commit not reachable from declared ref" 3 "is not reachable from ref" -- --mode ci --lock "${tmp}/diverged.lock" --product-dir "${diverged}"
+
+sed 's/^ref=main$/ref=unpublished/' "${good_lock}" >"${tmp}/unresolvable.lock"
+run_case "ci mode rejects unresolvable ref" 3 "is not resolvable" -- --mode ci --lock "${tmp}/unresolvable.lock" --product-dir "${good}"
+run_case "local mode warns on unresolvable ref" 0 "WARNING: ref \"unpublished\" is not resolvable" -- --mode local --lock "${tmp}/unresolvable.lock" --product-dir "${good}"
+
 # --- Satisfied (exit 0) -----------------------------------------------------
 run_case "ci mode satisfied" 0 "RESULT: satisfied" -- --mode ci --lock "${good_lock}" --product-dir "${good}"
 run_case "local mode satisfied" 0 "RESULT: satisfied" -- --mode local --lock "${good_lock}" --product-dir "${good}"

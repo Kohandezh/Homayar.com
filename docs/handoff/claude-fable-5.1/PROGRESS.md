@@ -35,6 +35,25 @@
 - External blockers: owner approval to commit the baseline capture on this branch; owner decision on committing the product overlay (WP01-T03) and on a read-only token for the product repository in CI; credential owners (WP02); authorized corpus rights (WP13).
 - Next exact action: (1) owners review the WP02 and WP13 drafts and answer their open decisions; (2) with owner approval, commit the capture on this branch; (3) WP01-T03: review the product overlay in `Homayar/` (after adding `homayar-dev.db`, `graphify-out/`, `.mypy_cache/`, `.pytest_cache/`, `.ruff_cache/` to its `.gitignore`), commit it on a feature branch from `dev`, run `uv run pytest backend/tests`, then move `infra/product-source.lock` to that commit and re-run the checker in `ci` mode; (4) then WP04-T01 state contract.
 
+## Session 2 — 2026-09-07 (WP01-T03, source-contract review)
+
+- Date / environment: 2026-09-07; website worktree `claude/homayar-commercial-v1-a266f5`; single agent, no subagents/external models; Docker daemon not running.
+- Package / subtask: WP01-T03 (validated, local scope), WP01-T02 adversarial review (validated, local scope).
+- Baseline repo/ref/dirty state: website worktree clean at `68b4e52` (checkpoint commit of the session-1 capture, local only). Original product checkout untouched (`dev` @ `605cb07`, 34 M / 64 untracked).
+- Scope and files: new isolated product clone at `Homayar/` (ignored by the outer repo; origin `https://github.com/Kohandezh/HomaYar.git`, branch `feat/commercial-v1-overlay`). Overlay imported by file list (142 files); excluded `.claude/settings.local.json`, `graphify-out/`, `homayar-dev.db`, caches. Product `.gitignore` gained `*.db`, `data/`, `graphify-out/`, `.mypy_cache/`, `.pytest_cache/`, `.ruff_cache/`, `.claude/settings.local.json`; `settings.local.json` untracked (kept on disk). `backend/requirements.txt` regenerated as a uv export. Website: `infra/product-source.lock` (ref/sha moved; forbidden `backend/.venv`, `data`, `.claude/settings.local.json`), `infra/ci/check-source-contract.sh` (ref-ancestry check), `.github/actions/product-source/action.yml` (fetches declared ref before verifying), tests (+3), `docs/operations/ci.md`, WP01 `tasks.json`/`README.md`, `backlog.json`.
+- Change and reason: a committed product ref now builds the product; the contract verifies that `sha=` is reachable from `ref=` so a stale `ref=` or an unpublished pin fails remote CI instead of passing silently. Legacy `backend/auth`, `backend/middleware/auth.py`, `backend/routers/*.py` still import jose/passlib/fastapi_users but are not wired into `backend/main.py`; pyproject omits those packages on purpose (compatibility boundary for T03).
+- Commands/results newly executed:
+  - `uv sync --frozen` then `uv run --frozen pytest backend/tests -q -p no:cacheprovider` in `Homayar/` → `97 passed` (53 s, one worker).
+  - `bash infra/ci/tests/test-check-source-contract.sh` → `26 passed, 0 failed`.
+  - `infra/ci/check-source-contract.sh --mode local` and `--mode ci` against `Homayar/` → both `RESULT: satisfied`, exit 0.
+  - `bash -n` on both scripts and YAML parse of action/workflow → ok. ShellCheck/actionlint NOT_RUN (Docker daemon down; previous version passed).
+  - Secret-pattern screen of the overlay → no matches.
+- Local commits: website `68b4e52` (checkpoint), product `ff93f89a89850912cc83ef550bec6fa5e74b545d` on `feat/commercial-v1-overlay`. Nothing pushed.
+- Acceptance satisfied: T03 (overlay reviewable and committed, legacy routes not wired, boundary documented); T02 local scope incl. adversarial review (wrong repo, wrong ref/sha, uncommitted required paths, forbidden files, unresolvable ref all covered by tests).
+- Acceptance pending: F01/F02 remote — GitHub Actions run needs the product branch pushed and, if the repository is private, `PRODUCT_SOURCE_TOKEN`; T04 reproducible container builds; T05 real PostgreSQL tests.
+- External blockers: push authorization for `feat/commercial-v1-overlay`; `PRODUCT_SOURCE_TOKEN` secret (owner); WP02/WP13 owner decisions unchanged.
+- Next exact action: WP01-T05 — replace the SQLite hard-code in `backend/tests/conftest.py` with a PostgreSQL-backed integration path (local PostgreSQL service only while testing), then WP06 queue routing.
+
 ## Template for next session
 
 - Date / environment:

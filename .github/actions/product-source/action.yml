@@ -22,6 +22,7 @@ runs:
         lock="infra/product-source.lock"
         test -f "${lock}" || { echo "::error::${lock} is missing" >&2; exit 2; }
         repository="$(sed -n 's/^repository=//p' "${lock}" | head -n 1)"
+        ref="$(sed -n 's/^ref=//p' "${lock}" | head -n 1)"
         sha="$(sed -n 's/^sha=//p' "${lock}" | head -n 1)"
         if ! [[ "${sha}" =~ ^[0-9a-f]{40}$ ]]; then
           echo "::error::${lock} sha= must be a 40-character commit id" >&2
@@ -31,10 +32,15 @@ runs:
           echo "::error::${lock} repository= must be an https://github.com/<owner>/<repo> URL" >&2
           exit 2
         fi
+        if ! [[ "${ref}" =~ ^[A-Za-z0-9._/-]+$ ]] || [[ "${ref}" == *..* ]]; then
+          echo "::error::${lock} ref= must be a plain branch or tag name" >&2
+          exit 2
+        fi
         slug="${repository#https://github.com/}"
         slug="${slug%.git}"
         slug="${slug%/}"
         echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+        echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
         echo "slug=${slug}" >> "${GITHUB_OUTPUT}"
 
     - name: Check out pinned product source
@@ -45,6 +51,23 @@ runs:
         path: Homayar
         token: ${{ inputs.token }}
         persist-credentials: false
+
+    - name: Fetch declared product ref
+      # actions/checkout only fetched the pinned commit. Fetch the declared
+      # ref (commits and trees only) so the checker can prove the pin is
+      # reachable from it. A ref that exists only locally fails here, which is
+      # the intended signal that the pin has not been published.
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        PRODUCT_SOURCE_TOKEN: ${{ inputs.token }}
+        PRODUCT_REF: ${{ steps.lock.outputs.ref }}
+      run: |
+        set -Eeuo pipefail
+        auth="$(printf 'x-access-token:%s' "${PRODUCT_SOURCE_TOKEN}" | base64 | tr -d '\n')"
+        git -C Homayar -c "http.extraheader=AUTHORIZATION: basic ${auth}" \
+          fetch --no-tags --filter=blob:none origin \
+          "+refs/heads/${PRODUCT_REF}:refs/remotes/origin/${PRODUCT_REF}"
 
     - name: Verify product source contract
       shell: bash

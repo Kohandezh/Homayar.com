@@ -18,9 +18,13 @@ Product source comes from `Kohandezh/HomaYar` at the commit pinned in
 console, backend and container jobs depend on that job and repeat the pinned checkout. In the
 local workspace `Homayar/` is an independent, ignored Git clone; run
 `infra/ci/check-source-contract.sh --mode local` to compare it with the pin. The checker fails
-explicitly when the pinned commit does not contain every required path (today: the v1 overlay
-is uncommitted, so the contract is red until WP01-T03 commits it and the pin moves). A private
-product repository needs a read-only token in the `PRODUCT_SOURCE_TOKEN` secret. See
+explicitly when the pinned commit does not contain every required path, when a forbidden path is
+tracked, or when the pinned commit is not reachable from the declared `ref=` (the action fetches
+that ref, commits and trees only, before verifying; a pin that exists only in a local clone
+therefore fails remote CI until the ref is published). A private product repository needs a
+read-only token in the `PRODUCT_SOURCE_TOKEN` secret. Since WP01-T03 the pin points at
+`feat/commercial-v1-overlay`, a product feature branch that exists locally only; remote CI stays
+`blocked_external` until it is pushed. See
 [ADR 0002](../architecture/decisions/0002-product-source-contract.md). The workflow still emits
 its older explicit source-contract error when the nested console or backend artifacts are absent.
 

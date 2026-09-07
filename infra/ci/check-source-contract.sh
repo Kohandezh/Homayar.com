@@ -165,6 +165,25 @@ if [[ "${head_sha}" != "${sha}" ]]; then
   violation "HEAD ${head_sha} does not match pinned commit ${sha}; check out the pinned commit or update the lock through a reviewed change"
 fi
 
+# Ref consistency: the pinned commit must be reachable from the declared ref so
+# that "ref=" cannot silently describe a branch that never contained "sha=".
+ref_sha=""
+for candidate in "refs/remotes/origin/${ref}" "refs/heads/${ref}" "refs/tags/${ref}"; do
+  if ref_sha="$(git -C "${product_dir}" rev-parse --verify --quiet "${candidate}^{commit}" 2>/dev/null)"; then
+    break
+  fi
+  ref_sha=""
+done
+if [[ -n "${ref_sha}" ]]; then
+  if ! git -C "${product_dir}" merge-base --is-ancestor "${sha}" "${ref_sha}" 2>/dev/null; then
+    violation "pinned commit ${sha} is not reachable from ref \"${ref}\" (${ref_sha}); update ref= and sha= together"
+  fi
+elif [[ "${mode}" == "ci" ]]; then
+  violation "ref \"${ref}\" is not resolvable in ${product_dir} (expected refs/remotes/origin/${ref}); fetch the published ref before verifying so the pin can be checked against it"
+else
+  warn "ref \"${ref}\" is not resolvable locally; pin/ref consistency not verified (a locally committed pin is not available to remote CI until the ref is published)"
+fi
+
 for path in "${required_paths[@]}"; do
   if git -C "${product_dir}" cat-file -e "${sha}:${path}" 2>/dev/null; then
     continue

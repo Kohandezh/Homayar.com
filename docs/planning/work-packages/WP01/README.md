@@ -1,6 +1,6 @@
 # WP01 — Reproducible source and release baseline
 
-Status: IN PROGRESS since 2026-09-07 (T01 validated, T02 partial; see [PROGRESS.md](../../../handoff/claude-fable-5.1/PROGRESS.md) and [ADR 0002](../../../architecture/decisions/0002-product-source-contract.md)). Existing partial code must be reviewed and reused where suitable.
+Status: IN PROGRESS since 2026-09-07 (T01, T02, T03 validated in local scope, remote CI blocked_external until the product ref is published; see [PROGRESS.md](../../../handoff/claude-fable-5.1/PROGRESS.md) and [ADR 0002](../../../architecture/decisions/0002-product-source-contract.md)). Existing partial code must be reviewed and reused where suitable.
 
 Completion dependencies: none; external prerequisites still apply.
 
