@@ -1,0 +1,54 @@
+{
+  "id": "WP07",
+  "title": "Retention, deletion and text privacy",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP04",
+    "WP05",
+    "WP06"
+  ],
+  "feature_ids": [
+    "F15",
+    "F16"
+  ],
+  "subtasks": [
+    {
+      "id": "WP07-T01",
+      "description": "Define explicit immediate/finite/indefinite retention semantics and migrate the current ambiguous zero value safely.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP07-T02",
+      "description": "Add legal-hold ownership, reason, expiry/review and audited release; separate hold from ordinary user preference.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP07-T03",
+      "description": "Implement tombstone-first access denial, durable object/derived-data purge jobs and retry reconciliation.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP07-T04",
+      "description": "Reapply deletion tombstones after restore and document backup expiry rather than promising instant backup erasure.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP07-T05",
+      "description": "Add Persian/English text PII detection, configurable classes and restricted original-to-redacted mappings.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP07-T06",
+      "description": "Route permitted analysis/retrieval/export to the correct redacted or original version and record policy provenance.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP07-T07",
+      "description": "Test retention with a controllable clock, held records, failed storage deletion, mixed-language identifiers and subject-scope export.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP07/README.md"
+}

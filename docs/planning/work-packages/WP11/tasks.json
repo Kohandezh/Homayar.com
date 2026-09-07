@@ -1,0 +1,57 @@
+{
+  "id": "WP11",
+  "title": "Measured signals and versioned quality evaluation",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP04",
+    "WP08",
+    "WP09",
+    "WP10",
+    "WP13"
+  ],
+  "feature_ids": [
+    "F34",
+    "F36",
+    "F41",
+    "F42"
+  ],
+  "subtasks": [
+    {
+      "id": "WP11-T01",
+      "description": "Compute speech/silence/talk ratio/overlap/rate from intervals with precise metric definitions and denominators.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP11-T02",
+      "description": "Define supported intent/topic/entity/outcome taxonomy and schema with evidence and unknown values.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP11-T03",
+      "description": "Implement structured extraction validation, confidence/abstention policy and critical-entity review routing.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP11-T04",
+      "description": "Create versioned scorecards, weights, applicability, thresholds and pass/fail/NA/insufficient-evidence semantics.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP11-T05",
+      "description": "Add deterministic keyword/script checks and contextual criteria using qualified targeted model evaluation.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP11-T06",
+      "description": "Persist criterion evidence, calculation version and score denominator; prohibit inferred NPS or unsupported churn probabilities.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP11-T07",
+      "description": "Compare scores with adjudicated human QA and add regressions for negation, missing speakers, low ASR confidence and contradictory evidence.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP11/README.md"
+}

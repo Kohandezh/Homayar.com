@@ -1,0 +1,55 @@
+{
+  "id": "WP10",
+  "title": "Diarization, overlap and alignment",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP04",
+    "WP08",
+    "WP09",
+    "WP13"
+  ],
+  "feature_ids": [
+    "F30",
+    "F31",
+    "F33"
+  ],
+  "subtasks": [
+    {
+      "id": "WP10-T01",
+      "description": "Implement a real mono diarization adapter with pinned community-1 or a better measured qualified model.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP10-T02",
+      "description": "Preserve anonymous speaker clusters and overlap intervals separately from display-exclusive turns.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP10-T03",
+      "description": "Reconcile speaker identities across long-call chunks and constrain counts only when source evidence supports them.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP10-T04",
+      "description": "Align words/turns to speaker intervals and original recording offsets; retain ambiguous/unknown assignments.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP10-T05",
+      "description": "Calibrate confidence/quality flags using held-out annotations; do not convert similarity into unsupported probability.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP10-T06",
+      "description": "Add timeline representation for overlapping speech and correction-ready turn attribution.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP10-T07",
+      "description": "Evaluate DER/JER, count errors, role accuracy and span offsets, publishing collar/overlap/unknown policies.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP10/README.md"
+}

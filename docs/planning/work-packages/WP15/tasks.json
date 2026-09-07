@@ -1,0 +1,48 @@
+{
+  "id": "WP15",
+  "title": "Issue trends and role dashboards",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP11",
+    "WP14"
+  ],
+  "feature_ids": [
+    "F49",
+    "F61"
+  ],
+  "subtasks": [
+    {
+      "id": "WP15-T01",
+      "description": "Define issue taxonomy, deduplication policy, supported filters and minimum sample thresholds.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP15-T02",
+      "description": "Build scoped SQL aggregates for call reasons, unresolved outcomes, QA and product/service complaints.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP15-T03",
+      "description": "Show denominators, processing coverage, date range, scorecard version and missing-data indicators.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP15-T04",
+      "description": "Provide executive aggregates, analyst drill-down, supervisor team comparisons and agent self-view.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP15-T05",
+      "description": "Link each trend to authorized supporting conversations and distinguish correlation from confirmed root cause.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP15-T06",
+      "description": "Add reference-dataset reconciliation, filter/permission tests and measured query performance.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP15/README.md"
+}

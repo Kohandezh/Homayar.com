@@ -1,0 +1,90 @@
+[
+  {
+    "name": "graphify",
+    "path": "/Users/emperor/.claude/skills/graphify/SKILL.md",
+    "present": true,
+    "sha256": "3e4d30df5a936965acaa25117230a6f3ff44353c137e63030e85e3bc3a391fb7",
+    "purpose": "Local AST architecture map and impact analysis",
+    "runtime_status": "CLI import/version checked; graph rebuild recorded separately"
+  },
+  {
+    "name": "plan-eng-review",
+    "path": "/Users/emperor/.claude/skills/gstack/plan-eng-review/SKILL.md",
+    "present": true,
+    "sha256": "f8c458fbb4805b5bcb87646c209dc4f13c5e93b011122027c8115195f4d1fbb3",
+    "purpose": "Review one implementation package and its tradeoffs",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "review",
+    "path": "/Users/emperor/.claude/skills/gstack/review/SKILL.md",
+    "present": true,
+    "sha256": "70a28e91f7bf971b919dd43a6ccc9e09e2e9937a79d23731aed24d3a4fba8e4a",
+    "purpose": "Pre-completion code review",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "investigate",
+    "path": "/Users/emperor/.claude/skills/gstack/investigate/SKILL.md",
+    "present": true,
+    "sha256": "5569744724aae0f492fea7b87938a219dfca60a5bbacbe5a21d0529afa8a75f5",
+    "purpose": "Root-cause debugging",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "qa",
+    "path": "/Users/emperor/.claude/skills/gstack/qa/SKILL.md",
+    "present": true,
+    "sha256": "b90172b387dceaa7d04779206c428b6d7e333a89b979ffe2a694d34c35b34458",
+    "purpose": "Browser workflow QA",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "browse",
+    "path": "/Users/emperor/.claude/skills/gstack/browse/SKILL.md",
+    "present": true,
+    "sha256": "b5acc117876edec2de77aeb113b0fd172b7482461839fdd3f682f224c37001b5",
+    "purpose": "Existing browser automation",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "cso",
+    "path": "/Users/emperor/.claude/skills/gstack/cso/SKILL.md",
+    "present": true,
+    "sha256": "de9d1fd5270bfbaf6b057390fbba51966f46fa4950a84d3c844fc1d73376a147",
+    "purpose": "Security review",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "uiux-pro-max",
+    "path": "/Users/emperor/.claude/skills/uiux-pro-max/SKILL.md",
+    "present": true,
+    "sha256": "423957baaad884f495e75af0dd87438458280967a101c065a60d32127015e1ff",
+    "purpose": "Persian RTL and application workflow design",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "sparc-methodology",
+    "path": "/Users/emperor/.claude/skills/ruflo-skills/sparc-methodology/SKILL.md",
+    "present": true,
+    "sha256": "eb858ef5f83ea9bdd6c2811df4afc869a2767bc2e374a3c5a9258d449fe193dc",
+    "purpose": "Bounded spec-to-implementation workflow",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "swarm-orchestration",
+    "path": "/Users/emperor/.claude/skills/ruflo-skills/swarm-orchestration/SKILL.md",
+    "present": true,
+    "sha256": "9f0bc14c44ec5c11eb753c02afa843b6ace5043d44b23da25fbca73e8098857a",
+    "purpose": "Optional independent agent tasks",
+    "runtime_status": "not exercised in preparation"
+  },
+  {
+    "name": "verification-quality",
+    "path": "/Users/emperor/.claude/skills/ruflo-skills/verification-quality/SKILL.md",
+    "present": true,
+    "sha256": "5459696e7c68a405248aa1ec0b454f4fde0f4c17cfd1636f5134f7fcd3445f41",
+    "purpose": "Evidence-based verification",
+    "runtime_status": "not exercised in preparation"
+  }
+]

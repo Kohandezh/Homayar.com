@@ -1,0 +1,43 @@
+{
+  "code": {
+    "nodes": 2580,
+    "edges": 7652,
+    "communities": 106,
+    "diagnostics": {
+      "missing_endpoint_edges": 0,
+      "dangling_endpoint_edges": 613,
+      "self_loop_edges": 1,
+      "directed_same_endpoint_collapsed_edges": 226,
+      "undirected_same_endpoint_collapsed_edges": 229
+    },
+    "title": "Current workspace code graph"
+  },
+  "planning": {
+    "nodes": 119,
+    "edges": 148,
+    "communities": 37,
+    "diagnostics": {
+      "missing_endpoint_edges": 0,
+      "dangling_endpoint_edges": 0,
+      "self_loop_edges": 0,
+      "directed_same_endpoint_collapsed_edges": 0,
+      "undirected_same_endpoint_collapsed_edges": 0
+    },
+    "title": "Explicit blueprint dependency graph"
+  },
+  "code_files": 285,
+  "no_symbol_file_count": 0,
+  "graphify_version": "0.9.40",
+  "semantic_scope": "Explicit planning relationships only; free-form documentation semantic extraction not run.",
+  "original_graphs": "Historical root graphify-out and Homayar/graphify-out preserved unchanged.",
+  "full_graph": {
+    "raw_ast_nodes": 2580,
+    "raw_ast_edges": 8492,
+    "explicit_unresolved_reference_nodes": 134,
+    "full_graph_nodes": 2714,
+    "full_graph_edges": 8492,
+    "full_graph_missing_endpoints": 0,
+    "definition_resolution_complete": false,
+    "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Full multigraph retains parallel relations and original self-loops. Resolved graph.json/HTML remain a simplified navigation view."
+  }
+}

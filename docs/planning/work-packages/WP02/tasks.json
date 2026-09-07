@@ -1,0 +1,50 @@
+{
+  "id": "WP02",
+  "title": "Credential containment and deployment security",
+  "status": "in_progress",
+  "depends_on": [],
+  "feature_ids": [
+    "F03",
+    "F10"
+  ],
+  "subtasks": [
+    {
+      "id": "WP02-T01",
+      "description": "Give credential owners the safe path/history inventory; revoke/rotate affected credentials through their approved process and review provider usage.",
+      "status": "blocked_external",
+      "progress_note": "Safe, value-free credential-family inventory (CF-01..CF-07) and per-owner runbook prepared in docs/security/credential-containment-record.md; revocation/rotation and usage review require the credential owners.",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP02-T02",
+      "description": "Identify copied artifacts/forks/caches and prepare a separately approved history-cleanup plan; preserve incident evidence.",
+      "status": "partial",
+      "progress_note": "Copied-artifact/fork/cache inventory checklist and history-cleanup outline drafted; the inventory itself (ZIPs, forks, clones, images, caches) has not been executed and the cleanup needs separate approval.",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP02-T03",
+      "description": "Replace embedded/default credentials with secret references and mandatory secure production settings.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP02-T04",
+      "description": "Enable redacted secret scanning for new commits, full release content, image layers and support bundles.",
+      "status": "partial",
+      "progress_note": "Scanning plan drafted (product history, hooks, release content, image layers, support bundles, allowlist, zero-unreviewed gate); only the existing outer-repository Gitleaks CI job exists today.",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP02-T05",
+      "description": "Configure actual ingress TLS, internal network exposure limits and database/object/backup encryption with key rotation ownership.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP02-T06",
+      "description": "Test invalid production configuration, exposed service ports, log redaction and certificate/key renewal on the supported topology.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "Credential containment can start immediately; actual rotation needs the credential owner. No credentials were tested or rotated in this handoff.",
+  "readme": "docs/planning/work-packages/WP02/README.md"
+}

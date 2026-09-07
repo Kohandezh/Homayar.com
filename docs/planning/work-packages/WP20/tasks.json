@@ -1,0 +1,57 @@
+{
+  "id": "WP20",
+  "title": "Observability, audit and recovery",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP01",
+    "WP02",
+    "WP03",
+    "WP04",
+    "WP05",
+    "WP06"
+  ],
+  "feature_ids": [
+    "F09",
+    "F78",
+    "F79"
+  ],
+  "subtasks": [
+    {
+      "id": "WP20-T01",
+      "description": "Define correlation IDs and stage latency/error/queue/GPU/usage-cost metrics with sensitive-field redaction.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP20-T02",
+      "description": "Add append-only application audit events for authentication, settings, access-sensitive exports, reviews, actions and deletion.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP20-T03",
+      "description": "Deliver audit records to a separately protected sink and document integrity/retention/reconstruction procedures.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP20-T04",
+      "description": "Create actionable alerts for stopped workers, lease backlog, provider failure, purge failure and storage/capacity limits.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP20-T05",
+      "description": "Back up relational data, object manifests, keys/configuration references and deletion state consistently.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP20-T06",
+      "description": "Restore into an isolated environment, reapply tombstones and verify object/DB integrity and access policies.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP20-T07",
+      "description": "Measure proposed RPO 24h/RTO 8h and run incident/support drills with no transcript or secret leakage in diagnostics.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "Telemetry design starts with WP01; dependency list describes full recovery acceptance, not the earliest permissible work.",
+  "readme": "docs/planning/work-packages/WP20/README.md"
+}

@@ -1,0 +1,52 @@
+{
+  "id": "WP06",
+  "title": "Durable processing and recovery",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP04",
+    "WP05"
+  ],
+  "feature_ids": [
+    "F17"
+  ],
+  "subtasks": [
+    {
+      "id": "WP06-T01",
+      "description": "Align queue names and worker subscriptions explicitly; add a real broker-to-worker smoke test.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP06-T02",
+      "description": "Commit job and outbox event atomically, then publish with retry and acknowledgement tracking.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP06-T03",
+      "description": "Add stage attempts/checkpoints with immutable input hashes and idempotent artifact/result writes.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP06-T04",
+      "description": "Implement lease renewal, fencing tokens and a sweeper for abandoned work; reject stale worker commits.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP06-T05",
+      "description": "Define cancellation, retryability, deadlines, poison/dead-letter behavior and bounded retry budgets.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP06-T06",
+      "description": "Make usage and downstream events idempotent even when processing is delivered more than once.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP06-T07",
+      "description": "Inject worker kill, broker restart, lost acknowledgement, duplicate delivery and object-write failure; reconcile all accepted jobs.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP06/README.md"
+}

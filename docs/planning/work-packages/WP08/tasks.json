@@ -1,0 +1,50 @@
+{
+  "id": "WP08",
+  "title": "Provider registry and privacy routing",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP04",
+    "WP06",
+    "WP07"
+  ],
+  "feature_ids": [
+    "F20",
+    "F21",
+    "F22"
+  ],
+  "subtasks": [
+    {
+      "id": "WP08-T01",
+      "description": "Add versioned model/prompt/capability manifests with language, task, license, endpoint, region and structured-output support.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP08-T02",
+      "description": "Define per-tenant stage policies and immutable policy snapshots on each run.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP08-T03",
+      "description": "Implement privacy/eligibility filtering before health, quality, latency and cost selection.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP08-T04",
+      "description": "Qualify chosen local and API adapters through identical typed contract tests, including schema rejection and usage reporting.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP08-T05",
+      "description": "Add deadlines, rate limits, backoff, Retry-After, health circuits and approved same-policy fallback.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP08-T06",
+      "description": "Block unauthorized egress at network and application layers; test local failure with cloud keys configured.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP08/README.md"
+}

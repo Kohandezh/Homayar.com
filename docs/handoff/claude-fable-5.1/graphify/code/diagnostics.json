@@ -1,0 +1,201 @@
+{
+  "node_count": 2580,
+  "unverified_node_count": 0,
+  "raw_edge_count": 8492,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 613,
+  "self_loop_edges": 1,
+  "valid_candidate_edges": 7879,
+  "exact_duplicate_edges": 30,
+  "directed_unique_endpoint_pairs": 7653,
+  "directed_same_endpoint_collapsed_edges": 226,
+  "undirected_unique_endpoint_pairs": 7650,
+  "undirected_same_endpoint_collapsed_edges": 229,
+  "same_endpoint_group_count": 202,
+  "relation_variant_groups": 152,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 12,
+  "context_variant_groups": 28,
+  "post_build_graph_type": "DiGraph",
+  "post_build_node_count": 2580,
+  "post_build_edge_count": 7652,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "/Users/emperor/.local/share/uv/tools/graphifyy/lib/python3.10/site-packages/graphify/extract.py",
+    "total_sites": 11,
+    "sites": [
+      {
+        "line": 1125,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1391,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1393,
+        "name": "seen_doc_refs",
+        "tuple_arity": 0,
+        "sample": "seen_doc_refs: set[str] = set()"
+      },
+      {
+        "line": 1753,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2243,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 2412,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 3818,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3926,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4005,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4520,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 4521,
+        "name": "seen_edges",
+        "tuple_arity": 4,
+        "sample": "seen_edges: set[tuple[str, str, str, str | None]] = set()"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "homayar_backend_main",
+      "target": "homayar_backend_routers_v1_init",
+      "edge_count": 7,
+      "relations": [
+        "imports_from"
+      ],
+      "source_files": [
+        "Homayar/backend/main.py"
+      ],
+      "source_locations": [
+        "L21",
+        "L22",
+        "L23",
+        "L24",
+        "L25",
+        "L26",
+        "L27"
+      ],
+      "contexts": [
+        "import"
+      ]
+    },
+    {
+      "source": "homayar_backend_media_validation_validate_media_upload",
+      "target": "pathlike",
+      "edge_count": 4,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "Homayar/backend/media/validation.py"
+      ],
+      "source_locations": [
+        "L360"
+      ],
+      "contexts": [
+        "generic_arg",
+        "parameter_type"
+      ]
+    },
+    {
+      "source": "homayar_backend_jobs_processor_materialize_recording",
+      "target": "homayar_backend_jobs_processor_py_path",
+      "edge_count": 3,
+      "relations": [
+        "calls",
+        "references"
+      ],
+      "source_files": [
+        "Homayar/backend/jobs/processor.py"
+      ],
+      "source_locations": [
+        "L195",
+        "L202"
+      ],
+      "contexts": [
+        "call",
+        "parameter_type",
+        "return_type"
+      ]
+    },
+    {
+      "source": "homayar_backend_jobs_processor_transcript_turns",
+      "target": "homayar_backend_providers_schemas_transcriptturn",
+      "edge_count": 3,
+      "relations": [
+        "calls",
+        "references"
+      ],
+      "source_files": [
+        "Homayar/backend/jobs/processor.py"
+      ],
+      "source_locations": [
+        "L259",
+        "L264"
+      ],
+      "contexts": [
+        "call",
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "homayar_backend_providers_factory_unsupported_provider",
+      "target": "homayar_backend_providers_base_providererror",
+      "edge_count": 3,
+      "relations": [
+        "calls",
+        "references"
+      ],
+      "source_files": [
+        "Homayar/backend/providers/factory.py"
+      ],
+      "source_locations": [
+        "L38",
+        "L39"
+      ],
+      "contexts": [
+        "call",
+        "return_type"
+      ]
+    }
+  ]
+}

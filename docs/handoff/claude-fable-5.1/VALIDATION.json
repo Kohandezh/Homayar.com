@@ -1,0 +1,44 @@
+{
+  "protected_files_unchanged": 338,
+  "repositories": [
+    {
+      "name": "website",
+      "head_unchanged": true,
+      "status_matches_preparation_baseline": true
+    },
+    {
+      "name": "product",
+      "head_unchanged": true,
+      "status_matches_preparation_baseline": true
+    }
+  ],
+  "features": 95,
+  "required_feature_acceptance": 64,
+  "work_packages": 24,
+  "subtasks": 161,
+  "json_parsed": 41,
+  "missing_local_links": [],
+  "credential_pattern_counts": [
+    0,
+    0,
+    0
+  ],
+  "visual": [
+    {
+      "kind": "code",
+      "title": "graphify - docs/handoff/claude-fable-5.1/graphify/code/graph.html",
+      "canvases": 1,
+      "page_errors": [],
+      "external_requests_blocked": 0
+    },
+    {
+      "kind": "planning",
+      "title": "graphify - docs/handoff/claude-fable-5.1/graphify/planning/graph.html",
+      "canvases": 1,
+      "page_errors": [],
+      "external_requests_blocked": 0
+    }
+  ],
+  "product_tests_rerun": false,
+  "note": "Prior 97-pass backend test result is historical."
+}

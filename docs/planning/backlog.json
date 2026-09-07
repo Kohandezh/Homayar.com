@@ -1,0 +1,3576 @@
+{
+  "schema_version": 1,
+  "source": "homayar-commercial-blueprint.md",
+  "feature_count": 95,
+  "required_feature_count": 64,
+  "features": [
+    {
+      "id": "F01",
+      "feature": "Release/source provenance",
+      "state": "W uncommitted",
+      "target": "Clean reproducible release",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP01",
+      "R": 4,
+      "A": 5,
+      "F": 5,
+      "T": 4,
+      "D": 2,
+      "E": 5,
+      "K": 2,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Fresh checkout from the selected release ref builds API, console and workers with no dirty/untracked dependency; release manifest identifies every source/image/model revision.",
+      "completion_dependencies": [],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F02",
+      "feature": "CI, migrations and regression suites",
+      "state": "S partial",
+      "target": "Clean-checkout release gates",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP01",
+      "R": 4,
+      "A": 5,
+      "F": 5,
+      "T": 4,
+      "D": 2,
+      "E": 5,
+      "K": 2,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Required unit, PostgreSQL integration, queue and browser flows pass; fresh database and upgrade from the previous supported schema preserve seeded tenant/usage/evidence records.",
+      "completion_dependencies": [],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F03",
+      "feature": "Secret containment and scanning",
+      "state": "M leaked material",
+      "target": "Rotated credentials; redacted scans",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP02",
+      "R": 5,
+      "A": 5,
+      "F": 5,
+      "T": 5,
+      "D": 1,
+      "E": 5,
+      "K": 5,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Credential-owner containment is recorded for each suspected credential family; new source/history-distribution/image/support-bundle scans have zero unreviewed credential findings; no values enter reports/logs.",
+      "completion_dependencies": [],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F04",
+      "feature": "Unified login, refresh, reset, verification",
+      "state": "W functional immature",
+      "target": "One revocable session system",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP03",
+      "R": 4,
+      "A": 5,
+      "F": 5,
+      "T": 4,
+      "D": 2,
+      "E": 5,
+      "K": 4,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Expired/revoked/disabled/reused refresh credentials and password-reset-invalidated sessions fail; legitimate rotation succeeds once; cookie CSRF and account-linking negative cases pass.",
+      "completion_dependencies": [
+        "WP01"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F05",
+      "feature": "Tenant isolation across DB, files, jobs, search",
+      "state": "W partial",
+      "target": "Enforced scoped access plus RLS",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP03",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 5,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Two-tenant negative suite covers all API/object/job/share/export/search/projection operations with zero unauthorized reads/writes; pooled PostgreSQL connections never retain another tenant's context.",
+      "completion_dependencies": [
+        "WP01"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F06",
+      "feature": "Teams, supervisor and agent record permissions",
+      "state": "W missing",
+      "target": "Least-privilege operational roles",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP03",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Supervisor sees assigned teams only, agent sees authorized self records, analyst sees approved data and executive sees allowed aggregates; all matrix-denied actions fail server-side.",
+      "completion_dependencies": [
+        "WP01"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F07",
+      "feature": "Enterprise OIDC/SAML federation and MFA",
+      "state": "D LDAP partial",
+      "target": "SSO through qualified identity broker",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP23",
+      "R": 5,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "OIDC and the supported SAML-broker profile complete login/logout/linking; privileged MFA enforced; disabled/group-removed users lose access within the documented maximum, proposed ≤15 minutes, with immediate admin revocation available.",
+      "completion_dependencies": [
+        "WP02",
+        "WP03",
+        "WP19"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F08",
+      "feature": "SCIM automated provisioning",
+      "state": "Missing",
+      "target": "Lifecycle provisioning after buyer demand",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 3,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 4,
+      "K": 3,
+      "score": 64,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F09",
+      "feature": "Audit trail and tamper-evident export",
+      "state": "W partial",
+      "target": "Actor, scope and immutable external sink",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP20",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Every tested privileged configuration, export, review override, action and deletion records actor, scope, time, reason and result; protected sink detects a deliberately altered/missing event in an integrity drill.",
+      "completion_dependencies": [
+        "WP01",
+        "WP02",
+        "WP03",
+        "WP04",
+        "WP05",
+        "WP06"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F10",
+      "feature": "TLS, encryption, key rotation, restricted networks",
+      "state": "S partial",
+      "target": "Tested deployment controls",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP02",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 5,
+      "K": 5,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "External access uses validated TLS; DB/broker/object consoles are unreachable from public ingress; encrypted data/backup access fails without authorized keys; renewal/rotation drill succeeds.",
+      "completion_dependencies": [],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F11",
+      "feature": "Customer-managed keys and IP/session policies",
+      "state": "Partial/missing",
+      "target": "Dedicated-enterprise policy options",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 68,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F12",
+      "feature": "Adversarial media validation",
+      "state": "W functional immature",
+      "target": "Bounded decode and channel-safe validation",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP05",
+      "R": 5,
+      "A": 5,
+      "F": 5,
+      "T": 4,
+      "D": 2,
+      "E": 5,
+      "K": 4,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Supported codec fixtures pass; forged, malformed, oversized and duration-expansion inputs fail within configured time/memory bounds and never reach inference; original checksums remain intact.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F13",
+      "feature": "Idempotent upload and ingestion ledger",
+      "state": "W partial",
+      "target": "Retry-safe ingest and source deduplication",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP05",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 3,
+      "E": 5,
+      "K": 3,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Repeating one source event/upload finalization 100 times creates one logical conversation and one eligible usage effect; same key with changed payload returns a conflict.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F14",
+      "feature": "Private object storage lifecycle",
+      "state": "W partial",
+      "target": "Qualified S3/private-storage adapters",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP05",
+      "R": 5,
+      "A": 5,
+      "F": 5,
+      "T": 4,
+      "D": 2,
+      "E": 5,
+      "K": 4,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Unauthorized/expired downloads fail; multipart abort and DB/storage partial failure reconcile without accessible orphan objects; supported storage contract suite passes.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F15",
+      "feature": "Retention, deletion, legal hold and subject export",
+      "state": "W fields only",
+      "target": "Enforced purge and restore tombstones",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP07",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 5,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Finite expiry and explicit immediate/indefinite settings behave as documented; access denied immediately on accepted deletion; active-store purge completes within 24h under normal conditions or raises retry alert; held data remains; restore reapplies tombstones.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP05",
+        "WP06"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F16",
+      "feature": "Text PII redaction and access policy",
+      "state": "Missing",
+      "target": "Redacted downstream copy; restricted original",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP07",
+      "R": 5,
+      "A": 4,
+      "F": 3,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 5,
+      "score": 78,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "On a separately annotated supported-class Persian/English set, proposed recall ≥95% and precision ≥90%; unsupported classes and residual risk disclosed; protected originals never enter a redacted-only provider/export path.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP05",
+        "WP06"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F17",
+      "feature": "Durable queue, leases, checkpoints and recovery",
+      "state": "W partial",
+      "target": "No lost/stuck jobs or duplicate effects",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP06",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Worker kill, broker outage, lost ACK, duplicate delivery and storage fault leave no lost accepted job; abandoned work resumes within two configured sweeper intervals after recovery; stale worker commits rejected; completed stages and financial/action effects are not duplicated.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP05"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F18",
+      "feature": "Usage metering, quotas and plan limits",
+      "state": "W functional immature",
+      "target": "Exactly-once ledger effects and reconciliation",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP18",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 5,
+      "K": 4,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "100 concurrent reservation/completion attempts cannot exceed a hard configured quota or double charge; cancellation/partial/retry/rollover reconcile exactly with ledger and customer usage report.",
+      "completion_dependencies": [
+        "WP03",
+        "WP06"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F19",
+      "feature": "Subscription invoicing and payment adapters",
+      "state": "W manual reads",
+      "target": "Annual/manual plus optional PSP billing",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP18",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 4,
+      "K": 3,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Invoice line totals match approved rate/usage/credits; replayed payment events do not duplicate activation/credit; unpaid/expired/grace transitions follow policy; startup does not overwrite negotiated entitlements.",
+      "completion_dependencies": [
+        "WP03",
+        "WP06"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F20",
+      "feature": "Model/prompt registry and provider capabilities",
+      "state": "W partial",
+      "target": "Versioned stage-specific provider policies",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP08",
+      "R": 4,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 3,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Every production run records stage model/prompt/schema/license-policy identifiers; an unknown/unqualified model fails preflight; a prior approved manifest can be restored without rewriting historical results.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP06",
+        "WP07"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F21",
+      "feature": "Tenant privacy/region routing and egress denial",
+      "state": "W global config",
+      "target": "Privacy precedes cost or fallback",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP08",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 5,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "With cloud credentials present and the local provider unavailable, a local-only tenant emits zero unauthorized outbound requests and returns a truthful failure/partial state; forbidden region/provider choices are rejected.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP06",
+        "WP07"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F22",
+      "feature": "Provider retry, health and circuit breakers",
+      "state": "W partial",
+      "target": "Bounded transient retry; typed failures",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP08",
+      "R": 4,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 2,
+      "E": 5,
+      "K": 3,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Inject timeout, 429, Retry-After, 5xx, invalid schema and permanent auth errors; transient retries stay within budget, permanent errors stop, circuits open/recover, and no fallback violates tenant policy.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP06",
+        "WP07"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F23",
+      "feature": "Honest stage states and mock exclusion",
+      "state": "D unsafe; W partial",
+      "target": "Visible partial/unavailable; zero fake scores",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP04",
+      "R": 5,
+      "A": 5,
+      "F": 5,
+      "T": 4,
+      "D": 4,
+      "E": 5,
+      "K": 5,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Each forced missing/failing stage is represented in API/UI/export; unavailable diarization or failed QA cannot appear fully successful; production mock configuration is rejected and no random/default analytics are substituted.",
+      "completion_dependencies": [
+        "WP01"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F24",
+      "feature": "Evidence/revision/provenance schema",
+      "state": "W partial",
+      "target": "Immutable spans and reproducible findings",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP04",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 5,
+      "E": 5,
+      "K": 4,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "100% of returned citations resolve to an authorized immutable transcript revision and valid original audio range; correction/reanalysis preserves old provenance and explicitly supersedes dependent results.",
+      "completion_dependencies": [
+        "WP01"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F25",
+      "feature": "Channel-aware speaker attribution",
+      "state": "Missing",
+      "target": "Trusted PBX channels before diarization",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP09",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 5,
+      "E": 5,
+      "K": 3,
+      "score": 92,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Verified separated-channel role accuracy ≥98% on the agreed set; swapped, silent, duplicated and transfer-affected channels are detected or marked unknown; stereo alone never establishes identity.",
+      "completion_dependencies": [
+        "WP05",
+        "WP06",
+        "WP08",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F26",
+      "feature": "Audio normalization, VAD and quality checks",
+      "state": "Partial",
+      "target": "Preserve channels and original time offsets",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP09",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 3,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Original timeline mapping remains correct through resampling/chunking; no speech loss >250ms at boundaries on annotated regression fixtures; empty/music/noise cases do not fabricate transcript; quality flags exposed.",
+      "completion_dependencies": [
+        "WP05",
+        "WP06",
+        "WP08",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F27",
+      "feature": "Persian and English production STT",
+      "state": "D/W MVP",
+      "target": "Qualified local and external ASR adapters",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP09",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 5,
+      "E": 5,
+      "K": 4,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Persian held-out WER ≤20%, critical supported slice ≤30%; CER and entity accuracy reported; critical entities ≥95% exact match or routed to review; English/mixed slices measured separately and supported scope stated.",
+      "completion_dependencies": [
+        "WP05",
+        "WP06",
+        "WP08",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F28",
+      "feature": "Persistent GPU workers and bounded batching",
+      "state": "Missing",
+      "target": "Warm models; measured throughput/fairness",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP09",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Ten sequential jobs reuse the warmed model per configured worker process; configured concurrent load stays within memory budget without OOM; queue fairness and latency measured on the exact qualified hardware.",
+      "completion_dependencies": [
+        "WP05",
+        "WP06",
+        "WP08",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F29",
+      "feature": "Code-switching, terminology and extra languages",
+      "state": "W basic",
+      "target": "Evaluated glossary and language policies",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 4,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 4,
+      "K": 4,
+      "score": 70,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F30",
+      "feature": "Mono and multiparty diarization",
+      "state": "Missing",
+      "target": "Real anonymous speakers with uncertainty",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP10",
+      "R": 5,
+      "A": 5,
+      "F": 3,
+      "T": 2,
+      "D": 5,
+      "E": 5,
+      "K": 5,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Mono DER ≤15% on agreed held-out contact-center set, with overlap/collar policy and JER/count errors published; ambiguous clusters remain anonymous/unknown rather than fabricated agent identities.",
+      "completion_dependencies": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F31",
+      "feature": "Overlap detection and attribution",
+      "state": "Missing",
+      "target": "Preserve simultaneous speech and unknowns",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP10",
+      "R": 4,
+      "A": 5,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 5,
+      "K": 5,
+      "score": 76,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Overlap intervals survive storage/UI/export; proposed overlap detection F1 ≥0.80 on an adequately annotated supported set; display-exclusive turns do not erase measured overlapping speech.",
+      "completion_dependencies": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F32",
+      "feature": "Known-agent voice embeddings",
+      "state": "Missing",
+      "target": "Opt-in verified enrollment and revocation",
+      "module": "Platform",
+      "priority": "P3",
+      "wp": "—",
+      "R": 2,
+      "A": 2,
+      "F": 3,
+      "T": 2,
+      "D": 3,
+      "E": 3,
+      "K": 5,
+      "score": 46,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F33",
+      "feature": "Timestamp alignment and calibrated confidence",
+      "state": "W partial",
+      "target": "Word/turn alignment, quality gates",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP10",
+      "R": 5,
+      "A": 5,
+      "F": 3,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 4,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "≥95% audited key-moment starts within ±1 second and all spans in recording bounds; confidence origin and calibrated/uncalibrated status visible; ambiguous alignment routes to review.",
+      "completion_dependencies": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F34",
+      "feature": "Silence, talk ratio, overtalk and speaking rate",
+      "state": "D prompt estimates",
+      "target": "Deterministic metrics with denominators",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP11",
+      "R": 4,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 3,
+      "E": 4,
+      "K": 3,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Known synthetic interval fixtures reconcile duration/silence/talk/overlap exactly to defined rounding; on annotated real clips, talk/silence ratio MAE ≤5 percentage points; no LLM-generated acoustic measurements.",
+      "completion_dependencies": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP10",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F35",
+      "feature": "Hold, transfer and call-state metrics",
+      "state": "Missing",
+      "target": "PBX-event facts; inference labeled",
+      "module": "Quality",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 4,
+      "K": 3,
+      "score": 68,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F36",
+      "feature": "Intent, topics, entities and resolution status",
+      "state": "D prototype; W generic",
+      "target": "Evidence-backed structured extraction",
+      "module": "Insights",
+      "priority": "P1",
+      "wp": "WP11",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 4,
+      "K": 4,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Supported intent taxonomy macro-F1 ≥0.85; critical high-cost findings precision ≥0.95 or human confirmation; every field has evidence/unknown semantics and contradictory fixtures abstain correctly.",
+      "completion_dependencies": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP10",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F37",
+      "feature": "Summaries, decisions and key moments",
+      "state": "W immature",
+      "target": "Grounded concise summary with abstention",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP12",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 3,
+      "E": 4,
+      "K": 3,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "≥95% audited atomic claims supported by cited evidence, 100% structural citation validity and no invented severe allegation in release set; summaries distinguish explicit outcome from inference.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP09",
+        "WP10",
+        "WP11"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F38",
+      "feature": "Action items, owners, deadlines and commitments",
+      "state": "W partial",
+      "target": "Evidence-linked tasks; no invented owners",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP24",
+      "R": 4,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 3,
+      "E": 4,
+      "K": 3,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Explicit owner/date extraction precision ≥95% on held-out examples; unspecified values remain unset; every item links evidence and revision; proposed next steps are labeled separately from commitments.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP07",
+        "WP11",
+        "WP12",
+        "WP14",
+        "WP16"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F39",
+      "feature": "Persian sentiment journey and escalation signals",
+      "state": "D prototype",
+      "target": "Validated text labels; uncertainty shown",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 4,
+      "F": 3,
+      "T": 3,
+      "D": 3,
+      "E": 3,
+      "K": 4,
+      "score": 66,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F40",
+      "feature": "Acoustic emotion or personality scoring",
+      "state": "Prototype claims",
+      "target": "Research only; no employee decision scores",
+      "module": "Insights",
+      "priority": "P3",
+      "wp": "—",
+      "R": 1,
+      "A": 2,
+      "F": 2,
+      "T": 1,
+      "D": 1,
+      "E": 1,
+      "K": 5,
+      "score": 26,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F41",
+      "feature": "Versioned custom weighted QA scorecards",
+      "state": "Missing",
+      "target": "Organization/campaign policy and NA rules",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP11",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 5,
+      "E": 5,
+      "K": 4,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Weights/applicability/NA/insufficient evidence calculations pass fixed examples; adjudicated QA kappa ≥0.75 and score MAE ≤8/100; scorecard versions remain reproducible and cannot silently change past scores.",
+      "completion_dependencies": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP10",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F42",
+      "feature": "Keyword, script and compliance evidence rules",
+      "state": "D fixed prompts",
+      "target": "Deterministic plus semantic reviewed checks",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP11",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 4,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Exact phrase rules are deterministic; contextual critical findings precision ≥0.95 or require review; negation, quoted speech, wrong speaker and poor ASR regression cases do not create automatic confirmed violations.",
+      "completion_dependencies": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP10",
+        "WP13"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F43",
+      "feature": "Automated coverage and review sampling",
+      "state": "Missing",
+      "target": "Measured eligible-call coverage and sampling",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP14",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 3,
+      "E": 5,
+      "K": 3,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Ingested/valid/transcribed/fully-evaluated/reviewed counts reconcile independently; random/stratified samples respect configured sizes and scopes; failed calls cannot inflate evaluation coverage.",
+      "completion_dependencies": [
+        "WP03",
+        "WP11",
+        "WP12"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F44",
+      "feature": "Supervisor review and score override",
+      "state": "Missing",
+      "target": "Attribution, reason and original preserved",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP14",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 4,
+      "E": 5,
+      "K": 3,
+      "score": 90,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Authorized reviewer can accept/override criterion with required reason; machine score preserved; unauthorized or stale-revision write rejected; audit and recalculated aggregate match approved result.",
+      "completion_dependencies": [
+        "WP03",
+        "WP11",
+        "WP12"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F45",
+      "feature": "Transcript and turn/speaker correction",
+      "state": "W rename only",
+      "target": "Versioned edits and dependent recomputation",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP12",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 4,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Text and speaker-turn corrections create a new revision; playback/evidence remain navigable; dependent outputs become stale then recompute; old export and decision retain original provenance.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP09",
+        "WP10",
+        "WP11"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F46",
+      "feature": "Calibration and appeal workflow",
+      "state": "Missing",
+      "target": "Independent reviewers and adjudication",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP14",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 3,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Blind calibration computes agreement against adjudicated set; agent appeal reaches authorized reviewer and records disposition; agent cannot edit machine/human decision directly.",
+      "completion_dependencies": [
+        "WP03",
+        "WP11",
+        "WP12"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F47",
+      "feature": "Basic coaching assignments and progress",
+      "state": "D teacher prototype",
+      "target": "Supervisor-approved coaching with outcome",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP14",
+      "R": 5,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 4,
+      "K": 3,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Accepted finding creates assigned task with due date; agent acknowledgement and follow-up status visible to allowed roles; overdue/reminder deduplication and closure audit pass.",
+      "completion_dependencies": [
+        "WP03",
+        "WP11",
+        "WP12"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F48",
+      "feature": "Personalized exercises and skill graph",
+      "state": "Prototype/missing",
+      "target": "Validated training effectiveness",
+      "module": "Quality",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 3,
+      "E": 3,
+      "K": 4,
+      "score": 56,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F49",
+      "feature": "Complaint, product and operational issue trends",
+      "state": "D partial",
+      "target": "Normalized rates and evidence drill-down",
+      "module": "Insights",
+      "priority": "P1",
+      "wp": "WP15",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 3,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Counts/rates and drill-down match reference dataset exactly across time/team/product filters; insufficient samples and processing gaps are visible; correlation is not labeled confirmed cause.",
+      "completion_dependencies": [
+        "WP03",
+        "WP11",
+        "WP14"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F50",
+      "feature": "Repeat contact and observed FCR",
+      "state": "Missing",
+      "target": "CRM-linked identity and observation window",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 4,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 4,
+      "K": 4,
+      "score": 70,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F51",
+      "feature": "Versioned business graph projection",
+      "state": "D browser only",
+      "target": "Rebuildable tenant-scoped ontology",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 4,
+      "K": 4,
+      "score": 62,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F52",
+      "feature": "Recurring root-cause and incident relationships",
+      "state": "D per-call labels",
+      "target": "Evidence-supported hypotheses and validation",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 4,
+      "F": 3,
+      "T": 2,
+      "D": 5,
+      "E": 4,
+      "K": 4,
+      "score": 72,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F53",
+      "feature": "Customer journey, account 360 and risk graph",
+      "state": "Missing",
+      "target": "Authorized CRM identity/event links",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 4,
+      "K": 5,
+      "score": 64,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F54",
+      "feature": "Cancellation/VIP-risk signals",
+      "state": "D unvalidated",
+      "target": "Observable risk signals; reviewed action",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 4,
+      "F": 3,
+      "T": 3,
+      "D": 3,
+      "E": 4,
+      "K": 4,
+      "score": 70,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F55",
+      "feature": "Sales objections, intent and opportunities",
+      "state": "D prototype",
+      "target": "CRM-linked service-to-sales signals",
+      "module": "Sales",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 3,
+      "E": 3,
+      "K": 4,
+      "score": 60,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F56",
+      "feature": "Churn/conversion/NPS prediction",
+      "state": "D unsupported",
+      "target": "Do not ship probabilities without labels",
+      "module": "Insights",
+      "priority": "P3",
+      "wp": "—",
+      "R": 2,
+      "A": 2,
+      "F": 2,
+      "T": 1,
+      "D": 2,
+      "E": 2,
+      "K": 5,
+      "score": 36,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F57",
+      "feature": "Scoped lexical and semantic search",
+      "state": "W LIKE search",
+      "target": "Permission-safe hybrid retrieval",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP17",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Approved relevant-evidence benchmark meets proposed recall@10 ≥0.90; all returned evidence is authorized/current or explicitly historical; deletion and membership changes remove access immediately even before reindex.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP07",
+        "WP11",
+        "WP13",
+        "WP15"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F58",
+      "feature": "Evidence-backed analytical Copilot",
+      "state": "D template prototype",
+      "target": "Typed queries, citations, bounded retrieval",
+      "module": "Insights",
+      "priority": "P1",
+      "wp": "WP17",
+      "R": 5,
+      "A": 4,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 4,
+      "K": 5,
+      "score": 72,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "At least 95 of 100 frozen approved business questions answered correctly; deterministic counts 100% exact; unsupported questions abstain; zero cross-tenant/team leaks under prompt-injection and guessed-ID tests.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP07",
+        "WP11",
+        "WP13",
+        "WP15"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F59",
+      "feature": "Post-call/digest alerts and review queues",
+      "state": "D partial",
+      "target": "Rate-limited, deduplicated actionable alerts",
+      "module": "Quality",
+      "priority": "P1",
+      "wp": "WP24",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 3,
+      "E": 4,
+      "K": 3,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Repeated same-condition events create one alert per configured deduplication window; only authorized recipients notified; suppressed/acknowledged/escalated states and failed delivery visible.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP07",
+        "WP11",
+        "WP12",
+        "WP14",
+        "WP16"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F60",
+      "feature": "Approval-based CRM/ticket/coaching actions",
+      "state": "W internal action CRUD",
+      "target": "Preview, approve, execute, audit and reconcile",
+      "module": "Insights",
+      "priority": "P1",
+      "wp": "WP24",
+      "R": 5,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 4,
+      "K": 4,
+      "score": 78,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Rejected/unapproved/revoked/stale proposals cause zero external writes; repeated approved delivery causes one logical CRM/ticket effect; connector failures retry with complete audit.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP07",
+        "WP11",
+        "WP12",
+        "WP14",
+        "WP16"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F61",
+      "feature": "Role-specific dashboards and comparisons",
+      "state": "D MVP; W usage only",
+      "target": "Operational trends with denominator/drilldown",
+      "module": "Insights",
+      "priority": "P1",
+      "wp": "WP15",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 3,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Every role's dashboard respects scope and source denominators; proposed p95 normal API response <1 second on 100k-conversation reference dataset at documented load; cohort/rubric differences are shown.",
+      "completion_dependencies": [
+        "WP03",
+        "WP11",
+        "WP14"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F62",
+      "feature": "Executive daily/weekly briefs",
+      "state": "Missing",
+      "target": "Evidence and trend deltas, human feedback",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 3,
+      "K": 3,
+      "score": 66,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F63",
+      "feature": "Asterisk/FreePBX/Issabel recording adapter",
+      "state": "D generic webhook",
+      "target": "Qualified channel/CDR ingestion package",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP16",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 5,
+      "E": 4,
+      "K": 3,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "One named supported PBX/version imports 100 representative recordings/CDRs including transfers/duplicates/missing files; IDs and channel roles reconcile; unsupported versions are documented.",
+      "completion_dependencies": [
+        "WP03",
+        "WP05",
+        "WP06",
+        "WP08"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F64",
+      "feature": "Generic CRM/ticket ID and outcome mapping",
+      "state": "Missing",
+      "target": "Stable external IDs and reconciliation",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP16",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 4,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Generic mapping links known call/customer/ticket/agent/outcome fixtures correctly; missing/changed/late IDs enter reconciliation rather than false joins; no phone-number-only global identity merge.",
+      "completion_dependencies": [
+        "WP03",
+        "WP05",
+        "WP06",
+        "WP08"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F65",
+      "feature": "3CX/Cisco/Avaya/Genesys/Grandstream adapters",
+      "state": "Missing",
+      "target": "Buyer-funded qualified connectors",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 3,
+      "E": 4,
+      "K": 4,
+      "score": 64,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F66",
+      "feature": "Salesforce/Dynamics/HubSpot/Zoho/Odoo/IR CRM",
+      "state": "Missing",
+      "target": "Prioritize named customer CRM adapter",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 4,
+      "T": 2,
+      "D": 3,
+      "E": 4,
+      "K": 4,
+      "score": 66,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F67",
+      "feature": "Jira/ServiceNow/Zendesk/Freshdesk adapters",
+      "state": "Missing",
+      "target": "Approved ticket operations and callbacks",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 4,
+      "K": 3,
+      "score": 68,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F68",
+      "feature": "Versioned REST, scoped API keys and SDK",
+      "state": "W partial models",
+      "target": "Ingest/status/results with machine auth",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP16",
+      "R": 5,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Published OpenAPI/client example completes upload→202 job→results; expired/revoked/out-of-scope key fails; rate limits and idempotency behavior verified through contract tests.",
+      "completion_dependencies": [
+        "WP03",
+        "WP05",
+        "WP06",
+        "WP08"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F69",
+      "feature": "Signed webhooks and delivery ledger",
+      "state": "D weak; W model",
+      "target": "Replay-safe events and bounded delivery",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP16",
+      "R": 5,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Raw-body HMAC/timestamp verification examples pass; altered/stale/replayed messages rejected or deduplicated; retry/dead-letter records allow safe redelivery without duplicate recipient effects.",
+      "completion_dependencies": [
+        "WP03",
+        "WP05",
+        "WP06",
+        "WP08"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F70",
+      "feature": "PDF, CSV, JSON and transcript exports",
+      "state": "D PDF; W TXT/JSON/subtitles",
+      "target": "Scoped bilingual reports and data export",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP24",
+      "R": 4,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 3,
+      "E": 5,
+      "K": 3,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "PDF/CSV/JSON and existing subtitle/text exports match authorized revision; Persian font/shaping and RTL manually checked; CSV formula injection neutralized; revoked access and retention apply to exported objects.",
+      "completion_dependencies": [
+        "WP03",
+        "WP04",
+        "WP07",
+        "WP11",
+        "WP12",
+        "WP14",
+        "WP16"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F71",
+      "feature": "Power BI/Metabase/Tableau connectors",
+      "state": "Missing",
+      "target": "Read-only tenant-scoped export contract",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 3,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 4,
+      "K": 3,
+      "score": 64,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F72",
+      "feature": "Persian RTL/English LTR, dates, digits, accessibility",
+      "state": "W partial",
+      "target": "Consistent bilingual usable workflows",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP22",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 3,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "All critical auth/upload/report/review/settings/error flows complete in Persian RTL and English LTR; keyboard-only flow succeeds, focus/labels are usable and 200% zoom does not hide required controls.",
+      "completion_dependencies": [
+        "WP03",
+        "WP07",
+        "WP08",
+        "WP11"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F73",
+      "feature": "Mobile supervisor access",
+      "state": "Partial responsive UI",
+      "target": "Responsive review, no native app",
+      "module": "Quality",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 3,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 3,
+      "K": 2,
+      "score": 62,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F74",
+      "feature": "Air-gapped local STT/LLM/embed package",
+      "state": "S prototype",
+      "target": "No mandatory external dependencies",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP19",
+      "R": 5,
+      "A": 5,
+      "F": 3,
+      "T": 2,
+      "D": 5,
+      "E": 5,
+      "K": 5,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Fresh qualified installation with outbound network denied performs login, 30-minute Persian processing, local summary/QA/search, export and deletion; no hidden downloads/cloud calls; actual hardware/profile recorded.",
+      "completion_dependencies": [
+        "WP01",
+        "WP02",
+        "WP05",
+        "WP08",
+        "WP09",
+        "WP10",
+        "WP18",
+        "WP20"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F75",
+      "feature": "Offline license, upgrade and secure support bundle",
+      "state": "Missing/partial",
+      "target": "Signed artifacts; recoverable upgrades",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP19",
+      "R": 5,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 4,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Valid/expired/tampered offline license tests follow documented grace/export behavior; prior-version upgrade and failed-upgrade recovery preserve data; default support bundle contains no canary secret, transcript or identity.",
+      "completion_dependencies": [
+        "WP01",
+        "WP02",
+        "WP05",
+        "WP08",
+        "WP09",
+        "WP10",
+        "WP18",
+        "WP20"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F76",
+      "feature": "Kubernetes, HA and very large scale",
+      "state": "S single-host templates",
+      "target": "Measured scale-triggered deployment option",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 2,
+      "E": 4,
+      "K": 4,
+      "score": 58,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F77",
+      "feature": "Hybrid local data / optional cloud management",
+      "state": "Missing",
+      "target": "Policy-controlled optional telemetry",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 4,
+      "K": 5,
+      "score": 64,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F78",
+      "feature": "Metrics, traces, cost, queue/GPU health and SLOs",
+      "state": "W basic logs/health",
+      "target": "End-to-end operational visibility",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP20",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 3,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "A failed/stuck job is discoverable by correlation ID; alert fires within 5 minutes for configured worker/purge outage; 24-hour mixed-load run achieves ≥99% valid supported processing and proposed p95 ≤15 minutes for 30-minute calls on reference GPU at admitted load.",
+      "completion_dependencies": [
+        "WP01",
+        "WP02",
+        "WP03",
+        "WP04",
+        "WP05",
+        "WP06"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F79",
+      "feature": "Encrypted backups and restore drills",
+      "state": "S scripts",
+      "target": "Verified RPO/RTO and deletion-safe restores",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP20",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 5,
+      "score": 82,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Restore rehearsal on isolated supported topology meets proposed RPO ≤24h/RTO ≤8h; DB/object manifests reconcile; authorization works and deletion tombstones are reapplied before access.",
+      "completion_dependencies": [
+        "WP01",
+        "WP02",
+        "WP03",
+        "WP04",
+        "WP05",
+        "WP06"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F80",
+      "feature": "Persian gold corpus and slice benchmarks",
+      "state": "Missing",
+      "target": "Consent, held-out calls and adjudication",
+      "module": "Platform",
+      "priority": "P0",
+      "wp": "WP13",
+      "R": 5,
+      "A": 5,
+      "F": 3,
+      "T": 2,
+      "D": 5,
+      "E": 5,
+      "K": 4,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Rights/access/split manifests exist; ≥20 Persian hours with frozen ≥5-hour held-out subset and separate English/mixed coverage; ≥20% double annotation/adjudication; no split leakage detected by identity/source checks.",
+      "completion_dependencies": [],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F81",
+      "feature": "AI regression and model/prompt promotion gates",
+      "state": "Missing",
+      "target": "Versioned quality reports and rollback",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP13",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 5,
+      "E": 5,
+      "K": 4,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Evaluation command reproduces metrics within documented stochastic tolerance; model/prompt change cannot promote without held-out quality/slice/cost report and approved rollback manifest.",
+      "completion_dependencies": [],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F82",
+      "feature": "Security scans and independent penetration test",
+      "state": "S scan template",
+      "target": "Remediation evidence before enterprise release",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP23",
+      "R": 5,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 80,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Independent scoped test completed on release candidate; zero unresolved critical/high findings, retest evidence for fixes, and no assurance statement exceeds actual test scope.",
+      "completion_dependencies": [
+        "WP02",
+        "WP03",
+        "WP19"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F83",
+      "feature": "Website claim/evidence register",
+      "state": "L unsupported claims",
+      "target": "Version-linked truthful commercial pages",
+      "module": "Commercial",
+      "priority": "P0",
+      "wp": "WP21",
+      "R": 5,
+      "A": 5,
+      "F": 5,
+      "T": 5,
+      "D": 4,
+      "E": 5,
+      "K": 4,
+      "score": 92,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Every public feature, accuracy, integration, customer result, deployment and assurance claim has an evidence owner and status; unreleased/unverified claims cannot be published as available/proven.",
+      "completion_dependencies": [
+        "WP01",
+        "WP04",
+        "WP12",
+        "WP14",
+        "WP19"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F84",
+      "feature": "Consented demo, lead capture and pilot funnel",
+      "state": "L/S divergent",
+      "target": "One demonstrable product-to-sales flow",
+      "module": "Commercial",
+      "priority": "P1",
+      "wp": "WP21",
+      "R": 5,
+      "A": 5,
+      "F": 5,
+      "T": 4,
+      "D": 3,
+      "E": 4,
+      "K": 2,
+      "score": 88,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Simulation clearly labeled; real demo identifies pipeline version and allowed sample; test lead reaches designated owner and receives acknowledgement; failures surface without collecting unnecessary sensitive data.",
+      "completion_dependencies": [
+        "WP01",
+        "WP04",
+        "WP12",
+        "WP14",
+        "WP19"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F85",
+      "feature": "Customer ROI calculator and pilot report",
+      "state": "Missing",
+      "target": "Measured labor benefit, explicit assumptions",
+      "module": "Commercial",
+      "priority": "P1",
+      "wp": "WP21",
+      "R": 5,
+      "A": 4,
+      "F": 5,
+      "T": 4,
+      "D": 3,
+      "E": 4,
+      "K": 2,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Calculator matches independently computed fixtures, including zero/negative ROI; costs and assumptions visible; no double-counting labor/AHT/churn benefits; pilot report distinguishes observed and projected outcomes.",
+      "completion_dependencies": [
+        "WP01",
+        "WP04",
+        "WP12",
+        "WP14",
+        "WP19"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F86",
+      "feature": "Product/API/install/admin/security documentation",
+      "state": "D/S drifting",
+      "target": "Versioned role and deployment guides",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP22",
+      "R": 4,
+      "A": 5,
+      "F": 4,
+      "T": 4,
+      "D": 3,
+      "E": 5,
+      "K": 3,
+      "score": 84,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "New operator installs/administers/restores supported profile using released docs, and new supervisor completes review/correction/coaching with no undocumented developer step; broken command/API references corrected.",
+      "completion_dependencies": [
+        "WP03",
+        "WP07",
+        "WP08",
+        "WP11"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F87",
+      "feature": "Uploaded private meeting intelligence",
+      "state": "W prototype",
+      "target": "Optional shared-core module",
+      "module": "Meetings",
+      "priority": "P3",
+      "wp": "—",
+      "R": 2,
+      "A": 3,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 2,
+      "K": 3,
+      "score": 52,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F88",
+      "feature": "Teams/Zoom/Meet/Webex bots and calendar capture",
+      "state": "Missing",
+      "target": "Fund only through qualified expansion",
+      "module": "Meetings",
+      "priority": "P3",
+      "wp": "—",
+      "R": 2,
+      "A": 2,
+      "F": 3,
+      "T": 2,
+      "D": 1,
+      "E": 2,
+      "K": 4,
+      "score": 40,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F89",
+      "feature": "Real-time in-call assistance and alerts",
+      "state": "Missing",
+      "target": "Separate streaming research track",
+      "module": "Quality",
+      "priority": "P3",
+      "wp": "—",
+      "R": 3,
+      "A": 3,
+      "F": 2,
+      "T": 1,
+      "D": 2,
+      "E": 3,
+      "K": 5,
+      "score": 48,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F90",
+      "feature": "Survey-linked actual CSAT/NPS",
+      "state": "Missing",
+      "target": "Measured feedback linked to conversations",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 3,
+      "E": 4,
+      "K": 3,
+      "score": 70,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F91",
+      "feature": "Organization incidents and anomaly detection",
+      "state": "D partial",
+      "target": "Minimum-volume alerts, confirmed incidents",
+      "module": "Insights",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 4,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 4,
+      "K": 4,
+      "score": 70,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F92",
+      "feature": "Tenant provider/scorecard/retention administration",
+      "state": "W partial",
+      "target": "Audited versioned policy configuration",
+      "module": "Platform",
+      "priority": "P1",
+      "wp": "WP22",
+      "R": 5,
+      "A": 5,
+      "F": 4,
+      "T": 3,
+      "D": 4,
+      "E": 5,
+      "K": 4,
+      "score": 86,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": "Authorized admins can preview/apply/version/rollback supported provider/scorecard/retention settings; invalid or privacy-violating configuration rejected; secrets masked and changes audited; other tenants unaffected.",
+      "completion_dependencies": [
+        "WP03",
+        "WP07",
+        "WP08",
+        "WP11"
+      ],
+      "delivery_scope": "v1 required"
+    },
+    {
+      "id": "F93",
+      "feature": "Email/webhook then SMS/Teams/Slack/Telegram alerts",
+      "state": "D email only",
+      "target": "Qualified delivery adapters with redaction",
+      "module": "Quality",
+      "priority": "P2",
+      "wp": "—",
+      "R": 3,
+      "A": 4,
+      "F": 4,
+      "T": 3,
+      "D": 2,
+      "E": 3,
+      "K": 3,
+      "score": 64,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F94",
+      "feature": "Audio PII masking",
+      "state": "Missing",
+      "target": "Redacted playback derivative with aligned spans",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 3,
+      "T": 2,
+      "D": 4,
+      "E": 5,
+      "K": 5,
+      "score": 68,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    },
+    {
+      "id": "F95",
+      "feature": "ISO/SOC assurance program",
+      "state": "L claims unverified",
+      "target": "Evidence-led program; no invented certificate",
+      "module": "Platform",
+      "priority": "P2",
+      "wp": "—",
+      "R": 4,
+      "A": 3,
+      "F": 3,
+      "T": 1,
+      "D": 3,
+      "E": 5,
+      "K": 4,
+      "score": 66,
+      "implementation_status": "not_started_in_this_handoff",
+      "acceptance_criterion": null,
+      "completion_dependencies": [],
+      "delivery_scope": "expansion; not authorized by initial coding kickoff"
+    }
+  ],
+  "work_packages": [
+    {
+      "id": "WP01",
+      "title": "Reproducible source and release baseline",
+      "status": "in_progress",
+      "depends_on": [],
+      "feature_ids": [
+        "F01",
+        "F02"
+      ],
+      "subtasks": [
+        {
+          "id": "WP01-T01",
+          "description": "Inventory tracked/dirty/untracked changes and preserve authorized source provenance without importing secrets or runtime data.",
+          "status": "validated",
+          "progress_note": "Inventory generated from git state and cross-checked with CONTEXT_SNAPSHOT.json; see docs/handoff/claude-fable-5.1/inventory/2026-09-07-source-state.md. Capture commit awaits owner approval.",
+          "updated": "2026-09-07"
+        },
+        {
+          "id": "WP01-T02",
+          "description": "Agree product/website ownership and replace build dependence on an untracked nested checkout with pinned release artifacts.",
+          "status": "partial",
+          "progress_note": "infra/product-source.lock, infra/ci/check-source-contract.sh (+23 behavioural tests), .github/actions/product-source and CI wiring implemented and validated locally; the pinned commit 605cb074 does not satisfy the contract until the product overlay is committed (WP01-T03); remote CI not run; release-artifact consumption is the later end state.",
+          "updated": "2026-09-07"
+        },
+        {
+          "id": "WP01-T03",
+          "description": "Reconcile the v1 overlay into reviewable changes; keep legacy routes disabled and document compatibility boundaries.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP01-T04",
+          "description": "Lock dependencies and generate reproducible API, worker and console builds from a clean checkout.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP01-T05",
+          "description": "Add PostgreSQL migration, queue integration, frontend build and critical browser-flow jobs to existing CI.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP01-T06",
+          "description": "Publish a release manifest with source SHA, image digests, schema/model versions and linked validation results.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP01/README.md"
+    },
+    {
+      "id": "WP02",
+      "title": "Credential containment and deployment security",
+      "status": "in_progress",
+      "depends_on": [],
+      "feature_ids": [
+        "F03",
+        "F10"
+      ],
+      "subtasks": [
+        {
+          "id": "WP02-T01",
+          "description": "Give credential owners the safe path/history inventory; revoke/rotate affected credentials through their approved process and review provider usage.",
+          "status": "blocked_external",
+          "progress_note": "Safe, value-free credential-family inventory (CF-01..CF-07) and per-owner runbook prepared in docs/security/credential-containment-record.md; revocation/rotation and usage review require the credential owners.",
+          "updated": "2026-09-07"
+        },
+        {
+          "id": "WP02-T02",
+          "description": "Identify copied artifacts/forks/caches and prepare a separately approved history-cleanup plan; preserve incident evidence.",
+          "status": "partial",
+          "progress_note": "Copied-artifact/fork/cache inventory checklist and history-cleanup outline drafted; the inventory itself (ZIPs, forks, clones, images, caches) has not been executed and the cleanup needs separate approval.",
+          "updated": "2026-09-07"
+        },
+        {
+          "id": "WP02-T03",
+          "description": "Replace embedded/default credentials with secret references and mandatory secure production settings.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP02-T04",
+          "description": "Enable redacted secret scanning for new commits, full release content, image layers and support bundles.",
+          "status": "partial",
+          "progress_note": "Scanning plan drafted (product history, hooks, release content, image layers, support bundles, allowlist, zero-unreviewed gate); only the existing outer-repository Gitleaks CI job exists today.",
+          "updated": "2026-09-07"
+        },
+        {
+          "id": "WP02-T05",
+          "description": "Configure actual ingress TLS, internal network exposure limits and database/object/backup encryption with key rotation ownership.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP02-T06",
+          "description": "Test invalid production configuration, exposed service ports, log redaction and certificate/key renewal on the supported topology.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "Credential containment can start immediately; actual rotation needs the credential owner. No credentials were tested or rotated in this handoff.",
+      "readme": "docs/planning/work-packages/WP02/README.md"
+    },
+    {
+      "id": "WP03",
+      "title": "Identity, tenancy and operational permissions",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP01"
+      ],
+      "feature_ids": [
+        "F04",
+        "F05",
+        "F06"
+      ],
+      "subtasks": [
+        {
+          "id": "WP03-T01",
+          "description": "Define one login/refresh/reset/verification/session-family contract; remove legacy auth from public runtime composition.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP03-T02",
+          "description": "Test rotation/reuse, logout, password-reset invalidation, disabled users, account linking, cookies and CSRF.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP03-T03",
+          "description": "Add organization/team/agent assignments with effective dates and a written role/resource permission matrix.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP03-T04",
+          "description": "Enforce tenant and record scope in repositories, objects, jobs, exports, shares, retrieval and later projections.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP03-T05",
+          "description": "Add PostgreSQL RLS under a non-bypass application role; set tenant context transaction-locally and test pooled-connection reuse.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP03-T06",
+          "description": "Add explicit recipient/organization share policies, revocation and short-lived download authorization.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP03-T07",
+          "description": "Build adversarial two-tenant/two-team tests including background jobs, guessed IDs, stale tokens and changed membership.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP03/README.md"
+    },
+    {
+      "id": "WP04",
+      "title": "Truthful states and evidence contracts",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP01"
+      ],
+      "feature_ids": [
+        "F23",
+        "F24"
+      ],
+      "subtasks": [
+        {
+          "id": "WP04-T01",
+          "description": "Define run/stage states including queued, running, completed, partial, failed, unavailable and insufficient evidence, with typed reasons.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP04-T02",
+          "description": "Introduce immutable transcript revisions, evidence spans, analysis runs and model/prompt/schema provenance.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP04-T03",
+          "description": "Make every finding reference existing authorized turns and original audio offsets; reject malformed references.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP04-T04",
+          "description": "Exclude mock providers from production configuration and preserve explicit mock labels in any development fixtures.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP04-T05",
+          "description": "Remove random/default analytics from production result serialization; unavailable metrics remain unavailable.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP04-T06",
+          "description": "Expose quality, coverage and degradation consistently through API, UI, exports and usage eligibility rules.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP04/README.md"
+    },
+    {
+      "id": "WP05",
+      "title": "Ingestion and private object lifecycle",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP04"
+      ],
+      "feature_ids": [
+        "F12",
+        "F13",
+        "F14"
+      ],
+      "subtasks": [
+        {
+          "id": "WP05-T01",
+          "description": "Define an ingestion ledger keyed by workspace, source and external event ID, with payload-hash conflict behavior.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP05-T02",
+          "description": "Harden streamed/resumable upload limits, MIME/signature checks and bounded ffprobe/decode validation.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP05-T03",
+          "description": "Store quarantined originals privately; authorize object promotion only after validation and record checksums/channel metadata.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP05-T04",
+          "description": "Implement retry-safe finalize/abort and orphan reconciliation for database/object partial failures.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP05-T05",
+          "description": "Qualify one supported S3/private storage implementation through contract tests, including multipart and access denial.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP05-T06",
+          "description": "Add malicious/corrupt/oversized/truncated media fixtures and retries, including a forged extension and decoding timeout.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP05/README.md"
+    },
+    {
+      "id": "WP06",
+      "title": "Durable processing and recovery",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP04",
+        "WP05"
+      ],
+      "feature_ids": [
+        "F17"
+      ],
+      "subtasks": [
+        {
+          "id": "WP06-T01",
+          "description": "Align queue names and worker subscriptions explicitly; add a real broker-to-worker smoke test.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP06-T02",
+          "description": "Commit job and outbox event atomically, then publish with retry and acknowledgement tracking.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP06-T03",
+          "description": "Add stage attempts/checkpoints with immutable input hashes and idempotent artifact/result writes.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP06-T04",
+          "description": "Implement lease renewal, fencing tokens and a sweeper for abandoned work; reject stale worker commits.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP06-T05",
+          "description": "Define cancellation, retryability, deadlines, poison/dead-letter behavior and bounded retry budgets.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP06-T06",
+          "description": "Make usage and downstream events idempotent even when processing is delivered more than once.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP06-T07",
+          "description": "Inject worker kill, broker restart, lost acknowledgement, duplicate delivery and object-write failure; reconcile all accepted jobs.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP06/README.md"
+    },
+    {
+      "id": "WP07",
+      "title": "Retention, deletion and text privacy",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP04",
+        "WP05",
+        "WP06"
+      ],
+      "feature_ids": [
+        "F15",
+        "F16"
+      ],
+      "subtasks": [
+        {
+          "id": "WP07-T01",
+          "description": "Define explicit immediate/finite/indefinite retention semantics and migrate the current ambiguous zero value safely.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP07-T02",
+          "description": "Add legal-hold ownership, reason, expiry/review and audited release; separate hold from ordinary user preference.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP07-T03",
+          "description": "Implement tombstone-first access denial, durable object/derived-data purge jobs and retry reconciliation.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP07-T04",
+          "description": "Reapply deletion tombstones after restore and document backup expiry rather than promising instant backup erasure.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP07-T05",
+          "description": "Add Persian/English text PII detection, configurable classes and restricted original-to-redacted mappings.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP07-T06",
+          "description": "Route permitted analysis/retrieval/export to the correct redacted or original version and record policy provenance.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP07-T07",
+          "description": "Test retention with a controllable clock, held records, failed storage deletion, mixed-language identifiers and subject-scope export.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP07/README.md"
+    },
+    {
+      "id": "WP08",
+      "title": "Provider registry and privacy routing",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP04",
+        "WP06",
+        "WP07"
+      ],
+      "feature_ids": [
+        "F20",
+        "F21",
+        "F22"
+      ],
+      "subtasks": [
+        {
+          "id": "WP08-T01",
+          "description": "Add versioned model/prompt/capability manifests with language, task, license, endpoint, region and structured-output support.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP08-T02",
+          "description": "Define per-tenant stage policies and immutable policy snapshots on each run.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP08-T03",
+          "description": "Implement privacy/eligibility filtering before health, quality, latency and cost selection.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP08-T04",
+          "description": "Qualify chosen local and API adapters through identical typed contract tests, including schema rejection and usage reporting.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP08-T05",
+          "description": "Add deadlines, rate limits, backoff, Retry-After, health circuits and approved same-policy fallback.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP08-T06",
+          "description": "Block unauthorized egress at network and application layers; test local failure with cloud keys configured.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP08/README.md"
+    },
+    {
+      "id": "WP09",
+      "title": "Channel-aware speech and persistent inference",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP05",
+        "WP06",
+        "WP08",
+        "WP13"
+      ],
+      "feature_ids": [
+        "F25",
+        "F26",
+        "F27",
+        "F28"
+      ],
+      "subtasks": [
+        {
+          "id": "WP09-T01",
+          "description": "Inspect channel metadata, duplicated/silent channels, sample rate and trusted PBX channel-to-role mapping.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP09-T02",
+          "description": "Create channel-preserving normalized derivatives, VAD intervals and reversible original-time mapping.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP09-T03",
+          "description": "Implement selected Whisper model profiles and language policy; compare base versus stronger multilingual candidates.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP09-T04",
+          "description": "Add long-call chunking/checkpoints, overlap deduplication and no-speech handling.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP09-T05",
+          "description": "Move model lifetime to persistent warmed worker processes with memory-aware concurrency and bounded batching.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP09-T06",
+          "description": "Add CPU/GPU readiness/preflight and route work only to qualified workers.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP09-T07",
+          "description": "Measure Persian/English/mixed and noisy/stereo/mono accuracy, latency, GPU memory and actual cost under admitted load.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP09/README.md"
+    },
+    {
+      "id": "WP10",
+      "title": "Diarization, overlap and alignment",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP13"
+      ],
+      "feature_ids": [
+        "F30",
+        "F31",
+        "F33"
+      ],
+      "subtasks": [
+        {
+          "id": "WP10-T01",
+          "description": "Implement a real mono diarization adapter with pinned community-1 or a better measured qualified model.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP10-T02",
+          "description": "Preserve anonymous speaker clusters and overlap intervals separately from display-exclusive turns.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP10-T03",
+          "description": "Reconcile speaker identities across long-call chunks and constrain counts only when source evidence supports them.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP10-T04",
+          "description": "Align words/turns to speaker intervals and original recording offsets; retain ambiguous/unknown assignments.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP10-T05",
+          "description": "Calibrate confidence/quality flags using held-out annotations; do not convert similarity into unsupported probability.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP10-T06",
+          "description": "Add timeline representation for overlapping speech and correction-ready turn attribution.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP10-T07",
+          "description": "Evaluate DER/JER, count errors, role accuracy and span offsets, publishing collar/overlap/unknown policies.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP10/README.md"
+    },
+    {
+      "id": "WP11",
+      "title": "Measured signals and versioned quality evaluation",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP04",
+        "WP08",
+        "WP09",
+        "WP10",
+        "WP13"
+      ],
+      "feature_ids": [
+        "F34",
+        "F36",
+        "F41",
+        "F42"
+      ],
+      "subtasks": [
+        {
+          "id": "WP11-T01",
+          "description": "Compute speech/silence/talk ratio/overlap/rate from intervals with precise metric definitions and denominators.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP11-T02",
+          "description": "Define supported intent/topic/entity/outcome taxonomy and schema with evidence and unknown values.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP11-T03",
+          "description": "Implement structured extraction validation, confidence/abstention policy and critical-entity review routing.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP11-T04",
+          "description": "Create versioned scorecards, weights, applicability, thresholds and pass/fail/NA/insufficient-evidence semantics.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP11-T05",
+          "description": "Add deterministic keyword/script checks and contextual criteria using qualified targeted model evaluation.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP11-T06",
+          "description": "Persist criterion evidence, calculation version and score denominator; prohibit inferred NPS or unsupported churn probabilities.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP11-T07",
+          "description": "Compare scores with adjudicated human QA and add regressions for negation, missing speakers, low ASR confidence and contradictory evidence.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP11/README.md"
+    },
+    {
+      "id": "WP12",
+      "title": "Call report, summaries and correction",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP04",
+        "WP09",
+        "WP10",
+        "WP11"
+      ],
+      "feature_ids": [
+        "F37",
+        "F45"
+      ],
+      "subtasks": [
+        {
+          "id": "WP12-T01",
+          "description": "Evolve meeting records into a compatible Conversation model and call-oriented navigation without losing existing IDs.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP12-T02",
+          "description": "Build the primary report around summary, outcome, QA/evidence and review action; progressively disclose advanced panels.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP12-T03",
+          "description": "Add audio/transcript synchronized navigation, speaker/time filters and explicit incomplete-analysis notices.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP12-T04",
+          "description": "Generate supported summary/decision/key-moment fields with evidence, abstaining on unspecified details.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP12-T05",
+          "description": "Implement transcript text and turn-to-speaker correction as new immutable revisions, with reason and reviewer identity.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP12-T06",
+          "description": "Mark dependent scores/summaries/search projections stale and selectively recompute against the corrected revision.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP12-T07",
+          "description": "Test Persian/English report usability and keyboard playback/evidence navigation with representative supervisors.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP12/README.md"
+    },
+    {
+      "id": "WP13",
+      "title": "Corpus and promotion evaluation",
+      "status": "in_progress",
+      "depends_on": [],
+      "feature_ids": [
+        "F80",
+        "F81"
+      ],
+      "subtasks": [
+        {
+          "id": "WP13-T01",
+          "description": "Obtain rights, retention/access rules and a sampling plan across accents, channels, intents and sensitive fields.",
+          "status": "blocked_external",
+          "progress_note": "Rights-record template, sampling plan skeleton and split/leakage rules drafted in WP13/annotation-protocol.md; actual rights, retention rules and source inventory require the customer/legal owner (12 open decisions listed in the draft).",
+          "updated": "2026-09-07"
+        },
+        {
+          "id": "WP13-T02",
+          "description": "Create annotation guidelines, normalized/verbatim text policy, speaker/overlap labels, scorecards and evidence labels.",
+          "status": "partial",
+          "progress_note": "Annotation guidelines draft v0.1 (verbatim/normalized policy, Persian normalization rules, speaker/role/overlap labels, scorecard evidence labels, double-annotation and adjudication, manifest schemas, evaluator specs) in WP13/annotation-protocol.md; pending domain-owner review and threshold freeze.",
+          "updated": "2026-09-07"
+        },
+        {
+          "id": "WP13-T03",
+          "description": "Assemble at least 20 Persian hours with a frozen 5-hour test set and separate English/mixed-language coverage.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP13-T04",
+          "description": "Double-annotate at least 20%, adjudicate disagreements and prevent speaker/customer/time leakage between splits.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP13-T05",
+          "description": "Implement WER/CER, DER/JER, entity/intent, QA agreement, factual-support and retrieval evaluators.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP13-T06",
+          "description": "Publish slice sample sizes, uncertainty, abstention, coverage, latency and cost with each candidate result.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP13-T07",
+          "description": "Gate model/prompt promotion on the frozen release criteria and maintain a rollback manifest; collect production corrections separately.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "Corpus rights/protocol starts immediately. Later quality promotion is iterative and gates model-dependent packages; do not block baseline corpus preparation on models that consume it.",
+      "readme": "docs/planning/work-packages/WP13/README.md"
+    },
+    {
+      "id": "WP14",
+      "title": "Review, calibration, appeals and coaching",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP11",
+        "WP12"
+      ],
+      "feature_ids": [
+        "F43",
+        "F44",
+        "F46",
+        "F47"
+      ],
+      "subtasks": [
+        {
+          "id": "WP14-T01",
+          "description": "Define ingestion/processing/evaluation/review coverage as separate counters and build stratified/random/risk-triggered sampling.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP14-T02",
+          "description": "Create supervisor review queues with assignment, due time and record-level authorization.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP14-T03",
+          "description": "Add criterion override with reason/evidence, preserving machine and human scores separately.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP14-T04",
+          "description": "Add blinded calibration batches and reviewer agreement reporting against adjudicated examples.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP14-T05",
+          "description": "Implement agent appeal, supervisor disposition and audit history with clear notifications.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP14-T06",
+          "description": "Create specific coaching tasks from accepted findings, with owner, due date, acknowledgement and follow-up review.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP14-T07",
+          "description": "Validate matched-task review time and agent/supervisor usability; prevent cohort/rubric mixing in comparisons.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP14/README.md"
+    },
+    {
+      "id": "WP15",
+      "title": "Issue trends and role dashboards",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP11",
+        "WP14"
+      ],
+      "feature_ids": [
+        "F49",
+        "F61"
+      ],
+      "subtasks": [
+        {
+          "id": "WP15-T01",
+          "description": "Define issue taxonomy, deduplication policy, supported filters and minimum sample thresholds.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP15-T02",
+          "description": "Build scoped SQL aggregates for call reasons, unresolved outcomes, QA and product/service complaints.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP15-T03",
+          "description": "Show denominators, processing coverage, date range, scorecard version and missing-data indicators.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP15-T04",
+          "description": "Provide executive aggregates, analyst drill-down, supervisor team comparisons and agent self-view.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP15-T05",
+          "description": "Link each trend to authorized supporting conversations and distinguish correlation from confirmed root cause.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP15-T06",
+          "description": "Add reference-dataset reconciliation, filter/permission tests and measured query performance.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP15/README.md"
+    },
+    {
+      "id": "WP16",
+      "title": "Supported ingestion/API/integration contracts",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP05",
+        "WP06",
+        "WP08"
+      ],
+      "feature_ids": [
+        "F63",
+        "F64",
+        "F68",
+        "F69"
+      ],
+      "subtasks": [
+        {
+          "id": "WP16-T01",
+          "description": "Publish versioned asynchronous REST/OpenAPI contracts and a minimal Python client/example with retries and idempotency.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP16-T02",
+          "description": "Add scoped, expiring, hashed API credentials, rotation and usage/rate limits.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP16-T03",
+          "description": "Qualify one actual Asterisk/FreePBX/Issabel deployment's recording/CDR export and source ID/channel mapping.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP16-T04",
+          "description": "Add configurable CRM/ticket/customer/agent/outcome mappings, reconciliation and delayed-record handling.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP16-T05",
+          "description": "Persist outbound webhook deliveries and sign raw payloads with timestamp/key ID; provide replay/deduplication guidance.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP16-T06",
+          "description": "Add retry/dead-letter/admin diagnostics without exposing credentials or transcript text.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP16-T07",
+          "description": "Run contract fixtures for duplicates, transfers, missing recordings, clock skew, stale signatures and revoked service identities.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP16/README.md"
+    },
+    {
+      "id": "WP17",
+      "title": "Scoped retrieval and analytical Copilot",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP04",
+        "WP07",
+        "WP11",
+        "WP13",
+        "WP15"
+      ],
+      "feature_ids": [
+        "F57",
+        "F58"
+      ],
+      "subtasks": [
+        {
+          "id": "WP17-T01",
+          "description": "Define query intents that require exact SQL aggregates versus evidence retrieval.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP17-T02",
+          "description": "Index normalized lexical text and versioned embeddings with tenant, record ACL and revision metadata.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP17-T03",
+          "description": "Apply authorization filters before retrieval and enforce them again on evidence access; test approximate filtered recall.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP17-T04",
+          "description": "Add bounded hybrid search/reranking and visible source/time/quality filters.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP17-T05",
+          "description": "Implement read-only allowlisted analytical tools with row/time limits, deterministic numeric results and cited answers.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP17-T06",
+          "description": "Add abstention, unsupported-question handling and transcript prompt-injection defenses.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP17-T07",
+          "description": "Evaluate 100 approved business questions plus adversarial tenant/team cases and deletion/reindex scenarios.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP17/README.md"
+    },
+    {
+      "id": "WP18",
+      "title": "Usage, plans and commercial billing",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP06"
+      ],
+      "feature_ids": [
+        "F18",
+        "F19"
+      ],
+      "subtasks": [
+        {
+          "id": "WP18-T01",
+          "description": "Define billable completion, partial failure, rounding, reanalysis, overage and refund/credit rules.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP18-T02",
+          "description": "Preserve and harden usage reservations/ledger with PostgreSQL concurrency and idempotent stage completion.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP18-T03",
+          "description": "Create versioned plans with real entitlements; stop startup defaults from silently overwriting tenant commercial configuration.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP18-T04",
+          "description": "Add period rollover, subscription changes, quota alerts, concurrency admission and ledger reconciliation.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP18-T05",
+          "description": "Generate approved annual/manual invoices and payment status before adding an eligible payment-service adapter.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP18-T06",
+          "description": "Authenticate/deduplicate payment events and separate entitlement activation from untrusted callback content.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP18-T07",
+          "description": "Reconcile customer usage reports/invoices with ledger totals; test duplicate completion, cancellation, rollover and plan change.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP18/README.md"
+    },
+    {
+      "id": "WP19",
+      "title": "Offline package, licensing and upgrades",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP01",
+        "WP02",
+        "WP05",
+        "WP08",
+        "WP09",
+        "WP10",
+        "WP18",
+        "WP20"
+      ],
+      "feature_ids": [
+        "F74",
+        "F75"
+      ],
+      "subtasks": [
+        {
+          "id": "WP19-T01",
+          "description": "Define supported private CPU/GPU topologies, capacity envelope, local IdP and storage choices.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP19-T02",
+          "description": "Build signed offline images/model bundles with pinned hashes, licenses and required runtime dependencies.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP19-T03",
+          "description": "Add preflight for driver/VRAM/disk/ports/TLS, local model readiness and no-internet configuration.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP19-T04",
+          "description": "Implement signed offline entitlements, expiry/grace/read-export behavior and operator-visible counters.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP19-T05",
+          "description": "Package install, upgrade, backup/restore, rollback and sanitized support-bundle commands/runbooks.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP19-T06",
+          "description": "Test install and representative processing/export/deletion with all outbound network access denied.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP19-T07",
+          "description": "Rehearse upgrade from the prior supported version with real fixture data, failed migration recovery and customer-admin handoff.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP19/README.md"
+    },
+    {
+      "id": "WP20",
+      "title": "Observability, audit and recovery",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP01",
+        "WP02",
+        "WP03",
+        "WP04",
+        "WP05",
+        "WP06"
+      ],
+      "feature_ids": [
+        "F09",
+        "F78",
+        "F79"
+      ],
+      "subtasks": [
+        {
+          "id": "WP20-T01",
+          "description": "Define correlation IDs and stage latency/error/queue/GPU/usage-cost metrics with sensitive-field redaction.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP20-T02",
+          "description": "Add append-only application audit events for authentication, settings, access-sensitive exports, reviews, actions and deletion.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP20-T03",
+          "description": "Deliver audit records to a separately protected sink and document integrity/retention/reconstruction procedures.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP20-T04",
+          "description": "Create actionable alerts for stopped workers, lease backlog, provider failure, purge failure and storage/capacity limits.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP20-T05",
+          "description": "Back up relational data, object manifests, keys/configuration references and deletion state consistently.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP20-T06",
+          "description": "Restore into an isolated environment, reapply tombstones and verify object/DB integrity and access policies.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP20-T07",
+          "description": "Measure proposed RPO 24h/RTO 8h and run incident/support drills with no transcript or secret leakage in diagnostics.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "Telemetry design starts with WP01; dependency list describes full recovery acceptance, not the earliest permissible work.",
+      "readme": "docs/planning/work-packages/WP20/README.md"
+    },
+    {
+      "id": "WP21",
+      "title": "Truthful website and measurable sales funnel",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP01",
+        "WP04",
+        "WP12",
+        "WP14",
+        "WP19"
+      ],
+      "feature_ids": [
+        "F83",
+        "F84",
+        "F85"
+      ],
+      "subtasks": [
+        {
+          "id": "WP21-T01",
+          "description": "Inventory every claim, case study, logo, price, supported language and integration against proof and owner.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP21-T02",
+          "description": "Qualify/remove unsupported availability or outcome statements and label public fixtures/simulation explicitly.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP21-T03",
+          "description": "Build a focused Persian/English homepage and real-version product/private/security pages.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP21-T04",
+          "description": "Implement accessible pilot lead capture with delivery monitoring, privacy text and clear response ownership.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP21-T05",
+          "description": "Create a permissioned demonstration using approved data; keep public simulation visibly separate.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP21-T06",
+          "description": "Implement ROI inputs/formulas with baseline costs, matched-review savings and no double-counted speculative revenue.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP21-T07",
+          "description": "Track consented funnel conversion and generate a pilot report separating measured outcomes from projections.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "Claim inventory starts immediately; only real-product/offline demonstration depends on all listed packages. Public publishing is a separate authorized action.",
+      "readme": "docs/planning/work-packages/WP21/README.md"
+    },
+    {
+      "id": "WP22",
+      "title": "Administration, i18n and documentation",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP07",
+        "WP08",
+        "WP11"
+      ],
+      "feature_ids": [
+        "F72",
+        "F86",
+        "F92"
+      ],
+      "subtasks": [
+        {
+          "id": "WP22-T01",
+          "description": "Define a role-specific information architecture and complete Persian/English message catalog, including errors and empty/degraded states.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP22-T02",
+          "description": "Standardize locale-aware dates/numbers and Persian/Arabic text normalization without changing raw evidence.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP22-T03",
+          "description": "Test RTL/LTR layout, focus order, keyboard controls, screen-reader labels and narrow-screen review workflows.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP22-T04",
+          "description": "Build validated admin forms for providers, scorecards, retention, quotas and integration settings with secret masking.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP22-T05",
+          "description": "Version changes, preview their impact, enforce permission checks and support rollback/audit.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP22-T06",
+          "description": "Write product, API, architecture, install, SaaS/private admin, integration, security, backup, upgrade, troubleshooting and model/QA configuration guides.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP22-T07",
+          "description": "Have a new operator and supervisor complete installation/admin/review tasks from documentation alone; correct observed gaps.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "Documentation follows each package incrementally; complete admin acceptance depends on listed policy modules.",
+      "readme": "docs/planning/work-packages/WP22/README.md"
+    },
+    {
+      "id": "WP23",
+      "title": "Enterprise federation and independent security qualification",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP02",
+        "WP03",
+        "WP19"
+      ],
+      "feature_ids": [
+        "F07",
+        "F82"
+      ],
+      "subtasks": [
+        {
+          "id": "WP23-T01",
+          "description": "Qualify customer OIDC federation and SAML via supported broker; document callback, claim mapping and account linking.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP23-T02",
+          "description": "Map groups to explicit application memberships/roles and define deprovisioning without pretending OIDC provides SCIM.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP23-T03",
+          "description": "Enforce privileged MFA and test disabled users, revoked sessions, group removal and controlled break-glass access.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP23-T04",
+          "description": "Run dependency/container/SBOM/secret scans and triage findings by reachable exploitability and supported versions.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP23-T05",
+          "description": "Commission a scoped independent penetration test of API, browser, tenancy, upload, shares, jobs and private topology.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP23-T06",
+          "description": "Remediate critical/high findings and retest; publish only the actual report scope/date and approved customer summary.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP23/README.md"
+    },
+    {
+      "id": "WP24",
+      "title": "Approved actions, alerts and exports",
+      "status": "not_started_in_this_handoff",
+      "depends_on": [
+        "WP03",
+        "WP04",
+        "WP07",
+        "WP11",
+        "WP12",
+        "WP14",
+        "WP16"
+      ],
+      "feature_ids": [
+        "F38",
+        "F59",
+        "F60",
+        "F70"
+      ],
+      "subtasks": [
+        {
+          "id": "WP24-T01",
+          "description": "Extract explicit commitments/action items with evidence; keep missing owner/date unset for reviewer completion.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP24-T02",
+          "description": "Define alert rules, deduplication windows, severity, recipient scope and daily digest/suppression behavior.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP24-T03",
+          "description": "Build a preview/approve/reject workflow for CRM/ticket/coaching actions with authorized human ownership.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP24-T04",
+          "description": "Execute approved actions through scoped connectors with idempotency, retry, cancellation and delivery/audit records.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP24-T05",
+          "description": "Add PDF, CSV and JSON report exports plus existing transcript formats with version/provenance and ACL controls.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP24-T06",
+          "description": "Validate Persian shaping/fonts, formula-injection handling in CSV, large export limits, retention and authorized downloads.",
+          "status": "not_started"
+        },
+        {
+          "id": "WP24-T07",
+          "description": "Test rejected/revoked/duplicate approvals, stale source revisions and connector failure without duplicate external effects.",
+          "status": "not_started"
+        }
+      ],
+      "dependency_note": "",
+      "readme": "docs/planning/work-packages/WP24/README.md"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "id": "WP03",
+  "title": "Identity, tenancy and operational permissions",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP01"
+  ],
+  "feature_ids": [
+    "F04",
+    "F05",
+    "F06"
+  ],
+  "subtasks": [
+    {
+      "id": "WP03-T01",
+      "description": "Define one login/refresh/reset/verification/session-family contract; remove legacy auth from public runtime composition.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP03-T02",
+      "description": "Test rotation/reuse, logout, password-reset invalidation, disabled users, account linking, cookies and CSRF.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP03-T03",
+      "description": "Add organization/team/agent assignments with effective dates and a written role/resource permission matrix.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP03-T04",
+      "description": "Enforce tenant and record scope in repositories, objects, jobs, exports, shares, retrieval and later projections.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP03-T05",
+      "description": "Add PostgreSQL RLS under a non-bypass application role; set tenant context transaction-locally and test pooled-connection reuse.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP03-T06",
+      "description": "Add explicit recipient/organization share policies, revocation and short-lived download authorization.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP03-T07",
+      "description": "Build adversarial two-tenant/two-team tests including background jobs, guessed IDs, stale tokens and changed membership.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP03/README.md"
+}

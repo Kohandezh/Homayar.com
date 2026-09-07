@@ -1,0 +1,215 @@
+name: homayar-cloud
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-app-environment: &app-environment
+  ENVIRONMENT: production
+  DEPLOYMENT_MODE: cloud
+  APP_NAME: Homayar
+  API_PREFIX: /api/v1
+  PUBLIC_URL: "${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN, without a trailing slash}"
+  FRONTEND_URL: "${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN, without a trailing slash}/app"
+  CORS_ORIGINS: "${CORS_ORIGINS:?Set the exact comma-separated browser origins}"
+  TRUSTED_HOSTS: "${TRUSTED_HOSTS:?Set the exact comma-separated HTTP hostnames}"
+  DATABASE_URL: "${DATABASE_URL:?Set the managed PostgreSQL DSN}"
+  DATABASE_POOL_SIZE: "${DATABASE_POOL_SIZE:-10}"
+  DATABASE_MAX_OVERFLOW: "${DATABASE_MAX_OVERFLOW:-20}"
+  REDIS_URL: "${REDIS_URL:?Set the TLS-enabled managed Redis DSN}"
+  JWT_SECRET: "${JWT_SECRET:?Set a random JWT secret of at least 32 characters}"
+  TOKEN_PEPPER: "${TOKEN_PEPPER:?Set an independent random token pepper of at least 32 characters}"
+  JWT_ISSUER: "${JWT_ISSUER:-homayar}"
+  JWT_AUDIENCE: "${JWT_AUDIENCE:-homayar-api}"
+  SECURE_COOKIES: "true"
+  COOKIE_DOMAIN: "${COOKIE_DOMAIN:-}"
+  AUTO_CREATE_SCHEMA: "false"
+  ENABLE_DEMO_ACCOUNT: "false"
+  ALLOW_MOCK_PROVIDERS: "false"
+  TASKS_EAGER: "false"
+  RATE_LIMIT_FAIL_OPEN: "false"
+  STORAGE_BACKEND: s3
+  STORAGE_BUCKET: "${STORAGE_BUCKET:?Set the private object-storage bucket}"
+  STORAGE_ENDPOINT_URL: "${STORAGE_ENDPOINT_URL:-}"
+  STORAGE_REGION: "${STORAGE_REGION:?Set the object-storage region}"
+  STORAGE_ACCESS_KEY: "${STORAGE_ACCESS_KEY:?Set the object-storage access key}"
+  STORAGE_SECRET_KEY: "${STORAGE_SECRET_KEY:?Set the object-storage secret key}"
+  STORAGE_LOCAL_ROOT: /app/data/objects
+  UPLOAD_DIR: /app/data/legacy-uploads
+  UPLOAD_QUARANTINE_DIR: /app/data/quarantine
+  ENABLE_NEO4J_PROJECTION: "false"
+  LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+services:
+  proxy:
+    image: "${NGINX_IMAGE:-nginx:1.28-alpine}"
+    profiles: [cloud]
+    user: "101:101"
+    entrypoint: [nginx, -g, "daemon off;"]
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-8080}:8080"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../nginx/conf.d/homayar.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../nginx/includes:/etc/nginx/includes:ro
+    depends_on:
+      public-web:
+        condition: service_healthy
+      console-web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [edge]
+    logging: *default-logging
+
+  public-web:
+    image: "${PUBLIC_WEB_IMAGE:?Set an immutable public-web image reference}"
+    profiles: [cloud]
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      NEXT_TELEMETRY_DISABLED: "1"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then((r) => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+      - /app/.next/cache:rw,noexec,nosuid,size=512m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [edge]
+    logging: *default-logging
+
+  console-web:
+    image: "${CONSOLE_WEB_IMAGE:?Set an immutable console-web image reference}"
+    profiles: [cloud]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/app/index.html]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [edge]
+    logging: *default-logging
+
+  api:
+    image: "${API_IMAGE:?Set an immutable API image reference}"
+    profiles: [cloud]
+    command:
+      - /bin/sh
+      - -ec
+      - exec uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers "$${UVICORN_WORKERS}"
+    environment:
+      <<: *app-environment
+      UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
+    volumes:
+      - app_data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+      - /app/logs:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [edge, private]
+    logging: *default-logging
+
+  worker:
+    image: "${API_IMAGE:?Set an immutable API image reference}"
+    profiles: [cloud]
+    command:
+      - /bin/sh
+      - -ec
+      - exec celery -A backend.celery_app worker --loglevel="$${LOG_LEVEL}" --concurrency="$${CELERY_CONCURRENCY}" --hostname="celery@%h"
+    environment:
+      <<: *app-environment
+      CELERY_CONCURRENCY: "${CELERY_CONCURRENCY:-2}"
+    volumes:
+      - app_data:/app/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A backend.celery_app inspect ping --destination "celery@$$HOSTNAME" --timeout 5 | grep -q pong
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+    stop_grace_period: 2m
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=1g
+      - /app/logs:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [private]
+    logging: *default-logging
+
+  migrate:
+    image: "${API_IMAGE:?Set an immutable API image reference}"
+    profiles: [migrate]
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        test -f alembic.ini || { echo '/app/alembic.ini is required' >&2; exit 2; };
+        exec alembic -c alembic.ini upgrade head
+    environment: *app-environment
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [private]
+    logging: *default-logging
+
+volumes:
+  app_data:
+
+networks:
+  edge:
+  private:

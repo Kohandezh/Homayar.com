@@ -1,0 +1,52 @@
+name: Product source checkout
+description: >-
+  Check out the product repository (Kohandezh/HomaYar) at the commit pinned in
+  infra/product-source.lock into Homayar/ and verify the source contract.
+inputs:
+  token:
+    description: >-
+      Token with read access to the product repository. The default workflow
+      token only works when the product repository is public or grants access
+      to this repository's workflows.
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - name: Read product source lock
+      id: lock
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -Eeuo pipefail
+        lock="infra/product-source.lock"
+        test -f "${lock}" || { echo "::error::${lock} is missing" >&2; exit 2; }
+        repository="$(sed -n 's/^repository=//p' "${lock}" | head -n 1)"
+        sha="$(sed -n 's/^sha=//p' "${lock}" | head -n 1)"
+        if ! [[ "${sha}" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::${lock} sha= must be a 40-character commit id" >&2
+          exit 2
+        fi
+        if [[ "${repository}" != https://github.com/*/* ]]; then
+          echo "::error::${lock} repository= must be an https://github.com/<owner>/<repo> URL" >&2
+          exit 2
+        fi
+        slug="${repository#https://github.com/}"
+        slug="${slug%.git}"
+        slug="${slug%/}"
+        echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+        echo "slug=${slug}" >> "${GITHUB_OUTPUT}"
+
+    - name: Check out pinned product source
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      with:
+        repository: ${{ steps.lock.outputs.slug }}
+        ref: ${{ steps.lock.outputs.sha }}
+        path: Homayar
+        token: ${{ inputs.token }}
+        persist-credentials: false
+
+    - name: Verify product source contract
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: infra/ci/check-source-contract.sh --mode ci

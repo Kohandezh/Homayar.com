@@ -1,0 +1,56 @@
+{
+  "id": "WP21",
+  "title": "Truthful website and measurable sales funnel",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP01",
+    "WP04",
+    "WP12",
+    "WP14",
+    "WP19"
+  ],
+  "feature_ids": [
+    "F83",
+    "F84",
+    "F85"
+  ],
+  "subtasks": [
+    {
+      "id": "WP21-T01",
+      "description": "Inventory every claim, case study, logo, price, supported language and integration against proof and owner.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP21-T02",
+      "description": "Qualify/remove unsupported availability or outcome statements and label public fixtures/simulation explicitly.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP21-T03",
+      "description": "Build a focused Persian/English homepage and real-version product/private/security pages.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP21-T04",
+      "description": "Implement accessible pilot lead capture with delivery monitoring, privacy text and clear response ownership.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP21-T05",
+      "description": "Create a permissioned demonstration using approved data; keep public simulation visibly separate.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP21-T06",
+      "description": "Implement ROI inputs/formulas with baseline costs, matched-review savings and no double-counted speculative revenue.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP21-T07",
+      "description": "Track consented funnel conversion and generate a pilot report separating measured outcomes from projections.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "Claim inventory starts immediately; only real-product/offline demonstration depends on all listed packages. Public publishing is a separate authorized action.",
+  "readme": "docs/planning/work-packages/WP21/README.md"
+}

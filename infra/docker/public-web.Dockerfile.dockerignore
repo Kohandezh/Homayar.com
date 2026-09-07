@@ -1,0 +1,16 @@
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!next-env.d.ts
+!next.config.ts
+!postcss.config.mjs
+!tsconfig.json
+!content
+!content/**
+!drizzle
+!drizzle/**
+!public
+!public/**
+!src
+!src/**

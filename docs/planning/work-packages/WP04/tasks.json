@@ -1,0 +1,46 @@
+{
+  "id": "WP04",
+  "title": "Truthful states and evidence contracts",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP01"
+  ],
+  "feature_ids": [
+    "F23",
+    "F24"
+  ],
+  "subtasks": [
+    {
+      "id": "WP04-T01",
+      "description": "Define run/stage states including queued, running, completed, partial, failed, unavailable and insufficient evidence, with typed reasons.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP04-T02",
+      "description": "Introduce immutable transcript revisions, evidence spans, analysis runs and model/prompt/schema provenance.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP04-T03",
+      "description": "Make every finding reference existing authorized turns and original audio offsets; reject malformed references.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP04-T04",
+      "description": "Exclude mock providers from production configuration and preserve explicit mock labels in any development fixtures.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP04-T05",
+      "description": "Remove random/default analytics from production result serialization; unavailable metrics remain unavailable.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP04-T06",
+      "description": "Expose quality, coverage and degradation consistently through API, UI, exports and usage eligibility rules.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP04/README.md"
+}

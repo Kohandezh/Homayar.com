@@ -1,0 +1,52 @@
+{
+  "id": "WP18",
+  "title": "Usage, plans and commercial billing",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP06"
+  ],
+  "feature_ids": [
+    "F18",
+    "F19"
+  ],
+  "subtasks": [
+    {
+      "id": "WP18-T01",
+      "description": "Define billable completion, partial failure, rounding, reanalysis, overage and refund/credit rules.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP18-T02",
+      "description": "Preserve and harden usage reservations/ledger with PostgreSQL concurrency and idempotent stage completion.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP18-T03",
+      "description": "Create versioned plans with real entitlements; stop startup defaults from silently overwriting tenant commercial configuration.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP18-T04",
+      "description": "Add period rollover, subscription changes, quota alerts, concurrency admission and ledger reconciliation.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP18-T05",
+      "description": "Generate approved annual/manual invoices and payment status before adding an eligible payment-service adapter.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP18-T06",
+      "description": "Authenticate/deduplicate payment events and separate entitlement activation from untrusted callback content.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP18-T07",
+      "description": "Reconcile customer usage reports/invoices with ledger totals; test duplicate completion, cancellation, rollover and plan change.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP18/README.md"
+}

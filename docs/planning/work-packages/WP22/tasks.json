@@ -1,0 +1,55 @@
+{
+  "id": "WP22",
+  "title": "Administration, i18n and documentation",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP07",
+    "WP08",
+    "WP11"
+  ],
+  "feature_ids": [
+    "F72",
+    "F86",
+    "F92"
+  ],
+  "subtasks": [
+    {
+      "id": "WP22-T01",
+      "description": "Define a role-specific information architecture and complete Persian/English message catalog, including errors and empty/degraded states.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP22-T02",
+      "description": "Standardize locale-aware dates/numbers and Persian/Arabic text normalization without changing raw evidence.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP22-T03",
+      "description": "Test RTL/LTR layout, focus order, keyboard controls, screen-reader labels and narrow-screen review workflows.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP22-T04",
+      "description": "Build validated admin forms for providers, scorecards, retention, quotas and integration settings with secret masking.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP22-T05",
+      "description": "Version changes, preview their impact, enforce permission checks and support rollback/audit.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP22-T06",
+      "description": "Write product, API, architecture, install, SaaS/private admin, integration, security, backup, upgrade, troubleshooting and model/QA configuration guides.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP22-T07",
+      "description": "Have a new operator and supervisor complete installation/admin/review tasks from documentation alone; correct observed gaps.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "Documentation follows each package incrementally; complete admin acceptance depends on listed policy modules.",
+  "readme": "docs/planning/work-packages/WP22/README.md"
+}

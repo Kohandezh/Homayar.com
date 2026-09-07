@@ -1,0 +1,48 @@
+{
+  "id": "WP01",
+  "title": "Reproducible source and release baseline",
+  "status": "in_progress",
+  "depends_on": [],
+  "feature_ids": [
+    "F01",
+    "F02"
+  ],
+  "subtasks": [
+    {
+      "id": "WP01-T01",
+      "description": "Inventory tracked/dirty/untracked changes and preserve authorized source provenance without importing secrets or runtime data.",
+      "status": "validated",
+      "progress_note": "Inventory generated from git state and cross-checked with CONTEXT_SNAPSHOT.json; see docs/handoff/claude-fable-5.1/inventory/2026-09-07-source-state.md. Capture commit awaits owner approval.",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP01-T02",
+      "description": "Agree product/website ownership and replace build dependence on an untracked nested checkout with pinned release artifacts.",
+      "status": "partial",
+      "progress_note": "infra/product-source.lock, infra/ci/check-source-contract.sh (+23 behavioural tests), .github/actions/product-source and CI wiring implemented and validated locally; the pinned commit 605cb074 does not satisfy the contract until the product overlay is committed (WP01-T03); remote CI not run; release-artifact consumption is the later end state.",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP01-T03",
+      "description": "Reconcile the v1 overlay into reviewable changes; keep legacy routes disabled and document compatibility boundaries.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP01-T04",
+      "description": "Lock dependencies and generate reproducible API, worker and console builds from a clean checkout.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP01-T05",
+      "description": "Add PostgreSQL migration, queue integration, frontend build and critical browser-flow jobs to existing CI.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP01-T06",
+      "description": "Publish a release manifest with source SHA, image digests, schema/model versions and linked validation results.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP01/README.md"
+}

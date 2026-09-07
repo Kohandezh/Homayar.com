@@ -1,0 +1,55 @@
+{
+  "id": "WP12",
+  "title": "Call report, summaries and correction",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP04",
+    "WP09",
+    "WP10",
+    "WP11"
+  ],
+  "feature_ids": [
+    "F37",
+    "F45"
+  ],
+  "subtasks": [
+    {
+      "id": "WP12-T01",
+      "description": "Evolve meeting records into a compatible Conversation model and call-oriented navigation without losing existing IDs.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP12-T02",
+      "description": "Build the primary report around summary, outcome, QA/evidence and review action; progressively disclose advanced panels.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP12-T03",
+      "description": "Add audio/transcript synchronized navigation, speaker/time filters and explicit incomplete-analysis notices.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP12-T04",
+      "description": "Generate supported summary/decision/key-moment fields with evidence, abstaining on unspecified details.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP12-T05",
+      "description": "Implement transcript text and turn-to-speaker correction as new immutable revisions, with reason and reviewer identity.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP12-T06",
+      "description": "Mark dependent scores/summaries/search projections stale and selectively recompute against the corrected revision.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP12-T07",
+      "description": "Test Persian/English report usability and keyboard playback/evidence navigation with representative supervisors.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP12/README.md"
+}
