@@ -107,6 +107,15 @@
 - Local commits: product `7b9e992fbf624947439a7c4ea87fa3a6fea57cbc`; website commit below. Nothing pushed.
 - Next exact action: WP03-T04 — audit tenant/record scope enforcement across repositories, object storage keys, jobs, exports, shares and retrieval; extend the two-tenant negative tests (existing: meetings, admin audit, members) to shares/exports/search/jobs; then WP03-T05 (PostgreSQL RLS) design.
 
+## Session 2 (cont.) — WP03-T04 tenant scope — 2026-09-08
+
+- Package / subtask: WP03-T04 validated (API/object scope); WP03-T07 partial.
+- Scope and files: product `backend/tests/test_tenant_scope.py` (new). Website: lock sha → `3f91279a`, WP03 statuses.
+- Audit result: no unscoped API path found; every v1 route gated; storage keyed by tenant; unscoped selects are internal id lookups (job claim in `processor.py`, reservation in `entitlement_service.py`, invitation token in `member_service.py`).
+- Evidence: PostgreSQL → `122 passed`.
+- Local commits: product `3f91279a2343a40ea0d20e6c2367a18080c1581f`; website commit below. Nothing pushed.
+- Next exact action: WP03-T05 design note for PostgreSQL RLS under a non-bypass role (needs a migration creating the application role and policies; test with pooled connections) — or, if session budget is short, stop here: everything is committed locally and PROGRESS.md is current.
+
 ## Template for next session
 
 - Date / environment:

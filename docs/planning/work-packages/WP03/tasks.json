@@ -33,7 +33,9 @@
     {
       "id": "WP03-T04",
       "description": "Enforce tenant and record scope in repositories, objects, jobs, exports, shares, retrieval and later projections.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "API/object scope: static route audit (all v1 routes gated; public share page token-addressed) + two-tenant negative suite test_tenant_scope.py (14 operations × 2 header strategies) on PostgreSQL. Search/retrieval scoping covered by test_insights_shares_api. PostgreSQL RLS is T05. Product commit 3f91279a.",
+      "updated": "2026-09-08"
     },
     {
       "id": "WP03-T05",
@@ -48,7 +50,9 @@
     {
       "id": "WP03-T07",
       "description": "Build adversarial two-tenant/two-team tests including background jobs, guessed IDs, stale tokens and changed membership.",
-      "status": "not_started"
+      "status": "partial",
+      "progress_note": "Guessed ids and foreign workspace header covered (test_tenant_scope.py, test_meetings_api.py, test_insights_shares_api.py); background-job, stale-token-after-membership-change and two-team cases still missing.",
+      "updated": "2026-09-08"
     }
   ],
   "dependency_note": "",
