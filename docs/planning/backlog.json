@@ -2449,7 +2449,9 @@
         {
           "id": "WP03-T06",
           "description": "Add explicit recipient/organization share policies, revocation and short-lived download authorization.",
-          "status": "not_started"
+          "status": "partial",
+          "progress_note": "Share contract implemented and documented (ADR 0006; matrix §6a): audiences link (workspace opt-in, default off, no audio) / workspace (effective membership + team scope) / recipients (verified email, bound to user id); separate allow_export/allow_download grants; issuer authority, expiry, revocation, kill switch, deletion re-checked per request; token-only DB ceiling via RLS; downloads re-authorized per Range request (local) or presigned ≤300 s (S3, expiry-bounded, labelled). Migration d7f3a1c9e2b4 (backfill stricter). Verified: test_share_policies.py (4 tests) + RLS share-context test; full suite 140 on PostgreSQL 16.15, 132+8 skipped on SQLite; migration upgrade/check/downgrade/upgrade on PostgreSQL. Partial because organization-level audience cannot exist until organization membership exists (T03 gap); phone recipients and recipient editing not implemented. Product commit bf0f4bf2.",
+          "updated": "2026-09-08"
         },
         {
           "id": "WP03-T07",
