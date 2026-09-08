@@ -1,6 +1,6 @@
 # WP04 — Truthful states and evidence contracts
 
-Status: NOT STARTED by this preparation task. Existing partial code must be reviewed and reused where suitable.
+Status: IN PROGRESS since 2026-09-08 (T01 validated in local scope; see [ADR 0003](../../../architecture/decisions/0003-truthful-stage-states.md)). Existing partial code must be reviewed and reused where suitable.
 
 Completion dependencies: WP01.
 

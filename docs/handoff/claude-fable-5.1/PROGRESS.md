@@ -73,6 +73,16 @@
 - Local commits: product `1a25b861`; website commit below. Nothing pushed.
 - Next exact action: WP04-T01 — persisted processing state contract (`backend/jobs/processor.py` stages, `MeetingStatus`/`JobState` transitions, failure reasons) and truthful UI states; then WP06-T02 (outbox) once WP04 state contract is fixed.
 
+## Session 2 (cont.) — WP04-T01 truthful stage states — 2026-09-08
+
+- Package / subtask: WP04-T01 — validated (local scope). WP04 → in_progress.
+- Scope and files: product `backend/database/saas_models.py` (`MeetingStatus.PARTIAL`, `StageState`, `ProcessingStageRun`), `backend/jobs/states.py` (new: `StageName`, `StageReason`, `StageRecord`, `meeting_status_for`), `backend/jobs/processor.py` (stage records, partial outcomes, no usage row for uncalled providers, stage persistence on success and failure), `backend/schemas/meetings.py` (`StageRunResponse`, `JobResponse.stages`), migration `544f28d9103c`, console types/pages/CSS, tests (`test_job_processor.py` +3 tests, single-speaker diarization double). Website: ADR 0003, `infra/product-source.lock` (sha → `89e4460b`), WP04 statuses.
+- Finding: the shipped `MockDiarizationProvider` is honestly unavailable, so every previously "completed" fixture was a degraded result presented as success — the exact F23 defect. Legacy `stt_service.py` / `analysis_service.py` (blockers 2–3) are not on the v1 path; their removal is WP04-T04/T05.
+- Evidence: PostgreSQL 16.15 → `107 passed`; `ruff` clean on changed files; `tsc --noEmit --ignoreDeprecations 6.0` clean (a pre-existing `baseUrl` deprecation exists in `tsconfig.json`); `vitest run` → 12 passed (vitest writes a temp file into the linked `node_modules`, so it ran outside the sandbox). Source contract `--mode ci` satisfied.
+- Assumption recorded: empty transcript = `partial` with audio usage committed (ADR 0003); owner may choose to release instead.
+- Local commits: product `224c94b0`, `89e4460b`; website commit below. Nothing pushed.
+- Next exact action: WP04-T04/T05 — delete the legacy fabricated paths (`backend/services/stt_service.py`, `analysis_service.py`, `backend/routers/calls.py`, `backend/celery_app/tasks.py`) that no v1 module imports, with a test asserting no random/default analytics remain importable; then WP03-T01 (identity/tenancy) as the next P0 foundation.
+
 ## Template for next session
 
 - Date / environment:

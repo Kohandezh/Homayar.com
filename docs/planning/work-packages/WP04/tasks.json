@@ -1,7 +1,7 @@
 {
   "id": "WP04",
   "title": "Truthful states and evidence contracts",
-  "status": "not_started_in_this_handoff",
+  "status": "in_progress",
   "depends_on": [
     "WP01"
   ],
@@ -13,7 +13,9 @@
     {
       "id": "WP04-T01",
       "description": "Define run/stage states including queued, running, completed, partial, failed, unavailable and insufficient evidence, with typed reasons.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "ProcessingStageRun rows per attempt with typed StageState/reason codes and provenance; MeetingStatus.PARTIAL for degraded outcomes (unavailable diarization, empty transcript = insufficient_evidence, unreached stages); JobResponse.stages; console shows stages. Migration 544f28d9103c. Verified on PostgreSQL: 107 passed, tsc clean, vitest 12 passed. Product commit 89e4460b. See ADR 0003. Open policy assumption: empty transcript commits audio usage.",
+      "updated": "2026-09-08"
     },
     {
       "id": "WP04-T02",
