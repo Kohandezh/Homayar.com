@@ -30,12 +30,16 @@
     {
       "id": "WP04-T04",
       "description": "Exclude mock providers from production configuration and preserve explicit mock labels in any development fixtures.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "Production rejects ALLOW_MOCK_PROVIDERS (existing) and now ENABLE_LEGACY_API; mock outputs carry is_mock through provider results, stage runs (ProcessingStageRun.is_mock) and the console stage list. Product commit 4e9f5c6d.",
+      "updated": "2026-09-08"
     },
     {
       "id": "WP04-T05",
       "description": "Remove random/default analytics from production result serialization; unavailable metrics remain unavailable.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "Legacy stt_service (clock-based speaker alternation) and analysis_service (random QC/sentiment fallbacks) deleted together with routers/calls.py and celery_app/tasks.py; guard test keeps them unimportable and forbids random-number use outside database/seed.py (dev-only legacy graph seed, flagged for later removal). Product commit 4e9f5c6d.",
+      "updated": "2026-09-08"
     },
     {
       "id": "WP04-T06",

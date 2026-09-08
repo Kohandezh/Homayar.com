@@ -83,6 +83,14 @@
 - Local commits: product `224c94b0`, `89e4460b`; website commit below. Nothing pushed.
 - Next exact action: WP04-T04/T05 — delete the legacy fabricated paths (`backend/services/stt_service.py`, `analysis_service.py`, `backend/routers/calls.py`, `backend/celery_app/tasks.py`) that no v1 module imports, with a test asserting no random/default analytics remain importable; then WP03-T01 (identity/tenancy) as the next P0 foundation.
 
+## Session 2 (cont.) — WP04-T04/T05 fabricated outputs removed — 2026-09-08
+
+- Package / subtask: WP04-T04, WP04-T05 — validated (local scope). Blockers 2 and 3 of the state report are closed at the source.
+- Scope and files: product deletions `backend/services/stt_service.py`, `backend/services/analysis_service.py`, `backend/routers/calls.py`, `backend/celery_app/tasks.py`; `backend/main.py` (legacy calls route removed), `backend/config.py` (production rejects `ENABLE_LEGACY_API`), `.env.example`, tests `test_api.py` (+1), `test_truthful_outputs.py` (new). Website: lock sha → `4e9f5c6d`, WP04 statuses.
+- Evidence: PostgreSQL → `113 passed`; ruff findings on touched files are pre-existing (`main.py` I001 import order, `test_api.py` S106/UP017) and left alone. Remaining random use: `backend/database/seed.py` (development-only legacy graph seed, allowlisted and documented).
+- Local commits: product `4e9f5c6df69a1842317c04e2fbc20273daefd7cd`; website commit below. Nothing pushed.
+- Next exact action: WP03-T01 (identity, tenancy, operational permissions) — inspect `backend/security/*`, `backend/services/tenancy_service.py`, `member_service.py`, existing tests for cross-tenant access; then WP03 subtasks in order.
+
 ## Template for next session
 
 - Date / environment:
