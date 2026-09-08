@@ -86,6 +86,48 @@ the same job, and the worker's claim makes the duplicate a no-op.
 - The sweeper reads only `job_dispatches` (RLS service scope `dispatch`); it never
   sees meeting content. Processing still binds the job's own tenant from the
   persisted job row, never from the message.
+- Since WP06-T04 the same row is also **re-armed** when a job is requeued: after
+  a retryable processing failure (due at the job's `retry_after`) and after the
+  recovery of an abandoned attempt (due immediately). `dispatch.generation`
+  shows which lease generation the current intent belongs to. Retries no longer
+  use broker-level task retry.
+
+## Abandoned Running Jobs (Worker Killed or Partitioned)
+
+Since WP06-T04 a running attempt holds an **execution lease** on its
+`processing_jobs` row (`locked_by`, `lease_generation`, `lease_expires_at`,
+`lease_renewed_at`, `attempt_id`) that the worker renews every
+`JOB_LEASE_RENEW_INTERVAL_SECONDS` (default 30) for `JOB_LEASE_SECONDS`
+(default 120), never past `JOB_ATTEMPT_TIMEOUT_SECONDS` after the claim. All
+lease decisions use PostgreSQL time. A worker whose lease lapsed or was fenced
+cannot renew, transition stages, persist results, complete the meeting, record a
+failure or settle usage; its attempt ends as `superseded` and writes nothing.
+
+- Recovery is automatic while the `scheduler` service (Celery beat) runs: every
+  `JOB_RECOVERY_SWEEP_INTERVAL_SECONDS` (default 60) the lease sweep fences each
+  RUNNING job whose lease expired (generation + 1), records the abandoned stage
+  (`failed` / `lease_expired` on that attempt), and re-arms the dispatch intent so
+  the job runs again (`stage = recovery_scheduled`, `failure_code = lease_expired`
+  until the next attempt starts). Expect resumption within one lease plus one
+  sweep interval of the last renewal (≈ 3 minutes with defaults).
+- Without beat, or to force a pass: `python -m backend.jobs.recovery` (one bounded
+  batch of `JOB_RECOVERY_BATCH_SIZE`; exit code 1 when a job was parked).
+- An abandoned attempt consumes one of the job's `max_attempts` (3). When none
+  remain the job is parked `dead_letter` with `failure_code = lease_expired`, the
+  meeting shows `failed`, and both quota reservations are released — nothing is
+  charged. Operator replay of parked jobs is WP06-T05 work; until then do not
+  edit `processing_jobs` by hand to resurrect an attempt.
+- `GET /meetings/{id}/job` exposes `lease.generation`, `lease.attempt_id`,
+  `lease.expires_at`, `lease.renewed_at` and `retry_after`. A job `running` with
+  `lease.expires_at` in the past and no `lease_expired` transition after two
+  sweep intervals means beat is not running.
+- The lease sweep reads only `processing_jobs` (RLS service scope `recovery`,
+  read-only); every recovery write binds the job's own tenant from the persisted
+  row. Healthy leases are never reclaimed; cancelled/deleted jobs are skipped.
+- A provider call that was in flight when the lease lapsed is not interrupted by
+  the fence; the next attempt may repeat that supplier call (bounded by
+  `max_attempts`). Its late result is rejected at the transaction boundary and
+  the customer's reservation is settled at most once.
 
 ## Object Storage Failure
 

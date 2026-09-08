@@ -239,9 +239,15 @@ role and leave `DATABASE_APP_ROLE` empty.
 
 1. Take PostgreSQL and object-store backups and verify their checksums.
 2. Record current image digests and migration revision.
-3. Pull or build candidate images, validate Compose, and run the migration job once.
-4. Start API and worker, wait for health, then expose traffic through nginx.
-5. Run authentication, upload, job, and tenant-isolation smoke tests.
+3. Drain the workers (stop consuming, let running attempts finish or time out)
+   **before** the migration job. Since WP06-T04 running attempts hold an execution
+   lease; migration `f1b6d8e4a2c7` marks any job still RUNNING as expired so the
+   lease sweeper requeues it — a pre-lease worker that keeps writing would not be
+   fenced by its own code.
+4. Pull or build candidate images, validate Compose, and run the migration job once.
+5. Start API, worker and the `scheduler` (Celery beat: dispatch sweep and lease
+   recovery), wait for health, then expose traffic through nginx.
+6. Run authentication, upload, job, and tenant-isolation smoke tests.
 
 Application rollback uses the previously recorded image digests. Do not automatically
 downgrade the database. Every release migration must be backward-compatible with the prior

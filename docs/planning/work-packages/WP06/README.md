@@ -1,6 +1,6 @@
 # WP06 — Durable processing and recovery
 
-Status: IN PROGRESS since 2026-09-08 (T01 queue contract and T02 transactional outbox validated in local scope — see [ADR 0007](../../../architecture/decisions/0007-dispatch-outbox.md); T03–T07 not started: stage checkpoints, leases/fencing/sweeper for abandoned running work, cancellation/deadline/dead-letter policy, idempotent usage events under redelivery, fault injection). Existing partial code must be reviewed and reused where suitable.
+Status: IN PROGRESS since 2026-09-08 (T01 queue contract, T02 transactional outbox and T04 execution leases/fencing/recovery validated in local scope — see [ADR 0007](../../../architecture/decisions/0007-dispatch-outbox.md) and [ADR 0008](../../../architecture/decisions/0008-execution-leases-and-fencing.md); T03, T05, T06, T07 not started: stage checkpoints, cancellation/deadline/dead-letter policy and replay, idempotent usage events under redelivery, fault injection. Broker evidence so far is a Celery worker integration test on the in-memory transport; Redis-backed transport and deployed beat remain unverified). Existing partial code must be reviewed and reused where suitable.
 
 Completion dependencies: WP03, WP04, WP05.
 
