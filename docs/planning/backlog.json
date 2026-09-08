@@ -2451,7 +2451,7 @@
           "id": "WP03-T07",
           "description": "Build adversarial two-tenant/two-team tests including background jobs, guessed IDs, stale tokens and changed membership.",
           "status": "partial",
-          "progress_note": "Guessed ids and foreign workspace header covered (test_tenant_scope.py, test_meetings_api.py, test_insights_shares_api.py); background-job, stale-token-after-membership-change and two-team cases still missing.",
+          "progress_note": "Covered: guessed ids, foreign workspace header, membership deactivated with a still-valid session (per-request check), background job writes only into the owning workspace. Missing: two-team/role-matrix cases (depends on T03) and stale API-key cases (WP16). Product commit 3bf703f9.",
           "updated": "2026-09-08"
         }
       ],

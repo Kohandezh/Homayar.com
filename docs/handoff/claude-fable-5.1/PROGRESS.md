@@ -116,6 +116,15 @@
 - Local commits: product `3f91279a2343a40ea0d20e6c2367a18080c1581f`; website commit below. Nothing pushed.
 - Next exact action: WP03-T05 design note for PostgreSQL RLS under a non-bypass role (needs a migration creating the application role and policies; test with pooled connections) — or, if session budget is short, stop here: everything is committed locally and PROGRESS.md is current.
 
+## Session 2 (cont.) — WP03-T07 membership revocation and job scope — 2026-09-08
+
+- Package / subtask: WP03-T07 partial (two more adversarial cases; two-team matrix waits for T03).
+- Scope and files: product `backend/tests/test_tenant_scope.py` (+2 tests). Website: lock sha → `3bf703f9`.
+- Evidence: PostgreSQL → `124 passed` (pytest exit 0 checked explicitly).
+- Local commits: product `3bf703f963ae8f378f3c51a0d9cf1007ec039817`; website commit below. Nothing pushed.
+- Session-end state: temporary PostgreSQL cluster (scratchpad, port 54329) stopped at the end of the session; `Homayar/frontend/node_modules` is a symlink to the original checkout's `node_modules` (ignored, no install performed).
+- Resume: `cd` into the worktree, start a PostgreSQL 16 cluster (or use any local one), export `TEST_DATABASE_URL`, run `uv run --frozen pytest backend/tests` inside `Homayar/`, then continue with WP03-T03 (role/resource matrix) or WP03-T05 (RLS design), per `docs/planning/work-packages/WP03/tasks.json`.
+
 ## Template for next session
 
 - Date / environment:
