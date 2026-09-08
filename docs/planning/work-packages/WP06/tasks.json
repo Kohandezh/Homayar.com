@@ -1,7 +1,7 @@
 {
   "id": "WP06",
   "title": "Durable processing and recovery",
-  "status": "not_started_in_this_handoff",
+  "status": "in_progress",
   "depends_on": [
     "WP03",
     "WP04",
@@ -14,7 +14,9 @@
     {
       "id": "WP06-T01",
       "description": "Align queue names and worker subscriptions explicitly; add a real broker-to-worker smoke test.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "Queue contract: PROCESSING_QUEUE is the routed queue, the declared task_queues entry and the worker default (backend/celery_app); Makefile and infra/compose worker commands pass --queues processing; stale routes removed. Regression tests incl. an in-process broker-to-worker smoke test (memory transport, Redis variant when TEST_REDIS_URL is set) that times out with the old configuration. Verified locally (104 passed on PostgreSQL). Redis-backed variant not yet observed locally or in remote CI. Product commit 1a25b861.",
+      "updated": "2026-09-08"
     },
     {
       "id": "WP06-T02",

@@ -64,6 +64,15 @@
 - External blockers: unchanged (product ref not published; `PRODUCT_SOURCE_TOKEN`).
 - Next exact action: WP06 — queue routing (`backend/jobs/dispatcher.py` routes to `processing`, worker commands lack `-Q`), with a regression test; then WP04-T01.
 
+## Session 2 (cont.) — WP06-T01 queue contract — 2026-09-08
+
+- Package / subtask: WP06-T01 — validated (local scope). WP06 → in_progress.
+- Scope and files: product `backend/celery_app/__init__.py` (PROCESSING_QUEUE / PROCESS_MEETING_TASK constants, `task_default_queue`, `task_queues`, `task_reject_on_worker_lost`, dead routes removed), `backend/jobs/dispatcher.py`, `backend/jobs/tasks.py`, `Makefile` (`--queues processing`), `backend/tests/test_queue_routing.py` (new). Website: `infra/compose/compose.cloud.yaml` and `compose.onprem.yaml` worker commands (`--queues processing`), `docs/operations/health-and-recovery.md`, `infra/product-source.lock` (sha → `1a25b861`), WP06 statuses.
+- Evidence: mutation check — with `task_default_queue="celery"` / `task_queues=None` the smoke test hits `TimeoutError` (message parked in `processing`, worker on `celery`); with the contract it passes. Full suite on PostgreSQL → `104 passed`; ruff clean on changed files; compose YAML parses.
+- Not verified: Redis-backed variant of the smoke test (no local Redis, Docker daemon down) — runs in CI when `TEST_REDIS_URL` is set (added to the backend job env); `celery inspect active_queues` against a deployed worker.
+- Local commits: product `1a25b861`; website commit below. Nothing pushed.
+- Next exact action: WP04-T01 — persisted processing state contract (`backend/jobs/processor.py` stages, `MeetingStatus`/`JobState` transitions, failure reasons) and truthful UI states; then WP06-T02 (outbox) once WP04 state contract is fixed.
+
 ## Template for next session
 
 - Date / environment:

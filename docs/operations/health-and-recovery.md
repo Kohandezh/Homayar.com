@@ -10,6 +10,7 @@
 | public web `/` | Next.js responds successfully | public routes unavailable |
 | console `/app/index.html` | static console artifact exists | product UI unavailable |
 | worker Celery ping | the addressed worker consumes control messages | processing capacity unavailable |
+| worker queue subscription | `celery -A backend.celery_app inspect active_queues` lists `processing` (the only declared queue; producers route `backend.jobs.process_meeting` there and worker commands pass `--queues processing`) | accepted jobs stay queued forever |
 | PostgreSQL `pg_isready` | server accepts the application database connection | API not ready |
 | Redis authenticated `PING` | broker accepts authenticated commands | API not ready unless tasks are eager; workers unavailable |
 | MinIO live endpoint | object-store process is alive | uploads and processing unavailable |

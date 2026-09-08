@@ -194,7 +194,7 @@ services:
     command:
       - /bin/sh
       - -ec
-      - exec celery -A backend.celery_app worker --loglevel="$${LOG_LEVEL}" --concurrency="$${CELERY_CONCURRENCY}" --hostname="celery@%h"
+      - exec celery -A backend.celery_app worker --queues processing --loglevel="$${LOG_LEVEL}" --concurrency="$${CELERY_CONCURRENCY}" --hostname="celery@%h"
     environment:
       <<: *app-environment
       CELERY_CONCURRENCY: "${CELERY_CONCURRENCY:-2}"
