@@ -54,6 +54,16 @@
 - External blockers: push authorization for `feat/commercial-v1-overlay`; `PRODUCT_SOURCE_TOKEN` secret (owner); WP02/WP13 owner decisions unchanged.
 - Next exact action: WP01-T05 — replace the SQLite hard-code in `backend/tests/conftest.py` with a PostgreSQL-backed integration path (local PostgreSQL service only while testing), then WP06 queue routing.
 
+## Session 2 (cont.) — WP01-T05 PostgreSQL-backed tests
+
+- Package / subtask: WP01-T05 — validated (local scope).
+- Scope and files: product `backend/tests/_database.py` (new), `conftest.py` (session guard, report header, `postgres` marker auto-skip), `test_members_api.py`, `test_postgres_guarantees.py` (new), `pyproject.toml` (marker), `backend/migrations/versions/e93c65725e9b_*.py` (FK name shortened to 45 chars). Website: `.github/workflows/ci.yml` (backend job env `TEST_DATABASE_URL`, `HOMAYAR_REQUIRE_POSTGRES_TESTS=1`), `infra/ci/check-migrations.sh` (`alembic current --check-heads` does not exist in Alembic 1.16; replaced by a `(head)` check on `alembic current`), `infra/product-source.lock` (sha → `934bae52`), `docs/operations/ci.md`.
+- Findings: (1) the migration chain could not be applied on PostgreSQL at all — FK identifier 64 > 63 chars — so every earlier "tests pass" statement was SQLite-only; (2) the CI migration script would have failed on its last command even with a correct chain. Both fixed and covered.
+- Commands/results: temporary PostgreSQL 16.15 cluster in the session scratchpad (port 54329, `LC_ALL=C`, stopped at session end). `TEST_DATABASE_URL=… HOMAYAR_REQUIRE_POSTGRES_TESTS=1 uv run --frozen pytest backend/tests` → `100 passed` (153 s, one worker). SQLite fallback → postgres tests `2 skipped`, guard refuses SQLite when required. `uv run --frozen bash ../infra/ci/check-migrations.sh backend` on PostgreSQL → exit 0. `ruff check` on changed files → only pre-existing S107 in `conftest.py` (not introduced here). Source contract `--mode ci` → satisfied.
+- Local commits: product `934bae52` on `feat/commercial-v1-overlay`; website commit below. Nothing pushed.
+- External blockers: unchanged (product ref not published; `PRODUCT_SOURCE_TOKEN`).
+- Next exact action: WP06 — queue routing (`backend/jobs/dispatcher.py` routes to `processing`, worker commands lack `-Q`), with a regression test; then WP04-T01.
+
 ## Template for next session
 
 - Date / environment:

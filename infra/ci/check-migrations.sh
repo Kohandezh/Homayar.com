@@ -25,4 +25,8 @@ fi
 
 python -m alembic -c "${config_file}" upgrade head
 python -m alembic -c "${config_file}" check
-python -m alembic -c "${config_file}" current --check-heads
+current_output="$(python -m alembic -c "${config_file}" current)"
+if ! grep -q '(head)' <<<"${current_output}"; then
+  printf 'ERROR: Database is not at the Alembic head after upgrade.\n%s\n' "${current_output}" >&2
+  exit 1
+fi

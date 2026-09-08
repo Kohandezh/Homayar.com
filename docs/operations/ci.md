@@ -24,7 +24,15 @@ that ref, commits and trees only, before verifying; a pin that exists only in a 
 therefore fails remote CI until the ref is published). A private product repository needs a
 read-only token in the `PRODUCT_SOURCE_TOKEN` secret. Since WP01-T03 the pin points at
 `feat/commercial-v1-overlay`, a product feature branch that exists locally only; remote CI stays
-`blocked_external` until it is pushed. See
+`blocked_external` until it is pushed.
+
+The backend job runs `infra/ci/check-migrations.sh` (upgrade head, `alembic check`, head
+verification) and then the test suite against the PostgreSQL service: `TEST_DATABASE_URL`
+selects the database and `HOMAYAR_REQUIRE_POSTGRES_TESTS=1` makes the suite refuse to fall back
+to SQLite, so a green backend job always means PostgreSQL. Locally, run
+`TEST_DATABASE_URL=postgresql+psycopg://user@127.0.0.1:5432/db uv run pytest backend/tests`
+inside `Homayar/`; without the variable the suite uses temporary SQLite files and skips the
+`postgres`-marked tests. See
 [ADR 0002](../architecture/decisions/0002-product-source-contract.md). The workflow still emits
 its older explicit source-contract error when the nested console or backend artifacts are absent.
 

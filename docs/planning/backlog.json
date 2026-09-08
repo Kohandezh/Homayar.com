@@ -2335,7 +2335,9 @@
         {
           "id": "WP01-T05",
           "description": "Add PostgreSQL migration, queue integration, frontend build and critical browser-flow jobs to existing CI.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Backend suite runs on PostgreSQL via TEST_DATABASE_URL (HOMAYAR_REQUIRE_POSTGRES_TESTS=1 in CI forbids the SQLite fallback); \"postgres\" marker with migration-chain and FOR UPDATE SKIP LOCKED tests; over-length FK name in migration e93c65725e9b fixed; infra/ci/check-migrations.sh invalid \"current --check-heads\" call replaced. Verified locally on PostgreSQL 16.15: 100 passed; check-migrations.sh exit 0. Product commit 934bae52. Remote CI run still pending (blocked_external).",
+          "updated": "2026-09-07"
         },
         {
           "id": "WP01-T06",
