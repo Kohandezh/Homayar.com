@@ -161,6 +161,21 @@ services:
     networks: [edge, private]
     logging: *default-logging
 
+  # Transactional-outbox recovery (WP06-T02): one beat instance republishes
+  # dispatch rows left PENDING by a crash between commit and publication.
+  # Run exactly one replica; concurrent sweeps are safe (SKIP LOCKED) but wasteful.
+  scheduler:
+    image: "${API_IMAGE:?Set an immutable API image reference}"
+    profiles: [cloud]
+    command:
+      - /bin/sh
+      - -ec
+      - exec celery -A backend.celery_app beat --loglevel="$${LOG_LEVEL}" --schedule=/app/data/celerybeat-schedule
+    environment:
+      <<: *app-environment
+    volumes:
+      - app_data:/app/data
+
   worker:
     image: "${API_IMAGE:?Set an immutable API image reference}"
     profiles: [cloud]

@@ -2587,7 +2587,9 @@
         {
           "id": "WP06-T02",
           "description": "Commit job and outbox event atomically, then publish with retry and acknowledgement tracking.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "job_dispatches outbox row committed with the job (create_upload_job); dispatch_job publishes under FOR UPDATE SKIP LOCKED and records the broker message id; exponential backoff to DISPATCH_MAX_ATTEMPTS then FAILED (visible via JobResponse.dispatch); sweep_dispatch_outbox as Celery beat task + `python -m backend.jobs.outbox`; cancel on meeting deletion; payload workspace assertion re-checked against the persisted job; at-least-once documented (ADR 0007). RLS: 'dispatch' service scope on job_dispatches only. Migration e5a7c3d9b1f2 backfills queued jobs. Verified locally: test_dispatch_outbox.py (rollback, outage/backoff/park, lost-mark redelivery without duplicate results/usage, cancellation + late delivery, mismatched payload, competing dispatchers on PostgreSQL, scope visibility) and the memory-transport worker smoke test through the outbox; 148 passed on PostgreSQL 16.15, 138+10 skipped on SQLite. Not verified: Redis broker variant (TEST_REDIS_URL unset locally; runs in CI), beat in a deployed stack. Product commit 7bc47c88.",
+          "updated": "2026-09-08"
         },
         {
           "id": "WP06-T03",

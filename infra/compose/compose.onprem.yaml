@@ -192,6 +192,24 @@ services:
     networks: [edge, backend]
     logging: *default-logging
 
+  # Transactional-outbox recovery (WP06-T02): one beat instance republishes
+  # dispatch rows left PENDING by a crash between commit and publication.
+  # Run exactly one replica; concurrent sweeps are safe (SKIP LOCKED) but wasteful.
+  scheduler:
+    <<: *api-image
+    profiles: [onprem]
+    command:
+      - /bin/sh
+      - -ec
+      - exec celery -A backend.celery_app beat --loglevel="$${LOG_LEVEL}" --schedule=/app/data/celerybeat-schedule
+    environment:
+      <<: *app-environment
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   worker:
     <<: *api-image
     profiles: [onprem]

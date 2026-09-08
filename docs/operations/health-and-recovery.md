@@ -65,6 +65,28 @@ use that ID to correlate API logs without logging tokens, cookies, or request bo
 5. Scale by measured stage bottleneck. Keep workspace concurrency and provider limits in
    force when adding workers.
 
+## Dispatch Outbox (Jobs Accepted but Not Published)
+
+Since WP06-T02 an upload commits its job **and** a `job_dispatches` row in one
+transaction; the broker message is sent afterwards and recorded on that row
+(`PENDING → PUBLISHED`, or `FAILED` after `DISPATCH_MAX_ATTEMPTS` publish
+failures with exponential back-off, or `CANCELLED` when the meeting was deleted
+first). Delivery is at-least-once: a crash between publish and mark republishes
+the same job, and the worker's claim makes the duplicate a no-op.
+
+- Recovery is automatic while the `scheduler` service (Celery beat) runs: every
+  `DISPATCH_SWEEP_INTERVAL_SECONDS` (default 30) it publishes due `PENDING` rows in
+  batches of `DISPATCH_SWEEP_BATCH_SIZE`. Run one beat replica.
+- Without beat, or to force a pass: `python -m backend.jobs.outbox` (one bounded
+  sweep; exit code 1 when a row reached `FAILED`).
+- `GET /meetings/{id}/job` exposes `dispatch.state`, attempts and `last_error`; a
+  job stuck in `queued` with `dispatch.state = failed` means the broker rejected the
+  publication repeatedly — fix the broker, then reset the row to `PENDING` with a
+  due `next_attempt_at` (or re-run the sweep after raising `max_attempts`).
+- The sweeper reads only `job_dispatches` (RLS service scope `dispatch`); it never
+  sees meeting content. Processing still binds the job's own tenant from the
+  persisted job row, never from the message.
+
 ## Object Storage Failure
 
 1. Stop accepting uploads when MinIO or managed S3 is unavailable.

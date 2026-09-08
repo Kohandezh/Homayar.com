@@ -1,6 +1,6 @@
 # WP06 — Durable processing and recovery
 
-Status: NOT STARTED by this preparation task. Existing partial code must be reviewed and reused where suitable.
+Status: IN PROGRESS since 2026-09-08 (T01 queue contract and T02 transactional outbox validated in local scope — see [ADR 0007](../../../architecture/decisions/0007-dispatch-outbox.md); T03–T07 not started: stage checkpoints, leases/fencing/sweeper for abandoned running work, cancellation/deadline/dead-letter policy, idempotent usage events under redelivery, fault injection). Existing partial code must be reviewed and reused where suitable.
 
 Completion dependencies: WP03, WP04, WP05.
 
