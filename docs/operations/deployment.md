@@ -205,6 +205,36 @@ Upload the **contents** of `out/` to the domain's cPanel document root, normally
 protection, and the 404 document. Do not upload the repository, `.env` files,
 `node_modules`, `.next`, or the nested `Homayar/` application tree.
 
+## Database Roles and Row-Level Security
+
+Tenant isolation is enforced twice: by the application authorization matrix and by
+PostgreSQL row-level security (WP03-T05, migration `c4e8b2a7d519`, policies in
+`backend/database/rls.py`). The database side only holds if the runtime connects as a
+role the policies apply to.
+
+| Role | Purpose | Requirements |
+| --- | --- | --- |
+| Migration / owner role | Runs `alembic upgrade`; owns every table | May be the provisioned database owner. Never used by the API or workers at runtime unless `DATABASE_APP_ROLE` switches away from it. |
+| `homayar_app` | Application role the policies target | Created `NOLOGIN NOSUPERUSER NOBYPASSRLS` by the migration; granted DML on all tables. |
+| Runtime login role | What `DATABASE_URL` authenticates as | Either a login role `IN ROLE homayar_app` (recommended; set `DATABASE_APP_ROLE=""`), or the owner role with `DATABASE_APP_ROLE=homayar_app` so every pooled connection runs `SET ROLE` on checkout. Never a superuser or `BYPASSRLS` role: production start-up refuses both. |
+
+Provisioning the recommended shape after the first migration:
+
+```sql
+CREATE ROLE homayar_api LOGIN PASSWORD '<secret>' NOSUPERUSER NOBYPASSRLS IN ROLE homayar_app;
+```
+
+Tenant context is bound per transaction (`set_config(..., true)`) from the validated
+session, job or share/invitation token; a connection with no bound context sees no tenant
+rows. Policies are `FORCE`d, so even the owner role is subject to them: a data repair run
+as the owner must bind `homayar.workspace_id` explicitly or temporarily `ALTER TABLE ...
+NO FORCE ROW LEVEL SECURITY` inside a reviewed change.
+
+Connection poolers: the transaction-scoped context is safe under PgBouncer transaction
+pooling by construction. The `SET ROLE` shape is **not** (the role switch is issued outside
+the transaction that follows), so behind a transaction-mode pooler use the direct login
+role and leave `DATABASE_APP_ROLE` empty.
+
 ## Upgrade and Rollback
 
 1. Take PostgreSQL and object-store backups and verify their checksums.

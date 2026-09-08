@@ -42,7 +42,9 @@
     {
       "id": "WP03-T05",
       "description": "Add PostgreSQL RLS under a non-bypass application role; set tenant context transaction-locally and test pooled-connection reuse.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "Migration c4e8b2a7d519 creates NOLOGIN homayar_app (no superuser/BYPASSRLS), grants DML and installs FORCEd policies on 25 tenant tables (backend/database/rls.py). Context bound per transaction via set_config(..., true) from validated session/membership/job/token (backend/database/tenant_context.py); no default tenant. Runtime role via DATABASE_APP_ROLE (SET ROLE on checkout) or direct login member; production refuses superuser/BYPASSRLS. Whole suite runs as homayar_app: 135 passed on PostgreSQL 16.15; test_row_level_security.py covers a LOGIN probe role (cross-tenant read/insert/update/re-home, missing/stale/rollback context, pooled reuse, job scope, FORCE on a non-superuser owner, posture check, API flow without SET ROLE). Migration verified upgrade/check/downgrade/upgrade. Not verified: PgBouncer transaction pooling and managed-provider role provisioning (documented in deployment.md). Product commit 55bb6085.",
+      "updated": "2026-09-08"
     },
     {
       "id": "WP03-T06",

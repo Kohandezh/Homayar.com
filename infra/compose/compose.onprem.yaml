@@ -16,6 +16,10 @@ x-app-environment: &app-environment
   CORS_ORIGINS: "${CORS_ORIGINS:?Set the exact comma-separated browser origins}"
   TRUSTED_HOSTS: "${TRUSTED_HOSTS:?Set the exact comma-separated HTTP hostnames}"
   DATABASE_URL: "${DATABASE_URL:?Set a URL-encoded PostgreSQL DSN for the postgres service}"
+  # Row-level security (WP03-T05): the runtime must not be a superuser/BYPASSRLS
+  # role. Either DATABASE_URL logs in as a member of homayar_app (set this empty)
+  # or it logs in as the migration owner and switches with SET ROLE (default).
+  DATABASE_APP_ROLE: "${DATABASE_APP_ROLE-homayar_app}"
   DATABASE_POOL_SIZE: "${DATABASE_POOL_SIZE:-10}"
   DATABASE_MAX_OVERFLOW: "${DATABASE_MAX_OVERFLOW:-20}"
   REDIS_URL: "${REDIS_URL:?Set a URL-encoded Redis DSN for the redis service}"
