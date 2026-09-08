@@ -91,6 +91,14 @@
 - Local commits: product `4e9f5c6df69a1842317c04e2fbc20273daefd7cd`; website commit below. Nothing pushed.
 - Next exact action: WP03-T01 (identity, tenancy, operational permissions) — inspect `backend/security/*`, `backend/services/tenancy_service.py`, `member_service.py`, existing tests for cross-tenant access; then WP03 subtasks in order.
 
+## Session 2 (cont.) — WP03-T01 single auth contract — 2026-09-08
+
+- Package / subtask: WP03-T01 — validated (local scope). WP03 → in_progress.
+- Scope and files: product deletions `backend/auth/*`, `backend/middleware/*`, `backend/routers/auth.py`; `backend/main.py` (legacy composition block removed), `backend/config.py` (`enable_legacy_api` removed), `.env.example`, `backend/tests/test_truthful_outputs.py` (pins removed modules). Website: `docs/architecture/auth-session-contract.md` (new), lock sha → `4a97c04d`, WP03 statuses.
+- Evidence: PostgreSQL → `115 passed`. The contract document was derived from the code and cross-referenced with existing tests; four negative-test gaps are listed for WP03-T02.
+- Local commits: product `4a97c04d3fc3ecf3f9cabe2c560c2f0f38edc386`; website commit below. Nothing pushed.
+- Next exact action: WP03-T02 — add the four gap tests (revoked family with valid access JWT, Google link negatives, OTP cross-challenge replay, cookie attributes) and fix anything they expose; then WP03-T04 (scope enforcement audit across repositories/objects/jobs/exports/shares).
+
 ## Template for next session
 
 - Date / environment:

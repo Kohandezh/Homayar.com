@@ -2401,7 +2401,7 @@
     {
       "id": "WP03",
       "title": "Identity, tenancy and operational permissions",
-      "status": "not_started_in_this_handoff",
+      "status": "in_progress",
       "depends_on": [
         "WP01"
       ],
@@ -2414,7 +2414,9 @@
         {
           "id": "WP03-T01",
           "description": "Define one login/refresh/reset/verification/session-family contract; remove legacy auth from public runtime composition.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Single v1 contract documented in docs/architecture/auth-session-contract.md (identities, session family, rotation/replay, revocation, cookies/CSRF, one-time tokens, gaps for T02). Legacy auth stack (backend/auth, middleware/auth.py, routers/auth.py) and ENABLE_LEGACY_API composition removed; guard test pins it. Verified: 115 passed on PostgreSQL. Product commit 4a97c04d.",
+          "updated": "2026-09-08"
         },
         {
           "id": "WP03-T02",

@@ -1,6 +1,6 @@
 # WP03 — Identity, tenancy and operational permissions
 
-Status: NOT STARTED by this preparation task. Existing partial code must be reviewed and reused where suitable.
+Status: IN PROGRESS since 2026-09-08 (T01 validated in local scope; see [auth-session-contract](../../../architecture/auth-session-contract.md)). Existing partial code must be reviewed and reused where suitable.
 
 Completion dependencies: WP01.
 
