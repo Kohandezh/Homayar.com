@@ -8,6 +8,11 @@ Source of truth: `backend/security/tokens.py`, `backend/security/context.py`,
 Every statement below is covered by a test in `backend/tests/test_api.py` unless
 marked *(gap)*; gaps are WP03-T02 work.
 
+Authorization (what an authenticated session may do) is a separate contract:
+the role × resource × operation × scope matrix lives in the product repository
+at `docs/security/authorization-matrix.md` and is pinned by
+`backend/tests/test_authorization_matrix.py` (WP03-T03, ADR 0004).
+
 ## Identities
 
 | Method | Verified ownership before use | Storage |

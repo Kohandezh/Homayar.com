@@ -1,6 +1,6 @@
 # WP03 — Identity, tenancy and operational permissions
 
-Status: IN PROGRESS since 2026-09-08 (T01 validated in local scope; see [auth-session-contract](../../../architecture/auth-session-contract.md)). Existing partial code must be reviewed and reused where suitable.
+Status: IN PROGRESS since 2026-09-08 (T01/T02/T04 validated in local scope, T03 partial, T07 partial; see [auth-session-contract](../../../architecture/auth-session-contract.md), [ADR 0004](../../../architecture/decisions/0004-authorization-matrix-and-record-scope.md) and the machine-checked matrix at product `docs/security/authorization-matrix.md`). Existing partial code must be reviewed and reused where suitable.
 
 Completion dependencies: WP01.
 

@@ -2428,7 +2428,9 @@
         {
           "id": "WP03-T03",
           "description": "Add organization/team/agent assignments with effective dates and a written role/resource permission matrix.",
-          "status": "not_started"
+          "status": "partial",
+          "progress_note": "Matrix written and machine-checked (product docs/security/authorization-matrix.md + test_authorization_matrix.py: permission grants, grant hierarchy, full route inventory with deny-by-default). Policy centralised in backend/security/authorization.py; admin routes moved to explicit workspace:manage. Memberships carry valid_from/valid_until (enforced per request). Teams + effective-dated, revocable supervisor/agent assignments; Workspace.record_scope=team restricts member/viewer reads on every meeting path; attribution escalations refused. Migration 9b1d4f2c7a35 verified on PostgreSQL (upgrade/check/downgrade/upgrade). 130 passed on PostgreSQL 16.15. Deferred: organization-level assignments (no organization actor exists; documented as deny) and analyst/executive roles (F06). Product commit 06dd9a0f.",
+          "updated": "2026-09-08"
         },
         {
           "id": "WP03-T04",
@@ -2451,7 +2453,7 @@
           "id": "WP03-T07",
           "description": "Build adversarial two-tenant/two-team tests including background jobs, guessed IDs, stale tokens and changed membership.",
           "status": "partial",
-          "progress_note": "Covered: guessed ids, foreign workspace header, membership deactivated with a still-valid session (per-request check), background job writes only into the owning workspace. Missing: two-team/role-matrix cases (depends on T03) and stale API-key cases (WP16). Product commit 3bf703f9.",
+          "progress_note": "Covered: guessed ids, foreign workspace header, membership deactivated with a still-valid session (per-request check), background job writes only into the owning workspace. Two-team/role-matrix cases added with T03 (test_authorization_matrix.py). Missing: stale API-key cases (WP16). Product commits 3bf703f9, 06dd9a0f.",
           "updated": "2026-09-08"
         }
       ],
