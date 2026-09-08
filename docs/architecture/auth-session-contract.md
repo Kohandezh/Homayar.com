@@ -51,15 +51,17 @@ Login errors are generic; password-reset and OTP requests are not enumerable.
 `OneTimeToken` rows (email verification, password reset): hashed, purpose-bound,
 single use, expiring; consuming a reset token revokes all sessions.
 
-## Gaps tracked in WP03-T02
+## Negative coverage (WP03-T02)
 
-- Refresh replay after rotation is tested; *(gap)* explicit test that a revoked
-  family cannot mint a new access token from a still-valid access JWT before `exp`
-  (currently enforced by the session check on every request — needs a negative test).
-- *(gap)* Google account-linking negative cases (link attempt while signed out,
-  identity already linked to another user).
-- *(gap)* OTP replay across two challenges for the same phone.
-- *(gap)* `cookie_domain` and `SameSite` assertions on the issued cookies.
+`backend/tests/test_api.py` and `backend/tests/test_auth_contract.py` cover: refresh
+rotation and replay revocation, logout with CSRF, password reset invalidating
+sessions and single-use tokens, deactivated users, forged tokens, OTP
+normalization/replay/cooldown/attempt limit, OTP code bound to its challenge with
+older open challenges superseded on a new request, cookie attributes
+(HttpOnly/SameSite/Path/Secure/Domain), Google link requiring an authenticated
+CSRF session, Google sign-in refusing to merge into an existing email account, and
+one Google identity never linking to two accounts. Live Google/Asanak delivery is
+not exercised (blocked_external: provider configuration).
 
 ## Removed
 

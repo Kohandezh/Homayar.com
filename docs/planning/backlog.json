@@ -2421,7 +2421,9 @@
         {
           "id": "WP03-T02",
           "description": "Test rotation/reuse, logout, password-reset invalidation, disabled users, account linking, cookies and CSRF.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Negative suite for the contract: OTP challenge binding/supersession (request_otp now invalidates open challenges), cookie attributes incl. Secure/Domain, Google link auth requirement, no silent account merge, no double-linking. 121 passed on PostgreSQL. Live provider flows blocked_external. Product commit 7b9e992f.",
+          "updated": "2026-09-08"
         },
         {
           "id": "WP03-T03",

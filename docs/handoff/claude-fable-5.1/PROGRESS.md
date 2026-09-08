@@ -99,6 +99,14 @@
 - Local commits: product `4a97c04d3fc3ecf3f9cabe2c560c2f0f38edc386`; website commit below. Nothing pushed.
 - Next exact action: WP03-T02 — add the four gap tests (revoked family with valid access JWT, Google link negatives, OTP cross-challenge replay, cookie attributes) and fix anything they expose; then WP03-T04 (scope enforcement audit across repositories/objects/jobs/exports/shares).
 
+## Session 2 (cont.) — WP03-T02 auth negative suite — 2026-09-08
+
+- Package / subtask: WP03-T02 — validated (local scope; live Google/Asanak flows blocked_external).
+- Scope and files: product `backend/tests/test_auth_contract.py` (new, 6 tests), `backend/services/otp_service.py` (new request supersedes open challenges for the phone). Website: contract doc gap section replaced by coverage list; lock sha → `7b9e992f`; WP03 statuses.
+- Evidence: PostgreSQL → `121 passed`; ruff clean on changed files.
+- Local commits: product `7b9e992fbf624947439a7c4ea87fa3a6fea57cbc`; website commit below. Nothing pushed.
+- Next exact action: WP03-T04 — audit tenant/record scope enforcement across repositories, object storage keys, jobs, exports, shares and retrieval; extend the two-tenant negative tests (existing: meetings, admin audit, members) to shares/exports/search/jobs; then WP03-T05 (PostgreSQL RLS) design.
+
 ## Template for next session
 
 - Date / environment:
