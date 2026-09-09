@@ -9,7 +9,7 @@ The previous graphs under root `graphify-out/` and `Homayar/graphify-out/` descr
 | [Code report](graphify/code/GRAPH_REPORT.md) | 307 selected current Python/TypeScript/JavaScript/shell source and test files across the website worktree and the isolated product checkout (refreshed 2026-09-09, after WP06-T07) |
 | [Code visualization](graphify/code/graph.html) | Simplified directed navigation view: 3,139 nodes, 10,289 edges, 129 communities |
 | [Code JSON](graphify/code/graph.json) | Standard Graphify query input; same resolved view |
-| Lossless raw extraction (`graphify/code/extraction.json`, local/ignored) | 3,139 nodes, 11,309 AST relations; 143 explicitly unresolved reference ids (see below). The `graph.full.json`/GraphML exports of the 2026-09-07 snapshot were not regenerated on 2026-09-09 and were removed locally so no old full export pairs with the new graph |
+| Lossless raw extraction (`graphify/code/extraction.json`, local/ignored) | 3,139 nodes, 11,333 AST relations; 143 explicitly unresolved reference ids (see below). The `graph.full.json`/GraphML exports of the 2026-09-07 snapshot were not regenerated on 2026-09-09 and were removed locally so no old full export pairs with the new graph |
 | [Unresolved reference list](graphify/code/UNRESOLVED_REFERENCES.json) | 143 references not resolved to definitions (derived from extraction.json); no invented source/identity claim |
 | [Planning graph](graphify/planning/graph.html) | 119 nodes: 95 features plus 24 work packages, 148 explicit planning relationships (built 2026-09-07; not rebuilt on 2026-09-09 — only task statuses/notes changed, no relationship did) |
 | [Planning JSON](graphify/planning/graph.json) | Completion dependencies and feature-to-package mappings, not runtime behavior |
