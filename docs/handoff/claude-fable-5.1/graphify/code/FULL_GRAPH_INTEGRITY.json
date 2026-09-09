@@ -1,10 +1,11 @@
 {
-  "raw_ast_nodes": 2580,
-  "raw_ast_edges": 8492,
-  "explicit_unresolved_reference_nodes": 134,
-  "full_graph_nodes": 2714,
-  "full_graph_edges": 8492,
+  "raw_ast_nodes": 3053,
+  "raw_ast_edges": 10854,
+  "explicit_unresolved_reference_nodes": 143,
+  "full_graph_nodes": 3196,
+  "full_graph_edges": 10854,
   "full_graph_missing_endpoints": 0,
+  "self_loop_edges": 1,
   "definition_resolution_complete": false,
-  "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Full multigraph retains parallel relations and original self-loops. Resolved graph.json/HTML remain a simplified navigation view."
+  "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Counts derive from the lossless extraction.json of this snapshot; the lossless graph.full.json/GraphML exports were not regenerated in this refresh (resolved graph.json/HTML were). Resolved graph.json/HTML remain a simplified navigation view."
 }

@@ -1,25 +1,25 @@
 {
-  "node_count": 2580,
+  "node_count": 3053,
   "unverified_node_count": 0,
-  "raw_edge_count": 8492,
+  "raw_edge_count": 10854,
   "non_object_edges": 0,
   "missing_endpoint_edges": 0,
-  "dangling_endpoint_edges": 613,
+  "dangling_endpoint_edges": 710,
   "self_loop_edges": 1,
-  "valid_candidate_edges": 7879,
-  "exact_duplicate_edges": 30,
-  "directed_unique_endpoint_pairs": 7653,
-  "directed_same_endpoint_collapsed_edges": 226,
-  "undirected_unique_endpoint_pairs": 7650,
-  "undirected_same_endpoint_collapsed_edges": 229,
-  "same_endpoint_group_count": 202,
-  "relation_variant_groups": 152,
+  "valid_candidate_edges": 10144,
+  "exact_duplicate_edges": 50,
+  "directed_unique_endpoint_pairs": 9853,
+  "directed_same_endpoint_collapsed_edges": 291,
+  "undirected_unique_endpoint_pairs": 9845,
+  "undirected_same_endpoint_collapsed_edges": 299,
+  "same_endpoint_group_count": 254,
+  "relation_variant_groups": 187,
   "source_file_variant_groups": 0,
-  "source_location_variant_groups": 12,
-  "context_variant_groups": 28,
+  "source_location_variant_groups": 16,
+  "context_variant_groups": 37,
   "post_build_graph_type": "DiGraph",
-  "post_build_node_count": 2580,
-  "post_build_edge_count": 7652,
+  "post_build_node_count": 3053,
+  "post_build_edge_count": 9844,
   "post_build_error": "",
   "producer_suppression": {
     "path": "/Users/emperor/.local/share/uv/tools/graphifyy/lib/python3.10/site-packages/graphify/extract.py",
@@ -98,7 +98,7 @@
     {
       "source": "homayar_backend_main",
       "target": "homayar_backend_routers_v1_init",
-      "edge_count": 7,
+      "edge_count": 8,
       "relations": [
         "imports_from"
       ],
@@ -106,13 +106,14 @@
         "Homayar/backend/main.py"
       ],
       "source_locations": [
-        "L21",
-        "L22",
         "L23",
         "L24",
         "L25",
         "L26",
-        "L27"
+        "L27",
+        "L28",
+        "L29",
+        "L30"
       ],
       "contexts": [
         "import"
@@ -137,19 +138,19 @@
       ]
     },
     {
-      "source": "homayar_backend_jobs_processor_materialize_recording",
-      "target": "homayar_backend_jobs_processor_py_path",
-      "edge_count": 3,
+      "source": "homayar_backend_tests_test_job_leases_forged",
+      "target": "homayar_backend_jobs_leases_lease",
+      "edge_count": 4,
       "relations": [
         "calls",
         "references"
       ],
       "source_files": [
-        "Homayar/backend/jobs/processor.py"
+        "Homayar/backend/tests/test_job_leases.py"
       ],
       "source_locations": [
-        "L195",
-        "L202"
+        "L141",
+        "L152"
       ],
       "contexts": [
         "call",
@@ -158,42 +159,41 @@
       ]
     },
     {
-      "source": "homayar_backend_jobs_processor_transcript_turns",
-      "target": "homayar_backend_providers_schemas_transcriptturn",
+      "source": "homayar_backend_database_tenant_context_replace",
+      "target": "homayar_backend_database_tenant_context_tenantcontext",
       "edge_count": 3,
       "relations": [
         "calls",
         "references"
       ],
       "source_files": [
-        "Homayar/backend/jobs/processor.py"
+        "Homayar/backend/database/tenant_context.py"
       ],
       "source_locations": [
-        "L259",
-        "L264"
+        "L155",
+        "L168"
       ],
       "contexts": [
         "call",
-        "generic_arg"
+        "parameter_type",
+        "return_type"
       ]
     },
     {
-      "source": "homayar_backend_providers_factory_unsupported_provider",
-      "target": "homayar_backend_providers_base_providererror",
+      "source": "homayar_backend_jobs_leases_lease_expiry",
+      "target": "homayar_backend_jobs_leases_py_datetime",
       "edge_count": 3,
       "relations": [
-        "calls",
         "references"
       ],
       "source_files": [
-        "Homayar/backend/providers/factory.py"
+        "Homayar/backend/jobs/leases.py"
       ],
       "source_locations": [
-        "L38",
-        "L39"
+        "L160"
       ],
       "contexts": [
-        "call",
+        "parameter_type",
         "return_type"
       ]
     }

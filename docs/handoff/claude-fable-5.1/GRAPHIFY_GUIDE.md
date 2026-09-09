@@ -6,20 +6,19 @@ The previous graphs under root `graphify-out/` and `Homayar/graphify-out/` descr
 
 | Artifact | Scope |
 |---|---|
-| [Code report](graphify/code/GRAPH_REPORT.md) | 285 selected current Python/TypeScript/JavaScript/shell source and test files across website and product |
-| [Code visualization](graphify/code/graph.html) | Simplified directed navigation view: 2,580 nodes, 7,652 edges, 106 communities |
+| [Code report](graphify/code/GRAPH_REPORT.md) | 302 selected current Python/TypeScript/JavaScript/shell source and test files across the website worktree and the isolated product checkout (refreshed 2026-09-09) |
+| [Code visualization](graphify/code/graph.html) | Simplified directed navigation view: 3,053 nodes, 9,844 edges, 134 communities |
 | [Code JSON](graphify/code/graph.json) | Standard Graphify query input; same resolved view |
-| [Full relationship JSON](graphify/code/graph.full.json) | Lossless multigraph: 2,714 nodes, 8,492 AST relations, including 134 explicitly unresolved reference nodes |
-| [Full GraphML](graphify/code/graph.full.graphml) | Same lossless relationships for compatible external graph tools |
-| [Unresolved reference list](graphify/code/UNRESOLVED_REFERENCES.json) | References not resolved to definitions; no invented source/identity claim |
-| [Planning graph](graphify/planning/graph.html) | 119 nodes: 95 features plus 24 work packages, 148 explicit planning relationships |
+| Lossless raw extraction (`graphify/code/extraction.json`, local/ignored) | 3,053 nodes, 10,854 AST relations; 143 explicitly unresolved reference ids (see below). The `graph.full.json`/GraphML exports of the 2026-09-07 snapshot were not regenerated on 2026-09-09 and were removed locally so no old full export pairs with the new graph |
+| [Unresolved reference list](graphify/code/UNRESOLVED_REFERENCES.json) | 143 references not resolved to definitions (derived from extraction.json); no invented source/identity claim |
+| [Planning graph](graphify/planning/graph.html) | 119 nodes: 95 features plus 24 work packages, 148 explicit planning relationships (built 2026-09-07; not rebuilt on 2026-09-09 — only task statuses/notes changed, no relationship did) |
 | [Planning JSON](graphify/planning/graph.json) | Completion dependencies and feature-to-package mappings, not runtime behavior |
-| [Source manifest](graphify/source-manifest.json) | Selected paths, SHA-256, exclusions and extraction scope |
+| [Source manifest](graphify/source-manifest.json) | Selected paths relative to the website worktree root, SHA-256, website/product commits the snapshot was taken at, exclusions and extraction scope |
 | [Build summary](graphify/BUILD_SUMMARY.json) | Actual graph counts and diagnostics |
 
 Graphify 0.9.40 was already installed. Extraction used local AST and explicit machine-readable plan relationships; no code or documents were sent to a separate LLM API, and external extraction token cost was zero. No model was downloaded. Community names describe dominant source directories deterministically.
 
-Raw AST diagnostics found 613 edges referencing 134 undefined endpoints, one self-loop and 226 same-endpoint relationships that the simple directed view can consolidate. `extraction.json` preserves original output. `graph.full.json` retains every relation and adds visibly unresolved reference nodes, giving zero structurally missing endpoints **without claiming those references have been resolved to actual definitions**. Some are likely dependencies/config imports; verify individually before using them as evidence. Self-loops can represent recursion; they are not automatically defects.
+Raw AST diagnostics of the 2026-09-09 snapshot found 710 edges referencing 143 undefined endpoints, one self-loop and 291 same-endpoint relationships that the simple directed view consolidates. `extraction.json` preserves the original output; `UNRESOLVED_REFERENCES.json` and `FULL_GRAPH_INTEGRITY.json` are derived from it, listing the unresolved ids **without claiming those references have been resolved to actual definitions**. Some are likely dependencies/config imports; verify individually before using them as evidence. Self-loops can represent recursion; they are not automatically defects.
 
 No free-form semantic extraction of every document, image or recording was performed. The planning layer is complete for the 95-feature/24-package explicit mapping. The production Neo4j conversation graph, runtime tenant safety and feature implementation are separate open tasks. Static code connectivity does not prove execution or authorization.
 
@@ -36,6 +35,8 @@ Resolve queries against actual graph vocabulary if no seed matches. Consult the 
 
 ## Freshness and rebuild
 
+The canonical code map was refreshed on 2026-09-09 from the website worktree `claude/homayar-commercial-v1-a266f5` and the isolated product checkout `Homayar/` (`feat/commercial-v1-overlay` @ `9dde0a0d`): 302 files, every hash matching the tree at that moment, covering the WP03-T03/T05/T06 and WP06-T02/T04/T05 overlay changes. The original product checkout was not scanned. The dated snapshot lives under `graphify/refreshes/` (ignored by Git); the canonical `graphify/code/` files were copied from it, and the HTML was rewritten to load the bundled `graphify/vendor` renderer instead of unpkg.
+
 Compare `graphify/source-manifest.json` hashes to current files. Any changed, removed or newly added source file means coverage needs reassessment. Current graphs contain the uncommitted source snapshot, not merely branch HEAD.
 
 A portable, code-only refresh helper is supplied at `tools/refresh_graph.py`. It selects approved runtime source roots, excludes dependencies, caches, data/media and secrets, writes to a **new dated output directory**, and never overwrites old graphs or reads a provider key. Run it with the Python interpreter containing Graphify, after inspecting its source:
@@ -44,7 +45,7 @@ A portable, code-only refresh helper is supplied at `tools/refresh_graph.py`. It
 /Users/emperor/.local/share/uv/tools/graphifyy/bin/python docs/handoff/claude-fable-5.1/tools/refresh_graph.py
 ```
 
-On another computer, locate Graphify's interpreter from its installed executable/tool environment. The helper deliberately does not install dependencies, select a paid model, alter Git hooks, start a watcher, push to Neo4j, or mutate application source. New snapshot output must pass its diagnostics/manifest review before replacing any canonical path.
+A sandbox that forbids the process pool's semaphore check (`os.sysconf("SC_SEM_NSEMS_MAX")` → *Operation not permitted*, as in the Claude Code session sandbox) makes the helper fail before writing; run it through a small wrapper that imports `graphify.extract`, wraps `extract` to force `parallel=False`, and executes the helper with `runpy` — extraction of ~300 files then takes about 15 s. On another computer, locate Graphify's interpreter from its installed executable/tool environment. The helper deliberately does not install dependencies, select a paid model, alter Git hooks, start a watcher, push to Neo4j, or mutate application source. New snapshot output must pass its diagnostics/manifest review before replacing any canonical path.
 
 For document semantic enrichment later, read the installed Graphify SKILL.md and extraction specification. Separate current-state facts from planned concepts, cite files/lines, mark inferred/ambiguous relationships honestly and never send customer recordings, environment files or secret-bearing legacy history to a provider. Full-repository extraction is not permission to upload every file.
 

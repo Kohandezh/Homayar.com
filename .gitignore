@@ -66,3 +66,4 @@ docs/handoff/claude-fable-5.1/graphify/**/graph.graphml
 docs/handoff/claude-fable-5.1/graphify/**/graph.full.graphml
 docs/handoff/claude-fable-5.1/graphify/**/graph.html
 docs/handoff/claude-fable-5.1/graphify/vendor/*.min.js
+docs/handoff/claude-fable-5.1/graphify/refreshes/
