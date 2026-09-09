@@ -1,17 +1,17 @@
 {
   "code": {
-    "nodes": 3053,
-    "edges": 9844,
-    "communities": 134,
+    "nodes": 3139,
+    "edges": 10289,
+    "communities": 129,
     "diagnostics": {
       "missing_endpoint_edges": 0,
-      "dangling_endpoint_edges": 710,
+      "dangling_endpoint_edges": 733,
       "self_loop_edges": 1,
-      "directed_same_endpoint_collapsed_edges": 291,
-      "undirected_same_endpoint_collapsed_edges": 299
+      "directed_same_endpoint_collapsed_edges": 302,
+      "undirected_same_endpoint_collapsed_edges": 310
     },
     "title": "Current workspace code graph (website worktree + isolated product checkout)",
-    "snapshot": "refreshes/20260909T131832304535Z",
+    "snapshot": "refreshes/20260909T140405898125Z",
     "refreshed_at": "2026-09-09"
   },
   "planning": {
@@ -28,20 +28,20 @@
     "title": "Explicit blueprint dependency graph",
     "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09 (only task statuses/notes changed, no structural relationship changed)."
   },
-  "code_files": 302,
+  "code_files": 307,
   "no_symbol_file_count": 0,
   "graphify_version": "0.9.40",
   "semantic_scope": "Explicit planning relationships only; free-form documentation semantic extraction not run.",
   "original_graphs": "Historical root graphify-out and Homayar/graphify-out (original checkout) preserved unchanged and not consulted; the 2026-09-07 snapshot pointed at the original checkout and is superseded by this refresh.",
   "full_graph": {
-    "raw_ast_nodes": 3053,
-    "raw_ast_edges": 10854,
+    "raw_ast_nodes": 3139,
+    "raw_ast_edges": 11333,
     "explicit_unresolved_reference_nodes": 143,
-    "full_graph_nodes": 3196,
-    "full_graph_edges": 10854,
+    "full_graph_nodes": 3282,
+    "full_graph_edges": 11333,
     "full_graph_missing_endpoints": 0,
     "self_loop_edges": 1,
     "definition_resolution_complete": false,
-    "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Counts derive from the lossless extraction.json of this snapshot; the lossless graph.full.json/GraphML exports were not regenerated in this refresh (resolved graph.json/HTML were). Resolved graph.json/HTML remain a simplified navigation view."
+    "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Counts derive from the lossless extraction.json of this snapshot; the lossless graph.full.json/GraphML exports were not regenerated (resolved graph.json/HTML were). Resolved graph.json/HTML remain a simplified navigation view."
   }
 }

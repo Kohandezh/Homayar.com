@@ -234,3 +234,5 @@ At every release, test Compose expansion, nginx syntax, migrations, image startu
 health checks. Weekly, review backup age, queue age, disk growth, restart counts, certificate
 expiry, and secret expiry. Quarterly, run an isolated restore exercise and record achieved
 RPO/RTO against policy.
+
+- Accepted-job invariants (WP06-T07): `python -m backend.jobs.invariants` inspects every workspace read-only (discovery under the `usage_reconciliation` RLS scope, then tenant-bound) and prints violations by rule — `running_lease` (RUNNING without a live lease, or a lease expired for more than two recovery sweeps), `terminal_released`, `queued_delivery_path` (queued job whose outbox intent cannot deliver it), `reservations_match_state`, `single_settlement`, `ledger_counters`, `meeting_status`. Exit code 1 on any violation. It repairs nothing: orphaned reservations and counter drift go to the usage reconciliation above, a queued job without a delivery path is re-armed by the lease/dispatch sweeps only when its state allows it — otherwise replay it, and a stale RUNNING lease means beat is not running.

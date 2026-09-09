@@ -2620,7 +2620,9 @@
         {
           "id": "WP06-T07",
           "description": "Inject worker kill, broker restart, lost acknowledgement, duplicate delivery and object-write failure; reconcile all accepted jobs.",
-          "status": "not_started"
+          "status": "partial",
+          "progress_note": "In-process fault model validated: backend/jobs/invariants.py is a read-only checker of the durable-processing promises per workspace (running lease, terminal released, queued delivery path, reservations match state, single settlement, ledger vs counters, meeting status) with an operator CLI over all workspaces (discovery under the usage_reconciliation scope, tenant-bound inspection, exit 1 on violations; recorded in the runbook's Maintenance Checks). test_fault_injection.py (5): transient storage-read faults plus a broker outage with every message delivered twice converge to completed with one settlement per meeting (attempt 2 after the transient failure, retries through the outbox row); a worker killed mid-stage (gated provider, lease expired) is recovered by the sweep, a healthy worker completes, the resumed writer is superseded; lost acknowledgement redelivered during and after an attempt is inert; an object delete failure after success keeps results and the single charge without pretending deletion; injected corruption (settled reservation reverted, queued job with a withdrawn intent) is reported by rule and counted by the CLI summary. All scenarios end with an empty violation list. Full suite 186 passed on PostgreSQL 16.15 (one worker), fault module 3 passed + 2 skipped (threaded scenarios are PostgreSQL-only) on SQLite; ruff clean. Not run / blocked_external: a real Celery pool kill (hard time limit), a real broker restart on Redis/network transport, transport-level lost acknowledgement (only the memory-transport worker test of T01 exists), object-write failures for worker outputs (no worker object writes until T03), deployed beat. Status partial until a Redis-backed or deployed-stack drill is observed. Product commit 787bed6e.",
+          "updated": "2026-09-09"
         }
       ],
       "dependency_note": "",

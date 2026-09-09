@@ -251,6 +251,21 @@
 - Local commits: product `2e702777955b72254b5cfd7ae773c9973c91252c`; website commit below. Nothing pushed.
 - Next exact action: WP06-T07 — fault injection (worker kill, broker restart, lost acknowledgement, duplicate delivery, object-write failure) reconciling every accepted job against the outbox, lease, failure-policy and ledger invariants; then WP06-T03 (stage checkpoints with immutable input hashes and idempotent artifact writes).
 
+## Session 6c — 2026-09-09 (WP06-T07 fault injection and accepted-job invariants)
+
+- Date / environment: same session and cluster as Sessions 6/6b; product at `2e70277` after T06.
+- Package / subtask: WP06-T07 partial (in-process fault model validated; transport-level and deployed-stack drills not run). WP06 remaining: T03 not started; T07 transport drills blocked on Redis/deployed stack.
+- Scope and files: product `backend/jobs/invariants.py` (new: `check_workspace`, `check_all`, CLI), `backend/tests/test_fault_injection.py` (new, 5). Website: `docs/operations/health-and-recovery.md` (Maintenance Checks: invariant CLI), WP06 `tasks.json`/`README.md`, `backlog.json`, lock (sha → `787bed6e`), graphify refresh (see below), this file.
+- Change and reason: the T02/T04/T05/T06 guarantees are now checked together, after injected faults, by one reusable read-only checker that an operator can run; scenarios inject faults deterministically (gated providers, per-key storage failures, broker failure counters, fake clocks) and end with an empty violation list.
+- Commands/results newly executed: SQLite `test_fault_injection.py` → `3 passed, 2 skipped`; PostgreSQL `test_fault_injection.py` → `5 passed`; full suite on PostgreSQL → `186 passed`, exit 0; `ruff check --no-cache` on the new files → clean.
+- Acceptance satisfied (T07, in-process): storage fault + broker outage + duplicate delivery leave no lost accepted job and no duplicate charge; worker kill mid-stage is recovered within one sweep and the stale writer is fenced; lost acknowledgement (redelivery during and after an attempt) is inert; object delete failure after success does not pretend deletion or lose results; every scenario reconciles all accepted jobs against the invariants.
+- Acceptance pending: worker kill by a real Celery pool (hard time limit), broker restart on Redis/network transport, transport-level lost acknowledgement, object-write failures for worker outputs (none exist until T03), deployed beat — NOT_RUN / blocked_external.
+- Review: additive change (a checker and tests; no production path altered). The checker never repairs; it points at the reconciliation and replay procedures.
+- Graphify: refreshed again after T06/T07 with the same sequential wrapper; numbers recorded in GRAPHIFY_GUIDE.md / BUILD_SUMMARY.json (T06/T07 files present in the manifest; 0 hash mismatches at snapshot time).
+- External blockers: unchanged.
+- Local commits: product `787bed6efbd5ac93303943e80adfab3c46e2b8a4`; website commit below. Nothing pushed. The disposable PostgreSQL cluster was stopped at the end of the session.
+- Next exact action: WP06-T03 — stage attempts/checkpoints with immutable input hashes and idempotent, attempt-scoped artifact/result writes (reuse a successful ASR checkpoint on retry; publish authoritative references only under the fence; clean abandoned artifacts without deleting current results); then the WP06 transport drills once a Redis-backed broker is available; keep WP03 organization-scope gaps and the empty-transcript billing decision visible.
+
 ## Template for next session
 
 - Date / environment:
