@@ -79,10 +79,12 @@ the same job, and the worker's claim makes the duplicate a no-op.
   batches of `DISPATCH_SWEEP_BATCH_SIZE`. Run one beat replica.
 - Without beat, or to force a pass: `python -m backend.jobs.outbox` (one bounded
   sweep; exit code 1 when a row reached `FAILED`).
-- `GET /meetings/{id}/job` exposes `dispatch.state`, attempts and `last_error`; a
-  job stuck in `queued` with `dispatch.state = failed` means the broker rejected the
-  publication repeatedly — fix the broker, then reset the row to `PENDING` with a
-  due `next_attempt_at` (or re-run the sweep after raising `max_attempts`).
+- `GET /meetings/{id}/job` exposes `dispatch.state`, attempts and `last_error`.
+  Since WP06-T05 an exhausted publication **parks the job** in the same
+  transaction: `state = dead_letter`, `failure_class = publication`,
+  `failure_code = publication_failed`, reservations released, meeting `failed`.
+  Fix the broker, then replay the job (see *Dead-Letter Jobs and Replay*); do
+  not edit `job_dispatches` by hand.
 - The sweeper reads only `job_dispatches` (RLS service scope `dispatch`); it never
   sees meeting content. Processing still binds the job's own tenant from the
   persisted job row, never from the message.
@@ -112,11 +114,13 @@ failure or settle usage; its attempt ends as `superseded` and writes nothing.
   sweep interval of the last renewal (≈ 3 minutes with defaults).
 - Without beat, or to force a pass: `python -m backend.jobs.recovery` (one bounded
   batch of `JOB_RECOVERY_BATCH_SIZE`; exit code 1 when a job was parked).
-- An abandoned attempt consumes one of the job's `max_attempts` (3). When none
-  remain the job is parked `dead_letter` with `failure_code = lease_expired`, the
-  meeting shows `failed`, and both quota reservations are released — nothing is
-  charged. Operator replay of parked jobs is WP06-T05 work; until then do not
-  edit `processing_jobs` by hand to resurrect an attempt.
+- An abandoned attempt consumes one of the job's `max_attempts`
+  (`JOB_MAX_ATTEMPTS`, 3). When none remain — or the job's overall deadline has
+  passed — the job is parked `dead_letter` (`failure_class = abandoned` with
+  `failure_code = lease_expired`, or `failure_class = deadline` with
+  `job_deadline_exceeded`), the meeting shows `failed`, and both quota
+  reservations are released — nothing is charged. Recover it with the replay
+  endpoint below; never edit `processing_jobs` by hand to resurrect an attempt.
 - `GET /meetings/{id}/job` exposes `lease.generation`, `lease.attempt_id`,
   `lease.expires_at`, `lease.renewed_at` and `retry_after`. A job `running` with
   `lease.expires_at` in the past and no `lease_expired` transition after two
@@ -128,6 +132,45 @@ failure or settle usage; its attempt ends as `superseded` and writes nothing.
   the fence; the next attempt may repeat that supplier call (bounded by
   `max_attempts`). Its late result is rejected at the transaction boundary and
   the customer's reservation is settled at most once.
+
+## Dead-Letter Jobs and Replay
+
+Since WP06-T05 every job that stops carries a `failure_class` next to its
+`failure_code` (`GET /meetings/{id}/job`, audit `meeting.processing.failed`):
+
+| Class | Meaning | Terminal state | Way out |
+| --- | --- | --- | --- |
+| `publication` | the outbox could not deliver the job (`DISPATCH_MAX_ATTEMPTS`) | `dead_letter` | fix the broker, replay |
+| `transient` | retryable execution failure (provider, storage, stage/attempt timeout); retried with back-off until `JOB_MAX_ATTEMPTS` | `dead_letter` when exhausted | fix the cause, replay |
+| `abandoned` | the worker stopped renewing its lease | requeued; `dead_letter` when exhausted | replay |
+| `deadline` | `JOB_DEADLINE_SECONDS` (24 h) passed since creation/replay | `dead_letter` | replay (new deadline) |
+| `permanent` | input or policy failure (`recording_integrity_failed`, `unsupported_audio`, …) | `failed` | customer uploads again |
+| `cancelled` | meeting deleted | `cancelled` | none |
+
+A parked job holds no allowance: both reservations are released when it is
+parked. Retries back off exponentially (`JOB_RETRY_DELAY_SECONDS` 30 s
+doubling to `JOB_RETRY_MAX_DELAY_SECONDS` 600 s) through the job's own
+outbox row; a retry that would start after the deadline is not scheduled.
+
+- Replay: `POST /api/v1/admin/jobs/{job_id}/replay` as a workspace owner or
+  admin (`workspace:manage`, CSRF). It reserves quota again under the
+  workspace's **current** entitlement, grants `JOB_MAX_ATTEMPTS` more attempts
+  on top of the recorded ones (history kept), sets a new deadline, advances the
+  lease generation (nothing from the parked attempts can write), re-arms the
+  outbox row and publishes it. The response carries the requeued job and the
+  publisher outcome; the audit trail records `meeting.processing.replayed`
+  with the actor and the previous failure.
+- Bounded: at most `JOB_MAX_REPLAYS` (3) per job → `409 replay_limit_reached`.
+  Refused with nothing written: `409 job_not_replayable` (only `dead_letter`
+  is replayable), `409 meeting_deleted` / `retention_expired` /
+  `recording_missing` (deleted resources are never resurrected), `429
+  audio_quota_exceeded` / `concurrent_job_limit_reached` (raise the
+  entitlement first).
+- Triage: list parked jobs with
+  `SELECT id, workspace_id, failure_class, failure_code, attempt_count,
+  replay_count, completed_at FROM processing_jobs WHERE state = 'DEAD_LETTER'
+  ORDER BY completed_at` (read-only, as a DBA role). Bulk replay is a loop over
+  the endpoint per workspace, never a SQL update.
 
 ## Object Storage Failure
 
