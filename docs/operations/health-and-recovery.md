@@ -172,6 +172,42 @@ outbox row; a retry that would start after the deadline is not scheduled.
   ORDER BY completed_at` (read-only, as a DBA role). Bulk replay is a loop over
   the endpoint per workspace, never a SQL update.
 
+## Usage Ledger and Reconciliation
+
+Since WP06-T06 `usage_events` is an append-only ledger: `reserved` when an
+upload or replay takes allowance, `committed` for the single billable
+settlement, `released` when allowance is given back (reason attached), and
+`adjusted` only by reconciliation. Each row's `operation_key`
+(`<reservation>:<type>`) is unique, and PostgreSQL allows at most one
+`COMMITTED` reservation per meeting and metric — a redelivered, retried,
+recovered or replayed job cannot charge twice. When summing consumption, filter
+on `event_type = committed`.
+
+- Reconciliation runs automatically while the `scheduler` service (Celery
+  beat) runs, every `USAGE_RECONCILIATION_INTERVAL_SECONDS` (default 900):
+  reservations still `reserved` after `USAGE_RECONCILIATION_GRACE_SECONDS`
+  (default 600) whose meeting is deleted or that no queued/running job
+  references are released (`reason = reconciled_orphan`, a `released` ledger
+  row, allowance freed); entitlement counters are compared with the sums the
+  reservation rows imply.
+- Counter drift is **reported, not fixed**: log `USAGE_COUNTER_DRIFT`, audit
+  `usage.reconciled` with outcome `failure` and the observed/expected values.
+  Investigate the cause (hand edits, a bug, a partial restore), then repair
+  once with `python -m backend.jobs.usage_reconciliation --repair` (or set
+  `USAGE_RECONCILIATION_REPAIR_COUNTERS=true` for the sweep). A repair writes
+  one `adjusted` row whose key encodes the correction; re-running it is inert.
+- Without beat, or to force a pass: `python -m backend.jobs.usage_reconciliation`
+  (exit code 1 when drift was found and not repaired).
+- The sweep reads only `entitlements` across tenants (RLS service scope
+  `usage_reconciliation`, read-only); every write binds the entitlement's own
+  workspace from the persisted row. It never creates a charge and never
+  touches `committed` rows.
+- Triage: `SELECT e.workspace_id, e.metric, e.used_value, e.reserved_value,
+  (SELECT COALESCE(SUM(committed_value),0) FROM usage_reservations r WHERE
+  r.entitlement_id = e.id AND r.state = 'COMMITTED') AS ledger_used FROM
+  entitlements e` (read-only, DBA role) shows the same comparison the sweep
+  makes.
+
 ## Object Storage Failure
 
 1. Stop accepting uploads when MinIO or managed S3 is unavailable.
