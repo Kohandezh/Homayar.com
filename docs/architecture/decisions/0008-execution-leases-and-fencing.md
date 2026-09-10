@@ -99,6 +99,72 @@ outbox.
   recovery + fence + re-arm, stale worker rejected for results/terminal
   status/failure/usage/audio deletion, resumed stale worker after recovery,
   late messages, deletion racing renewal/recovery, exhaustion, stage
-  timeout, recovery-scope isolation and no context leak). Not verified:
-  Redis transport, deployed beat, worker hard time limit in a real Celery
-  pool, PgBouncer transaction pooling.
+  timeout, recovery-scope isolation and no context leak). Since 2026-09-10
+  also verified on the real Redis transport with prefork workers and beat
+  as separate processes (see the amendment below). Not verified: the
+  deployed compose stack, a hard kill of the Redis process itself, the hard
+  time-limit *timer* (only its kill path), PgBouncer transaction pooling.
+
+## Amendment 2026-09-10 — Redis redelivery bound and real-transport drills (WP06-T07)
+
+Decision added:
+
+11. **The broker's redelivery bound follows the attempt bound.** The Redis
+    transport makes an unacknowledged delivery visible to other consumers
+    again after `visibility_timeout`; kombu's default (one hour) is shorter
+    than Celery's hard time limit for an attempt
+    (`JOB_ATTEMPT_TIMEOUT_SECONDS + 60`, 7,260 s by default). `make_celery`
+    now sets `broker_transport_options.visibility_timeout` to exactly the
+    hard time limit, so the broker never redelivers a delivery whose attempt
+    may still be running under Celery's own kill bound. This does **not**
+    slow recovery: a dead worker's job is recovered by the lease sweep
+    (decision 7) and republished through the outbox; the parked copy the
+    dead consumer left behind is restored much later and then meets a
+    completed job or a live lease, where it is inert (decision 6). Operators
+    must not shorten the visibility timeout below the attempt bound to
+    "speed up" recovery — that would redeliver live attempts; recovery
+    latency is governed by `JOB_LEASE_SECONDS` and the sweep interval.
+
+Evidence (`backend/tests/test_transport_drills.py`, PostgreSQL 16.15 as
+`homayar_app`, Redis 7.4.10 in a disposable container, Celery 5.5.3 / kombu
+5.5.4 / redis-py 5.2.1, prefork workers with concurrency 1 and beat started
+as child processes of the test with the deployed queue, `acks_late`,
+`reject_on_worker_lost`, prefetch and time-limit settings; test-specific
+deviations: lease 4 s / renew 2 s, `visibility_timeout` 4 s in the three
+redelivery drills, beat periods 2 s, deterministic mock providers with an
+ASR gate file):
+
+- **Pool child killed** (SIGKILL, the same path the hard time limit takes):
+  the parent logs `WorkerLostError` and requeues the delivery at once; the
+  new child meets the still-valid lease and returns `already_running`; the
+  lease lapses by itself (heartbeat died with the child); the sweep fences
+  and republishes; the job completes on attempt 2 with one settlement, the
+  abandoned ASR stage recorded `lease_expired`, nothing left queued or
+  unacknowledged.
+- **Whole worker killed** (SIGKILL of the process group): the delivery stays
+  parked in `unacked`; recovery proceeds from the lease alone; a healthy
+  worker completes attempt 2; after the visibility timeout the parked copy is
+  restored, consumed and inert (`completed`); one settlement.
+- **Visibility-timeout redelivery during a live attempt**: a second worker
+  receives the restored copy while the first attempt is held; the renewed
+  lease rejects it (`already_running`); the held attempt completes once.
+  kombu restores visible deliveries only at consumer start and about every
+  100 s thereafter (every tenth 10-second check), which bounds how late such
+  a copy can arrive.
+- **Broker restart and outage** (graceful `docker restart` / `stop`, AOF
+  `appendfsync always`): a delivery published before the restart survives it
+  and is processed; a running worker reconnects and consumes again; a
+  publication attempted during the outage is recorded `deferred` with
+  `last_error` and the job stays `queued`; the sweep republishes it after the
+  broker returns.
+- **Beat**: with real beat and a real worker, a job whose intent was never
+  published by the request path is published by the scheduled dispatch sweep,
+  and a job whose worker vanished is recovered by the scheduled lease sweep;
+  both complete with one settlement each.
+
+Also fixed on the way: the queue-contract test's broker switch
+(`use_broker` in `backend/tests/_transport.py`) now resets the cached result
+backend and producer pool that `Celery.close()` keeps, so the Redis
+parametrisation of `test_queue_routing.py` no longer publishes to the memory
+transport of the preceding parametrisation (it timed out before).
+

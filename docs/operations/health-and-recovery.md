@@ -93,6 +93,16 @@ the same job, and the worker's claim makes the duplicate a no-op.
   recovery of an abandoned attempt (due immediately). `dispatch.generation`
   shows which lease generation the current intent belongs to. Retries no longer
   use broker-level task retry.
+- Verified on Redis (WP06-T07 transport drills): a publication attempted while
+  the broker is down is recorded `deferred` with `last_error` (the job stays
+  `queued`) and the sweep republishes it once the broker is back; a delivery
+  published before a graceful broker restart survives it (Redis AOF) and is
+  processed; a running worker reconnects after the restart and consumes
+  again. A hard kill of the Redis process itself was not drilled: with the
+  compose `appendfsync everysec` setting up to one second of publications
+  could be lost then — they are still recovered, because the outbox row stays
+  `PUBLISHED` only after the broker acknowledged the publish and the lease
+  sweep / dispatch sweep re-publish any job that never completes.
 
 ## Abandoned Running Jobs (Worker Killed or Partitioned)
 
@@ -132,6 +142,23 @@ failure or settle usage; its attempt ends as `superseded` and writes nothing.
   the fence; the next attempt may repeat that supplier call (bounded by
   `max_attempts`). Its late result is rejected at the transaction boundary and
   the customer's reservation is settled at most once.
+- Broker side (Redis, WP06-T07): a delivery that a killed worker never
+  acknowledged stays in Redis' `unacked` set. Recovery does not wait for it —
+  the lease sweep re-arms the intent and republishes through the outbox. The
+  parked copy becomes visible again only after `visibility_timeout`, which
+  `backend.celery_app` sets to the hard time limit
+  (`JOB_ATTEMPT_TIMEOUT_SECONDS + 60`), and a consumer restores it only at
+  its own start or about every 100 s; when it finally arrives it meets a
+  completed job or a live lease and is acknowledged as inert. Do not lower
+  the visibility timeout below the attempt bound to "speed up" recovery: it
+  would redeliver live attempts. Recovery latency is the lease plus the sweep
+  interval, nothing else.
+- A pool child killed mid-attempt (SIGKILL, also what the hard time limit
+  does) makes the worker requeue the delivery immediately
+  (`task_reject_on_worker_lost`); the copy meets the still-valid lease and is
+  acknowledged as `already_running`; the job resumes after the lease lapses
+  and the sweep runs. No operator action is needed; expect `attempt_count`
+  to grow by one and the abandoned stage to show `lease_expired`.
 
 ## Dead-Letter Jobs and Replay
 
@@ -281,5 +308,6 @@ health checks. Weekly, review backup age, queue age, disk growth, restart counts
 expiry, and secret expiry. Quarterly, run an isolated restore exercise and record achieved
 RPO/RTO against policy.
 
+- Transport drills (WP06-T07): `backend/tests/test_transport_drills.py` starts real prefork workers and beat as child processes against PostgreSQL and a **disposable** Redis (`TEST_REDIS_URL`, a non-zero database that the drills flush; optional `TEST_REDIS_CONTAINER` names the Docker container for the restart drill). Run them after changing Celery/Redis settings or upgrading celery, kombu or redis-py. Never point them at a shared Redis. `TEST_REDIS_CONTAINER` is only honoured for `docker stop|start|restart` of that one container.
 - Accepted-job invariants (WP06-T07): `python -m backend.jobs.invariants` inspects every workspace read-only (discovery under the `usage_reconciliation` RLS scope, then tenant-bound) and prints violations by rule — `running_lease` (RUNNING without a live lease, or a lease expired for more than two recovery sweeps), `terminal_released`, `queued_delivery_path` (queued job whose outbox intent cannot deliver it), `reservations_match_state`, `single_settlement`, `ledger_counters`, `meeting_status`. Exit code 1 on any violation. It repairs nothing: orphaned reservations and counter drift go to the usage reconciliation above, a queued job without a delivery path is re-armed by the lease/dispatch sweeps only when its state allows it — otherwise replay it, and a stale RUNNING lease means beat is not running.
 - Stage checkpoints (WP06-T03): the same command also checks `checkpoint_state` (a published checkpoint carries its verified digest, was published by a generation the job has seen, belongs to a live meeting and is unique per identity; stage runs reference checkpoints of their own meeting). With `--artifacts` it asks the object store for every published artifact of a live meeting and reports `artifact_missing` as a violation; the `artifacts` block of the output separates `checked`, `missing`, `unverified` (store did not answer — not evidence of absence), `orphans` (objects of never-published or invalidated rows still awaiting cleanup) and `retired` (objects removed on purpose). Orphans are removed by `python -m backend.jobs.checkpoints` (beat `stage-artifact-cleanup`) after the grace period; nothing else is repaired.
