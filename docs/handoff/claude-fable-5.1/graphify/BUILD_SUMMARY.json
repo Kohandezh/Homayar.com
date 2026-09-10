@@ -1,17 +1,17 @@
 {
   "code": {
-    "nodes": 3317,
-    "edges": 11309,
-    "communities": 138,
+    "nodes": 3676,
+    "edges": 12927,
+    "communities": 135,
     "diagnostics": {
       "missing_endpoint_edges": 0,
-      "dangling_endpoint_edges": 760,
+      "dangling_endpoint_edges": 821,
       "self_loop_edges": 1,
-      "directed_same_endpoint_collapsed_edges": 336,
-      "undirected_same_endpoint_collapsed_edges": 344
+      "directed_same_endpoint_collapsed_edges": 397,
+      "undirected_same_endpoint_collapsed_edges": 406
     },
     "title": "Current workspace code graph (website worktree + isolated product checkout)",
-    "snapshot": "refreshes/20260910T100617657530Z",
+    "snapshot": "refreshes/20260910T194605739147Z",
     "refreshed_at": "2026-09-10"
   },
   "planning": {
@@ -28,17 +28,17 @@
     "title": "Explicit blueprint dependency graph",
     "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09 or 2026-09-10 (only task statuses/notes changed, no structural relationship changed)."
   },
-  "code_files": 310,
+  "code_files": 325,
   "no_symbol_file_count": 0,
   "graphify_version": "0.9.40",
   "semantic_scope": "Explicit planning relationships only; free-form documentation semantic extraction not run.",
   "original_graphs": "Historical root graphify-out and Homayar/graphify-out (original checkout) preserved unchanged and not consulted; the 2026-09-07 snapshot pointed at the original checkout and is superseded by this refresh.",
   "full_graph": {
-    "raw_ast_nodes": 3317,
-    "raw_ast_edges": 12414,
-    "explicit_unresolved_reference_nodes": 143,
-    "full_graph_nodes": 3460,
-    "full_graph_edges": 12414,
+    "raw_ast_nodes": 3676,
+    "raw_ast_edges": 14155,
+    "explicit_unresolved_reference_nodes": 145,
+    "full_graph_nodes": 3821,
+    "full_graph_edges": 14155,
     "full_graph_missing_endpoints": 0,
     "self_loop_edges": 1,
     "definition_resolution_complete": false,
