@@ -208,6 +208,50 @@ on `event_type = committed`.
   entitlements e` (read-only, DBA role) shows the same comparison the sweep
   makes.
 
+## Stage Checkpoints and Artifacts (Retries That Reuse Committed Results)
+
+Symptom: a retried or recovered job calls providers again for stages that
+already completed, `stage_checkpoints` rows stay `PENDING`, or the object
+store holds `art-…` objects that no published checkpoint references
+([ADR 0011](../architecture/decisions/0011-stage-checkpoints-and-attempt-scoped-artifacts.md)).
+
+- Meaning of the rows: `PENDING` — an attempt declared the artifact and may
+  still be writing it; `PUBLISHED` — the verified, authoritative result of
+  that stage for that input identity (reused by later attempts);
+  `ABANDONED` — never published (stale attempt, failed write, empty result);
+  `INVALIDATED` — published once, unusable now (`invalidation_reason`:
+  `artifact_missing`, `artifact_corrupt`, `meeting_deleted`, `superseded`).
+  `input_manifest` shows the declared inputs behind `input_hash`.
+- Why a stage was recomputed: compare the current identity inputs with the
+  manifest of the last published row for that meeting and stage — a
+  different provider model, compute type, endpoint, prompt version/digest,
+  language or a replaced recording changes the identity by design; a
+  changed transcript changes only the analysis identity. Rows invalidated
+  with `artifact_missing` / `artifact_corrupt` mean the object store lost or
+  altered an object: treat as a data-integrity incident (see Object Storage
+  Failure) and preserve the row and object before any repair.
+- Reuse switched off: `JOB_CHECKPOINT_REUSE_ENABLED=false` recomputes every
+  stage; the new verified result supersedes the older published row of the
+  same identity. Use it only while investigating a suspected bad result.
+- Orphan objects: an attempt that lost its lease after writing its object,
+  or a worker that died between the object write and the publication, leaves
+  a `PENDING` row and an object. The cleanup sweep (beat
+  `stage-artifact-cleanup` every `JOB_ARTIFACT_SWEEP_INTERVAL_SECONDS`, or
+  `python -m backend.jobs.checkpoints`) removes such objects after
+  `JOB_ARTIFACT_GRACE_SECONDS` and marks the rows `ABANDONED` /
+  `object_deleted_at`; it never removes the artifact of a `PUBLISHED` row of
+  a live meeting and never touches a `PENDING` row whose job is still
+  RUNNING at that generation. Storage that does not answer leaves rows
+  untouched (`unavailable` in the sweep counts) — retry later, do not
+  delete by hand.
+- Customer deletion: deleting a meeting invalidates its checkpoints
+  (`meeting_deleted`) and removes the objects in the request; if the object
+  store was unavailable at that moment the sweep removes them later.
+- Artifact write failures in the worker are transient failures of the
+  attempt (`artifact_write_failed`, retry with back-off); the stage is not
+  marked successful and the row is `ABANDONED` with `write_failed`. Repeated
+  occurrences point at the object store, not at the job.
+
 ## Object Storage Failure
 
 1. Stop accepting uploads when MinIO or managed S3 is unavailable.
@@ -215,7 +259,9 @@ on `event_type = committed`.
 3. Do not make the private bucket anonymous to recover service.
 4. After recovery, reconcile quarantined uploads and durable jobs before retrying.
 5. Treat a missing object referenced by PostgreSQL as a data-integrity incident and preserve
-   evidence before repair.
+   evidence before repair. This includes stage artifacts: `python -m backend.jobs.invariants
+   --artifacts` reports `artifact_missing` only when the store answered that the object of a
+   published checkpoint is gone; an unreachable store is reported as `unverified`.
 
 ## Compromise or Secret Exposure
 
@@ -236,3 +282,4 @@ expiry, and secret expiry. Quarterly, run an isolated restore exercise and recor
 RPO/RTO against policy.
 
 - Accepted-job invariants (WP06-T07): `python -m backend.jobs.invariants` inspects every workspace read-only (discovery under the `usage_reconciliation` RLS scope, then tenant-bound) and prints violations by rule — `running_lease` (RUNNING without a live lease, or a lease expired for more than two recovery sweeps), `terminal_released`, `queued_delivery_path` (queued job whose outbox intent cannot deliver it), `reservations_match_state`, `single_settlement`, `ledger_counters`, `meeting_status`. Exit code 1 on any violation. It repairs nothing: orphaned reservations and counter drift go to the usage reconciliation above, a queued job without a delivery path is re-armed by the lease/dispatch sweeps only when its state allows it — otherwise replay it, and a stale RUNNING lease means beat is not running.
+- Stage checkpoints (WP06-T03): the same command also checks `checkpoint_state` (a published checkpoint carries its verified digest, was published by a generation the job has seen, belongs to a live meeting and is unique per identity; stage runs reference checkpoints of their own meeting). With `--artifacts` it asks the object store for every published artifact of a live meeting and reports `artifact_missing` as a violation; the `artifacts` block of the output separates `checked`, `missing`, `unverified` (store did not answer — not evidence of absence), `orphans` (objects of never-published or invalidated rows still awaiting cleanup) and `retired` (objects removed on purpose). Orphans are removed by `python -m backend.jobs.checkpoints` (beat `stage-artifact-cleanup`) after the grace period; nothing else is repaired.

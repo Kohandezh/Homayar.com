@@ -66,10 +66,12 @@ outbox.
    `WITH CHECK` stays tenant-bound, so the scope cannot fence or requeue.
    Each recovery binds the job id and the workspace read from the persisted
    row, never from a message. Context remains transaction-scoped.
-9. **Non-transactional side effects.** The worker writes no objects today;
-   its only object side effect, deleting the recording after a successful
-   run, is performed only by the attempt whose generation completed the
-   job. A provider call already in flight when a lease lapses cannot be
+9. **Non-transactional side effects.** At this revision the worker wrote no
+   objects; its only object side effect, deleting the recording after a
+   successful run, is performed only by the attempt whose generation
+   completed the job. (Stage artifacts written by WP06-T03 follow ADR 0011:
+   declared under the fence, attempt-scoped keys, published only by the
+   owning attempt.) A provider call already in flight when a lease lapses cannot be
    cancelled by the fence: the supplier operation may be repeated by the
    next attempt (bounded by `max_attempts`), but its result is rejected at
    the transaction boundary and the customer is settled at most once.
@@ -91,8 +93,7 @@ outbox.
   `dead_letter` without any provider error. WP06-T05 owns the retry-budget
   and dead-letter policy (including operator replay); WP06-T06 owns
   usage-event identity under redelivery; WP06-T03 stage checkpoints and
-  attempt-scoped artifacts are still open and will need the staging rules
-  in (9).
+  attempt-scoped artifacts are decided in ADR 0011, which extends (9).
 - Verified on PostgreSQL 16.15 with one worker (`test_job_leases.py`:
   competing claims, renewal rules, heartbeat under a blocked stage,
   recovery + fence + re-arm, stale worker rejected for results/terminal

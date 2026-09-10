@@ -18,5 +18,11 @@
     "title": "graphify - docs/handoff/claude-fable-5.1/graphify/code/graph.html (2026-09-09 refresh)",
     "status": "not_run",
     "reason": "the session browser pane could not open a file:// page; the HTML now references the bundled ../vendor/vis-network-9.1.6.min.js (no CDN request) but this refresh's rendering was not observed"
+  },
+  {
+    "kind": "code",
+    "title": "graphify - docs/handoff/claude-fable-5.1/graphify/code/graph.html (2026-09-10 refresh)",
+    "status": "not_run",
+    "reason": "no permitted browser could open a file:// page in this session; the HTML references the bundled ../vendor/vis-network-9.1.6.min.js (no CDN request) but this refresh's rendering was not observed"
   }
 ]
