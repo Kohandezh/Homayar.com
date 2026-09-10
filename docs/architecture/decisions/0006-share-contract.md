@@ -49,11 +49,61 @@ never implicit membership, with revocation semantics that are stated truthfully.
 - Existing consoles that send `require_authentication` keep working; the field
   maps to an audience and is echoed back. New fields (`audience`,
   `allow_download`, `allow_export`, `recipients`) are additive.
-- Organization-level audiences do not exist because there is no
-  organization-level membership (WP03-T03 gap); "organization" sharing is the
-  workspace audience until that carrier exists. Phone-number recipients and
-  editable recipient lists are not implemented (revoke and re-issue instead).
+- Organization-level audiences, phone-number recipients and editable recipient
+  lists were added on 2026-09-10 (amendment below); before that, "organization"
+  sharing was the workspace audience and recipients were revoked and re-issued.
 - Every role that reads `meetings` needs SELECT on `share_links` because the
   policy consults it; `homayar_app` has it by construction.
 - Migration `d7f3a1c9e2b4` is additive plus a backfill; downgrade drops
   recipients and audience information.
+
+## Amendment 2026-09-10 — organization audience, phone recipients, recipient editing (WP03-T06)
+
+6. **`organization` audience.** A share whose audience is `organization` may be
+   opened by a signed-in user who is *currently* a member of the organization
+   the source workspace belongs to: an effective workspace membership in any
+   active workspace of that organization, or an effective organization
+   membership (ADR 0012), evaluated on every access. It is a specific grant of
+   one meeting to that audience — nothing else of the workspace or tenant
+   becomes reachable, and team record scope of the source workspace is not
+   applied (like `recipients`, the issuer explicitly chose the audience and the
+   issuer's own authority over the record is re-checked on every access). The
+   workspace can switch the audience off (`organization_share_links_enabled`,
+   default on); when off, such shares answer `404` for everyone, like `link`
+   shares under the public-link kill switch. Leaving the organization (no
+   effective membership left), membership expiry, a workspace moved to another
+   organization (the audience follows the workspace's *current* organization),
+   issuer demotion, meeting deletion, expiry and revocation all take effect on
+   the next request; an already-issued S3 presigned URL still survives until
+   it expires (decision 4 is unchanged).
+7. **Phone recipients.** A recipient is either a verified email or an Iranian
+   mobile number normalised by the existing rule (`normalize_iranian_mobile`,
+   E.164). A phone recipient is matched only against an account whose phone
+   was verified through the existing Asanak/OTP contract, and on first access
+   the recipient row is bound to that account's stable user id; from then on
+   only that user id matches. A later change or reassignment of the number
+   neither transfers the grant to the new holder (the row is already bound)
+   nor revokes it from the bound account; the issuer removes the recipient to
+   do that. No second phone-authentication system exists.
+8. **Recipient editing.** `PATCH /meetings/{id}/shares/{share_id}/recipients`
+   (permission `share:manage`, CSRF, the caller must see the record) adds
+   emails/phones and removes recipient rows by id on a `recipients` share.
+   Edits are deltas applied under a row lock on the share, so concurrent
+   editors cannot silently lose each other's changes; the total stays within
+   the recipient limit; additions and removals are audited by count and row id
+   (never by address or token). A removed recipient is refused on the next
+   request, including range continuations of a streamed download; cached
+   grants do not exist. Bounded presigned URLs behave as in decision 4.
+
+Evidence (local scope, 2026-09-10): `backend/tests/test_share_organization.py`
+(organization audience incl. sibling-workspace members, record-scoped members,
+strangers, departure/expiry, kill switch, revocation; phone recipients incl.
+reassignment; recipient editing incl. authority, audit shape and immediate
+refusal; concurrent edits on PostgreSQL) with `test_share_policies.py`,
+`test_row_level_security.py`, `test_authorization_matrix.py`, `test_admin_api.py`
+and `test_organizations.py` on PostgreSQL 16.15 as `homayar_app` (31 passed) and
+on SQLite; migration `b7d2f4a8c6e1` upgrade/check/downgrade/upgrade on a fresh
+database. Not verified: S3 presigned downloads against a real bucket (unchanged),
+the console, and share notification delivery (none exists — no SMS is sent for
+shares).
+
