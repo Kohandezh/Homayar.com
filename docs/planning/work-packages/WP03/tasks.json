@@ -1,7 +1,7 @@
 {
   "id": "WP03",
   "title": "Identity, tenancy and operational permissions",
-  "status": "in_progress",
+  "status": "validated",
   "depends_on": [
     "WP01"
   ],
@@ -56,11 +56,11 @@
     {
       "id": "WP03-T07",
       "description": "Build adversarial two-tenant/two-team tests including background jobs, guessed IDs, stale tokens and changed membership.",
-      "status": "partial",
-      "progress_note": "Covered: guessed ids, foreign workspace header, membership deactivated with a still-valid session (per-request check), background job writes only into the owning workspace. Two-team/role-matrix cases added with T03 (test_authorization_matrix.py). Missing: stale API-key cases (WP16). Product commits 3bf703f9, 06dd9a0f.",
-      "updated": "2026-09-08"
+      "status": "validated",
+      "progress_note": "Covered: guessed ids, foreign workspace header, membership deactivated with a still-valid session (per-request check), background job writes only into the owning workspace. Two-team/role-matrix cases added with T03 (test_authorization_matrix.py). Missing: stale API-key cases (WP16). Product commits 3bf703f9, 06dd9a0f. Session 8 (2026-09-10, ADR 0013): the missing stale/mis-scoped API-credential cases now exist. Workspace-owned keys bound to the creating user (hk_<prefix>.<secret>, peppered digest stored, raw key returned once); effective authority = scopes ∩ API_KEY_SCOPES ∩ current membership permissions (fixed conservative set, machine-checked in matrix §6b); tenant pinned to the key's workspace (foreign X-Workspace-ID 403, foreign ids 404); session, organization and share-token routes refuse keys (401 api_key_not_accepted); api_key:manage is never a scope so keys cannot mint, list or revoke keys; mandatory bounded expiry, immediate idempotent revocation, per-key rate limit, live-key cap per workspace; work accepted through a key (upload → job) survives its revocation; RLS: the api_keys policy admits the presented key's row through homayar.api_key_hash before the tenant is bound (migration c3e9a7b5d1f4, policy only). Routes GET/POST /api-keys, DELETE /api-keys/{key_id} (api_key:manage). Verified: backend/tests/test_api_keys.py (6: issuance bounds/secrecy, scope+workspace+object pinning and people-only surfaces, expiry/revocation/guessed keys/demotion/deactivation/disabled account per request, accepted work after revocation, document↔code scope set, PostgreSQL one-row capability ceiling) with the RLS, matrix, members, tenant scope, share, organization, upload and auth suites on PostgreSQL 16.15 as homayar_app → 43 passed, plus test_auth_contract.py + test_admin_api.py 10 passed; check-migrations exit 0 (upgrade/check, policy round trip, 30 forced policies); SQLite whole suite 201 passed, 30 skipped (3 min 14 s). Open (WP16-T02): service principals, organization-owned keys, rotation with overlap, per-key usage metering. Product commit 9578fb95.",
+      "updated": "2026-09-10"
     }
   ],
-  "dependency_note": "",
+  "dependency_note": "Validated in local scope on 2026-09-10 (PostgreSQL 16.15 as the non-bypass role, SQLite fallback): T01–T07. Not verified: remote CI, managed PostgreSQL provisioning/PgBouncer, live Asanak/Google providers, the console. Tracked gaps: organization billing allocations and settings routes, SCIM, service principals/organization-owned API keys (WP16-T02), share notification delivery.",
   "readme": "docs/planning/work-packages/WP03/README.md"
 }

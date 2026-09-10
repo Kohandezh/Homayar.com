@@ -15,7 +15,7 @@
 
 repository=https://github.com/Kohandezh/HomaYar.git
 ref=feat/commercial-v1-overlay
-sha=4bc15688ca05f2b8be8f5bf4d65b66cac99f90dc
+sha=9578fb95d1761ea4127048025f4a8c314d04188b
 
 # Paths that infra/docker/*.Dockerfile, infra/ci/check-migrations.sh and the
 # console/backend CI jobs read from the product checkout.

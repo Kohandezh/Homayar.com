@@ -1,7 +1,7 @@
 {
   "id": "WP16",
   "title": "Supported ingestion/API/integration contracts",
-  "status": "not_started_in_this_handoff",
+  "status": "in_progress",
   "depends_on": [
     "WP03",
     "WP05",
@@ -23,7 +23,9 @@
     {
       "id": "WP16-T02",
       "description": "Add scoped, expiring, hashed API credentials, rotation and usage/rate limits.",
-      "status": "not_started"
+      "status": "partial",
+      "progress_note": "Foundation from WP03-T07 (2026-09-10, ADR 0013): scoped, expiring, hashed, user-bound workspace API keys with per-key rate limits and a live-key cap exist (routes /api-keys). Not yet: rotation with overlap, service principals without a user, organization-owned keys, per-key usage metering/quotas, the OpenAPI client (T01).",
+      "updated": "2026-09-10"
     },
     {
       "id": "WP16-T03",
