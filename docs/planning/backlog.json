@@ -2553,7 +2553,9 @@
         {
           "id": "WP05-T03",
           "description": "Store quarantined originals privately; authorize object promotion only after validation and record checksums/channel metadata.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "First-class media_objects table (ADR 0017): one row per stored byte stream — ORIGINAL (at most one per conversation, partial unique index) and derived kinds NORMALIZED/ENHANCED/CHANNEL_DERIVED/CLIP/EXPORT that must name their source (check constraint) — with storage backend/key, content type, container, size, sha256, duration, channels, sample rate, filename, producer, ingestion/job links, organization/workspace/conversation, lifecycle_state (ACTIVE, RETENTION_PENDING, DELETION_PENDING, DELETED, LEGAL_HOLD), retention, deletion request/reason/time, legal hold (time, reason, actor), integrity (UNVERIFIED/VERIFIED/MISSING/CORRUPT) and last_verified_at; ORM guard keeps content columns immutable; recordings.media_object_id links the recording to its ORIGINAL. Service backend/services/media_lifecycle_service.py: register_original (inside create_upload_job from the digest-verified stored object), register_derived (inherits tenant/conversation/ingestion/retention, refuses non-live sources), request_deletion/mark_deleted/delete_objects/retire_meeting_media (state first, bytes second, idempotent, failed removals stay pending), place/release_legal_hold (hold keeps bytes and records the request; release resumes it), verify_integrity (re-reads bytes, audited). Meeting deletion and delete-after-processing go through the lifecycle; pre-ledger recordings fall back to direct removal. Routes GET /meetings/{id}/media (meeting:read, no storage key) and POST /meetings/{id}/media/{media_id}/verify (meeting:update +csrf). media_objects in the tenant-only RLS set (35 forced). Migration b9d5f3a7c2e8: table, indexes, recordings column, backfill of one ORIGINAL per recording (provider backfill, ingestion/job links, DELETED when the recording was soft-deleted), RLS re-applied, lossy downgrade documented. Verified locally: SQLite whole suite 272 passed / 36 skipped (3 min 59 s) and the affected suites (media lifecycle, processor, meetings, fault injection, uploads) 22 passed / 4 skipped after the review fix; PostgreSQL 16.15 as homayar_app focused suites 12 focused modules (media lifecycle, ledger, RLS, processor, uploads, meetings, matrix, tenant scope, stage checkpoints, fault injection, PostgreSQL guarantees, storage providers) 94 passed (3 min 11 s) incl. RLS probe and the head->downgrade->upgrade round trip with a live and a deleted conversation; check-migrations exit 0; explicit downgrade -1 / upgrade head / alembic check clean. Product commit d8066f90. See ADR 0017.",
+          "updated": "2026-09-11"
         },
         {
           "id": "WP05-T04",
@@ -2571,7 +2573,7 @@
           "status": "not_started"
         }
       ],
-      "dependency_note": "WP05 is IN_PROGRESS: T01 and T02 validated in local scope (ADR 0016 + amendment); T03–T06 not started. Only FILE_UPLOAD events exist until the other capture providers arrive (WP05/WP08+). An understated container duration is bounded by the worker's job deadline, not refused at upload. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.",
+      "dependency_note": "WP05 is IN_PROGRESS: T01, T02 and T03 validated in local scope (ADR 0016 + amendment, ADR 0017); T04–T06 not started. No producer writes derived media kinds yet (WP09/WP14/WP16); retention_pending, the deletion retry sweep and legal-hold routes arrive with T06/WP07. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.",
       "readme": "docs/planning/work-packages/WP05/README.md"
     },
     {
