@@ -1,7 +1,7 @@
 {
   "id": "WP05",
   "title": "Ingestion and private object lifecycle",
-  "status": "not_started_in_this_handoff",
+  "status": "in_progress",
   "depends_on": [
     "WP03",
     "WP04"
@@ -15,7 +15,9 @@
     {
       "id": "WP05-T01",
       "description": "Define an ingestion ledger keyed by workspace, source and external event ID, with payload-hash conflict behavior.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "IngestionRecord ledger keyed by (workspace, source_type, external_event_id) with a database unique constraint; canonical payload digest (source type, external source id, media sha256/size, file name, title, language, provider extra; declared content type excluded); nine canonical source types (FILE_UPLOAD produced today by console and API-key uploads, provider recorded as provenance). Case A same identity + same payload -> 202 idempotent replay of the existing conversation/root job (no second meeting, job, object, reservation or dispatch), 410 when the conversation was deleted; case B same identity + different payload -> 409 ingestion_conflict, first event never overwritten, conflict_count/last_conflict_at under a row lock, audited with ids; case C different identity + same media -> workspace duplicate_media_policy (allow links duplicate_of_id, reject -> 409 duplicate_media, nothing created), server-side enum setting via PATCH /admin/workspace-settings. Single-transaction claim: workspace row lock, policy, ledger insert (unique index decides concurrent claims), then create_upload_job; the loser resolves the winner's row. ORM immutability guard (only conflict bookkeeping and the SET NULL links may change). GET /ingestions[/{id}] and the ingestion field on the upload/detail responses under meeting:read with record scope; ingestion_records in the tenant-only RLS set (34 forced). Migration f7b1d3e5a9c2: table, workspaces.duplicate_media_policy, backfill of one ACCEPTED row per legacy conversation with a recording and root job (provider backfill, event id = job idempotency digest, same canonical digest), RLS re-applied, lossy downgrade documented; pre-ledger keys replay through the job digest. Verified locally: SQLite whole suite 224 passed / 34 skipped; PostgreSQL 16.15 as homayar_app focused suites 49 passed incl. RLS probe, two-thread concurrent claims (identical, conflicting, reject policy) and the head->downgrade->upgrade round trip with a real upload; check-migrations exit 0; explicit downgrade -1 / upgrade head / alembic check clean; frontend types only (tsc build, eslint, vitest green). Product commit e7a596e1. See ADR 0016.",
+      "updated": "2026-09-11"
     },
     {
       "id": "WP05-T02",
@@ -43,6 +45,6 @@
       "status": "not_started"
     }
   ],
-  "dependency_note": "",
+  "dependency_note": "WP05 is IN_PROGRESS: T01 validated in local scope (ADR 0016); T02–T06 not started. Rejected ingestions become REJECTED ledger rows in T02; only FILE_UPLOAD events exist until the other capture providers arrive (WP05/WP08+). Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.",
   "readme": "docs/planning/work-packages/WP05/README.md"
 }

@@ -1,6 +1,6 @@
 # WP05 — Ingestion and private object lifecycle
 
-Status: NOT STARTED by this preparation task. Existing partial code must be reviewed and reused where suitable.
+Status: IN PROGRESS — T01 validated in local scope on 2026-09-11 ([ADR 0016](../../../architecture/decisions/0016-ingestion-ledger.md)); T02–T06 not started. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.
 
 Completion dependencies: WP03, WP04.
 
@@ -36,6 +36,16 @@ Current audited state: W partial. Target: Retry-safe ingest and source deduplica
 Current audited state: W partial. Target: Qualified S3/private-storage adapters.
 
 - [ ] Unauthorized/expired downloads fail; multipart abort and DB/storage partial failure reconcile without accessible orphan objects; supported storage contract suite passes.
+
+## Progress (local scope)
+
+### T01 — Canonical ingestion ledger (validated locally, 2026-09-11)
+
+- Product files: `backend/database/saas_models.py` (`IngestionSourceType`, `IngestionStatus`, `DuplicateMediaPolicy`, `Workspace.duplicate_media_policy`, `IngestionRecord`, immutability guard), `backend/services/ingestion_service.py` (new), `backend/routers/v1/ingestions.py` (new), `backend/schemas/ingestions.py` (new), `backend/routers/v1/meetings.py` (upload claim, replay/conflict settlement, detail `ingestion`), `backend/schemas/meetings.py`, `backend/services/admin_service.py` + `backend/schemas/admin.py` (policy setting), `backend/database/rls.py`, `backend/main.py`, migration `f7b1d3e5a9c2`, `docs/security/authorization-matrix.md` (route rows, §6d, §8), `backend/tests/test_ingestion_ledger.py` (new, 11), `backend/tests/test_admin_api.py`, `frontend/src/types/platform.ts` (types only).
+- Commands/results: ruff clean on changed files; SQLite focused + whole suite 224 passed / 34 skipped; PostgreSQL 16.15 as `homayar_app` — ledger, uploads, RLS, tenant scope, API keys, matrix, postgres guarantees, admin, processor, meetings → 49 passed (RLS probe as a non-bypass login role, two-thread concurrent claims, migration round trip with a real upload); `infra/ci/check-migrations.sh` exit 0; explicit `alembic downgrade -1` (table and column dropped) / `upgrade head` / `alembic check` clean, 34 forced policies; frontend `npm run build`, `npm run lint`, `npm test` green.
+- Security: identity uniqueness and tenant binding are database constraints/policies; a foreign tenant's row is `404`, the victim's header is refused before lookup; audit details carry ids, counts, sizes and policy names only; no payload, media or secret is logged.
+- Limitations: rejected ingestions are not yet ledger rows (T02); only `FILE_UPLOAD` events are produced; rejections and replays are not rate-limited separately; no console UI for the ledger.
+- Reviewer decision: self-review only; product commit `e7a596e1`, nothing pushed.
 
 ## Completion evidence to record
 
