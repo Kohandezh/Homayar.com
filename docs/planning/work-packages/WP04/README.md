@@ -1,6 +1,6 @@
 # WP04 — Truthful states and evidence contracts
 
-Status: IN PROGRESS since 2026-09-08 (T01, T04, T05 validated in local scope, see [ADR 0003](../../../architecture/decisions/0003-truthful-stage-states.md); T02 validated in local scope on 2026-09-10, see [ADR 0014](../../../architecture/decisions/0014-transcript-revisions-and-analysis-runs.md); T03 and T06 next). Existing partial code must be reviewed and reused where suitable.
+Status: IN PROGRESS since 2026-09-08 (T01, T04, T05 validated in local scope, see [ADR 0003](../../../architecture/decisions/0003-truthful-stage-states.md); T02 validated in local scope on 2026-09-10 and T03 on 2026-09-11, see [ADR 0014](../../../architecture/decisions/0014-transcript-revisions-and-analysis-runs.md); T06 next). Existing partial code must be reviewed and reused where suitable.
 
 Completion dependencies: WP01.
 

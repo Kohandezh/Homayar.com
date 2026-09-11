@@ -27,7 +27,9 @@
     {
       "id": "WP04-T03",
       "description": "Make every finding reference existing authorized turns and original audio offsets; reject malformed references.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "Every provider reference (summary_source_turn_indexes, key point and action-item source_turn_indexes) is resolved against the segments of the analysed revision; out-of-range indexes are rejected and counted on the AnalysisRun, never repaired. Each valid reference is an immutable EvidenceSpan (revision, segment, speaker, character range, original audio offsets, provenance type) and every finding carries evidence_status (sufficient/partial/insufficient): summary overview, key points/decisions (evidence_ids in the stored JSON), AI action items; a person's action item cites the current revision via a human span. GET /meetings/{id}/evidence[/{evidence_id}] resolves citations to text/audio and flags whether the analysed revision is still current; action responses and JSON exports carry citations. OpenAI-compatible prompt/schema v2, intelligence artifact schema 2, mock cites the turns it saw. Migration e6a9c3d7f2b5; evidence_spans in the shared-content RLS policy (33 forced). Verified locally: SQLite whole suite 211 passed / 31 skipped; PostgreSQL 16.15 as homayar_app focused suites 68 passed; check-migrations exit 0; downgrade/upgrade round trip with seeded data. Product commit 183c503d. See ADR 0014 (amendment).",
+      "updated": "2026-09-11"
     },
     {
       "id": "WP04-T04",

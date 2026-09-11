@@ -1,6 +1,6 @@
-# ADR 0014 — Immutable transcript revisions and analysis-run provenance
+# ADR 0014 — Immutable transcript revisions, analysis-run provenance and evidence spans
 
-Date: 2026-09-10 · Status: accepted · Package: WP04-T02 (foundation for WP04-T03/T06, WP14)
+Date: 2026-09-10 (amended 2026-09-11 for WP04-T03) · Status: accepted · Package: WP04-T02, WP04-T03 (foundation for WP04-T06, WP11, WP14)
 
 ## Context
 
@@ -92,6 +92,45 @@ fabricated fallback.
    analysis provenance are dropped; the current revision survives under the
    old unique constraint).
 
+## Amendment (2026-09-11) — evidence spans (WP04-T03)
+
+9. **Every finding cites the revision it was made from.** The intelligence
+   contract gains `summary_source_turn_indexes` next to the existing per
+   action-item / per insight `source_turn_indexes` (OpenAI-compatible
+   prompt/schema version 2, intelligence artifact schema version 2 so older
+   checkpoints are not reused for a new analysis; the mock cites the turns it
+   was shown). At persistence, turn `i` is segment `i` of the revision the
+   provider read; each index is resolved against exactly those segments
+   (`resolve_turn_references`): duplicates collapse, anything out of range is
+   **rejected and counted** (`analysis_runs.reference_count` /
+   `rejected_reference_count`) — never clamped, guessed or repaired.
+10. **`EvidenceSpan`.** One immutable row per valid reference: workspace,
+    meeting, analysis run, transcript revision, segment, speaker key, finding
+    (`summary` overview, `insight` by index in the stored key points,
+    `action_item` by row id), character range within the segment's immutable
+    text, the segment's original audio offsets, the provider's confidence and
+    the provenance type (`turn_reference` from the provider, `human` from a
+    person). Without word alignment a span covers the whole segment; WP10 may
+    narrow it. The row joins the shared-content RLS policy and the ORM
+    `before_update` guard.
+11. **Evidence status on every finding** (§37 of the master prompt):
+    `sufficient` (all references resolved, at least one), `partial` (some
+    rejected, at least one resolved), `insufficient` (none). Stored on
+    `meeting_summaries.evidence_status` (the overview), on every key point /
+    decision entry of the summary JSON together with its `evidence_ids`, and
+    on `action_items.evidence_status`. The provider's raw indexes stay visible
+    in the key points so a rejected reference is auditable. A person's action
+    item citing a segment of the current revision gets a `human` span and
+    `sufficient`; without a citation it is `insufficient`.
+12. **Resolution API.** `GET /meetings/{id}/evidence` (current run's spans
+    plus human spans) and `GET /meetings/{id}/evidence/{evidence_id}` resolve
+    a citation to its text (sliced from the immutable segment), speaker,
+    audio range, revision number and `is_current_revision`; action responses
+    embed their citations; JSON exports carry `summary_evidence_status` and
+    per-action `evidence_status` + citations. Evidence remains bound to the
+    analysed revision after a correction — the API says so instead of
+    re-pointing it.
+
 ## Consequences
 
 - WP04-T02 acceptance in local scope: revisions persist and are immutable;
@@ -100,11 +139,16 @@ fabricated fallback.
   model, prompt/schema digests, checkpoint, state) is stored and exposed;
   tenant isolation and the share ceiling hold on PostgreSQL; the migration
   round-trips with data.
-- Not decided here (WP04-T03/T06): evidence spans that bind a finding to a
-  segment, character range and audio offsets of a specific revision;
-  validation of provider-reported turn references; quality/coverage states
-  in API, UI and exports; marking an analysis stale when the current revision
-  is newer than the one it read; word-level rows (no provider emits word
-  timings today — WP10 alignment).
+- WP04-T03 acceptance in local scope (amendment): every AI finding resolves
+  only to segments of the analysed revision with original audio offsets;
+  malformed references are rejected and counted; findings carry an evidence
+  status; citations survive corrections and reprocessing (bound to the
+  immutable revision) and are tenant-scoped with the share ceiling on
+  PostgreSQL.
+- Not decided here (WP04-T06): quality/coverage states of transcription,
+  speaker attribution and analysis in API, UI and exports; marking an
+  analysis stale when the current revision is newer than the one it read;
+  word-level rows and sub-segment spans (no provider emits word timings today
+  — WP10 alignment); sub-segment character ranges for provider citations.
 - Verified in local scope on PostgreSQL 16.15 as `homayar_app` and on SQLite;
   not verified: remote CI, the deployed stack, the console.
