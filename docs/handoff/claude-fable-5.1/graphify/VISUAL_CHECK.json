@@ -30,5 +30,11 @@
     "title": "graphify - docs/handoff/claude-fable-5.1/graphify/code/graph.html (20260910T194605739147Z refresh, after WP03-T03/T06/T07)",
     "status": "not_run",
     "reason": "no permitted browser could open a file:// page in this session; the HTML references the bundled ../vendor/vis-network-9.1.6.min.js (no CDN request) but this refresh's rendering was not observed"
+  },
+  {
+    "kind": "code",
+    "title": "graphify - docs/handoff/claude-fable-5.1/graphify/code/graph.html (20260911T082159930898Z refresh, after WP04-T02/T03/T06)",
+    "status": "not_run",
+    "reason": "no permitted browser could open a file:// page in this session; the HTML references the bundled ../vendor/vis-network-9.1.6.min.js (no CDN request) but this refresh's rendering was not observed"
   }
 ]

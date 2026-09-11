@@ -374,6 +374,7 @@
 - Acceptance pending: production validation of everything above (remote CI, deployed stack, real providers); word-level spans (WP10); verified speaker attribution (WP14); thresholds gating automation (WP11/WP24); charging rules for degraded outcomes (WP18).
 - Review: self-review — the assessment never upgrades a state beyond the data (empty revision → unavailable; diarization unavailable → unknown; no run → analysis unavailable and evidence insufficient); the share path deliberately omits job-derived parts rather than failing or leaking; the audit key for transcription is `asr_state` because the sanitizer redacts `transcript*` keys; the console renders API values only.
 - External blockers: unchanged.
+- Graphify: refreshed once after the three WP04 product commits with the sequential wrapper (snapshot `refreshes/20260911T082159930898Z`: 333 files, 3,879 nodes, 13,821 edges, 137 communities, 145 unresolved references; raw AST relations 15,119, 852 dangling, 435 collapsed); browser/HTML visual check NOT_RUN. The disposable PostgreSQL cluster was stopped at the end of the session; no Redis container was started.
 - Local commits: product `f438eab7aeaa208b3beb6a6b5c327185e1e29381`; website commit below. Nothing pushed.
 - Next exact action: graphify refresh once for the WP04 milestone (three product commits), stop the disposable PostgreSQL, checkpoint report; then WP05-T01 (ingestion ledger keyed by workspace, source and external event id with payload-hash conflict behaviour) per the critical path.
 

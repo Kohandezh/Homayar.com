@@ -1,9 +1,9 @@
 {
-  "raw_ast_nodes": 3676,
-  "raw_ast_edges": 14155,
+  "raw_ast_nodes": 3879,
+  "raw_ast_edges": 15119,
   "explicit_unresolved_reference_nodes": 145,
-  "full_graph_nodes": 3821,
-  "full_graph_edges": 14155,
+  "full_graph_nodes": 4024,
+  "full_graph_edges": 15119,
   "full_graph_missing_endpoints": 0,
   "self_loop_edges": 1,
   "definition_resolution_complete": false,

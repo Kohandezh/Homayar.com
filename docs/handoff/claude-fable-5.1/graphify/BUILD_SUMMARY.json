@@ -1,18 +1,18 @@
 {
   "code": {
-    "nodes": 3676,
-    "edges": 12927,
-    "communities": 135,
+    "nodes": 3879,
+    "edges": 13821,
+    "communities": 137,
     "diagnostics": {
       "missing_endpoint_edges": 0,
-      "dangling_endpoint_edges": 821,
+      "dangling_endpoint_edges": 852,
       "self_loop_edges": 1,
-      "directed_same_endpoint_collapsed_edges": 397,
-      "undirected_same_endpoint_collapsed_edges": 406
+      "directed_same_endpoint_collapsed_edges": 435,
+      "undirected_same_endpoint_collapsed_edges": 445
     },
     "title": "Current workspace code graph (website worktree + isolated product checkout)",
-    "snapshot": "refreshes/20260910T194605739147Z",
-    "refreshed_at": "2026-09-10"
+    "snapshot": "refreshes/20260911T082159930898Z",
+    "refreshed_at": "2026-09-11"
   },
   "planning": {
     "nodes": 119,
@@ -26,19 +26,19 @@
       "undirected_same_endpoint_collapsed_edges": 0
     },
     "title": "Explicit blueprint dependency graph",
-    "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09 or 2026-09-10 (only task statuses/notes changed, no structural relationship changed)."
+    "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09, 2026-09-10 or 2026-09-11 (only task statuses/notes changed, no structural relationship changed)."
   },
-  "code_files": 325,
+  "code_files": 333,
   "no_symbol_file_count": 0,
   "graphify_version": "0.9.40",
   "semantic_scope": "Explicit planning relationships only; free-form documentation semantic extraction not run.",
   "original_graphs": "Historical root graphify-out and Homayar/graphify-out (original checkout) preserved unchanged and not consulted; the 2026-09-07 snapshot pointed at the original checkout and is superseded by this refresh.",
   "full_graph": {
-    "raw_ast_nodes": 3676,
-    "raw_ast_edges": 14155,
+    "raw_ast_nodes": 3879,
+    "raw_ast_edges": 15119,
     "explicit_unresolved_reference_nodes": 145,
-    "full_graph_nodes": 3821,
-    "full_graph_edges": 14155,
+    "full_graph_nodes": 4024,
+    "full_graph_edges": 15119,
     "full_graph_missing_endpoints": 0,
     "self_loop_edges": 1,
     "definition_resolution_complete": false,
