@@ -2546,7 +2546,9 @@
         {
           "id": "WP05-T02",
           "description": "Harden streamed/resumable upload limits, MIME/signature checks and bounded ffprobe/decode validation.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Media validation pipeline hardened in backend/media/validation.py: signature pre-check refuses executables/archives/documents/images and foreign container-family bytes before any subprocess (ffprobe stays the authority for what it recognises); bounded ffprobe unchanged (fixed argv, no shell, probe/analyze/allocation caps, timeout); duration plausibility floor for compressed audio (MEDIA_MIN_BYTES_PER_SECOND, default 64; PCM exempt because the demuxer clamps to the bytes present, measured: a WAV header claiming 3600 s over 100 bytes probes as 0.003 s); bounded ffmpeg decode of a prefix with -xerror, single thread, timeout, output discarded (MEDIA_DECODE_PROBE_SECONDS default 30, FFMPEG_PATH/FFMPEG_TIMEOUT_SECONDS) which catches corrupted MP3/FLAC frames and garbage tails that the header-only probe accepts (measured ~50 ms per file). Every refusal carries a stable code and a terminal flag; transient tooling failures answer 503. Terminal refusals of a staged payload are REJECTED ledger rows under the event identity (reason, media digest/size, provenance, no conversation/job/object) with an ingestion.rejected audit; same payload replays the refusal without re-inspection, different payload conflicts; transient and pre-staging refusals are audited only and leave the identity free; rejected rows are never a live duplicate. Migration a8c4e2f6d1b9 tightens ck_ingestion_accepted_reason (rejected rows need a reason; lossless both ways). Verified locally: test_media_validation.py 40 (mocked subprocess), test_media_fixtures.py 21 against real ffprobe/ffmpeg 8.1 with lavfi-generated fixtures (all eight supported containers pass probe+decode; forged extension and non-media refused without spawning; garbage/text fail the probe; corrupted mp3/flac/tail refused only by the decode; truncated hour-long WAV clamped and undecodable; implausible opus refused; decode timeout/unavailable transient), test_ingestion_ledger.py rejection scenario; SQLite whole suite 266 passed / 34 skipped; PostgreSQL 16.15 as homayar_app focused suites 50 passed; check-migrations exit 0; a8c4 downgrade/upgrade/check clean with the constraint verified by a refused insert. Product commit 4e82281e. See ADR 0016 (amendment).",
+          "updated": "2026-09-11"
         },
         {
           "id": "WP05-T03",
@@ -2569,7 +2571,7 @@
           "status": "not_started"
         }
       ],
-      "dependency_note": "WP05 is IN_PROGRESS: T01 validated in local scope (ADR 0016); T02–T06 not started. Rejected ingestions become REJECTED ledger rows in T02; only FILE_UPLOAD events exist until the other capture providers arrive (WP05/WP08+). Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.",
+      "dependency_note": "WP05 is IN_PROGRESS: T01 and T02 validated in local scope (ADR 0016 + amendment); T03–T06 not started. Only FILE_UPLOAD events exist until the other capture providers arrive (WP05/WP08+). An understated container duration is bounded by the worker's job deadline, not refused at upload. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.",
       "readme": "docs/planning/work-packages/WP05/README.md"
     },
     {

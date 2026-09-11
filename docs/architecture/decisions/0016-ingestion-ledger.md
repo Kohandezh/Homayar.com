@@ -86,6 +86,44 @@ pipeline.
    answers with the backfilled row. The downgrade drops the table and the
    policy column and is documented as intentionally lossy.
 
+## Amendment (2026-09-11, WP05-T02) — media validation and rejections in the ledger
+
+8. **Validation pipeline, fixed order, same bytes → same answer.** Before any
+   object is stored: filename/extension policy → declared MIME syntax → size
+   bounds → *signature pre-check* (executables, archives, documents, images
+   and bytes of a foreign container family are refused without spawning a
+   process; the probe stays the authority for everything it recognises) →
+   bounded `ffprobe` (fixed argv, no shell, probe/analyze/allocation caps,
+   timeout) → container / codec / stream-shape / duration bounds →
+   *plausibility floor* for compressed audio (`MEDIA_MIN_BYTES_PER_SECOND`,
+   default 64: a container claiming hours of audio in a few kilobytes is
+   refused; PCM containers are exempt because the demuxer derives their
+   duration from the bytes present) → *bounded decode* of a prefix with
+   `ffmpeg -xerror` (`MEDIA_DECODE_PROBE_SECONDS`, default 30; single thread,
+   timeout, output discarded), which catches corrupted frames a header-only
+   probe accepts → declared MIME against the detected content. An understated
+   duration (more audio than the header claims) is not refused at upload; the
+   worker's job deadline bounds it.
+9. **Terminal vs transient.** Every refusal carries a stable code and a
+   `terminal` flag. Terminal refusals are properties of the bytes (malformed,
+   forged extension, unsupported codec, out of bounds, implausible,
+   undecodable). Transient refusals are properties of the environment
+   (`ffprobe`/`ffmpeg` unavailable or timed out, invalid probe metadata, file
+   changed during inspection) and answer `503`.
+10. **Rejections are ledger rows.** A terminal refusal of a staged payload is
+    recorded as a `rejected` row under the same identity an acceptance would
+    have had (reason code, media digest and size, provenance; no conversation,
+    job, object or reservation), in its own transaction after the upload
+    transaction rolled back, with an `ingestion.rejected` audit event. The
+    check constraint now requires a reason on rejected rows (migration
+    `a8c4e2f6d1b9`, lossless both ways). A retry with the same payload
+    replays the recorded refusal without inspecting the bytes again; a
+    different payload under the same event id is a conflict, exactly as for
+    accepted events. Transient refusals and refusals before the payload
+    exists (missing filename, empty upload, over the byte limit) are audited
+    only and leave the identity free, so a retry can succeed. Rejected rows
+    are never a live duplicate for the media policy.
+
 ## Consequences
 
 - Every future capture provider implements the same two value objects

@@ -1,6 +1,6 @@
 # WP05 — Ingestion and private object lifecycle
 
-Status: IN PROGRESS — T01 validated in local scope on 2026-09-11 ([ADR 0016](../../../architecture/decisions/0016-ingestion-ledger.md)); T02–T06 not started. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.
+Status: IN PROGRESS — T01 and T02 validated in local scope on 2026-09-11 ([ADR 0016](../../../architecture/decisions/0016-ingestion-ledger.md) and its amendment); T03–T06 not started. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.
 
 Completion dependencies: WP03, WP04.
 
@@ -46,6 +46,15 @@ Current audited state: W partial. Target: Qualified S3/private-storage adapters.
 - Security: identity uniqueness and tenant binding are database constraints/policies; a foreign tenant's row is `404`, the victim's header is refused before lookup; audit details carry ids, counts, sizes and policy names only; no payload, media or secret is logged.
 - Limitations: rejected ingestions are not yet ledger rows (T02); only `FILE_UPLOAD` events are produced; rejections and replays are not rate-limited separately; no console UI for the ledger.
 - Reviewer decision: self-review only; product commit `e7a596e1`, nothing pushed.
+
+### T02 — Media validation (validated locally, 2026-09-11)
+
+- Product files: `backend/media/validation.py` (signature pre-check, plausibility floor, bounded ffmpeg decode, `terminal` classification, new errors), `backend/media/__init__.py`, `backend/config.py` + `.env.example` (`FFMPEG_PATH`, `FFMPEG_TIMEOUT_SECONDS`, `MEDIA_DECODE_PROBE_SECONDS`, `MEDIA_MIN_BYTES_PER_SECOND`), `backend/services/ingestion_service.py` (`record_rejection`, `audit_rejection`, rejected replay), `backend/routers/v1/meetings.py` (`_record_refusal`, `_refusal_status`, rejected replay answer, ffmpeg arguments), `backend/database/saas_models.py` + migration `a8c4e2f6d1b9` (rejected rows need a reason), `docs/security/authorization-matrix.md` (§6d rows, §8), `pyproject.toml` + `backend/tests/conftest.py` (`ffmpeg` marker), tests `backend/tests/test_media_validation.py` (+13), `backend/tests/test_media_fixtures.py` (new, 21, real binaries), `backend/tests/test_ingestion_ledger.py` (+1).
+- Measured before designing: ffprobe clamps an over-claiming WAV header to the bytes present; random/text/PDF/zip bytes fail the probe; the bounded decode refuses corrupted MP3/FLAC and garbage-tailed MP3 that the probe accepts (and for which it over-reports duration), ~50 ms per file; truncated files decode.
+- Commands/results: ruff clean on changed files; media unit + fixtures + ledger + uploads + admin + matrix on SQLite 83 passed / 3 skipped; SQLite whole suite 266 passed / 34 skipped (4 min 10 s); PostgreSQL 16.15 as `homayar_app` — ledger, uploads, RLS, tenant scope, API keys, matrix, postgres guarantees, admin, processor, meetings → 50 passed; `infra/ci/check-migrations.sh` exit 0; `alembic downgrade -1` / `upgrade head` / `alembic check` clean on `homayar_mig`, the tightened constraint verified by a refused insert.
+- Security: fixed argv and no shell for both binaries; stdin/stdout/stderr detached; caps on probe size, analysis duration, allocation, decode length, threads and wall time; no raw probe output, path or stderr in any error; rejections audited with ids, codes and sizes only.
+- Limitations: an understated duration (more audio than claimed) is bounded by the worker deadline, not refused; the decode verifies a prefix, not the whole file; no `resource` rlimits on the child processes (the caps above bound them); no resumable/streamed multipart protocol (the upload is still one request bounded by `MAX_UPLOAD_SIZE_MB`).
+- Reviewer decision: self-review only; product commit `4e82281e`, nothing pushed.
 
 ## Completion evidence to record
 
