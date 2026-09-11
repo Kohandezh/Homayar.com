@@ -20,7 +20,9 @@
     {
       "id": "WP04-T02",
       "description": "Introduce immutable transcript revisions, evidence spans, analysis runs and model/prompt/schema provenance.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "Immutable TranscriptRevision rows (numbered per meeting, one current by partial unique index, ORM before_update guards) with engine/model/checkpoint/config-hash/diarization/mock provenance; segments keyed by revision; human corrections as new revisions with parent, stale-base 409, ids-and-counts audit; reprocessing appends and keeps speaker names; AnalysisRun (revision read, provider, model, prompt/schema digests, checkpoint, truthful state) linked from summaries and AI action items; search/action sources/shares/exports use only current segments; exports carry the revision. Migration d4f8b2c6e9a1 (lossless backfill, lossy downgrade) and RLS shared-content policies (32 forced). Verified locally: SQLite whole suite 207 passed / 31 skipped; PostgreSQL 16.15 as homayar_app focused suites 65 passed; check-migrations exit 0; downgrade/upgrade round trip with seeded data. Product commit 10fd5f29. See ADR 0014.",
+      "updated": "2026-09-10"
     },
     {
       "id": "WP04-T03",
