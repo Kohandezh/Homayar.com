@@ -1,7 +1,7 @@
 {
   "id": "WP04",
   "title": "Truthful states and evidence contracts",
-  "status": "in_progress",
+  "status": "validated",
   "depends_on": [
     "WP01"
   ],
@@ -48,9 +48,11 @@
     {
       "id": "WP04-T06",
       "description": "Expose quality, coverage and degradation consistently through API, UI, exports and usage eligibility rules.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "MeetingQuality derived from persisted rows only (current revision, current analysis run, per-finding evidence statuses, latest attempt's stage runs, segment ranges, speakers, usage reservation): transcription complete/partial/unavailable; speaker attribution inferred/unknown (verified reserved for WP14); analysis complete/partial/unavailable + analysis_stale after a correction; aggregate evidence status; speech coverage ratio; degraded stages with reasons; mock label; usage state (charging decision unchanged, exposed). Surfaces: meeting detail, GET /meetings/{id}/quality, shared view/export (without job-derived parts under the share ceiling), JSON export, TXT Quality block, WebVTT NOTE, completion audit (asr_state/speaker_state/analysis_state/evidence_state); console quality panel on detail and shared pages, evidence badges on summary/key points/actions. No migration. Verified locally: SQLite whole suite 216 passed / 31 skipped; PostgreSQL 16.15 as homayar_app focused suites 63 passed + 11 passed after the share-ceiling fix; check-migrations exit 0; frontend tsc build, eslint and vitest (12 passed). Product commit f438eab7. See ADR 0015.",
+      "updated": "2026-09-11"
     }
   ],
-  "dependency_note": "",
+  "dependency_note": "WP04 is VALIDATED_LOCAL (T01–T06). Not production-validated: remote CI, the deployed stack and real ASR/LLM providers have not run. Deferred to later packages: word-level and sub-segment evidence spans (WP10), human speaker verification and segment insert/split/delete corrections (WP14), quality thresholds gating automation (WP11/WP24), charging rules for degraded outcomes (WP18; the empty-transcript charging policy remains an open business decision).",
   "readme": "docs/planning/work-packages/WP04/README.md"
 }
