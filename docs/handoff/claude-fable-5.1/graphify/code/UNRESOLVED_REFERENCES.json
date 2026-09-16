@@ -5,6 +5,7 @@
   "backend_middleware_auth",
   "base64",
   "binascii",
+  "botocore_exceptions",
   "celery_contrib_testing_worker",
   "celery_result",
   "collections_abc",
@@ -21,6 +22,7 @@
   "datetime",
   "email_validator",
   "enum",
+  "errno",
   "fastapi_exceptions",
   "fastapi_middleware_cors",
   "fastapi_middleware_trustedhost",
@@ -37,8 +39,10 @@
   "homayar_frontend_src_index",
   "httpx",
   "importlib_util",
+  "inspect",
   "io",
   "ipaddress",
+  "itertools",
   "json",
   "jwt",
   "kombu",
@@ -133,6 +137,7 @@
   "src_data_categories",
   "src_data_products",
   "stat",
+  "struct",
   "subprocess",
   "sys",
   "tempfile",
@@ -143,5 +148,6 @@
   "unicodedata",
   "unittest_mock",
   "urllib_parse",
-  "uuid"
+  "uuid",
+  "wave"
 ]

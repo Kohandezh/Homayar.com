@@ -462,6 +462,11 @@
 - Local commits: product `66751568b7070e153eb3b29f90c6755387967db0`; website commit below. Nothing pushed.
 - Next exact action: Graphify freshness check and one refresh after the WP05 milestone; then WP08 (provider registry / Padyar AI Gateway / model fabric) as the next unblocked dependency on the critical path (WP08 → WP09 → WP10 → WP11 → WP14 → WP16 → WP18 → WP19).
 
+### Session 11, part C — Graphify refresh after the WP05 milestone
+
+- Freshness check against `graphify/source-manifest.json`: 23 changed and 15 new source files since the 2026-09-11 map (WP05 T01–T06). One refresh through the sequential wrapper (`graphify.extract` forced to `parallel=False`, `tools/refresh_graph.py` via `runpy`, graphify 0.9.40, no model/API call): 348 files, 4,271 nodes / 15,401 edges / 155 communities in the resolved view; lossless extraction 4,271 nodes / 16,837 relations with 151 explicitly unresolved reference ids; diagnostics 0 missing endpoints, 938 dangling, 1 self-loop, 485 directed / 499 undirected collapsed. Promoted into `graphify/code/` (report, JSON, HTML with the bundled renderer, diagnostics, `UNRESOLVED_REFERENCES.json`, `FULL_GRAPH_INTEGRITY.json`), manifest/BUILD_SUMMARY/VISUAL_CHECK (`not_run`) and GRAPHIFY_GUIDE updated. Planning graph not rebuilt (statuses/notes only).
+- Next exact action: WP08 (provider registry / Padyar AI Gateway / model fabric) — read its task records and dependencies first.
+
 ## Template for next session
 
 - Date / environment:
