@@ -45,6 +45,6 @@
       "status": "not_started"
     }
   ],
-  "dependency_note": "",
+  "dependency_note": "WP08 depends on WP07. T01/T02 are independent of WP07 behaviour and may proceed once the WP07 foundations are in place; T03 requires WP07-T05/T06 (text privacy) and stays blocked until validated.",
   "readme": "docs/planning/work-packages/WP08/README.md"
 }

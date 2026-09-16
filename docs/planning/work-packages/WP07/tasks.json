@@ -1,7 +1,7 @@
 {
   "id": "WP07",
   "title": "Retention, deletion and text privacy",
-  "status": "not_started_in_this_handoff",
+  "status": "in_progress",
   "depends_on": [
     "WP03",
     "WP04",
@@ -16,7 +16,9 @@
     {
       "id": "WP07-T01",
       "description": "Define explicit immediate/finite/indefinite retention semantics and migrate the current ambiguous zero value safely.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "Explicit retention modes (ADR 0020): Workspace.retention_mode finite|indefinite|immediate|legacy_unresolved with check constraint ck_workspace_retention_mode (days >= 1 only under finite, 0 otherwise); expiry stamped at ingestion from the workspace row via backend/services/retention_policy.py (finite: now+days; immediate: now; indefinite/legacy: none) and is_age_based_deletion_enabled re-checked by sweeps before acting on a stored expiry. Admin API: retention_mode in GET/PATCH /admin/workspace-settings (workspace:manage + CSRF, audited by field name); bare retention_days 0 refused as ambiguous; days under indefinite/immediate need the mode; finite needs a positive number; legacy_unresolved cannot be chosen; RETENTION_DAYS_DEFAULT validated 1..3650. Migration c3e7a9d2b5f1: days>=1 -> FINITE, days=0 -> LEGACY_UNRESOLVED (nothing reinterpreted or purged), lossless downgrade. Console: policy selector, days only for finite, legacy warning. Verified locally: ruff clean on changed files; SQLite retention + admin API 18 passed / 1 skipped; PostgreSQL 16.15 (retention policy incl. migration round trip with a legacy zero row and the constraint, admin API, RLS, tenant scope, media lifecycle) 36 passed; infra/ci/check-migrations.sh exit 0 and alembic downgrade -1 / upgrade head / check clean on homayar_mig; frontend tsc+vite build, eslint, vitest 12 passed. No job deletes by age yet (T03). Product commit ffa14b548f8f02cea918cba5c362108e53908129.",
+      "updated": "2026-09-16"
     },
     {
       "id": "WP07-T02",
@@ -49,6 +51,6 @@
       "status": "not_started"
     }
   ],
-  "dependency_note": "",
+  "dependency_note": "WP07 is IN_PROGRESS: T01 validated in local scope (ADR 0020). Dependency note (2026-09-16): WP08-T01 (versioned manifests) and WP08-T02 (per-run policy snapshots) do not need WP07 behaviour and may proceed after the WP07 retention/deletion foundations (T01–T04) and text privacy (T05–T06) are in place per owner instruction; WP08-T03 (privacy/eligibility filtering) requires WP07-T05/T06 and stays blocked until they are validated. Business defaults (which mode, how many days) remain an owner decision; engineering fixtures use explicit policies.",
   "readme": "docs/planning/work-packages/WP07/README.md"
 }

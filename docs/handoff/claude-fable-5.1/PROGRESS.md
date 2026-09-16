@@ -467,6 +467,20 @@
 - Freshness check against `graphify/source-manifest.json`: 23 changed and 15 new source files since the 2026-09-11 map (WP05 T01–T06). One refresh through the sequential wrapper (`graphify.extract` forced to `parallel=False`, `tools/refresh_graph.py` via `runpy`, graphify 0.9.40, no model/API call): 348 files, 4,271 nodes / 15,401 edges / 155 communities in the resolved view; lossless extraction 4,271 nodes / 16,837 relations with 151 explicitly unresolved reference ids; diagnostics 0 missing endpoints, 938 dangling, 1 self-loop, 485 directed / 499 undirected collapsed. Promoted into `graphify/code/` (report, JSON, HTML with the bundled renderer, diagnostics, `UNRESOLVED_REFERENCES.json`, `FULL_GRAPH_INTEGRITY.json`), manifest/BUILD_SUMMARY/VISUAL_CHECK (`not_run`) and GRAPHIFY_GUIDE updated. Planning graph not rebuilt (statuses/notes only).
 - Next exact action: WP08 (provider registry / Padyar AI Gateway / model fabric) — read its task records and dependencies first.
 
+### Session 12 — WP07-T01 explicit retention semantics (validated locally)
+
+- Date / environment: 2026-09-16; same worktrees (website branch attached at ade6dc7, clean); product baseline 66751568; disposable PostgreSQL 16.15 `scratchpad/pg16c` on 54329 verified by data directory and reused; strictly sequential single-agent session (no background suites, no parallel batches, no external review).
+- Package / subtask: WP07-T01 validated in local scope (ADR 0020); WP07 in progress. Dependency resolution recorded in the WP07/WP08 records: WP08-T01/T02 do not need WP07 behaviour, WP08-T03 requires WP07-T05/T06.
+- Scope and files: see the WP07 README T01 section.
+- Change and reason: retention was a single `retention_days >= 0` whose zero was ambiguous and unenforced; the purge sweep of T03 needs an unambiguous contract. Three explicit modes plus a read-only legacy sentinel, a constraint, server-side expiry stamping, a re-checkable enforceability predicate, admin validation that refuses ambiguity, a lossless migration that reinterprets nothing, and the console selector.
+- Commands/results newly executed (all post-fix): ruff clean on changed files; SQLite retention + admin API 18 passed / 1 skipped; PostgreSQL batch 36 passed (incl. the migration round trip: a legacy zero row becomes `LEGACY_UNRESOLVED`, a finite row stays `FINITE`, the constraint refuses `days = 0` under `FINITE`); `check-migrations.sh` exit 0; alembic downgrade/upgrade/check clean on `homayar_mig`; frontend build, lint and 12 vitest cases green. One test-only fix (the upload response does not expose `retention_expires_at`; asserted on the row instead) and one TypeScript narrowing fix.
+- Acceptance satisfied (T01 / F15 part): explicit immediate/finite/indefinite semantics defined, validated and stored; the ambiguous zero migrated safely without reinterpretation; policy changes authorized and audited.
+- Acceptance pending: enforcement (T03 purge sweep), holds (T02), restore tombstones (T04), text privacy (T05/T06), controllable-clock tests (T07); business defaults; production run.
+- Review: self-review — `create_upload_job` keeps its `retention_days` parameter for signature compatibility but reads the policy from the workspace row; `register_original`/`register_derived` copy the meeting expiry (None under indefinite/legacy) so derived media never outlives its source; `_apply_retention_policy` never writes a pair the constraint would refuse.
+- External blockers: unchanged.
+- Local commits: product `ffa14b548f8f02cea918cba5c362108e53908129`; website commit below. Nothing pushed.
+- Next exact action: WP07-T02 — legal-hold ownership, reason, expiry/review and audited release, separated from ordinary user preference, on the existing `place_legal_hold` / `release_legal_hold` service (route + permission + review date), then T03 tombstone-first denial and the durable purge sweep on the WP05-T04 reconciliation machinery.
+
 ## Template for next session
 
 - Date / environment:
