@@ -448,6 +448,20 @@
 - Local commits: product `d8d8209b78782e42e51263e3ef489b3953e893e0`; website commit below. Nothing pushed.
 - Next exact action: WP05-T06 — "Add malicious/corrupt/oversized/truncated media fixtures and retries, including a forged extension and decoding timeout." Read the T02 fixtures (`test_media_fixtures.py`, `test_media_validation.py`) first to add only what is missing (retry behaviour, decoding timeout, forged extension already partially covered), then the retention/deletion hand-off states named in the WP05 README.
 
+### Session 11, part B — WP05-T06 adversarial media fixtures and retries (validated locally)
+
+- Date / environment: 2026-09-16; same worktrees; product baseline d8d8209b (T05); disposable PostgreSQL 16.15 at `scratchpad/pg16c` (port 54329) reused; ffprobe/ffmpeg 8.1.2 on PATH. Single-agent session.
+- Package / subtask: WP05-T06 validated in local scope. WP05 now PARTIAL: all six tasks done in local scope; only the T05 live S3-compatible run remains BLOCKED_EXTERNAL.
+- Scope and files (product): `backend/tests/test_media_adversarial_api.py` (new, 10 cases), `backend/tests/test_media_fixtures.py` (`build_media_fixtures`, fixtures `truncated.m4a`, `huge-id3.mp3`, `wide.wav`, `fast.wav`, `polyglot.wav`, three tests), `backend/routers/v1/meetings.py` (`Retry-After: 30` on non-terminal media refusals and `storage_unavailable`), `docs/security/authorization-matrix.md` (§6d row, §8 note). Website: WP05 records (T06 validated, WP05 partial), lock, this file.
+- Change and reason: T02 proved the validator on real fixtures and the ledger tests proved the refusal bookkeeping with a mocked validator; nothing joined the two. The new module sends forged, corrupted, truncated, forged-tag, over-channel, over-rate, header-lying, over-duration and oversized inputs through the real route with the real tools and checks containment (no meeting/job/object/quarantine file, original bytes unchanged, deterministic replay without re-inspection, byte cap before any subprocess) and the retry semantics of a real decoding timeout (503 + `Retry-After`, no ledger row, identity free, one chain on retry, stored digest equals the submitted bytes, accepted replay idempotent). Measured before writing: ffprobe refuses the truncated MP4 and the forged ID3 size as malformed, the 16-channel and 384 kHz WAVs as invalid streams, and accepts the WAV polyglot as three seconds of audio (kept byte-for-byte; downloads are attachments).
+- Commands/results newly executed: ruff check/format clean on changed files; fixtures + adversarial API 35 passed with real binaries (after three test-scaffolding fixes: the header-lying WAV is refused as undecodable rather than over-duration, `Idempotency-Key` needs ≥ 8 characters, the module-scoped fixture must be defined under its own name); SQLite regression (ingestion ledger, uploads API, meetings API, media validation, media lifecycle, fault injection) 67 passed / 7 skipped; PostgreSQL 16.15 batch 61 passed (adversarial API, media fixtures, ledger, uploads API, media lifecycle; 57 s). No schema change.
+- Acceptance satisfied (T06 / F12): forged, malformed, oversized and duration-expansion inputs fail within the configured bounds, never reach storage or inference, originals stay intact, refusals are ledger facts, transient tooling failures are retried without a second chain.
+- Acceptance pending: production run; child-process rlimits; the decode covers a prefix; the live S3 target (T05).
+- Review: self-review — the `Retry-After` hint is a constant, not a new limit; terminal refusals deliberately carry none; `build_media_fixtures` keeps the T02 fixture semantics unchanged.
+- External blockers: unchanged.
+- Local commits: product `66751568b7070e153eb3b29f90c6755387967db0`; website commit below. Nothing pushed.
+- Next exact action: Graphify freshness check and one refresh after the WP05 milestone; then WP08 (provider registry / Padyar AI Gateway / model fabric) as the next unblocked dependency on the critical path (WP08 → WP09 → WP10 → WP11 → WP14 → WP16 → WP18 → WP19).
+
 ## Template for next session
 
 - Date / environment:

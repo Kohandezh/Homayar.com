@@ -1,6 +1,6 @@
 # WP05 — Ingestion and private object lifecycle
 
-Status: IN PROGRESS — T01, T02, T03 and T04 validated in local scope on 2026-09-11 ([ADR 0016](../../../architecture/decisions/0016-ingestion-ledger.md) and its amendment, [ADR 0017](../../../architecture/decisions/0017-media-objects-and-lifecycle.md), [ADR 0018](../../../architecture/decisions/0018-media-reconciliation.md)); T05 partial on 2026-09-16 ([ADR 0019](../../../architecture/decisions/0019-storage-contract.md): adapter contract validated locally, live S3-compatible qualification BLOCKED_EXTERNAL); T06 not started. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.
+Status: PARTIAL (local scope complete; live S3-compatible qualification BLOCKED_EXTERNAL) — T01, T02, T03 and T04 validated in local scope on 2026-09-11 ([ADR 0016](../../../architecture/decisions/0016-ingestion-ledger.md) and its amendment, [ADR 0017](../../../architecture/decisions/0017-media-objects-and-lifecycle.md), [ADR 0018](../../../architecture/decisions/0018-media-reconciliation.md)); T05 partial on 2026-09-16 ([ADR 0019](../../../architecture/decisions/0019-storage-contract.md): adapter contract validated locally, live S3-compatible qualification BLOCKED_EXTERNAL); T06 validated in local scope on 2026-09-16 (adversarial fixtures and retries through the real route). Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.
 
 Completion dependencies: WP03, WP04.
 
@@ -79,6 +79,14 @@ Current audited state: W partial. Target: Qualified S3/private-storage adapters.
 - Security: missing / denied / transient / unavailable / conflict / incomplete outcomes are distinct and tested for every operation; `exists()` never answers `False` on a fault; a missing bucket is never a missing object (the reconciliation sweep counts it as unavailable instead of flagging `MISSING`); scope (tenant, key shape, token) is validated before any backend call; a purge is never unscoped; the live run needs explicit opt-in plus a disposable target, removes only exact created keys and keeps credentials out of logs and reprs.
 - Limitations: the live S3-compatible run has NOT been executed (BLOCKED_EXTERNAL); fake-client and Stubber evidence covers the adapter, not IAM/bucket policy/encryption or a specific S3-compatible service; local write-path filesystem faults (`mkstemp`, link) propagate as `OSError` (nothing is published, temporaries removed); no multipart protocol exists by design (single bounded `PutObject`, cap `MAX_UPLOAD_SIZE_MB`).
 - Reviewer decision: self-review only (single-agent session by owner instruction); two adapter defects found by the suite and fixed before the commit; status `partial` until an owner-designated disposable bucket runs the live parametrisation.
+
+### T06 — Adversarial media fixtures and retries (validated locally, 2026-09-16)
+
+- Product files: `backend/tests/test_media_adversarial_api.py` (new: forged/corrupt/truncated/forged-tag/shape/duration fixtures through `POST /uploads` with real tools, oversize refused while staging, real decoding timeout retried), `backend/tests/test_media_fixtures.py` (`build_media_fixtures`, five new fixtures and three tests), `backend/routers/v1/meetings.py` (`Retry-After: 30` on non-terminal media refusals and storage unavailability), `docs/security/authorization-matrix.md` (§6d row, §8 note). Website: WP05 records, lock, PROGRESS.
+- Commands/results: ruff check/format clean on changed files; fixtures + adversarial API 35 passed with the real binaries; SQLite regression (ingestion ledger, uploads API, meetings API, media validation, media lifecycle, fault injection) 67 passed / 7 skipped; PostgreSQL 16.15 batch 61 passed (adversarial API, media fixtures, ingestion ledger, uploads API, media lifecycle; 57 s); no schema change.
+- Security: every terminal refusal is contained (no meeting/job/object/quarantine file, original bytes unchanged) and replays deterministically without re-running tools; the byte cap refuses before any subprocess; a tooling timeout never records a rejection and the retry creates exactly one chain; the polyglot is stored as submitted and only served as an attachment.
+- Limitations: child-process rlimits are not set (timeouts and probe caps bound the tools); the decode verifies a prefix; the polyglot relies on the attachment disposition; no production run.
+- Reviewer decision: self-review only (single-agent session by owner instruction).
 
 ## Completion evidence to record
 
