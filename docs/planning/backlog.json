@@ -2673,7 +2673,9 @@
         {
           "id": "WP07-T02",
           "description": "Add legal-hold ownership, reason, expiry/review and audited release; separate hold from ordinary user preference.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Legal hold as a compliance action separate from deletion preferences: permission legal_hold:manage (owner only; admins excluded; never an API-key scope) on POST /meetings/{id}/legal-hold (every live object of a live conversation), POST /media/{id}/legal-hold (one object, also of a deleted conversation) and POST /media/{id}/legal-hold/release. A hold records who placed it, a reason (3-200 chars, whitespace-normalised) and a review date (future, <= 3650 days; constraint ck_media_hold_review, column legal_hold_review_at, migration d4a8c1e7b2f9 with lossless downgrade); placement is idempotent (a repeat never rewrites owner/reason/review); a hold overrides retention expiry, a recorded deletion request, orphan classification and temporary cleanup until released, and cannot be placed on deleted bytes (409 already_deleted: the irreversible boundary is documented, a hold never restores). Release needs its own reason, is audited (release_reason, held_since, deletion_pending) and resumes a recorded deletion request state-first, bytes-second (a failed removal stays deletion_pending for the WP05-T04 sweep). The reconciliation sweep counts overdue reviews (holds_review_due) with a warning log and never acts on them. Media responses expose legal_hold_by_user_id and legal_hold_review_at, never the storage key. Verified locally: ruff clean on changed files; SQLite (legal hold, media lifecycle, authorization matrix incl. permission/scope/route inventories, reconciliation, API keys, meetings API, job processor) 37 passed / 3 skipped; PostgreSQL 16.15 (legal hold, lifecycle, RLS, reconciliation, matrix, tenant scope, retention) 50 passed; check-migrations.sh exit 0; alembic downgrade -1 / upgrade head / check clean on homayar_mig with both new constraints present. No organisation-level or platform-operator hold; no console UI yet. Product commit 3622db3effc8e3272f935ed9894ae495f64664f8.",
+          "updated": "2026-09-16"
         },
         {
           "id": "WP07-T03",
@@ -2701,7 +2703,7 @@
           "status": "not_started"
         }
       ],
-      "dependency_note": "WP07 is IN_PROGRESS: T01 validated in local scope (ADR 0020). Dependency note (2026-09-16): WP08-T01 (versioned manifests) and WP08-T02 (per-run policy snapshots) do not need WP07 behaviour and may proceed after the WP07 retention/deletion foundations (T01–T04) and text privacy (T05–T06) are in place per owner instruction; WP08-T03 (privacy/eligibility filtering) requires WP07-T05/T06 and stays blocked until they are validated. Business defaults (which mode, how many days) remain an owner decision; engineering fixtures use explicit policies.",
+      "dependency_note": "WP07 is IN_PROGRESS: T01 and T02 validated in local scope (ADR 0020; holds on the ADR 0017 lifecycle). Dependency note (2026-09-16): WP08-T01 (versioned manifests) and WP08-T02 (per-run policy snapshots) do not need WP07 behaviour and may proceed after the WP07 retention/deletion foundations (T01–T04) and text privacy (T05–T06) are in place per owner instruction; WP08-T03 (privacy/eligibility filtering) requires WP07-T05/T06 and stays blocked until they are validated. Business defaults (which mode, how many days) remain an owner decision; engineering fixtures use explicit policies.",
       "readme": "docs/planning/work-packages/WP07/README.md"
     },
     {

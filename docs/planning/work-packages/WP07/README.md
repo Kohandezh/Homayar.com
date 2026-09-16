@@ -1,6 +1,6 @@
 # WP07 — Retention, deletion and text privacy
 
-Status: IN PROGRESS — T01 validated in local scope on 2026-09-16 ([ADR 0020](../../../architecture/decisions/0020-retention-semantics.md)); T02–T07 not started. Dependency note: WP08-T01/T02 do not need WP07 behaviour; WP08-T03 requires WP07-T05/T06. Not production-validated.
+Status: IN PROGRESS — T01 and T02 validated in local scope on 2026-09-16 ([ADR 0020](../../../architecture/decisions/0020-retention-semantics.md); holds on the ADR 0017 lifecycle); T03–T07 not started. Dependency note: WP08-T01/T02 do not need WP07 behaviour; WP08-T03 requires WP07-T05/T06. Not production-validated.
 
 Completion dependencies: WP03, WP04, WP05, WP06.
 
@@ -41,6 +41,14 @@ Current audited state: Missing. Target: Redacted downstream copy; restricted ori
 - Security: policy changes need `workspace:manage` + CSRF and are audited by field name; a member is refused (403); the legacy zero is never destructive and never choosable; a client cannot supply an expiry.
 - Limitations: no job deletes by age yet (T03); historical expiries under a resolved legacy workspace are not rewritten; business defaults undecided (fixtures use explicit policies); `delete_audio_after_processing` remains the only automatic removal today.
 - Reviewer decision: self-review only (single-agent session by owner instruction).
+
+### T02 — Legal hold ownership, reason, review and audited release (validated locally, 2026-09-16)
+
+- Product files: `backend/security/authorization.py` (`Permission.LEGAL_HOLD_MANAGE`, owner only, not an API-key scope), `backend/database/saas_models.py` (`legal_hold_review_at`, `ck_media_hold_review`, immutability allow-list), `backend/services/media_lifecycle_service.py` (`place_legal_hold` with review date and idempotent return, `release_legal_hold` with reason, `holds_due_for_review`, validators), `backend/routers/v1/meetings.py` (three hold routes), `backend/schemas/meetings.py` (`LegalHoldRequest`, `LegalHoldReleaseRequest`, response fields), `backend/jobs/media_reconciliation.py` (`holds_review_due`), migration `d4a8c1e7b2f9`, `backend/tests/test_legal_hold.py` (new), `backend/tests/test_media_lifecycle.py` (signatures), `docs/security/authorization-matrix.md` (§3, §6b scopes, route inventory, §6e, §8). Website: WP07 records, lock, PROGRESS.
+- Commands/results: ruff check/format clean on changed files; SQLite (legal hold, media lifecycle, authorization matrix, reconciliation, API keys, meetings API, job processor) 37 passed / 3 skipped; PostgreSQL 16.15 batch (legal hold, lifecycle, RLS, reconciliation, matrix, tenant scope, retention) 50 passed; `infra/ci/check-migrations.sh` exit 0; `alembic downgrade -1` / `upgrade head` / `check` clean on `homayar_mig`, both `ck_media_hold_review` and `ck_workspace_retention_mode` present.
+- Security: owner-only permission checked by the machine-verified matrix; admin and member receive 403 for place and release; a foreign tenant's object id is 404; audits carry ids, reason, review/held-since timestamps only; responses never carry the storage key; a hold never resurrects deleted bytes.
+- Limitations: no organisation-level or platform-operator hold; overdue reviews are reported, not escalated; no console UI for holds; a hold does not stop processing jobs (the object stays readable to the pipeline).
+- Reviewer decision: self-review only (single-agent session by owner instruction); one guard fix found by the tests (the new column had to join the media immutability allow-list).
 
 ## Completion evidence to record
 

@@ -481,6 +481,20 @@
 - Local commits: product `ffa14b548f8f02cea918cba5c362108e53908129`; website commit below. Nothing pushed.
 - Next exact action: WP07-T02 — legal-hold ownership, reason, expiry/review and audited release, separated from ordinary user preference, on the existing `place_legal_hold` / `release_legal_hold` service (route + permission + review date), then T03 tombstone-first denial and the durable purge sweep on the WP05-T04 reconciliation machinery.
 
+### Session 12, part B — WP07-T02 legal hold ownership, reason, review and audited release (validated locally)
+
+- Date / environment: 2026-09-16; same worktrees; product baseline ffa14b54 (T01); disposable PostgreSQL `pg16c` reused; strictly sequential.
+- Package / subtask: WP07-T02 validated in local scope; WP07 in progress (T03–T07 not started).
+- Scope and files: see the WP07 README T02 section.
+- Change and reason: the ADR 0017 hold existed as two service functions with no route, no permission, no review date and an unaudited release, so a hold could neither be placed by anyone through the API nor be distinguished from an ordinary deletion preference. Now it is an owner-only compliance action with owner, reason and review date recorded, idempotent placement, an audited release with its own reason that resumes a recorded deletion state-first/bytes-second, a report-only count of overdue reviews in the reconciliation sweep, and a documented irreversible boundary.
+- Commands/results newly executed (all post-fix): SQLite 37 passed / 3 skipped; PostgreSQL batch 50 passed; `check-migrations.sh` exit 0; alembic round trip and check clean. Fixes during the task: the new column joined the media immutability allow-list; SQLite naive timestamps normalised in one assertion; the machine-checked matrix received the permission, scope and route rows; unrelated ruff reformatting of `authorization.py` was reverted.
+- Acceptance satisfied (T02 / F15 part): hold ownership, reason, review date and audited release exist and are separate from user preference; held data remains through conversation deletion; release resumes deletion.
+- Acceptance pending: enforcement sweep (T03), restore tombstones (T04), text privacy (T05/T06), controllable-clock tests (T07); console UI for holds; escalation of overdue reviews.
+- Review: self-review — repeated placement returns `False` without an audit so a second actor cannot overwrite the first hold's provenance; the release route refuses non-held objects with `409 not_held` before touching state; `delete_objects` after the release commit keeps the ADR 0017 order; the sweep's review count is read-only.
+- External blockers: unchanged.
+- Local commits: product `3622db3effc8e3272f935ed9894ae495f64664f8`; website commit below. Nothing pushed.
+- Next exact action: WP07-T03 — tombstone-first access denial, the durable purge sweep for expired conversations (finite/immediate modes only, `is_age_based_deletion_enabled` re-checked, terminal jobs only, holds skipped) on the WP05-T04 reconciliation machinery, and retry reconciliation of failed removals; then T04 restore tombstones.
+
 ## Template for next session
 
 - Date / environment:
