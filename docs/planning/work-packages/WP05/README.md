@@ -1,6 +1,6 @@
 # WP05 — Ingestion and private object lifecycle
 
-Status: IN PROGRESS — T01, T02 and T03 validated in local scope on 2026-09-11 ([ADR 0016](../../../architecture/decisions/0016-ingestion-ledger.md) and its amendment, [ADR 0017](../../../architecture/decisions/0017-media-objects-and-lifecycle.md)); T04–T06 not started. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.
+Status: IN PROGRESS — T01, T02, T03 and T04 validated in local scope on 2026-09-11 ([ADR 0016](../../../architecture/decisions/0016-ingestion-ledger.md) and its amendment, [ADR 0017](../../../architecture/decisions/0017-media-objects-and-lifecycle.md), [ADR 0018](../../../architecture/decisions/0018-media-reconciliation.md)); T05–T06 not started. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.
 
 Completion dependencies: WP03, WP04.
 
@@ -63,6 +63,14 @@ Current audited state: W partial. Target: Qualified S3/private-storage adapters.
 - Security: media responses never carry the storage key; reads are tenant- and record-scoped through the conversation; verification requires `meeting:update` + CSRF and answers `404` for a foreign object; audits carry ids, kind, state, reason, size and integrity only; on meeting deletion the state changes before the bytes go, under delete-after-processing the recording is marked deleted only once the bytes are gone (the WP06 fault-injection invariant is kept).
 - Limitations: no producer writes derived kinds yet; `retention_pending` is not entered automatically; failed removals stay `deletion_pending` without a retry sweep; legal holds have no route or permission yet (service + audit only); the storage backend recorded by the backfill is the one configured at migration time.
 - Reviewer decision: self-review plus two independent model reviews (Claude Opus 4.6, Gemini 3.1 Pro through the antigravity CLI): one accepted finding fixed (a closed ORIGINAL retires its recording), three refuted against the code — details in PROGRESS session 10 part C; product commit `d8066f90`, nothing pushed.
+
+### T04 — Retry-safe finalize/abort and reconciliation (validated locally, 2026-09-11)
+
+- Product files: `backend/storage/base.py` (`ObjectListing`, `iter_objects`, `purge_incomplete`), `backend/storage/local.py`, `backend/storage/s3.py`, `backend/jobs/media_reconciliation.py` (new: `reconcile_media_objects`), `backend/config.py` (four `MEDIA_RECONCILIATION_*` settings), `backend/celery_app/__init__.py` + `backend/jobs/tasks.py` (beat entry `media-reconciliation`), `docs/security/authorization-matrix.md` (§6f, §8), `backend/tests/test_media_reconciliation.py` (new), `backend/tests/test_storage_providers.py` (listing/purge tests), `backend/tests/test_ingestion_ledger.py` (abort/retry, 100× replay, invariants). Website: ADR 0018 (new), WP05 records, lock, PROGRESS.
+- Commands/results: ruff clean on changed files; whole SQLite suite 286 passed / 36 skipped (two halves, 281 s + 178 s); focused reconciliation/storage/lifecycle/ledger 50 passed / 5 skipped; PostgreSQL 16.15 as `homayar_app` — PostgreSQL 16 focused batch 71 passed (reconciliation, storage providers, media lifecycle, RLS, ingestion ledger incl. 100x replay + abort/retry, fault injection, tenant scope); earlier 14-module batch 114 passed; alembic check: no schema change. No migration (no schema change).
+- Security: the sweep binds the tenant context per workspace and lists only that tenant's prefix (ownership-checked keys); orphan removal is report-only unless enabled; audits carry counts, sizes and ages, never keys; missing bytes are flagged, never fabricated; a listing failure leaves the workspace untouched for the pass.
+- Limitations: real S3 listing is unqualified (BLOCKED_EXTERNAL, fake client only); one prefix walk per workspace per pass (no inventory); orphan removal stays disabled until an owner enables it; pre-ledger recordings all carry a media row after the T03 backfill, the route fallback is defensive only.
+- Reviewer decision: Gemini Flash 3.8 High (agy, non-blocking) raised 5 findings: 4 confirmed and fixed (StorageError in missing step, budget fall-through after pending retry, unwrapped OSError in local listing/purge, purge tenant validation) plus 2 test renames; nullable-integrity item refuted (column NOT NULL). Reviewed and verified by the orchestrator; product commit `01232be6f7a3abdb4e3c6e24b903bc7c6de69cd6`, nothing pushed.
 
 ## Completion evidence to record
 

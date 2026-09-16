@@ -2560,7 +2560,9 @@
         {
           "id": "WP05-T04",
           "description": "Implement retry-safe finalize/abort and orphan reconciliation for database/object partial failures.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Retry-safe finalize/abort proven and orphan reconciliation added (ADR 0018). Request path unchanged: a commit failure after the object is stored rolls every row back, the route's abort removes the object and the identity is free for the retry; tests prove the abort, the retry (one meeting/job/ingestion/media row, one reservation per metric) and a hundredfold replay of one finalization (one conversation, one usage effect, 99 replay audits) and that the WP06 invariant checker reports nothing afterwards. Storage contract: ObjectStorage.iter_objects(tenant_id) (key, size, last-modified, completeness; only owned keys under the tenant prefix) and purge_incomplete(tenant_id, older_than) (local temporaries; S3 has no multipart uploads to abort) in both backends. Sweep backend/jobs/media_reconciliation.py (Celery beat media-reconciliation, python -m entrypoint), per workspace under the tenant context and bounded: retries deletion_pending rows past the grace through delete_objects; lists the tenant prefix and reports objects without a live row (media rows not deleted, checkpoint artifacts, pre-ledger recordings) older than the grace — removal only when MEDIA_RECONCILIATION_REMOVE_ORPHANS is enabled, audited without keys (media.orphans_reported / media.orphan_removed); flags live rows whose bytes are absent as integrity missing through verify_integrity (never fabricated or removed); purges incomplete leftovers; a listing failure leaves the workspace untouched. Settings MEDIA_RECONCILIATION_{INTERVAL,GRACE}_SECONDS, _BATCH_SIZE, _REMOVE_ORPHANS. Verified locally: whole SQLite suite 286 passed / 36 skipped (two halves, 281 s + 178 s); focused reconciliation/storage/lifecycle/ledger 50 passed / 5 skipped; PostgreSQL 16.15 as homayar_app PostgreSQL 16 focused batch 71 passed (reconciliation, storage providers, media lifecycle, RLS, ingestion ledger incl. 100x replay + abort/retry, fault injection, tenant scope); earlier 14-module batch 114 passed; alembic check: no schema change. Product commit 01232be6f7a3abdb4e3c6e24b903bc7c6de69cd6. See ADR 0018.",
+          "updated": "2026-09-11"
         },
         {
           "id": "WP05-T05",
@@ -2573,7 +2575,7 @@
           "status": "not_started"
         }
       ],
-      "dependency_note": "WP05 is IN_PROGRESS: T01, T02 and T03 validated in local scope (ADR 0016 + amendment, ADR 0017); T04–T06 not started. No producer writes derived media kinds yet (WP09/WP14/WP16); retention_pending, the deletion retry sweep and legal-hold routes arrive with T06/WP07. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.",
+      "dependency_note": "WP05 is IN_PROGRESS: T01–T04 validated in local scope (ADR 0016 + amendment, ADR 0017, ADR 0018); T05–T06 not started. No producer writes derived media kinds yet (WP09/WP14/WP16); retention_pending and legal-hold routes arrive with T06/WP07; orphan removal is report-only until enabled; real S3 listing/conditional writes stay BLOCKED_EXTERNAL. Not production-validated: remote CI, the deployed stack and a real S3-compatible bucket have not run.",
       "readme": "docs/planning/work-packages/WP05/README.md"
     },
     {
