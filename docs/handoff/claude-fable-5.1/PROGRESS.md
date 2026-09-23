@@ -495,6 +495,21 @@
 - Local commits: product `3622db3effc8e3272f935ed9894ae495f64664f8`; website commit below. Nothing pushed.
 - Next exact action: WP07-T03 — tombstone-first access denial, the durable purge sweep for expired conversations (finite/immediate modes only, `is_age_based_deletion_enabled` re-checked, terminal jobs only, holds skipped) on the WP05-T04 reconciliation machinery, and retry reconciliation of failed removals; then T04 restore tombstones.
 
+### Session 13 — WP07-T03 tombstone-first deletion, durable purge and retention sweep (validated locally)
+
+- Date / environment: 2026-09-23; Claude Opus 5.5, strictly single-agent and sequential. The website worktree was found on the desktop session branch `claude/homayar-commercial-v1-handover-809177` at `8f4ba6a` (an ancestor of the intended branch, untracked files identical to it); switched to `claude/homayar-commercial-v1-a266f5` at `4bff840` without reset (clean). Product `feat/commercial-v1-overlay` at `3622db3e` clean; lock matched. The old `pg16c` cluster was gone (no response on 54329); a fresh disposable cluster `scratchpad/pg16d` (PostgreSQL 16.15 Homebrew, superuser `postgres` trust auth for the harness, app role `homayar_app` created by the RLS setup, port 54329, socket `/tmp/claude/pgsock`, databases `homayar_test` and `homayar_mig` UTF8/C).
+- Package / subtask: WP07-T03 validated in local scope; WP07 in progress (T04–T07 not started).
+- Baseline repo/ref/dirty state: website `4bff840` clean; product `3622db3e` clean.
+- Scope and files: see the WP07 README T03 section; ADR 0021.
+- Change and reason: deletion left derived content rows forever, nothing acted on a retention expiry and three races were open (stale media state overwrote a hold, a hold could be written over a removed object, publication read the meeting unlocked). Now a tombstone commits first and denies every path; a durable `conversation_purges` row drives bounded, retried attempts that remove content rows and bytes and end in a non-content receipt or an alerted FAILED state; the retention sweep tombstones only finite/immediate, expired, terminal, unheld conversations under row locks.
+- Commands/results newly executed: new tests SQLite 12 passed / 3 skipped, PostgreSQL 15 passed; PostgreSQL batch (19 files) 149 passed; full SQLite suite 423 passed / 81 skipped; matrix tests 6 passed after the §6i edit; `check-migrations.sh` exit 0; alembic round trip and check clean on `homayar_mig`; source contract (local) satisfied at the new pin. Counts are per run and not summed.
+- Acceptance satisfied (T03 / F15 part): access denied immediately on accepted deletion; finite/immediate/indefinite/legacy behave as documented; held data remains (content, stage outputs, bytes); active-store purge completes or raises a retryable state and, after the budget, an alerted FAILED state; overdue purges (> 24 h) are counted and logged.
+- Acceptance pending: restore reapplies tombstones (T04); text privacy (T05/T06); controllable-clock/subject-export suite (T07); purge alert wiring to an external channel (WP20); live S3 run (WP05-T05).
+- Review: self-review; the stage-output gap under a hold was found in review and fixed (purge and WP06 sweep). Frozen-package touch points are narrow race fixes recorded in ADR 0021.
+- External blockers: unchanged (live S3 target/authorization, remote CI).
+- Local commits: product `2dcb7e640983e44dca1d6c6c9248d487ef3c5e36`; website commit below. Nothing pushed.
+- Next exact action: WP07-T04 — reapply deletion tombstones after a restore (tombstone journal outside the restored database, reapply before traffic) and document backup expiry instead of instant backup erasure.
+
 ## Template for next session
 
 - Date / environment:
