@@ -54,7 +54,8 @@ rename or migration. `ALLOW_UNVERIFIED_BACKUP=1` and `ALLOW_INCOMPLETE_BACKUP=1`
 break-glass controls for independently verified legacy media; record approval and evidence
 before using any of them.
 
-After restore, apply only migrations that are newer than the backup, start API before the
+After restore, apply only migrations that are newer than the backup, reapply deletion
+tombstones (see below) while `api` and `worker` are still stopped, then start API before the
 worker, wait for `/readyz`, and verify tenant counts, entitlements, jobs, audit events, and
 sample object references before reopening traffic.
 
@@ -96,12 +97,49 @@ After restore, sample object sizes and checksums through the storage API, verify
 access controls, run an authorized download, and run an unauthorized access test. Rebuild
 the optional Neo4j projection from PostgreSQL after both authoritative stores are healthy.
 
+## Deletion Tombstones and Backup Expiry
+
+Backups are point-in-time copies and are never edited. A conversation deleted after a backup
+was taken still exists in that backup, and restoring it would bring the conversation back.
+Homayar therefore does not promise instant erasure from backups; it promises that restored
+data is deleted again before anyone can reach it:
+
+1. Every deletion (explicit or retention-driven) is written, right after it commits, to the
+   tombstone journal in `TOMBSTONE_JOURNAL_DIR` (`/app/tombstones`, volume
+   `TOMBSTONE_JOURNAL_PATH`). The journal holds ids, reasons, timestamps and opaque object
+   keys only. Bind it to storage outside the PostgreSQL and MinIO failure domains, replicate
+   it off-site continuously, and never restore it from an older copy. Keep journal files at
+   least as long as the oldest backup that may still be restored.
+2. The retention sweep writes any tombstone the journal missed and logs
+   `TOMBSTONE_JOURNAL_BACKLOG`; alert on it. A deployment without a journal logs
+   `TOMBSTONE_JOURNAL_NOT_CONFIGURED` at startup and cannot reapply deletions after a restore.
+3. After restoring PostgreSQL (and MinIO) and applying newer migrations, with `api` and
+   `worker` stopped and `postgres`/`minio` running:
+
+   ```bash
+   infra/scripts/reapply-tombstones.sh
+   ```
+
+   The script re-tombstones every journaled conversation that came back, reopens its purge
+   so restored transcripts, analysis and objects are removed again, and then verifies. It
+   exits non-zero while any journaled conversation is still alive or a journal line fails
+   its checksum; do not start `api` or `worker` until it succeeds. `--remove-unknown-keys`
+   also removes journaled objects of conversations the restored database does not know
+   (only after an approved review; referenced objects are never removed).
+4. Legal holds and hold releases made after the backup are not journaled: after a restore,
+   the hold state is the one in the backup. Review holds with the owner before reapplying.
+5. Deleted data remains inside existing backup sets until those sets expire under the
+   deployment's backup retention (owner decision; set it outside this repository and state
+   it in customer terms). Expire backup sets on schedule and record the expiry; a restore
+   of any set still runs step 3.
+
 ## Disaster Recovery Order
 
 1. Provision clean infrastructure and restore deployment secrets from the secret manager.
 2. Start PostgreSQL, Redis, and MinIO only.
 3. Restore PostgreSQL, then MinIO, and verify both independently.
 4. Run forward migrations required by the selected application image.
-5. Start API, verify readiness, then start workers and verify Celery health.
-6. Rebuild optional search or graph projections.
-7. Start both web services and nginx, run smoke tests, then reopen traffic.
+5. Reapply deletion tombstones (`infra/scripts/reapply-tombstones.sh`) and require success.
+6. Start API, verify readiness, then start workers and verify Celery health.
+7. Rebuild optional search or graph projections.
+8. Start both web services and nginx, run smoke tests, then reopen traffic.

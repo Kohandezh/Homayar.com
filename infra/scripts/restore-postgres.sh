@@ -79,3 +79,5 @@ compose_onprem exec -T postgres sh -ec '
 ' < "${backup_path}"
 
 printf 'PostgreSQL restore completed into database %s from %s\n' "${POSTGRES_DB}" "${backup_path}"
+printf 'Next: apply newer migrations, restore MinIO if needed, then run infra/scripts/reapply-tombstones.sh BEFORE starting api or worker (WP07-T04).\n'
+

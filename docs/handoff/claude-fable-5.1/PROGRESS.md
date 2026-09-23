@@ -510,6 +510,21 @@
 - Local commits: product `2dcb7e640983e44dca1d6c6c9248d487ef3c5e36`; website commit below. Nothing pushed.
 - Next exact action: WP07-T04 — reapply deletion tombstones after a restore (tombstone journal outside the restored database, reapply before traffic) and document backup expiry instead of instant backup erasure.
 
+### Session 13, part B — WP07-T04 tombstone journal and reapply after restore (validated locally)
+
+- Date / environment: 2026-09-23; same worktrees and disposable cluster `pg16d`; strictly sequential. The host was heavily loaded by unrelated processes (load average 130–320: a virtual machine, headless browsers), which stretched test wall-clock times; one full-suite run hit its own timeout at 100 % progress without a summary and was rerun to completion.
+- Package / subtask: WP07-T04 validated in local scope; WP07 in progress (T05–T07 not started).
+- Baseline repo/ref/dirty state: product `2dcb7e64` clean; website `1b6b96e` clean.
+- Scope and files: see the WP07 README T04 section; ADR 0022.
+- Change and reason: purge rows live inside the restored database, so a restore resurrected deletions made after the backup. Tombstones are now journaled outside both backups (content-free, checksummed, fsynced), and a reapply/verify step run before traffic re-tombstones and re-purges what a restore brought back; the runbook states that backups expire rather than being erased.
+- Commands/results newly executed: see the README T04 section (SQLite 9 passed; PostgreSQL 23 passed / 1 skipped; full SQLite 432 passed / 81 skipped; migrations clean; Compose config valid).
+- Acceptance satisfied (T04): restore reapplies tombstones before access (tested on a real SQLite file restore and a simulated PostgreSQL restore); backup expiry documented instead of instant backup erasure.
+- Acceptance pending: Compose-level restore rehearsal and journal/purge alerting (WP20); text privacy T05/T06; T07.
+- Review: self-review.
+- External blockers: unchanged.
+- Local commits: product `4b3038c3e1e5b5bd682ef5c7c43523252bff8da8`; website commit below. Nothing pushed.
+- Next exact action: WP07-T05 — Persian/English text PII detection with configurable classes and restricted original-to-redacted mappings.
+
 ## Template for next session
 
 - Date / environment:

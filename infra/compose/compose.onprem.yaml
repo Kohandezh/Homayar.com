@@ -43,6 +43,10 @@ x-app-environment: &app-environment
   STORAGE_LOCAL_ROOT: /app/data/objects
   UPLOAD_DIR: /app/data/legacy-uploads
   UPLOAD_QUARANTINE_DIR: /app/data/quarantine
+  # Tombstone journal (WP07-T04, ADR 0022): kept OUTSIDE the database and
+  # object-store backups so a restore can reapply later deletions. Bind
+  # TOMBSTONE_JOURNAL_PATH to a separately replicated mount in production.
+  TOMBSTONE_JOURNAL_DIR: /app/tombstones
   ENABLE_NEO4J_PROJECTION: "false"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
 
@@ -163,6 +167,7 @@ services:
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
     volumes:
       - app_data:/app/data
+      - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
     depends_on:
       postgres:
         condition: service_healthy
@@ -222,6 +227,7 @@ services:
       CELERY_CONCURRENCY: "${CELERY_CONCURRENCY:-2}"
     volumes:
       - app_data:/app/data
+      - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
     depends_on:
       postgres:
         condition: service_healthy
@@ -247,6 +253,28 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend, egress]
+    logging: *default-logging
+
+  # Restore step (WP07-T04, ADR 0022): after the PostgreSQL/MinIO restore and
+  # the forward migrations, with api/worker stopped:
+  #   ... run --rm tombstone-reapply reapply   then   ... run --rm tombstone-reapply verify
+  tombstone-reapply:
+    <<: *api-image
+    profiles: [restore]
+    entrypoint: ["python", "-m", "backend.jobs.tombstone_reapply"]
+    command: ["verify"]
+    environment: *app-environment
+    volumes:
+      - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones:ro"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
     logging: *default-logging
 
   migrate:
@@ -409,6 +437,7 @@ services:
 
 volumes:
   app_data:
+  tombstone_journal:
   postgres_data:
   redis_data:
   minio_data:

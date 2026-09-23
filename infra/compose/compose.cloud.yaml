@@ -43,6 +43,10 @@ x-app-environment: &app-environment
   STORAGE_LOCAL_ROOT: /app/data/objects
   UPLOAD_DIR: /app/data/legacy-uploads
   UPLOAD_QUARANTINE_DIR: /app/data/quarantine
+  # Tombstone journal (WP07-T04, ADR 0022): kept OUTSIDE the database and
+  # object-store backups so a restore can reapply later deletions. Bind
+  # TOMBSTONE_JOURNAL_PATH to a separately replicated mount in production.
+  TOMBSTONE_JOURNAL_DIR: /app/tombstones
   ENABLE_NEO4J_PROJECTION: "false"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
 
@@ -139,6 +143,7 @@ services:
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
     volumes:
       - app_data:/app/data
+      - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
     healthcheck:
       test:
         - CMD
@@ -188,6 +193,7 @@ services:
       CELERY_CONCURRENCY: "${CELERY_CONCURRENCY:-2}"
     volumes:
       - app_data:/app/data
+      - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
     healthcheck:
       test:
         - CMD-SHELL
@@ -228,6 +234,7 @@ services:
 
 volumes:
   app_data:
+  tombstone_journal:
 
 networks:
   edge:

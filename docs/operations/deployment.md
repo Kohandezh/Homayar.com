@@ -166,7 +166,10 @@ docker compose --file infra/compose/compose.cloud.yaml --profile cloud ps
 For horizontal production deployment, translate the same contracts to the chosen scheduler:
 immutable images, a separate migration job, rolling readiness gates, worker drain time, and
 managed secrets. The `app_data` volume is only transient compatibility storage and must not
-be treated as durable cloud state.
+be treated as durable cloud state. The tombstone journal (`TOMBSTONE_JOURNAL_DIR`, Compose
+volume or `TOMBSTONE_JOURNAL_PATH` bind mount at `/app/tombstones`, shared by `api` and
+`worker`) is the opposite: durable, append-only state that must live outside the database and
+object-store backups and be replicated off-site (see the backup-and-restore runbook).
 
 ## TLS and Proxy Trust
 
