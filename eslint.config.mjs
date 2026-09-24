@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Independent product repository cloned beside the website (ADR 0002);
+    // it carries its own lint configuration.
+    "Homayar/**",
   ]),
 ]);
 

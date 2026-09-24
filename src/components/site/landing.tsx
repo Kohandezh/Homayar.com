@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import Image from "next/image";
 import { CONTENT, DIR, LOCALES, LOCALE_NATIVE, type Locale } from "@/lib/content";
 import { useLocale } from "@/lib/locale";
+import { consoleHref, consoleLabels } from "@/lib/console-links";
 import { TiltCard } from "./depth";
 import { ScrollVideoHero } from "./scroll-video-hero";
 
@@ -308,6 +309,12 @@ export function Landing() {
             </a>
             <LangSwitcher locale={locale} onChange={changeLocale} />
             <a
+              href={consoleHref("login")}
+              className="hidden rounded-lg border border-line-strong px-4 py-2 text-sm font-medium text-ink-soft transition-colors hover:border-accent hover:text-accent md:inline-block"
+            >
+              {consoleLabels(locale).login}
+            </a>
+            <a
               href="/demo"
               className="cta-glow hidden rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-colors hover:bg-accent-strong sm:inline-block"
             >
@@ -352,6 +359,20 @@ export function Landing() {
                 <IconPhone className="size-4" />
                 {t.phones[0]}
               </a>
+              <div className="mt-2 grid grid-cols-2 gap-2 px-3">
+                <a
+                  href={consoleHref("login")}
+                  className="rounded-lg border border-line-strong px-3 py-2.5 text-center text-sm font-medium text-ink-soft transition-colors hover:border-accent hover:text-accent"
+                >
+                  {consoleLabels(locale).login}
+                </a>
+                <a
+                  href={consoleHref("register")}
+                  className="rounded-lg border border-line-strong px-3 py-2.5 text-center text-sm font-medium text-ink-soft transition-colors hover:border-accent hover:text-accent"
+                >
+                  {consoleLabels(locale).register}
+                </a>
+              </div>
               <div className="mt-2 border-t border-line pt-3">
                 <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
                   {locale === "fa" ? "زبان" : "Language"}
@@ -571,6 +592,12 @@ export function Landing() {
                 className="rounded-xl bg-accent px-7 py-3 font-semibold text-bg transition-colors hover:bg-accent-strong"
               >
                 {t.finalCta.button}
+              </a>
+              <a
+                href={consoleHref("register")}
+                className="rounded-xl border border-line-strong px-7 py-3 font-semibold text-ink transition-colors hover:border-accent hover:text-accent"
+              >
+                {consoleLabels(locale).register}
               </a>
               {t.phones.map((p) => (
                 <a

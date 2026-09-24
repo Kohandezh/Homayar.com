@@ -7,6 +7,7 @@ import { Logo } from "@/components/logo";
 import { LangSwitcher } from "@/components/lang-switcher";
 import { CartIcon, CloseIcon, MenuIcon } from "@/components/icons";
 import { navLinks } from "@/lib/site-i18n";
+import { consoleHref, consoleLabels } from "@/lib/console-links";
 import { CONTENT } from "@/lib/content";
 import { useLocale } from "@/lib/locale";
 import { useCart } from "@/lib/cart";
@@ -36,6 +37,7 @@ export function Header() {
 
   const links = navLinks(locale);
   const demoLabel = CONTENT[locale].cta.demo;
+  const consoleLabel = consoleLabels(locale);
 
   useEffect(() => {
     setOpen(false);
@@ -82,6 +84,12 @@ export function Header() {
           <div className="hidden sm:block">
             <LangSwitcher />
           </div>
+          <a
+            href={consoleHref("login")}
+            className="hidden h-10 items-center rounded-lg border border-line px-4 text-sm font-medium text-ink-soft transition-colors hover:border-line-strong hover:text-ink md:flex"
+          >
+            {consoleLabel.login}
+          </a>
           <Link
             href="/contact"
             className="hidden h-10 items-center rounded-lg bg-accent px-4 text-sm font-semibold text-bg transition-all duration-300 hover:bg-accent-strong hover:cta-glow hover:-translate-y-0.5 sm:flex"
@@ -129,6 +137,20 @@ export function Header() {
                 </li>
               );
             })}
+            <li className="mt-2 grid grid-cols-2 gap-2.5">
+              <a
+                href={consoleHref("login")}
+                className="flex h-11 items-center justify-center rounded-lg border border-line px-4 text-sm font-medium text-ink-soft hover:border-line-strong hover:text-ink"
+              >
+                {consoleLabel.login}
+              </a>
+              <a
+                href={consoleHref("register")}
+                className="flex h-11 items-center justify-center rounded-lg border border-line px-4 text-sm font-medium text-ink-soft hover:border-line-strong hover:text-ink"
+              >
+                {consoleLabel.register}
+              </a>
+            </li>
             <li className="mt-2 flex items-center gap-2.5">
               <LangSwitcher />
               <Link
