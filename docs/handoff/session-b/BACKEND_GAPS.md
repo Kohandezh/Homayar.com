@@ -14,8 +14,9 @@ CI, Compose, nginx or the source lock.
   false or Asanak is unconfigured. Both default to disabled.
 - **Interim console behaviour (Session B):** entry points are hidden unless the console is built
   with `VITE_ENABLE_GOOGLE_AUTH=true` / `VITE_ENABLE_PHONE_AUTH=true`, mirroring the backend
-  `ENABLE_GOOGLE_AUTH` / `ENABLE_PHONE_AUTH` settings. Direct visits to `/app/phone` still work and
-  an unexpected server error is shown as "phone sign-in is not available".
+  `ENABLE_GOOGLE_AUTH` / `ENABLE_PHONE_AUTH` settings. Without the phone flag a direct visit to
+  `/app/phone` shows "phone sign-in is not available"; with it, a 5xx from `/auth/otp/request` is
+  shown the same way (never as a wrong number).
 - **Minimum behaviour:** a public, cacheable read of enabled methods that is true only when the
   method is both enabled and configured.
 - **Proposed:** `GET /api/v1/auth/methods` → `200 {"password": true, "google": false, "phone_otp": false}`.
