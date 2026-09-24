@@ -531,7 +531,7 @@
 - Package / subtask: WP07-T05 validated in local scope; WP07 in progress (T06, T07 not started).
 - Baseline repo/ref/dirty state: product `4b3038c3` clean; website `f5864a8` clean.
 - Scope and files: see the WP07 README T05 section; ADR 0023.
-- Change and reason: F16 needs a redacted downstream copy with a restricted original. A deterministic, validated detector (six structured classes, Persian/Arabic-Indic digits and separators normalised) produces immutable redacted versions per (revision, detector version + class policy); originals exist only as AES-256-GCM ciphertext bound to tenant/redaction/placeholder under keys from the secret manager, and reveal is audited without the value. Unsupported classes and residual risk are disclosed.
+- Change and reason: F16 needs a redacted downstream copy with a restricted original. A deterministic, validated detector (six structured classes, Persian/Arabic-Indic digits and separators normalised) produces immutable redacted versions per (revision, detector version + class policy); the replaced values are copied only as AES-256-GCM ciphertext bound to tenant/redaction/placeholder under keys from the secret manager (the original transcript rows remain the access-controlled original — wording corrected in session 13 part D), and reveal is audited without the value. Unsupported classes and residual risk are disclosed.
 - Commands/results newly executed: see the README T05 section (SQLite 50 passed / 1 skipped; PostgreSQL 84 passed / 1 skipped after one assertion fix; full SQLite 482 passed / 82 skipped; migrations clean).
 - Acceptance satisfied (T05): detection, configurable classes, restricted mappings. Engineering accuracy gate met on a synthetic annotated set only.
 - Acceptance pending: F16 measurement on a separately annotated representative set (needs data); routing of analysis/retrieval/export/providers, reveal route and provenance (T06); T07.
@@ -539,6 +539,21 @@
 - External blockers: unchanged; plus the annotated evaluation set for F16.
 - Local commits: product `28792cc0ea3d81cfc77ca8e1289ffb14e97758a3`; website commit below. Nothing pushed.
 - Next exact action: WP07-T06 — create redacted versions in the pipeline for enabled workspaces, route analysis/retrieval/export/provider input to the permitted version, add the audited reveal route and record policy provenance.
+
+### Session 13, part D — WP07-T06 routing to the redacted or original version (validated locally)
+
+- Date / environment: 2026-09-24; same worktrees and disposable cluster `pg16d`; strictly sequential.
+- Package / subtask: WP07-T06 validated in local scope; WP07 in progress (T07 not started).
+- Baseline repo/ref/dirty state: product `28792cc0` clean; website `87a3299` clean.
+- Scope and files: see the WP07 README T06 section; ADR 0024; authorization matrix §6k.
+- Change and reason: T05 produced redacted versions that nothing used. Every content read, export, share and the intelligence provider input now go through one view decision: redacted by default under an enforced policy, the original only for the owner (`pii:original_access`, new, never an API-key scope) on an explicit, audited request. Placeholders are consistent across transcript/summary/actions, evidence offsets never cut a value, placeholders written back are restored to originals, search is not an oracle, and runs/exports record what they were built from.
+- Commands/results newly executed: see the README T06 section (SQLite privacy routing 9 passed / 1 skipped; PostgreSQL batch 110 passed and privacy routing 10 passed incl. a concurrency test; full SQLite 491 passed / 83 skipped; migrations clean).
+- Acceptance satisfied (T06): permitted analysis/retrieval/export routed to the correct version; policy provenance recorded on runs, exports and audits. F16's "protected originals never enter a redacted-only provider/export path" is tested for the intelligence provider, exports and shares.
+- Acceptance pending: F16 accuracy measurement on an annotated representative set; console UI (WP14); T07.
+- Review: self-review; one wording error corrected (ADR 0023 / T05 records implied the originals exist only as ciphertext; the original transcript rows remain the access-controlled original).
+- External blockers: unchanged; plus the annotated evaluation set for F16.
+- Local commits: product `9ac4892416381829a2d90a179807c0f76c0cf880`; website commit below. Nothing pushed.
+- Next exact action: WP07-T07 — retention tests with a controllable clock, held records, failed storage deletion, mixed-language identifiers and subject-scope export (define the subject-scope export first).
 
 ## Template for next session
 

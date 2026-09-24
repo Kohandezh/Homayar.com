@@ -1,6 +1,6 @@
 # ADR 0023 — Deterministic text PII redaction and restricted mappings
 
-Date: 2026-09-24 · Status: accepted · Package: WP07-T05
+Date: 2026-09-24 · Status: accepted, amended by ADR 0024 · Package: WP07-T05
 
 ## Context
 
@@ -29,16 +29,20 @@ one whose limits are stated.
 2. **Policy per workspace.** `pii_redaction_enabled` (default off, existing
    workspaces backfilled off) and `pii_redaction_classes` (only supported classes,
    at least one) change through `PATCH /admin/workspace-settings` with
-   `workspace:manage` and are audited by field name.
+   `workspace:manage` (ADR 0024 adds `pii:original_access`) and are audited by
+   field name.
 3. **Redacted versions are immutable derivatives.** A version is identified by
    `(revision, policy_digest)`, where the digest covers the detector version and the
    sorted class list; a detector or policy change produces a new version and never
    rewrites one (ORM immutability guard, unique constraint, idempotent creation that
    tolerates a concurrent creator). Placeholders (`[PHONE_1]`) are stable per value
    within a version.
-4. **Originals only as ciphertext, keys outside the database.** Each replaced value
-   is stored in `pii_mappings` as AES-256-GCM ciphertext with a random nonce; the
-   associated data binds it to tenant, redaction and placeholder. Keys come from
+4. **Mapping copies only as ciphertext, keys outside the database.** The redacted
+   version and the mappings hold no replaced value in plain text; the original
+   transcript segments stay in the database as the access-controlled original
+   (not encrypted by the application; correction recorded in ADR 0024). Each
+   replaced value is copied into `pii_mappings` as AES-256-GCM ciphertext with a
+   random nonce; the associated data binds it to tenant, redaction and placeholder. Keys come from
    `PII_MAPPING_KEYS` (`key_id:base64`, secret manager) with
    `PII_MAPPING_ACTIVE_KEY_ID` for new rows; older key ids still decrypt, so keys
    rotate without a bulk re-encryption. Without a key the redacted version is still
