@@ -1,7 +1,7 @@
 {
   "id": "WP07",
   "title": "Retention, deletion and text privacy",
-  "status": "in_progress",
+  "status": "partial",
   "depends_on": [
     "WP03",
     "WP04",
@@ -58,9 +58,11 @@
     {
       "id": "WP07-T07",
       "description": "Test retention with a controllable clock, held records, failed storage deletion, mixed-language identifiers and subject-scope export.",
-      "status": "not_started"
+      "status": "validated",
+      "progress_note": "Retention cycle under a controllable clock with held records, failed storage deletion, mixed-language identifiers and subject-scope export (ADR 0025): POST /privacy/subject-exports (pii:original_access owner-only, never an API key, CSRF, reason) canonicalises e-mail/phone/national ID/bank card/IBAN identifiers with the redaction detector so every Persian/Arabic-Indic/ASCII spelling is one subject, matches detected spans (never substrings) across live conversations (tombstoned ones out, held or not), every transcript revision, summary and action items (max 500 conversations, truncated reported), states what is not included and is audited subject.exported with classes and counts only. tests/test_retention_lifecycle.py runs one workspace through a full FINITE-30-day cycle: mixed-language matches, a correction (older revision still exported), a legal hold, the clock one second before and after expiry, a failing then recovering object store (purges PENDING with bytes kept, then COMPLETED), release and final expiry, with a subject export at each step matching normal access. Verified locally: ruff clean; SQLite 12 passed; PostgreSQL 16.15 batch 46 passed plus the lifecycle file 12 passed after a test-side timezone fix; full SQLite suite 503 passed / 83 skipped. Not done: subject-scope deletion (per-conversation only), console UI, WP20 alerting/restore drill. Product commit d1cc5d464c6ef51620dd445bd86726ef9280e473.",
+      "updated": "2026-09-24"
     }
   ],
-  "dependency_note": "WP07 is IN_PROGRESS: T01–T06 validated in local scope (ADR 0020–ADR 0024; holds on the ADR 0017 lifecycle). Dependency note (2026-09-16): WP08-T01 (versioned manifests) and WP08-T02 (per-run policy snapshots) do not need WP07 behaviour and may proceed after the WP07 retention/deletion foundations (T01–T04) and text privacy (T05–T06) are in place per owner instruction; WP08-T03 (privacy/eligibility filtering) requires WP07-T05/T06, which are validated in local scope since 2026-09-24 (ADR 0023/0024: choose_view, MeetingView, analysis_runs.input_view). Business defaults (which mode, how many days) remain an owner decision; engineering fixtures use explicit policies.",
+  "dependency_note": "WP07 is PARTIAL: T01–T07 validated in local scope (ADR 0020–ADR 0025; holds on the ADR 0017 lifecycle). Dependency note (2026-09-16): WP08-T01 (versioned manifests) and WP08-T02 (per-run policy snapshots) do not need WP07 behaviour and may proceed after the WP07 retention/deletion foundations (T01–T04) and text privacy (T05–T06) are in place per owner instruction; WP08-T03 (privacy/eligibility filtering) requires WP07-T05/T06, which are validated in local scope since 2026-09-24 (ADR 0023/0024: choose_view, MeetingView, analysis_runs.input_view). Business defaults (which mode, how many days) remain an owner decision; engineering fixtures use explicit policies. F16 accuracy on a separately annotated representative set is BLOCKED_EXTERNAL (no such set); Compose restore rehearsal and purge/journal alerting belong to WP20.",
   "readme": "docs/planning/work-packages/WP07/README.md"
 }

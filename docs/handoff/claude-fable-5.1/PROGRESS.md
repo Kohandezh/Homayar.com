@@ -555,6 +555,21 @@
 - Local commits: product `9ac4892416381829a2d90a179807c0f76c0cf880`; website commit below. Nothing pushed.
 - Next exact action: WP07-T07 — retention tests with a controllable clock, held records, failed storage deletion, mixed-language identifiers and subject-scope export (define the subject-scope export first).
 
+### Session 13, part E — WP07-T07 retention cycle and subject-scope export (validated locally); WP07 PARTIAL
+
+- Date / environment: 2026-09-24; same worktrees and disposable cluster `pg16d`; strictly sequential.
+- Package / subtask: WP07-T07 validated in local scope. WP07 is PARTIAL: T01–T07 validated locally; the F16 accuracy measurement on a separately annotated representative set is BLOCKED_EXTERNAL (no such set exists); Compose restore rehearsal and purge/journal alerting belong to WP20.
+- Baseline repo/ref/dirty state: product `9ac48924` clean; website `d54203c` clean.
+- Scope and files: see the WP07 README T07 section; ADR 0025; authorization matrix §6l.
+- Change and reason: F15's subject export did not exist. `POST /privacy/subject-exports` (owner, reason, audited without values) finds a data subject by structured identifiers in any spelling across live conversations, all revisions, summaries and actions; deletion stays per conversation. A lifecycle test runs one workspace through a full retention cycle on a controllable clock with a hold, a correction, failing then recovering storage and a release, taking a subject export at each step.
+- Commands/results newly executed: see the README T07 section (SQLite 12 passed; PostgreSQL 46 + 12 passed after a test-side timezone fix; full SQLite 503 passed / 83 skipped).
+- Acceptance satisfied (T07): controllable clock, held records, failed storage deletion, mixed-language identifiers, subject-scope export — all exercised together.
+- Acceptance pending: F16 accuracy on annotated data (external); WP20 alerting and restore drill; console UI (WP14).
+- Review: self-review.
+- External blockers: unchanged; plus the annotated evaluation set for F16.
+- Local commits: product `d1cc5d464c6ef51620dd445bd86726ef9280e473`; website commit below. Nothing pushed.
+- Next exact action: refresh the Graphify code map once (WP07 complete in local scope), then WP08-T01 — versioned model/prompt/capability manifests (review the existing provider factory, `ProviderIdentity` and the Padyar AI Gateway notes first).
+
 ## Template for next session
 
 - Date / environment:
