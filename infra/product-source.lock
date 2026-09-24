@@ -1,0 +1,52 @@
+# Homayar product source contract (WP01-T02).
+#
+# The website/infrastructure repository (Kohandezh/Homayar.com) does not own the
+# product source. Builds and CI consume the product repository at the exact
+# commit pinned here. The local directory Homayar/ is an independent Git clone
+# and is ignored by the outer repository; it must never be staged as a gitlink.
+#
+# Grammar: one "key=value" per line; blank lines and lines starting with "#"
+# are ignored. "required_path" and "forbidden_path" may repeat. Paths are
+# relative to the product checkout root.
+#
+# Verified by infra/ci/check-source-contract.sh (local and ci modes).
+# Update "ref" and "sha" together through a reviewed change; a commit that does
+# not contain every required_path cannot satisfy the contract.
+
+repository=https://github.com/Kohandezh/HomaYar.git
+ref=feat/commercial-v1-overlay
+sha=d1cc5d464c6ef51620dd445bd86726ef9280e473
+
+# Paths that infra/docker/*.Dockerfile, infra/ci/check-migrations.sh and the
+# console/backend CI jobs read from the product checkout.
+required_path=pyproject.toml
+required_path=uv.lock
+required_path=alembic.ini
+required_path=backend/main.py
+required_path=backend/migrations/env.py
+required_path=backend/migrations/versions
+required_path=frontend/package.json
+required_path=frontend/package-lock.json
+required_path=frontend/index.html
+required_path=frontend/vite.config.ts
+required_path=frontend/src
+
+# Runtime data, environments, caches and reference material that must never be
+# tracked at the pinned commit.
+forbidden_path=.env
+forbidden_path=backend/.env
+forbidden_path=homayar-dev.db
+forbidden_path=uploads
+forbidden_path=.venv
+forbidden_path=sample
+forbidden_path=graphify-out
+forbidden_path=frontend/node_modules
+forbidden_path=frontend/dist
+forbidden_path=frontend/.env
+forbidden_path=.mypy_cache
+forbidden_path=.pytest_cache
+forbidden_path=.ruff_cache
+forbidden_path=backend/.pytest_cache
+forbidden_path=backend/.venv
+forbidden_path=data
+forbidden_path=.claude/settings.local.json

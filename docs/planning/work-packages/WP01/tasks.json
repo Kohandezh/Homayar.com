@@ -1,0 +1,52 @@
+{
+  "id": "WP01",
+  "title": "Reproducible source and release baseline",
+  "status": "in_progress",
+  "depends_on": [],
+  "feature_ids": [
+    "F01",
+    "F02"
+  ],
+  "subtasks": [
+    {
+      "id": "WP01-T01",
+      "description": "Inventory tracked/dirty/untracked changes and preserve authorized source provenance without importing secrets or runtime data.",
+      "status": "validated",
+      "progress_note": "Inventory generated from git state and cross-checked with CONTEXT_SNAPSHOT.json; see docs/handoff/claude-fable-5.1/inventory/2026-09-07-source-state.md. Capture commit awaits owner approval.",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP01-T02",
+      "description": "Agree product/website ownership and replace build dependence on an untracked nested checkout with pinned release artifacts.",
+      "status": "validated",
+      "progress_note": "Local scope validated: lock + checker (ref-ancestry check added after adversarial self-review), 26 synthetic tests pass, composite action fetches the declared ref before verifying, ci.yml gating wired. Remote CI execution not yet observed: needs the product ref pushed and, if private, PRODUCT_SOURCE_TOKEN (blocked_external).",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP01-T03",
+      "description": "Reconcile the v1 overlay into reviewable changes; keep legacy routes disabled and document compatibility boundaries.",
+      "status": "validated",
+      "updated": "2026-09-07",
+      "progress_note": "Overlay imported into an isolated clone at Homayar/ (worktree), reviewed, committed on feat/commercial-v1-overlay as ff93f89a89850912cc83ef550bec6fa5e74b545d; pyproject.toml+uv.lock authoritative, backend/requirements.txt regenerated via uv export; .claude/settings.local.json untracked; uv run --frozen pytest backend/tests -> 97 passed; check-source-contract.sh --mode ci -> exit 0. Branch not pushed (separate authorization)."
+    },
+    {
+      "id": "WP01-T04",
+      "description": "Lock dependencies and generate reproducible API, worker and console builds from a clean checkout.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP01-T05",
+      "description": "Add PostgreSQL migration, queue integration, frontend build and critical browser-flow jobs to existing CI.",
+      "status": "validated",
+      "progress_note": "Backend suite runs on PostgreSQL via TEST_DATABASE_URL (HOMAYAR_REQUIRE_POSTGRES_TESTS=1 in CI forbids the SQLite fallback); \"postgres\" marker with migration-chain and FOR UPDATE SKIP LOCKED tests; over-length FK name in migration e93c65725e9b fixed; infra/ci/check-migrations.sh invalid \"current --check-heads\" call replaced. Verified locally on PostgreSQL 16.15: 100 passed; check-migrations.sh exit 0. Product commit 934bae52. Remote CI run still pending (blocked_external).",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP01-T06",
+      "description": "Publish a release manifest with source SHA, image digests, schema/model versions and linked validation results.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP01/README.md"
+}

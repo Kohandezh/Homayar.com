@@ -1,0 +1,2178 @@
+{
+  "generated_at_utc": "2026-09-07T18:21:35+00:00",
+  "generated_by": "WP01-T01 inventory (git commands; no content of secrets read)",
+  "website": {
+    "name": "website",
+    "path": "/Users/emperor/Documents/AI/Homayar.com",
+    "branch": "main",
+    "head": "8f4ba6ad0c31fe9c2656b4aa45ce826dad21df28",
+    "origin": "https://github.com/Kohandezh/Homayar.com.git",
+    "refs": [
+      "8f4ba6ad0c31fe9c2656b4aa45ce826dad21df28 refs/heads/claude/homayar-commercial-v1-a266f5",
+      "8f4ba6ad0c31fe9c2656b4aa45ce826dad21df28 refs/heads/main",
+      "8f4ba6ad0c31fe9c2656b4aa45ce826dad21df28 refs/remotes/origin/main"
+    ],
+    "codex_checkpoint_refs": 2,
+    "tracked_files": 165,
+    "modified": {
+      "count": 27,
+      "shortstat": " 58 files changed, 672 insertions(+), 5829 deletions(-)",
+      "paths": [
+        ".gitignore",
+        "AGENTS.md",
+        "content/i18n/products.fa.json",
+        "eslint.config.mjs",
+        "next.config.ts",
+        "package.json",
+        "playwright.config.ts",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "src/app/api/checkout/route.ts",
+        "src/app/globals.css",
+        "src/app/layout.tsx",
+        "src/app/page.tsx",
+        "src/app/robots.ts",
+        "src/app/sitemap.ts",
+        "src/components/cart-view.tsx",
+        "src/components/catalog/explorer.tsx",
+        "src/components/header.tsx",
+        "src/components/product-card.tsx",
+        "src/components/site-chrome.tsx",
+        "src/components/site/landing.tsx",
+        "src/components/site/scroll-video-hero.tsx",
+        "src/data/products.json",
+        "src/lib/cart.tsx",
+        "src/lib/content.ts",
+        "src/lib/locale.tsx",
+        "tsconfig.json"
+      ]
+    },
+    "deleted": {
+      "count": 31,
+      "paths": [
+        "src/app/about/content.tsx",
+        "src/app/about/page.tsx",
+        "src/app/ai-agents/content.tsx",
+        "src/app/ai-agents/page.tsx",
+        "src/app/blog/[slug]/page.tsx",
+        "src/app/blog/page.tsx",
+        "src/app/book/page.tsx",
+        "src/app/cart/page.tsx",
+        "src/app/case-studies/[slug]/page.tsx",
+        "src/app/case-studies/page.tsx",
+        "src/app/catalog/[slug]/detail.tsx",
+        "src/app/catalog/[slug]/page.tsx",
+        "src/app/catalog/page.tsx",
+        "src/app/checkout/page.tsx",
+        "src/app/contact/content.tsx",
+        "src/app/contact/page.tsx",
+        "src/app/demo/page.tsx",
+        "src/app/faq/content.tsx",
+        "src/app/faq/page.tsx",
+        "src/app/platform/content.tsx",
+        "src/app/platform/page.tsx",
+        "src/app/pricing/content.tsx",
+        "src/app/pricing/page.tsx",
+        "src/app/privacy/content.tsx",
+        "src/app/privacy/page.tsx",
+        "src/app/solutions/content.tsx",
+        "src/app/solutions/page.tsx",
+        "src/app/success/content.tsx",
+        "src/app/success/page.tsx",
+        "src/app/terms/content.tsx",
+        "src/app/terms/page.tsx"
+      ]
+    },
+    "untracked": {
+      "count": 177,
+      "entries": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "bytes": 13505,
+          "is_nested_repo": false
+        },
+        {
+          "path": "Homayar/",
+          "bytes": null,
+          "is_nested_repo": true
+        },
+        {
+          "path": "OPENCODE.md",
+          "bytes": 13099,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/README.md",
+          "bytes": 1062,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/architecture/decisions/0001-preserve-runtime-roots.md",
+          "bytes": 3353,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/architecture/initial-assessment.md",
+          "bytes": 9410,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/architecture/workspace-structure.md",
+          "bytes": 7987,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/ARTIFACTS_MANIFEST.json",
+          "bytes": 12726,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/CLAUDE_HANDOFF_SINGLE_FILE.md",
+          "bytes": 258107,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/CONTEXT_SNAPSHOT.json",
+          "bytes": 46007,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/CONTINUE_PROMPT.md",
+          "bytes": 1192,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/EXECUTION_PROTOCOL.md",
+          "bytes": 4023,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/GRAPHIFY_GUIDE.md",
+          "bytes": 5584,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/MASTER_PROMPT.md",
+          "bytes": 13730,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/PREPARATION_REPORT.md",
+          "bytes": 5602,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/PROGRESS.md",
+          "bytes": 1448,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/README.md",
+          "bytes": 627,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/REMAINING_WORK.md",
+          "bytes": 39347,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/SKILLS_INVENTORY.json",
+          "bytes": 3505,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/SKILLS_SETUP.md",
+          "bytes": 4310,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/START_HERE_FA.md",
+          "bytes": 4619,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/VALIDATION.json",
+          "bytes": 1028,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/BUILD_SUMMARY.json",
+          "bytes": 1540,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/VISUAL_CHECK.json",
+          "bytes": 387,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/FULL_GRAPH_INTEGRITY.json",
+          "bytes": 487,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/GRAPH_REPORT.md",
+          "bytes": 24716,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/UNRESOLVED_REFERENCES.json",
+          "bytes": 2860,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/analysis.json",
+          "bytes": 157296,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/cache/last_query_stamp",
+          "bytes": 18,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/diagnostics.json",
+          "bytes": 4814,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/extraction.json",
+          "bytes": 3758739,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/graph.full.graphml",
+          "bytes": 4630741,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/graph.full.json",
+          "bytes": 4522242,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/graph.graphml",
+          "bytes": 3497614,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/graph.html",
+          "bytes": 3061168,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/code/graph.json",
+          "bytes": 3993863,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/planning/GRAPH_REPORT.md",
+          "bytes": 7969,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/planning/analysis.json",
+          "bytes": 6737,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/planning/cache/last_query_stamp",
+          "bytes": 18,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/planning/diagnostics.json",
+          "bytes": 2588,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/planning/extraction.json",
+          "bytes": 90667,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/planning/graph.graphml",
+          "bytes": 99058,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/planning/graph.html",
+          "bytes": 98656,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/planning/graph.json",
+          "bytes": 111721,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/source-manifest.json",
+          "bytes": 45417,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/vendor/LICENSE-MIT",
+          "bytes": 1084,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/vendor/SOURCE.md",
+          "bytes": 472,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/graphify/vendor/vis-network-9.1.6.min.js",
+          "bytes": 702611,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/handoff/claude-fable-5.1/tools/refresh_graph.py",
+          "bytes": 4482,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/market/pricing-benchmark.md",
+          "bytes": 2220,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/operations/backup-restore.md",
+          "bytes": 5166,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/operations/ci.md",
+          "bytes": 2527,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/operations/deployment.md",
+          "bytes": 11072,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/operations/health-and-recovery.md",
+          "bytes": 5157,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/README.md",
+          "bytes": 464,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/backlog.json",
+          "bytes": 116409,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/homayar-commercial-blueprint.md",
+          "bytes": 229916,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/README.md",
+          "bytes": 2918,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP01/README.md",
+          "bytes": 2393,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP01/tasks.json",
+          "bytes": 1516,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP02/README.md",
+          "bytes": 2584,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP02/tasks.json",
+          "bytes": 1721,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP03/README.md",
+          "bytes": 2747,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP03/tasks.json",
+          "bytes": 1757,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP04/README.md",
+          "bytes": 2335,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP04/tasks.json",
+          "bytes": 1535,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP05/README.md",
+          "bytes": 2564,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP05/tasks.json",
+          "bytes": 1549,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP06/README.md",
+          "bytes": 2101,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP06/tasks.json",
+          "bytes": 1657,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP07/README.md",
+          "bytes": 2539,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP07/tasks.json",
+          "bytes": 1777,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP08/README.md",
+          "bytes": 2607,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP08/tasks.json",
+          "bytes": 1519,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP09/README.md",
+          "bytes": 3064,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP09/tasks.json",
+          "bytes": 1710,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP10/README.md",
+          "bytes": 2647,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP10/tasks.json",
+          "bytes": 1721,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP11/README.md",
+          "bytes": 3242,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP11/tasks.json",
+          "bytes": 1825,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP12/README.md",
+          "bytes": 2411,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP12/tasks.json",
+          "bytes": 1781,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP13/README.md",
+          "bytes": 2667,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP13/tasks.json",
+          "bytes": 1896,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP14/README.md",
+          "bytes": 2982,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP14/tasks.json",
+          "bytes": 1707,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP15/README.md",
+          "bytes": 2245,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP15/tasks.json",
+          "bytes": 1459,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP16/README.md",
+          "bytes": 3054,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP16/tasks.json",
+          "bytes": 1750,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP17/README.md",
+          "bytes": 2361,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP17/tasks.json",
+          "bytes": 1694,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP18/README.md",
+          "bytes": 2442,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP18/tasks.json",
+          "bytes": 1733,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP19/README.md",
+          "bytes": 2452,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP19/tasks.json",
+          "bytes": 1750,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP20/README.md",
+          "bytes": 3010,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP20/tasks.json",
+          "bytes": 1924,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP21/README.md",
+          "bytes": 2960,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP21/tasks.json",
+          "bytes": 1899,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP22/README.md",
+          "bytes": 3003,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP22/tasks.json",
+          "bytes": 1937,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP23/README.md",
+          "bytes": 2381,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP23/tasks.json",
+          "bytes": 1591,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP24/README.md",
+          "bytes": 3197,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/planning/work-packages/WP24/tasks.json",
+          "bytes": 1828,
+          "is_nested_repo": false
+        },
+        {
+          "path": "docs/security/REMAINING-P0.md",
+          "bytes": 4341,
+          "is_nested_repo": false
+        },
+        {
+          "path": "homayar-claude-fable-5.1-handoff.zip",
+          "bytes": 1619140,
+          "is_nested_repo": false
+        },
+        {
+          "path": "homayar-claude-fable-5.1-handoff.zip.sha256",
+          "bytes": 103,
+          "is_nested_repo": false
+        },
+        {
+          "path": "homayar-claude-single-file.md",
+          "bytes": 258107,
+          "is_nested_repo": false
+        },
+        {
+          "path": "homayar-commercial-blueprint.md",
+          "bytes": 229619,
+          "is_nested_repo": false
+        },
+        {
+          "path": "homayar-cpanel.zip",
+          "bytes": 25820255,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/backups/.gitignore",
+          "bytes": 14,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/ci/check-migrations.sh",
+          "bytes": 990,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/compose/compose.cloud.yaml",
+          "bytes": 6563,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/compose/compose.neo4j.yaml",
+          "bytes": 1631,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/compose/compose.onprem.yaml",
+          "bytes": 12960,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/docker/api.Dockerfile",
+          "bytes": 1671,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/docker/api.Dockerfile.dockerignore",
+          "bytes": 371,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/docker/console-web.Dockerfile",
+          "bytes": 678,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/docker/console-web.Dockerfile.dockerignore",
+          "bytes": 395,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/docker/public-web.Dockerfile",
+          "bytes": 1469,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/docker/public-web.Dockerfile.dockerignore",
+          "bytes": 194,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/nginx/conf.d/homayar.conf",
+          "bytes": 2102,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/nginx/console.conf",
+          "bytes": 1248,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/nginx/includes/proxy-common.conf",
+          "bytes": 638,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/nginx/includes/security-headers.conf",
+          "bytes": 498,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/nginx/includes/upload-proxy.conf",
+          "bytes": 297,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/nginx/nginx.conf",
+          "bytes": 2141,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/scripts/backup-minio.sh",
+          "bytes": 1633,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/scripts/backup-postgres.sh",
+          "bytes": 1662,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/scripts/lib/compose.sh",
+          "bytes": 3223,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/scripts/restore-minio.sh",
+          "bytes": 2920,
+          "is_nested_repo": false
+        },
+        {
+          "path": "infra/scripts/restore-postgres.sh",
+          "bytes": 2908,
+          "is_nested_repo": false
+        },
+        {
+          "path": "public/.htaccess",
+          "bytes": 783,
+          "is_nested_repo": false
+        },
+        {
+          "path": "public/hero-poster-mobile.webp",
+          "bytes": 7004,
+          "is_nested_repo": false
+        },
+        {
+          "path": "scripts/build-cpanel.mjs",
+          "bytes": 2651,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/about/content.tsx",
+          "bytes": 17684,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/about/page.tsx",
+          "bytes": 590,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/ai-agents/content.tsx",
+          "bytes": 24135,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/ai-agents/page.tsx",
+          "bytes": 622,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/blog/[slug]/page.tsx",
+          "bytes": 6628,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/blog/page.tsx",
+          "bytes": 611,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/book/page.tsx",
+          "bytes": 686,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/cart/page.tsx",
+          "bytes": 108,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/case-studies/[slug]/page.tsx",
+          "bytes": 7582,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/case-studies/page.tsx",
+          "bytes": 651,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/catalog/[slug]/detail.tsx",
+          "bytes": 10521,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/catalog/[slug]/page.tsx",
+          "bytes": 2700,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/catalog/page.tsx",
+          "bytes": 2701,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/checkout/page.tsx",
+          "bytes": 112,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/contact/content.tsx",
+          "bytes": 6842,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/contact/page.tsx",
+          "bytes": 809,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/demo/page.tsx",
+          "bytes": 1732,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/faq/content.tsx",
+          "bytes": 27492,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/faq/page.tsx",
+          "bytes": 496,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/layout.tsx",
+          "bytes": 400,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/platform/content.tsx",
+          "bytes": 18927,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/platform/page.tsx",
+          "bytes": 719,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/pricing/content.tsx",
+          "bytes": 9436,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/pricing/page.tsx",
+          "bytes": 629,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/privacy/content.tsx",
+          "bytes": 23124,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/privacy/page.tsx",
+          "bytes": 608,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/solutions/content.tsx",
+          "bytes": 27656,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/solutions/page.tsx",
+          "bytes": 644,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/success/content.tsx",
+          "bytes": 5090,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/success/page.tsx",
+          "bytes": 992,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/terms/content.tsx",
+          "bytes": 25892,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/(site)/terms/page.tsx",
+          "bytes": 526,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/app/language/[locale]/page.tsx",
+          "bytes": 644,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/components/blog-index.tsx",
+          "bytes": 5143,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/components/case-study-index.tsx",
+          "bytes": 4787,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/components/locale-persistence.tsx",
+          "bytes": 472,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/components/site/exhibition-hero.tsx",
+          "bytes": 2110,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/components/static-contact.tsx",
+          "bytes": 1085,
+          "is_nested_repo": false
+        },
+        {
+          "path": "src/lib/public-pricing.ts",
+          "bytes": 1522,
+          "is_nested_repo": false
+        },
+        {
+          "path": "tests/site.spec.ts",
+          "bytes": 5106,
+          "is_nested_repo": false
+        }
+      ]
+    },
+    "runtime_or_sensitive_present": [
+      {
+        "path": ".next",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "out",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "node_modules",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": ".pnpm-store",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "playwright-report",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "test-results",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "graphify-out",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "tsconfig.tsbuildinfo",
+        "ignored": true,
+        "kind": "file"
+      },
+      {
+        "path": "next-env.d.ts",
+        "ignored": true,
+        "kind": "file"
+      },
+      {
+        "path": ".codex",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": ".gstack",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": ".claude",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "homayar-cpanel.zip",
+        "ignored": false,
+        "kind": "file"
+      },
+      {
+        "path": "homayar-claude-fable-5.1-handoff.zip",
+        "ignored": false,
+        "kind": "file"
+      }
+    ],
+    "nested_source_consumers": {
+      ".github/workflows/ci.yml": [
+        "console-web job: Homayar/frontend (npm ci, lint, build, test)",
+        "backend job: Homayar/pyproject.toml, uv.lock, alembic.ini, backend/tests",
+        "container-config job: docker builds with context . and infra/docker/*.Dockerfile"
+      ],
+      "infra/docker/api.Dockerfile": [
+        "COPY Homayar/pyproject.toml Homayar/uv.lock",
+        "COPY Homayar/alembic.ini",
+        "COPY Homayar/backend"
+      ],
+      "infra/docker/console-web.Dockerfile": [
+        "COPY Homayar/frontend/package.json Homayar/frontend/package-lock.json",
+        "COPY Homayar/frontend/"
+      ],
+      "infra/compose/compose.onprem.yaml": [
+        "build context ../.. for api/public-web/console-web images"
+      ],
+      "infra/ci/check-migrations.sh": [
+        "alembic.ini under Homayar/ or Homayar/backend/"
+      ]
+    },
+    "handoff_snapshot_comparison": {
+      "ci_yml_sha256_matches_snapshot": true,
+      "graphify_source_manifest_files_unchanged": 285,
+      "note": "Both status lists match CONTEXT_SNAPSHOT.json status_before_handoff (website: 27 modified, 31 deleted, 177 untracked files incl. tests/ and the nested Homayar/ directory; product: 34 modified, 171 untracked files). Product HEAD 605cb074 unchanged; website HEAD 8f4ba6a unchanged. The legacy master commit 3766bc90 cited by the blueprint is not present in the local product clone (no local or remote-tracking master ref); it was inspected through a separate mirror during the audit."
+    }
+  },
+  "product": {
+    "name": "product",
+    "path": "/Users/emperor/Documents/AI/Homayar.com/Homayar",
+    "branch": "dev",
+    "head": "605cb074d1dbbb83e00ff259529bac06a229f3b7",
+    "origin": "https://github.com/Kohandezh/HomaYar.git",
+    "refs": [
+      "605cb074d1dbbb83e00ff259529bac06a229f3b7 refs/heads/dev",
+      "ecff6657f72bdb63acb5a78e871f918ffff876ec refs/heads/main",
+      "605cb074d1dbbb83e00ff259529bac06a229f3b7 refs/remotes/origin/dev",
+      "ecff6657f72bdb63acb5a78e871f918ffff876ec refs/remotes/origin/main"
+    ],
+    "codex_checkpoint_refs": 0,
+    "tracked_files": 109,
+    "modified": {
+      "count": 34,
+      "shortstat": " 34 files changed, 4013 insertions(+), 1076 deletions(-)",
+      "paths": [
+        ".claude/settings.local.json",
+        ".env.example",
+        "backend/celery_app/__init__.py",
+        "backend/config.py",
+        "backend/database/__init__.py",
+        "backend/main.py",
+        "backend/tests/conftest.py",
+        "backend/tests/test_api.py",
+        "frontend/index.html",
+        "frontend/package-lock.json",
+        "frontend/package.json",
+        "frontend/src/App.tsx",
+        "frontend/src/components/auth/LoginPage.tsx",
+        "frontend/src/components/calls/CallsPage.tsx",
+        "frontend/src/components/graph/GraphPage.tsx",
+        "frontend/src/components/incidents/IncidentsPage.tsx",
+        "frontend/src/components/layout/AppLayout.tsx",
+        "frontend/src/components/layout/Header.tsx",
+        "frontend/src/components/layout/Sidebar.tsx",
+        "frontend/src/components/reports/ReportPage.tsx",
+        "frontend/src/components/ui/badge.tsx",
+        "frontend/src/components/ui/button.tsx",
+        "frontend/src/components/ui/tabs.tsx",
+        "frontend/src/components/users/UsersPage.tsx",
+        "frontend/src/index.css",
+        "frontend/src/lib/api.ts",
+        "frontend/src/lib/auth.ts",
+        "frontend/src/lib/hooks.ts",
+        "frontend/src/lib/i18n.tsx",
+        "frontend/src/main.tsx",
+        "frontend/src/types/index.ts",
+        "frontend/src/types/user.ts",
+        "frontend/tsconfig.node.json",
+        "frontend/vite.config.ts"
+      ]
+    },
+    "deleted": {
+      "count": 0,
+      "paths": []
+    },
+    "untracked": {
+      "count": 171,
+      "entries": [
+        {
+          "path": ".python-version",
+          "bytes": 5,
+          "is_nested_repo": false
+        },
+        {
+          "path": "alembic.ini",
+          "bytes": 4864,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/database/relational.py",
+          "bytes": 3019,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/database/saas_models.py",
+          "bytes": 34606,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/jobs/__init__.py",
+          "bytes": 44,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/jobs/dispatcher.py",
+          "bytes": 538,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/jobs/processor.py",
+          "bytes": 27618,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/jobs/tasks.py",
+          "bytes": 520,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/media/__init__.py",
+          "bytes": 1558,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/media/validation.py",
+          "bytes": 25929,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/migrations/README",
+          "bytes": 38,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/migrations/env.py",
+          "bytes": 2457,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/migrations/script.py.mako",
+          "bytes": 704,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/migrations/versions/ada201e253df_initial_saas_domain.py",
+          "bytes": 46819,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/migrations/versions/b54cb5d2a981_add_action_priority.py",
+          "bytes": 1055,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/migrations/versions/e93c65725e9b_add_job_concurrency_reservation.py",
+          "bytes": 1590,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/__init__.py",
+          "bytes": 2379,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/asanak.py",
+          "bytes": 6765,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/base.py",
+          "bytes": 1720,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/diarization.py",
+          "bytes": 896,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/factory.py",
+          "bytes": 5138,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/mocks.py",
+          "bytes": 5038,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/openai_compatible.py",
+          "bytes": 8446,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/schemas.py",
+          "bytes": 10335,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/providers/whisper.py",
+          "bytes": 4414,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/routers/v1/__init__.py",
+          "bytes": 57,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/routers/v1/admin.py",
+          "bytes": 6530,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/routers/v1/auth.py",
+          "bytes": 18956,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/routers/v1/billing.py",
+          "bytes": 4956,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/routers/v1/insights.py",
+          "bytes": 22280,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/routers/v1/meetings.py",
+          "bytes": 20682,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/routers/v1/members.py",
+          "bytes": 10841,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/routers/v1/shares.py",
+          "bytes": 9954,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/schemas/__init__.py",
+          "bytes": 30,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/schemas/admin.py",
+          "bytes": 1497,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/schemas/auth.py",
+          "bytes": 2200,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/schemas/billing.py",
+          "bytes": 2112,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/schemas/insights.py",
+          "bytes": 4408,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/schemas/meetings.py",
+          "bytes": 1698,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/schemas/members.py",
+          "bytes": 1444,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/security/__init__.py",
+          "bytes": 244,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/security/context.py",
+          "bytes": 7854,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/security/idempotency.py",
+          "bytes": 802,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/security/normalization.py",
+          "bytes": 1341,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/security/tokens.py",
+          "bytes": 3973,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/admin_service.py",
+          "bytes": 8392,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/audit_service.py",
+          "bytes": 1801,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/auth_service.py",
+          "bytes": 12383,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/billing_service.py",
+          "bytes": 3770,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/entitlement_service.py",
+          "bytes": 8537,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/export_service.py",
+          "bytes": 3706,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/google_oauth_service.py",
+          "bytes": 8512,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/meeting_service.py",
+          "bytes": 3946,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/member_service.py",
+          "bytes": 11600,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/otp_service.py",
+          "bytes": 5755,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/rate_limit_service.py",
+          "bytes": 2516,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/tenancy_service.py",
+          "bytes": 4359,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/services/upload_service.py",
+          "bytes": 2507,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/storage/__init__.py",
+          "bytes": 1119,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/storage/base.py",
+          "bytes": 9123,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/storage/factory.py",
+          "bytes": 1066,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/storage/local.py",
+          "bytes": 9687,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/storage/s3.py",
+          "bytes": 11290,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/__init__.py",
+          "bytes": 34,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_admin_api.py",
+          "bytes": 10917,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_billing_api.py",
+          "bytes": 12232,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_entitlements.py",
+          "bytes": 5428,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_insights_shares_api.py",
+          "bytes": 8011,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_job_processor.py",
+          "bytes": 9024,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_media_validation.py",
+          "bytes": 9821,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_meetings_api.py",
+          "bytes": 5625,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_members_api.py",
+          "bytes": 16629,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_provider_factory.py",
+          "bytes": 8161,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_storage_providers.py",
+          "bytes": 15784,
+          "is_nested_repo": false
+        },
+        {
+          "path": "backend/tests/test_uploads_api.py",
+          "bytes": 7474,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/.env.example",
+          "bytes": 65,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/AuthLayout.tsx",
+          "bytes": 1623,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/AuthUi.tsx",
+          "bytes": 4006,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/ForgotPasswordPage.tsx",
+          "bytes": 2117,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/LoginPage.test.tsx",
+          "bytes": 2063,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/PhoneOtpRequestPage.tsx",
+          "bytes": 1912,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/PhoneOtpVerifyPage.tsx",
+          "bytes": 2882,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/RegisterPage.tsx",
+          "bytes": 3400,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/ResetPasswordPage.tsx",
+          "bytes": 3084,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/auth/VerifyEmailPage.tsx",
+          "bytes": 2090,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/InvitationAcceptPage.tsx",
+          "bytes": 7040,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/MeetingDetailPage.tsx",
+          "bytes": 19292,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/MeetingsPage.tsx",
+          "bytes": 6910,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/MembersPage.tsx",
+          "bytes": 20790,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/OverviewPage.tsx",
+          "bytes": 14599,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/SearchPage.tsx",
+          "bytes": 10082,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/SettingsPage.tsx",
+          "bytes": 18013,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/SharedMeetingPage.tsx",
+          "bytes": 14620,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/Ui.tsx",
+          "bytes": 1507,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/components/platform/UsagePage.tsx",
+          "bytes": 19280,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/lib/AuthProvider.tsx",
+          "bytes": 3613,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/lib/api.test.ts",
+          "bytes": 1760,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/lib/auth-context.ts",
+          "bytes": 777,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/lib/auth.test.ts",
+          "bytes": 2339,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/lib/format.ts",
+          "bytes": 624,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/lib/i18n-context.ts",
+          "bytes": 469,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/lib/platform-api.test.ts",
+          "bytes": 11189,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/lib/platform-api.ts",
+          "bytes": 23387,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/test/setup.ts",
+          "bytes": 729,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/types/auth.ts",
+          "bytes": 861,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/src/types/platform.ts",
+          "bytes": 9266,
+          "is_nested_repo": false
+        },
+        {
+          "path": "frontend/vitest.config.ts",
+          "bytes": 387,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/.graphify_labels.json",
+          "bytes": 1175,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/.graphify_labels.json.sig",
+          "bytes": 1134,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/.graphify_root",
+          "bytes": 1,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/GRAPH_REPORT.md",
+          "bytes": 12262,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/001f45b7410679c10e4a6c64a2ef01104aa79274a8d8288d128f6e7b99032112.json",
+          "bytes": 3149,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/05d370e3783a34ab0912a6d8d770975a5595328dff4254345862d261eb7cee87.json",
+          "bytes": 25079,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/068d01ab065f73a62e12270ed511788764916fb2a4c8a5b0e44a44f2f383f8b1.json",
+          "bytes": 210,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/06e13cd9d11541a400cd35413a4b6c4aeedcecb1284f1cd68bc3ffafc998ba9c.json",
+          "bytes": 7241,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/0e28ea584c1eb8f2bfc6770ea99a4a2321c42da99af6df5ebc3042ad773f3938.json",
+          "bytes": 1573,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/1203b13f2bffe9f13af71d9ce58d0a1fdc1387a70068c4bc67df48fea9d0211f.json",
+          "bytes": 12412,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/13d0477cdc1cdce787c1b0295cdc587c243345210b991f091d8bbea2183c54aa.json",
+          "bytes": 22506,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/14c0e7ed4e054fabc8438c5caf4ee56da0cac6a5e9f680d3c6c0282c82ce2d3c.json",
+          "bytes": 208,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/17232cd6d6655ba9203a788c577fff026323ebada994069f77937f22c05fb9a6.json",
+          "bytes": 9418,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/1863189f0ebfd0b70d80ad677f3ddf7116b7c590e26820449a3334f91778ddbb.json",
+          "bytes": 7880,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/1e259f9383accda2b0ce2093c6db2f24734d950bc70426afb7076bc6e0000cd7.json",
+          "bytes": 2756,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/1f24f97b29951ab00c930492e54b9ec36639ba0fb7cb8fcc69b0b3966483af6a.json",
+          "bytes": 35200,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/244af1bb59e86fa6ad0fa090cf20ca56ad06fc54e5f1dd80297725e1a1f0138f.json",
+          "bytes": 9153,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/24fa7c53e2c702a8d60e90155ab53b15e3e518871eaf5c1fff4956304c5c06fd.json",
+          "bytes": 35200,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/2cf4cedf4e63cf4ebca6da545cbc952ea67e5d5ad97e2f3e9a62bce694e40f9b.json",
+          "bytes": 15276,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/2e24c148359bd3cf44ad225a09ffa128f9e7ad20039f6a5e2c573b6e54cfa964.json",
+          "bytes": 2297,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/380415a548f00756ce983326740d40118b7ce765f97751a0bcc46c66ab4bcaac.json",
+          "bytes": 34100,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/3be85452e9821a0372fb8a99ee9da23d4b11b73243751d14a38fb0b7c51bac96.json",
+          "bytes": 15912,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/3c9423a169377393f66a9bc3ee4866e13e8a3ae2c27d17ec1aa2ad680b76d803.json",
+          "bytes": 29286,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/3e2cd5f2e36f02e6fb813c1a96d5cf99b7d09084df4fc98a4cc1de7bf85ca91f.json",
+          "bytes": 192,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/4450ae0ff3217e7fe7f634ab60e821be324ef00b9c2ea5a3a72db5af11b804c3.json",
+          "bytes": 25964,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/45824b4e826ddcc04653111d1d8a5638fd1c60eda10dd59504aecf7375f0d2f8.json",
+          "bytes": 4899,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/4ed3def631ae5ec615a94d06f566dea922023c0009f809a4f1eceb02cf162bef.json",
+          "bytes": 20461,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/5f4053f32f81293172d52f1e638c307d5d65f1956b923f3b4609b90f9d915680.json",
+          "bytes": 11742,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/60efaf881894db1c86bbbf3015ba01b519a8d48363c44f48f09f9bbc5c87050f.json",
+          "bytes": 10558,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/621bd6b5b8a9b5df1f3b2b30c767022bc48f58e3d5adcc355fe26fc1cdfb67b7.json",
+          "bytes": 213,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/72a2f63da9da4d201f0eb2e6edfe52fa5859231fcda82fe9fd2a3b151ee2ae7b.json",
+          "bytes": 16492,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/753fdd3256fe99c0d537ea5fff3e2abf5031f1e0b685222a74971017d9cc1c13.json",
+          "bytes": 20442,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/8011bcbb014df259007aa2754526aebbab5e0d6e69a8f6d0b3c83dc61bc8f68b.json",
+          "bytes": 7701,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/8c788786e1c86ded69f9e0ef7fc7c34003a70295d1c118ea986cb8d265469cbf.json",
+          "bytes": 3035,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/9646341c2b4d37c224f01fda84b1e6d83cada32c9bd17c3b6570a8264dce0ae8.json",
+          "bytes": 12172,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/989f282c2b759cc20ae000fcc43658e60f395ef007cfc394b0bb7d10ad55587f.json",
+          "bytes": 22814,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/99a99a8a1f145787e06b1202f7f7751af7f2ce07a4bc66fa1391a587d41e4f46.json",
+          "bytes": 11418,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/9a3581a0f9b1bd8c89168ac3b997e0dfd55c8a42a1907146a7225481caef624d.json",
+          "bytes": 4029,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/9c90c39d8553b8b5905aabe1fa04eb8aa05f71ad9b87267b65e7e3daf9c5615b.json",
+          "bytes": 5136,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/a9d644d133981247b5b7c6b909258e3b73d93ccb7e7d8b89455322faf28ce245.json",
+          "bytes": 16075,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/ac5d1a2098997a65687b5f074b8afd061b5fbf681070bf670c9ed456cc5fc57a.json",
+          "bytes": 212,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/af9a50b70e0cd9ef735d60aa23d9f89bf9ca9b1d6938d964148e9f2c40366e23.json",
+          "bytes": 12739,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/b1931dc97539c38ea6fc479f25694c018feba05b5169a9d7d4beef072adc2adb.json",
+          "bytes": 16984,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/bccc60ebecc03ffa8d3cfb0a1319bd504b0e97d9677782f4da91b6dd143a122a.json",
+          "bytes": 6817,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/c0d6857d228460d6ae5d82707d1388152faf61abac7c9534957baf96d51e95ee.json",
+          "bytes": 11112,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/c21c6eca368a948cc671fc6e684f65b9dccb21879e85fdec154ad2dc59e1bde3.json",
+          "bytes": 214,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/ce4ebfbf5f44180cc04ce73c0ef106bc67082bf31aaf1d16fbddf179e9f10b05.json",
+          "bytes": 8588,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/ce4f6e8734c3009a053c81cd410ed44e5da91260f70d1117813c266cf50e2cc3.json",
+          "bytes": 16723,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/d896b752cbcd4e0d0a61f09009aa66b00b2709823480531e8c894d1fe4a46538.json",
+          "bytes": 10543,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/da9e734fc20aa8eeb4a9a055f5978b255bebb6afa8f832f59f1b263bddc08065.json",
+          "bytes": 9021,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/dc03e3641b58f03266b46cde0207b59b984eb1e0d42c6fefe00eda21889e94ce.json",
+          "bytes": 21390,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/dc76da35491bad8ae0b77fab9e3c65a93bb0228efdbf8f038fd33fa2f32844d0.json",
+          "bytes": 6990,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/dc9460547dae6f0c04c635c5e96939276e9b52770c868204cdd058fc901507bf.json",
+          "bytes": 9617,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/ddf4365ab7b8853678ead89b245f103ee2786e718382d21dfc4d424f3763f031.json",
+          "bytes": 210,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/ef66be738992fb8ee469cd0baf813e1e1b9fe7df8d4be4aa8b7dab5bf7926f3a.json",
+          "bytes": 2708,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/ast/v0.9.40/fd65d90d90f587f515608c5f549eb735c50b0d0695ffeae77dc51fed84066803.json",
+          "bytes": 2084,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/last_query_stamp",
+          "bytes": 17,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/cache/stat-index.json",
+          "bytes": 19155,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/graph.html",
+          "bytes": 669118,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/graph.json",
+          "bytes": 780168,
+          "is_nested_repo": false
+        },
+        {
+          "path": "graphify-out/manifest.json",
+          "bytes": 15514,
+          "is_nested_repo": false
+        },
+        {
+          "path": "homayar-dev.db",
+          "bytes": 634880,
+          "is_nested_repo": false
+        },
+        {
+          "path": "pyproject.toml",
+          "bytes": 1619,
+          "is_nested_repo": false
+        },
+        {
+          "path": "uv.lock",
+          "bytes": 252905,
+          "is_nested_repo": false
+        }
+      ]
+    },
+    "runtime_or_sensitive_present": [
+      {
+        "path": ".env",
+        "ignored": true,
+        "kind": "file"
+      },
+      {
+        "path": "backend/.env",
+        "ignored": true,
+        "kind": "file"
+      },
+      {
+        "path": "homayar-dev.db",
+        "ignored": false,
+        "kind": "file"
+      },
+      {
+        "path": "uploads",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": ".venv",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "sample",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "graphify-out",
+        "ignored": false,
+        "kind": "directory"
+      },
+      {
+        "path": "frontend/node_modules",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": "frontend/dist",
+        "ignored": true,
+        "kind": "directory"
+      },
+      {
+        "path": ".mypy_cache",
+        "ignored": false,
+        "kind": "directory"
+      },
+      {
+        "path": ".pytest_cache",
+        "ignored": false,
+        "kind": "directory"
+      },
+      {
+        "path": ".ruff_cache",
+        "ignored": false,
+        "kind": "directory"
+      },
+      {
+        "path": ".claude/settings.local.json",
+        "ignored": false,
+        "kind": "file"
+      }
+    ],
+    "required_path_provenance": [
+      {
+        "path": "pyproject.toml",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "uv.lock",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "alembic.ini",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/main.py",
+        "committed_at_head": true,
+        "on_disk": true,
+        "state": "committed"
+      },
+      {
+        "path": "backend/migrations/env.py",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/migrations/versions",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "frontend/package.json",
+        "committed_at_head": true,
+        "on_disk": true,
+        "state": "committed"
+      },
+      {
+        "path": "frontend/package-lock.json",
+        "committed_at_head": true,
+        "on_disk": true,
+        "state": "committed"
+      },
+      {
+        "path": "frontend/index.html",
+        "committed_at_head": true,
+        "on_disk": true,
+        "state": "committed"
+      },
+      {
+        "path": "frontend/vite.config.ts",
+        "committed_at_head": true,
+        "on_disk": true,
+        "state": "committed"
+      },
+      {
+        "path": "frontend/src",
+        "committed_at_head": true,
+        "on_disk": true,
+        "state": "committed"
+      },
+      {
+        "path": "backend/routers/v1",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/providers",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/jobs",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/security",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/storage",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/schemas",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/database/saas_models.py",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      },
+      {
+        "path": "backend/database/relational.py",
+        "committed_at_head": false,
+        "on_disk": true,
+        "state": "uncommitted_overlay"
+      }
+    ]
+  }
+}

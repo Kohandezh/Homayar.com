@@ -1,0 +1,58 @@
+{
+  "id": "WP04",
+  "title": "Truthful states and evidence contracts",
+  "status": "validated",
+  "depends_on": [
+    "WP01"
+  ],
+  "feature_ids": [
+    "F23",
+    "F24"
+  ],
+  "subtasks": [
+    {
+      "id": "WP04-T01",
+      "description": "Define run/stage states including queued, running, completed, partial, failed, unavailable and insufficient evidence, with typed reasons.",
+      "status": "validated",
+      "progress_note": "ProcessingStageRun rows per attempt with typed StageState/reason codes and provenance; MeetingStatus.PARTIAL for degraded outcomes (unavailable diarization, empty transcript = insufficient_evidence, unreached stages); JobResponse.stages; console shows stages. Migration 544f28d9103c. Verified on PostgreSQL: 107 passed, tsc clean, vitest 12 passed. Product commit 89e4460b. See ADR 0003. Open policy assumption: empty transcript commits audio usage.",
+      "updated": "2026-09-08"
+    },
+    {
+      "id": "WP04-T02",
+      "description": "Introduce immutable transcript revisions, evidence spans, analysis runs and model/prompt/schema provenance.",
+      "status": "validated",
+      "progress_note": "Immutable TranscriptRevision rows (numbered per meeting, one current by partial unique index, ORM before_update guards) with engine/model/checkpoint/config-hash/diarization/mock provenance; segments keyed by revision; human corrections as new revisions with parent, stale-base 409, ids-and-counts audit; reprocessing appends and keeps speaker names; AnalysisRun (revision read, provider, model, prompt/schema digests, checkpoint, truthful state) linked from summaries and AI action items; search/action sources/shares/exports use only current segments; exports carry the revision. Migration d4f8b2c6e9a1 (lossless backfill, lossy downgrade) and RLS shared-content policies (32 forced). Verified locally: SQLite whole suite 207 passed / 31 skipped; PostgreSQL 16.15 as homayar_app focused suites 65 passed; check-migrations exit 0; downgrade/upgrade round trip with seeded data. Product commit 10fd5f29. See ADR 0014.",
+      "updated": "2026-09-10"
+    },
+    {
+      "id": "WP04-T03",
+      "description": "Make every finding reference existing authorized turns and original audio offsets; reject malformed references.",
+      "status": "validated",
+      "progress_note": "Every provider reference (summary_source_turn_indexes, key point and action-item source_turn_indexes) is resolved against the segments of the analysed revision; out-of-range indexes are rejected and counted on the AnalysisRun, never repaired. Each valid reference is an immutable EvidenceSpan (revision, segment, speaker, character range, original audio offsets, provenance type) and every finding carries evidence_status (sufficient/partial/insufficient): summary overview, key points/decisions (evidence_ids in the stored JSON), AI action items; a person's action item cites the current revision via a human span. GET /meetings/{id}/evidence[/{evidence_id}] resolves citations to text/audio and flags whether the analysed revision is still current; action responses and JSON exports carry citations. OpenAI-compatible prompt/schema v2, intelligence artifact schema 2, mock cites the turns it saw. Migration e6a9c3d7f2b5; evidence_spans in the shared-content RLS policy (33 forced). Verified locally: SQLite whole suite 211 passed / 31 skipped; PostgreSQL 16.15 as homayar_app focused suites 68 passed; check-migrations exit 0; downgrade/upgrade round trip with seeded data. Product commit 183c503d. See ADR 0014 (amendment).",
+      "updated": "2026-09-11"
+    },
+    {
+      "id": "WP04-T04",
+      "description": "Exclude mock providers from production configuration and preserve explicit mock labels in any development fixtures.",
+      "status": "validated",
+      "progress_note": "Production rejects ALLOW_MOCK_PROVIDERS (existing) and now ENABLE_LEGACY_API; mock outputs carry is_mock through provider results, stage runs (ProcessingStageRun.is_mock) and the console stage list. Product commit 4e9f5c6d.",
+      "updated": "2026-09-08"
+    },
+    {
+      "id": "WP04-T05",
+      "description": "Remove random/default analytics from production result serialization; unavailable metrics remain unavailable.",
+      "status": "validated",
+      "progress_note": "Legacy stt_service (clock-based speaker alternation) and analysis_service (random QC/sentiment fallbacks) deleted together with routers/calls.py and celery_app/tasks.py; guard test keeps them unimportable and forbids random-number use outside database/seed.py (dev-only legacy graph seed, flagged for later removal). Product commit 4e9f5c6d.",
+      "updated": "2026-09-08"
+    },
+    {
+      "id": "WP04-T06",
+      "description": "Expose quality, coverage and degradation consistently through API, UI, exports and usage eligibility rules.",
+      "status": "validated",
+      "progress_note": "MeetingQuality derived from persisted rows only (current revision, current analysis run, per-finding evidence statuses, latest attempt's stage runs, segment ranges, speakers, usage reservation): transcription complete/partial/unavailable; speaker attribution inferred/unknown (verified reserved for WP14); analysis complete/partial/unavailable + analysis_stale after a correction; aggregate evidence status; speech coverage ratio; degraded stages with reasons; mock label; usage state (charging decision unchanged, exposed). Surfaces: meeting detail, GET /meetings/{id}/quality, shared view/export (without job-derived parts under the share ceiling), JSON export, TXT Quality block, WebVTT NOTE, completion audit (asr_state/speaker_state/analysis_state/evidence_state); console quality panel on detail and shared pages, evidence badges on summary/key points/actions. No migration. Verified locally: SQLite whole suite 216 passed / 31 skipped; PostgreSQL 16.15 as homayar_app focused suites 63 passed + 11 passed after the share-ceiling fix; check-migrations exit 0; frontend tsc build, eslint and vitest (12 passed). Product commit f438eab7. See ADR 0015.",
+      "updated": "2026-09-11"
+    }
+  ],
+  "dependency_note": "WP04 is VALIDATED_LOCAL (T01–T06). Not production-validated: remote CI, the deployed stack and real ASR/LLM providers have not run. Deferred to later packages: word-level and sub-segment evidence spans (WP10), human speaker verification and segment insert/split/delete corrections (WP14), quality thresholds gating automation (WP11/WP24), charging rules for degraded outcomes (WP18; the empty-transcript charging policy remains an open business decision).",
+  "readme": "docs/planning/work-packages/WP04/README.md"
+}

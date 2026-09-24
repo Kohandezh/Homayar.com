@@ -1,0 +1,17 @@
+**
+!Homayar
+!Homayar/alembic.ini
+!Homayar/pyproject.toml
+!Homayar/uv.lock
+!Homayar/backend
+!Homayar/backend/**
+Homayar/backend/.env*
+Homayar/backend/**/.env*
+Homayar/backend/.pytest_cache
+Homayar/backend/.pytest_cache/**
+Homayar/backend/.venv
+Homayar/backend/.venv/**
+Homayar/backend/**/__pycache__
+Homayar/backend/**/*.pyc
+Homayar/backend/tests
+Homayar/backend/tests/**

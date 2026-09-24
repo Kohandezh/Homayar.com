@@ -1,0 +1,48 @@
+{
+  "id": "WP23",
+  "title": "Enterprise federation and independent security qualification",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP02",
+    "WP03",
+    "WP19"
+  ],
+  "feature_ids": [
+    "F07",
+    "F82"
+  ],
+  "subtasks": [
+    {
+      "id": "WP23-T01",
+      "description": "Qualify customer OIDC federation and SAML via supported broker; document callback, claim mapping and account linking.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP23-T02",
+      "description": "Map groups to explicit application memberships/roles and define deprovisioning without pretending OIDC provides SCIM.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP23-T03",
+      "description": "Enforce privileged MFA and test disabled users, revoked sessions, group removal and controlled break-glass access.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP23-T04",
+      "description": "Run dependency/container/SBOM/secret scans and triage findings by reachable exploitability and supported versions.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP23-T05",
+      "description": "Commission a scoped independent penetration test of API, browser, tenancy, upload, shares, jobs and private topology.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP23-T06",
+      "description": "Remediate critical/high findings and retest; publish only the actual report scope/date and approved customer summary.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP23/README.md"
+}

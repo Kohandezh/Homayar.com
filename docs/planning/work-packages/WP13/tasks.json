@@ -1,0 +1,53 @@
+{
+  "id": "WP13",
+  "title": "Corpus and promotion evaluation",
+  "status": "in_progress",
+  "depends_on": [],
+  "feature_ids": [
+    "F80",
+    "F81"
+  ],
+  "subtasks": [
+    {
+      "id": "WP13-T01",
+      "description": "Obtain rights, retention/access rules and a sampling plan across accents, channels, intents and sensitive fields.",
+      "status": "blocked_external",
+      "progress_note": "Rights-record template, sampling plan skeleton and split/leakage rules drafted in WP13/annotation-protocol.md; actual rights, retention rules and source inventory require the customer/legal owner (12 open decisions listed in the draft).",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP13-T02",
+      "description": "Create annotation guidelines, normalized/verbatim text policy, speaker/overlap labels, scorecards and evidence labels.",
+      "status": "partial",
+      "progress_note": "Annotation guidelines draft v0.1 (verbatim/normalized policy, Persian normalization rules, speaker/role/overlap labels, scorecard evidence labels, double-annotation and adjudication, manifest schemas, evaluator specs) in WP13/annotation-protocol.md; pending domain-owner review and threshold freeze.",
+      "updated": "2026-09-07"
+    },
+    {
+      "id": "WP13-T03",
+      "description": "Assemble at least 20 Persian hours with a frozen 5-hour test set and separate English/mixed-language coverage.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP13-T04",
+      "description": "Double-annotate at least 20%, adjudicate disagreements and prevent speaker/customer/time leakage between splits.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP13-T05",
+      "description": "Implement WER/CER, DER/JER, entity/intent, QA agreement, factual-support and retrieval evaluators.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP13-T06",
+      "description": "Publish slice sample sizes, uncertainty, abstention, coverage, latency and cost with each candidate result.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP13-T07",
+      "description": "Gate model/prompt promotion on the frozen release criteria and maintain a rollback manifest; collect production corrections separately.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "Corpus rights/protocol starts immediately. Later quality promotion is iterative and gates model-dependent packages; do not block baseline corpus preparation on models that consume it.",
+  "readme": "docs/planning/work-packages/WP13/README.md"
+}

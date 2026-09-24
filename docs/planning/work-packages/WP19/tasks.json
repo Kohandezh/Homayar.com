@@ -1,0 +1,58 @@
+{
+  "id": "WP19",
+  "title": "Offline package, licensing and upgrades",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP01",
+    "WP02",
+    "WP05",
+    "WP08",
+    "WP09",
+    "WP10",
+    "WP18",
+    "WP20"
+  ],
+  "feature_ids": [
+    "F74",
+    "F75"
+  ],
+  "subtasks": [
+    {
+      "id": "WP19-T01",
+      "description": "Define supported private CPU/GPU topologies, capacity envelope, local IdP and storage choices.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP19-T02",
+      "description": "Build signed offline images/model bundles with pinned hashes, licenses and required runtime dependencies.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP19-T03",
+      "description": "Add preflight for driver/VRAM/disk/ports/TLS, local model readiness and no-internet configuration.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP19-T04",
+      "description": "Implement signed offline entitlements, expiry/grace/read-export behavior and operator-visible counters.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP19-T05",
+      "description": "Package install, upgrade, backup/restore, rollback and sanitized support-bundle commands/runbooks.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP19-T06",
+      "description": "Test install and representative processing/export/deletion with all outbound network access denied.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP19-T07",
+      "description": "Rehearse upgrade from the prior supported version with real fixture data, failed migration recovery and customer-admin handoff.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP19/README.md"
+}

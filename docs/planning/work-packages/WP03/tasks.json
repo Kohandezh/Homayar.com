@@ -1,0 +1,66 @@
+{
+  "id": "WP03",
+  "title": "Identity, tenancy and operational permissions",
+  "status": "validated",
+  "depends_on": [
+    "WP01"
+  ],
+  "feature_ids": [
+    "F04",
+    "F05",
+    "F06"
+  ],
+  "subtasks": [
+    {
+      "id": "WP03-T01",
+      "description": "Define one login/refresh/reset/verification/session-family contract; remove legacy auth from public runtime composition.",
+      "status": "validated",
+      "progress_note": "Single v1 contract documented in docs/architecture/auth-session-contract.md (identities, session family, rotation/replay, revocation, cookies/CSRF, one-time tokens, gaps for T02). Legacy auth stack (backend/auth, middleware/auth.py, routers/auth.py) and ENABLE_LEGACY_API composition removed; guard test pins it. Verified: 115 passed on PostgreSQL. Product commit 4a97c04d.",
+      "updated": "2026-09-08"
+    },
+    {
+      "id": "WP03-T02",
+      "description": "Test rotation/reuse, logout, password-reset invalidation, disabled users, account linking, cookies and CSRF.",
+      "status": "validated",
+      "progress_note": "Negative suite for the contract: OTP challenge binding/supersession (request_otp now invalidates open challenges), cookie attributes incl. Secure/Domain, Google link auth requirement, no silent account merge, no double-linking. 121 passed on PostgreSQL. Live provider flows blocked_external. Product commit 7b9e992f.",
+      "updated": "2026-09-08"
+    },
+    {
+      "id": "WP03-T03",
+      "description": "Add organization/team/agent assignments with effective dates and a written role/resource permission matrix.",
+      "status": "validated",
+      "progress_note": "Matrix written and machine-checked (product docs/security/authorization-matrix.md + test_authorization_matrix.py: permission grants, grant hierarchy, full route inventory with deny-by-default). Policy centralised in backend/security/authorization.py; admin routes moved to explicit workspace:manage. Memberships carry valid_from/valid_until (enforced per request). Teams + effective-dated, revocable supervisor/agent assignments; Workspace.record_scope=team restricts member/viewer reads on every meeting path; attribution escalations refused. Migration 9b1d4f2c7a35 verified on PostgreSQL (upgrade/check/downgrade/upgrade). 130 passed on PostgreSQL 16.15. Deferred: organization-level assignments (no organization actor exists; documented as deny) and analyst/executive roles (F06). Product commit 06dd9a0f. Session 8 (2026-09-10): organization-level assignments and the analyst/executive roles exist (ADR 0012): organization_memberships (owner/admin/analyst/executive, effective-dated, revocable, granted_by) resolved on every request from the path organization (404 for strangers and unknown ids); machine-checked organization permissions (§3a), grant hierarchy and workspace-role delegation (§4a) in docs/security/authorization-matrix.md; 15 routes under /api/v1/organizations in the route inventory (list mine, read, members grant/change/revoke, workspaces list/create, delegated install/withdraw of a workspace role, scope grants, aggregates, records). Organization roles never confer workspace content access: an owner/admin is a stranger to every workspace until an explicit, audited delegated installation creates an ordinary Membership row (never owner); workspaces created inside an organization carry no trial subscription/entitlement; analysts/executives see only granted workspace/team scopes as aggregates (executives) or meeting metadata (analysts), never transcript text; an inactive team or a revoked grant/membership removes the scope on the next request. RLS: policies for organization_memberships and organization_scope_grants, workspaces/organizations policies extended for the bound organization (owners/admins and scope holders, workspace must belong to that organization; a stray grant exposes nothing), pre-organization expressions kept for earlier migrations; organization context bound after membership validation, transaction-scoped. Migration a2f7c4e9d1b3 (tables, RLS, backfill of one owner per organization with exactly one distinct active workspace owner, FORCE suspended on the three source tables during the data step, downgrade restores the previous policies first). Verified: test_organizations.py (7) + test_authorization_matrix.py + test_row_level_security.py + test_members_api.py + test_tenant_scope.py -> 26 passed on PostgreSQL 16.15 as homayar_app; SQLite 6 passed + 1 skipped; check-migrations.sh exit 0 (upgrade/check/downgrade/upgrade), seeded backfill on homayar_mig: granted 1 / skipped_no_owner 1 / skipped_ambiguous 1, policies reference the carrier only after upgrade, 30 forced policies; ruff clean. Not decided/implemented: organization billing allocations (a new organization workspace cannot upload until one exists), organization settings routes, SCIM. Remaining WP03 gaps move to T06 (organization share audience, phone recipients, recipient editing) and T07 (API-key scope). Whole PostgreSQL suite minus the transport drills 217 passed with the final code. Product commit a5fb0ffc.",
+      "updated": "2026-09-10"
+    },
+    {
+      "id": "WP03-T04",
+      "description": "Enforce tenant and record scope in repositories, objects, jobs, exports, shares, retrieval and later projections.",
+      "status": "validated",
+      "progress_note": "API/object scope: static route audit (all v1 routes gated; public share page token-addressed) + two-tenant negative suite test_tenant_scope.py (14 operations × 2 header strategies) on PostgreSQL. Search/retrieval scoping covered by test_insights_shares_api. PostgreSQL RLS is T05. Product commit 3f91279a.",
+      "updated": "2026-09-08"
+    },
+    {
+      "id": "WP03-T05",
+      "description": "Add PostgreSQL RLS under a non-bypass application role; set tenant context transaction-locally and test pooled-connection reuse.",
+      "status": "validated",
+      "progress_note": "Migration c4e8b2a7d519 creates NOLOGIN homayar_app (no superuser/BYPASSRLS), grants DML and installs FORCEd policies on 25 tenant tables (backend/database/rls.py). Context bound per transaction via set_config(..., true) from validated session/membership/job/token (backend/database/tenant_context.py); no default tenant. Runtime role via DATABASE_APP_ROLE (SET ROLE on checkout) or direct login member; production refuses superuser/BYPASSRLS. Whole suite runs as homayar_app: 135 passed on PostgreSQL 16.15; test_row_level_security.py covers a LOGIN probe role (cross-tenant read/insert/update/re-home, missing/stale/rollback context, pooled reuse, job scope, FORCE on a non-superuser owner, posture check, API flow without SET ROLE). Migration verified upgrade/check/downgrade/upgrade. Not verified: PgBouncer transaction pooling and managed-provider role provisioning (documented in deployment.md). Product commit 55bb6085.",
+      "updated": "2026-09-08"
+    },
+    {
+      "id": "WP03-T06",
+      "description": "Add explicit recipient/organization share policies, revocation and short-lived download authorization.",
+      "status": "validated",
+      "progress_note": "Share contract implemented and documented (ADR 0006; matrix §6a): audiences link (workspace opt-in, default off, no audio) / workspace (effective membership + team scope) / recipients (verified email, bound to user id); separate allow_export/allow_download grants; issuer authority, expiry, revocation, kill switch, deletion re-checked per request; token-only DB ceiling via RLS; downloads re-authorized per Range request (local) or presigned ≤300 s (S3, expiry-bounded, labelled). Migration d7f3a1c9e2b4 (backfill stricter). Verified: test_share_policies.py (4 tests) + RLS share-context test; full suite 140 on PostgreSQL 16.15, 132+8 skipped on SQLite; migration upgrade/check/downgrade/upgrade on PostgreSQL. Partial because organization-level audience cannot exist until organization membership exists (T03 gap); phone recipients and recipient editing not implemented. Product commit bf0f4bf2. Session 8 (2026-09-10, ADR 0006 amendment): organization audience (current members of the workspace's organization — effective membership in any active workspace of it or effective organization membership — re-checked per access; team record scope of the source workspace not applied; workspace kill switch organization_share_links_enabled, default on, hides existing organization shares and refuses creation; leaving/expiry/revocation bite on the next request; no tenant context bound for this audience); phone recipients (normalize_iranian_mobile, matched only against a phone verified through the OTP contract, then bound to the user id — a reassigned number transfers nothing); recipient editing PATCH /meetings/{id}/shares/{share_id}/recipients (share:manage +csrf, deltas under a row lock on the share, limit on the total, unknown id 404, audited by count and row id, removed recipient refused at once including Range continuations). Migration b7d2f4a8c6e1 (workspaces.organization_share_links_enabled, share_recipients.phone_e164 with a one-address check constraint; downgrade converts organization shares to workspace and drops phone-only recipients). Verified: test_share_organization.py (4) + test_share_policies.py + RLS + matrix + admin + organizations on PostgreSQL 16.15 as homayar_app → 31 passed; SQLite 7 passed + 1 skipped; check-migrations exit 0 (upgrade/check, downgrade/upgrade round trip, 30 forced policies). Not implemented: notifying recipients (email/SMS delivery of a share link) — no real SMS is sent by the product for shares. Product commit 4bc15688.",
+      "updated": "2026-09-10"
+    },
+    {
+      "id": "WP03-T07",
+      "description": "Build adversarial two-tenant/two-team tests including background jobs, guessed IDs, stale tokens and changed membership.",
+      "status": "validated",
+      "progress_note": "Covered: guessed ids, foreign workspace header, membership deactivated with a still-valid session (per-request check), background job writes only into the owning workspace. Two-team/role-matrix cases added with T03 (test_authorization_matrix.py). Missing: stale API-key cases (WP16). Product commits 3bf703f9, 06dd9a0f. Session 8 (2026-09-10, ADR 0013): the missing stale/mis-scoped API-credential cases now exist. Workspace-owned keys bound to the creating user (hk_<prefix>.<secret>, peppered digest stored, raw key returned once); effective authority = scopes ∩ API_KEY_SCOPES ∩ current membership permissions (fixed conservative set, machine-checked in matrix §6b); tenant pinned to the key's workspace (foreign X-Workspace-ID 403, foreign ids 404); session, organization and share-token routes refuse keys (401 api_key_not_accepted); api_key:manage is never a scope so keys cannot mint, list or revoke keys; mandatory bounded expiry, immediate idempotent revocation, per-key rate limit, live-key cap per workspace; work accepted through a key (upload → job) survives its revocation; RLS: the api_keys policy admits the presented key's row through homayar.api_key_hash before the tenant is bound (migration c3e9a7b5d1f4, policy only). Routes GET/POST /api-keys, DELETE /api-keys/{key_id} (api_key:manage). Verified: backend/tests/test_api_keys.py (6: issuance bounds/secrecy, scope+workspace+object pinning and people-only surfaces, expiry/revocation/guessed keys/demotion/deactivation/disabled account per request, accepted work after revocation, document↔code scope set, PostgreSQL one-row capability ceiling) with the RLS, matrix, members, tenant scope, share, organization, upload and auth suites on PostgreSQL 16.15 as homayar_app → 43 passed, plus test_auth_contract.py + test_admin_api.py 10 passed; check-migrations exit 0 (upgrade/check, policy round trip, 30 forced policies); SQLite whole suite 201 passed, 30 skipped (3 min 14 s). Open (WP16-T02): service principals, organization-owned keys, rotation with overlap, per-key usage metering. Product commit 9578fb95.",
+      "updated": "2026-09-10"
+    }
+  ],
+  "dependency_note": "Validated in local scope on 2026-09-10 (PostgreSQL 16.15 as the non-bypass role, SQLite fallback): T01–T07. Not verified: remote CI, managed PostgreSQL provisioning/PgBouncer, live Asanak/Google providers, the console. Tracked gaps: organization billing allocations and settings routes, SCIM, service principals/organization-owned API keys (WP16-T02), share notification delivery.",
+  "readme": "docs/planning/work-packages/WP03/README.md"
+}

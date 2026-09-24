@@ -1,0 +1,59 @@
+{
+  "id": "WP24",
+  "title": "Approved actions, alerts and exports",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP04",
+    "WP07",
+    "WP11",
+    "WP12",
+    "WP14",
+    "WP16"
+  ],
+  "feature_ids": [
+    "F38",
+    "F59",
+    "F60",
+    "F70"
+  ],
+  "subtasks": [
+    {
+      "id": "WP24-T01",
+      "description": "Extract explicit commitments/action items with evidence; keep missing owner/date unset for reviewer completion.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP24-T02",
+      "description": "Define alert rules, deduplication windows, severity, recipient scope and daily digest/suppression behavior.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP24-T03",
+      "description": "Build a preview/approve/reject workflow for CRM/ticket/coaching actions with authorized human ownership.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP24-T04",
+      "description": "Execute approved actions through scoped connectors with idempotency, retry, cancellation and delivery/audit records.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP24-T05",
+      "description": "Add PDF, CSV and JSON report exports plus existing transcript formats with version/provenance and ACL controls.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP24-T06",
+      "description": "Validate Persian shaping/fonts, formula-injection handling in CSV, large export limits, retention and authorized downloads.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP24-T07",
+      "description": "Test rejected/revoked/duplicate approvals, stale source revisions and connector failure without duplicate external effects.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP24/README.md"
+}

@@ -1,0 +1,55 @@
+{
+  "id": "WP14",
+  "title": "Review, calibration, appeals and coaching",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP03",
+    "WP11",
+    "WP12"
+  ],
+  "feature_ids": [
+    "F43",
+    "F44",
+    "F46",
+    "F47"
+  ],
+  "subtasks": [
+    {
+      "id": "WP14-T01",
+      "description": "Define ingestion/processing/evaluation/review coverage as separate counters and build stratified/random/risk-triggered sampling.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP14-T02",
+      "description": "Create supervisor review queues with assignment, due time and record-level authorization.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP14-T03",
+      "description": "Add criterion override with reason/evidence, preserving machine and human scores separately.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP14-T04",
+      "description": "Add blinded calibration batches and reviewer agreement reporting against adjudicated examples.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP14-T05",
+      "description": "Implement agent appeal, supervisor disposition and audit history with clear notifications.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP14-T06",
+      "description": "Create specific coaching tasks from accepted findings, with owner, due date, acknowledgement and follow-up review.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP14-T07",
+      "description": "Validate matched-task review time and agent/supervisor usability; prevent cohort/rubric mixing in comparisons.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP14/README.md"
+}

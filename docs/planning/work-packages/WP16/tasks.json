@@ -1,0 +1,58 @@
+{
+  "id": "WP16",
+  "title": "Supported ingestion/API/integration contracts",
+  "status": "in_progress",
+  "depends_on": [
+    "WP03",
+    "WP05",
+    "WP06",
+    "WP08"
+  ],
+  "feature_ids": [
+    "F63",
+    "F64",
+    "F68",
+    "F69"
+  ],
+  "subtasks": [
+    {
+      "id": "WP16-T01",
+      "description": "Publish versioned asynchronous REST/OpenAPI contracts and a minimal Python client/example with retries and idempotency.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP16-T02",
+      "description": "Add scoped, expiring, hashed API credentials, rotation and usage/rate limits.",
+      "status": "partial",
+      "progress_note": "Foundation from WP03-T07 (2026-09-10, ADR 0013): scoped, expiring, hashed, user-bound workspace API keys with per-key rate limits and a live-key cap exist (routes /api-keys). Not yet: rotation with overlap, service principals without a user, organization-owned keys, per-key usage metering/quotas, the OpenAPI client (T01).",
+      "updated": "2026-09-10"
+    },
+    {
+      "id": "WP16-T03",
+      "description": "Qualify one actual Asterisk/FreePBX/Issabel deployment's recording/CDR export and source ID/channel mapping.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP16-T04",
+      "description": "Add configurable CRM/ticket/customer/agent/outcome mappings, reconciliation and delayed-record handling.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP16-T05",
+      "description": "Persist outbound webhook deliveries and sign raw payloads with timestamp/key ID; provide replay/deduplication guidance.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP16-T06",
+      "description": "Add retry/dead-letter/admin diagnostics without exposing credentials or transcript text.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP16-T07",
+      "description": "Run contract fixtures for duplicates, transfers, missing recordings, clock skew, stale signatures and revoked service identities.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP16/README.md"
+}

@@ -1,0 +1,56 @@
+{
+  "id": "WP09",
+  "title": "Channel-aware speech and persistent inference",
+  "status": "not_started_in_this_handoff",
+  "depends_on": [
+    "WP05",
+    "WP06",
+    "WP08",
+    "WP13"
+  ],
+  "feature_ids": [
+    "F25",
+    "F26",
+    "F27",
+    "F28"
+  ],
+  "subtasks": [
+    {
+      "id": "WP09-T01",
+      "description": "Inspect channel metadata, duplicated/silent channels, sample rate and trusted PBX channel-to-role mapping.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP09-T02",
+      "description": "Create channel-preserving normalized derivatives, VAD intervals and reversible original-time mapping.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP09-T03",
+      "description": "Implement selected Whisper model profiles and language policy; compare base versus stronger multilingual candidates.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP09-T04",
+      "description": "Add long-call chunking/checkpoints, overlap deduplication and no-speech handling.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP09-T05",
+      "description": "Move model lifetime to persistent warmed worker processes with memory-aware concurrency and bounded batching.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP09-T06",
+      "description": "Add CPU/GPU readiness/preflight and route work only to qualified workers.",
+      "status": "not_started"
+    },
+    {
+      "id": "WP09-T07",
+      "description": "Measure Persian/English/mixed and noisy/stereo/mono accuracy, latency, GPU memory and actual cost under admitted load.",
+      "status": "not_started"
+    }
+  ],
+  "dependency_note": "",
+  "readme": "docs/planning/work-packages/WP09/README.md"
+}

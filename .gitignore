@@ -42,5 +42,28 @@ next-env.d.ts
 
 # local tooling / caches
 .claude/
+.codex/
 .gstack/
 .pnpm-store/
+graphify-out/
+playwright-report/
+test-results/
+
+# transient directory created by scripts/build-cpanel.mjs
+.cpanel-build-api/
+
+# product source: independent Git repository consumed through infra/product-source.lock
+# (never stage it as a gitlink; see docs/architecture/decisions/0002-product-source-contract.md)
+/Homayar/
+
+# generated Graphify artifacts (rebuild with docs/handoff/claude-fable-5.1/tools/refresh_graph.py)
+docs/handoff/claude-fable-5.1/graphify/**/cache/
+docs/handoff/claude-fable-5.1/graphify/**/extraction.json
+docs/handoff/claude-fable-5.1/graphify/**/analysis.json
+docs/handoff/claude-fable-5.1/graphify/**/graph.json
+docs/handoff/claude-fable-5.1/graphify/**/graph.full.json
+docs/handoff/claude-fable-5.1/graphify/**/graph.graphml
+docs/handoff/claude-fable-5.1/graphify/**/graph.full.graphml
+docs/handoff/claude-fable-5.1/graphify/**/graph.html
+docs/handoff/claude-fable-5.1/graphify/vendor/*.min.js
+docs/handoff/claude-fable-5.1/graphify/refreshes/
