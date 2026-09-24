@@ -570,6 +570,11 @@
 - Local commits: product `d1cc5d464c6ef51620dd445bd86726ef9280e473`; website commit below. Nothing pushed.
 - Next exact action: refresh the Graphify code map once (WP07 complete in local scope), then WP08-T01 — versioned model/prompt/capability manifests (review the existing provider factory, `ProviderIdentity` and the Padyar AI Gateway notes first).
 
+### Session 13, part F — Graphify refresh after WP07
+
+- One refresh through the sequential wrapper (`graphify.extract` forced to `parallel=False`, `tools/refresh_graph.py` via `runpy`, graphify 0.9.40, no model/API call) at website `4c399e9` / product `d1cc5d4`: 375 files (27 more than the 2026-09-16 map: WP07 T01–T07), 4,724 nodes / 17,560 edges / 160 communities in the resolved view; lossless extraction 4,724 nodes / 19,146 relations with 155 explicitly unresolved reference ids; diagnostics 0 missing endpoints, 1,035 dangling, 1 self-loop, 538 directed / 553 undirected collapsed. Promoted into `graphify/code/` (report, JSON, HTML with the bundled renderer, diagnostics, `UNRESOLVED_REFERENCES.json`, `FULL_GRAPH_INTEGRITY.json`), manifest/BUILD_SUMMARY/VISUAL_CHECK (`not_run`) and GRAPHIFY_GUIDE updated. Planning graph not rebuilt (statuses/notes only).
+- Next exact action: WP08-T01 — versioned model/prompt/capability manifests (review the existing provider factory, `ProviderIdentity`, checkpoint identities and the Padyar AI Gateway notes first).
+
 ## Template for next session
 
 - Date / environment:

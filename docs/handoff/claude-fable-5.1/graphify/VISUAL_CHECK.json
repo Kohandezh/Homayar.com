@@ -42,5 +42,11 @@
     "title": "graphify - docs/handoff/claude-fable-5.1/graphify/code/graph.html (refreshes/20260916T142905562715Z refresh, after WP05-T01–T06)",
     "status": "not_run",
     "reason": "rendering not observed in this session; the HTML references the bundled ../vendor/vis-network-9.1.6.min.js (no CDN request)"
+  },
+  {
+    "kind": "code",
+    "title": "graphify - docs/handoff/claude-fable-5.1/graphify/code/graph.html (refreshes/20260924T192240611311Z refresh, after WP07-T01–T07)",
+    "status": "not_run",
+    "reason": "rendering not observed in this session; the HTML references the bundled ../vendor/vis-network-9.1.6.min.js (no CDN request)"
   }
 ]

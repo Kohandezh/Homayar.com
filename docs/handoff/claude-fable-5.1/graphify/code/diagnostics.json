@@ -1,25 +1,25 @@
 {
-  "node_count": 4271,
+  "node_count": 4724,
   "unverified_node_count": 0,
-  "raw_edge_count": 16837,
+  "raw_edge_count": 19146,
   "non_object_edges": 0,
   "missing_endpoint_edges": 0,
-  "dangling_endpoint_edges": 938,
+  "dangling_endpoint_edges": 1035,
   "self_loop_edges": 1,
-  "valid_candidate_edges": 15899,
-  "exact_duplicate_edges": 97,
-  "directed_unique_endpoint_pairs": 15414,
-  "directed_same_endpoint_collapsed_edges": 485,
-  "undirected_unique_endpoint_pairs": 15400,
-  "undirected_same_endpoint_collapsed_edges": 499,
-  "same_endpoint_group_count": 419,
-  "relation_variant_groups": 295,
+  "valid_candidate_edges": 18111,
+  "exact_duplicate_edges": 112,
+  "directed_unique_endpoint_pairs": 17573,
+  "directed_same_endpoint_collapsed_edges": 538,
+  "undirected_unique_endpoint_pairs": 17558,
+  "undirected_same_endpoint_collapsed_edges": 553,
+  "same_endpoint_group_count": 458,
+  "relation_variant_groups": 322,
   "source_file_variant_groups": 0,
-  "source_location_variant_groups": 33,
-  "context_variant_groups": 57,
+  "source_location_variant_groups": 34,
+  "context_variant_groups": 63,
   "post_build_graph_type": "DiGraph",
-  "post_build_node_count": 4271,
-  "post_build_edge_count": 15401,
+  "post_build_node_count": 4724,
+  "post_build_edge_count": 17560,
   "post_build_error": "",
   "producer_suppression": {
     "path": "/Users/emperor/.local/share/uv/tools/graphifyy/lib/python3.10/site-packages/graphify/extract.py",
@@ -98,7 +98,7 @@
     {
       "source": "homayar_backend_main",
       "target": "homayar_backend_routers_v1_init",
-      "edge_count": 11,
+      "edge_count": 12,
       "relations": [
         "imports_from"
       ],
@@ -116,7 +116,8 @@
         "L30",
         "L31",
         "L32",
-        "L33"
+        "L33",
+        "L34"
       ],
       "contexts": [
         "import"
@@ -124,7 +125,7 @@
     },
     {
       "source": "homayar_backend_media_validation_validate_media_upload",
-      "target": "pathlike",
+      "target": "homayar_backend_media_validation_py_pathlike",
       "edge_count": 6,
       "relations": [
         "references"
@@ -141,6 +142,48 @@
       ]
     },
     {
+      "source": "homayar_backend_database_saas_models_refuse_segment_update",
+      "target": "listens_for",
+      "edge_count": 5,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "Homayar/backend/database/saas_models.py"
+      ],
+      "source_locations": [
+        "L2158",
+        "L2159",
+        "L2160",
+        "L2161",
+        "L2162"
+      ],
+      "contexts": [
+        "decorator"
+      ]
+    },
+    {
+      "source": "homayar_backend_privacy_transcript_view_copy",
+      "target": "homayar_backend_privacy_text_pii_pseudonymizer",
+      "edge_count": 4,
+      "relations": [
+        "calls",
+        "references"
+      ],
+      "source_files": [
+        "Homayar/backend/privacy/transcript_view.py"
+      ],
+      "source_locations": [
+        "L138",
+        "L139"
+      ],
+      "contexts": [
+        "call",
+        "parameter_type",
+        "return_type"
+      ]
+    },
+    {
       "source": "homayar_backend_services_media_lifecycle_service_register_derived",
       "target": "homayar_backend_database_saas_models_mediaobject",
       "edge_count": 4,
@@ -152,50 +195,8 @@
         "Homayar/backend/services/media_lifecycle_service.py"
       ],
       "source_locations": [
-        "L135",
-        "L165"
-      ],
-      "contexts": [
-        "call",
-        "parameter_type",
-        "return_type"
-      ]
-    },
-    {
-      "source": "homayar_backend_tests_test_job_leases_forged",
-      "target": "homayar_backend_jobs_leases_lease",
-      "edge_count": 4,
-      "relations": [
-        "calls",
-        "references"
-      ],
-      "source_files": [
-        "Homayar/backend/tests/test_job_leases.py"
-      ],
-      "source_locations": [
-        "L149",
-        "L160"
-      ],
-      "contexts": [
-        "call",
-        "parameter_type",
-        "return_type"
-      ]
-    },
-    {
-      "source": "homayar_backend_database_tenant_context_replace",
-      "target": "homayar_backend_database_tenant_context_tenantcontext",
-      "edge_count": 3,
-      "relations": [
-        "calls",
-        "references"
-      ],
-      "source_files": [
-        "Homayar/backend/database/tenant_context.py"
-      ],
-      "source_locations": [
-        "L175",
-        "L189"
+        "L136",
+        "L166"
       ],
       "contexts": [
         "call",

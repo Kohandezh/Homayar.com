@@ -1,18 +1,18 @@
 {
   "code": {
-    "nodes": 4271,
-    "edges": 15401,
-    "communities": 155,
+    "nodes": 4724,
+    "edges": 17560,
+    "communities": 160,
     "diagnostics": {
       "missing_endpoint_edges": 0,
-      "dangling_endpoint_edges": 938,
+      "dangling_endpoint_edges": 1035,
       "self_loop_edges": 1,
-      "directed_same_endpoint_collapsed_edges": 485,
-      "undirected_same_endpoint_collapsed_edges": 499
+      "directed_same_endpoint_collapsed_edges": 538,
+      "undirected_same_endpoint_collapsed_edges": 553
     },
     "title": "Current workspace code graph (website worktree + isolated product checkout)",
-    "snapshot": "refreshes/20260916T142905562715Z",
-    "refreshed_at": "2026-09-16"
+    "snapshot": "refreshes/20260924T192240611311Z",
+    "refreshed_at": "2026-09-24"
   },
   "planning": {
     "nodes": 119,
@@ -26,19 +26,19 @@
       "undirected_same_endpoint_collapsed_edges": 0
     },
     "title": "Explicit blueprint dependency graph",
-    "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09, 2026-09-10 or 2026-09-11 (only task statuses/notes changed, no structural relationship changed) or 2026-09-16 (WP05 statuses/notes only)."
+    "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09, 2026-09-10 or 2026-09-11 (only task statuses/notes changed, no structural relationship changed) or 2026-09-16 (WP05 statuses/notes only) or 2026-09-24 (WP07 statuses/notes only)."
   },
-  "code_files": 348,
+  "code_files": 375,
   "no_symbol_file_count": 0,
   "graphify_version": "0.9.40",
   "semantic_scope": "Explicit planning relationships only; free-form documentation semantic extraction not run.",
   "original_graphs": "Historical root graphify-out and Homayar/graphify-out (original checkout) preserved unchanged and not consulted; the 2026-09-07 snapshot pointed at the original checkout and is superseded by this refresh.",
   "full_graph": {
-    "raw_ast_nodes": 4271,
-    "raw_ast_edges": 16837,
-    "explicit_unresolved_reference_nodes": 151,
-    "full_graph_nodes": 4422,
-    "full_graph_edges": 16837,
+    "raw_ast_nodes": 4724,
+    "raw_ast_edges": 19146,
+    "explicit_unresolved_reference_nodes": 155,
+    "full_graph_nodes": 4879,
+    "full_graph_edges": 19146,
     "full_graph_missing_endpoints": 0,
     "self_loop_edges": 1,
     "definition_resolution_complete": false,
