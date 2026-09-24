@@ -525,6 +525,21 @@
 - Local commits: product `4b3038c3e1e5b5bd682ef5c7c43523252bff8da8`; website commit below. Nothing pushed.
 - Next exact action: WP07-T05 — Persian/English text PII detection with configurable classes and restricted original-to-redacted mappings.
 
+### Session 13, part C — WP07-T05 text PII detection, redacted versions and restricted mappings (validated locally)
+
+- Date / environment: 2026-09-23/24; same worktrees and disposable cluster `pg16d`; strictly sequential; host still heavily loaded by unrelated processes.
+- Package / subtask: WP07-T05 validated in local scope; WP07 in progress (T06, T07 not started).
+- Baseline repo/ref/dirty state: product `4b3038c3` clean; website `f5864a8` clean.
+- Scope and files: see the WP07 README T05 section; ADR 0023.
+- Change and reason: F16 needs a redacted downstream copy with a restricted original. A deterministic, validated detector (six structured classes, Persian/Arabic-Indic digits and separators normalised) produces immutable redacted versions per (revision, detector version + class policy); originals exist only as AES-256-GCM ciphertext bound to tenant/redaction/placeholder under keys from the secret manager, and reveal is audited without the value. Unsupported classes and residual risk are disclosed.
+- Commands/results newly executed: see the README T05 section (SQLite 50 passed / 1 skipped; PostgreSQL 84 passed / 1 skipped after one assertion fix; full SQLite 482 passed / 82 skipped; migrations clean).
+- Acceptance satisfied (T05): detection, configurable classes, restricted mappings. Engineering accuracy gate met on a synthetic annotated set only.
+- Acceptance pending: F16 measurement on a separately annotated representative set (needs data); routing of analysis/retrieval/export/providers, reveal route and provenance (T06); T07.
+- Review: self-review.
+- External blockers: unchanged; plus the annotated evaluation set for F16.
+- Local commits: product `28792cc0ea3d81cfc77ca8e1289ffb14e97758a3`; website commit below. Nothing pushed.
+- Next exact action: WP07-T06 — create redacted versions in the pipeline for enabled workspaces, route analysis/retrieval/export/provider input to the permitted version, add the audited reveal route and record policy provenance.
+
 ## Template for next session
 
 - Date / environment:

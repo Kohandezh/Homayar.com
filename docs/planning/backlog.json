@@ -2694,7 +2694,9 @@
         {
           "id": "WP07-T05",
           "description": "Add Persian/English text PII detection, configurable classes and restricted original-to-redacted mappings.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Deterministic text PII detection, redacted versions and restricted mappings (ADR 0023): backend/privacy/text_pii.py (DETECTOR_VERSION text-pii/1) detects email, phone (Iranian mobile/landline in every common spelling, +/00 international), ir_national_id (check digit), bank_card (Luhn), iban (mod 97) and ir_postal_code (keyword-anchored), with Persian/Arabic-Indic digit and separator normalisation and offsets on the original text; names, addresses, spelled-out or split numbers are not detected (disclosed residual risk; not anonymisation, never audio masking). Workspace policy pii_redaction_enabled (default off, backfilled off) and pii_redaction_classes (supported classes, at least one) via PATCH /admin/workspace-settings (workspace:manage, audited). redact_revision creates one immutable version per (revision, digest of detector version + sorted classes) with stable placeholders; originals only as AES-256-GCM ciphertext in pii_mappings (AAD binds tenant, redaction, placeholder; PII_MAPPING_KEYS keyring with PII_MAPPING_ACTIVE_KEY_ID, rotation by key id; no key = nothing retained); reveal_placeholder audits pii.revealed without the value. transcript_redactions, redacted_segments, pii_mappings under forced RLS (migration a8e4c2f6d0b3), removed by the conversation purge. Verified locally: ruff clean on changed files; SQLite test_text_pii.py + test_admin_api.py 50 passed / 1 skipped; PostgreSQL 16.15 text PII, admin API, retention purge, tombstone reapply and RLS 84 passed / 1 skipped (after fixing the admin settings key-set assertion that failed in the first batch); full SQLite suite 482 passed / 82 skipped; check-migrations.sh exit 0; alembic downgrade -1 / upgrade head / check clean. Engineering gate only: recall/precision measured on a small synthetic annotated set; the F16 measurement on a separately annotated representative set is pending data. Not yet: pipeline-created versions, routing of analysis/retrieval/export/providers, reveal route, console control (WP07-T06). Product commit 28792cc0ea3d81cfc77ca8e1289ffb14e97758a3.",
+          "updated": "2026-09-24"
         },
         {
           "id": "WP07-T06",
@@ -2707,7 +2709,7 @@
           "status": "not_started"
         }
       ],
-      "dependency_note": "WP07 is IN_PROGRESS: T01, T02, T03 and T04 validated in local scope (ADR 0020, ADR 0021, ADR 0022; holds on the ADR 0017 lifecycle). Dependency note (2026-09-16): WP08-T01 (versioned manifests) and WP08-T02 (per-run policy snapshots) do not need WP07 behaviour and may proceed after the WP07 retention/deletion foundations (T01–T04) and text privacy (T05–T06) are in place per owner instruction; WP08-T03 (privacy/eligibility filtering) requires WP07-T05/T06 and stays blocked until they are validated. Business defaults (which mode, how many days) remain an owner decision; engineering fixtures use explicit policies.",
+      "dependency_note": "WP07 is IN_PROGRESS: T01–T05 validated in local scope (ADR 0020, ADR 0021, ADR 0022, ADR 0023; holds on the ADR 0017 lifecycle). Dependency note (2026-09-16): WP08-T01 (versioned manifests) and WP08-T02 (per-run policy snapshots) do not need WP07 behaviour and may proceed after the WP07 retention/deletion foundations (T01–T04) and text privacy (T05–T06) are in place per owner instruction; WP08-T03 (privacy/eligibility filtering) requires WP07-T05/T06 and stays blocked until they are validated. Business defaults (which mode, how many days) remain an owner decision; engineering fixtures use explicit policies.",
       "readme": "docs/planning/work-packages/WP07/README.md"
     },
     {
