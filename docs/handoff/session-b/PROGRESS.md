@@ -67,3 +67,26 @@ Product commit `34f3dfd` (parent `ec29aaa`).
   workspace.
 - Verification (mocked): `vitest run` 7 files / 43 tests passed; `eslint` clean; `npm run build`
   succeeded.
+
+## B4 — Upload and validation feedback (WP05-T01 console scope)
+
+Product commit `ca5c99b` (parent `34f3dfd`).
+
+- `components/platform/UploadPanel.tsx` replaces the inline form: byte transfer (upload
+  progress, explicitly "transfer only"), then "server is checking the recording", then the
+  accepted meeting opens (idempotent replay passed in router state). A cancel button aborts the
+  transfer; leaving the page aborts it and `beforeunload` warns while sending.
+- `lib/upload-errors.ts` classifies the documented refusal codes. Retry rules: `same_key`
+  (network, cancel, 503 + `Retry-After`, `upload_rate_limited`, `concurrent_job_limit_reached`,
+  other 5xx) is user-initiated only, after `Retry-After`, with the same `Idempotency-Key`;
+  `new_file` (413/422 media refusals, `ingestion_conflict`, `ingestion_target_deleted`) requires
+  choosing a file again, which issues a new key; `none` for verification, permission, quota and
+  duplicate (with a link to the existing meeting). Quota refusals show remaining/requested from
+  the server's `details` in minutes and seconds (floored), plus a contact-sales link; no price.
+- Formats shown are the product default `ALLOWED_EXTENSIONS`; numeric size/duration limits are not
+  printed (gap G3). Owners/admins see the server's remaining and reserved allowance; members never
+  call `/billing/usage` (gap G5).
+- Status badges and the meeting list use `lib/status-labels.ts` (Persian and English).
+- Verification (mocked): `vitest run` 8 files / 53 tests passed; `eslint` clean; build succeeded.
+  A countdown clock-sync bug found by the new test (stale clock showed +1 s) was fixed in both the
+  upload panel and the OTP page.
