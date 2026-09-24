@@ -48,3 +48,22 @@ Product commit `ec29aaa` on `session-b/frontend-journey` (parent `d1cc5d4`).
 - Verification (mocked UI tests with fixtures in `src/test/fixtures.tsx`; no live backend,
   Google, Asanak or email): `vitest run` 6 files / 33 tests passed (baseline was 4 / 12);
   `eslint .` clean; `npm run build` (`tsc -b` + `vite build`) succeeded.
+
+## B3 — Workspace selection and access loss (WP03-T03/T04 console scope)
+
+Product commit `34f3dfd` (parent `ec29aaa`).
+
+- `lib/workspace-selection.ts`: the remembered id only selects among `/auth/me` workspaces; one
+  workspace is selected, several need an explicit choice (`WorkspaceGate`), none shows an honest
+  empty state with a support link. A remembered workspace that vanished is reported, never
+  replaced by another tenant.
+- `api.ts` emits `homayar:workspace-denied` for `403 workspace_access_denied` /
+  `permission_denied`; `AuthProvider` re-reads the session (coalesced; permission refresh at most
+  every 30 s), marks a refused workspace unavailable for the session (gap G9), clears cached
+  content when the active workspace changes or is lost, and updates the role in place after a
+  permission reduction. Invitation acceptance stays reachable without a selected workspace.
+- Role-derived affordances are centralised in `lib/roles.ts` from the product matrix (gap G4);
+  the header selector is localized and disables refused workspaces; search is disabled with no
+  workspace.
+- Verification (mocked): `vitest run` 7 files / 43 tests passed; `eslint` clean; `npm run build`
+  succeeded.

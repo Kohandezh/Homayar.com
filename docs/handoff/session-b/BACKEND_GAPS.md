@@ -76,6 +76,22 @@ CI, Compose, nginx or the source lock.
 
 - See G1: a disabled/unconfigured provider must not surface as `500 internal_error`.
 
+## G9 — `/auth/me` lists memberships that requests will refuse
+
+- **Blocked action:** the console's workspace list can offer a workspace whose membership is
+  outside its effective window (or whose workspace is not `active`); every request there then
+  fails with `403 workspace_access_denied`.
+- **Observed:** `list_user_workspaces` filters `Membership.is_active` only, while
+  `resolve_workspace_context` also applies `membership_effective_clause(now)` and
+  `Workspace.status == "active"`.
+- **Interim console behaviour (Session B):** a workspace refused with `workspace_access_denied`
+  is marked unavailable for the rest of the session, its cached content is cleared and the user
+  chooses again; the console never switches tenants by itself.
+- **Minimum behaviour:** `/auth/me` (and `/auth/login`, `/auth/refresh`, `/auth/otp/verify`) list
+  exactly the workspaces a request may select, using the same effective-membership predicate.
+- **Acceptance:** a membership with `effective_to` in the past and a suspended workspace are
+  absent from `SessionResponse.workspaces`; a test pins both paths to one predicate.
+
 ## G8 — Product source availability (integration, not backend code)
 
 - **Observed:** `infra/product-source.lock` on website `main` (`cfcc2c4`) pins

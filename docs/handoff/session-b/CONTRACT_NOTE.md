@@ -98,4 +98,5 @@ not describe whether an empty result consumes allowance.
 G1 no auth-method discovery (Google/phone availability) · G2 no resend-verification endpoint ·
 G3 no upload-policy read API (formats/size/duration) · G4 no per-workspace permission list ·
 G5 usage not readable by members/viewers · G6 no job cancel endpoint · G7 phone OTP returns 500
-when unconfigured · G8 product commit `d1cc5d4` is not on the GitHub remote.
+when unconfigured · G8 product commit `d1cc5d4` is not on the GitHub remote · G9 `/auth/me`
+lists non-effective memberships.
