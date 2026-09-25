@@ -8,7 +8,7 @@
 | Product console | frozen npm install, nested lint, `/app/` build, declared test script and tests |
 | Backend | frozen uv environment, single Alembic head, upgrade/check/current-head, pytest |
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
-| Container config | Actionlint, on-prem/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds and runtime smoke tests |
+| Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) and the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`) |
 
 Product source comes from `Kohandezh/HomaYar` at the commit pinned in
 `infra/product-source.lock`. The `source-contract` job runs first: the composite action
