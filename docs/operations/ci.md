@@ -23,8 +23,9 @@ tracked, or when the pinned commit is not reachable from the declared `ref=` (th
 that ref, commits and trees only, before verifying; a pin that exists only in a local clone
 therefore fails remote CI until the ref is published). A private product repository needs a
 read-only token in the `PRODUCT_SOURCE_TOKEN` secret. Since WP01-T03 the pin points at
-`feat/commercial-v1-overlay`, a product feature branch that exists locally only; remote CI stays
-`blocked_external` until it is pushed.
+`feat/commercial-v1-overlay`; the branch was published on 2026-09-25, so remote CI can fetch the
+pin once `PRODUCT_SOURCE_TOKEN` is configured (the default workflow token cannot read the private
+product repository).
 
 The backend job runs `infra/ci/check-migrations.sh` (upgrade head, `alembic check`, head
 verification) and then the test suite against the PostgreSQL service: `TEST_DATABASE_URL`
