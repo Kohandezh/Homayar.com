@@ -1,0 +1,19 @@
+# Gitleaks configuration for the CI secret scan (`gitleaks git` reads this file
+# from the repository root). The default rules stay in force; the allowlist
+# below only excuses content digests, never a secret-shaped value.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """Handoff source manifests map a repository path to its SHA-256 content \
+digest. Paths such as backend/routers/v1/api_keys.py make the generic-api-key rule \
+read the digest as a key; a 64-hex digest line in these files is not a secret."""
+condition = "AND"
+paths = [
+  '''^docs/handoff/[^/]+/(CONTEXT_SNAPSHOT\.json|graphify/(refreshes/[^/]+/)?source-manifest\.json)$''',
+]
+regexTarget = "line"
+regexes = [
+  '''^\s*"[^"]+":\s*"[0-9a-f]{64}",?\s*$''',
+]
