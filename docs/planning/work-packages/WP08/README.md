@@ -59,7 +59,7 @@ and `docs/handoff/session-a/API_CONTRACT.md`.
   injected in `test_provider_resilience.py`: retries stay within the job budget, permanent errors
   stop, circuits open and recover, fallback never leaves the tenant policy.
 - Integrated verification (product `c5bf752`, CI job environment): full backend suite on
-  PostgreSQL 16 691 passed / 46 skipped / 0 failed; console (Node 22) lint, build and 80 tests passed.
+  PostgreSQL 16 and 17 691 passed / 46 skipped / 0 failed each; Docker images build and pass the runtime smoke test; console (Node 22) lint, build and 80 tests passed.
 - Reviewer decision: self-review only (single-agent sessions by owner instruction).
 
 ## Completion evidence to record
