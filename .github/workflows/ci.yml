@@ -292,6 +292,9 @@ jobs:
       - name: Validate on-prem Compose profile
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem config --quiet
 
+      - name: Validate on-prem Compose profile with the egress proxy
+        run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem --profile egress config --quiet
+
       - name: Validate optional Neo4j overlay
         run: >-
           docker compose
@@ -340,12 +343,14 @@ jobs:
           docker buildx build --check --file infra/docker/public-web.Dockerfile .
           docker buildx build --check --file infra/docker/console-web.Dockerfile .
           docker buildx build --check --file infra/docker/api.Dockerfile .
+          docker buildx build --check --file infra/docker/egress-proxy.Dockerfile .
 
       - name: Build application images
         run: |
           docker build --file infra/docker/public-web.Dockerfile --tag homayar-ci/public-web:local .
           docker build --file infra/docker/console-web.Dockerfile --tag homayar-ci/console-web:local .
           docker build --file infra/docker/api.Dockerfile --tag homayar-ci/api:local .
+          docker build --file infra/docker/egress-proxy.Dockerfile --tag homayar-ci/egress-proxy:local .
 
       - name: Smoke-test hardened image runtimes
         run: |
@@ -375,6 +380,26 @@ jobs:
           test "$(docker inspect --format '{{.Config.User}}' homayar-ci-public)" = "10001:10001"
           test "$(docker inspect --format '{{.Config.User}}' homayar-ci-console)" = "101:101"
           test "$(docker inspect --format '{{.Config.User}}' homayar-ci-api)" = "10001:10001"
+
+      # WP08-T06 network layer (ADR 0031): probes from inside the api, worker,
+      # scheduler and web containers as Compose attaches them; disposable
+      # endpoints only, no provider is contacted.
+      - name: Test network-level egress denial and the egress proxy allowlist
+        env:
+          API_IMAGE: homayar-ci/api:local
+          PUBLIC_WEB_IMAGE: homayar-ci/public-web:local
+          CONSOLE_WEB_IMAGE: homayar-ci/console-web:local
+          EGRESS_PROXY_IMAGE: homayar-ci/egress-proxy:local
+        run: bash infra/egress/tests/test-egress-network.sh
+
+      # The default on-prem configuration must not name a cloud AI endpoint.
+      - name: Check that the default on-prem AI configuration needs no cloud egress
+        run: >-
+          docker run --rm
+          --env ENVIRONMENT=development
+          --env DEPLOYMENT_MODE=onprem
+          homayar-ci/api:local
+          python -m backend.jobs.model_preflight --egress-allowlist --require-no-cloud
 
       - name: Validate reverse-proxy nginx configuration
         run: >-
@@ -414,6 +439,8 @@ jobs:
           infra/scripts/backup-minio.sh
           infra/scripts/restore-minio.sh
           infra/scripts/lib/compose.sh
+          infra/egress/entrypoint.sh
+          infra/egress/tests/test-egress-network.sh
 
       - name: Lint Dockerfile templates
         run: >-
@@ -425,3 +452,4 @@ jobs:
           infra/docker/public-web.Dockerfile
           infra/docker/console-web.Dockerfile
           infra/docker/api.Dockerfile
+          infra/docker/egress-proxy.Dockerfile

@@ -84,6 +84,94 @@ The cloud profile additionally requires `STORAGE_BUCKET`, `STORAGE_REGION`, and 
 settings require static S3 credentials. Workload identity should replace them only after
 the application supports a credential provider chain without requiring access keys.
 
+### Optional runtime settings (defaults keep them off)
+
+Both Compose files pass these through `x-app-environment`; empty means disabled or the
+product default. Secrets among them come from the secret manager, never from build args.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MODEL_MANIFEST_PATHS` | empty | Operator manifests, container paths such as `/app/manifests/operator.json` (ADR 0026). `MODEL_MANIFEST_DIR` (default `infra/manifests`) is mounted read-only at `/app/manifests` on `api`, `worker` and `scheduler`. Leave `MODEL_MANIFEST_STRICT` unset: strict outside development/test, and production refuses `false`. |
+| `MODEL_MANIFEST_PINS` | empty | `stage=manifest_id@version` pins |
+| `JOB_RETRY_JITTER_RATIO` | `0.1` | Positive jitter on retry back-off (ADR 0030) |
+| `PROVIDER_CIRCUIT_FAILURE_THRESHOLD` / `PROVIDER_CIRCUIT_COOLDOWN_SECONDS` | `5` / `60` | Shared endpoint circuit |
+| `PROVIDER_RATE_LIMITS` | empty | `manifest_id=60,...` requests per minute |
+| `LLM_FALLBACK_BASE_URL`, `LLM_FALLBACK_MODEL`, `LLM_FALLBACK_API_KEY` (secret) | empty | Same-policy analysis fallback; needs its own manifest and an owner's `fallback: true` in the workspace AI policy |
+| `ASR_PROVIDER`, `DIARIZATION_PROVIDER`, `INTELLIGENCE_PROVIDER`, `LOCAL_AI_BASE_URL`, `WHISPER_*` | product defaults | AI providers. `local_whisper` needs an image built with `INSTALL_AI_LOCAL=true`. `padyar` fails jobs with `provider_contract_unavailable` until the Padyar AI Gateway API contract exists. |
+| `PII_MAPPING_KEYS`, `PII_MAPPING_ACTIVE_KEY_ID` (secret) | empty | Restricted PII mappings (ADR 0023); empty keeps redaction but retains no originals |
+| `ENABLE_GOOGLE_AUTH`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (secret), `GOOGLE_REDIRECT_URI` | off | Google sign-in; the redirect URI must be `${PUBLIC_ORIGIN}/api/v1/auth/google/callback` |
+| `ENABLE_PHONE_AUTH`, `ASANAK_API_KEY` (secret), `ASANAK_SENDER` | off | Phone OTP through Asanak |
+| `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USERNAME`, `SMTP_PASSWORD` (secret), `SMTP_FROM`, `SMTP_USE_TLS` | empty | Verification, password-reset and invitation e-mail (STARTTLS on 587, TLS on 465). Without `SMTP_HOST` no e-mail is sent: registration and resend still answer, invitations fail with `invitation_delivery_failed` and are revoked. |
+| `ENABLE_FREE_DEMO`, `DEMO_QUOTA_SECONDS` | `true`, `1800` | Demo allowance of new workspaces |
+| `EGRESS_PROXY_URL` | empty | `http://egress-proxy:3128` when the egress profile runs (see "Network egress") |
+
+The API refuses to start with Google or phone sign-in enabled but its credentials
+missing. The console no longer has `VITE_ENABLE_GOOGLE_AUTH` / `VITE_ENABLE_PHONE_AUTH`
+build flags: it asks `GET /api/v1/auth/methods`, which reports a method only when it is
+enabled and configured, so the offered methods always match this configuration.
+
+After deploying, and after any manifest or provider change, run the model preflight
+(`exit 1` means a stage has no qualified manifest; nothing is registered then):
+
+```bash
+docker compose --file infra/compose/compose.onprem.yaml --profile onprem run --rm --no-deps api python -m backend.jobs.model_preflight
+docker compose --file infra/compose/compose.onprem.yaml --profile onprem run --rm --no-deps api python -m backend.jobs.model_preflight --register
+```
+
+## Network Egress
+
+Application-level permits (ADR 0031) refuse any provider request no routing decision
+covers; the network layer below makes sure a process that bypasses them has nowhere to go.
+
+On-premise (`compose.onprem.yaml`):
+
+| Network | Internal | Members |
+| --- | --- | --- |
+| `edge` | no | `proxy` (nginx) only: the published port |
+| `ingress` | yes | `proxy`, `public-web`, `console-web`, `api` |
+| `backend` | yes | `api`, `worker`, `scheduler`, PostgreSQL, Redis, MinIO, jobs |
+| `egress` | yes | `api`, `worker`, `egress-proxy` |
+| `outbound` | no | `egress-proxy` only |
+
+No application container has a route out. Outbound HTTP(S) goes only through
+`egress-proxy` (profile `egress`, deny-by-default Squid), which forwards CONNECT and plain
+HTTP to the exact `host:port` lines of `infra/egress/allowlist.txt` (or
+`EGRESS_ALLOWLIST_PATH`) and refuses everything else, loopback and link-local (cloud
+metadata) addresses and its own manager pages. It publishes no port. The air-gapped default
+is to not run the profile and leave `EGRESS_PROXY_URL` empty: there is then no outbound path
+at all.
+
+```bash
+docker compose --file infra/compose/compose.onprem.yaml --profile onprem run --rm --no-deps api \
+  python -m backend.jobs.model_preflight --egress-allowlist            # review, then add to allowlist.txt
+docker compose --file infra/compose/compose.onprem.yaml --profile onprem --profile egress up --detach
+```
+
+`--egress-allowlist --require-no-cloud` exits 3 when a cloud AI endpoint is configured; CI
+runs it for the default on-prem configuration. Add non-AI providers explicitly and only when
+enabled (Google: `oauth2.googleapis.com:443`, `www.googleapis.com:443`; Asanak:
+`panel.asanak.com:443`).
+
+Limits, stated plainly:
+
+- **SMTP does not pass through the proxy** (it is not HTTP) and the isolated topology gives the
+  API no other route out. An on-premise deployment that sends e-mail needs a mail relay
+  reachable on an internal network (a deployment-specific addition that is not provided);
+  otherwise leave `SMTP_HOST` empty and accept that no e-mail is sent.
+- **Private AI endpoints on the customer LAN** are reached through the proxy too (list them);
+  a local model server can instead run as a Compose service on the `egress` or `backend`
+  network.
+- **Cloud profile:** PostgreSQL, Redis and object storage are external services, so Compose
+  cannot make the application networks internal. Network-level egress control there must be
+  enforced by the platform (security groups / firewall allowing only the managed data
+  services and the egress proxy); `EGRESS_PROXY_URL` routes HTTP(S) through a proxy you
+  provide. This is not verified by the repository's tests.
+
+Evidence: `infra/egress/tests/test-egress-network.sh` starts the real `egress-proxy` of the
+on-prem file plus two disposable HTTP servers and probes from inside the `api`, `worker`,
+`scheduler`, `public-web` and `console-web` containers as Compose attaches them. It is a
+container-network test on one Docker host, not a validation of a production deployment.
+
 ## Image Policy
 
 Defaults are conservative local tags. Production deployments must override base and state

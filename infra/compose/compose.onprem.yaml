@@ -49,6 +49,55 @@ x-app-environment: &app-environment
   TOMBSTONE_JOURNAL_DIR: /app/tombstones
   ENABLE_NEO4J_PROJECTION: "false"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+  # Model registry and provider resilience (WP08, ADR 0026/0030). Leave
+  # MODEL_MANIFEST_STRICT unset: strict by default outside development/test.
+  MODEL_MANIFEST_PATHS: "${MODEL_MANIFEST_PATHS:-}"
+  MODEL_MANIFEST_PINS: "${MODEL_MANIFEST_PINS:-}"
+  JOB_RETRY_JITTER_RATIO: "${JOB_RETRY_JITTER_RATIO:-0.1}"
+  PROVIDER_CIRCUIT_FAILURE_THRESHOLD: "${PROVIDER_CIRCUIT_FAILURE_THRESHOLD:-5}"
+  PROVIDER_CIRCUIT_COOLDOWN_SECONDS: "${PROVIDER_CIRCUIT_COOLDOWN_SECONDS:-60}"
+  PROVIDER_RATE_LIMITS: "${PROVIDER_RATE_LIMITS:-}"
+  LLM_FALLBACK_BASE_URL: "${LLM_FALLBACK_BASE_URL:-}"
+  LLM_FALLBACK_MODEL: "${LLM_FALLBACK_MODEL:-}"
+  LLM_FALLBACK_API_KEY: "${LLM_FALLBACK_API_KEY:-}"
+  # AI providers (ADR 0028/0029). The Padyar AI Gateway has no API contract
+  # yet: selecting it fails jobs with provider_contract_unavailable.
+  ASR_PROVIDER: "${ASR_PROVIDER:-local_whisper}"
+  DIARIZATION_PROVIDER: "${DIARIZATION_PROVIDER:-unavailable}"
+  INTELLIGENCE_PROVIDER: "${INTELLIGENCE_PROVIDER:-openai_compatible}"
+  LOCAL_AI_BASE_URL: "${LOCAL_AI_BASE_URL:-}"
+  WHISPER_MODEL: "${WHISPER_MODEL:-base}"
+  WHISPER_DEVICE: "${WHISPER_DEVICE:-cpu}"
+  WHISPER_COMPUTE_TYPE: "${WHISPER_COMPUTE_TYPE:-int8}"
+  # Restricted PII mappings (ADR 0023): "key_id:base64(32 bytes)" from the
+  # secret manager; empty keeps redaction but retains no originals.
+  PII_MAPPING_KEYS: "${PII_MAPPING_KEYS:-}"
+  PII_MAPPING_ACTIVE_KEY_ID: "${PII_MAPPING_ACTIVE_KEY_ID:-}"
+  # Sign-in and delivery providers: disabled unless configured. The API
+  # refuses to start with a method enabled but its credentials missing, and
+  # GET /api/v1/auth/methods tells the console what is available.
+  ENABLE_GOOGLE_AUTH: "${ENABLE_GOOGLE_AUTH:-false}"
+  GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+  GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+  GOOGLE_REDIRECT_URI: "${GOOGLE_REDIRECT_URI:-}"
+  ENABLE_PHONE_AUTH: "${ENABLE_PHONE_AUTH:-false}"
+  ASANAK_API_KEY: "${ASANAK_API_KEY:-}"
+  ASANAK_SENDER: "${ASANAK_SENDER:-}"
+  SMTP_HOST: "${SMTP_HOST:-}"
+  SMTP_PORT: "${SMTP_PORT:-587}"
+  SMTP_USERNAME: "${SMTP_USERNAME:-}"
+  SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+  SMTP_FROM: "${SMTP_FROM:-noreply@homayar.com}"
+  SMTP_USE_TLS: "${SMTP_USE_TLS:-false}"
+  ENABLE_FREE_DEMO: "${ENABLE_FREE_DEMO:-true}"
+  DEMO_QUOTA_SECONDS: "${DEMO_QUOTA_SECONDS:-1800}"
+  # Network egress (WP08-T06, ADR 0031): api and worker sit on internal
+  # networks with no route out; outbound HTTP(S) (AI, Google, Asanak) goes
+  # only through the egress proxy (profile "egress") and its allowlist. Unset
+  # EGRESS_PROXY_URL (the air-gapped default) leaves no outbound path at all.
+  HTTP_PROXY: "${EGRESS_PROXY_URL:-}"
+  HTTPS_PROXY: "${EGRESS_PROXY_URL:-}"
+  NO_PROXY: "postgres,redis,minio,neo4j,localhost,127.0.0.1"
 
 x-api-image: &api-image
   image: "${API_IMAGE:-homayar/api:local}"
@@ -91,7 +140,9 @@ services:
       - /tmp:rw,noexec,nosuid,size=128m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    networks: [edge]
+    # The only published service: edge for the host port, ingress to reach
+    # the web services and the API (which have no route out themselves).
+    networks: [edge, ingress]
     logging: *default-logging
 
   public-web:
@@ -126,7 +177,7 @@ services:
       - /app/.next/cache:rw,noexec,nosuid,size=512m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    networks: [edge]
+    networks: [ingress]
     logging: *default-logging
 
   console-web:
@@ -152,7 +203,7 @@ services:
       - /tmp:rw,noexec,nosuid,size=64m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    networks: [edge]
+    networks: [ingress]
     logging: *default-logging
 
   api:
@@ -168,6 +219,7 @@ services:
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
+      - "${MODEL_MANIFEST_DIR:-../manifests}:/app/manifests:ro"
     depends_on:
       postgres:
         condition: service_healthy
@@ -194,7 +246,7 @@ services:
       - /app/logs:rw,noexec,nosuid,size=64m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    networks: [edge, backend]
+    networks: [ingress, backend, egress]
     logging: *default-logging
 
   # Transactional-outbox recovery (WP06-T02): one beat instance republishes
@@ -211,9 +263,14 @@ services:
       <<: *app-environment
     volumes:
       - app_data:/app/data
+      - "${MODEL_MANIFEST_DIR:-../manifests}:/app/manifests:ro"
     depends_on:
       postgres:
         condition: service_healthy
+    # Without an explicit list Compose would attach the default network,
+    # which has a route out; beat only needs PostgreSQL and Redis.
+    networks: [backend]
+    logging: *default-logging
 
   worker:
     <<: *api-image
@@ -228,6 +285,7 @@ services:
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
+      - "${MODEL_MANIFEST_DIR:-../manifests}:/app/manifests:ro"
     depends_on:
       postgres:
         condition: service_healthy
@@ -253,6 +311,35 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend, egress]
+    logging: *default-logging
+
+  # The single outbound path (WP08-T06, ADR 0031): deny-by-default Squid that
+  # forwards only to the exact host:port lines of infra/egress/allowlist.txt.
+  # Not published; api and worker reach it on the internal egress network.
+  # Start it with --profile egress and set EGRESS_PROXY_URL=http://egress-proxy:3128.
+  egress-proxy:
+    image: "${EGRESS_PROXY_IMAGE:-homayar/egress-proxy:local}"
+    profiles: [egress]
+    build:
+      context: ../..
+      dockerfile: infra/docker/egress-proxy.Dockerfile
+      args:
+        ALPINE_IMAGE: "${ALPINE_IMAGE:-alpine:3.22}"
+    volumes:
+      - "${EGRESS_ALLOWLIST_PATH:-../egress/allowlist.txt}:/etc/homayar/egress/allowlist.txt:ro"
+    healthcheck:
+      test: [CMD, nc, -z, 127.0.0.1, "3128"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [egress, outbound]
     logging: *default-logging
 
   # Restore step (WP07-T04, ADR 0022): after the PostgreSQL/MinIO restore and
@@ -443,7 +530,15 @@ volumes:
   minio_data:
 
 networks:
+  # Published ingress only (nginx).
   edge:
+  # nginx <-> public web, console and API; no route out.
+  ingress:
+    internal: true
   backend:
     internal: true
+  # api/worker <-> egress proxy; no route out.
   egress:
+    internal: true
+  # egress proxy only: the one network with a route out.
+  outbound:
