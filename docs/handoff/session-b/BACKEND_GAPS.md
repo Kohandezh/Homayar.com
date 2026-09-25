@@ -92,6 +92,28 @@ CI, Compose, nginx or the source lock.
 - **Acceptance:** a membership with `effective_to` in the past and a suspended workspace are
   absent from `SessionResponse.workspaces`; a test pins both paths to one predicate.
 
+## G10 — Summary, action and evidence responses do not say which view they are
+
+- **Blocked action:** the console can only label the summary and action tabs as masked by
+  reading the transcript response (`view`, `privacy_enforced`, `redaction`).
+- **Proposed:** add the same `view` and `privacy_enforced` fields to `SummaryResponse`,
+  `ActionItemResponse` lists (envelope) and `EvidenceListResponse`.
+- **Acceptance:** under an enforced policy every content response states `view: "redacted"`
+  unless `?view=original` was granted.
+
+## G11 — Inline audio playback needs a workspace-bound media URL
+
+- **Blocked action:** synchronized audio/transcript playback (WP12-T03). A native `<audio>`
+  element cannot send `X-Workspace-ID`, so `GET /meetings/{id}/recording` resolves the caller's
+  oldest workspace and a multi-workspace user gets 404. The console keeps the authorized
+  download (blob via the API client) only.
+- **Proposed:** a short-lived, workspace-bound playback grant, e.g.
+  `POST /api/v1/meetings/{id}/recording/playback` → `{"url": "…", "expires_at": "…"}` that
+  supports HTTP Range, or workspace scoping in the path. Access must end at expiry; the UI would
+  not claim immediate revocation of an issued URL.
+- **Acceptance:** a user in two workspaces can play a recording of the non-default workspace;
+  the grant stops working after `expires_at`, after deletion and after membership removal.
+
 ## G8 — Product source availability (integration, not backend code)
 
 - **Observed:** `infra/product-source.lock` on website `main` (`cfcc2c4`) pins

@@ -78,6 +78,7 @@ Upload limits are **server settings with no read API**: `ALLOWED_EXTENSIONS` def
 | GET `/meetings/{id}/summary?view=` | `meeting:read` | 404 `summary_not_ready` when no summary exists. Same view rules. |
 | GET `/meetings/{id}/actions?view=` | `meeting:read` | Same view rules. |
 | GET `/meetings/{id}/quality` | `meeting:read` | Same object as `MeetingDetailResponse.quality`. |
+| GET `/meetings/{id}/evidence?view=` | `meeting:read` | `{items[{id, segment_id, is_current_revision, finding_type, finding_index, text, start_ms, end_ms, …}]}`; summary items reference them by `evidence_ids`. Placeholders look like `[EMAIL_1]`, `[IR_NATIONAL_ID_2]` (`[{CLASS_NAME}_{n}]`). |
 | POST `/meetings/{id}/transcript/redactions/{redaction_id}/reveal` | `pii:original_access` + CSRF | `{placeholder: "[CLASS_n]", reason (3–200)}` → `{redaction_id, placeholder, value}`; 404 `mapping_not_retained`/`redaction_not_found`; 409 `mapping_key_unavailable`; audited `pii.revealed`. |
 | GET `/meetings/{id}/recording`, `/export` | `meeting:read` | Streamed/blob download. |
 | DELETE `/meetings/{id}` | `meeting:delete` + CSRF | 204; afterwards every read is 404 `meeting_not_found`. |
@@ -99,4 +100,5 @@ G1 no auth-method discovery (Google/phone availability) · G2 no resend-verifica
 G3 no upload-policy read API (formats/size/duration) · G4 no per-workspace permission list ·
 G5 usage not readable by members/viewers · G6 no job cancel endpoint · G7 phone OTP returns 500
 when unconfigured · G8 product commit `d1cc5d4` is not on the GitHub remote · G9 `/auth/me`
-lists non-effective memberships.
+lists non-effective memberships · G10 summary/actions/evidence do not declare their view ·
+G11 no workspace-bound media URL for inline playback.

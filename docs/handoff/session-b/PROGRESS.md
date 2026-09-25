@@ -112,3 +112,26 @@ Product commit `955bdd4` (parent `ca5c99b`).
   cached transcript, summary, actions, shares, job and search results; share links are fetched
   only after the meeting itself loaded (a 404 previously still fetched them).
 - Verification (mocked): `vitest run` 9 files / 63 tests passed; `eslint` clean; build succeeded.
+
+## B6 — Results and privacy (WP07-T06, WP12-T02/T03 console scope)
+
+Product commit `63eb30d` (parent `955bdd4`).
+
+- `MeetingResults`: accessible tabs (roving tabindex, RTL-aware arrow keys, Home/End, labelled
+  tab panels); summary overview, decisions and key points with localized evidence badges and
+  "show in transcript" links resolved through `GET /meetings/{id}/evidence` (findings citing an
+  earlier revision say so); `summary_not_ready` is shown as "no summary" with the API's
+  analysis reason, not as an error; mock analysis disclosed.
+- Transcript: speaker filter, focusable segments (`dir="auto"` for mixed text), speaker rename
+  for editors, placeholders marked in transcript, summary and actions.
+- Redaction (enforced policy): notice with masked count and classes, the detector's limits and
+  "audio is not masked". Owner-only original view needs an explicit confirmation that states it
+  is audited; it is fetched once (`?view=original`, no background refetch, `gcTime: 0`) and
+  removed on hide/unmount; 403 `original_access_denied` explained. Single-value reveal uses the
+  audited reveal route with a reason, keeps the value only in component state (verified absent
+  from the query cache) and clears it on "hide"; 404/409 refusals explained. Speaker renames
+  invalidate the transcript key exactly so the original is not re-read.
+- Share links: localized, honest revocation note (no claim about already-downloaded copies).
+- Gaps recorded: G10 (summary/actions/evidence do not declare their view), G11 (no
+  workspace-bound media URL for inline audio playback; download remains).
+- Verification (mocked): `vitest run` 10 files / 71 tests passed; `eslint` clean; build succeeded.
