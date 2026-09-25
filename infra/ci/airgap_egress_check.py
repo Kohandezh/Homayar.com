@@ -27,7 +27,7 @@ os.environ.update(
     }
 )
 
-from backend.config import reset_settings_cache, get_settings  # noqa: E402
+from backend.config import get_settings, reset_settings_cache  # noqa: E402
 from backend.jobs import model_preflight  # noqa: E402
 from backend.providers.factory import create_provider_bundle  # noqa: E402
 from backend.providers.registry import manifest_skeleton  # noqa: E402
@@ -42,7 +42,8 @@ def run() -> tuple[int, str]:
 
 
 failures = []
-manifest = manifest_skeleton("intelligence", create_provider_bundle(get_settings()).intelligence.identity())
+identity = create_provider_bundle(get_settings()).intelligence.identity()
+manifest = manifest_skeleton("intelligence", identity)
 manifest.update(endpoint_kind="private", region="customer-dc", manifest_id="ci.llm.private")
 with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
     json.dump({"schema": "homayar.model-manifests/1", "manifests": [manifest]}, handle)
@@ -53,7 +54,8 @@ print(f"private-only configuration: exit {code}; allowlist: {out.strip()!r}")
 if code != 0 or not out.startswith("llm.internal:8000") or "cloud" in out:
     failures.append("a private-only on-prem configuration must pass with llm.internal:8000 only")
 
-os.environ.update({"LLM_FALLBACK_BASE_URL": "https://api.cloud-llm.example/v1", "LLM_FALLBACK_MODEL": "cloud-model"})
+os.environ["LLM_FALLBACK_BASE_URL"] = "https://api.cloud-llm.example/v1"
+os.environ["LLM_FALLBACK_MODEL"] = "cloud-model"
 code, out = run()
 print(f"with a cloud fallback configured: exit {code}")
 if code != model_preflight.EGRESS_CLOUD_REFUSED:
