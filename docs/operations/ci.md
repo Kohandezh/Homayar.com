@@ -4,7 +4,7 @@
 
 | Job | Required checks |
 | --- | --- |
-| Public web | reviewed pnpm lifecycle scripts, frozen install, lint, server build, cPanel export, Playwright tests |
+| Public web | reviewed pnpm lifecycle scripts, frozen install, lint, server build, cPanel export, Playwright tests (the last two once committed, see below) |
 | Product console | frozen npm install, nested lint, `/app/` build, declared test script and tests |
 | Backend | frozen uv environment, single Alembic head, upgrade/check/current-head, pytest |
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
@@ -40,6 +40,13 @@ Backend CI uses only isolated PostgreSQL and Redis service containers. It sets t
 mock-provider permission explicitly; it does not call email, SMS, OAuth, ASR, diarization,
 LLM, S3, Neo4j, or other live providers. Root browser tests are expected to stub any external
 commercial integration they exercise.
+
+The cPanel export (`scripts/build-cpanel.mjs`, `pnpm build:cpanel`) and the Playwright suite
+(`tests/*.spec.ts`) belong to the website overlay recorded in WP01-T03, which is not committed to
+this repository yet. Until each is committed, its steps are skipped and the public-web job carries
+a "Website gates pending" warning annotation; they run automatically as soon as the files exist.
+This is a temporary exception for files that do not exist, not an optional gate: once the overlay
+lands, remove the conditions from `.github/workflows/ci.yml`.
 
 The console lane fails when `Homayar/frontend/package.json` has no `test` script. The backend
 lane fails when Alembic configuration is absent, more than one migration head exists, schema

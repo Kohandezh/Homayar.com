@@ -69,13 +69,25 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # The cPanel export script and the Playwright suite belong to the website
+      # overlay (WP01-T03) that is not in this repository yet. Each gate runs as
+      # soon as its files are committed; until then the run carries a warning.
+      - name: Report website gates not yet in the repository
+        if: hashFiles('scripts/build-cpanel.mjs') == '' || hashFiles('tests/**/*.spec.ts') == ''
+        run: >-
+          echo "::warning title=Website gates pending::scripts/build-cpanel.mjs and/or tests/*.spec.ts
+          are not committed (website overlay, WP01-T03); the cPanel export and/or browser tests were skipped."
+
       - name: Build and validate cPanel static artifact
+        if: hashFiles('scripts/build-cpanel.mjs') != ''
         run: pnpm build:cpanel
 
       - name: Install Playwright Chromium
+        if: hashFiles('tests/**/*.spec.ts') != ''
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run browser tests
+        if: hashFiles('tests/**/*.spec.ts') != ''
         run: pnpm test:e2e
 
   console-web:
