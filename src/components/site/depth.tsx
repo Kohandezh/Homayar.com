@@ -7,10 +7,10 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { useMedia, useMounted } from "@/lib/client-state";
 
 const VoiceField = dynamic(() => import("./voice-field"), { ssr: false });
 
@@ -62,29 +62,6 @@ class CanvasErrorBoundary extends Component<
   render() {
     return this.state.failed ? null : this.props.children;
   }
-}
-
-/** Hydration-safe media-query read: false on the server, live on the client.
- *  Uses useSyncExternalStore so there is no setState-in-effect cascade. */
-function useMedia(query: string) {
-  return useSyncExternalStore(
-    (onChange) => {
-      const mq = window.matchMedia(query);
-      mq.addEventListener("change", onChange);
-      return () => mq.removeEventListener("change", onChange);
-    },
-    () => window.matchMedia(query).matches,
-    () => false,
-  );
-}
-
-/** False during SSR and the first client render, true afterwards. */
-function useMounted() {
-  return useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
 }
 
 /** True only while the referenced element is on screen AND the tab is visible.

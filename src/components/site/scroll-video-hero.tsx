@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
+import { useMedia } from "@/lib/client-state";
 import type { Dict } from "@/lib/content";
 
 /**
@@ -25,19 +26,15 @@ export function ScrollVideoHero({ t, dir }: { t: Dict; dir: "rtl" | "ltr" }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const base = dir === "ltr" ? "rtl" : "ltr";
 
-  // Start in "static" so SSR + first client render match (mobile-first, no
-  // hydration mismatch). Upgrade to "scrub" only on a device that can do it well.
-  const [mode, setMode] = useState<"static" | "scrub">("static");
+  // "static" on the server and during hydration (mobile-first, no hydration
+  // mismatch); "scrub" only on a device that can do it well.
+  const fine = useMedia("(pointer: fine)");
+  const wide = useMedia("(min-width: 768px)");
+  const reduced = useMedia("(prefers-reduced-motion: reduce)");
+  const mode: "static" | "scrub" = fine && wide && !reduced ? "scrub" : "static";
 
   // Paint the LCP poster as early as the streamed <head>.
   ReactDOM.preload("/hero-poster.webp", { as: "image", fetchPriority: "high" });
-
-  useEffect(() => {
-    const fine = window.matchMedia("(pointer: fine)").matches;
-    const wide = window.matchMedia("(min-width: 768px)").matches;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    setMode(fine && wide && !reduced ? "scrub" : "static");
-  }, []);
 
   // ── Desktop scroll-scrub ──────────────────────────────────────────────────
   useEffect(() => {
@@ -144,6 +141,13 @@ export function ScrollVideoHero({ t, dir }: { t: Dict; dir: "rtl" | "ltr" }) {
       window.removeEventListener("scroll", measure);
       window.removeEventListener("resize", measure);
       document.removeEventListener("visibilitychange", onVisibility);
+      for (const line of lines) line.style.pointerEvents = "";
+      if (overlay) {
+        overlay.style.opacity = "";
+        overlay.style.transform = "";
+        overlay.style.filter = "";
+        overlay.style.pointerEvents = "";
+      }
     };
   }, [mode, base]);
 

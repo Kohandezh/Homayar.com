@@ -8,9 +8,25 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useMounted } from "@/lib/client-state";
 import type { CartItem, Product } from "@/lib/types";
 
 const STORAGE_KEY = "homayar-cart-v1";
+const EMPTY: CartItem[] = [];
+
+function loadStoredCart(): CartItem[] {
+  if (typeof window === "undefined") return EMPTY;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as CartItem[];
+      if (Array.isArray(parsed)) return parsed.filter((i) => i.quantity > 0);
+    }
+  } catch {
+    // corrupted storage — start fresh
+  }
+  return EMPTY;
+}
 
 interface CartContextValue {
   items: CartItem[];
@@ -27,30 +43,20 @@ interface CartContextValue {
 const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as CartItem[];
-        if (Array.isArray(parsed)) setItems(parsed.filter((i) => i.quantity > 0));
-      }
-    } catch {
-      // corrupted storage — start fresh
-    }
-    setReady(true);
-  }, []);
+  // localStorage is client-only: the server render and hydration see an
+  // empty cart that is not ready; the stored cart applies right after mount.
+  const ready = useMounted();
+  const [stored, setItems] = useState<CartItem[]>(loadStoredCart);
+  const items = ready ? stored : EMPTY;
 
   useEffect(() => {
     if (!ready) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     } catch {
       // storage full/unavailable — cart still works in memory
     }
-  }, [items, ready]);
+  }, [stored, ready]);
 
   const add = useCallback((product: Product, quantity = 1) => {
     if (product.billingType === "custom" || product.priceUsd === 0) return;

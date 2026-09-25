@@ -34,14 +34,16 @@ export function Header() {
   const pathname = usePathname();
   const { locale } = useLocale();
   const [open, setOpen] = useState(false);
+  // Close the menu when the route changes (adjusting state during render).
+  const [menuPathname, setMenuPathname] = useState(pathname);
+  if (menuPathname !== pathname) {
+    setMenuPathname(pathname);
+    setOpen(false);
+  }
 
   const links = navLinks(locale);
   const demoLabel = CONTENT[locale].cta.demo;
   const consoleLabel = consoleLabels(locale);
-
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
 
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
