@@ -135,3 +135,24 @@ Product commit `63eb30d` (parent `955bdd4`).
 - Gaps recorded: G10 (summary/actions/evidence do not declare their view), G11 (no
   workspace-bound media URL for inline audio playback; download remains).
 - Verification (mocked): `vitest run` 10 files / 71 tests passed; `eslint` clean; build succeeded.
+
+## B7 — Trial and usage presentation (WP18 console scope; backend owns entitlement)
+
+Product commit `68e081f` (parent `63eb30d`).
+
+- Audio usage comes only from `GET /billing/usage` (`audio_seconds`, seconds) and is shown in
+  whole minutes and seconds, floored (`formatAudioSeconds`); the previous one-decimal minutes
+  could show 1,799 s as "30 min".
+- `AllowanceNotice` (overview and usage page, owners/admins): total allowance when the
+  entitlement has no period end (the demo grant), what "reserved" means (held for recordings in
+  processing, settled or released by the server — the empty-transcript charging policy is not
+  described), and an exhausted state ("new uploads will be refused") with a contact-sales link
+  and no price. The existing usage page already states that pricing is unpublished and billing
+  manual; it now uses role affordances from `lib/roles.ts`.
+- Members no longer call `/billing/usage` (it returned 403); the overview says usage is visible
+  to owners/admins (gap G5). Viewers no longer see an upload button. Subscription states
+  (`trialing`, `past_due`, `expired`) are labelled.
+- The commercial trial is **not** marked complete: the 1,800 s grant exists server-side
+  (`ENABLE_FREE_DEMO`, `DEMO_QUOTA_SECONDS`) but live email verification, real AI providers and
+  the charging policy are open.
+- Verification (mocked): `vitest run` 11 files / 77 tests passed; `eslint` clean; build succeeded.
