@@ -156,3 +156,61 @@ Product commit `68e081f` (parent `63eb30d`).
   (`ENABLE_FREE_DEMO`, `DEMO_QUOTA_SECONDS`) but live email verification, real AI providers and
   the charging policy are open.
 - Verification (mocked): `vitest run` 11 files / 77 tests passed; `eslint` clean; build succeeded.
+
+## B8 — Responsive, accessible, Persian-first verification
+
+Product commit `71e36aa` (parent `68e081f`).
+
+Browser checks (Claude built-in browser, 2026-09-25). **Mocked:** the console ran on Vite
+(`127.0.0.1:5183`) against a Session B fixture HTTP server (`127.0.0.1:5184`, script kept in the
+session scratchpad, not committed; every fixture title says FIXTURE). No product backend, AI
+provider, email, Google or Asanak was involved. The website ran from its production build
+(`next start -p 5185`).
+
+| Check | Result |
+| --- | --- |
+| Console, Persian, 375 px and ~470 px: workspace chooser, overview, meeting list, upload refusal, results, dead-letter replay, login, phone-unavailable | Rendered RTL with Persian digits and Solar Hijri dates; no horizontal page scroll (`scrollWidth == clientWidth`) |
+| Masked-value chips inside RTL sentences | Measured glyph order `[EMAIL_1]` left-to-right (bidi isolation works) |
+| Audited original view | One `GET …/transcript?view=original` after confirmation; hidden again with no further original request; no console errors |
+| Sign-in journey (fixture) | Wrong password → Persian error; success → workspace chooser; `localStorage` holds only `homayar_lang` (no password or token) |
+| Keyboard | Found and fixed: closed mobile drawer links were focusable off-screen → now `visibility: hidden`; Escape closes it; focus moves into the original-view confirmation |
+| RTL details | Found and fixed: back arrow mirrored in RTL; clock durations in Persian digits; privacy region labelled |
+| Website, 375 px (en, fa) and 768 px `/pricing` | New links present (`ورود`/`ساخت حساب`, `Sign in`/`Create account` → `/app/login`, `/app/register`); no overflow at 375/768; header fits on one row at 768 |
+
+Automated (mocked): `vitest run` 12 files / 80 tests passed; `eslint .` clean; `npm run build`
+succeeded.
+
+Not run: any live backend or deployment; real email/SMS/Google flows; real AI processing; a
+committed-baseline local backend (the product needs a Python environment that was not created in
+this session, and Session A's runtime was not used); desktop-width screenshots were too scaled in
+the pane to judge by eye (layout checked by measurement at 375/768 px).
+
+## Outstanding visual / accessibility issues
+
+- The console's font (Geist) has no Persian glyphs; Persian text uses the system fallback. The
+  website uses Vazirmatn. A Persian webfont for the console is a dependency decision (not added).
+- Console pages outside this journey (members, settings, search, shared meeting, invitation) are
+  only partly localized and still show English server messages through `ErrorState`.
+- Website: pre-existing `react-hooks/set-state-in-effect` lint error in `src/components/header.tsx`;
+  the homepage header overflows below ~300 px (pre-existing).
+- Website `/pricing` and `/catalog` advertise USD prices with cart/checkout, while the product
+  console states pricing is unpublished and billing manual — a WP21-T01/T02 claims decision for
+  the owner; Session B did not change it.
+
+## Integration requirements (shared files Session B did not edit)
+
+1. Merge/rebase: Session B's seven product commits sit on `d1cc5d4`; Session A's `42543aa`
+   (WP08-T01) also sits on `d1cc5d4` and touches only backend files, so no textual conflict is
+   expected. Pin the integrated product commit in `infra/product-source.lock` afterwards.
+2. Push the product overlay branch before any CI run in `ci` mode (gap G8).
+3. `infra/docker/console-web.Dockerfile`: pass `VITE_ENABLE_GOOGLE_AUTH` / `VITE_ENABLE_PHONE_AUTH`
+   only when the backend enables and configures those providers (until gap G1 exists).
+4. A website deployment without the `/app/` proxy must set `NEXT_PUBLIC_CONSOLE_URL`.
+5. Backend gaps G1–G7, G9–G11 in `BACKEND_GAPS.md` (proposals, not accepted contracts).
+6. Refresh Graphify against the integrated source (not done here).
+
+## Next frontend task
+
+Localize the remaining console pages and `ErrorState` by error code (members, settings, search,
+shared meeting, invitation), then run the journey against a committed local backend baseline in
+an isolated environment; after gap G11, add synchronized audio/transcript playback (WP12-T03).

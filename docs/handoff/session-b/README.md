@@ -25,6 +25,18 @@ contains `d1cc5d4`). The original checkout `/Users/emperor/Documents/AI/Homayar.
 
 Nothing was pushed or merged. Commits are local.
 
+## Session B commits
+
+| Repository | Commits (oldest first) |
+| --- | --- |
+| Product `session-b/frontend-journey` | `ec29aaa` auth · `34f3dfd` workspaces · `ca5c99b` upload · `955bdd4` processing · `63eb30d` results/privacy · `68e081f` usage · `71e36aa` browser-pass fixes |
+| Website `claude/homayar-commercial-session-b-25d3d3` | `3834f5e` console entry points + records, then handoff-only commits |
+
+Status: the customer journey website → sign-in → workspace → upload → processing → results →
+usage is implemented in the frontend against the committed contracts and verified with mocked
+tests and a fixture-backed browser pass. It is **not** verified against a live backend, real
+providers or a deployment, and it is **not production ready**.
+
 ## Records
 
 - [`CONTRACT_NOTE.md`](CONTRACT_NOTE.md) — product API routes, fields, errors and states the
