@@ -392,14 +392,14 @@ jobs:
           EGRESS_PROXY_IMAGE: homayar-ci/egress-proxy:local
         run: bash infra/egress/tests/test-egress-network.sh
 
-      # The default on-prem configuration must not name a cloud AI endpoint.
-      - name: Check that the default on-prem AI configuration needs no cloud egress
+      # The air-gapped gate: a private-only on-prem AI configuration passes the
+      # preflight's --require-no-cloud check and a cloud endpoint is refused.
+      - name: Check the air-gapped egress gate of the model preflight
         run: >-
           docker run --rm
-          --env ENVIRONMENT=development
-          --env DEPLOYMENT_MODE=onprem
+          --volume "${PWD}/infra/ci/airgap_egress_check.py:/check/airgap_egress_check.py:ro"
           homayar-ci/api:local
-          python -m backend.jobs.model_preflight --egress-allowlist --require-no-cloud
+          python /check/airgap_egress_check.py
 
       - name: Validate reverse-proxy nginx configuration
         run: >-
