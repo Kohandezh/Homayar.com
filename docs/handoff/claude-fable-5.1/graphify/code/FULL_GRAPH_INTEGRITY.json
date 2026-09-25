@@ -1,11 +1,11 @@
 {
-  "raw_ast_nodes": 4724,
-  "raw_ast_edges": 19146,
-  "explicit_unresolved_reference_nodes": 155,
-  "full_graph_nodes": 4879,
-  "full_graph_edges": 19146,
+  "raw_ast_nodes": 5481,
+  "raw_ast_edges": 22715,
+  "explicit_unresolved_reference_nodes": 163,
+  "full_graph_nodes": 5644,
+  "full_graph_edges": 22715,
   "full_graph_missing_endpoints": 0,
   "self_loop_edges": 1,
   "definition_resolution_complete": false,
-  "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Counts derive from the lossless extraction.json of this snapshot; the lossless graph.full.json/GraphML exports were not regenerated (resolved graph.json/HTML were). Resolved graph.json/HTML remain a simplified navigation view."
+  "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Counts derive from the lossless extraction.json of this snapshot; the lossless graph.full.json/GraphML exports were not regenerated. The resolved graph.json remains a simplified navigation view; no HTML was generated for this refresh (more than 5,000 resolved nodes)."
 }

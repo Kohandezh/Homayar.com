@@ -48,5 +48,11 @@
     "title": "graphify - docs/handoff/claude-fable-5.1/graphify/code/graph.html (refreshes/20260924T192240611311Z refresh, after WP07-T01–T07)",
     "status": "not_run",
     "reason": "rendering not observed in this session; the HTML references the bundled ../vendor/vis-network-9.1.6.min.js (no CDN request)"
+  },
+  {
+    "kind": "code",
+    "title": "graphify - code map (2026-09-25 Session C refresh)",
+    "status": "not_run",
+    "reason": "the refresh tool skips HTML above 5,000 resolved nodes (5,479); no graph.html exists for this snapshot, so there is nothing to render. The JSON, report and diagnostics are the validated outputs (source hashes checked against the commits)."
   }
 ]
