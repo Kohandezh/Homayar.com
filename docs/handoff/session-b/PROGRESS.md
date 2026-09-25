@@ -90,3 +90,25 @@ Product commit `ca5c99b` (parent `34f3dfd`).
 - Verification (mocked): `vitest run` 8 files / 53 tests passed; `eslint` clean; build succeeded.
   A countdown clock-sync bug found by the new test (stale clock showed +1 s) was fixed in both the
   upload panel and the OTP page.
+
+## B5 — Truthful processing status and recovery (WP04-T01, WP06-T05 console scope)
+
+Product commit `955bdd4` (parent `ca5c99b`).
+
+- `ProcessingStatus`: meeting status, job state, "attempt n of m", one row per stage in the
+  backend `STAGE_ORDER` with the API's state and localized reason code (unknown reasons shown as
+  sent), "not started" for stages without a run while active, mock output disclosed. No
+  percentage anywhere (the contract has none).
+- `queued` + `retry_scheduled`: the failed attempt's `failure_code` and the scheduled
+  `retry_after` time. `failed` with `failure_class: permanent`: no retry offered. `dead_letter`:
+  owners/admins get `POST /admin/jobs/{id}/replay` (refusals `job_not_replayable`,
+  `replay_limit_reached`, `meeting_deleted`, `retention_expired`, `recording_missing`, quota and
+  concurrency explained); other roles are told who can retry. No cancel control (gap G6).
+- Polling (`platform-api.ts`): 2.5 s → 5 s → 15 s → 30 s while the observed status is unchanged,
+  stops on terminal states and on 401/403/404/410, waits at least `Retry-After`, requests carry
+  the query `signal` so navigation/unmount aborts them; React Query never overlaps a query's
+  fetches.
+- A deleted/tombstoned/inaccessible meeting (404/410) shows an honest message and clears its
+  cached transcript, summary, actions, shares, job and search results; share links are fetched
+  only after the meeting itself loaded (a 404 previously still fetched them).
+- Verification (mocked): `vitest run` 9 files / 63 tests passed; `eslint` clean; build succeeded.
