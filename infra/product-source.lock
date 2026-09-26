@@ -1,24 +1,26 @@
-# Homayar product source contract (WP01-T02).
+# Homayar product source contract (ADR 0033; supersedes the external pin of ADR 0002).
 #
-# The website/infrastructure repository (Kohandezh/Homayar.com) does not own the
-# product source. Builds and CI consume the product repository at the exact
-# commit pinned here. The local directory Homayar/ is an independent Git clone
-# and is ignored by the outer repository; it must never be staged as a gitlink.
+# The product source (API, workers, console, migrations) is tracked in this
+# repository under product_dir as ordinary files, in the same commit as the CI,
+# Docker and Compose templates that build it. It must never be a gitlink or a
+# submodule.
 #
 # Grammar: one "key=value" per line; blank lines and lines starting with "#"
-# are ignored. "required_path" and "forbidden_path" may repeat. Paths are
-# relative to the product checkout root.
+# are ignored. "required_path" and "forbidden_path" may repeat and are relative
+# to product_dir.
 #
 # Verified by infra/ci/check-source-contract.sh (local and ci modes).
-# Update "ref" and "sha" together through a reviewed change; a commit that does
-# not contain every required_path cannot satisfy the contract.
 
-repository=https://github.com/Kohandezh/HomaYar.git
-ref=feat/commercial-v1-overlay
-sha=e7eeef53d6e864488405078e6eb93207bd3db051
+product_dir=Homayar
+
+# Provenance of the one-time import from the former product repository
+# (informational; the checker reports whether the tree has changed since).
+imported_from=https://github.com/Kohandezh/HomaYar.git
+imported_ref=feat/commercial-v1-overlay
+imported_sha=e7eeef53d6e864488405078e6eb93207bd3db051
 
 # Paths that infra/docker/*.Dockerfile, infra/ci/check-migrations.sh and the
-# console/backend CI jobs read from the product checkout.
+# console/backend CI jobs read from the product directory.
 required_path=pyproject.toml
 required_path=uv.lock
 required_path=alembic.ini
@@ -32,7 +34,7 @@ required_path=frontend/vite.config.ts
 required_path=frontend/src
 
 # Runtime data, environments, caches and reference material that must never be
-# tracked at the pinned commit.
+# tracked.
 forbidden_path=.env
 forbidden_path=backend/.env
 forbidden_path=homayar-dev.db

@@ -29,10 +29,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Check out pinned product source and verify contract
-        uses: ./.github/actions/product-source
-        with:
-          token: ${{ secrets.PRODUCT_SOURCE_TOKEN || github.token }}
+      # The product source is tracked under Homayar/ in this repository
+      # (ADR 0033); the contract rejects a gitlink, missing required paths and
+      # tracked runtime data.
+      - name: Verify product source contract
+        run: infra/ci/check-source-contract.sh --mode ci
 
       - name: Run source contract checker tests
         run: bash infra/ci/tests/test-check-source-contract.sh
@@ -102,16 +103,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Check out pinned product source
-        uses: ./.github/actions/product-source
-        with:
-          token: ${{ secrets.PRODUCT_SOURCE_TOKEN || github.token }}
-
       - name: Verify product console source is present
         working-directory: .
         run: >-
           test -f Homayar/frontend/package.json ||
-          { echo 'Homayar/frontend is missing from the checkout; integrate it into the monorepo or configure the submodule.' >&2; exit 2; }
+          { echo 'Homayar/frontend is missing from this commit; the product source is tracked in this repository (ADR 0033).' >&2; exit 2; }
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -195,16 +191,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Check out pinned product source
-        uses: ./.github/actions/product-source
-        with:
-          token: ${{ secrets.PRODUCT_SOURCE_TOKEN || github.token }}
-
       - name: Verify backend source is present
         working-directory: .
         run: |
           if ! test -f Homayar/pyproject.toml || ! test -f Homayar/uv.lock || ! test -f Homayar/alembic.ini; then
-            echo 'Homayar backend sources are missing from the checkout; integrate them into the monorepo or configure the submodule.' >&2
+            echo 'Homayar backend sources are missing from this commit; the product source is tracked in this repository (ADR 0033).' >&2
             exit 2
           fi
 
@@ -274,11 +265,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Check out pinned product source
-        uses: ./.github/actions/product-source
-        with:
-          token: ${{ secrets.PRODUCT_SOURCE_TOKEN || github.token }}
 
       - name: Lint GitHub Actions workflow
         run: >-

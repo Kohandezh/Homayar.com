@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Behavioural tests for infra/ci/check-source-contract.sh using synthetic Git
-# repositories. Runs with plain bash and git; no network, no real product clone.
+# repositories. Runs with plain bash and git; no network, no real product tree.
 set -Eeuo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -39,11 +39,9 @@ run_case() {
 }
 
 mkrepo() {
-  local dir="$1" remote="${2:-https://github.com/Example/Product.git}"
-  mkdir -p "${dir}"
-  git -C "${dir}" init -q
-  git -C "${dir}" checkout -q -b main 2>/dev/null || true
-  git -C "${dir}" remote add origin "${remote}"
+  mkdir -p "$1"
+  git -C "$1" init -q
+  git -C "$1" checkout -q -b main 2>/dev/null || true
 }
 
 commit_all() {
@@ -52,7 +50,7 @@ commit_all() {
   git -C "$1" rev-parse HEAD
 }
 
-write_good_tree() {
+write_product_tree() {
   mkdir -p "$1/backend" "$1/frontend/src"
   printf '[project]\nname = "product"\n' >"$1/pyproject.toml"
   printf 'print("api")\n' >"$1/backend/main.py"
@@ -61,135 +59,152 @@ write_good_tree() {
 }
 
 write_lock() {
-  cat >"$1" <<LOCK
-# test lock
-repository=https://github.com/Example/Product.git
-ref=main
-sha=$2
-required_path=pyproject.toml
-required_path=backend/main.py
-required_path=frontend/src
-forbidden_path=.env
-forbidden_path=data.db
-LOCK
+  # write_lock FILE [IMPORTED_SHA]
+  {
+    printf '# test lock\nproduct_dir=Homayar\n'
+    if [[ -n "${2:-}" ]]; then
+      printf 'imported_from=https://github.com/Example/Product.git\nimported_ref=main\nimported_sha=%s\n' "$2"
+    fi
+    printf 'required_path=pyproject.toml\nrequired_path=backend/main.py\nrequired_path=frontend/src\n'
+    printf 'forbidden_path=.env\nforbidden_path=data.db\n'
+  } >"$1"
 }
 
 # --- Reference repository that satisfies the contract ----------------------
 good="${tmp}/good"
 mkrepo "${good}"
-write_good_tree "${good}"
-good_sha="$(commit_all "${good}" "initial")"
+printf 'site\n' >"${good}/README.md"
+write_product_tree "${good}/Homayar"
+commit_all "${good}" "initial" >/dev/null
 good_lock="${tmp}/good.lock"
-write_lock "${good_lock}" "${good_sha}"
+write_lock "${good_lock}"
 
 # --- Configuration errors (exit 2) -----------------------------------------
-run_case "missing lock file" 2 "lock file not found" -- --lock "${tmp}/nope.lock" --product-dir "${good}"
+run_case "missing lock file" 2 "lock file not found" -- --lock "${tmp}/nope.lock" --repo "${good}"
 
-printf 'repository=https://github.com/Example/Product.git\nref=main\nsha=notahash\nrequired_path=a\n' >"${tmp}/bad-sha.lock"
-run_case "malformed sha" 2 "40-character" -- --lock "${tmp}/bad-sha.lock" --product-dir "${good}"
+printf 'product_dir=Homayar\nimported_sha=notahash\nrequired_path=a\n' >"${tmp}/bad-sha.lock"
+run_case "malformed imported_sha" 2 "40-character" -- --lock "${tmp}/bad-sha.lock" --repo "${good}"
 
-printf 'repository=https://github.com/Example/Product.git\nref=main\nsha=%s\nrequired_path=../escape\n' "${good_sha}" >"${tmp}/bad-path.lock"
-run_case "path traversal in lock" 2 "invalid path" -- --lock "${tmp}/bad-path.lock" --product-dir "${good}"
+printf 'product_dir=Homayar\nrequired_path=../escape\n' >"${tmp}/bad-path.lock"
+run_case "path traversal in lock" 2 "invalid path" -- --lock "${tmp}/bad-path.lock" --repo "${good}"
 
-printf 'repository=https://github.com/Example/Product.git\nref=main\nsha=%s\nsurprise=1\n' "${good_sha}" >"${tmp}/bad-key.lock"
-run_case "unknown lock key" 2 "unknown key" -- --lock "${tmp}/bad-key.lock" --product-dir "${good}"
+printf 'product_dir=/abs\nrequired_path=a\n' >"${tmp}/abs-dir.lock"
+run_case "absolute product_dir" 2 "invalid path" -- --lock "${tmp}/abs-dir.lock" --repo "${good}"
 
-run_case "unknown mode" 2 '--mode must be' -- --mode staging --lock "${good_lock}" --product-dir "${good}"
+printf 'required_path=a\n' >"${tmp}/no-dir.lock"
+run_case "missing product_dir" 2 "no product_dir" -- --lock "${tmp}/no-dir.lock" --repo "${good}"
 
-run_case "product dir missing" 2 "product source directory missing" -- --lock "${good_lock}" --product-dir "${tmp}/absent"
+printf 'product_dir=Homayar\nrequired_path=a\nsurprise=1\n' >"${tmp}/bad-key.lock"
+run_case "unknown lock key" 2 "unknown key" -- --lock "${tmp}/bad-key.lock" --repo "${good}"
+
+printf 'product_dir=Homayar\nimported_from=git@github.com:Example/Product.git\nrequired_path=a\n' >"${tmp}/ssh.lock"
+run_case "non-https imported_from" 2 "must be an https://github.com" -- --lock "${tmp}/ssh.lock" --repo "${good}"
+
+run_case "unknown mode" 2 '--mode must be' -- --mode staging --lock "${good_lock}" --repo "${good}"
 
 mkdir -p "${tmp}/plain"
-run_case "product dir is not git" 2 "not a Git checkout" -- --lock "${good_lock}" --product-dir "${tmp}/plain"
+run_case "repository is not git" 2 "not a Git checkout" -- --lock "${good_lock}" --repo "${tmp}/plain"
 
-outer="${tmp}/outer"
-mkrepo "${outer}" "https://github.com/Example/Website.git"
-mkdir -p "${outer}/Homayar"
-printf 'x\n' >"${outer}/Homayar/file"
-run_case "product dir nested in another checkout" 2 "inside another Git checkout" -- --lock "${good_lock}" --product-dir "${outer}/Homayar"
+run_case "repository is not the top level" 2 "not the top level" -- --lock "${good_lock}" --repo "${good}/Homayar"
+
+run_case "revision does not resolve" 2 "does not resolve" -- --lock "${good_lock}" --repo "${good}" --rev no-such-branch
 
 # --- Contract violations (exit 3) ------------------------------------------
-write_lock "${tmp}/unreachable.lock" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-run_case "pinned commit not present" 3 "is not present" -- --lock "${tmp}/unreachable.lock" --product-dir "${good}"
+untracked="${tmp}/untracked"
+mkrepo "${untracked}"
+printf 'site\n' >"${untracked}/README.md"
+printf '/Homayar/\n' >"${untracked}/.gitignore"
+commit_all "${untracked}" "site only" >/dev/null
+write_product_tree "${untracked}/Homayar"
+run_case "product directory not tracked" 3 "is not tracked" -- --lock "${good_lock}" --repo "${untracked}"
 
-ahead="${tmp}/ahead"
-cp -R "${good}" "${ahead}"
-printf 'more\n' >"${ahead}/backend/extra.py"
-commit_all "${ahead}" "second" >/dev/null
-run_case "HEAD ahead of pinned commit" 3 "does not match pinned commit" -- --lock "${good_lock}" --product-dir "${ahead}"
+gitlink="${tmp}/gitlink"
+mkrepo "${gitlink}"
+printf 'site\n' >"${gitlink}/README.md"
+commit_all "${gitlink}" "site" >/dev/null
+git -C "${gitlink}" update-index --add --cacheinfo "160000,$(git -C "${good}" rev-parse HEAD),Homayar"
+git -C "${gitlink}" commit -q -m "gitlink"
+run_case "product directory is a gitlink" 3 "is a gitlink" -- --lock "${good_lock}" --repo "${gitlink}"
+
+submodule="${tmp}/submodule"
+cp -R "${good}" "${submodule}"
+printf '[submodule "Homayar"]\n\tpath = Homayar\n\turl = https://github.com/Example/Product.git\n' >"${submodule}/.gitmodules"
+commit_all "${submodule}" "declare submodule" >/dev/null
+run_case ".gitmodules declares the product directory" 3 "declares a submodule" -- --lock "${good_lock}" --repo "${submodule}"
 
 overlay="${tmp}/overlay"
-mkrepo "${overlay}"
-write_good_tree "${overlay}"
-rm "${overlay}/pyproject.toml"
-overlay_sha="$(commit_all "${overlay}" "without pyproject")"
-printf '[project]\n' >"${overlay}/pyproject.toml"
-write_lock "${tmp}/overlay.lock" "${overlay_sha}"
-run_case "required path only in uncommitted overlay" 3 "uncommitted overlay" -- --lock "${tmp}/overlay.lock" --product-dir "${overlay}"
+cp -R "${good}" "${overlay}"
+git -C "${overlay}" rm -q Homayar/pyproject.toml
+git -C "${overlay}" commit -q -m "without pyproject"
+printf '[project]\n' >"${overlay}/Homayar/pyproject.toml"
+run_case "required path only on disk" 3 "exists on disk but is not committed" -- --lock "${good_lock}" --repo "${overlay}"
 
 absent="${tmp}/absent-path"
-mkrepo "${absent}"
-write_good_tree "${absent}"
-rm -r "${absent}/frontend"
-absent_sha="$(commit_all "${absent}" "without frontend")"
-write_lock "${tmp}/absent.lock" "${absent_sha}"
-run_case "required path missing everywhere" 3 "missing from" -- --lock "${tmp}/absent.lock" --product-dir "${absent}"
+cp -R "${good}" "${absent}"
+git -C "${absent}" rm -q -r Homayar/frontend
+git -C "${absent}" commit -q -m "without frontend"
+run_case "required path missing everywhere" 3 "is missing from" -- --lock "${good_lock}" --repo "${absent}"
 
 tracked="${tmp}/tracked-secret"
-mkrepo "${tracked}"
-write_good_tree "${tracked}"
-rm "${tracked}/.gitignore"
-printf 'SECRET_PLACEHOLDER=1\n' >"${tracked}/.env"
-tracked_sha="$(commit_all "${tracked}" "tracks env")"
-write_lock "${tmp}/tracked.lock" "${tracked_sha}"
-run_case "forbidden path tracked" 3 'forbidden path ".env" is tracked' -- --lock "${tmp}/tracked.lock" --product-dir "${tracked}"
+cp -R "${good}" "${tracked}"
+printf 'SECRET_PLACEHOLDER=1\n' >"${tracked}/Homayar/.env"
+git -C "${tracked}" add -f Homayar/.env
+git -C "${tracked}" commit -q -m "tracks env"
+run_case "forbidden path tracked" 3 'forbidden path "Homayar/.env" is tracked' -- --lock "${good_lock}" --repo "${tracked}"
 
 dirty="${tmp}/dirty"
 cp -R "${good}" "${dirty}"
-printf 'scratch\n' >"${dirty}/notes.txt"
-run_case "ci mode rejects dirty tree" 3 "ci mode requires a clean checkout" -- --mode ci --lock "${good_lock}" --product-dir "${dirty}"
+printf 'scratch\n' >"${dirty}/Homayar/notes.txt"
+run_case "ci mode rejects a dirty product directory" 3 "ci mode requires a clean checkout" -- --mode ci --lock "${good_lock}" --repo "${dirty}"
 
-wrong_remote="${tmp}/wrong-remote"
-cp -R "${good}" "${wrong_remote}"
-git -C "${wrong_remote}" remote set-url origin https://github.com/Other/Fork.git
-run_case "ci mode rejects remote mismatch" 3 "origin remote does not match" -- --mode ci --lock "${good_lock}" --product-dir "${wrong_remote}"
+nested="${tmp}/nested"
+cp -R "${good}" "${nested}"
+git -C "${nested}/Homayar" init -q
+run_case "ci mode rejects a nested checkout" 3 'Homayar/.git" exists; ci mode' -- --mode ci --lock "${good_lock}" --repo "${nested}"
+
+old_rev="$(git -C "${absent}" rev-parse HEAD~1)"
+run_case "--rev checks an older commit" 0 "RESULT: satisfied" -- --mode ci --lock "${good_lock}" --repo "${absent}" --rev "${old_rev}"
 
 # --- Satisfied with warnings (exit 0) --------------------------------------
-run_case "local mode warns on dirty tree" 0 "WARNING: product checkout has 1 modified or untracked" -- --mode local --lock "${good_lock}" --product-dir "${dirty}"
-run_case "local mode warns on remote mismatch" 0 "WARNING: origin remote does not match" -- --mode local --lock "${good_lock}" --product-dir "${wrong_remote}"
+run_case "local mode warns on a dirty product directory" 0 "WARNING: product directory has 1 modified or untracked" -- --mode local --lock "${good_lock}" --repo "${dirty}"
+run_case "local mode warns on a nested checkout" 0 "WARNING: \"Homayar/.git\" exists" -- --mode local --lock "${good_lock}" --repo "${nested}"
 
 unignored="${tmp}/unignored"
 cp -R "${good}" "${unignored}"
-git -C "${unignored}" rm -q --cached .gitignore
-rm "${unignored}/.gitignore"
-commit_all "${unignored}" "drop gitignore" >/dev/null
-unignored_sha="$(git -C "${unignored}" rev-parse HEAD)"
-printf 'db\n' >"${unignored}/data.db"
-write_lock "${tmp}/unignored.lock" "${unignored_sha}"
-run_case "local mode warns on unignored forbidden path" 0 "no repository ignore rule matches" -- --mode local --lock "${tmp}/unignored.lock" --product-dir "${unignored}"
+git -C "${unignored}" rm -q Homayar/.gitignore
+git -C "${unignored}" commit -q -m "drop product gitignore"
+printf 'db\n' >"${unignored}/Homayar/data.db"
+run_case "local mode warns on an unignored forbidden path" 0 "no ignore rule matches" -- --mode local --lock "${good_lock}" --repo "${unignored}"
 
-printf 'repository=git@github.com:Example/Product.git\nref=main\nsha=%s\nrequired_path=pyproject.toml\n' "${good_sha}" >"${tmp}/ssh-remote.lock"
-run_case "non-https repository in lock" 2 "must be an https://github.com" -- --lock "${tmp}/ssh-remote.lock" --product-dir "${good}"
+printf '  product_dir = Homayar/ \r\n\t\nrequired_path=  pyproject.toml\n' >"${tmp}/spaced.lock"
+run_case "whitespace and CRLF tolerated in lock" 0 "RESULT: satisfied" -- --mode ci --lock "${tmp}/spaced.lock" --repo "${good}"
 
-printf '  repository = https://github.com/Example/Product.git \r\n\t\nref=main\nsha = %s\nrequired_path=  pyproject.toml\n' "${good_sha}" >"${tmp}/spaced.lock"
-run_case "whitespace and CRLF tolerated in lock" 0 "RESULT: satisfied" -- --mode ci --lock "${tmp}/spaced.lock" --product-dir "${good}"
+# --- Provenance of the import (informational) --------------------------------
+product="${tmp}/product"
+mkrepo "${product}"
+write_product_tree "${product}"
+product_sha="$(commit_all "${product}" "product")"
+imported="${tmp}/imported"
+mkrepo "${imported}"
+printf 'site\n' >"${imported}/README.md"
+commit_all "${imported}" "site" >/dev/null
+git -C "${imported}" fetch -q "${product}" main
+git -C "${imported}" read-tree --prefix=Homayar/ "${product_sha}^{tree}"
+git -C "${imported}" checkout -q -- Homayar
+git -C "${imported}" commit -q -m "import product"
+write_lock "${tmp}/imported.lock" "${product_sha}"
+run_case "provenance: identical to the import" 0 "identical to the imported commit" -- --mode ci --lock "${tmp}/imported.lock" --repo "${imported}"
 
-# --- Ref / pin consistency ---------------------------------------------------
-diverged="${tmp}/diverged"
-cp -R "${good}" "${diverged}"
-git -C "${diverged}" checkout -q -b topic
-printf 'topic\n' >"${diverged}/backend/topic.py"
-topic_sha="$(commit_all "${diverged}" "topic commit")"
-write_lock "${tmp}/diverged.lock" "${topic_sha}"
-run_case "pinned commit not reachable from declared ref" 3 "is not reachable from ref" -- --mode ci --lock "${tmp}/diverged.lock" --product-dir "${diverged}"
+printf 'print("changed")\n' >"${imported}/Homayar/backend/main.py"
+commit_all "${imported}" "change after import" >/dev/null
+run_case "provenance: changed since the import" 0 "changed since the imported commit" -- --mode ci --lock "${tmp}/imported.lock" --repo "${imported}"
 
-sed 's/^ref=main$/ref=unpublished/' "${good_lock}" >"${tmp}/unresolvable.lock"
-run_case "ci mode rejects unresolvable ref" 3 "is not resolvable" -- --mode ci --lock "${tmp}/unresolvable.lock" --product-dir "${good}"
-run_case "local mode warns on unresolvable ref" 0 "WARNING: ref \"unpublished\" is not resolvable" -- --mode local --lock "${tmp}/unresolvable.lock" --product-dir "${good}"
+write_lock "${tmp}/foreign.lock" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+run_case "provenance: import commit not available" 0 "commit not available locally" -- --mode ci --lock "${tmp}/foreign.lock" --repo "${good}"
 
 # --- Satisfied (exit 0) -----------------------------------------------------
-run_case "ci mode satisfied" 0 "RESULT: satisfied" -- --mode ci --lock "${good_lock}" --product-dir "${good}"
-run_case "local mode satisfied" 0 "RESULT: satisfied" -- --mode local --lock "${good_lock}" --product-dir "${good}"
-run_case "remote url normalisation (.git suffix, case)" 0 "RESULT: satisfied" -- --mode ci --lock "${good_lock}" --product-dir "${good}"
+run_case "ci mode satisfied" 0 "RESULT: satisfied" -- --mode ci --lock "${good_lock}" --repo "${good}"
+run_case "local mode satisfied" 0 "RESULT: satisfied" -- --mode local --lock "${good_lock}" --repo "${good}"
 
 printf '\n%d passed, %d failed\n' "${passed}" "${failed}"
 [[ "${failed}" -eq 0 ]]

@@ -1,6 +1,8 @@
 # Workspace structure and source ownership
 
-Status: current workspace inventory and migration plan, 2026-09-07. This document describes the filesystem; it does not change Git ownership or make a release checkout reproducible.
+Status: workspace inventory and migration plan, 2026-09-07. This document describes the filesystem; it does not change Git ownership or make a release checkout reproducible.
+
+> **Update 2026-09-26 ([ADR 0033](decisions/0033-product-source-in-this-repository.md)):** the product source is now tracked in the outer repository under `Homayar/` as ordinary files (imported from `Kohandezh/HomaYar` `e7eeef53`); the "two independent Git repositories" description below is historical. A workspace may still hold the former clone's `Homayar/.git`; Git commands run inside `Homayar/` then address that clone, and updating the outer checkout overwrites the previously ignored files there (see the ADR's consequences).
 
 ## Current workspace
 
