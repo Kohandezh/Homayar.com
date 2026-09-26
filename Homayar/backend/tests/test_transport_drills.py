@@ -76,6 +76,15 @@ RESTORE_DEADLINE = 200.0
 TASK = "backend.jobs.process_meeting["
 RECEIVED = "] received"
 SUCCEEDED = "] succeeded in"
+# The prefork parent notices a killed pool child through the child's sentinel
+# or, failing that, its pool-maintenance timer (``AsynPool.timers``: every
+# 5 s).  On Linux the timer is what fires, so the killed child's delivery is
+# requeued up to ~5 s after the kill.
+POOL_MAINTENANCE_SECONDS = 5.0
+# The kill-child drill needs that requeued copy to meet a *live* lease, so its
+# worker runs with a lease that outlasts the detection delay (renewed every
+# half lease; the other drills keep the shorter LEASE_SECONDS).
+KILL_CHILD_LEASE_SECONDS = 12
 
 
 def _wait(predicate, *, timeout: float = DEADLINE, what: str) -> None:
@@ -141,6 +150,14 @@ def _holding_asr(job_id: str) -> bool:
 def _lease_lapsed(job_id: str) -> bool:
     expires = as_utc(_job(job_id).lease_expires_at)
     return expires is not None and expires <= datetime.now(UTC)
+
+
+def _lease_left(job_id: str) -> float:
+    """Seconds until the current lease expires (negative once lapsed)."""
+    expires = as_utc(_job(job_id).lease_expires_at)
+    if expires is None:
+        return float("-inf")
+    return (expires - datetime.now(UTC)).total_seconds()
 
 
 def _completed_once(job_id: str, workspace_id: str, settings, *, attempts: int) -> None:
@@ -236,13 +253,25 @@ def drill(settings, client, email_outbox, monkeypatch, tmp_path):
 
 def test_killed_pool_child_requeues_inertly_and_recovery_settles_once(drill: Drill):
     job_id, workspace_id = drill.queued_job()
-    worker = drill.worker("kill-child")
+    worker = drill.worker(
+        "kill-child",
+        extra_env={
+            "JOB_LEASE_SECONDS": str(KILL_CHILD_LEASE_SECONDS),
+            "JOB_LEASE_RENEW_INTERVAL_SECONDS": str(KILL_CHILD_LEASE_SECONDS // 2),
+        },
+    )
     with use_broker(drill.redis_url):
         assert outbox.dispatch_job(job_id, drill.settings).state == "published"
         _wait(lambda: _holding_asr(job_id), what="first attempt held at the ASR gate")
         first = _job(job_id)
         assert (first.attempt_count, first.lease_generation) == (1, 1)
         assert (first.locked_by or "").startswith("celery:")
+        # The requeued copy (below) must meet a live lease: kill only while the
+        # lease outlasts the pool's detection delay with room for redelivery.
+        _wait(
+            lambda: _lease_left(job_id) >= POOL_MAINTENANCE_SECONDS + 2,
+            what="lease outlasting the pool's detection delay",
+        )
 
         # SIGKILL the pool child in the middle of the ASR stage (held at the gate).
         worker.kill_child()
@@ -260,7 +289,11 @@ def test_killed_pool_child_requeues_inertly_and_recovery_settles_once(drill: Dri
         assert (job.attempt_count, job.lease_generation) == (1, 1)
 
         # The heartbeat thread died with the child: the lease lapses on its own.
-        _wait(lambda: _lease_lapsed(job_id), timeout=LEASE_SECONDS * 3, what="lease lapse")
+        _wait(
+            lambda: _lease_lapsed(job_id),
+            timeout=KILL_CHILD_LEASE_SECONDS * 3,
+            what="lease lapse",
+        )
         drill.open_gate()
         assert recovery.sweep_expired_leases(drill.settings) == {"scanned": 1, "recovered": 1}
         _wait(lambda: _job(job_id).state == JobState.COMPLETED, what="recovered attempt completed")
