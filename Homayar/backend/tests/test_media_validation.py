@@ -460,7 +460,7 @@ def test_decode_probe_runs_after_the_probe_with_fixed_argv(run: Mock, tmp_path: 
     assert decode.kwargs["shell"] is False
     assert decode.kwargs["stdin"] is subprocess.DEVNULL
     assert decode.kwargs["stdout"] is subprocess.DEVNULL
-    assert decode.kwargs["stderr"] is subprocess.DEVNULL
+    assert decode.kwargs["stderr"] is subprocess.PIPE
     assert decode.kwargs["timeout"] == 7.5
 
 
@@ -477,6 +477,8 @@ def test_decode_probe_is_skipped_when_disabled(run: Mock, tmp_path: Path) -> Non
     ("second_call", "expected", "terminal"),
     [
         (_completed("", returncode=1), MediaDecodeError, True),
+        # ffmpeg 6.1 conceals some decode errors and exits 0: diagnostics still refuse.
+        (_completed("", returncode=0, stderr="Invalid data found\n"), MediaDecodeError, True),
         (subprocess.TimeoutExpired(cmd=["ffmpeg"], timeout=1.0), MediaDecodeTimeoutError, False),
         (FileNotFoundError(), MediaDecoderUnavailableError, False),
     ],

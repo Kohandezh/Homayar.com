@@ -169,6 +169,7 @@ jobs:
       DATABASE_URL: postgresql+psycopg://homayar_test:ci-only-postgres@127.0.0.1:5432/homayar_test
       TEST_DATABASE_URL: postgresql+psycopg://homayar_test:ci-only-postgres@127.0.0.1:5432/homayar_test
       HOMAYAR_REQUIRE_POSTGRES_TESTS: "1"
+      HOMAYAR_REQUIRE_MEDIA_TOOLS: "1"
       REDIS_URL: redis://127.0.0.1:6379/0
       TEST_REDIS_URL: redis://127.0.0.1:6379/1
       JWT_SECRET: ci-only-jwt-secret-000000000000000000000000
@@ -204,6 +205,13 @@ jobs:
         with:
           python-version: "${{ env.PYTHON_VERSION }}"
 
+      - name: Install media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          ffmpeg -hide_banner -version | head -n 1
+          ffprobe -hide_banner -version | head -n 1
+
       - name: Install uv
         run: python -m pip install "uv==${UV_VERSION}"
 
@@ -214,7 +222,7 @@ jobs:
         run: uv run ../infra/ci/check-migrations.sh backend
 
       - name: Run backend tests
-        run: uv run pytest backend/tests --quiet
+        run: uv run pytest backend/tests --quiet -rs
 
   secret-scan:
     name: Secret scan

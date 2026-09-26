@@ -586,8 +586,11 @@ def _decode_prefix(executable: str, path: Path, seconds: float, timeout: float) 
     """Decode the first ``seconds`` of the primary audio stream to /dev/null.
 
     ``-xerror`` turns the first decoding error into a non-zero exit, which
-    catches corrupted frames that a header-only probe accepts.  Output is
-    discarded; nothing derived from the media is retained.
+    catches corrupted frames that a header-only probe accepts.  Some ffmpeg
+    releases (6.1 on Ubuntu 24.04) conceal such errors and still exit 0, so
+    any error-level diagnostic (``-v error``) is treated as a failure too.
+    Diagnostics are only tested for presence, never stored or logged;
+    nothing derived from the media is retained.
     """
     command = _build_ffmpeg_decode_command(executable, path, seconds)
     try:
@@ -596,7 +599,7 @@ def _decode_prefix(executable: str, path: Path, seconds: float, timeout: float) 
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             check=False,
             shell=False,
             timeout=timeout,
@@ -608,7 +611,7 @@ def _decode_prefix(executable: str, path: Path, seconds: float, timeout: float) 
         raise MediaDecoderUnavailableError() from None
     except OSError:
         raise MediaProbeError() from None
-    if completed.returncode != 0:
+    if completed.returncode != 0 or completed.stderr.strip():
         raise MediaDecodeError()
 
 
