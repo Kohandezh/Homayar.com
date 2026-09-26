@@ -1,3 +1,5 @@
+> **Superseded as the entry point (2026-09-26):** start with [`docs/handoff/session-reset/`](../session-reset/PROJECT_STATE.md) and its [master prompt](../session-reset/NEW_SESSION_MASTER_PROMPT.md). The files here remain the dated baseline, progress log and Graphify guide.
+
 # Claude implementation handoff
 
 Start with [راهنمای فارسی](START_HERE_FA.md), then copy [MASTER_PROMPT.md](MASTER_PROMPT.md) into the connected Claude task.

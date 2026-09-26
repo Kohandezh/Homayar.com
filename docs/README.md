@@ -1,6 +1,7 @@
 # Homayar documentation
 
-- [Claude start / راهنمای شروع](handoff/claude-fable-5.1/START_HERE_FA.md)
+- **[Current project state and next session (2026-09-26)](handoff/session-reset/PROJECT_STATE.md)** — start here
+- [Claude start / راهنمای شروع (2026-09-07 baseline)](handoff/claude-fable-5.1/START_HERE_FA.md)
 - [Commercial blueprint and backlog](planning/README.md)
 - [Implementation packages](planning/work-packages/README.md)
 - [Workspace structure](architecture/workspace-structure.md)

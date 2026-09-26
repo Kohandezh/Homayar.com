@@ -1,6 +1,6 @@
 # ADR 0033 — Product source tracked in this repository
 
-Date: 2026-09-26 · Status: proposed (owner-directed; review in the draft pull request) · Supersedes: [ADR 0002](0002-product-source-contract.md) (external pin) · Packages: WP01
+Date: 2026-09-26 · Status: **accepted** (owner approval 2026-09-26; merged to `main` in PR #3, `edfcb78`) · Supersedes: [ADR 0002](0002-product-source-contract.md) (external pin) · Packages: WP01
 
 ## Context
 
@@ -31,9 +31,16 @@ source to be part of this repository.
 4. **CI.** The `source-contract` job runs the checker and its tests on the repository checkout.
    The console, backend and container jobs build from the same checkout; the composite action
    `.github/actions/product-source` is removed and CI no longer reads `PRODUCT_SOURCE_TOKEN`.
-5. **History.** Product history before the import stays in `Kohandezh/HomaYar`
-   (`feat/commercial-v1-overlay` at the imported commit). That repository is no longer a build
-   input; archiving it is an owner decision.
+5. **History.** Product history before the import stays in `Kohandezh/HomaYar`. That repository
+   is no longer a build input and receives no further changes (no dual writes); archiving it is an
+   owner decision.
+6. **Final synchronization (2026-09-26).** Once, at the closeout, the product changes made here
+   after the import (the transport drill fix) were committed to `Kohandezh/HomaYar`
+   `feat/commercial-v1-overlay` (`f29d04a`) and merged into its development branch `dev`
+   (`Kohandezh/HomaYar` PR #1, `c567a91`). At that point `dev^{tree}` equals `main:Homayar` of this
+   repository (`4b81c5dd`); there are no intentional differences. The product repository's default
+   branch `master` is a disconnected legacy history (no common ancestor) and was left untouched.
+   Every later product change is made only here.
 
 ## Consequences
 

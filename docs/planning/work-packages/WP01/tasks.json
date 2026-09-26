@@ -19,8 +19,8 @@
       "id": "WP01-T02",
       "description": "Agree product/website ownership and replace build dependence on an untracked nested checkout with pinned release artifacts.",
       "status": "validated",
-      "progress_note": "Local scope validated: lock + checker (ref-ancestry check added after adversarial self-review), 26 synthetic tests pass, composite action fetches the declared ref before verifying, ci.yml gating wired. Remote CI execution not yet observed: needs the product ref pushed and, if private, PRODUCT_SOURCE_TOKEN (blocked_external).",
-      "updated": "2026-09-07"
+      "progress_note": "Superseded by ADR 0033 (2026-09-26, owner-approved): the product source is tracked as ordinary files under Homayar/ in this repository (imported from Kohandezh/HomaYar e7eeef53 without history). infra/product-source.lock declares product_dir, required/forbidden paths and informational import provenance; infra/ci/check-source-contract.sh rejects an untracked directory, a gitlink or .gitmodules entry, uncommitted required paths, tracked forbidden paths and (ci mode) a dirty tree or nested .git; 29 synthetic tests. CI checks the repository checkout; PRODUCT_SOURCE_TOKEN and the product-source action are retired. Remote CI green on 2a30213 (run 36234124732) and merged to main (edfcb78, PR #3). Pinned release artifacts (image digests, release manifest) remain WP01-T04/T06.",
+      "updated": "2026-09-26"
     },
     {
       "id": "WP01-T03",
@@ -38,8 +38,8 @@
       "id": "WP01-T05",
       "description": "Add PostgreSQL migration, queue integration, frontend build and critical browser-flow jobs to existing CI.",
       "status": "validated",
-      "progress_note": "Backend suite runs on PostgreSQL via TEST_DATABASE_URL (HOMAYAR_REQUIRE_POSTGRES_TESTS=1 in CI forbids the SQLite fallback); \"postgres\" marker with migration-chain and FOR UPDATE SKIP LOCKED tests; over-length FK name in migration e93c65725e9b fixed; infra/ci/check-migrations.sh invalid \"current --check-heads\" call replaced. Verified locally on PostgreSQL 16.15: 100 passed; check-migrations.sh exit 0. Product commit 934bae52. Remote CI run still pending (blocked_external).",
-      "updated": "2026-09-07"
+      "progress_note": "Backend suite runs on PostgreSQL via TEST_DATABASE_URL (HOMAYAR_REQUIRE_POSTGRES_TESTS=1 in CI forbids the SQLite fallback); \"postgres\" marker with migration-chain and FOR UPDATE SKIP LOCKED tests; over-length FK name in migration e93c65725e9b fixed; infra/ci/check-migrations.sh invalid \"current --check-heads\" call replaced. Verified locally on PostgreSQL 16.15: 100 passed; check-migrations.sh exit 0. Product commit 934bae52. Remote CI run still pending (blocked_external). Remote CI now runs on every push and pull request (source contract, backend with PostgreSQL 17 and migrations, console, public web, container configuration, Gitleaks); green on 2a30213 and main. Gaps found 2026-09-26: the runner has no ffmpeg, so the 35 ffmpeg-marked backend tests are skipped in CI (session-reset REMAINING_WORK R-02); the critical browser-flow job waits for the Playwright suite that exists only in the original checkout (R-03).",
+      "updated": "2026-09-26"
     },
     {
       "id": "WP01-T06",
