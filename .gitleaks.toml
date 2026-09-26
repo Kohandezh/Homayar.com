@@ -1,6 +1,8 @@
 # Gitleaks configuration for the CI secret scan (`gitleaks git` reads this file
-# from the repository root). The default rules stay in force; the allowlist
-# below only excuses content digests, never a secret-shaped value.
+# from the repository root). The default rules stay in force; each allowlist
+# below is limited to specific paths and to one value shape (content digests,
+# test fixture keys, environment-variable names, Alembic revision ids), never a
+# secret-shaped value.
 
 [extend]
 useDefault = true
@@ -16,4 +18,33 @@ paths = [
 regexTarget = "line"
 regexes = [
   '''^\s*"[^"]+":\s*"[0-9a-f]{64}",?\s*$''',
+]
+
+[[allowlists]]
+description = """Product test fixtures (ADR 0033 import): idempotency and fixture keys \
+written as lowercase words and digits joined by hyphens (key="purge-exhaust-0001"), the \
+keyword text itself when a call continues with another argument (idempotency_key=), and \
+environment-variable names (HOMAYAR_LIVE_S3_SECRET_KEY). The generic-api-key rule reads \
+them as values."""
+condition = "AND"
+paths = [
+  '''^Homayar/backend/tests/[^/]+\.py$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^[a-z]+(?:-[a-z0-9]+)+$''',
+  '''^[a-z_]+=$''',
+  '''^HOMAYAR_[A-Z0-9_]+$''',
+]
+
+[[allowlists]]
+description = """Product records cite Alembic revision ids (12 lowercase hex characters) \
+next to words such as "tokens"; a revision id is not a secret."""
+condition = "AND"
+paths = [
+  '''^Homayar/docs/.+\.md$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^[0-9a-f]{12}$''',
 ]

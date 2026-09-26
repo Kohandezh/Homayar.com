@@ -1,0 +1,15 @@
+# Homayar egress allowlist (WP08-T06 network layer, ADR 0031).
+#
+# One "host:port" per line. The egress proxy forwards only to these exact
+# destinations; everything else is refused. An empty list refuses all
+# outbound traffic (the air-gapped default).
+#
+# AI endpoints: generate the lines from the running configuration with
+#   docker compose --file infra/compose/compose.onprem.yaml --profile onprem \
+#     run --rm --no-deps api python -m backend.jobs.model_preflight --egress-allowlist
+# and review them. Add only the non-AI providers that are enabled, e.g.
+#   oauth2.googleapis.com:443     (ENABLE_GOOGLE_AUTH)
+#   www.googleapis.com:443        (Google sign-in key set)
+#   panel.asanak.com:443          (ENABLE_PHONE_AUTH)
+# SMTP is not HTTP and does not pass through this proxy (see the deployment
+# runbook, "Network egress").

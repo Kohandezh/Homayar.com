@@ -35,7 +35,7 @@ asks for denial at both the application and the network layer.
    if the owner's policy allows cloud in its region **and** approves fallback
    (ADR 0030). Verified end to end through the real provider factory with an
    in-memory transport that records every host.
-4. **Network layer: deployment configuration (integration).** The
+4. **Network layer: deployment configuration.** The
    application guard is not a substitute for network denial. The operator
    preflight now reports `egress`: every networked endpoint the configured
    adapters may reach (stage, primary/fallback, manifest, kind, region,
@@ -44,6 +44,41 @@ asks for denial at both the application and the network layer.
    workers and API on an internal network without a default route; outbound
    AI traffic only through an allowlisting egress proxy built from that
    report; the air-gapped profile with no external route at all.
+
+## Network layer (Session C integration, 2026-09-25)
+
+5. **On-premise topology.** In `compose.onprem.yaml` no application container
+   has a route out: nginx alone is on the published `edge` network and reaches
+   the web services and the API over the internal `ingress` network; the API,
+   worker and scheduler use the internal `backend` network for PostgreSQL,
+   Redis and MinIO; the API and worker reach `egress-proxy` over the internal
+   `egress` network, and only `egress-proxy` is on `outbound`, the one network
+   with a route out. The scheduler previously had no network list and joined
+   the default network, which has a route out.
+6. **Egress proxy.** A deny-by-default Squid (`infra/docker/egress-proxy.Dockerfile`,
+   profile `egress`) forwards CONNECT and plain HTTP only to the exact
+   `host:port` lines of `infra/egress/allowlist.txt`; loopback, link-local
+   (metadata) and unlisted destinations and its manager pages are refused; no
+   port is published. The application containers use it through
+   `HTTP(S)_PROXY` (`EGRESS_PROXY_URL`) with `NO_PROXY` for the internal
+   services. The air-gapped default is no proxy and no `EGRESS_PROXY_URL`: no
+   outbound path at all.
+7. **Allowlist source and air-gapped gate.** `model_preflight
+   --egress-allowlist` prints the `host:port` lines of the configured AI
+   endpoints; `--require-no-cloud` exits 3 when one is a `cloud` endpoint. An
+   endpoint without a manifest is treated as `cloud` (unknown region), so a
+   local model server counts as private only through an operator manifest.
+   CI checks both outcomes in the API image.
+8. **Evidence and its limits.** `infra/egress/tests/test-egress-network.sh`
+   probes from inside the `api`, `worker`, `scheduler`, `public-web` and
+   `console-web` containers as Compose attaches them, with disposable HTTP
+   servers: no direct connection (names, addresses, public address,
+   metadata); through the proxy only the listed destination, also through the
+   application's own HTTP client. That is a single-host Docker test, not a
+   production validation. The cloud profile keeps PostgreSQL, Redis and
+   storage external, so its network control must be the platform firewall
+   (not verified here). SMTP is not HTTP and needs an internal mail relay in
+   the isolated on-premise topology (not provided).
 
 ## Not covered
 

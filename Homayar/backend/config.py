@@ -1,0 +1,404 @@
+from __future__ import annotations
+
+import re
+from functools import lru_cache
+from pathlib import Path
+from typing import Literal
+
+from pydantic import model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+class Settings(BaseSettings):
+    """Validated runtime configuration for cloud and on-premise deployments."""
+
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # APP
+    environment: Literal["development", "test", "staging", "production"] = "development"
+    deployment_mode: Literal["cloud", "onprem"] = "cloud"
+    app_name: str = "Homayar"
+    api_prefix: str = "/api/v1"
+    frontend_url: str = "http://localhost:5173/app"
+    public_url: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    log_level: str = "INFO"
+    auto_create_schema: bool = False
+
+    # DATABASE / REDIS
+    database_url: str = "sqlite:///./homayar-dev.db"
+    database_pool_size: int = 10
+    database_max_overflow: int = 20
+    # PostgreSQL role switched to with SET ROLE on every pooled connection
+    # checkout (WP03-T05). Leave empty when DATABASE_URL already logs in as a
+    # non-superuser member of homayar_app; set to "homayar_app" when the login
+    # role is the migration owner (single-role compose/dev/CI databases).
+    database_app_role: str = ""
+    redis_url: str = "redis://localhost:6379/0"
+
+    # AUTH / SECURITY
+    jwt_secret: str = ""
+    token_pepper: str = ""
+    jwt_issuer: str = "homayar"
+    jwt_audience: str = "homayar-api"
+    access_token_minutes: int = 15
+    refresh_token_days: int = 30
+    jwt_expiry_hours: int = 24  # Legacy API compatibility only.
+    secure_cookies: bool = False
+    cookie_domain: str | None = None
+    trusted_hosts: str = "localhost,127.0.0.1,testserver"
+    csrf_header_name: str = "X-CSRF-Token"
+    rate_limit_fail_open: bool = False
+
+    # AUTH FEATURES
+    enable_google_auth: bool = False
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:8001/api/v1/auth/google/callback"
+    enable_phone_auth: bool = False
+    asanak_base_url: str = "https://panel.asanak.com/webservice/v1rest/sendsms"
+    asanak_api_key: str = ""
+    asanak_sender: str = ""
+    otp_ttl_seconds: int = 180
+    otp_resend_cooldown_seconds: int = 60
+    otp_max_attempts: int = 5
+    enable_demo_account: bool = False
+    enable_free_demo: bool = True
+    demo_quota_seconds: int = 1800
+
+    # STORAGE / UPLOAD
+    storage_backend: Literal["local", "s3"] = "local"
+    storage_local_root: str = str(PROJECT_ROOT / "data" / "objects")
+    storage_bucket: str = "homayar-private"
+    storage_endpoint_url: str = ""
+    storage_region: str = "us-east-1"
+    storage_access_key: str = ""
+    storage_secret_key: str = ""
+    storage_presign_ttl_seconds: int = 300
+    # API keys (WP03-T07, ADR 0013): per-key request rate, live keys per
+    # workspace and the longest expiry an owner/admin may request.
+    api_key_rate_limit_per_hour: int = 600
+    api_key_max_active_per_workspace: int = 20
+    api_key_max_ttl_days: int = 365
+    upload_dir: str = str(PROJECT_ROOT / "data" / "legacy-uploads")
+    upload_quarantine_dir: str = str(PROJECT_ROOT / "data" / "quarantine")
+    max_upload_size_mb: int = 250
+    max_audio_duration_seconds: int = 14_400
+    allowed_extensions: str = ".wav,.mp3,.ogg,.m4a,.aac,.flac,.mp4,.webm"
+    ffprobe_path: str = "ffprobe"
+    ffprobe_timeout_seconds: float = 10.0
+    ffmpeg_path: str = "ffmpeg"
+    ffmpeg_timeout_seconds: float = 20.0
+    # Seconds of audio the bounded ffmpeg decode verifies on upload (0 disables).
+    media_decode_probe_seconds: float = 30.0
+    # Compressed audio claiming fewer bytes per second is refused as implausible.
+    media_min_bytes_per_second: int = 64
+    upload_rate_limit_per_hour: int = 30
+    retention_days_default: int = 90
+
+    # JOBS / PROVIDERS
+    tasks_eager: bool = False
+    worker_concurrency_per_workspace: int = 2
+    job_retry_delay_seconds: int = 30
+    # Retry budget and deadlines (WP06-T05, backend.jobs.failures): attempts
+    # per replay window, exponential back-off between attempts (base doubling
+    # up to the maximum), one overall deadline per job measured from its
+    # creation (or replay), and a bounded number of operator replays.
+    job_max_attempts: int = 3
+    job_retry_max_delay_seconds: int = 600
+    job_deadline_seconds: int = 86_400
+    job_max_replays: int = 3
+    # Usage ledger reconciliation (WP06-T06, backend.jobs.usage_reconciliation):
+    # periodic sweep that releases orphaned reservations (older than the grace
+    # period, no live job, or a deleted meeting) and compares entitlement
+    # counters with the reservation rows. Counter drift is reported and
+    # audited; it is corrected only when repair is enabled explicitly.
+    usage_reconciliation_interval_seconds: int = 900
+    usage_reconciliation_grace_seconds: int = 600
+    usage_reconciliation_batch_size: int = 200
+    usage_reconciliation_repair_counters: bool = False
+    # Stage checkpoints and attempt-scoped artifacts (WP06-T03,
+    # backend.jobs.checkpoints): reuse of committed stage results on retry,
+    # the artifact size bound, and the cleanup of abandoned artifacts (objects
+    # of never-published or invalidated checkpoints older than the grace
+    # period; published artifacts of live meetings are never touched).
+    job_checkpoint_reuse_enabled: bool = True
+    job_artifact_max_bytes: int = 16 * 1024 * 1024
+    job_artifact_grace_seconds: int = 3600
+    job_artifact_sweep_interval_seconds: int = 900
+    job_artifact_sweep_batch_size: int = 200
+    # Media reconciliation (WP05-T04, backend.jobs.media_reconciliation):
+    # periodic sweep that retries pending deletions, reports or removes
+    # orphan objects (objects under a tenant prefix without a live row)
+    # after the grace period, and flags live rows whose bytes are missing.
+    # Orphan removal is report-only by default; enable it explicitly.
+    media_reconciliation_interval_seconds: int = 900
+    media_reconciliation_grace_seconds: int = 3600
+    media_reconciliation_batch_size: int = 200
+    media_reconciliation_remove_orphans: bool = False
+    # Retention purge (WP07-T03, backend.jobs.retention_purge, ADR 0021):
+    # tombstones expired conversations of FINITE/IMMEDIATE workspaces and
+    # drives every tombstone's durable purge. A failed attempt is retried
+    # after base * 2^(attempt-1) seconds (capped at the max delay); after
+    # max_attempts the purge is FAILED and alerts until an operator requeues
+    # it. A legal hold defers the purge without spending an attempt.
+    retention_purge_interval_seconds: int = 900
+    retention_purge_batch_size: int = 100
+    retention_purge_max_attempts: int = 8
+    retention_purge_retry_base_seconds: int = 300
+    retention_purge_retry_max_seconds: int = 21600
+    retention_purge_hold_recheck_seconds: int = 3600
+    # Tombstone journal (WP07-T04, ADR 0022): append-only JSON lines of every
+    # tombstone (ids and opaque object keys, no content) kept OUTSIDE the
+    # database and object-store backups, so a restore can reapply deletions
+    # made after the backup. Empty disables journaling (development only;
+    # deployments mount a separately replicated volume here).
+    tombstone_journal_dir: str = ""
+    # Restricted PII mappings (WP07-T05, ADR 0023): "key_id:base64(32 bytes)"
+    # entries, comma separated, from the secret manager; the active id
+    # encrypts new mappings, the others still decrypt older ones (rotation).
+    # Empty: redaction still works, but originals are not retained.
+    pii_mapping_keys: str = ""
+    pii_mapping_active_key_id: str = ""
+    # Execution leases (WP06-T04): one policy object (backend.jobs.leases)
+    # derives every timing decision from these; no other module keeps its own.
+    job_lease_seconds: int = 120  # a RUNNING attempt is abandoned when not renewed
+    job_lease_renew_interval_seconds: int = 30  # heartbeat period (< lease / 2)
+    job_stage_timeout_seconds: int = 1800  # one provider call (materialize/ASR/...)
+    job_attempt_timeout_seconds: int = 7200  # whole attempt; renewals stop after it
+    job_recovery_sweep_interval_seconds: int = 60  # expired-lease sweeper period
+    job_recovery_batch_size: int = 100
+    # Transactional outbox (WP06-T02): publication retries and the sweeper.
+    dispatch_max_attempts: int = 8
+    dispatch_retry_base_seconds: int = 5
+    dispatch_retry_max_seconds: int = 600
+    dispatch_sweep_interval_seconds: int = 30
+    dispatch_sweep_batch_size: int = 100
+    allow_mock_providers: bool = False
+    asr_provider: str = "local_whisper"
+    diarization_provider: str = "unavailable"
+    intelligence_provider: str = "openai_compatible"
+    whisper_model: str = "base"
+    whisper_device: str = "cpu"
+    whisper_compute_type: str = "int8"
+    local_ai_base_url: str = ""
+    # Model registry (WP08-T01, ADR 0026): operator manifest files (comma
+    # separated, in addition to the builtin ones), per-stage pins
+    # "stage=manifest_id@version" (restore a prior approved version) and
+    # strictness (unset = strict outside development/test; production
+    # refuses to switch it off).
+    model_manifest_paths: str = ""
+    model_manifest_pins: str = ""
+    model_manifest_strict: bool | None = None
+    # Provider resilience (WP08-T05, ADR 0030): positive jitter on the retry
+    # back-off; a networked endpoint's circuit opens after N consecutive
+    # transient failures for the cool-down; optional request limits per
+    # minute keyed by manifest id ("manifest_id=60,other=30").
+    job_retry_jitter_ratio: float = 0.1
+    provider_circuit_failure_threshold: int = 5
+    provider_circuit_cooldown_seconds: int = 60
+    provider_rate_limits: str = ""
+    # Same-policy fallback analysis endpoint (OpenAI-compatible); used only
+    # when the workspace policy approves fallback and the endpoint passes the
+    # same eligibility filter as the primary.
+    llm_fallback_base_url: str = ""
+    llm_fallback_model: str = ""
+    llm_fallback_api_key: str = ""
+
+    # Legacy LLM compatibility
+    zai_api_key: str = ""
+    zai_base_url: str = "https://api.z.ai/v1"
+    gapgpt_api_key: str = ""
+    gapgpt_base_url: str = "https://gapgpt.app/api/v1"
+    llm_model: str = "default"
+    llm_model_qc: str = ""
+    llm_model_problem: str = ""
+    llm_model_insight: str = ""
+    llm_model_teacher: str = ""
+    llm_model_copilot: str = ""
+    llm_provider: str = "auto"
+
+    # EMAIL
+    smtp_host: str = ""
+    smtp_port: int = 1025
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@homayar.com"
+    smtp_use_tls: bool = False
+
+    # OPTIONAL ENTERPRISE / LEGACY INTEGRATIONS
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+    neo4j_database: str = "neo4j"
+    enable_neo4j_projection: bool = False
+    ldap_server: str = ""
+    ldap_port: int = 636
+    ldap_use_ssl: bool = True
+    ldap_bind_dn: str = ""
+    ldap_bind_password: str = ""
+    ldap_search_base: str = ""
+    ldap_user_ou: str = "OU=Users"
+    voip_webhook_secret: str = ""
+    enable_voip_webhook: bool = False
+    admin_default_password: str = ""  # Legacy bootstrap; rejected in production.
+
+    # OBSERVABILITY / BILLING
+    sentry_dsn: str = ""
+    metrics_enabled: bool = True
+    billing_provider: str = "manual"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [value.strip() for value in self.cors_origins.split(",") if value.strip()]
+
+    @model_validator(mode="after")
+    def validate_security_configuration(self) -> Settings:
+        if self.max_upload_size_mb <= 0 or self.max_audio_duration_seconds <= 0:
+            raise ValueError("Upload size and duration limits must be positive")
+        if not 1 <= self.retention_days_default <= 3650:
+            raise ValueError(
+                "RETENTION_DAYS_DEFAULT must be between 1 and 3650 (new workspaces start FINITE)"
+            )
+        if self.ffprobe_timeout_seconds <= 0 or self.upload_rate_limit_per_hour <= 0:
+            raise ValueError("Upload inspection and rate limits must be positive")
+        if not 0 < self.ffmpeg_timeout_seconds <= 60:
+            raise ValueError("FFMPEG_TIMEOUT_SECONDS must be between 0 and 60")
+        if not 0 <= self.media_decode_probe_seconds <= 600 or self.media_min_bytes_per_second < 0:
+            raise ValueError("Media decode probe and plausibility limits are out of range")
+        if (
+            self.job_retry_delay_seconds <= 0
+            or self.job_retry_max_delay_seconds < self.job_retry_delay_seconds
+            or self.job_max_attempts <= 0
+            or self.job_max_replays < 0
+        ):
+            raise ValueError(
+                "Job retry budget settings must be positive and the maximum retry delay "
+                "at least the base delay"
+            )
+        if self.job_deadline_seconds < self.job_attempt_timeout_seconds:
+            raise ValueError("JOB_DEADLINE_SECONDS must be at least JOB_ATTEMPT_TIMEOUT_SECONDS")
+        if (
+            self.usage_reconciliation_interval_seconds <= 0
+            or self.usage_reconciliation_grace_seconds <= 0
+            or self.usage_reconciliation_batch_size <= 0
+        ):
+            raise ValueError("Usage reconciliation interval, grace and batch size must be positive")
+        if (
+            self.job_artifact_max_bytes <= 0
+            or self.job_artifact_grace_seconds <= 0
+            or self.job_artifact_sweep_interval_seconds <= 0
+            or self.job_artifact_sweep_batch_size <= 0
+        ):
+            raise ValueError("Stage artifact settings must be positive")
+        if (
+            self.media_reconciliation_interval_seconds <= 0
+            or self.media_reconciliation_grace_seconds <= 0
+            or self.media_reconciliation_batch_size <= 0
+        ):
+            raise ValueError("Media reconciliation interval, grace and batch size must be positive")
+        if (
+            self.retention_purge_interval_seconds <= 0
+            or self.retention_purge_batch_size <= 0
+            or self.retention_purge_max_attempts <= 0
+            or self.retention_purge_retry_base_seconds <= 0
+            or self.retention_purge_retry_max_seconds < self.retention_purge_retry_base_seconds
+            or self.retention_purge_hold_recheck_seconds <= 0
+        ):
+            raise ValueError("Retention purge settings must be positive (max delay >= base)")
+        if self.job_artifact_grace_seconds < self.job_lease_seconds:
+            raise ValueError(
+                "JOB_ARTIFACT_GRACE_SECONDS must not be shorter than JOB_LEASE_SECONDS"
+            )
+        if (
+            self.job_lease_seconds <= 0
+            or self.job_lease_renew_interval_seconds <= 0
+            or self.job_lease_renew_interval_seconds * 2 > self.job_lease_seconds
+            or self.job_stage_timeout_seconds <= 0
+            or self.job_attempt_timeout_seconds < self.job_stage_timeout_seconds
+            or self.job_recovery_sweep_interval_seconds <= 0
+            or self.job_recovery_batch_size <= 0
+        ):
+            raise ValueError(
+                "Job lease settings must be positive, the renew interval at most half the "
+                "lease and the attempt timeout at least the stage timeout"
+            )
+        if (
+            self.dispatch_max_attempts <= 0
+            or self.dispatch_retry_base_seconds <= 0
+            or self.dispatch_retry_max_seconds < self.dispatch_retry_base_seconds
+            or self.dispatch_sweep_interval_seconds <= 0
+            or self.dispatch_sweep_batch_size <= 0
+        ):
+            raise ValueError("Dispatch outbox retry and sweep settings must be positive")
+        if self.database_app_role and not re.fullmatch(
+            r"[a-z_][a-z0-9_]{0,62}", self.database_app_role
+        ):
+            raise ValueError("DATABASE_APP_ROLE must be a plain lowercase PostgreSQL role name")
+        if self.model_manifest_pins:
+            from backend.providers.registry import parse_pins
+
+            parse_pins(self.model_manifest_pins)  # raises ValueError
+        if not 0 <= self.job_retry_jitter_ratio <= 1:
+            raise ValueError("JOB_RETRY_JITTER_RATIO must be between 0 and 1")
+        if min(self.provider_circuit_failure_threshold, self.provider_circuit_cooldown_seconds) < 1:
+            raise ValueError("Provider circuit threshold and cool-down must be positive")
+        if self.provider_rate_limits:
+            from backend.providers.registry import parse_rate_limits
+
+            parse_rate_limits(self.provider_rate_limits)  # raises ValueError
+        if bool(self.llm_fallback_base_url.strip()) != bool(self.llm_fallback_model.strip()):
+            raise ValueError("LLM_FALLBACK_BASE_URL and LLM_FALLBACK_MODEL are set together")
+        if self.pii_mapping_keys or self.pii_mapping_active_key_id:
+            from backend.privacy.mapping_crypto import parse_keyring
+
+            keyring = parse_keyring(self.pii_mapping_keys)  # raises ValueError
+            if self.pii_mapping_active_key_id not in keyring:
+                raise ValueError("PII_MAPPING_ACTIVE_KEY_ID must name one of PII_MAPPING_KEYS")
+        if self.environment == "production":
+            if len(self.jwt_secret) < 32 or len(self.token_pepper) < 32:
+                raise ValueError("JWT_SECRET and TOKEN_PEPPER must each be at least 32 characters")
+            if self.database_url.startswith("sqlite"):
+                raise ValueError("Production requires PostgreSQL; SQLite is development/test only")
+            if not self.secure_cookies:
+                raise ValueError("SECURE_COOKIES must be enabled in production")
+            if self.enable_demo_account:
+                raise ValueError("ENABLE_DEMO_ACCOUNT must be disabled in production")
+            if self.allow_mock_providers:
+                raise ValueError("ALLOW_MOCK_PROVIDERS must be disabled in production")
+            if self.model_manifest_strict is False:
+                raise ValueError("MODEL_MANIFEST_STRICT cannot be disabled in production")
+            if self.auto_create_schema:
+                raise ValueError("Production schema changes must run through Alembic migrations")
+            if self.enable_voip_webhook and not self.voip_webhook_secret:
+                raise ValueError("VOIP_WEBHOOK_SECRET is required when the webhook is enabled")
+        if self.enable_google_auth and not (self.google_client_id and self.google_client_secret):
+            raise ValueError("Google authentication is enabled but credentials are missing")
+        if self.enable_phone_auth and not (self.asanak_api_key and self.asanak_sender):
+            raise ValueError("Phone authentication is enabled but Asanak settings are missing")
+        if self.storage_backend == "s3" and not (
+            self.storage_bucket and self.storage_access_key and self.storage_secret_key
+        ):
+            raise ValueError("S3 storage requires bucket and credentials")
+        return self
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+def reset_settings_cache() -> None:
+    """Test helper for isolated environment overrides."""
+    get_settings.cache_clear()

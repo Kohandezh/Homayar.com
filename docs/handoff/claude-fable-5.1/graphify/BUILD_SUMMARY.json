@@ -1,18 +1,18 @@
 {
   "code": {
-    "nodes": 4724,
-    "edges": 17560,
-    "communities": 160,
+    "nodes": 5479,
+    "edges": 20854,
+    "communities": 170,
     "diagnostics": {
       "missing_endpoint_edges": 0,
-      "dangling_endpoint_edges": 1035,
+      "dangling_endpoint_edges": 1224,
       "self_loop_edges": 1,
-      "directed_same_endpoint_collapsed_edges": 538,
-      "undirected_same_endpoint_collapsed_edges": 553
+      "directed_same_endpoint_collapsed_edges": 624,
+      "undirected_same_endpoint_collapsed_edges": 642
     },
     "title": "Current workspace code graph (website worktree + isolated product checkout)",
-    "snapshot": "refreshes/20260924T192240611311Z",
-    "refreshed_at": "2026-09-24"
+    "snapshot": "refreshes/20260925T234028908151Z",
+    "refreshed_at": "2026-09-25"
   },
   "planning": {
     "nodes": 119,
@@ -26,22 +26,22 @@
       "undirected_same_endpoint_collapsed_edges": 0
     },
     "title": "Explicit blueprint dependency graph",
-    "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09, 2026-09-10 or 2026-09-11 (only task statuses/notes changed, no structural relationship changed) or 2026-09-16 (WP05 statuses/notes only) or 2026-09-24 (WP07 statuses/notes only)."
+    "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09, 2026-09-10 or 2026-09-11 (only task statuses/notes changed, no structural relationship changed) or 2026-09-16 (WP05 statuses/notes only) or 2026-09-24 (WP07 statuses/notes only) or 2026-09-25 (Session C: WP08-T06 status/notes only)."
   },
-  "code_files": 375,
+  "code_files": 440,
   "no_symbol_file_count": 0,
   "graphify_version": "0.9.40",
   "semantic_scope": "Explicit planning relationships only; free-form documentation semantic extraction not run.",
   "original_graphs": "Historical root graphify-out and Homayar/graphify-out (original checkout) preserved unchanged and not consulted; the 2026-09-07 snapshot pointed at the original checkout and is superseded by this refresh.",
   "full_graph": {
-    "raw_ast_nodes": 4724,
-    "raw_ast_edges": 19146,
-    "explicit_unresolved_reference_nodes": 155,
-    "full_graph_nodes": 4879,
-    "full_graph_edges": 19146,
+    "raw_ast_nodes": 5481,
+    "raw_ast_edges": 22715,
+    "explicit_unresolved_reference_nodes": 163,
+    "full_graph_nodes": 5644,
+    "full_graph_edges": 22715,
     "full_graph_missing_endpoints": 0,
     "self_loop_edges": 1,
     "definition_resolution_complete": false,
-    "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Counts derive from the lossless extraction.json of this snapshot; the lossless graph.full.json/GraphML exports were not regenerated (resolved graph.json/HTML were). Resolved graph.json/HTML remain a simplified navigation view."
+    "note": "Unresolved nodes preserve references honestly; they are not invented definitions or proven external modules. Counts derive from the lossless extraction.json of this snapshot; the lossless graph.full.json/GraphML exports were not regenerated. The resolved graph.json remains a simplified navigation view; no HTML was generated for this refresh (more than 5,000 resolved nodes)."
   }
 }

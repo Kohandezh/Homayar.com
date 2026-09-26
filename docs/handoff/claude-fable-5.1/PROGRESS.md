@@ -589,6 +589,34 @@
 - External blockers: unchanged (Padyar AI Gateway contract, provider credentials, representative evaluation data, live S3) plus `PRODUCT_SOURCE_TOKEN`.
 - Next exact action: once CI is green, merge `integration/commercial-v1`; then WP09-T01 (channel metadata and PBX mapping).
 
+### Session 15 — Session C integration: CI repair, backend gaps, QA follow-up, network egress, real journey
+
+- Date / environment: 2026-09-25; website worktree `.claude/worktrees/homayar-v1-integration-d5beaf` (branch `claude/homayar-v1-integration-d5beaf`, from `cfcc2c4`, fast-forwarded to PR #2's `f12b273`); product clone `Homayar/` (branch `session-c/integration` from `c5bf752`); strictly sequential, single agent. Record: `docs/handoff/session-c/README.md`.
+- Package / subtask: integration of Session A (WP08) and Session B (console journey, QA follow-up `5bb7a01`); WP08-T06 network layer; backend gaps G1/G2/G7/G9/G10/G11.
+- Baseline repo/ref/dirty state: Session A had already merged A+B (`fc803e3`, verified equal to the automatic merge tree) and published product `c5bf752` and website PR #2; A and B idle during tip selection; all working copies clean; verified `--all` bundles in `.git/session-c-backups/`.
+- Scope and files: product — `backend/routers/v1/{auth,insights,meetings}.py`, `schemas/{auth,insights}.py`, `security/{authorization,context}.py`, `services/{auth,email,otp,tenancy,download,logging}_service.py`, `jobs/model_preflight.py`, authorization matrix, console (members, settings, search, meeting page, results, auth pages, layout, error/label modules, tests), `frontend/vite.config.ts`; website — `infra/compose/*`, `infra/egress/*`, `infra/docker/egress-proxy.Dockerfile`, `infra/docker/public-web.Dockerfile`, `infra/nginx/conf.d/homayar.conf`, `infra/ci/airgap_egress_check.py`, `.github/workflows/ci.yml`, ADR 0031 (network layer) and ADR 0032, deployment/CI runbooks, WP08 records, the lock.
+- Change and reason: CI failures (console PostCSS discovery, `next-env.d.ts` in the image) reproduced in clean containers and fixed; gaps and QA findings re-validated on the integrated tree before fixing; eight integration defects found while running the real journey (see the Session C record: no e-mail could ever be sent, nginx throttled session reads, worker logs lost, outage shown as sign-out, legacy retention changed by a rename, proxy 429 on upload, scheduler on a routed network, Compose missing provider settings).
+- Commands/results newly executed: backend PostgreSQL 16 full suite at `d318f7e` 702 passed / 45 skipped (41 live S3, 3 Padyar, 1 SQLite-only drill) / 1 failed (broker-restart drill against a non-persistent Redis; the 5 drills pass against a durable one); migration check and a two-revision round trip clean; console 113 tests, lint, build (local and `node:22-alpine`); website frozen install, lint, build (`node:22-alpine`); container-job replica from a clean `git archive` (Compose ×5, buildx checks, 4 images, smoke, egress test 33 probes, nginx ×2, ShellCheck, Hadolint); API journey through the real nginx config 62/63 (the one failure was a harness-made state, analysed; a genuine dead letter and replay then passed 8/8); browser checks in fa 375 px, en 1280 px, fa 768 px. Remote CI run 36128541895 on website `b68803d`: all six jobs passed after one backend re-run.
+- Acceptance satisfied: WP08-T06 validated in local scope (application and on-prem network layer); G1, G2, G7, G9, G10, G11 contracts; Session B QA P1 ×6, P2 ×16, P3 ×17.
+- Acceptance pending: publication of the commits after `7be3abe`/`b68803d`; production deployment validation of egress (cloud platform firewall, on-prem mail relay); QA M-14; gaps G3–G6; Graphify of the final tree (below).
+- Review: self-review.
+- External blockers: Padyar AI Gateway API contract, provider credentials, representative evaluation data, live S3; owner decisions: pricing claims (website vs console), G5, M-14, console Persian font, retention/backup/charging defaults.
+- Next exact action: approve publication (product first, then website PR #2), inspect CI on the exact SHA; after merge, WP09-T01 (channel metadata and PBX mapping).
+
+### Session 16 — Product source imported into this repository (ADR 0033); draft pull request
+
+- Date / environment: 2026-09-26; same worktree and branch; PR #2 had been merged into `main` (`a1c3d60`) by the owner; strictly sequential, single agent.
+- Package / subtask: WP01 (source ownership) — owner request: remove `/Homayar/` from `.gitignore`, commit the product source here, push the product branch first, open a draft pull request.
+- Baseline repo/ref/dirty state: website `1f54ef8` clean; product clone `e7eeef5` clean; remote product `feat/commercial-v1-overlay` at `7be3abe`.
+- Scope and files: `Homayar/**` (378 files from `e7eeef53`), `.gitignore`, `infra/product-source.lock`, `infra/ci/check-source-contract.sh` and its tests, `.github/workflows/ci.yml`, `.github/actions/product-source/` (removed), `.gitleaks.toml`, `src/app/globals.css`, `eslint.config.mjs`, ADR 0033 (new), ADR 0002 (superseded), `docs/operations/ci.md`, `docs/architecture/workspace-structure.md`, Session C record.
+- Change and reason: see `docs/handoff/session-c/README.md` § Monorepo import — import without history via `read-tree --prefix` (local clone untouched), in-repository contract (no gitlink, required/forbidden paths), CI without a cross-repository checkout or token, scoped Gitleaks allowlists for 8 fixture false positives, Tailwind source exclusion (the stylesheet had grown by the console's classes), `.env.example` negation.
+- Commands/results newly executed: contract `--mode ci` on a clean clone satisfied; checker tests 29/29; actionlint and ShellCheck clean; Gitleaks history scan clean (73 commits) plus a negative test; website lint/build and a CSS comparison (identical SHA-256 to the pre-import output); console `dist/` identical between layouts, lint, tests 113/113 ×3 (one earlier run 112/113, not reproduced).
+- Acceptance satisfied: product source tracked as ordinary files; contract and CI consistent with it; no change to any build output.
+- Acceptance pending: remote CI on the draft pull request; owner review of ADR 0033; retiring the nested clone in existing workspaces (overwrite hazard, ADR 0033); revoking the unused `PRODUCT_SOURCE_TOKEN`; archiving `Kohandezh/HomaYar` (owner decisions).
+- Review: self-review.
+- External blockers: unchanged (Padyar AI Gateway contract, provider credentials, representative evaluation data, live S3) and the owner decisions listed in Session 15.
+- Next exact action: inspect CI on the draft pull request; merge only with separate authorization; then WP09-T01.
+
 ## Template for next session
 
 - Date / environment:

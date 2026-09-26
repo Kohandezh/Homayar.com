@@ -1,6 +1,6 @@
 # ADR 0002 — Product source contract for clean-checkout builds
 
-Date: 2026-09-07. Status: proposed (implemented locally in WP01-T02; owner approval pending). Supersedes nothing; complements [ADR 0001](0001-preserve-runtime-roots.md).
+Date: 2026-09-07. Status: **superseded** by [ADR 0033](0033-product-source-in-this-repository.md) on 2026-09-26 (the product source is now tracked in this repository; the external pin, the checkout action and `PRODUCT_SOURCE_TOKEN` are retired). Originally: proposed (implemented locally in WP01-T02). Supersedes nothing; complements [ADR 0001](0001-preserve-runtime-roots.md).
 
 ## Context
 

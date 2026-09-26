@@ -12,8 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Independent product repository cloned beside the website (ADR 0002);
-    // it carries its own lint configuration.
+    // Product source (ADR 0033); it carries its own lint configuration and
+    // is linted by the console CI job.
     "Homayar/**",
   ]),
 ]);

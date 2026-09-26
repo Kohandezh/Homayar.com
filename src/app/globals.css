@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* The product console (Homayar/, ADR 0033) has its own Tailwind build; keep its
+   class names out of the website's automatic source detection. */
+@source not "../../Homayar";
 
 @theme {
   /* ── Homayar dark enterprise palette ── */

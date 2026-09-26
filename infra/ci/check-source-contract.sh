@@ -1,32 +1,37 @@
 #!/usr/bin/env bash
-# Verify that the product source checkout satisfies infra/product-source.lock.
+# Verify that the product source tracked in this repository satisfies
+# infra/product-source.lock (ADR 0033: the product lives under Homayar/ as
+# ordinary files, never as a gitlink or submodule).
 #
 # Exit codes:
 #   0  contract satisfied
-#   2  usage or configuration error (missing lock or product directory,
-#      malformed lock, directory is not an independent Git checkout)
-#   3  contract violated (pinned commit unavailable or not checked out,
-#      required path not committed at the pinned commit, forbidden path
-#      tracked, remote mismatch in ci mode, dirty tree in ci mode)
+#   2  usage or configuration error (missing lock, malformed lock, repository
+#      is not a Git checkout, revision does not resolve)
+#   3  contract violated (product directory untracked or a gitlink/submodule,
+#      required path not committed at the revision, forbidden path tracked,
+#      dirty product directory or nested checkout in ci mode)
 #
 # Modes:
-#   local (default)  dirty working tree and remote mismatch are warnings
-#   ci               working tree must be clean and origin must match the lock
+#   local (default)  a dirty product directory and a nested pre-import clone
+#                    (Homayar/.git) are warnings
+#   ci               the product directory must be clean and contain no nested
+#                    Git checkout
 set -Eeuo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd -- "${script_dir}/../.." && pwd -P)"
 mode="local"
 lock_file="${repo_root}/infra/product-source.lock"
-product_dir="${repo_root}/Homayar"
+rev="HEAD"
 
 usage() {
   cat <<'USAGE'
-Usage: check-source-contract.sh [--mode local|ci] [--lock FILE] [--product-dir DIR]
+Usage: check-source-contract.sh [--mode local|ci] [--lock FILE] [--repo DIR] [--rev REV]
 
-Checks that DIR is an independent Git checkout of the repository and commit
-pinned in FILE, that every required_path is committed at that commit and that
-no forbidden_path is tracked there. See the script header for exit codes.
+Checks that the product directory declared in FILE is tracked in the Git
+repository DIR (default: this repository) as ordinary files at REV (default:
+HEAD), that every required_path is committed there and that no forbidden_path
+is tracked. See the script header for exit codes.
 USAGE
 }
 
@@ -38,9 +43,12 @@ while [[ $# -gt 0 ]]; do
     --lock)
       [[ $# -ge 2 ]] || { usage >&2; exit 2; }
       lock_file="$2"; shift 2 ;;
-    --product-dir)
+    --repo)
       [[ $# -ge 2 ]] || { usage >&2; exit 2; }
-      product_dir="$2"; shift 2 ;;
+      repo_root="$2"; shift 2 ;;
+    --rev)
+      [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+      rev="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -67,9 +75,10 @@ violation() { violations+=("$*"); printf '[contract] VIOLATION: %s\n' "$*" >&2; 
 # ---------------------------------------------------------------------------
 [[ -f "${lock_file}" ]] || config_error "lock file not found: ${lock_file}"
 
-repository=""
-ref=""
-sha=""
+product_dir=""
+imported_from=""
+imported_ref=""
+imported_sha=""
 required_paths=()
 forbidden_paths=()
 trim() {
@@ -88,131 +97,119 @@ while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
   key="$(trim "${line%%=*}")"
   value="$(trim "${line#*=}")"
   case "${key}" in
-    repository) repository="${value}" ;;
-    ref) ref="${value}" ;;
-    sha) sha="${value}" ;;
+    product_dir) product_dir="${value%/}" ;;
+    imported_from) imported_from="${value}" ;;
+    imported_ref) imported_ref="${value}" ;;
+    imported_sha) imported_sha="${value}" ;;
     required_path) required_paths+=("${value%/}") ;;
     forbidden_path) forbidden_paths+=("${value%/}") ;;
     *) config_error "${lock_file}:${line_number}: unknown key \"${key}\"" ;;
   esac
 done <"${lock_file}"
 
-[[ -n "${repository}" ]] || config_error "lock file has no repository= entry"
-[[ "${repository}" == https://github.com/*/* ]] || config_error "lock file repository= must be an https://github.com/<owner>/<repo> URL"
-[[ -n "${ref}" ]] || config_error "lock file has no ref= entry"
-[[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || config_error "lock file sha= must be a 40-character lowercase hex commit id"
+[[ -n "${product_dir}" ]] || config_error "lock file has no product_dir= entry"
 [[ ${#required_paths[@]} -gt 0 ]] || config_error "lock file declares no required_path entries"
-for path in "${required_paths[@]}" ${forbidden_paths[@]+"${forbidden_paths[@]}"}; do
+for path in "${product_dir}" "${required_paths[@]}" ${forbidden_paths[@]+"${forbidden_paths[@]}"}; do
   case "${path}" in
-    ""|/*|*/../*|../*|*/..|..) config_error "invalid path in lock file: \"${path}\"" ;;
+    ""|/*|*/../*|../*|*/..|..|.|./*) config_error "invalid path in lock file: \"${path}\"" ;;
   esac
 done
+if [[ -n "${imported_from}" && "${imported_from}" != https://github.com/*/* ]]; then
+  config_error "lock file imported_from= must be an https://github.com/<owner>/<repo> URL"
+fi
+if [[ -n "${imported_sha}" && ! "${imported_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+  config_error "lock file imported_sha= must be a 40-character lowercase hex commit id"
+fi
 
 # ---------------------------------------------------------------------------
-# Locate the product checkout.
+# Locate the repository and the revision.
 # ---------------------------------------------------------------------------
-[[ -d "${product_dir}" ]] || config_error "product source directory missing: ${product_dir}. Clone ${repository} at ${sha} into it (CI uses .github/actions/product-source)."
-product_dir="$(cd -- "${product_dir}" && pwd -P)"
-
-git -C "${product_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  || config_error "${product_dir} is not a Git checkout"
-toplevel="$(git -C "${product_dir}" rev-parse --show-toplevel)"
+[[ -d "${repo_root}" ]] || config_error "repository directory missing: ${repo_root}"
+repo_root="$(cd -- "${repo_root}" && pwd -P)"
+git -C "${repo_root}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || config_error "${repo_root} is not a Git checkout"
+toplevel="$(git -C "${repo_root}" rev-parse --show-toplevel)"
 toplevel="$(cd -- "${toplevel}" && pwd -P)"
-[[ "${toplevel}" == "${product_dir}" ]] \
-  || config_error "${product_dir} is inside another Git checkout (${toplevel}); the product source must be its own checkout"
-
-normalize_remote() {
-  # Portable lowercase (bash 3.2 on macOS has no ${var,,}).
-  local url
-  url="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-  url="${url%/}"
-  url="${url%.git}"
-  url="${url#git@github.com:}"
-  url="${url#https://github.com/}"
-  url="${url#http://github.com/}"
-  url="${url#ssh://git@github.com/}"
-  printf '%s' "${url}"
-}
-
-origin_url="$(git -C "${product_dir}" remote get-url origin 2>/dev/null || true)"
-if [[ -z "${origin_url}" ]]; then
-  if [[ "${mode}" == "ci" ]]; then
-    violation "product checkout has no origin remote; expected ${repository}"
-  else
-    warn "product checkout has no origin remote; expected ${repository}"
-  fi
-elif [[ "$(normalize_remote "${origin_url}")" != "$(normalize_remote "${repository}")" ]]; then
-  if [[ "${mode}" == "ci" ]]; then
-    violation "origin remote does not match the lock: expected ${repository}"
-  else
-    warn "origin remote does not match the lock: expected ${repository}"
-  fi
-fi
+[[ "${toplevel}" == "${repo_root}" ]] \
+  || config_error "${repo_root} is not the top level of its Git checkout (${toplevel})"
+rev_sha="$(git -C "${repo_root}" rev-parse --verify --quiet "${rev}^{commit}" 2>/dev/null)" \
+  || config_error "revision \"${rev}\" does not resolve to a commit in ${repo_root}"
 
 # ---------------------------------------------------------------------------
-# Pinned commit checks.
+# The product directory must be an ordinary tracked tree.
 # ---------------------------------------------------------------------------
-if ! git -C "${product_dir}" cat-file -e "${sha}^{commit}" 2>/dev/null; then
-  violation "pinned commit ${sha} is not present in ${product_dir}; fetch ${repository} (ref ${ref})"
-  head_sha="$(git -C "${product_dir}" rev-parse HEAD 2>/dev/null || printf 'unknown')"
-  info "repository=${repository} ref=${ref} pinned=${sha} head=${head_sha} mode=${mode}"
-  printf '[contract] RESULT: violated (%d finding(s))\n' "${#violations[@]}" >&2
-  exit 3
+entry="$(git -C "${repo_root}" ls-tree "${rev_sha}" -- "${product_dir}" | head -n 1)"
+entry_mode="${entry%% *}"
+if [[ -z "${entry}" ]]; then
+  violation "product directory \"${product_dir}\" is not tracked at ${rev_sha}; the product source must be committed in this repository (ADR 0033)"
+elif [[ "${entry_mode}" == "160000" ]]; then
+  violation "product directory \"${product_dir}\" is a gitlink at ${rev_sha}; it must be committed as ordinary files, never as a submodule"
+elif [[ "${entry_mode}" != "040000" ]]; then
+  violation "product directory \"${product_dir}\" is not a directory at ${rev_sha} (mode ${entry_mode})"
 fi
-
-head_sha="$(git -C "${product_dir}" rev-parse HEAD)"
-if [[ "${head_sha}" != "${sha}" ]]; then
-  violation "HEAD ${head_sha} does not match pinned commit ${sha}; check out the pinned commit or update the lock through a reviewed change"
-fi
-
-# Ref consistency: the pinned commit must be reachable from the declared ref so
-# that "ref=" cannot silently describe a branch that never contained "sha=".
-ref_sha=""
-for candidate in "refs/remotes/origin/${ref}" "refs/heads/${ref}" "refs/tags/${ref}"; do
-  if ref_sha="$(git -C "${product_dir}" rev-parse --verify --quiet "${candidate}^{commit}" 2>/dev/null)"; then
-    break
-  fi
-  ref_sha=""
-done
-if [[ -n "${ref_sha}" ]]; then
-  if ! git -C "${product_dir}" merge-base --is-ancestor "${sha}" "${ref_sha}" 2>/dev/null; then
-    violation "pinned commit ${sha} is not reachable from ref \"${ref}\" (${ref_sha}); update ref= and sha= together"
-  fi
-elif [[ "${mode}" == "ci" ]]; then
-  violation "ref \"${ref}\" is not resolvable in ${product_dir} (expected refs/remotes/origin/${ref}); fetch the published ref before verifying so the pin can be checked against it"
-else
-  warn "ref \"${ref}\" is not resolvable locally; pin/ref consistency not verified (a locally committed pin is not available to remote CI until the ref is published)"
+if git -C "${repo_root}" cat-file -e "${rev_sha}:.gitmodules" 2>/dev/null \
+  && git -C "${repo_root}" config --blob "${rev_sha}:.gitmodules" --get-regexp '^submodule\..*\.path$' 2>/dev/null \
+    | awk '{print $2}' | grep -qxF -- "${product_dir}"; then
+  violation ".gitmodules at ${rev_sha} declares a submodule at \"${product_dir}\"; remove it"
 fi
 
 for path in "${required_paths[@]}"; do
-  if git -C "${product_dir}" cat-file -e "${sha}:${path}" 2>/dev/null; then
+  if git -C "${repo_root}" cat-file -e "${rev_sha}:${product_dir}/${path}" 2>/dev/null; then
     continue
   fi
-  if [[ -e "${product_dir}/${path}" ]]; then
-    violation "required path \"${path}\" exists on disk but is not committed at ${sha} (uncommitted overlay); commit and pin it before relying on a clean checkout"
+  if [[ -e "${repo_root}/${product_dir}/${path}" ]]; then
+    violation "required path \"${product_dir}/${path}\" exists on disk but is not committed at ${rev_sha}; commit it before relying on a clean checkout"
   else
-    violation "required path \"${path}\" is missing from ${sha} and from the working tree"
+    violation "required path \"${product_dir}/${path}\" is missing from ${rev_sha} and from the working tree"
   fi
 done
 
 for path in ${forbidden_paths[@]+"${forbidden_paths[@]}"}; do
-  if git -C "${product_dir}" cat-file -e "${sha}:${path}" 2>/dev/null; then
-    violation "forbidden path \"${path}\" is tracked at ${sha}; runtime data, environments and caches must stay out of the product source"
-  elif [[ -e "${product_dir}/${path}" ]] && ! git -C "${product_dir}" check-ignore -q -- "${path}" 2>/dev/null; then
-    warn "forbidden path \"${path}\" exists in the working tree and no repository ignore rule matches it (tool-generated nested .gitignore files do not count); add an explicit rule to the product .gitignore"
+  if git -C "${repo_root}" cat-file -e "${rev_sha}:${product_dir}/${path}" 2>/dev/null; then
+    violation "forbidden path \"${product_dir}/${path}\" is tracked at ${rev_sha}; runtime data, environments and caches must stay out of the repository"
+  elif [[ -e "${repo_root}/${product_dir}/${path}" ]] \
+    && ! git -C "${repo_root}" check-ignore -q -- "${product_dir}/${path}" 2>/dev/null; then
+    warn "forbidden path \"${product_dir}/${path}\" exists in the working tree and no ignore rule matches it; add an explicit rule to ${product_dir}/.gitignore"
   fi
 done
 
-dirty_count="$(git -C "${product_dir}" status --porcelain --untracked-files=normal | grep -c '' || true)"
-if [[ "${dirty_count}" -gt 0 ]]; then
+# A pre-import clone left in place (Homayar/.git) is harmless to this
+# repository, which never descends into it, but Git commands run inside the
+# directory then address that clone instead of this repository.
+if [[ -e "${repo_root}/${product_dir}/.git" ]]; then
   if [[ "${mode}" == "ci" ]]; then
-    violation "product checkout has ${dirty_count} modified or untracked entries; ci mode requires a clean checkout"
+    violation "\"${product_dir}/.git\" exists; ci mode requires the product source from this repository's checkout only"
   else
-    warn "product checkout has ${dirty_count} modified or untracked entries (local mode); the pinned commit alone must satisfy every required path"
+    warn "\"${product_dir}/.git\" exists (a separate clone in the product directory); Git commands run inside ${product_dir}/ address that clone, not this repository"
   fi
 fi
 
-info "repository=${repository} ref=${ref} pinned=${sha} head=${head_sha} dirty_entries=${dirty_count} mode=${mode}"
+dirty_count="$(git -C "${repo_root}" status --porcelain --untracked-files=normal -- "${product_dir}" | grep -c '' || true)"
+if [[ "${dirty_count}" -gt 0 ]]; then
+  if [[ "${mode}" == "ci" ]]; then
+    violation "product directory has ${dirty_count} modified or untracked entries; ci mode requires a clean checkout"
+  else
+    warn "product directory has ${dirty_count} modified or untracked entries (local mode); the commit alone must satisfy every required path"
+  fi
+fi
+
+# Provenance of the import (informational, never a violation).
+provenance="not recorded"
+if [[ -n "${imported_sha}" ]]; then
+  if import_tree="$(git -C "${repo_root}" rev-parse --verify --quiet "${imported_sha}^{tree}" 2>/dev/null)"; then
+    product_tree="$(git -C "${repo_root}" rev-parse --verify --quiet "${rev_sha}:${product_dir}" 2>/dev/null || true)"
+    if [[ "${product_tree}" == "${import_tree}" ]]; then
+      provenance="identical to the imported commit ${imported_sha}"
+    else
+      provenance="changed since the imported commit ${imported_sha}"
+    fi
+  else
+    provenance="imported from ${imported_from:-unknown} ${imported_ref:+(${imported_ref}) }at ${imported_sha} (commit not available locally)"
+  fi
+fi
+
+info "product_dir=${product_dir} rev=${rev_sha} dirty_entries=${dirty_count} mode=${mode}"
+info "provenance: ${provenance}"
 if [[ ${#violations[@]} -gt 0 ]]; then
   printf '[contract] RESULT: violated (%d finding(s))\n' "${#violations[@]}" >&2
   exit 3

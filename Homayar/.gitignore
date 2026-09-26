@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads
+uploads/
+
+# Logs
+*.log
+neo4j_logs/
+
+# Reference project (cloned for comparison)
+sample/
+
+# Local runtime data, caches and generated artifacts (WP01-T03)
+*.db
+data/
+graphify-out/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.claude/settings.local.json

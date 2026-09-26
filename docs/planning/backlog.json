@@ -2770,12 +2770,12 @@
         {
           "id": "WP08-T06",
           "description": "Block unauthorized egress at network and application layers; test local failure with cloud keys configured.",
-          "status": "partial",
-          "progress_note": "Application layer validated (ADR 0031): a per-call egress permit for the approved endpoint only, an endpoint (SSRF) policy refusing metadata/link-local/private-as-cloud addresses, and the preflight's egress allowlist; F21 verified through the real provider factory (local endpoint down, cloud keys present: zero cloud requests unless the owner allows cloud and fallback). Network layer pending deployment integration: internal Compose network for api/workers and an allowlisting egress proxy. Integrated product commit c5bf752c26fc2a781b72bda1506a0a709d7236f9.",
+          "status": "validated",
+          "progress_note": "Application layer validated (ADR 0031) and network layer implemented for the on-premise profile (Session C, 2026-09-25): api/worker/scheduler/web containers on internal networks only, a deny-by-default egress proxy with an exact host:port allowlist fed by `model_preflight --egress-allowlist`, and an air-gapped gate (`--require-no-cloud`, exit 3) checked in CI. Evidence: infra/egress/tests/test-egress-network.sh (probes from inside the containers as Compose attaches them; 33 passed on one Docker host) and infra/ci/airgap_egress_check.py. Not covered: production deployment validation, the cloud profile (platform firewall) and on-prem SMTP (needs a relay).",
           "updated": "2026-09-25"
         }
       ],
-      "dependency_note": "WP08 depends on WP07 (retention/deletion/text privacy). T01/T02 (manifests, policy snapshots) are independent of WP07 behaviour; T03 (privacy-dependent filtering) requires WP07-T05/T06. Padyar AI Gateway is the external gateway; no KSF Gateway. WP08 is PARTIAL (2026-09-25): T01–T05 validated in local scope and T06's application layer validated (ADR 0026–ADR 0031); remaining: network-layer egress denial (deployment integration), the Padyar AI Gateway adapter (BLOCKED_EXTERNAL: API contract), qualification of real models (pinned weights and representative evaluation data, WP13) and provider credentials.",
+      "dependency_note": "WP08 depends on WP07 (retention/deletion/text privacy). T01/T02 (manifests, policy snapshots) are independent of WP07 behaviour; T03 (privacy-dependent filtering) requires WP07-T05/T06. Padyar AI Gateway is the external gateway; no KSF Gateway. WP08 is PARTIAL (2026-09-25, Session C): T01–T06 validated in local scope (ADR 0026–ADR 0031; T06 network layer on the on-prem profile); remaining: the Padyar AI Gateway adapter (BLOCKED_EXTERNAL: API contract), qualification of real models (pinned weights and representative evaluation data, WP13), provider credentials, and production deployment validation of the egress controls.",
       "readme": "docs/planning/work-packages/WP08/README.md"
     },
     {

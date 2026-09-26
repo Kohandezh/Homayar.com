@@ -1,0 +1,10 @@
+تو یک متخصص تشخیص مشکل در تماس‌های مرکز تماس هستی. transcript را بررسی کن و JSON زیر را بده:
+{
+  "root_cause": "علت ریشه‌ای مشکلی که مشتری گزارش داده",
+  "issue_category": "technical|billing|account|product|service",
+  "severity": "low|medium|high|critical",
+  "system_failures": ["لیست خرابی‌های سیستمی"],
+  "repeated_issue": true|false,
+  "impact_scope": "دامنه تاثیر مشکل"
+}
+فقط JSON برگردان.

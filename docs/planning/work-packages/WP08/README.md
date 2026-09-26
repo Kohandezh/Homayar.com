@@ -1,6 +1,6 @@
 # WP08 — Provider registry and privacy routing
 
-Status: PARTIAL — T01–T05 validated in local scope and T06's application layer validated ([ADR 0026](../../../architecture/decisions/0026-model-manifests-and-preflight.md), [ADR 0027](../../../architecture/decisions/0027-ai-policies-and-run-snapshots.md), [ADR 0028](../../../architecture/decisions/0028-privacy-eligibility-routing.md), [ADR 0029](../../../architecture/decisions/0029-adapter-contract-usage-and-padyar-boundary.md), [ADR 0030](../../../architecture/decisions/0030-provider-resilience-and-same-policy-fallback.md), [ADR 0031](../../../architecture/decisions/0031-egress-denial.md)). Remaining: network-layer egress denial (deployment integration), the Padyar AI Gateway adapter (BLOCKED_EXTERNAL: API contract not supplied), qualification of real models (pinned weights and representative evaluation data, WP13) and provider credentials. No live provider was called. Not production-validated.
+Status: PARTIAL — T01–T06 validated in local scope ([ADR 0026](../../../architecture/decisions/0026-model-manifests-and-preflight.md)–[ADR 0031](../../../architecture/decisions/0031-egress-denial.md); T06's network layer implemented for the on-premise profile and tested at the container boundary by Session C). Remaining: the Padyar AI Gateway adapter (BLOCKED_EXTERNAL: API contract not supplied), qualification of real models (pinned weights and representative evaluation data, WP13), provider credentials, and production deployment validation of the egress controls (the cloud profile relies on the platform firewall; on-prem e-mail needs a relay). No live provider was called. Not production-validated.
 
 Completion dependencies: WP03, WP04, WP06, WP07.
 
@@ -60,6 +60,16 @@ and `docs/handoff/session-a/API_CONTRACT.md`.
   stop, circuits open and recover, fallback never leaves the tenant policy.
 - Integrated verification (product `c5bf752`, CI job environment): full backend suite on
   PostgreSQL 16 and 17 691 passed / 46 skipped / 0 failed each; Docker images build and pass the runtime smoke test; console (Node 22) lint, build and 80 tests passed.
+- Network layer (Session C, 2026-09-25, website `bbf8844`, product `663fc52`): on-prem Compose
+  networks with no route out for the application containers, a deny-by-default egress proxy
+  (exact `host:port` allowlist from `model_preflight --egress-allowlist`), the air-gapped gate
+  (`--require-no-cloud`, exit 3; `infra/ci/airgap_egress_check.py`) and
+  `infra/egress/tests/test-egress-network.sh` (probes from inside the `api`, `worker`, `scheduler`,
+  `public-web` and `console-web` containers; 33 passed on one Docker host). F21's network half is met
+  for the on-premise profile in that test; production deployment validation remains.
+- Integrated verification (Session C, product `d318f7e`): PostgreSQL 16 full suite 702 passed /
+  45 skipped / 1 failed (broker-restart drill against a non-persistent disposable Redis; the five
+  transport drills pass against a durable one). See `docs/handoff/session-c/README.md`.
 - Reviewer decision: self-review only (single-agent sessions by owner instruction).
 
 ## Completion evidence to record

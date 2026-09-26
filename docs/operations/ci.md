@@ -8,24 +8,19 @@
 | Product console | frozen npm install, nested lint, `/app/` build, declared test script and tests |
 | Backend | frozen uv environment, single Alembic head, upgrade/check/current-head, pytest |
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
-| Container config | Actionlint, on-prem/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds and runtime smoke tests |
+| Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) and the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`) |
 
-Product source comes from `Kohandezh/HomaYar` at the commit pinned in
-`infra/product-source.lock`. The `source-contract` job runs first: the composite action
-`.github/actions/product-source` reads the lock, checks the product repository out into
-`Homayar/` at that commit (credentials are not persisted) and runs
-`infra/ci/check-source-contract.sh --mode ci`, then executes the checker's own tests. The
-console, backend and container jobs depend on that job and repeat the pinned checkout. In the
-local workspace `Homayar/` is an independent, ignored Git clone; run
-`infra/ci/check-source-contract.sh --mode local` to compare it with the pin. The checker fails
-explicitly when the pinned commit does not contain every required path, when a forbidden path is
-tracked, or when the pinned commit is not reachable from the declared `ref=` (the action fetches
-that ref, commits and trees only, before verifying; a pin that exists only in a local clone
-therefore fails remote CI until the ref is published). A private product repository needs a
-read-only token in the `PRODUCT_SOURCE_TOKEN` secret. Since WP01-T03 the pin points at
-`feat/commercial-v1-overlay`; the branch was published on 2026-09-25, so remote CI can fetch the
-pin once `PRODUCT_SOURCE_TOKEN` is configured (the default workflow token cannot read the private
-product repository).
+The product source is tracked in this repository under `Homayar/`
+([ADR 0033](../architecture/decisions/0033-product-source-in-this-repository.md), which
+supersedes the external pin of ADR 0002). The `source-contract` job runs first:
+`infra/ci/check-source-contract.sh --mode ci` reads `infra/product-source.lock` and fails when
+`Homayar/` is untracked, a gitlink or declared in `.gitmodules`, when a required path is not
+committed, when a forbidden path (environments, runtime data, caches) is tracked, or when the
+product directory is dirty or contains a nested `.git`; the job then executes the checker's own
+tests. The console, backend and container jobs depend on that job and build from the same
+checkout; no second repository or token is involved. Locally, run
+`infra/ci/check-source-contract.sh --mode local`; it also reports whether `Homayar/` is still
+identical to the imported product commit.
 
 The backend job runs `infra/ci/check-migrations.sh` (upgrade head, `alembic check`, head
 verification) and then the test suite against the PostgreSQL service: `TEST_DATABASE_URL`
@@ -33,9 +28,8 @@ selects the database and `HOMAYAR_REQUIRE_POSTGRES_TESTS=1` makes the suite refu
 to SQLite, so a green backend job always means PostgreSQL. Locally, run
 `TEST_DATABASE_URL=postgresql+psycopg://user@127.0.0.1:5432/db uv run pytest backend/tests`
 inside `Homayar/`; without the variable the suite uses temporary SQLite files and skips the
-`postgres`-marked tests. See
-[ADR 0002](../architecture/decisions/0002-product-source-contract.md). The workflow still emits
-its older explicit source-contract error when the nested console or backend artifacts are absent.
+`postgres`-marked tests. The console and backend jobs still fail explicitly when their product
+files are absent from the commit.
 
 Backend CI uses only isolated PostgreSQL and Redis service containers. It sets test mode and
 mock-provider permission explicitly; it does not call email, SMS, OAuth, ASR, diarization,
