@@ -33,6 +33,25 @@ nginx (reverse proxy and console); ShellCheck; Hadolint.
 **Public web job:** lint and build only. The cPanel export and the Playwright browser tests are
 reported as missing from the repository (they exist only in the original checkout, R-03).
 
+**R-02 on the GitHub runner (PR #5):**
+
+| Run | Revision | Result |
+| --- | --- | --- |
+| [36250360273](https://github.com/Kohandezh/Homayar.com/actions/runs/36250360273) | `80ae521` | ffmpeg/ffprobe `6.1.1-3ubuntu5` installed; media tests executed; backend **4 failed**, 698 passed, 46 skipped; other five jobs passed |
+| [36252829293](https://github.com/Kohandezh/Homayar.com/actions/runs/36252829293) | `88a77c2` | all six jobs passed (fix below, first version: stderr piped) |
+
+**Finding (security-relevant):** on ffmpeg 6.1.1 (Ubuntu 24.04), the bounded decode
+`ffmpeg -xerror … -f null -` exits 0 for `corrupt.mp3`, `corrupt.flac` and `tail.mp3`: the
+decoder conceals the errors despite `-xerror`. ffmpeg 5.1.9 (Debian) and 8.1.2 (macOS) exit
+non-zero. So upload validation on an Ubuntu 24.04 host would have accepted corrupted media that
+local runs refused. Fix: the decode also fails when ffmpeg writes any error-level diagnostic
+(`-v error -nostats`); stderr goes to an anonymous temporary file whose size alone is checked (no
+diagnostic read into memory, stored, logged or returned; volume bounded by the `-t` window and the
+timeout); timeout/unavailable classification unchanged. Tests: the unit test pins the temp-file
+stderr and `-nostats`; a new unit test covers exit 0 with a diagnostic (refused, message not
+leaked); all valid fixtures still pass and the corruption cases are refused with real binaries.
+The first CI run is the evidence that the media tests really execute on the runner.
+
 ## 2. Transport drill fix (`2a30213`)
 
 - **Failure:** `test_killed_pool_child_requeues_inertly_and_recovery_settles_once` — the requeued

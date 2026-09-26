@@ -26,6 +26,7 @@ import os
 import re
 import stat
 import subprocess
+import tempfile
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -588,30 +589,34 @@ def _decode_prefix(executable: str, path: Path, seconds: float, timeout: float) 
     ``-xerror`` turns the first decoding error into a non-zero exit, which
     catches corrupted frames that a header-only probe accepts.  Some ffmpeg
     releases (6.1 on Ubuntu 24.04) conceal such errors and still exit 0, so
-    any error-level diagnostic (``-v error``) is treated as a failure too.
-    Diagnostics are only tested for presence, never stored or logged;
-    nothing derived from the media is retained.
+    any error-level diagnostic is treated as a failure too: ``-v error`` and
+    ``-nostats`` leave nothing but errors on stderr.  Stderr goes to an
+    anonymous temporary file whose size alone is checked, so no diagnostic
+    is read into memory, stored, logged or shown; its volume is bounded by
+    the ``-t`` decode window and the timeout.
     """
     command = _build_ffmpeg_decode_command(executable, path, seconds)
-    try:
-        # The executable is operator-controlled and every input is an argv element.
-        completed = subprocess.run(  # noqa: S603
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            check=False,
-            shell=False,
-            timeout=timeout,
-            close_fds=True,
-        )
-    except subprocess.TimeoutExpired:
-        raise MediaDecodeTimeoutError(timeout) from None
-    except FileNotFoundError:
-        raise MediaDecoderUnavailableError() from None
-    except OSError:
-        raise MediaProbeError() from None
-    if completed.returncode != 0 or completed.stderr.strip():
+    with tempfile.TemporaryFile() as diagnostics:
+        try:
+            # The executable is operator-controlled and every input is an argv element.
+            completed = subprocess.run(  # noqa: S603
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=diagnostics,
+                check=False,
+                shell=False,
+                timeout=timeout,
+                close_fds=True,
+            )
+        except subprocess.TimeoutExpired:
+            raise MediaDecodeTimeoutError(timeout) from None
+        except FileNotFoundError:
+            raise MediaDecoderUnavailableError() from None
+        except OSError:
+            raise MediaProbeError() from None
+        reported_errors = os.fstat(diagnostics.fileno()).st_size > 0
+    if completed.returncode != 0 or reported_errors:
         raise MediaDecodeError()
 
 
@@ -764,6 +769,7 @@ def _build_ffmpeg_decode_command(executable: str, path: Path, seconds: float) ->
         "-hide_banner",
         "-v",
         "error",
+        "-nostats",
         "-xerror",
         "-threads",
         "1",

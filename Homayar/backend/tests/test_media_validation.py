@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -460,7 +461,9 @@ def test_decode_probe_runs_after_the_probe_with_fixed_argv(run: Mock, tmp_path: 
     assert decode.kwargs["shell"] is False
     assert decode.kwargs["stdin"] is subprocess.DEVNULL
     assert decode.kwargs["stdout"] is subprocess.DEVNULL
-    assert decode.kwargs["stderr"] is subprocess.PIPE
+    # Diagnostics go to a temporary file (presence checked, never read), not a pipe.
+    assert hasattr(decode.kwargs["stderr"], "fileno")
+    assert "-nostats" in command and command[command.index("-v") + 1] == "error"
     assert decode.kwargs["timeout"] == 7.5
 
 
@@ -477,8 +480,6 @@ def test_decode_probe_is_skipped_when_disabled(run: Mock, tmp_path: Path) -> Non
     ("second_call", "expected", "terminal"),
     [
         (_completed("", returncode=1), MediaDecodeError, True),
-        # ffmpeg 6.1 conceals some decode errors and exits 0: diagnostics still refuse.
-        (_completed("", returncode=0, stderr="Invalid data found\n"), MediaDecodeError, True),
         (subprocess.TimeoutExpired(cmd=["ffmpeg"], timeout=1.0), MediaDecodeTimeoutError, False),
         (FileNotFoundError(), MediaDecoderUnavailableError, False),
     ],
@@ -498,6 +499,28 @@ def test_decode_outcomes_are_classified(
         )
 
     assert error.value.terminal is terminal
+
+
+@patch("backend.media.validation.subprocess.run")
+def test_decode_diagnostics_refuse_even_when_ffmpeg_exits_zero(run: Mock, tmp_path: Path) -> None:
+    # ffmpeg 6.1.1 (Ubuntu 24.04) conceals some decode errors and exits 0.
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if run.call_count == 1:
+            return _completed(_probe_payload())
+        # Like ffmpeg, write straight to the descriptor (no Python buffering).
+        os.write(kwargs["stderr"].fileno(), b"[mp3float] invalid new backstep -1\n")  # type: ignore[attr-defined]
+        return _completed("", returncode=0)
+
+    run.side_effect = fake_run
+    with pytest.raises(MediaDecodeError) as error:
+        validate_media_upload(
+            _media_file(tmp_path),
+            original_filename="call.mp3",
+            declared_mime_type="audio/mpeg",
+            policy=MediaValidationPolicy(decode_probe_seconds=5),
+        )
+    assert error.value.terminal
+    assert "backstep" not in str(error.value) and "backstep" not in error.value.code
 
 
 def test_policy_bounds_for_the_new_limits() -> None:

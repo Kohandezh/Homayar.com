@@ -24,7 +24,7 @@ PRODUCTION READY).
 - Paths: `docs/security/REMAINING-P0.md`, `docs/security/credential-containment-record.md`, WP02.
 
 ### R-02 · WP01-T05 follow-up · CI does not run the 35 `ffmpeg` tests — ENG · implemented locally, remote CI not run
-- 2026-09-26 (branch `ci/r02-ffmpeg-backend-tests`, local commit, not pushed): the backend job installs
+- 2026-09-26 (PR #5; see `VALIDATION.md` §1 for the runner results and the ffmpeg 6.1.1 concealed-error finding fixed in the same PR): the backend job installs
   `ffmpeg`/`ffprobe` from the Ubuntu archive and prints both versions; `HOMAYAR_REQUIRE_MEDIA_TOOLS=1`
   makes pytest stop with a usage error instead of skipping the `ffmpeg` marker; `pytest -rs` lists every
   remaining skip. Local evidence in `VALIDATION.md` §3. Still open: a green run on the GitHub runner
