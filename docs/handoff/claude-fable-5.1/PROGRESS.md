@@ -617,6 +617,20 @@
 - External blockers: unchanged (Padyar AI Gateway contract, provider credentials, representative evaluation data, live S3) and the owner decisions listed in Session 15.
 - Next exact action: inspect CI on the draft pull request; merge only with separate authorization; then WP09-T01.
 
+### Session 17 — Closeout: transport drill fix, publication and merge, session-reset handover
+
+- Date / environment: 2026-09-26; worktree `.claude/worktrees/homayar-v1-integration-d5beaf`, branches `claude/homayar-v1-integration-d5beaf` (PR #3) then `claude/session-reset-handover` (from `main` `edfcb78`); strictly sequential, single agent, no subagents/workflows/external models.
+- Package / subtask: integration closeout (owner authorization to push, open and merge after green checks; ADR 0033 approved); WP01 records; handover.
+- Baseline repo/ref/dirty state: PR #3 head `1d03edd` (CI red: kill-child transport drill; `main` `a1c3d60` red on the same drill); drill fix uncommitted; product `feat/commercial-v1-overlay` `e7eeef5`.
+- Scope and files: `Homayar/backend/tests/test_transport_drills.py` (`2a30213`, product `f29d04a`); `docs/handoff/session-reset/*` (new); ADR 0033 (accepted, final synchronization); Session C README (closeout); `docs/README.md` and `claude-fable-5.1/README.md` pointers; WP01-T02/T05 notes in `backlog.json` and `WP01/tasks.json`; Graphify canonical files and guide.
+- Change and reason: on Linux the prefork parent detects a killed pool child through its 5 s maintenance timer, after the drill's 4 s lease; the drill now uses a 12 s lease and kills only with ≥ 7 s left (assertions unchanged). Product repository synchronized once (no dual writes).
+- Commands/results newly executed: Linux CI replica (python:3.12-slim, PostgreSQL 17, Redis 7.4): drill 3/3 failing before, 3/3 passing after; full suite with migrations 667 passed / 81 skipped / 0 failed. CI run 36234124732 on `2a30213`: six jobs green (backend 667/81/0). Merged PR #3 → `edfcb78`; `Kohandezh/HomaYar` PR #1 → `dev` `c567a91` (tree = `main:Homayar` `4b81c5dd`). Graphify refresh at `2a30213` (440 files, hashes 440/440, HTML not generated). Read-only inventory of every worktree, nested clone, scratchpad and service for the deletion checklist.
+- Acceptance satisfied: required checks green on the final PR revision; A/B/C commits reachable from remote refs; handover documents written.
+- Acceptance pending: CI of the handover pull request and of `main` after it; R-02 (ffmpeg missing on the CI runner: 35 media tests skipped in CI); owner items in `docs/handoff/session-reset/REMAINING_WORK.md`.
+- Review: self-review.
+- External blockers: unchanged (Padyar AI Gateway contract, provider credentials, representative evaluation data, live S3, production topology).
+- Next exact action: `docs/handoff/session-reset/NEW_SESSION_MASTER_PROMPT.md` — WP09-T01 with R-02 as its precondition.
+
 ## Template for next session
 
 - Date / environment:

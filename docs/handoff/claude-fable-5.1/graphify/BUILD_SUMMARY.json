@@ -1,8 +1,8 @@
 {
   "code": {
-    "nodes": 5479,
-    "edges": 20854,
-    "communities": 170,
+    "nodes": 5480,
+    "edges": 20858,
+    "communities": 181,
     "diagnostics": {
       "missing_endpoint_edges": 0,
       "dangling_endpoint_edges": 1224,
@@ -10,9 +10,9 @@
       "directed_same_endpoint_collapsed_edges": 624,
       "undirected_same_endpoint_collapsed_edges": 642
     },
-    "title": "Current workspace code graph (website worktree + isolated product checkout)",
-    "snapshot": "refreshes/20260925T234028908151Z",
-    "refreshed_at": "2026-09-25"
+    "title": "Integrated repository code graph (Homayar.com with the tracked product under Homayar/)",
+    "snapshot": "refreshes/20260926T095535832212Z",
+    "refreshed_at": "2026-09-26"
   },
   "planning": {
     "nodes": 119,
@@ -26,7 +26,7 @@
       "undirected_same_endpoint_collapsed_edges": 0
     },
     "title": "Explicit blueprint dependency graph",
-    "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09, 2026-09-10 or 2026-09-11 (only task statuses/notes changed, no structural relationship changed) or 2026-09-16 (WP05 statuses/notes only) or 2026-09-24 (WP07 statuses/notes only) or 2026-09-25 (Session C: WP08-T06 status/notes only)."
+    "note": "Built 2026-09-07 from the explicit feature/work-package relationships in docs/planning/backlog.json; not rebuilt on 2026-09-09, 2026-09-10 or 2026-09-11 (only task statuses/notes changed, no structural relationship changed) or 2026-09-16 (WP05 statuses/notes only) or 2026-09-24 (WP07 statuses/notes only) or 2026-09-25 (Session C: WP08-T06 status/notes only) or 2026-09-26 (closeout: no planning relationship changed)."
   },
   "code_files": 440,
   "no_symbol_file_count": 0,
@@ -34,11 +34,11 @@
   "semantic_scope": "Explicit planning relationships only; free-form documentation semantic extraction not run.",
   "original_graphs": "Historical root graphify-out and Homayar/graphify-out (original checkout) preserved unchanged and not consulted; the 2026-09-07 snapshot pointed at the original checkout and is superseded by this refresh.",
   "full_graph": {
-    "raw_ast_nodes": 5481,
-    "raw_ast_edges": 22715,
+    "raw_ast_nodes": 5482,
+    "raw_ast_edges": 22719,
     "explicit_unresolved_reference_nodes": 163,
-    "full_graph_nodes": 5644,
-    "full_graph_edges": 22715,
+    "full_graph_nodes": 5645,
+    "full_graph_edges": 22719,
     "full_graph_missing_endpoints": 0,
     "self_loop_edges": 1,
     "definition_resolution_complete": false,

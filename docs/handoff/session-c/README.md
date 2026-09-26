@@ -225,3 +225,30 @@ authorization.
   the clone's uncommitted work first, or update with `--no-overwrite-ignore` (ADR 0033). The
   original workspace checkout (repository root, on `main`) has pre-existing dirty state in its
   `Homayar/` clone and was not touched.
+
+## Closeout (2026-09-26)
+
+Owner authorization for the closeout: publish and merge the A/B/C integration after the required
+checks pass, synchronize the product repository once, and write a durable handover. ADR 0033 was
+approved by the owner (status now accepted).
+
+- **CI failure on PR #3 and on `main` `a1c3d60`:** `test_killed_pool_child_requeues_inertly_and_recovery_settles_once`
+  reported `lease_expired` for the requeued copy. Reproduced 3/3 in a Linux replica of the CI job:
+  Celery's prefork parent notices a killed child through its 5 s maintenance timer on Linux, so
+  the redelivery arrives after the drill's 4 s lease. Fixed in the test (`2a30213`: 12 s lease for
+  this drill, kill only with ≥ 7 s of lease left); every assertion unchanged. Evidence: drill 3/3
+  and the full suite (667 passed, 81 skipped, 0 failed) in the replica; CI run 36234124732 green on
+  all six jobs.
+- **Merged:** PR #3 → `main` `edfcb78` (merge commit; tree identical to `2a30213`).
+  `Kohandezh/HomaYar` PR #1 (`feat/commercial-v1-overlay` `f29d04a` → `dev`) → `c567a91`; its tree
+  equals `main:Homayar` (`4b81c5dd`). `master` there is disconnected legacy history and was not
+  touched. No further product changes go to `Kohandezh/HomaYar`.
+- **Found:** the CI runner has no ffmpeg, so the 35 `ffmpeg` tests are skipped in CI (81 skips in
+  total); recorded as R-02 in `docs/handoff/session-reset/REMAINING_WORK.md`.
+- **Records:** `docs/handoff/session-reset/` (project state, remaining work, validation, the next
+  session's master prompt, the session deletion checklist); Graphify refreshed at `2a30213`;
+  WP01-T02/T05 notes updated.
+- **Disposable services:** the services restarted for the drill investigation (PostgreSQL
+  `scratchpad/pg16c`, containers `homayar-sc-ci-pg`, `homayar-sc-ci-redis`,
+  `homayar-sc-drill-redis`, network `homayar-sc-drillnet`) were stopped and removed at the end.
+

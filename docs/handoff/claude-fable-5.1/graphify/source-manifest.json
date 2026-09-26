@@ -2,15 +2,16 @@
   "root": "/Users/emperor/Documents/AI/Homayar.com/.claude/worktrees/homayar-v1-integration-d5beaf",
   "website_worktree": {
     "branch": "claude/homayar-v1-integration-d5beaf",
-    "commit": "8cedf6f9c032"
+    "commit": "2a30213753e1"
   },
   "product_checkout": {
     "path": "Homayar",
-    "branch": "session-c/integration",
-    "commit": "e7eeef53d6e8"
+    "tracked_in": "Homayar.com (ADR 0033)",
+    "product_repository_commit": "f29d04a",
+    "tree": "4b81c5dd5dcf"
   },
-  "snapshot": "refreshes/20260925T234028908151Z",
-  "refreshed_at": "2026-09-25",
+  "snapshot": "refreshes/20260926T095535832212Z",
+  "refreshed_at": "2026-09-26",
   "selected_files": [
     "Homayar/backend/__init__.py",
     "Homayar/backend/celery_app/__init__.py",
@@ -696,7 +697,7 @@
     "Homayar/backend/tests/test_text_pii.py": "df8687b694f1678f75e4e5c0703fb0538f75cb4d6830bb5447cbed1270bef79f",
     "Homayar/backend/tests/test_tombstone_reapply.py": "72ad3a5defda6873d3807d869ef7d71bb84be0cb461031b4511ce2553f9f0f3e",
     "Homayar/backend/tests/test_transcript_revisions.py": "760aa3ff5a2d63244f298873463792585e2e3017d88114efaef4d5196c863a4d",
-    "Homayar/backend/tests/test_transport_drills.py": "b482fa6ffff7a18a5bae56cd08b87012d45cd24ebda744f3bc8a213b8ef7babd",
+    "Homayar/backend/tests/test_transport_drills.py": "2da2b74abeb96b07caa1577b11cd14bbedd4f4dec64644f6d076d510a001cde6",
     "Homayar/backend/tests/test_truthful_outputs.py": "0bd1e40e07289c2670a331bddfd8e32a647fdf88de262ce4e2d9d89469c17422",
     "Homayar/backend/tests/test_uploads_api.py": "63bad611d9370087559e91ba90e51e2cf1bf083fb3e923ed8d96368aa144d542",
     "Homayar/backend/tests/test_usage_ledger.py": "9b153e4d9c9d78fd1e91d67975617d2d04e7895234c0ee5e3a9303590b141cca",
@@ -805,11 +806,11 @@
     "Homayar/frontend/vite.config.ts": "4dea8017e54ab5ef3a9cde951d5619b93a6116670c79669b823817837c5287f0",
     "Homayar/frontend/vitest.config.ts": "29f9a306b07a5824564e039129e881299f2c21680a8952fa23b8b7cc62dc6264",
     "drizzle.config.ts": "be7c0b20d91173afe0c78473de7f705f3ac427df74b1a6b662178e76047bdc1e",
-    "eslint.config.mjs": "832128464400d92bb2716df29700ffdf65f6e30f231080c1a09cde81b366f25c",
+    "eslint.config.mjs": "c82bcf1a89026bcf26ddf07d3f01bec369434bd466efb048eff7b0f04420a8ee",
     "infra/ci/airgap_egress_check.py": "2d7bd2d6a2946f8e3a8a8d74f4e3d82f7834d64b0b97fc1ec2dcf7cb7983ef35",
     "infra/ci/check-migrations.sh": "13b44854026372d6cf2a47a8d9591606c601dcba23c4af1d70612ebd7753b958",
-    "infra/ci/check-source-contract.sh": "5e0c199a557a405c8e5ca6f5c15856d96a184ebec409adf9a59ea8985a420556",
-    "infra/ci/tests/test-check-source-contract.sh": "d5741d21ed3ba9307737029e07192113dc1d6a7304e100d596853fbfe01997fc",
+    "infra/ci/check-source-contract.sh": "19a528bcf2130efbeece7ac4d3e9b00d08be4b3365369c5b0f6335fc12e2228d",
+    "infra/ci/tests/test-check-source-contract.sh": "e58da7a1280ea6a2d05bfc11b66995225372aa75dd35a97f47093058782f2711",
     "infra/egress/entrypoint.sh": "ba917998785a00f440d2e5b3a18f1af96acea13daaec1adf19afaaa3d893aa4b",
     "infra/egress/tests/probe.py": "43baab673807ca90ac8835b009f134dc329de57979f76ffb84ec660aa2480bbb",
     "infra/egress/tests/test-egress-network.sh": "dd277ef58f5252d5eba6bb4009484f0c6022f01fa4a01da2aca70fd9d313aa90",
@@ -886,13 +887,13 @@
     "src/components/platform/architecture-diagram.tsx": "db02d7daa6b794391d9cb7231aaf1718f9a185873ffd7a2d8699d51e2802efa0",
     "src/components/platform/orchestration-diagram.tsx": "03eb4504ffa60ba8edef5e29998aba5aca43aef25c8007b51a94c1b6eef5d328",
     "src/components/product-card.tsx": "fa0430d5fa4d9779db0f0aa3caed78d043beb88a482c41963baebf7183e5da81",
-    "src/components/site-chrome.tsx": "71db2d8e71d16b0f0a759e590c3ac9ed7b23e4525aae129a9537b05d86bd7b1b",
     "src/components/site/booking.tsx": "989825986d2f78f581055a91bdba9ea9134504c5e6af5177c0e09c554f73a7b3",
     "src/components/site/demo.tsx": "3fa6905d53ae542c4389869d5fcdc88e5e411048addb0256411c7c19187aa373",
     "src/components/site/depth.tsx": "d2424a25c27ec695e2db76887fdb6a704d7772e5cd3b8b092ac1142b58079f0f",
     "src/components/site/landing.tsx": "6566598c279fc21bb8151a123d617ed2848ccf7856f8089629239501df3947fc",
     "src/components/site/scroll-video-hero.tsx": "4ab51d4e6133761e33fb48e08b739e1c8b329517bb7545e46740b18068c0e920",
     "src/components/site/voice-field.tsx": "034a5f77cb5cacecf7428f213c8b6ecd3045f58ed05c2446a1aae30459732b10",
+    "src/components/site-chrome.tsx": "71db2d8e71d16b0f0a759e590c3ac9ed7b23e4525aae129a9537b05d86bd7b1b",
     "src/components/ui.tsx": "bce54be1561ffec5ff706e5d77f3d4d7f525ff82b1c532d84bf673b176aeec53",
     "src/db/schema.ts": "fbc9e4807ba7d2aa7857edfbc753adf204e337f6437695eb660d8fb2889d3f4b",
     "src/lib/booking.ts": "80fe0426c51108955e3d499b4756851c2c0f7d74684d2f620ca76e89222031c6",
@@ -913,5 +914,5 @@
     "src/lib/types.ts": "88733a59d86416540959be681192a93524b063f774aa2ec90d227a8995bf8dae",
     "src/lib/ui-i18n.ts": "ea6a047a3f7fca74258df6e0334ed29cfd6b2a1bec27f8d58cc73d8552fa5231"
   },
-  "source_hash_validation": "every sha256 equals the committed blob at the website and product commits above (440/440)"
+  "source_hash_validation": "every sha256 equals the committed blob at website 2a30213 (440/440); Homayar/ is tracked in that commit"
 }
