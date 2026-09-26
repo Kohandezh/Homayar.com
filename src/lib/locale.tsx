@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useMounted } from "@/lib/client-state";
 import { DIR, LOCALES, type Locale } from "@/lib/content";
 
 /**
@@ -22,25 +23,29 @@ type LocaleCtx = { locale: Locale; setLocale: (l: Locale) => void };
 
 const Ctx = createContext<LocaleCtx>({ locale: "fa", setLocale: () => {} });
 
-export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>("fa");
+const DEFAULT_LOCALE: Locale = "fa";
 
-  // After mount, pick the locale (localStorage is client-only): a returning
-  // visitor's saved choice wins; a first-time visitor gets their browser
-  // language when it's one we support; everyone else stays on the fa default.
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY) as Locale | null;
-      if (saved && LOCALES.includes(saved)) {
-        setLocaleState(saved);
-        return;
-      }
-      const nav = (navigator.language || "").slice(0, 2).toLowerCase() as Locale;
-      if (LOCALES.includes(nav)) setLocaleState(nav);
-    } catch {
-      /* storage unavailable — keep default */
-    }
-  }, []);
+// A returning visitor's saved choice wins; a first-time visitor gets their
+// browser language when it's one we support; everyone else stays on fa.
+function detectLocale(): Locale {
+  if (typeof window === "undefined") return DEFAULT_LOCALE;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY) as Locale | null;
+    if (saved && LOCALES.includes(saved)) return saved;
+    const nav = (navigator.language || "").slice(0, 2).toLowerCase() as Locale;
+    if (LOCALES.includes(nav)) return nav;
+  } catch {
+    /* storage unavailable — keep default */
+  }
+  return DEFAULT_LOCALE;
+}
+
+export function LocaleProvider({ children }: { children: ReactNode }) {
+  // localStorage is client-only: the server render and hydration use the fa
+  // default, and the detected locale applies right after mount.
+  const mounted = useMounted();
+  const [picked, setLocaleState] = useState<Locale>(detectLocale);
+  const locale = mounted ? picked : DEFAULT_LOCALE;
 
   useEffect(() => {
     const html = document.documentElement;

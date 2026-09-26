@@ -2719,7 +2719,7 @@
     {
       "id": "WP08",
       "title": "Provider registry and privacy routing",
-      "status": "not_started_in_this_handoff",
+      "status": "partial",
       "depends_on": [
         "WP03",
         "WP04",
@@ -2735,35 +2735,47 @@
         {
           "id": "WP08-T01",
           "description": "Add versioned model/prompt/capability manifests with language, task, license, endpoint, region and structured-output support.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Versioned model/prompt/capability manifests (ADR 0026): stage, provider, model and pinned revision, languages, licence policy, endpoint kind/region, structured-output support; qualified manifests refuse moving aliases (latest, main, …); the operator preflight (python -m backend.jobs.model_preflight) fails a stage without a qualified manifest; every stage run records manifest id/version/digest. Verified locally (SQLite and PostgreSQL 16); see product `docs/handoff/session-a/README.md`. Integrated product commit c5bf752c26fc2a781b72bda1506a0a709d7236f9.",
+          "updated": "2026-09-25"
         },
         {
           "id": "WP08-T02",
           "description": "Define per-tenant stage policies and immutable policy snapshots on each run.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Per-workspace, per-stage AI policies (ADR 0027): homayar.ai-policy/1 documents (endpoint kinds, regions, manifests, fallback, cloud text redacted/original), default in-process/private only, versions append-only (owner-only ai_policy:manage, optimistic concurrency, audited), and an immutable run_policy_snapshots row per processing attempt; both tables FORCE RLS and homayar_app has no UPDATE/DELETE. Migration d2b6f8a4c1e7 round-tripped on PostgreSQL 16. Integrated product commit c5bf752c26fc2a781b72bda1506a0a709d7236f9.",
+          "updated": "2026-09-25"
         },
         {
           "id": "WP08-T03",
           "description": "Implement privacy/eligibility filtering before health, quality, latency and cost selection.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Privacy/eligibility filtering before ranking, enforced at each stage boundary (ADR 0028): stage_disabled → provider → region → model → licence → language; refused ASR fails permanently, refused diarization/analysis is unavailable (partial); a cloud endpoint receives redacted text unless the policy says original; a stricter policy mid-run stops the attempt (policy_changed). Integrated product commit c5bf752c26fc2a781b72bda1506a0a709d7236f9.",
+          "updated": "2026-09-25"
         },
         {
           "id": "WP08-T04",
           "description": "Qualify chosen local and API adapters through identical typed contract tests, including schema rejection and usage reporting.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Identical typed contract tests for every adapter that exists, with schema rejection and reported-or-absent token usage (ADR 0029, migration e3a7c5f9b2d4). The Padyar AI Gateway adapter is an explicit provider_contract_unavailable boundary: BLOCKED_EXTERNAL until its API contract (endpoints, auth, models, STT/embedding support) is supplied. Integrated product commit c5bf752c26fc2a781b72bda1506a0a709d7236f9.",
+          "updated": "2026-09-25"
         },
         {
           "id": "WP08-T05",
           "description": "Add deadlines, rate limits, backoff, Retry-After, health circuits and approved same-policy fallback.",
-          "status": "not_started"
+          "status": "validated",
+          "progress_note": "Deadline-bounded provider calls, jittered back-off, Retry-After, shared per-endpoint circuits and request windows (provider_health, migration f5b1d7c3a9e2) and approved same-policy analysis fallback recorded as fallback_used (ADR 0030); F22's injected timeout/429/5xx/invalid-schema/auth failures covered by test_provider_resilience.py. Integrated product commit c5bf752c26fc2a781b72bda1506a0a709d7236f9.",
+          "updated": "2026-09-25"
         },
         {
           "id": "WP08-T06",
           "description": "Block unauthorized egress at network and application layers; test local failure with cloud keys configured.",
-          "status": "not_started"
+          "status": "partial",
+          "progress_note": "Application layer validated (ADR 0031): a per-call egress permit for the approved endpoint only, an endpoint (SSRF) policy refusing metadata/link-local/private-as-cloud addresses, and the preflight's egress allowlist; F21 verified through the real provider factory (local endpoint down, cloud keys present: zero cloud requests unless the owner allows cloud and fallback). Network layer pending deployment integration: internal Compose network for api/workers and an allowlisting egress proxy. Integrated product commit c5bf752c26fc2a781b72bda1506a0a709d7236f9.",
+          "updated": "2026-09-25"
         }
       ],
-      "dependency_note": "WP08 depends on WP07 (retention/deletion/text privacy). T01/T02 (manifests, policy snapshots) are independent of WP07 behaviour; T03 (privacy-dependent filtering) requires WP07-T05/T06. Padyar AI Gateway is the external gateway; no KSF Gateway.",
+      "dependency_note": "WP08 depends on WP07 (retention/deletion/text privacy). T01/T02 (manifests, policy snapshots) are independent of WP07 behaviour; T03 (privacy-dependent filtering) requires WP07-T05/T06. Padyar AI Gateway is the external gateway; no KSF Gateway. WP08 is PARTIAL (2026-09-25): T01–T05 validated in local scope and T06's application layer validated (ADR 0026–ADR 0031); remaining: network-layer egress denial (deployment integration), the Padyar AI Gateway adapter (BLOCKED_EXTERNAL: API contract), qualification of real models (pinned weights and representative evaluation data, WP13) and provider credentials.",
       "readme": "docs/planning/work-packages/WP08/README.md"
     },
     {

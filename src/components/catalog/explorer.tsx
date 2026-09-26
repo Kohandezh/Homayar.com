@@ -359,42 +359,39 @@ export function CatalogExplorer({
   }
 
   /* ── Filtering + sorting ── */
+  // Plain computations: billing and team are new arrays on every render, so a
+  // memo keyed on them never held, and the product list is small.
 
-  const filtered = useMemo(() => {
-    return products.filter((p) => {
-      if (category && p.category !== category) return false;
-      if (price && !matchesPrice(p, price)) return false;
-      if (billing.length > 0 && !billing.includes(p.billingType)) return false;
-      if (team.length > 0 && !team.some((t) => p.teamSize.includes(t)))
-        return false;
-      if (industry && !p.industries.includes(industry)) return false;
-      if (popular && !p.popular) return false;
-      if (recommended && !p.recommended) return false;
-      return true;
+  const filtered = products.filter((p) => {
+    if (category && p.category !== category) return false;
+    if (price && !matchesPrice(p, price)) return false;
+    if (billing.length > 0 && !billing.includes(p.billingType)) return false;
+    if (team.length > 0 && !team.some((t) => p.teamSize.includes(t)))
+      return false;
+    if (industry && !p.industries.includes(industry)) return false;
+    if (popular && !p.popular) return false;
+    if (recommended && !p.recommended) return false;
+    return true;
+  });
+
+  const sorted = [...filtered];
+  if (sort === "price-asc" || sort === "price-desc") {
+    const eff = (p: Product) =>
+      isCustomPriced(p) ? Number.POSITIVE_INFINITY : p.priceUsd;
+    sorted.sort((a, b) => {
+      const ea = eff(a);
+      const eb = eff(b);
+      if (ea === eb) return 0;
+      /* Custom-priced items always sink to the end of price sorts. */
+      if (ea === Number.POSITIVE_INFINITY) return 1;
+      if (eb === Number.POSITIVE_INFINITY) return -1;
+      return sort === "price-asc" ? ea - eb : eb - ea;
     });
-  }, [products, category, price, billing, team, industry, popular, recommended]);
-
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    if (sort === "price-asc" || sort === "price-desc") {
-      const eff = (p: Product) =>
-        isCustomPriced(p) ? Number.POSITIVE_INFINITY : p.priceUsd;
-      arr.sort((a, b) => {
-        const ea = eff(a);
-        const eb = eff(b);
-        if (ea === eb) return 0;
-        /* Custom-priced items always sink to the end of price sorts. */
-        if (ea === Number.POSITIVE_INFINITY) return 1;
-        if (eb === Number.POSITIVE_INFINITY) return -1;
-        return sort === "price-asc" ? ea - eb : eb - ea;
-      });
-    } else if (sort === "name") {
-      arr.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      arr.sort((a, b) => featuredScore(b) - featuredScore(a));
-    }
-    return arr;
-  }, [filtered, sort]);
+  } else if (sort === "name") {
+    sorted.sort((a, b) => a.name.localeCompare(b.name));
+  } else {
+    sorted.sort((a, b) => featuredScore(b) - featuredScore(a));
+  }
 
   /* ── Active-filter pills ── */
 
