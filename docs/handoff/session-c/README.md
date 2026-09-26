@@ -183,10 +183,45 @@ network `homayar-sc-journey`, uvicorn/Celery/beat and the SMTP sink processes. S
 at the end of the session (see PROGRESS). Other sessions' services (`homayar-ci-a-*`) were not
 touched.
 
-## Publication plan (needs approval)
+## Publication plan (superseded 2026-09-26)
 
-1. Push product `session-c/integration` HEAD to `feat/commercial-v1-overlay` (fast-forward from
-   `7be3abe`).
-2. `git ls-remote` to confirm the pinned SHA is reachable.
-3. Push the website branch to `integration/commercial-v1` (fast-forward from `b68803d`; PR #2).
-4. Inspect CI on that exact SHA; merge only with a separate authorization.
+PR #2 (`integration/commercial-v1` at `b68803d`) was merged into `main` (`a1c3d60`) by the owner.
+The owner then asked for the `/Homayar/` ignore rule to be removed, the product source to be
+committed in this repository, the product branch to be pushed first and a **draft** pull request
+from `claude/homayar-v1-integration-d5beaf` to `main` (see below). Merging stays a separate
+authorization.
+
+## Monorepo import (2026-09-26, ADR 0033)
+
+- `b9e94bf` commits the product tree of `Kohandezh/HomaYar` `e7eeef53` (378 files, no history)
+  under `Homayar/` via `read-tree --prefix` (index only; the local clone was not touched) and drops
+  `/Homayar/` from `.gitignore`. `git ls-tree HEAD Homayar` is `040000 tree` and equals
+  `e7eeef53^{tree}`.
+- `15adf6d` rewrites the contract for an in-repository tree: `product-source.lock` keeps the
+  required/forbidden lists, adds `product_dir` and informational import provenance;
+  `check-source-contract.sh` rejects an untracked directory, a gitlink or `.gitmodules` entry,
+  uncommitted required paths, tracked forbidden paths, and (ci mode) a dirty directory or nested
+  `.git`; 29 synthetic cases. CI runs it on the checkout; the `product-source` action and
+  `PRODUCT_SOURCE_TOKEN` are retired. ADR 0002 marked superseded.
+- `b7f263f` Gitleaks: the history scan found 8 `generic-api-key` false positives in the imported
+  tests and one product record: hyphenated fixture and idempotency keys (for example
+  purge-exhaust-0001), the keyword text of an idempotency argument, the name of the live-S3
+  secret environment variable, and an Alembic revision id.
+  Allowlists are scoped to path and value shape; a planted high-entropy secret in the same paths
+  is still reported.
+- `1f431bc` Tailwind v4 source detection follows `.gitignore`: without the rule the website CSS
+  absorbed console classes (82,180 → 110,530 bytes). `@source not "../../Homayar"` restores a
+  byte-identical stylesheet (same SHA-256 with and without `Homayar/` present).
+- `daa738a` the website rule `.env*` matched the product's `.env.example` templates; a narrow
+  negation keeps them visible while real `.env` files stay ignored by the product rules.
+- Verification (clean clones, `node:22-alpine`, sequential): contract `--mode ci` satisfied and
+  29/29 checker tests; actionlint and ShellCheck clean; Gitleaks over the branch history clean
+  (73 commits); website lint 0 errors (2 pre-existing warnings) and build; console `dist/`
+  byte-identical between the monorepo and the product-only layout (54 files), console lint, and
+  tests 113/113 in three consecutive runs — a first run right after two builds in the same
+  container had 1 of 113 failing (name not captured; not reproduced).
+- **Existing workspaces:** a checkout whose `Homayar/` is still the old ignored clone gets those
+  ignored files **overwritten** by `git checkout`/`merge`/`pull` of this branch. Back up or commit
+  the clone's uncommitted work first, or update with `--no-overwrite-ignore` (ADR 0033). The
+  original workspace checkout (repository root, on `main`) has pre-existing dirty state in its
+  `Homayar/` clone and was not touched.

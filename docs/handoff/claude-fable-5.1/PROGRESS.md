@@ -603,6 +603,20 @@
 - External blockers: Padyar AI Gateway API contract, provider credentials, representative evaluation data, live S3; owner decisions: pricing claims (website vs console), G5, M-14, console Persian font, retention/backup/charging defaults.
 - Next exact action: approve publication (product first, then website PR #2), inspect CI on the exact SHA; after merge, WP09-T01 (channel metadata and PBX mapping).
 
+### Session 16 — Product source imported into this repository (ADR 0033); draft pull request
+
+- Date / environment: 2026-09-26; same worktree and branch; PR #2 had been merged into `main` (`a1c3d60`) by the owner; strictly sequential, single agent.
+- Package / subtask: WP01 (source ownership) — owner request: remove `/Homayar/` from `.gitignore`, commit the product source here, push the product branch first, open a draft pull request.
+- Baseline repo/ref/dirty state: website `1f54ef8` clean; product clone `e7eeef5` clean; remote product `feat/commercial-v1-overlay` at `7be3abe`.
+- Scope and files: `Homayar/**` (378 files from `e7eeef53`), `.gitignore`, `infra/product-source.lock`, `infra/ci/check-source-contract.sh` and its tests, `.github/workflows/ci.yml`, `.github/actions/product-source/` (removed), `.gitleaks.toml`, `src/app/globals.css`, `eslint.config.mjs`, ADR 0033 (new), ADR 0002 (superseded), `docs/operations/ci.md`, `docs/architecture/workspace-structure.md`, Session C record.
+- Change and reason: see `docs/handoff/session-c/README.md` § Monorepo import — import without history via `read-tree --prefix` (local clone untouched), in-repository contract (no gitlink, required/forbidden paths), CI without a cross-repository checkout or token, scoped Gitleaks allowlists for 8 fixture false positives, Tailwind source exclusion (the stylesheet had grown by the console's classes), `.env.example` negation.
+- Commands/results newly executed: contract `--mode ci` on a clean clone satisfied; checker tests 29/29; actionlint and ShellCheck clean; Gitleaks history scan clean (73 commits) plus a negative test; website lint/build and a CSS comparison (identical SHA-256 to the pre-import output); console `dist/` identical between layouts, lint, tests 113/113 ×3 (one earlier run 112/113, not reproduced).
+- Acceptance satisfied: product source tracked as ordinary files; contract and CI consistent with it; no change to any build output.
+- Acceptance pending: remote CI on the draft pull request; owner review of ADR 0033; retiring the nested clone in existing workspaces (overwrite hazard, ADR 0033); revoking the unused `PRODUCT_SOURCE_TOKEN`; archiving `Kohandezh/HomaYar` (owner decisions).
+- Review: self-review.
+- External blockers: unchanged (Padyar AI Gateway contract, provider credentials, representative evaluation data, live S3) and the owner decisions listed in Session 15.
+- Next exact action: inspect CI on the draft pull request; merge only with separate authorization; then WP09-T01.
+
 ## Template for next session
 
 - Date / environment:
