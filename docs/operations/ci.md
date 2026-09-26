@@ -31,6 +31,15 @@ inside `Homayar/`; without the variable the suite uses temporary SQLite files an
 `postgres`-marked tests. The console and backend jobs still fail explicitly when their product
 files are absent from the commit.
 
+The backend job installs `ffmpeg` (which provides `ffprobe`) from the Ubuntu 24.04 archive and
+prints both versions, so the `ffmpeg`-marked media tests (`test_media_fixtures.py`,
+`test_media_adversarial_api.py`) run against real binaries. `HOMAYAR_REQUIRE_MEDIA_TOOLS=1` makes
+the suite stop with a usage error instead of skipping them when either binary is missing. The
+version follows the distribution's security updates rather than an exact pin; the job log records
+it. Locally, without the variable, the suite still skips the marker when the binaries are absent.
+The pytest summary (`-rs`) lists every remaining skip with its reason: the opt-in `live_s3` tests
+without a bucket, the Padyar AI Gateway tests without a contract, and SQLite-only tests.
+
 Backend CI uses only isolated PostgreSQL and Redis service containers. It sets test mode and
 mock-provider permission explicitly; it does not call email, SMS, OAuth, ASR, diarization,
 LLM, S3, Neo4j, or other live providers. Root browser tests are expected to stub any external

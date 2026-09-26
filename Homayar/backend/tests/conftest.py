@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 from collections.abc import Generator
 from pathlib import Path
@@ -24,8 +25,24 @@ from backend.tests._database import (
 from backend.tests._live_s3 import live_s3_unavailable_reason
 from backend.tests._transport import APP_REDIS_URL, TEST_REDIS_ENV, configured_redis_url
 
+REQUIRE_MEDIA_TOOLS_ENV = "HOMAYAR_REQUIRE_MEDIA_TOOLS"
+
+
+def media_tools_missing() -> list[str]:
+    return [name for name in ("ffprobe", "ffmpeg") if shutil.which(name) is None]
+
+
+def media_tools_required() -> bool:
+    return os.environ.get(REQUIRE_MEDIA_TOOLS_ENV, "").strip().lower() in {"1", "true", "yes"}
+
 
 def pytest_sessionstart(session: pytest.Session) -> None:
+    missing_media_tools = media_tools_missing()
+    if missing_media_tools and media_tools_required():
+        raise pytest.UsageError(
+            f"{REQUIRE_MEDIA_TOOLS_ENV} is set but {', '.join(missing_media_tools)} "
+            "missing from PATH; refusing to skip the ffmpeg-marked media tests"
+        )
     configured = configured_database_url()
     if postgres_required() and not is_postgres_url(configured):
         raise pytest.UsageError(
@@ -74,7 +91,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if configured_redis_url() is None:
         reason = f"requires a disposable Redis ({TEST_REDIS_ENV} unset)"
         skips.append(("redis", pytest.mark.skip(reason=reason)))
-    if shutil.which("ffprobe") is None or shutil.which("ffmpeg") is None:
+    if media_tools_missing():
         reason = "requires the ffprobe and ffmpeg binaries on PATH"
         skips.append(("ffmpeg", pytest.mark.skip(reason=reason)))
     live_s3_reason = live_s3_unavailable_reason()
