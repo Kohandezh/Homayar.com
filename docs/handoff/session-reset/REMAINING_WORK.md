@@ -1,5 +1,8 @@
 # Remaining work (prioritized, verified 2026-09-26)
 
+R-02 and the known uncertainties were updated on 2026-09-27 by Session A
+(`SESSION_A_BACKEND_CLOSEOUT.md`).
+
 Every item below was re-checked against the integrated source at `2a30213` (PR #3) or the current
 remote state on 2026-09-26; items that turned out to be resolved are listed at the end instead of
 being carried forward. Identifiers `WPnn-Tnn` are the planning tasks in `docs/planning/backlog.json`;
@@ -23,27 +26,20 @@ PRODUCTION READY).
   history is not in this repository).
 - Paths: `docs/security/REMAINING-P0.md`, `docs/security/credential-containment-record.md`, WP02.
 
-### R-02 · WP01-T05 follow-up · CI does not run the 35 `ffmpeg` tests — ENG · implemented locally, remote CI not run
-- 2026-09-26 (branch `ci/r02-ffmpeg-backend-tests`, local commit, not pushed): the backend job installs
-  `ffmpeg`/`ffprobe` from the Ubuntu archive and prints both versions; `HOMAYAR_REQUIRE_MEDIA_TOOLS=1`
-  makes pytest stop with a usage error instead of skipping the `ffmpeg` marker; `pytest -rs` lists every
-  remaining skip. Local evidence in `VALIDATION.md` §3. Still open: a green run on the GitHub runner
-  (needs push authorization) and the broker-restart drill decision below. Expected CI result on
-  that runner: 702 passed, 46 skipped (41 live S3, 3 Padyar AI Gateway, 1 SQLite-only drill,
-  1 broker-restart drill without `TEST_REDIS_CONTAINER`) — an expectation, not a measurement.
-- Found in the closeout: the GitHub runner has no `ffmpeg`, so the backend job skips every test
-  marked `ffmpeg` (media validation, adversarial media through the upload route, media lifecycle).
-  CI result on `2a30213`/`main`: 81 skipped = 35 `ffmpeg` + 41 live S3 + 3 Padyar + 1 SQLite-only
-  drill + 1 broker-restart drill (needs `TEST_REDIS_CONTAINER`). These tests pass locally with
-  ffmpeg (702 passed at `d318f7e`), but never in CI.
-- Work: install a pinned `ffmpeg` in the backend job (and decide whether the broker-restart drill
-  should run in CI with a restartable Redis container).
-- Acceptance: CI backend job reports 46 or fewer skips with every skip explained; the 35 media tests
-  pass on the runner; no test weakened.
-- Verification: the CI job log (`pytest -rs` summary); the replica recipe in `VALIDATION.md` §5 with
-  ffmpeg installed.
-- Paths: `.github/workflows/ci.yml` (`backend` job), `Homayar/backend/tests/conftest.py` (markers),
-  `docs/operations/ci.md`.
+### R-02 · WP01-T05 follow-up · ffmpeg media tests in CI — ENG · resolved (PR #5 + Session A corrective PR)
+- PR #5 (merged: head `88a77c2` → `main` `1b34472`): the backend job installs `ffmpeg`/`ffprobe` from
+  the Ubuntu archive and prints both versions; `HOMAYAR_REQUIRE_MEDIA_TOOLS=1` makes pytest stop with
+  a usage error instead of skipping the `ffmpeg` marker; `pytest -rs` lists every remaining skip. Run
+  36252829293: media tests executed on the runner, 46 skips all explained. Its first run found that
+  ffmpeg 6.1.1 accepts corrupted MP3/FLAC with exit 0 (`VALIDATION.md` §2b).
+- Session A corrective pull request (branch `fix/r02-media-diagnostics-and-drill`, 2026-09-27):
+  bounded decode diagnostics (§2b) and the redelivery drill that turned `main` `1b34472` red (§2a).
+  The branch commits `e29de4d`/`87d3323`, pushed after PR #5 had merged, were never merged or run
+  in CI; their temporary-file design is superseded and their records corrected. Final CI, merge and
+  `main` result: `SESSION_A_BACKEND_CLOSEOUT.md` §5.
+- Not part of R-02 and still open: the broker-restart drill stays skipped in CI without
+  `TEST_REDIS_CONTAINER` (see known uncertainties); the runner's ffmpeg follows Ubuntu security
+  updates rather than an exact pin (the job log records the version).
 
 ### R-03 · WP01-T03 (website part) · Unpublished website overlay in the original checkout — OWNER + ENG
 - State: the original workspace checkout (`/Users/emperor/Documents/AI/Homayar.com`, not a session)
@@ -153,8 +149,11 @@ security qualification · WP24 approved actions. Package READMEs under
 - The broker-restart transport drill is skipped in CI (needs `TEST_REDIS_CONTAINER`); it passed
   locally against a durable (AOF) disposable Redis on 2026-09-25.
 - At `b68803d` (PR #2) one backend CI attempt timed out in "a Redis transport drill" and passed on
-  re-run; the drill was not named in the record. The kill-child root cause fixed in `2a30213` may
-  explain it; that is not proven.
+  re-run; the drill was not named in the record. The kill-child cause (fixed in `2a30213`) or the
+  redelivery-drill cause (`VALIDATION.md` §2a) may explain it; neither is proven.
+- Transport drills use real worker processes and a real broker, so they stay timing-sensitive: the
+  redelivery drill on `main` `1b34472` failed once on a slower runner (§2a, fixed in the test). Every
+  drill now prints its worker log tails when it fails — read them before re-running anything.
 
 ## Resolved during the closeout (do not carry forward)
 

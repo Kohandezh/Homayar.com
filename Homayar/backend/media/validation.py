@@ -26,6 +26,8 @@ import os
 import re
 import stat
 import subprocess
+import threading
+import time
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -46,6 +48,10 @@ _MAX_PROBE_SIZE_BYTES: Final = 8 * 1024 * 1024
 _MAX_ANALYZE_DURATION_MICROSECONDS: Final = 10_000_000
 _MAX_FFPROBE_ALLOCATION_BYTES: Final = 64 * 1024 * 1024
 _MAX_DECODE_PROBE_SECONDS: Final = 600.0
+# Bytes of decoder stderr ever read: the first one is the verdict.
+_DECODE_DIAGNOSTIC_READ_BYTES: Final = 1
+# How long cleanup waits for the stderr watcher after the decoder is reaped.
+_DECODE_WATCHER_JOIN_SECONDS: Final = 1.0
 _SIGNATURE_BYTES: Final = 64
 _EXTENSION_RE = re.compile(r"^\.[a-z0-9]{1,10}$")
 _MIME_RE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$")
@@ -583,36 +589,104 @@ def _check_signature(path: Path, extension: str) -> None:
 
 
 def _decode_prefix(executable: str, path: Path, seconds: float, timeout: float) -> None:
-    """Decode the first ``seconds`` of the primary audio stream to /dev/null.
+    """Decode the first ``seconds`` of the primary audio stream to the null muxer.
 
     ``-xerror`` turns the first decoding error into a non-zero exit, which
     catches corrupted frames that a header-only probe accepts.  Some ffmpeg
-    releases (6.1 on Ubuntu 24.04) conceal such errors and still exit 0, so
-    any error-level diagnostic (``-v error``) is treated as a failure too.
-    Diagnostics are only tested for presence, never stored or logged;
-    nothing derived from the media is retained.
+    releases (6.1.1 on Ubuntu 24.04) conceal such errors and still exit 0, so
+    a decoder that writes anything to stderr is refused as well: ``-v error``
+    and ``-nostats`` leave nothing but error-level diagnostics there.
+
+    Diagnostics are detected, never collected.  Stderr is a pipe of which at
+    most one byte is read, and the decoder is killed at its first diagnostic,
+    so it can write no more than the pipe's fixed kernel buffer: nothing
+    accumulates in memory or on disk, and nothing is logged or returned.  A
+    diagnostic is a terminal refusal even when the decoder would also have
+    run past ``timeout``; a silent decoder that does not finish within
+    ``timeout`` is a transient timeout.  The decoder is killed and reaped on
+    every path, including an exception raised while waiting for it.
     """
     command = _build_ffmpeg_decode_command(executable, path, seconds)
+    deadline = time.monotonic() + timeout
     try:
         # The executable is operator-controlled and every input is an argv element.
-        completed = subprocess.run(  # noqa: S603
+        process = subprocess.Popen(  # noqa: S603
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            check=False,
+            bufsize=0,
             shell=False,
-            timeout=timeout,
             close_fds=True,
         )
-    except subprocess.TimeoutExpired:
-        raise MediaDecodeTimeoutError(timeout) from None
     except FileNotFoundError:
         raise MediaDecoderUnavailableError() from None
     except OSError:
         raise MediaProbeError() from None
-    if completed.returncode != 0 or completed.stderr.strip():
+    watcher: _DecoderStderrWatcher | None = None
+    try:
+        watcher = _DecoderStderrWatcher(process)
+        outcome = watcher.wait(timeout)
+        if outcome is None:
+            raise MediaDecodeTimeoutError(timeout)
+        if outcome == "diagnostic":
+            raise MediaDecodeError()
+        if outcome == "unreadable":
+            raise MediaProbeError()
+        # Stderr closed without a diagnostic: the decoder is exiting.
+        try:
+            returncode = process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            raise MediaDecodeTimeoutError(timeout) from None
+    finally:
+        _stop_decoder(process, watcher)
+    if returncode != 0:
         raise MediaDecodeError()
+
+
+class _DecoderStderrWatcher:
+    """Waits for the decoder's first stderr byte, or for stderr to close.
+
+    A blocking one-byte read on a helper thread works for pipes on every
+    platform (``select`` does not support pipes on Windows).
+    """
+
+    def __init__(self, process: subprocess.Popen[bytes]) -> None:
+        assert process.stderr is not None
+        self._descriptor = process.stderr.fileno()
+        self._outcome = "unreadable"
+        self._settled = threading.Event()
+        self._thread = threading.Thread(target=self._watch, name="media-decode-stderr", daemon=True)
+        self._thread.start()
+
+    def _watch(self) -> None:
+        try:
+            first = os.read(self._descriptor, _DECODE_DIAGNOSTIC_READ_BYTES)
+            self._outcome = "diagnostic" if first else "closed"
+        except OSError:
+            self._outcome = "unreadable"
+        finally:
+            self._settled.set()
+
+    def wait(self, timeout: float) -> str | None:
+        """``diagnostic``, ``closed``, ``unreadable``, or None after ``timeout``."""
+        return self._outcome if self._settled.wait(timeout) else None
+
+    def join(self, timeout: float) -> None:
+        self._thread.join(timeout)
+
+
+def _stop_decoder(process: subprocess.Popen[bytes], watcher: _DecoderStderrWatcher | None) -> None:
+    """Kill the decoder if it still runs, reap it, then release its pipe."""
+    if process.poll() is None:
+        process.kill()
+    process.wait()
+    # The decoder held the pipe's only write end, so the watcher now sees
+    # end-of-file; the descriptor is closed after it has stopped reading.
+    if watcher is not None:
+        watcher.join(_DECODE_WATCHER_JOIN_SECONDS)
+    assert process.stderr is not None
+    process.stderr.close()
 
 
 def _normalize_allowed_extensions(raw: str | Iterable[str]) -> frozenset[str]:
@@ -764,6 +838,7 @@ def _build_ffmpeg_decode_command(executable: str, path: Path, seconds: float) ->
         "-hide_banner",
         "-v",
         "error",
+        "-nostats",
         "-xerror",
         "-threads",
         "1",

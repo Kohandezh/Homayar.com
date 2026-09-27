@@ -40,6 +40,11 @@ it. Locally, without the variable, the suite still skips the marker when the bin
 The pytest summary (`-rs`) lists every remaining skip with its reason: the opt-in `live_s3` tests
 without a bucket, the Padyar AI Gateway tests without a contract, and SQLite-only tests.
 
+The transport drills (`test_transport_drills.py`) run real Celery prefork workers against the Redis
+service and are timing-sensitive by nature. When one fails, its report includes the last 40 lines
+of each worker log (the task results and lease events); read them before re-running the job — a
+re-run that passes is not a diagnosis.
+
 Backend CI uses only isolated PostgreSQL and Redis service containers. It sets test mode and
 mock-provider permission explicitly; it does not call email, SMS, OAuth, ASR, diarization,
 LLM, S3, Neo4j, or other live providers. Root browser tests are expected to stub any external

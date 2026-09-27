@@ -1,17 +1,17 @@
 {
-  "root": "/Users/emperor/Documents/AI/Homayar.com/.claude/worktrees/homayar-v1-integration-d5beaf",
+  "root": "/Users/emperor/Dev/homayar-com-session-a",
   "website_worktree": {
-    "branch": "claude/homayar-v1-integration-d5beaf",
-    "commit": "2a30213753e1"
+    "branch": "fix/r02-media-diagnostics-and-drill",
+    "commit": "4428756a777d"
   },
   "product_checkout": {
     "path": "Homayar",
     "tracked_in": "Homayar.com (ADR 0033)",
-    "product_repository_commit": "f29d04a",
-    "tree": "4b81c5dd5dcf"
+    "tree": "06ed20293932",
+    "note": "Kohandezh/HomaYar is not synchronized after f29d04a (ADR 0033)"
   },
-  "snapshot": "refreshes/20260926T095535832212Z",
-  "refreshed_at": "2026-09-26",
+  "snapshot": "refreshes/20260927T032552294074Z",
+  "refreshed_at": "2026-09-27",
   "selected_files": [
     "Homayar/backend/__init__.py",
     "Homayar/backend/celery_app/__init__.py",
@@ -503,7 +503,7 @@
     "Homayar/backend/jobs/usage_reconciliation.py": "2e444c93631de31591153d39bd3262b67314ec9e3ea2f7d7dc3459123ab5760c",
     "Homayar/backend/main.py": "4474f220d325ea5017ec3e0cb16918553446b55a5a5db0690dacdb309a2aae68",
     "Homayar/backend/media/__init__.py": "491a49e59d62704d0799085e5ba0727e713051ec54f217913a967ba83c92dfa2",
-    "Homayar/backend/media/validation.py": "7c0b2716d66828ef0b28dadf586b52be31b0ea6e242c2bf664e095cb9fc2938a",
+    "Homayar/backend/media/validation.py": "8f7349b56263353c06fdc0688862db4ffb01ef09faa3e9884d2fcb17121840c5",
     "Homayar/backend/migrations/env.py": "42bb747fdbbb3355cf32fa7c0e4eeb62f405c5c76b6268df8d52004c2f973278",
     "Homayar/backend/migrations/versions/544f28d9103c_add_processing_stage_runs.py": "5620d7f0abd7cbfc00b44dc497bf53104bcba568aff0c37474f4804e7679ff25",
     "Homayar/backend/migrations/versions/9b1d4f2c7a35_add_teams_and_effective_assignments.py": "71a0fee4bf6e41bf1d7ee84b1f7a2772f11aa08c3ed5743cfe880761a709a4e4",
@@ -647,7 +647,7 @@
     "Homayar/backend/tests/_live_s3.py": "fe952a047df05f345128783a3cc38876fc57a441a3b8598b9eb5ba0bd90ae545",
     "Homayar/backend/tests/_transport.py": "dc47ca12be113a6394cd824a2dc9846115e8e942556c713daf3501efaee47640",
     "Homayar/backend/tests/_transport_worker.py": "a0d4d29bc991d963b439c736d64d4e587eb3e2bc41e27e31f84051660195c79f",
-    "Homayar/backend/tests/conftest.py": "e8d10e3e45497bc2faf25eac9e11f752c72ee52cffc40eded415e0dfca18204b",
+    "Homayar/backend/tests/conftest.py": "79c1ad4d03c52d35ade1bff145b69c3e2bb6f1d0fd66c9653f227a7a083570fb",
     "Homayar/backend/tests/test_admin_api.py": "496acc7d2ea2872260e3945ce9c1f84344a2b5d9c315e995d3fca4496e8bf1aa",
     "Homayar/backend/tests/test_ai_policy.py": "cb73eeba7daca4d92c9fe0f6c36eee838881bd00148a4beb3ca5569bde75956b",
     "Homayar/backend/tests/test_api.py": "4d8a2da121186d1109e635716a5c0465450f7740e20df5e5d511bb1d4965c1dc",
@@ -668,10 +668,10 @@
     "Homayar/backend/tests/test_job_processor.py": "a3fd05ccaa91eb60429f97150ba60d3439c0cd3b8f3c4039065a29912ef9d8e3",
     "Homayar/backend/tests/test_legal_hold.py": "55ff545f65f9dc45eed46d35b1de60e0cab7f4b48183019869d2fddc8ea62f3b",
     "Homayar/backend/tests/test_media_adversarial_api.py": "e60694edf55f0f58e0f22a2cec58c22f7871c2c7ac871a5e38a1848f9c4d163d",
-    "Homayar/backend/tests/test_media_fixtures.py": "a247effa1de8a201baf69c2fa1307d0f660cb16d94ba7494a2ff383b67d4e793",
+    "Homayar/backend/tests/test_media_fixtures.py": "8e6b2391d70465f5cf271167a598a8c2d0786a1ecba2dbfab0c5e6cb19523355",
     "Homayar/backend/tests/test_media_lifecycle.py": "405ccdf29c698d67cc5c86da14e5b62f184b923f04a1235b8a988b09a457eb0b",
     "Homayar/backend/tests/test_media_reconciliation.py": "e4ca3d4de7852ccdf8200201401551f4635f5a090ad000b732f25950221c369a",
-    "Homayar/backend/tests/test_media_validation.py": "cfa51719e944b2033a04b7aa6e97049c2cba79397a620bf17a7adef830f1bacc",
+    "Homayar/backend/tests/test_media_validation.py": "6d58dd5056b2a4f9cd3d99d9fadfada7818c0be4f96b945f2762144f33da3686",
     "Homayar/backend/tests/test_meeting_quality.py": "5cceff7deff380149b76852b96169f8eb21febc3e050c6a9f8169241137d9ff7",
     "Homayar/backend/tests/test_meetings_api.py": "1a4d9c92c06c46d1bc7b6c55fe4d7293fc2cc20979c7316e22ff96d99db16a01",
     "Homayar/backend/tests/test_members_api.py": "57c5e465ca5f5c7ff1e4043a30768c5fc19536abc47e4bfca68b89ed77c28a90",
@@ -697,7 +697,7 @@
     "Homayar/backend/tests/test_text_pii.py": "df8687b694f1678f75e4e5c0703fb0538f75cb4d6830bb5447cbed1270bef79f",
     "Homayar/backend/tests/test_tombstone_reapply.py": "72ad3a5defda6873d3807d869ef7d71bb84be0cb461031b4511ce2553f9f0f3e",
     "Homayar/backend/tests/test_transcript_revisions.py": "760aa3ff5a2d63244f298873463792585e2e3017d88114efaef4d5196c863a4d",
-    "Homayar/backend/tests/test_transport_drills.py": "2da2b74abeb96b07caa1577b11cd14bbedd4f4dec64644f6d076d510a001cde6",
+    "Homayar/backend/tests/test_transport_drills.py": "ca200ff452a80b97f2cea9d60e32baa19fee9b84884346c97506df213042f061",
     "Homayar/backend/tests/test_truthful_outputs.py": "0bd1e40e07289c2670a331bddfd8e32a647fdf88de262ce4e2d9d89469c17422",
     "Homayar/backend/tests/test_uploads_api.py": "63bad611d9370087559e91ba90e51e2cf1bf083fb3e923ed8d96368aa144d542",
     "Homayar/backend/tests/test_usage_ledger.py": "9b153e4d9c9d78fd1e91d67975617d2d04e7895234c0ee5e3a9303590b141cca",
@@ -887,13 +887,13 @@
     "src/components/platform/architecture-diagram.tsx": "db02d7daa6b794391d9cb7231aaf1718f9a185873ffd7a2d8699d51e2802efa0",
     "src/components/platform/orchestration-diagram.tsx": "03eb4504ffa60ba8edef5e29998aba5aca43aef25c8007b51a94c1b6eef5d328",
     "src/components/product-card.tsx": "fa0430d5fa4d9779db0f0aa3caed78d043beb88a482c41963baebf7183e5da81",
+    "src/components/site-chrome.tsx": "71db2d8e71d16b0f0a759e590c3ac9ed7b23e4525aae129a9537b05d86bd7b1b",
     "src/components/site/booking.tsx": "989825986d2f78f581055a91bdba9ea9134504c5e6af5177c0e09c554f73a7b3",
     "src/components/site/demo.tsx": "3fa6905d53ae542c4389869d5fcdc88e5e411048addb0256411c7c19187aa373",
     "src/components/site/depth.tsx": "d2424a25c27ec695e2db76887fdb6a704d7772e5cd3b8b092ac1142b58079f0f",
     "src/components/site/landing.tsx": "6566598c279fc21bb8151a123d617ed2848ccf7856f8089629239501df3947fc",
     "src/components/site/scroll-video-hero.tsx": "4ab51d4e6133761e33fb48e08b739e1c8b329517bb7545e46740b18068c0e920",
     "src/components/site/voice-field.tsx": "034a5f77cb5cacecf7428f213c8b6ecd3045f58ed05c2446a1aae30459732b10",
-    "src/components/site-chrome.tsx": "71db2d8e71d16b0f0a759e590c3ac9ed7b23e4525aae129a9537b05d86bd7b1b",
     "src/components/ui.tsx": "bce54be1561ffec5ff706e5d77f3d4d7f525ff82b1c532d84bf673b176aeec53",
     "src/db/schema.ts": "fbc9e4807ba7d2aa7857edfbc753adf204e337f6437695eb660d8fb2889d3f4b",
     "src/lib/booking.ts": "80fe0426c51108955e3d499b4756851c2c0f7d74684d2f620ca76e89222031c6",
@@ -914,5 +914,5 @@
     "src/lib/types.ts": "88733a59d86416540959be681192a93524b063f774aa2ec90d227a8995bf8dae",
     "src/lib/ui-i18n.ts": "ea6a047a3f7fca74258df6e0334ed29cfd6b2a1bec27f8d58cc73d8552fa5231"
   },
-  "source_hash_validation": "every sha256 equals the committed blob at website 2a30213 (440/440); Homayar/ is tracked in that commit"
+  "source_hash_validation": "every sha256 equals the committed blob at 4428756 (440/440); later commits on the branch change only documentation and Graphify records"
 }

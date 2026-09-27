@@ -1,25 +1,25 @@
 {
-  "node_count": 5480,
+  "node_count": 5510,
   "unverified_node_count": 0,
-  "raw_edge_count": 22719,
+  "raw_edge_count": 22829,
   "non_object_edges": 0,
   "missing_endpoint_edges": 0,
-  "dangling_endpoint_edges": 1224,
+  "dangling_endpoint_edges": 1233,
   "self_loop_edges": 1,
-  "valid_candidate_edges": 21495,
-  "exact_duplicate_edges": 138,
-  "directed_unique_endpoint_pairs": 20871,
-  "directed_same_endpoint_collapsed_edges": 624,
-  "undirected_unique_endpoint_pairs": 20853,
-  "undirected_same_endpoint_collapsed_edges": 642,
-  "same_endpoint_group_count": 530,
-  "relation_variant_groups": 367,
+  "valid_candidate_edges": 21596,
+  "exact_duplicate_edges": 139,
+  "directed_unique_endpoint_pairs": 20965,
+  "directed_same_endpoint_collapsed_edges": 631,
+  "undirected_unique_endpoint_pairs": 20947,
+  "undirected_same_endpoint_collapsed_edges": 649,
+  "same_endpoint_group_count": 537,
+  "relation_variant_groups": 370,
   "source_file_variant_groups": 0,
   "source_location_variant_groups": 44,
-  "context_variant_groups": 70,
+  "context_variant_groups": 73,
   "post_build_graph_type": "DiGraph",
-  "post_build_node_count": 5480,
-  "post_build_edge_count": 20858,
+  "post_build_node_count": 5510,
+  "post_build_edge_count": 20952,
   "post_build_error": "",
   "producer_suppression": {
     "path": "/Users/emperor/.local/share/uv/tools/graphifyy/lib/python3.10/site-packages/graphify/extract.py",
@@ -135,7 +135,7 @@
         "Homayar/backend/media/validation.py"
       ],
       "source_locations": [
-        "L501"
+        "L507"
       ],
       "contexts": [
         "generic_arg",
