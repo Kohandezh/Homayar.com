@@ -60,9 +60,9 @@ export default async function HomePage({ params }: PageProps<"/[locale]">) {
               ))}
             </ul>
           </div>
-          <div className="relative mx-auto w-full max-w-[640px]">
+          <div className="relative mx-auto w-full max-w-[680px] sm:pe-24 lg:pe-28">
             <AppWindow dict={dict} locale={locale} label={dict.common.decorativeMockup} />
-            <div className="pointer-events-none absolute -bottom-6 -end-2 hidden origin-bottom scale-[0.78] sm:block md:-end-6 md:scale-90">
+            <div className="pointer-events-none absolute -bottom-8 end-0 hidden origin-bottom scale-[0.8] sm:block lg:-end-2 lg:scale-90">
               <PhoneFrame dict={dict} locale={locale} label={dict.common.decorativeMockup} />
             </div>
           </div>
