@@ -29,6 +29,7 @@ from backend.media import (
     UnsupportedContainerError,
     validate_media_upload,
 )
+from backend.media.validation import _build_ffmpeg_decode_command
 
 pytestmark = pytest.mark.ffmpeg
 
@@ -218,6 +219,44 @@ def test_bounded_decode_catches_corruption_the_probe_accepts(
             fixtures / name, original_filename=name, declared_mime_type=mime, policy=DECODING
         )
     assert error.value.code == "media_decode_failed" and error.value.terminal
+
+
+def _decode_stderr(path: Path, seconds: float) -> tuple[int, bytes]:
+    completed = subprocess.run(  # noqa: S603 - the validation's own fixed argv
+        _build_ffmpeg_decode_command("ffmpeg", path, seconds),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=60,
+    )
+    return completed.returncode, completed.stderr
+
+
+# The decode refuses anything on stderr, so valid media must leave it empty
+# under the exact command: no banner, no progress line, no final statistics.
+@pytest.mark.parametrize(
+    "name", ["ok.wav", "ok.mp3", "ok.ogg", "ok.m4a", "ok.flac", "ok.aac", "ok.webm", "ok.mp4"]
+)
+def test_valid_media_leave_the_decoder_stderr_empty(fixtures: Path, name: str) -> None:
+    assert _decode_stderr(fixtures / name, 10) == (0, b"")
+
+
+def test_a_long_valid_decode_writes_no_progress_and_is_accepted(tmp_path: Path) -> None:
+    long_mp3 = tmp_path / "long.mp3"
+    _ffmpeg(
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000:duration=60",
+        "-c:a", "libmp3lame", "-b:a", "32k", str(long_mp3),
+    )  # fmt: skip
+    # 30 s is the deployed decode window (``media_decode_probe_seconds``).
+    assert _decode_stderr(long_mp3, 30) == (0, b"")
+    result = validate_media_upload(
+        long_mp3,
+        original_filename="long.mp3",
+        declared_mime_type="audio/mpeg",
+        policy=MediaValidationPolicy(decode_probe_seconds=30),
+    )
+    assert 59 <= result.duration_seconds <= 61
 
 
 def test_wav_header_claims_are_clamped_and_the_truncation_fails_to_decode(
