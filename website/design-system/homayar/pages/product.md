@@ -1,7 +1,7 @@
 # Product Page Overrides
 
 > **PROJECT:** Homayar
-> **Generated:** 2026-09-27 18:28:13
+> **Generated:** 2026-09-28 00:49:44
 > **Page Type:** Dashboard / Data View
 
 > ⚠️ **IMPORTANT:** Rules in this file **override** the Master file (`design-system/MASTER.md`).
@@ -15,7 +15,7 @@
 
 - **Max Width:** 1200px (standard)
 - **Layout:** Full-width sections, centered content
-- **Sections:** Hero > Product video/mockup (center) > Feature breakdown per section > Comparison (optional) > CTA
+- **Sections:** Dynamic hero (personalized) > Relevant features > Tailored testimonials > Smart CTA
 
 ### Spacing Overrides
 
@@ -27,12 +27,13 @@
 
 ### Color Overrides
 
-- **Strategy:** Video surround: Brand color overlay. Features: Icon color #0080FF. Text: Dark #222
+- **Strategy:** Adaptive based on user data. A/B test color variations per segment.
 
 ### Component Overrides
 
-- Avoid: Unoptimized full-size images
-- Avoid: No visual feedback on current location
+- Avoid: Present AI as human
+- Avoid: Static output only
+- Avoid: Jump directly without transition
 
 ---
 
@@ -44,7 +45,8 @@
 
 ## Recommendations
 
-- Effects: Drag-to-rotate, pinch-to-zoom, spin animation, AR placement, material switching, smooth orbit controls
-- Performance: Use appropriate size and format (WebP)
-- Navigation: Highlight active nav item with color/underline
-- CTA Placement: Video center + CTA right/bottom
+- Effects: transform: translateY(scroll), position: fixed/sticky, perspective: 1px, scroll-triggered animations
+- AI Interaction: Clearly label AI generated content
+- AI Interaction: Thumps up/down or 'Regenerate'
+- Navigation: Use scroll-behavior: smooth on html element
+- CTA Placement: Context-aware placement based on user segment

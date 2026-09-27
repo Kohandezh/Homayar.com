@@ -7,8 +7,9 @@
 ---
 
 **Project:** Homayar
-**Generated:** 2026-09-27 18:27:46
-**Category:** SaaS (General)
+**Generated:** 2026-09-28 00:49:44
+**Category:** Voice Recorder & Memo
+**Design Dials:** Variance 8/10 (Bold / Asymmetric) | Motion 9/10 (Complex)
 
 ---
 
@@ -18,35 +19,35 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#2563EB` | `--color-primary` |
+| Primary | `#DC2626` | `--color-primary` |
 | On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#3B82F6` | `--color-secondary` |
+| Secondary | `#EF4444` | `--color-secondary` |
 | On Secondary | `#000000` | `--color-on-secondary` |
-| Accent/CTA | `#EA580C` | `--color-accent` |
-| On Accent/CTA | `#000000` | `--color-on-accent` |
-| Background | `#F8FAFC` | `--color-background` |
-| Foreground | `#1E293B` | `--color-foreground` |
+| Accent/CTA | `#2563EB` | `--color-accent` |
+| On Accent/CTA | `#FFFFFF` | `--color-on-accent` |
+| Background | `#FFFFFF` | `--color-background` |
+| Foreground | `#0F172A` | `--color-foreground` |
 | Card | `#FFFFFF` | `--color-card` |
-| Card Foreground | `#1E293B` | `--color-card-foreground` |
-| Muted | `#E9EFF8` | `--color-muted` |
+| Card Foreground | `#0F172A` | `--color-card-foreground` |
+| Muted | `#FCF1F1` | `--color-muted` |
 | Muted Foreground | `#475569` | `--color-muted-foreground` |
-| Border | `#E2E8F0` | `--color-border` |
+| Border | `#FAE4E4` | `--color-border` |
 | Destructive | `#DC2626` | `--color-destructive` |
 | On Destructive | `#FFFFFF` | `--color-on-destructive` |
-| Ring | `#2563EB` | `--color-ring` |
+| Ring | `#DC2626` | `--color-ring` |
 
-**Color Notes:** Trust blue + orange CTA contrast [Accent adjusted from #F97316]
+**Color Notes:** Recording red + waveform blue
 
 ### Typography
 
-- **Heading Font:** Plus Jakarta Sans
-- **Body Font:** Plus Jakarta Sans
-- **Mood:** enterprise, saas, b2b, professional, indigo, modern, approachable, legible, ios dynamic type, android scaling
-- **Google Fonts:** [Plus Jakarta Sans + Plus Jakarta Sans](https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400)
+- **Heading Font:** Inter
+- **Body Font:** Inter
+- **Mood:** dark, cinematic, technical, precision, clean, premium, developer, professional, high-end utility
+- **Google Fonts:** [Inter + Inter](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap)
 
 **CSS Import:**
 ```css
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 ```
 
 ### Spacing Variables
@@ -79,7 +80,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #EA580C;
+  background: #2563EB;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -96,8 +97,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #2563EB;
-  border: 2px solid #2563EB;
+  color: #DC2626;
+  border: 2px solid #DC2626;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -110,7 +111,7 @@
 
 ```css
 .card {
-  background: #F8FAFC;
+  background: #FFFFFF;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -136,9 +137,9 @@
 }
 
 .input:focus {
-  border-color: #2563EB;
+  border-color: #DC2626;
   outline: none;
-  box-shadow: 0 0 0 3px #2563EB20;
+  box-shadow: 0 0 0 3px #DC262620;
 }
 ```
 
@@ -164,28 +165,43 @@
 
 ## Style Guidelines
 
-**Style:** Glassmorphism
+**Style:** Brutalism
 
-**Keywords:** Frosted glass, transparent, blurred background, layered, vibrant background, light source, depth, multi-layer
+**Keywords:** Raw, unpolished, stark, high contrast, plain text, default fonts, visible borders, asymmetric, anti-design
 
-**Best For:** Modern SaaS, financial dashboards, high-end corporate, lifestyle apps, modal overlays, navigation
+**Best For:** Design portfolios, artistic projects, counter-culture brands, editorial/media sites, tech blogs
 
-**Key Effects:** Backdrop blur (10-20px), subtle border (1px solid rgba white 0.2), light reflection, Z-depth
+**Key Effects:** No smooth transitions (instant), sharp corners (0px), bold typography (700+), visible grid, large blocks
 
 ### Page Pattern
 
-**Pattern Name:** Hero + Features + CTA
+**Pattern Name:** Product Demo + Features
 
-- **Conversion Strategy:** Deep CTA placement. For CTA label text, verify at least 4.5:1 against the button fill; use 7:1 only when the product explicitly targets AAA normal-text contrast. Keep focus and component boundaries independently visible. Disable hero parallax under reduced motion and render its static final state.
-- **CTA Placement:** Hero (sticky) + Bottom
-- **Section Order:** Hero with headline/image > Value prop > Key features (3-5) > CTA section > Footer
+- **Conversion Strategy:** Use an interactive demo only when it explains value better than static media. Provide captions, transcript, visible play/pause controls, and a non-video fallback; do not autoplay under reduced motion. Pause media when offscreen or hidden and keep the final product state available as static content.
+- **CTA Placement:** Video center + CTA right/bottom
+- **Section Order:** Hero > Product video/mockup (center) > Feature breakdown per section > Comparison (optional) > CTA
+
+---
+
+## Motion
+
+**Scroll Reveal** (Complex) — Trigger: scroll (continuous scrub) | Duration: tied to scroll position | Easing: `none (scrub-driven)`
+
+```js
+gsap.timeline({ scrollTrigger: { trigger: section, start: 'top top', end: '+=150%', scrub: 1, pin: true } }).from('.headline', { opacity: 0, y: 40 }).to('.bg-layer', { yPercent: -20 }, '<');
+```
+
+**Framework notes:** Pinning needs the section to have deterministic height; recalc ScrollTrigger.refresh() after images/fonts load; Use matchMedia('(prefers-reduced-motion: reduce)') to skip non-essential motion and render the final state immediately
+
+- ✅ Use scrub: true or a small number (0.5-1.5) instead of instant jumps so it feels tied to the scrollbar
+- ❌ Don't pin more than 1-2 sections per page; excessive pinning fights native scroll feel and hurts mobile UX
+- ⚡ Pinning forces layout reflow; test on mid-tier mobile devices, not just desktop
 
 ---
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Excessive animation
-- ❌ Dark mode by default
+- ❌ Excessive decoration
 
 ### Additional Forbidden Patterns
 

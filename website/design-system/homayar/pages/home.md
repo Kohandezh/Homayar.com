@@ -1,7 +1,7 @@
 # Home Page Overrides
 
 > **PROJECT:** Homayar
-> **Generated:** 2026-09-27 18:28:13
+> **Generated:** 2026-09-28 00:49:43
 > **Page Type:** Dashboard / Data View
 
 > ⚠️ **IMPORTANT:** Rules in this file **override** the Master file (`design-system/MASTER.md`).
@@ -13,13 +13,13 @@
 
 ### Layout Overrides
 
-- **Max Width:** 1200px (standard)
-- **Layout:** Full-width sections, centered content
-- **Sections:** Hero (pricing headline) > Price comparison cards > Feature comparison table > FAQ section > Final CTA
+- **Max Width:** 800px (narrow, focused)
+- **Layout:** Single column, centered
+- **Sections:** Intro hook > Chapter 1 (problem) > Chapter 2 (journey) > Chapter 3 (solution) > Climax CTA
 
 ### Spacing Overrides
 
-- No overrides — use Master spacing
+- **Content Density:** Low — focus on clarity
 
 ### Typography Overrides
 
@@ -27,12 +27,13 @@
 
 ### Color Overrides
 
-- **Strategy:** Free: Grey, Starter: Blue, Pro: Green/Gold, Enterprise: Dark. Cards: 1px border, shadow
+- **Strategy:** Progressive reveal. Each chapter has distinct color. Building intensity.
 
 ### Component Overrides
 
-- Avoid: Unoptimized full-size images
-- Avoid: No visual feedback on current location
+- Avoid: Present AI as human
+- Avoid: Static output only
+- Avoid: Jump directly without transition
 
 ---
 
@@ -44,7 +45,8 @@
 
 ## Recommendations
 
-- Effects: Voice waveform visualization, listening pulse, processing spinner, speak animation, smooth transitions
-- Performance: Use appropriate size and format (WebP)
-- Navigation: Highlight active nav item with color/underline
-- CTA Placement: Each card: CTA button. Sticky CTA in nav
+- Effects: Voice recognition UI, gesture detection, AI predictions (smooth reveal), progressive disclosure, smart suggestions
+- AI Interaction: Clearly label AI generated content
+- AI Interaction: Thumps up/down or 'Regenerate'
+- Navigation: Use scroll-behavior: smooth on html element
+- CTA Placement: End of each chapter (mini) + Final climax CTA
