@@ -1,18 +1,18 @@
 {
   "code": {
-    "nodes": 5480,
-    "edges": 20858,
-    "communities": 181,
+    "nodes": 5510,
+    "edges": 20952,
+    "communities": 182,
     "diagnostics": {
       "missing_endpoint_edges": 0,
-      "dangling_endpoint_edges": 1224,
+      "dangling_endpoint_edges": 1233,
       "self_loop_edges": 1,
-      "directed_same_endpoint_collapsed_edges": 624,
-      "undirected_same_endpoint_collapsed_edges": 642
+      "directed_same_endpoint_collapsed_edges": 631,
+      "undirected_same_endpoint_collapsed_edges": 649
     },
     "title": "Integrated repository code graph (Homayar.com with the tracked product under Homayar/)",
-    "snapshot": "refreshes/20260926T095535832212Z",
-    "refreshed_at": "2026-09-26"
+    "snapshot": "refreshes/20260927T032552294074Z",
+    "refreshed_at": "2026-09-27"
   },
   "planning": {
     "nodes": 119,
@@ -34,11 +34,11 @@
   "semantic_scope": "Explicit planning relationships only; free-form documentation semantic extraction not run.",
   "original_graphs": "Historical root graphify-out and Homayar/graphify-out (original checkout) preserved unchanged and not consulted; the 2026-09-07 snapshot pointed at the original checkout and is superseded by this refresh.",
   "full_graph": {
-    "raw_ast_nodes": 5482,
-    "raw_ast_edges": 22719,
-    "explicit_unresolved_reference_nodes": 163,
-    "full_graph_nodes": 5645,
-    "full_graph_edges": 22719,
+    "raw_ast_nodes": 5512,
+    "raw_ast_edges": 22829,
+    "explicit_unresolved_reference_nodes": 164,
+    "full_graph_nodes": 5676,
+    "full_graph_edges": 22829,
     "full_graph_missing_endpoints": 0,
     "self_loop_edges": 1,
     "definition_resolution_complete": false,

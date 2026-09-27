@@ -3,6 +3,8 @@
 Prepared 2026-09-26 by the safe-recovery session from the tracked backlog and the code at
 `main` `620f14c` plus branch `ci/r02-ffmpeg-backend-tests` (R-02). Paste everything below the line
 into a new session. Facts are observations at that revision; re-verify them before relying on them.
+Updated 2026-09-27 by Session A: R-02 is merged (step 3); the media decode now stops at its first
+error-level diagnostic (`SESSION_A_BACKEND_CLOSEOUT.md`).
 
 ---
 
@@ -21,9 +23,10 @@ Do not add Co-Authored-By trailers. Push, merge and deployment need a fresh owne
    ADR 0015 (quality coverage and degradation exposure), ADR 0016 (ingestion ledger),
    `Homayar/docs/security/authorization-matrix.md`, and the WP09 entries in
    `docs/planning/homayar-commercial-blueprint.md` (F25 row, WP09 section, acceptance table).
-3. Check whether R-02 (`ci/r02-ffmpeg-backend-tests`: ffmpeg in the backend CI job,
-   `HOMAYAR_REQUIRE_MEDIA_TOOLS=1`) is merged into `main` and whether its CI run was green. If it is
-   not merged, base WP09-T01 on that branch or report; the task's tests need ffmpeg in CI.
+3. R-02 (ffmpeg in the backend CI job, `HOMAYAR_REQUIRE_MEDIA_TOOLS=1`) is merged: PR #5 and the
+   Session A corrective pull request (`SESSION_A_BACKEND_CLOSEOUT.md`). Confirm that the latest
+   `main` CI run is green before starting; do not base work on the stale branch
+   `ci/r02-ffmpeg-backend-tests` (its last two commits were never merged).
 
 ## 1. What already exists (reuse, do not duplicate)
 
