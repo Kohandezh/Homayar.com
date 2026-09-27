@@ -144,7 +144,12 @@ time in the Linux replica of §2 unless noted:**
 | `test_transport_drills.py` | 4 passed, 1 skipped (broker restart: needs `TEST_REDIS_CONTAINER`); redelivery drill 98.6 s |
 | Fresh PostgreSQL 17 + Redis 7.4 containers → `check-migrations.sh` → full suite (CI order) | migrations OK; **716 passed, 46 skipped, 0 failed** (703 + 13 new tests) |
 
-**Remote (GitHub Actions):** see §7 — recorded after the pull request's run.
+**Remote (GitHub Actions):** PR #6 run [36293584514](https://github.com/Kohandezh/Homayar.com/actions/runs/36293584514) on `ea967dc` (code `4428756` + records): all six
+jobs passed; backend job log: ffmpeg/ffprobe `6.1.1-3ubuntu5` installed, `check-migrations.sh` passed,
+**716 passed, 46 skipped, 0 failed** — the skips are exactly 41 live S3, 3 Padyar, 1 SQLite-only
+drill and 1 broker-restart drill, so every media test executed. The commit that adds this
+paragraph changes only records; its own run, the merge commit and the resulting `main` run are on
+PR #6 and in the session's final report.
 
 ## 6. Remaining skips and limitations
 
@@ -165,8 +170,8 @@ time in the Linux replica of §2 unless noted:**
   records (this file, `VALIDATION.md` §1/§2a/§2b, `REMAINING_WORK.md` R-02, `PROJECT_STATE.md`,
   prompts, `docs/operations/ci.md`, PROGRESS Session 18, Graphify code map refreshed once at
   `4428756`).
-- The corrective pull request, its CI runs, the merge commit and the resulting `main` run are
-  listed on the pull request; `main` is not described as green in this file because that result
+- Corrective pull request: [#6](https://github.com/Kohandezh/Homayar.com/pull/6). Its CI runs, the
+  merge commit and the resulting `main` run are listed on the pull request; `main` is not described as green in this file because that result
   can only exist after this file is merged. The final report of the session states it.
 - Stale branch `ci/r02-ffmpeg-backend-tests` (tip `87d3323`): left as is (deleting branches is not
   authorized for this session); do not build on it.

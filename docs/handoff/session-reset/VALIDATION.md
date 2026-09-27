@@ -12,6 +12,7 @@ diagnostics). Earlier rows are historical and unchanged.
 
 | Run | Revision | Result |
 | --- | --- | --- |
+| [36293584514](https://github.com/Kohandezh/Homayar.com/actions/runs/36293584514) | PR #6 `ea967dc` (code `4428756` + records) | **all six jobs passed**; backend 716 passed, 46 skipped (41 live S3, 3 Padyar, 1 SQLite-only drill, 1 broker-restart drill), 0 failed; ffmpeg/ffprobe `6.1.1-3ubuntu5`, no `ffmpeg` skip. The records-only commit on top of it and the merge are on PR #6 |
 | [36253589355](https://github.com/Kohandezh/Homayar.com/actions/runs/36253589355) | `main` `1b34472` (merge of PR #5) | backend **failed**: `test_visibility_timeout_redelivery_during_a_live_attempt_is_inert` (1 failed, 702 passed, 46 skipped); five other jobs passed — §2a |
 | [36252829293](https://github.com/Kohandezh/Homayar.com/actions/runs/36252829293) | PR #5 `88a77c2` (final head, merged) | all six passed; backend 703 passed, 46 skipped; media tests executed with ffmpeg/ffprobe `6.1.1-3ubuntu5`. Validates `88a77c2` only — the later branch commits `e29de4d`/`87d3323` were never run in CI and never merged |
 | [36250360273](https://github.com/Kohandezh/Homayar.com/actions/runs/36250360273) | PR #5 `80ae521` | backend **4 failed**, 698 passed, 46 skipped: ffmpeg 6.1.1 accepted `corrupt.mp3`, `corrupt.flac`, `tail.mp3` (three `test_bounded_decode_catches_corruption_the_probe_accepts` cases and the upload-route `corrupt.mp3` case) — §2b; five other jobs passed |
