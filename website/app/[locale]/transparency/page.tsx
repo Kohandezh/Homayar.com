@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { getDictionary } from "@/i18n";
 import { isLocale } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
-import { Notice } from "@/components/ui/Cards";
+import { Chip, Notice } from "@/components/ui/Cards";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/transparency">): Promise<Metadata> {
   const { locale } = await params;
@@ -20,14 +20,17 @@ export default async function TransparencyPage({ params }: PageProps<"/[locale]/
   const t = dict.transparency;
 
   return (
-    <div className="container-x py-12 md:py-16">
+    <div className="container-x py-14 md:py-20">
       <div className="mx-auto max-w-3xl">
-        <p className="eyebrow">{dict.footer.trust}</p>
-        <h1 className="mt-3 text-3xl font-bold md:text-5xl">{t.title}</h1>
+        <div className="flex items-center gap-3" data-reveal>
+          <p className="eyebrow">{dict.footer.trust}</p>
+          <Chip tone="amber" live>{dict.common.inProgress}</Chip>
+        </div>
+        <h1 className="display mt-5" data-split>{t.title}</h1>
         <div className="mt-8">
           <Notice title={dict.common.inProgress}>{t.notice}</Notice>
         </div>
-        <div className="mt-8">
+        <div className="mt-8" data-reveal>
           <Link href={`/${locale}/security`} className="btn btn-primary">
             {t.backLink}
           </Link>

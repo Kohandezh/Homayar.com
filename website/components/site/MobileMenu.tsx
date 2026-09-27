@@ -6,53 +6,49 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import type { NavItem } from "./nav";
 
-/** Menu button plus a bottom sheet with every page. Used below the desktop breakpoint. */
 export function MobileMenu({
   locale,
+  brand,
   items,
   secondary,
   openLabel,
   closeLabel,
   appUrl,
   loginLabel,
+  startLabel,
 }: {
   locale: string;
+  brand: string;
   items: NavItem[];
   secondary: { label: string; path: string }[];
   openLabel: string;
   closeLabel: string;
   appUrl: string;
   loginLabel: string;
+  startLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
-  // Close on navigation: when the path changes, reset the open state during render.
   const [seenPath, setSeenPath] = useState(pathname);
   if (seenPath !== pathname) {
     setSeenPath(pathname);
     setOpen(false);
   }
 
-  // Escape closes; focus moves into the sheet when it opens and back to the button when it closes.
   useEffect(() => {
-    if (!open) return;
-    const button = buttonRef.current;
-    const previous = document.activeElement as HTMLElement | null;
-    const first = dialogRef.current?.querySelector<HTMLElement>("a, button");
-    first?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) {
+      dialog.showModal();
+      document.body.style.overflow = "hidden";
+    } else if (!open && dialog.open) {
+      dialog.close();
+    }
     return () => {
-      document.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
-      (previous ?? button)?.focus();
     };
   }, [open]);
 
@@ -61,9 +57,8 @@ export function MobileMenu({
   return (
     <>
       <button
-        ref={buttonRef}
         type="button"
-        className="inline-grid size-11 place-items-center rounded-full border border-border bg-surface text-ink transition-colors hover:bg-sand lg:hidden"
+        className="inline-grid size-11 place-items-center rounded-full border border-border-2 bg-surface text-ink transition-colors hover:bg-surface-2 lg:hidden"
         aria-label={open ? closeLabel : openLabel}
         aria-expanded={open}
         aria-controls="mobile-menu"
@@ -72,74 +67,65 @@ export function MobileMenu({
         <Icon name={open ? "x" : "menu"} size={22} />
       </button>
 
-      {open ? (
-        <div className="fixed inset-0 z-50 lg:hidden" role="presentation">
-          <button
-            type="button"
-            className="absolute inset-0 bg-ink/40"
-            aria-label={closeLabel}
-            onClick={() => setOpen(false)}
-            tabIndex={-1}
-          />
-          <div
-            id="mobile-menu"
-            ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            className="sheet absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-[16px] bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] shadow-2xl"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <p id={titleId} className="text-sm font-semibold text-ink-2">
-                Homayar
-              </p>
-              <button
-                type="button"
-                className="inline-grid size-11 place-items-center rounded-full hover:bg-sand"
-                aria-label={closeLabel}
-                onClick={() => setOpen(false)}
-              >
-                <Icon name="x" size={22} />
-              </button>
-            </div>
-            <ul className="grid grid-cols-2 gap-2">
-              {items.map((item) => {
-                const href = `${base}${item.path}`;
-                const active = pathname === href || pathname.startsWith(`${href}/`);
-                return (
-                  <li key={item.key}>
-                    <Link
-                      href={href}
-                      aria-current={active ? "page" : undefined}
-                      onClick={() => setOpen(false)}
-                      className={`flex min-h-14 items-center gap-3 rounded-xl border px-3 py-2 font-semibold ${
-                        active ? "border-primary bg-primary-soft text-primary" : "border-border bg-bg text-ink"
-                      }`}
-                    >
-                      <Icon name={item.icon} size={20} />
-                      {item.label}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-            <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-border pt-3 text-sm text-ink-2">
-              {secondary.map((s) => (
-                <li key={s.path}>
-                  <Link href={`${base}${s.path}`} onClick={() => setOpen(false)} className="inline-flex min-h-11 items-center hover:text-ink">
-                    {s.label}
+      <dialog
+        id="mobile-menu"
+        ref={dialogRef}
+        aria-labelledby={titleId}
+        className="sheet lg:hidden"
+        onClose={() => setOpen(false)}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setOpen(false);
+        }}
+      >
+        <div className="sheet-body">
+          <div className="mb-3 flex items-center justify-between">
+            <p id={titleId} className="mono text-xs font-semibold text-ink-3">
+              {brand}
+            </p>
+            <button type="button" className="inline-grid size-11 place-items-center rounded-full hover:bg-surface-2" aria-label={closeLabel} onClick={() => setOpen(false)}>
+              <Icon name="x" size={22} />
+            </button>
+          </div>
+          <ul className="grid grid-cols-2 gap-2">
+            {items.map((item) => {
+              const href = `${base}${item.path}`;
+              const active = pathname === href || pathname.startsWith(`${href}/`);
+              return (
+                <li key={item.key}>
+                  <Link
+                    href={href}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => setOpen(false)}
+                    className={`flex min-h-14 items-center gap-3 rounded-xl border px-3 py-2 font-semibold ${
+                      active ? "border-amber/50 bg-amber/10 text-amber-text" : "border-border-2 bg-bg-2 text-ink"
+                    }`}
+                  >
+                    <Icon name={item.icon} size={20} />
+                    {item.label}
                   </Link>
                 </li>
-              ))}
-              <li>
-                <a href={appUrl} className="inline-flex min-h-11 items-center font-semibold text-primary">
-                  {loginLabel}
-                </a>
-              </li>
-            </ul>
+              );
+            })}
+          </ul>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <a href={appUrl} className="btn btn-ghost">
+              {loginLabel}
+            </a>
+            <a href={appUrl} className="btn btn-primary">
+              {startLabel}
+            </a>
           </div>
+          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border-2 pt-3 text-sm text-ink-2">
+            {secondary.map((s) => (
+              <li key={s.path}>
+                <Link href={`${base}${s.path}`} onClick={() => setOpen(false)} className="inline-flex min-h-11 items-center hover:text-ink">
+                  {s.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
-      ) : null}
+      </dialog>
     </>
   );
 }

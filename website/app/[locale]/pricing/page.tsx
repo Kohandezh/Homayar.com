@@ -28,10 +28,10 @@ export default async function PricingPage({ params }: PageProps<"/[locale]/prici
       </PageHero>
 
       <Section>
-        <div className="mb-6 flex flex-wrap gap-3">
+        <div className="mb-6 flex flex-wrap gap-3" data-reveal-group>
           {p.deployments.map((d, i) => (
-            <div key={d.name} className="flex items-center gap-3 rounded-full border border-border bg-surface py-2 pe-4 ps-2">
-              <span className="inline-grid size-8 place-items-center rounded-full bg-primary-soft text-primary">
+            <div key={d.name} className="flex items-center gap-3 rounded-full border border-border-2 bg-surface py-2 pe-4 ps-2">
+              <span className="inline-grid size-8 place-items-center rounded-full bg-surface-2 text-teal">
                 <Icon name={i === 0 ? "cloud" : "server"} size={16} />
               </span>
               <span className="font-semibold">{d.name}</span>
@@ -39,15 +39,15 @@ export default async function PricingPage({ params }: PageProps<"/[locale]/prici
             </div>
           ))}
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-3" data-reveal-group>
           {p.plans.map((plan, i) => (
-            <div key={plan.name} className={`flex flex-col rounded-[20px] p-6 md:p-8 ${i === 2 ? "bg-ink-teal text-cream" : "card"}`}>
+            <div key={plan.name} className={`panel flex flex-col p-6 md:p-8 ${i === 2 ? "panel-glow" : ""}`}>
               <h2 className="text-2xl font-bold">{plan.name}</h2>
-              <p className={`mt-1 ${i === 2 ? "text-cream/85" : "text-ink-2"}`}>{plan.text}</p>
+              <p className="mt-1 text-ink-2">{plan.text}</p>
               <div className="mt-8">
-                <Chip tone={i === 2 ? "amber" : "sand"}>{plan.amount}</Chip>
+                <Chip tone={i === 2 ? "amber" : "default"}>{plan.amount}</Chip>
               </div>
-              <Link href={`/${locale}/contact`} className={`btn mt-8 ${i === 2 ? "btn-on-dark" : "btn-secondary"}`}>
+              <Link href={`/${locale}/contact`} className={`btn mt-8 ${i === 2 ? "btn-primary" : "btn-ghost"}`}>
                 {p.cta}
               </Link>
             </div>

@@ -32,6 +32,14 @@ import {
   Users,
   X,
   CircleHelp,
+  Play,
+  Pause,
+  RotateCcw,
+  Waves,
+  Terminal,
+  Radio,
+  FileDown,
+  ScanLine,
 } from "lucide-react";
 
 export const icons = {
@@ -67,11 +75,18 @@ export const icons = {
   users: Users,
   x: X,
   help: CircleHelp,
+  play: Play,
+  pause: Pause,
+  rotate: RotateCcw,
+  waves: Waves,
+  terminal: Terminal,
+  radio: Radio,
+  fileDown: FileDown,
+  scan: ScanLine,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof icons;
 
-/** Decorative icon. Hidden from assistive tech; the visible text next to it carries the meaning. */
 export function Icon({ name, ...props }: { name: string } & LucideProps) {
   const Cmp = (icons as Record<string, LucideIcon>)[name] ?? CircleHelp;
   return <Cmp aria-hidden="true" focusable="false" strokeWidth={1.75} {...props} />;

@@ -1,8 +1,3 @@
-/**
- * English content. Every product claim here comes from Homayar/README.md, the
- * commercial blueprint, the accepted ADRs, docs/operations/deployment.md or the
- * console source. Nothing is invented. `fa.ts` mirrors this shape.
- */
 const en = {
   locale: "en",
   brand: "Homayar",
@@ -81,6 +76,7 @@ const en = {
       text: "Homayar transcribes authorized call recordings, runs four analysis agents and gives supervisors a scored report, detected problems and coaching points. Persian and English. In the cloud or fully on your own servers.",
       primary: "Request a demo",
       secondary: "See the product",
+      hint: "Scroll: a call becomes a report",
       facts: ["4 analysis agents", "Persian and English", "Self-hosted option", "Personal-data masking"],
     },
     outputs: {
@@ -292,6 +288,7 @@ const en = {
         text: "Dashboard, call report, transcript, PDF export and the copilot. Personal-data masking and access rules apply to every view.",
       },
     ],
+    rail: { todo: "Not started", done: "Done", running: "Running" },
     states: {
       eyebrow: "Truthful states",
       title: "A missing stage is shown, not filled in",
@@ -480,6 +477,16 @@ const en = {
       title: "What we built, and what we do not claim",
       text: "Call recordings are among the most sensitive data a company holds. This page describes the controls that exist in the product today, as they are described in our architecture decisions, and lists what we do not claim.",
     },
+    maskDemo: {
+      eyebrow: "Masking, live",
+      title: "Watch a phone number disappear from the transcript",
+      original: "Original transcript",
+      masked: "Masked version",
+      who: "Customer",
+      before: "You can reach me at 0912 345 6789 after five.",
+      after: "You can reach me at [PHONE_1] after five.",
+      badge: "1 phone number masked",
+    },
     sections: {
       redaction: {
         id: "redaction",
@@ -596,6 +603,17 @@ const en = {
       eyebrow: "Deployment",
       title: "One product, three places to run it",
       text: "Private operation is a supported profile of the same product, not a fork. The same security and evidence rules apply everywhere.",
+    },
+    flow: {
+      source: "PBX or upload",
+      app: "Homayar",
+      models: "Local models",
+      cloud: "Cloud reasoning on masked text",
+      internet: "Internet",
+      blocked: "No route",
+      allowlist: "Allowlist proxy only",
+      optIn: "Opt-in per tenant",
+      region: "Qualified cloud region",
     },
     options: [
       {
@@ -777,8 +795,8 @@ const en = {
     },
     notice: "Amounts, billing units and terms will be published here once they are final. If you need numbers for a budget today, contact us and we will send a written proposal.",
     deployments: [
-      { name: "SaaS", text: "We run it. Billed per organization." },
-      { name: "Self-hosted", text: "You run it. Licensed per installation." },
+      { name: "SaaS", text: "We run it." },
+      { name: "Self-hosted", text: "You run it." },
     ],
     plans: [
       { name: "Monthly", text: "Pay month by month.", amount: "To be announced" },
@@ -797,7 +815,7 @@ const en = {
     terms: {
       meta: { title: "Terms of service", description: "The Homayar terms of service are being prepared with legal review and are not yet published." },
       title: "Terms of service",
-      notice: "This document is being prepared with legal review and is not yet in force. No terms on this page are binding. Commercial customers receive a written agreement before any data is processed.",
+      notice: "This document is being prepared with legal review and is not yet in force. No terms on this page are binding. Contact us with questions.",
     },
     gdpr: {
       meta: { title: "GDPR statement", description: "The Homayar GDPR statement is being prepared and is not yet published." },
@@ -811,6 +829,103 @@ const en = {
     title: "Transparency report",
     notice: "This report is being prepared. It will describe how processing works, which subprocessors are involved in each deployment option, and how requests about data are handled. It is not yet published and contains no commitments.",
     backLink: "Read the security page in the meantime",
+  },
+
+  demo: {
+    label: "Live demo",
+    sample: "Sample data",
+    sampleNote: "A made-up call with invented names and numbers. Nothing here is real customer data.",
+    play: "Play the demo",
+    pause: "Pause the demo",
+    replay: "Replay the demo",
+    reducedNote: "Motion is reduced on this device, so the finished report is shown.",
+    transcriptLang: "Transcript language",
+    call: "Ext. 104 · Inbound · 06:12",
+    recording: "call-104-inbound.wav",
+    states: { waiting: "Waiting", running: "Running", done: "Done" },
+    speakers: { customer: "Customer", agent: "Agent" },
+    transcript: {
+      fa: [
+        { who: "customer", text: "سفارشم بعد از نه روز هنوز «در حال ارسال» است." },
+        { who: "agent", text: "بابت این موضوع متأسفم. همین حالا وضعیت مرسوله را بررسی می‌کنم." },
+        { who: "customer", text: "هفتهٔ پیش هم تماس گرفتم و کسی پیگیری نکرد." },
+        { who: "agent", text: "یادداشت را می‌بینم. وضعیت ارسال از طرف ما به‌روز نشده بود. امروز پیگیری می‌کنم و پیش از ساعت شش با شما تماس می‌گیرم." },
+        { who: "customer", text: "باشد. لطفاً این بار حتماً." },
+      ],
+      en: [
+        { who: "customer", text: "My order still shows as in transit after nine days." },
+        { who: "agent", text: "I am sorry about that. Let me check the shipment now." },
+        { who: "customer", text: "I called last week too and nobody followed up." },
+        { who: "agent", text: "I see the note. The delivery status was not updated on our side. I will escalate it today and call you back before six." },
+        { who: "customer", text: "Okay. Please make sure this time." },
+      ],
+    },
+    report: "Call Report",
+    agents: {
+      qc: { name: "Quality Control", agent: "QC Agent", note: "Six criteria and an overall score." },
+      problems: {
+        name: "Problem Detection",
+        agent: "Problem Detection",
+        severity: "Severity",
+        items: [
+          { label: "Delivery status not updated", severity: "High" },
+          { label: "Agent could not see the order history", severity: "Medium" },
+        ],
+      },
+      insights: {
+        name: "Business Insight",
+        agent: "Business Insight",
+        items: [
+          { label: "Churn Risk", value: "Medium" },
+          { label: "Upsell", value: "No" },
+          { label: "Satisfaction trend", value: "Falling" },
+        ],
+      },
+      teacher: {
+        name: "Training Package",
+        agent: "QC Teacher",
+        items: [
+          "Acknowledge a repeat contact before checking the system.",
+          "Give a concrete follow-up time instead of 'soon'.",
+          "Close the call by confirming what happens next.",
+        ],
+      },
+    },
+    ready: "Report ready",
+    exportPdf: "Export PDF",
+  },
+
+  story: {
+    eyebrow: "The four agents",
+    title: "One transcript. Four readings.",
+    text: "Each agent reads the same transcript and writes one part of the report. Scroll to watch them work.",
+    surfaces: {
+      eyebrow: "Real surfaces",
+      title: "The console your team opens every morning",
+      text: "Dashboard, incidents, analytics, copilot and graph. These are the screens that exist today, drawn from the console itself.",
+    },
+    flow: {
+      eyebrow: "Where the data goes",
+      title: "The recording stays where you decide",
+      text: "Three ways to run the same product. In the self-hosted package no application container has a route to the internet.",
+    },
+    trust: {
+      eyebrow: "Built in, not bolted on",
+      title: "Privacy is a product feature",
+    },
+  },
+
+  palette: {
+    eyebrow: "Next step",
+    title: "Ask for a real call report",
+    placeholder: "Ask Homayar…",
+    hint: "Pick an action",
+    actions: [
+      { label: "Request a demo", meta: "We reply by e-mail, then a short call", path: "/contact", kbd: "D" },
+      { label: "See the pipeline", meta: "Step by step, with truthful states", path: "/how-it-works", kbd: "P" },
+      { label: "Read the security page", meta: "Masking, isolation, deletion, egress", path: "/security", kbd: "S" },
+      { label: "Compare deployments", meta: "SaaS, self-hosted, hybrid", path: "/deployment", kbd: "C" },
+    ],
   },
 
   mock: {

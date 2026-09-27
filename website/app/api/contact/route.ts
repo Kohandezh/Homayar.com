@@ -1,11 +1,13 @@
 import { contactSchema } from "@/lib/contact-schema";
 
-/**
- * Demo request endpoint.
- * Validates the body with a schema and answers 202 { ok: true }.
- * It stores nothing, sends nothing and logs nothing personal. Delivery is wired in a later work unit.
- */
+const maxBodyBytes = 16 * 1024;
+
 export async function POST(request: Request) {
+  const length = Number(request.headers.get("content-length") ?? 0);
+  if (length > maxBodyBytes) {
+    return Response.json({ ok: false, error: "too_large" }, { status: 413 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();

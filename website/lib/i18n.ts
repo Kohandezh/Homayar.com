@@ -16,7 +16,6 @@ export function dirOf(locale: Locale): "rtl" | "ltr" {
 
 const persianDigits = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
 
-/** Converts ASCII digits to Persian digits. Used for numbers shown in Persian prose and mockups. */
 export function localizeDigits(value: string | number, locale: Locale): string {
   const text = String(value);
   if (locale !== "fa") return text;

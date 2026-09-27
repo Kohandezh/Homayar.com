@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
 import type { NavItem } from "./nav";
 
-/** Fixed bottom tab bar for small screens. Each tab is at least 44x44 CSS px. */
 export function BottomTabBar({ locale, items, label }: { locale: string; items: NavItem[]; label: string }) {
   const pathname = usePathname();
   const base = `/${locale}`;

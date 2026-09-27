@@ -4,16 +4,16 @@ import { headers } from "next/headers";
 import "./globals.css";
 import { getDictionary } from "@/i18n";
 import { defaultLocale, dirOf, isLocale, type Locale } from "@/lib/i18n";
-import { jakarta, vazirmatn } from "@/lib/fonts";
+import { jakarta, mono, vazirmatn } from "@/lib/fonts";
 import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
 import { BottomTabBar } from "@/components/site/BottomTabBar";
 import { tabBarNav } from "@/components/site/nav";
+import { HeroStage } from "@/components/scene/HeroStage";
 
-/**
- * The 404 document for every unmatched URL. It must render the full <html>, because Next
- * skips the layouts for it. The language comes from the request path (set by proxy.ts).
- */
+const motionFlagScript =
+  "try{if(window.matchMedia('(prefers-reduced-motion: no-preference)').matches){document.documentElement.classList.add('motion')}}catch(e){}";
+
 async function currentLocale(): Promise<Locale> {
   const h = await headers();
   const value = h.get("x-locale") ?? "";
@@ -30,28 +30,31 @@ export default async function GlobalNotFound() {
   const locale = await currentLocale();
   const dict = await getDictionary(locale);
   return (
-    <html lang={locale} dir={dirOf(locale)} className={`${vazirmatn.variable} ${jakarta.variable}`}>
+    <html lang={locale} dir={dirOf(locale)} className={`${vazirmatn.variable} ${jakarta.variable} ${mono.variable}`} suppressHydrationWarning>
       <body className="page-body">
+        <script dangerouslySetInnerHTML={{ __html: motionFlagScript }} />
         <a href="#main" className="skip-link">
           {dict.common.skipToContent}
         </a>
         <Header locale={locale} dict={dict} />
         <main id="main" tabIndex={-1} className="outline-none">
-          <section className="container-x py-20 md:py-28">
-            <div className="mx-auto max-w-xl text-center">
-              <p className="eyebrow justify-center">404</p>
-              <h1 className="mt-3 text-3xl font-bold md:text-5xl">{dict.notFound.title}</h1>
-              <p className="mt-4 text-lg text-ink-2">{dict.notFound.text}</p>
-              <div className="mt-8 flex flex-wrap justify-center gap-3">
-                <Link href={`/${locale}`} className="btn btn-primary">
-                  {dict.notFound.home}
-                </Link>
-                <Link href={`/${locale}/contact`} className="btn btn-secondary">
-                  {dict.notFound.contact}
-                </Link>
+          <HeroStage label={dict.common.decorativeMockup} rtl={locale === "fa"} className="min-h-[70svh]">
+            <section className="container-x flex min-h-[70svh] items-center py-20">
+              <div className="mx-auto flex max-w-xl flex-col items-center text-center">
+                <p className="chip chip-amber mono">404</p>
+                <h1 className="display mt-6">{dict.notFound.title}</h1>
+                <p className="mt-5 text-lg text-ink-2">{dict.notFound.text}</p>
+                <div className="mt-8 flex flex-wrap justify-center gap-3">
+                  <Link href={`/${locale}`} className="btn btn-primary">
+                    {dict.notFound.home}
+                  </Link>
+                  <Link href={`/${locale}/contact`} className="btn btn-ghost">
+                    {dict.notFound.contact}
+                  </Link>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </HeroStage>
         </main>
         <Footer locale={locale} dict={dict} />
         <BottomTabBar locale={locale} items={tabBarNav(dict)} label={dict.nav.home} />

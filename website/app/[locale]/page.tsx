@@ -1,15 +1,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getDictionary } from "@/i18n";
-import { isLocale, type Locale } from "@/lib/i18n";
-import { pageMetadata } from "@/lib/metadata";
 import { notFound } from "next/navigation";
+import { getDictionary } from "@/i18n";
+import { bidi } from "@/lib/bidi";
+import { isLocale, localizeDigits, type Locale } from "@/lib/i18n";
+import { pageMetadata } from "@/lib/metadata";
 import { Section, SectionHeading } from "@/components/ui/Section";
-import { FeatureCard, Chip } from "@/components/ui/Cards";
+import { Chip } from "@/components/ui/Cards";
 import { Icon } from "@/components/ui/Icon";
 import { AppWindow } from "@/components/mockups/AppWindow";
 import { PhoneFrame } from "@/components/mockups/PhoneFrame";
-import { CtaBand } from "@/components/site/CtaBand";
+import { HeroStage } from "@/components/scene/HeroStage";
+import { LiveDemo } from "@/components/demo/LiveDemo";
+import { AgentStory } from "@/components/story/AgentStory";
+import { FlowDiagram } from "@/components/story/FlowDiagram";
+import { CommandCta } from "@/components/site/CommandCta";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]">): Promise<Metadata> {
   const { locale } = await params;
@@ -21,6 +26,8 @@ export async function generateMetadata({ params }: PageProps<"/[locale]">): Prom
   };
 }
 
+const flowModes = ["saas", "self-hosted", "hybrid"] as const;
+
 export default async function HomePage({ params }: PageProps<"/[locale]">) {
   const { locale: raw } = await params;
   if (!isLocale(raw)) notFound();
@@ -28,150 +35,142 @@ export default async function HomePage({ params }: PageProps<"/[locale]">) {
   const dict = await getDictionary(locale);
   const h = dict.home;
   const base = `/${locale}`;
+  const arrow = locale === "fa" ? "arrowLeft" : "arrowRight";
 
   return (
     <>
-      {/* Hero: copy on one side, the console and a phone on the other. */}
-      <section className="relative overflow-hidden">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px]"
-          style={{ background: "radial-gradient(60% 70% at 80% 10%, rgba(217,119,6,0.16), transparent 70%), radial-gradient(50% 60% at 10% 90%, rgba(15,118,110,0.12), transparent 70%)" }}
-        />
-        <div className="container-x grid items-center gap-10 py-12 md:py-16 lg:grid-cols-[1.05fr_1fr] lg:py-24">
-          <div className="flex flex-col gap-6">
-            <p className="eyebrow">{h.hero.eyebrow}</p>
-            <h1 className="text-4xl font-extrabold md:text-5xl lg:text-[3.5rem] lg:leading-[1.15]">{h.hero.title}</h1>
-            <p className="max-w-xl text-lg text-ink-2 md:text-xl">{h.hero.text}</p>
-            <div className="flex flex-wrap gap-3">
-              <Link href={`${base}/contact`} className="btn btn-primary">
+      <HeroStage label={dict.common.decorativeMockup} rtl={locale === "fa"} className="min-h-[calc(100svh-var(--header-h))]">
+        <div className="container-x flex min-h-[calc(100svh-var(--header-h))] flex-col justify-between py-12 md:py-16">
+          <div className="max-w-4xl pt-8 md:pt-16">
+            <p className="chip chip-amber" data-reveal>
+              <span className="dot dot-live" aria-hidden="true" />
+              {h.hero.eyebrow}
+            </p>
+            <h1 className="display mt-6 max-w-[16ch]" data-split>
+              {h.hero.title}
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg text-ink-2 md:text-xl" data-reveal>
+              {h.hero.text}
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3" data-reveal>
+              <Link href={`${base}/contact`} className="btn btn-primary" data-magnetic>
                 {h.hero.primary}
-                <Icon name={locale === "fa" ? "arrowLeft" : "arrowRight"} size={18} />
+                <Icon name={arrow} size={18} />
               </Link>
-              <Link href={`${base}/product`} className="btn btn-secondary">
+              <Link href={`${base}/product`} className="btn btn-ghost">
                 {h.hero.secondary}
               </Link>
             </div>
-            <ul className="flex flex-wrap gap-2 pt-2">
+          </div>
+          <div className="mt-16 flex flex-wrap items-end justify-between gap-4">
+            <ul className="flex flex-wrap gap-2" data-reveal-group>
               {h.hero.facts.map((f) => (
                 <li key={f}>
-                  <Chip>{f}</Chip>
+                  <Chip>{bidi(f, locale)}</Chip>
                 </li>
               ))}
             </ul>
+            <p className="mono flex items-center gap-2 text-xs text-ink-3" data-reveal>
+              <Icon name="scan" size={14} />
+              {h.hero.hint}
+            </p>
           </div>
-          <div className="relative mx-auto w-full max-w-[680px] sm:pe-24 lg:pe-28">
+        </div>
+      </HeroStage>
+
+      <Section className="!pt-4">
+        <LiveDemo demo={dict.demo} mock={dict.mock} locale={locale} brand={dict.brand} frame="stage" />
+      </Section>
+
+      <AgentStory dict={dict} locale={locale} />
+
+      <Section tone="raised">
+        <SectionHeading eyebrow={dict.story.surfaces.eyebrow} title={dict.story.surfaces.title} text={dict.story.surfaces.text} split />
+        <div className="mt-12 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
+          <div data-reveal>
             <AppWindow dict={dict} locale={locale} label={dict.common.decorativeMockup} />
-            <div className="pointer-events-none absolute -bottom-8 end-0 hidden origin-bottom scale-[0.8] sm:block lg:-end-2 lg:scale-90">
-              <PhoneFrame dict={dict} locale={locale} label={dict.common.decorativeMockup} />
+          </div>
+          <div className="flex flex-col gap-4">
+            <div className="flex justify-center" data-reveal="0.1">
+              <div data-parallax="-6">
+                <PhoneFrame dict={dict} locale={locale} label={dict.common.decorativeMockup} />
+              </div>
             </div>
           </div>
         </div>
-      </section>
-
-      {/* Four outputs */}
-      <Section tone="sand" className="pt-20 sm:pt-28">
-        <SectionHeading eyebrow={h.outputs.eyebrow} title={h.outputs.title} text={h.outputs.text} />
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {h.outputs.items.map((item) => (
-            <FeatureCard key={item.title} icon={item.icon} title={item.title} text={item.text} />
-          ))}
-        </div>
-      </Section>
-
-      {/* Pipeline strip */}
-      <Section>
-        <SectionHeading eyebrow={h.pipeline.eyebrow} title={h.pipeline.title} />
-        <ol className="mt-10 grid gap-4 md:grid-cols-4">
-          {h.pipeline.steps.map((step, i) => (
-            <li key={step.title} className="relative flex flex-col gap-2 rounded-2xl border border-border bg-surface p-5">
-              <span className="inline-grid size-9 place-items-center rounded-full bg-ink-teal text-sm font-bold text-cream">
-                {locale === "fa" ? ["۱", "۲", "۳", "۴"][i] : i + 1}
-              </span>
-              <h3 className="text-lg font-semibold">{step.title}</h3>
-              <p className="text-ink-2">{step.text}</p>
+        <ul className="mt-6 grid gap-px overflow-hidden rounded-2xl border border-border-2 bg-border-2 sm:grid-cols-2 lg:grid-cols-3" data-reveal-group>
+          {h.product.items.map((item, i) => (
+            <li key={item.title} className="flex gap-4 bg-surface p-5">
+              <span className="mono pt-1 text-xs text-amber-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
+              <div>
+                <h3 className="flex items-center gap-2 font-semibold">
+                  <Icon name={item.icon} size={16} className="text-teal" />
+                  {item.title}
+                </h3>
+                <p className="mt-1 text-sm text-ink-2">{bidi(item.text, locale)}</p>
+              </div>
             </li>
           ))}
-        </ol>
+        </ul>
         <div className="mt-6">
-          <Link href={`${base}/how-it-works`} className="inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline">
-            {h.pipeline.link}
-            <Icon name={locale === "fa" ? "arrowLeft" : "arrowRight"} size={16} />
-          </Link>
-        </div>
-      </Section>
-
-      {/* Product bento */}
-      <Section tone="sand">
-        <SectionHeading eyebrow={h.product.eyebrow} title={h.product.title} />
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {h.product.items.map((item) => (
-            <div key={item.title} className="card flex items-start gap-4 p-5">
-              <span className="inline-grid size-10 shrink-0 place-items-center rounded-xl bg-ink-teal text-cream">
-                <Icon name={item.icon} size={20} />
-              </span>
-              <div>
-                <h3 className="font-semibold">{item.title}</h3>
-                <p className="mt-1 text-sm text-ink-2">{item.text}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-6">
-          <Link href={`${base}/product`} className="btn btn-secondary">
+          <Link href={`${base}/product`} className="link-arrow">
             {h.product.link}
+            <Icon name={arrow} size={16} />
           </Link>
         </div>
       </Section>
 
-      {/* Deployment */}
-      <Section>
-        <div className="grid gap-10 lg:grid-cols-[1fr_1.4fr] lg:items-start">
-          <div>
-            <SectionHeading eyebrow={h.deployment.eyebrow} title={h.deployment.title} />
-            <Link href={`${base}/deployment`} className="btn btn-primary mt-6">
-              {h.deployment.link}
-            </Link>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            {h.deployment.items.map((item, i) => (
-              <div key={item.title} className={`rounded-2xl p-5 ${i === 1 ? "bg-ink-teal text-cream" : "card"}`}>
-                <span className={i === 1 ? "text-accent" : "text-primary"}>
-                  <Icon name={i === 0 ? "cloud" : i === 1 ? "server" : "layers"} size={26} />
-                </span>
-                <h3 className="mt-3 text-lg font-semibold">{item.title}</h3>
-                <p className={`mt-2 text-sm ${i === 1 ? "text-cream/85" : "text-ink-2"}`}>{item.text}</p>
+      <Section tone="glow">
+        <SectionHeading eyebrow={dict.story.flow.eyebrow} title={dict.story.flow.title} text={dict.story.flow.text} split />
+        <div className="mt-12 grid gap-4 lg:grid-cols-3" data-reveal-group>
+          {h.deployment.items.map((item, i) => (
+            <article key={item.title} className={`panel flex flex-col gap-5 p-5 ${i === 1 ? "panel-glow" : ""}`}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold">{item.title}</h3>
+                <Chip tone={i === 1 ? "amber" : "default"}>{flowModes[i]}</Chip>
               </div>
-            ))}
-          </div>
-        </div>
-      </Section>
-
-      {/* Trust */}
-      <Section tone="sand">
-        <SectionHeading eyebrow={h.trust.eyebrow} title={h.trust.title} />
-        <div className="mt-10 grid gap-4 sm:grid-cols-2">
-          {h.trust.items.map((item) => (
-            <div key={item.title} className="card flex items-start gap-4 p-5">
-              <span className="inline-grid size-11 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
-                <Icon name={item.icon} size={22} />
-              </span>
-              <div>
-                <h3 className="text-lg font-semibold">{item.title}</h3>
-                <p className="mt-1 text-ink-2">{item.text}</p>
+              <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
+                <FlowDiagram flow={dict.deployment.flow} mode={flowModes[i]} compact />
               </div>
-            </div>
+              <p className="text-sm text-ink-2">{bidi(item.text, locale)}</p>
+            </article>
           ))}
         </div>
         <div className="mt-6">
-          <Link href={`${base}/security`} className="inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline">
-            {h.trust.link}
-            <Icon name={locale === "fa" ? "arrowLeft" : "arrowRight"} size={16} />
+          <Link href={`${base}/deployment`} className="link-arrow">
+            {h.deployment.link}
+            <Icon name={arrow} size={16} />
           </Link>
         </div>
       </Section>
 
-      <CtaBand locale={locale} dict={dict} />
+      <Section>
+        <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr]">
+          <SectionHeading eyebrow={dict.story.trust.eyebrow} title={dict.story.trust.title} split />
+          <ol className="divide-y divide-border-2 border-y border-border-2" data-reveal-group>
+            {h.trust.items.map((item, i) => (
+              <li key={item.title} className="grid gap-2 py-5 sm:grid-cols-[auto_1fr] sm:gap-6">
+                <span className="mono text-xs text-amber-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
+                <div>
+                  <h3 className="flex items-center gap-2 text-lg font-semibold">
+                    <Icon name={item.icon} size={18} className="text-teal" />
+                    {item.title}
+                  </h3>
+                  <p className="mt-1.5 text-ink-2">{bidi(item.text, locale)}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+        <div className="mt-6 lg:ps-[calc(40%+2.5rem)]">
+          <Link href={`${base}/security`} className="link-arrow">
+            {h.trust.link}
+            <Icon name={arrow} size={16} />
+          </Link>
+        </div>
+      </Section>
+
+      <CommandCta locale={locale} dict={dict} />
     </>
   );
 }

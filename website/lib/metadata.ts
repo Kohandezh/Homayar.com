@@ -2,10 +2,6 @@ import type { Metadata } from "next";
 import type { Locale } from "./i18n";
 import { absoluteUrl, siteUrl } from "./site";
 
-/**
- * Builds the metadata for one page: title, description, canonical, hreflang alternates and Open Graph.
- * `path` is the page path without the locale prefix ("" for home).
- */
 export function pageMetadata({
   locale,
   path,

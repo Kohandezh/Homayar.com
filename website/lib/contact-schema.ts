@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-/** Shared between the API route and the client form so both validate the same shape. */
 export const contactSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(200),
@@ -13,3 +12,4 @@ export const contactSchema = z.object({
 });
 
 export type ContactInput = z.infer<typeof contactSchema>;
+export type ContactField = keyof ContactInput;
