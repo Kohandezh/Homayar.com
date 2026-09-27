@@ -21,17 +21,23 @@ updates, and product bug diagnosis. When a license ends, the software keeps work
 grace period and then moves to a **read and export mode**. There is no remote kill switch and no
 data is deleted.
 
-This is the most common pattern among the benchmarked vendors that sell both SaaS and
-self-hosted (GitLab, Mattermost, Elastic, Rocket.Chat, Cisco's Flex plan, Verint's term
-licenses). It also matches the direction already written in the repository blueprint
-(`docs/planning/homayar-commercial-blueprint.md:460`, `:698`).
+A subscription with support included is the most common pattern among the benchmarked vendors
+that sell both SaaS and self-hosted (GitLab, Mattermost, Elastic, Rocket.Chat, Cisco's Flex plan,
+Verint's term licenses). What happens at expiry differs: Mattermost, Elastic, and Rocket.Chat fall
+back to a free edition, while the read and export mode proposed here is closest to GitLab and
+Atlassian (read-only). The model also matches the direction already written in the repository
+blueprint (`docs/planning/homayar-commercial-blueprint.md:460`, `:698`).
 
 The Iranian market works differently. The national computer guild price list (NASR, 1405)
 describes a perpetual license plus a yearly support fee of 25% to 35% of the license price, and
-Iranian vendors (Sepidar, Mahak, Peyvandtel, Farsava) sell this way. So Homayar should also offer
-a **perpetual purchase form for buyers whose procurement requires it**, with a mandatory first
-year of support and new versions included only while support is renewed. The subscription stays
-the default and the form shown on the website.
+Iranian vendors (Sepidar, Mahak, Peyvandtel, Farsava) sell this way. So Homayar should keep
+a **perpetual purchase form ready for buyers whose procurement requires it**, with a mandatory
+first year of support and new versions included only while support is renewed. It is offered
+**on request only** (sales-led, not on the pricing page or in the FAQ) until buyer interviews show
+real demand, because a perpetual right cannot be taken back once granted (section 7.2).
+
+Until the v0.8 release gate, **only the paid pilot can be bought**. The other plans are shown as
+structure with "Contact us", and online checkout stays off for them (section 7.1).
 
 Today Homayar must not publish an uptime SLA (a service level agreement: a contract promise about
 availability, usually with money back when missed). The repository says the product is not
@@ -83,8 +89,9 @@ is included, what is paid, and who is responsible for what.
 - **No remote kill switch.** Expiry must not delete recordings or block export
   (`docs/planning/homayar-commercial-blueprint.md:460`, `:698`).
 - **Code already meters audio seconds.** The usage metric in the product is `audio_seconds`
-  (`Homayar/backend/services/tenancy_service.py:32`,
-  `Homayar/backend/database/saas_models.py:2248`). The usage ledger allows one billable
+  (`Homayar/backend/services/tenancy_service.py:32`; the customer entitlement metric defaults to
+  it in `Homayar/backend/services/entitlement_service.py:26`, `:103`, `:134` and
+  `Homayar/backend/schemas/meetings.py:195`). The usage ledger allows one billable
   settlement per meeting and metric
   (`docs/architecture/decisions/0010-usage-ledger-and-reconciliation.md:32-36`).
 - **Sanctions and procurement.** Selling US-linked software or cloud services for Iran needs an
@@ -197,9 +204,13 @@ Terms, FAQ, and plan text must all say "audio minutes" once the owner accepts th
   (`docs/planning/homayar-commercial-blueprint.md:700`).
 - The two do not measure the same thing (calls vs minutes), so they cannot be compared directly.
   **Inference:** at an average call of 3 to 5 minutes, 2,000 calls is 6,000 to 10,000 minutes.
-  At that size the blueprint's own cost model gives about $605 of monthly API cost for 10,000
-  minutes (`docs/planning/homayar-commercial-blueprint.md:746`). $499 would then be below cost.
-  The average call length is not in the repository, so this stays an inference.
+  The blueprint's variable API cost is $0.0105 per minute
+  (`docs/planning/homayar-commercial-blueprint.md:722`), so about $63 to $105 per month for that
+  customer. The $605 figure at `:746` includes a $500 fixed platform allocation (`:742`), and the
+  blueprint says these are "deployment/fleet scenarios, not a claim that every tenant incurs a
+  separate platform" (`:696`). So $499 is not shown to be below cost. The real problem is the
+  unit: per-call pricing makes the margin depend on call length, which the repository does not
+  record.
 
 #### 5.1.4 Monthly vs yearly
 
@@ -211,6 +222,10 @@ Terms, FAQ, and plan text must all say "audio minutes" once the owner accepts th
   (`docs/planning/homayar-commercial-blueprint.md:698`).
 - The owner wants both monthly and yearly SaaS. The blueprint prefers yearly. Section 7 resolves
   this: monthly is allowed for SaaS Standard only.
+- **Refunds disagree.** Terms: fees are "non-refundable except where required by law or expressly
+  stated in these Terms" (`content/legal/terms.md:20`). FAQ: annual contracts "include a 30-day
+  evaluation window" with "a prorated refund of the unused term" (`content/faq-about.json:55`).
+  The Terms do not state this window, so the two conflict. Owner and lawyer question (section 9).
 
 #### 5.1.5 Seats
 
@@ -233,6 +248,7 @@ Terms, FAQ, and plan text must all say "audio minutes" once the owner accepts th
 | "Priority incident response with 15-minute acknowledgment" | `content/products/modules-revenue.json:383` | Same as above. |
 | "Air-gapped deployment option" | `content/products/modules-revenue.json:292` | WP19 is not started (`docs/planning/work-packages/WP19/README.md:3`). |
 | Production deployment in 6 to 10 weeks, $18,500 | `content/products/modules-revenue.json:278`, `:284` | Blueprint range is $8,000 to $20,000 for deployment (`docs/planning/homayar-commercial-blueprint.md:689`). No delivered installation exists to measure. |
+| "annual third-party penetration testing"; reports "available under NDA through our trust page" | `content/faq-about.json:35` | No penetration test report or trust page is in the repository. Blueprint: state only actual tests and dates (`docs/planning/homayar-commercial-blueprint.md:626`). Unverified. |
 | "Payments are processed by Stripe" | `content/legal/terms.md:17` | Whether Stripe can serve this business is a sanctions and eligibility question (`docs/planning/homayar-commercial-blueprint.md:607`). Needs a lawyer. |
 
 #### 5.1.7 Paths that cannot be checked here
@@ -499,7 +515,10 @@ This is the most important local evidence. It changes part of the recommendation
 **NASR 1405 IT price list, volume 2, "Software development and support"** (NASR is
 سازمان نظام صنفی رایانه‌ای کشور, the national computer guild body; it is a guild, not a ministry.
 PDF published Ordibehesht 1405:
-https://tariffs.irannsr.org/images/docs_attaches/NSR_Tariffs_1405_IT-Vol-2_R1V0-FINAL.pdf)
+https://tariffs.irannsr.org/images/docs_attaches/NSR_Tariffs_1405_IT-Vol-2_R1V0-FINAL.pdf.
+File note: the URL says 1405, but the title page inside reads "NSR_Tariffs_1404_IT-Vol-2_R1V1"
+and "اردیبهشت 1404, نسخه 1.1". The digital signature is dated 2026-05-10, which is Ordibehesht
+1405.)
 
 - The tariff describes the perpetual model: «مدل لایسنس دائمی (Perpetual License) به صورت
   پرداخت یکجا برای خرید دائمی نرم‌افزار و نیز هزینه پشتیبانی سالانه است» ("a one-time payment to
@@ -515,8 +534,19 @@ https://tariffs.irannsr.org/images/docs_attaches/NSR_Tariffs_1405_IT-Vol-2_R1V0-
 - The document states a minimum software warranty of 6 months carried by the producer
   («حداقل مدت گارانتی نرم‌افزار ... 6 ماه»), citing a Plan and Budget Organization circular. The
   circular itself was not read. Unverified beyond the NASR text.
-- Support price also depends on on-site vs remote work, resident engineer, SLA level, off-hours
-  work, extra environments, and user count.
+- **The 25% to 35% band assumes remote access.** The table note says it applies «در صورت وجود
+  دسترسی ریموت به پنل ادمین نرم‌افزار و کارساز» ("when there is remote access to the software
+  admin panel and the server"), and for one install in one environment. Table 2-2 adds an access
+  coefficient when remote access is not given: 0.4 without remote access to the admin panel, 0.4
+  without remote access to the server, and 0.8 without either. The worked example in the
+  appendix applies it: a customer who gives no remote access adds 80% of the base support amount.
+  **Inference:** with no remote access, the NASR fee becomes 25% to 35% times 1.8, about 45% to
+  63% of the license price.
+- NASR also sets fix deadlines when remote access exists: critical errors within 48 hours,
+  non-critical errors within 20 working days. Office hours are "Saturday to Wednesday, 9 working
+  hours a day".
+- Support price also depends on resident engineer, SLA level, off-hours work, extra
+  environments, and user count.
 - The older 1403 edition says the same
   (https://www.citna.ir/sites/default/files/files/attachment/citna/NASR%20TARIFF%201403%20V1.pdf).
 - **Not verified:** whether this tariff is binding for any buyer. **Inference:** Iranian public
@@ -645,16 +675,16 @@ A license state must never block a legal deletion request.
 | Mattermost | Yes, in paid plans | Premier |
 | Elastic | Yes, level depends on tier | Higher subscription tier |
 | Rocket.Chat | Yes, Standard | Mission Critical |
-| Verint | Paid maintenance plan | Premium, Premium Plus |
+| Verint | Term and SaaS: Premium support comes with the license ("SaaS and Term are Premium support"). Perpetual: a paid maintenance plan | Premium Plus above Premium; Standard for some products |
 | NICE | Paid yearly support | Not verified |
 | Deepgram | Paid support contract | Not public |
 | Sentry | No support at all | None |
 | Iranian vendors (Sepidar, Mahak, Peyvandtel) | First year free, then a paid yearly contract | Rahkaran: four contract levels |
 
-Four of the eight foreign vendors (GitLab, Mattermost, Elastic, Rocket.Chat) include a base
-level in the license or subscription. The contact-center and speech vendors (Verint, NICE,
-Deepgram) sell support as a contract. Sentry gives none. The
-pattern "Standard included, faster tier paid" (Mattermost, Rocket.Chat, Verint) is S3. Iranian
+Five of the eight foreign vendors include a support level in the subscription or term license
+(GitLab, Mattermost, Elastic, Rocket.Chat, and Verint for term licenses). NICE and Deepgram sell
+support as a separate contract, and Verint does too for perpetual licenses. Sentry gives none.
+The pattern "Standard included, faster tier paid" (S3) is Mattermost and Rocket.Chat. Iranian
 vendors sell the license once and support yearly, so for them support is always a separate line
 after year one (S2 shape).
 
@@ -716,6 +746,9 @@ repository" (`docs/operations/backup-restore.md:9`).
 | Honest today | No | Yes | Yes | Yes |
 | Matches benchmarks | Partly | Yes | Yes | n/a |
 | Number of packages | 3 plus many add-ons | 6 | 4 | 1 |
+| Failure mode | Buyers see false claims; per-call margin swings with call length | No monthly entry; small teams cannot start | A monthly customer churns fast; allowance rules need WP18 | No revenue; buyers go elsewhere |
+| Cost to reverse | Low (text change) | Low | Low: prices and plan names can change at renewal | Low |
+| Migration between deployment types | Not addressed | Not addressed | Not built yet; see section 7.1 | n/a |
 
 | Criterion | L1 subscription | L2 perpetual plus maintenance | L3 usage band | L4 free | L5 defer |
 |---|---|---|---|---|---|
@@ -723,7 +756,10 @@ repository" (`docs/operations/backup-restore.md:9`).
 | Pays for ongoing AI model work | Yes | Only if maintenance renews | With L1 | No | n/a |
 | Works fully offline | Yes, signed file | Yes | Needs local counter | Yes | n/a |
 | Fits blueprint | Yes | Only with new versions tied to renewed support (`:698`) | Yes (`:460`) | No | Partly (`:1505`) |
-| Recommended | Yes, default | Yes, second purchase form for procurement | Yes, as sizing | No | No |
+| Failure mode | Customer stops renewing; read/export mode stops new work | Customer stops support, stays on old versions and models, still asks for help | Band too small or too large; disputes at renewal without audit rights | No revenue from self-hosted; support burden without payment | Private buyers lost |
+| Cost to reverse | Low: a subscription ends by itself; terms can change at renewal | **High:** a perpetual right cannot be taken back; old versions stay in the field for years | Medium: bands can change at renewal | High: a free edition cannot be withdrawn | Low |
+| Migration between deployment types | Needs a workspace export and import tool, not built | Same | Same | Same | n/a |
+| Recommended | Yes, default | Yes, but on request only until buyer evidence exists | Yes, as sizing | No | No |
 
 ## 7. Recommendation
 
@@ -746,6 +782,19 @@ repository" (`docs/operations/backup-restore.md:9`).
 - Do not sell nine modules. Sell the platform in these plans. Keep a small add-on list:
   extra minutes, extra retention, extra reviewer packs, Premium support, dedicated capacity,
   and services.
+- **Sales gate.** Until the v0.8 gate, only the paid pilot can be bought. The blueprint allows a
+  scoped paid pilot at v0.6 (`docs/planning/homayar-commercial-blueprint.md:1503`) and qualified
+  private or cloud contracts only at v0.8, "limited to supported profiles" (`:1505`). The other
+  plans are shown as structure with "Contact us" or "Available from v0.8". Online checkout stays
+  off for them.
+- **Moving between deployment types.** A customer may start on SaaS and move to self-hosted, or
+  the other way. The repository has no whole-workspace export and import tool; the existing
+  export is for one data subject only
+  (`docs/architecture/decisions/0025-subject-scope-export.md:7-8`). **Inference:** a move needs
+  such a tool (recordings, transcripts, reviews, scorecards, audit history), a re-install, and
+  model version matching, because scores can differ between model versions
+  (`docs/planning/homayar-commercial-blueprint.md:1510`). Until the tool exists, treat a move as
+  a paid, scoped service, and do not promise it on the website.
 
 **Monthly vs yearly (proposal, owner decides):** yearly prepaid SaaS Standard costs the same as
 10 months of the monthly price (about 17% off). Reason: benchmarks that offer both give a yearly
@@ -770,9 +819,12 @@ number of environments. Not by GPUs (`docs/planning/homayar-commercial-blueprint
   constant work. A perpetual customer who stops paying maintenance still depends on that work.
   Large foreign vendors (Cisco, Atlassian) moved away from perpetual.
 
-**Second purchase form: perpetual license plus yearly support (for Iranian procurement).** The
-Iranian norm is perpetual plus a yearly support fee (section 5.4). Offering only a subscription
-may block buyers whose procurement expects the NASR form. Rules (proposal):
+**Second purchase form: perpetual license plus yearly support (for Iranian procurement), on
+request only.** The Iranian norm is perpetual plus a yearly support fee (section 5.4). Offering
+only a subscription may block buyers whose procurement expects the NASR form. But demand for it is
+an inference, not evidence, and a perpetual right cannot be taken back once granted. So this form
+is sales-led: it is not on the pricing page or in the public FAQ until buyer interviews show that
+target buyers need it (section 7.8). Rules (proposal):
 
 - The perpetual license covers one major version and the same capacity band. It never expires.
   It keeps working without support. There is no read/export step, because nothing expires.
@@ -784,6 +836,13 @@ may block buyers whose procurement expects the NASR form. Rules (proposal):
   come only while support is paid.
 - If support lapses, updates, model updates, and support stop. Coming back needs a catch-up fee,
   as NASR describes and as Verint does ("Reactivation fee").
+- **The NASR band does not fit an offline install as is.** The 25% to 35% band assumes remote
+  access to the admin panel and the server (section 5.4). Homayar's design gives no standing
+  remote access (section 7.3; `docs/planning/homayar-commercial-blueprint.md:452`). Under the
+  NASR formula, no remote access adds 80% of the base, so about 45% to 63% of the license price.
+  **Proposal:** quote the support fee for an offline install either with the NASR access
+  coefficient, or at 25% to 35% plus paid on-site visits per case. The owner decides (section 9,
+  question 6).
 - **Inference:** priced over 3 to 4 years, the two forms should cost the buyer about the same.
   The owner and an accountant should set the exact ratio.
 
@@ -852,6 +911,7 @@ provides the tool or package and the customer runs it.
 | User management and access | C (admin); H for platform access with approval | C | C |
 | PBX integration | C gives access; H or P builds the connector (paid service) | Same | Same |
 | License and usage counters | H | H issues file; C keeps it current | H issues file |
+| Third-party components in the package (database, object storage, broker, model runtimes) | H | H selects, pins, and ships tested versions and passes on security fixes; C installs. Components with no upstream support (for example the archived MinIO community line, `docs/planning/homayar-commercial-blueprint.md:464`) must be replaced or named as unsupported | Same as self-hosted |
 
 This split follows the blueprint ("customer owns hardware/network/backup target; Homayar owns
 application package, migrations, model bundle and product diagnosis",
@@ -900,8 +960,9 @@ service, like Mattermost Managed Services. It is not recommended now.
 
 ### 7.8 What would change this recommendation
 
-- Evidence from real buyer conversations that most target buyers only buy perpetual. Then make
-  the perpetual form (section 7.2) the default for self-hosted and the subscription the option.
+- Evidence from real buyer conversations that target buyers need the perpetual form. Then show
+  it on the pricing page. If most buyers only buy perpetual, make it the default for self-hosted
+  and the subscription the option.
 - Evidence that buyers need support as a separate invoice line even on the subscription. Then
   show license and Standard support as two lines, while still selling them together.
 - Measured support cost much higher than planned. Then move from S3 to S2 (all support paid).
@@ -914,12 +975,16 @@ service, like Mattermost Managed Services. It is not recommended now.
 
 ### 8.1 Pricing page
 
+- **Sales gate:** until v0.8, only the paid pilot has a buy or request button. Other plans show
+  "Contact us" or "Available from v0.8". Checkout stays off for them (section 7.1).
 - **Top:** "Start with a paid pilot" call to action, then the plans.
 - **Toggle:** Monthly / Yearly. The toggle changes only SaaS Standard. Label: "Yearly: 2 months
   free" (if the owner accepts the proposal).
-- **Deployment switch:** "Cloud (SaaS)" / "Self-hosted". Self-hosted shows one card with two
-  purchase forms: "Yearly subscription (support included)" and "One-time license plus yearly
-  support". Both say "Contact us".
+- **Checkout constraint:** the current checkout rejects carts that mix monthly and yearly items
+  (`src/app/api/checkout/route.ts:79-92`). When checkout is turned on later, the toggle must put
+  every item in the cart on the same interval, or add-ons must be sold on both intervals.
+- **Deployment switch:** "Cloud (SaaS)" / "Self-hosted". Self-hosted shows one card: "Yearly
+  subscription (support included)", "Contact us". The perpetual form is not shown (section 7.2).
 - **Per plan card, list:**
   1. Who it is for.
   2. Audio minutes included (per month or per year), and the price of extra minutes.
@@ -930,10 +995,14 @@ service, like Mattermost Managed Services. It is not recommended now.
   7. Deployment (cloud, dedicated option, self-hosted).
   8. Price, or "Contact us" for Enterprise and self-hosted.
 - **Below the cards:** "What counts as an audio minute" (stereo is one minute; failed processing
-  is not charged; reanalysis rules). Add-ons list. Services list (installation, integration,
-  training).
-- **Remove:** "99.9% uptime SLA", "SOC 2 reports", "pen-test documentation", "unlimited", and
-  per-call units (section 5.1.6).
+  is not charged; reanalysis rules). These rules are a target policy until WP18 defines billable
+  completion (`docs/planning/homayar-commercial-blueprint.md:1346`); label them "planned" until
+  then. Add-ons list. Services list (installation, integration, training).
+- **Remove or change:** every claim in the section 5.1.6 table, including the uptime SLA, SOC 2
+  and pen-test claims, "unlimited", the support response times, the 15-minute acknowledgment,
+  the air-gapped option (until WP19 passes), the 6 to 10 weeks and $18,500 deployment claim, the
+  Stripe line, and the trust claims in `content/faq-about.json:35`. Also replace per-call units
+  with audio minutes.
 
 ### 8.2 Deployment page (responsibilities)
 
@@ -941,10 +1010,9 @@ service, like Mattermost Managed Services. It is not recommended now.
 - For each: where data lives, who runs it, who updates it.
 - The responsibility matrix in section 7.4, written as plain sentences.
 - Self-hosted requirements: supported hardware and OS list (link, when qualified), offline
-  operation, signed updates, customer runs backups.
-- "What happens when a license ends": for the subscription, warning, grace period, read and
-  export mode, no data deleted, no remote switch. For the one-time license, the software keeps
-  working; only updates and support stop.
+  operation and signed updates (label "planned" until WP19 passes), customer runs backups.
+- "What happens when a license ends": warning, grace period, read and export mode, no data
+  deleted, no remote switch. Label it "target policy" until WP19 builds it.
 - Status labels for anything not yet qualified (air-gapped install, hybrid management), as the
   blueprint requires (`docs/planning/homayar-commercial-blueprint.md:900`).
 
@@ -966,26 +1034,31 @@ service, like Mattermost Managed Services. It is not recommended now.
 
 ### 8.4 FAQ (plain-language answers)
 
+**Rule for the website unit:** an answer marked **[planned: WPnn]** describes behavior that is
+not built yet. WP18 (usage and billing) and WP19 (offline package, licensing, upgrades) are
+`not_started` (`docs/handoff/session-reset/PROJECT_STATE.md:100-101`). Such an answer goes live
+only with a visible "planned" label, or after the named work package passes its acceptance
+checks. The label text can be "This is our planned policy. It is not available yet."
+
 1. **Do I have to pay for support if I self-host?** No separate payment for Standard support. It
    is part of the yearly license. Premium support costs extra.
 2. **Who maintains a self-hosted install?** You run the servers, the operating system, the
-   network, and backups. Homayar builds and signs the software, the updates, and the AI models,
-   and fixes Homayar bugs.
-3. **What happens if we do not renew?** You get a warning first. After a short grace period the
+   network, and backups. Homayar builds the software, the updates, and the AI models, and fixes
+   Homayar bugs. **[planned: WP19]** for signed update and model bundles.
+3. **[planned: WP19] What happens if we do not renew?** You get a warning first. After a short grace period the
    system moves to read and export mode. You can still log in, read, export, and delete your data.
    New analysis stops. Nothing is deleted. Homayar cannot switch your system off remotely.
-4. **Can we buy a one-time (perpetual) license?** Yes, for self-hosted. You pay once for the
-   license, the first year of support is included, and from the second year you pay a yearly
-   support fee to keep getting updates and help. If you stop support, the software keeps
-   working, but updates stop.
+4. **Can we buy a one-time (perpetual) license?** Our standard offer is a yearly subscription.
+   If your procurement rules need a different purchase form, contact us. (Sales-led answer; see
+   section 7.2.)
 5. **Is installation included?** No. Installation is a separate fixed-price service, agreed
    before work starts.
-6. **Does self-hosted need the internet?** No. It runs offline. Updates come as signed files you
+6. **[planned: WP19] Does self-hosted need the internet?** No. It runs offline. Updates come as signed files you
    copy in.
-7. **How do updates work?** Homayar publishes signed update bundles. You choose when to install.
+7. **[planned: WP19] How do updates work?** Homayar publishes signed update bundles. You choose when to install.
    We review your upgrade plan if you ask.
-8. **What is an audio minute?** One minute of recorded conversation. A stereo call counts once.
-   Failed processing is not charged.
+8. **[planned: WP18] What is an audio minute?** One minute of recorded conversation. A stereo
+   call counts once. Failed processing is not charged.
 9. **Monthly or yearly?** Cloud Standard can be monthly or yearly. Yearly is cheaper. Enterprise
    and self-hosted are yearly.
 10. **Do agents need seats?** No. Only reviewers and admins count.
@@ -995,6 +1068,11 @@ service, like Mattermost Managed Services. It is not recommended now.
     deleted (`content/legal/terms.md:48`).
 14. **Do you use our calls to train AI?** Not without your written opt-in
     (`content/legal/terms.md:48`).
+15. **Can we move from cloud to self-hosted, or back?** Yes, as a paid, scoped project. Your data
+    is exported from one and imported into the other. We agree the scope and price before we
+    start. **[planned]** A move tool does not exist yet (section 7.1).
+16. **Can we get a refund?** Answer pending: the Terms and the current FAQ disagree (section
+    5.1.4). The owner and a lawyer must decide first.
 
 ## 9. Open questions
 
@@ -1005,12 +1083,18 @@ service, like Mattermost Managed Services. It is not recommended now.
 3. Yearly discount size (proposal: 2 months free)?
 4. Support working days and hours in Tehran time? Who staffs support now?
 5. Grace period length after license expiry (proposal: 30 days)?
-6. Offer the perpetual purchase form (section 7.2)? If yes, which NASR support level (25% or
-   35%)? Should its first-year support run to the end of the fiscal year, as Sepidar does?
+6. Offer the perpetual purchase form (section 7.2), on request only? If yes, which NASR support
+   level (25% or 35%)? For an offline install with no remote access, use the NASR access
+   coefficient (up to plus 80%, about 45% to 63% of the license price) or the base band plus paid
+   on-site visits? Should its first-year support run to the end of the fiscal year, as Sepidar
+   does?
 7. Is SaaS Enterprise onboarding included or paid?
 8. Currency: rial, dollar, or both? The repository has a display rate only, "not an invoice
    promise" (`docs/market/pricing-benchmark.md:39-41`).
 9. Does Homayar want resale partners for installation and on-site support?
+10. Refunds: keep the FAQ's 30-day evaluation window and prorated refund on annual contracts
+    (`content/faq-about.json:55`), or the Terms' "non-refundable" rule (`content/legal/terms.md:20`)?
+    What applies to monthly plans?
 
 ### For a lawyer
 
@@ -1024,6 +1108,15 @@ service, like Mattermost Managed Services. It is not recommended now.
 4. Recording consent, employee monitoring, and data retention duties for customers who self-host.
 5. Model weight licenses: can Homayar redistribute the chosen models to self-hosted customers
    (`docs/planning/homayar-commercial-blueprint.md:452`)?
+6. A self-hosted license agreement (EULA). The current Terms are written for the hosted service
+   (`content/legal/terms.md:9`, `:17`) and do not cover installed software.
+7. Audit rights for usage bands. Section 7.2 relies on a voluntary usage report. Can the contract
+   require a yearly usage report or an audit, and how does that work offline?
+8. Source-code escrow for enterprise and government buyers: needed, and on what release terms?
+9. Refund terms: resolve the conflict between `content/legal/terms.md:20` and
+   `content/faq-about.json:55`.
+10. Who is liable for third-party components shipped in the package (open-source database,
+    storage, broker, model runtimes), including components with no upstream support.
 
 ### For an accountant
 
