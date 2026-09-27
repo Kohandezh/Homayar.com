@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { Dictionary } from "@/i18n/en";
 import type { Locale } from "@/lib/i18n";
 import { appUrl } from "@/lib/site";
@@ -37,9 +36,6 @@ export function Header({ locale, dict }: { locale: Locale; dict: Dictionary }) {
           <a href={appUrl} className="btn btn-primary hidden text-sm sm:inline-flex" data-testid="start-link">
             {dict.common.start}
           </a>
-          <Link href={`/${locale}/contact`} className="btn btn-primary text-sm sm:hidden">
-            {dict.common.requestDemo}
-          </Link>
           <MobileMenu
             locale={locale}
             items={items}

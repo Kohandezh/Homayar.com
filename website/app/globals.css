@@ -161,7 +161,8 @@
     text-decoration: none;
     border: 1px solid transparent;
     transition: background-color var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast);
-    white-space: nowrap;
+    text-align: center;
+    text-wrap: balance;
   }
   .btn:active { transform: scale(0.98); }
   .btn-primary { background: var(--color-primary); color: #ffffff; }

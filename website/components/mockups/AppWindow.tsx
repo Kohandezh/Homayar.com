@@ -21,8 +21,8 @@ export function AppWindow({ dict, locale, label }: { dict: Dictionary; locale: L
           app.homayar.local/overview
         </span>
       </div>
-      <div className="grid grid-cols-[92px_1fr]" aria-hidden="true">
-        <aside className="flex flex-col gap-1 bg-ink-teal p-2 text-cream">
+      <div className="grid grid-cols-1 sm:grid-cols-[92px_1fr]" aria-hidden="true">
+        <aside className="hidden flex-col gap-1 bg-ink-teal p-2 text-cream sm:flex">
           <div className="mb-2 flex items-center gap-1.5 px-1.5 py-1">
             <span className="inline-grid size-5 place-items-center rounded bg-[#42c7b1] text-ink-teal">
               <Icon name="activity" size={12} strokeWidth={2.5} />
@@ -49,7 +49,7 @@ export function AppWindow({ dict, locale, label }: { dict: Dictionary; locale: L
             <TrendChart mock={m} />
             <SentimentBars mock={m} />
           </div>
-          <div className="grid grid-cols-[1.1fr_1fr] gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1.1fr_1fr]">
             <div className="rounded-lg border border-border bg-surface p-2.5">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[11px] font-semibold">{m.report}</span>

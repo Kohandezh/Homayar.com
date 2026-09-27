@@ -11,7 +11,7 @@ export function Logo({ locale, brand, tagline }: { locale: string; brand: string
       </span>
       <span className="flex flex-col leading-tight">
         <span className="text-lg font-bold tracking-tight">{brand}</span>
-        {tagline ? <span className="text-[11px] font-medium text-ink-2">{tagline}</span> : null}
+        {tagline ? <span className="hidden text-[11px] font-medium text-ink-2 sm:block">{tagline}</span> : null}
       </span>
     </Link>
   );
