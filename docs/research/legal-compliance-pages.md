@@ -16,7 +16,7 @@ Homayar needs a small, honest legal set that is written for Iran first and is re
 
 Two findings change the product, not only the pages:
 
-1. **Agent emotion features are prohibited in the EU today.** Since 2 February 2025, the EU AI Act prohibits placing on the market or using AI "to infer emotions of a natural person in the areas of workplace" (Art 5(1)(f)) [S20]. The Commission's official guidelines give a call-centre example. Tracking employees' emotions "such as anger" is prohibited. Tracking customers' emotions is not [S21 para 254]. The old catalog sells "agent stress trend dashboards" and "early burnout signals" (`src/data/products.json:232`, `src/data/products.json:243`). The guidelines name burnout detection at work as prohibited [S21 para 257]. The new site must not offer or describe these agent features.
+1. **Agent emotion features are prohibited in the EU today.** Since 2 February 2025, the EU AI Act prohibits placing on the market or using AI "to infer emotions of a natural person in the areas of workplace" (Art 5(1)(f)) [S20]. The Commission's official guidelines give a call-centre example. Tracking employees' emotions "such as anger" is prohibited. Tracking customers' emotions is not [S21 para 254]. The old catalog sells "agent stress trend dashboards" and "early burnout signals" (`src/data/products.json:232`, `src/data/products.json:243`). The guidelines name burnout detection at work as prohibited [S21 para 257]. The new site must not offer or describe these agent features. The core QC scores ("empathy", "tone") are a different case. Today they are computed from the transcript text, which is outside the ban. They stay outside it only if they use text, not voice, and rate observable behavior, not how the agent feels (Section 4.3).
 2. **The old legal text describes a different company.** It names Stripe, USD prices, automatic renewal, website analytics, and security claims nobody has verified (`content/legal/terms.md:17-23`, `content/legal/privacy.md:7`, `content/legal/privacy.md:56-60`). The new site uses an Iranian gateway, has no analytics, and has no verified certification (`docs/planning/homayar-commercial-blueprint.md:605`). The old pages must be rewritten, not translated.
 
 The roles are simple in principle. For call recordings in SaaS, the customer is the controller and Homayar is the processor. In self-hosted mode, Homayar is neither, unless it gets remote support access. For website forms and accounts, Homayar is the controller. The customer, not Homayar, must tell callers and agents that calls are recorded and analyzed. Homayar's terms must require this.
@@ -43,11 +43,20 @@ From this repository at `1b34472`:
 
 - The operating company's legal name in the site config is "Kohan System Farda" (`src/lib/site.ts:3`). The old terms call it "KSF Company" (`content/legal/terms.md:5`). The contact email is `info@ksf.ir` (`src/lib/site.ts:12`).
 - The old site has six locales: fa, en, de, ar, fr, es (`src/lib/content.ts:6`). The new site has two.
-- The old footer links only to FAQ, Privacy Policy, and Terms of Service (`src/lib/site.ts:47-52`).
-- The website collects personal data through three forms. Demo: name and email (`src/app/api/demo/route.ts:8-9`). Contact: first name, last name, mobile, email, message (`src/app/api/contact/route.ts:8-12`). Booking: name, email, time slot (`src/app/api/book/route.ts:17-18`). They are stored in a database (`src/app/api/demo/route.ts:33`, `src/app/api/contact/route.ts:48`, `src/app/api/book/route.ts:66`).
+- The old footer has Product, Company, and Resources groups (`src/lib/site.ts:26-53`). Its only legal links are Privacy Policy and Terms of Service, in the Resources group (`src/lib/site.ts:47-52`).
+- The website collects personal data through three forms:
+  - Demo: name, email, company, team size, message (`src/app/api/demo/route.ts:8-12`).
+  - Contact: first name, last name, mobile, email, message (`src/app/api/contact/route.ts:8-12`).
+  - Booking: time slot, name, email, company, message, time zone (`src/app/api/book/route.ts:16-21`).
+- Form data is stored in a database (`src/app/api/demo/route.ts:33`, `src/app/api/contact/route.ts:48`, `src/app/api/book/route.ts:66`). The database is Neon PostgreSQL (`src/lib/db.ts:1`, `README.md:13`).
+- When no database is configured, the forms write personal data to the server log instead: email (`src/app/api/demo/route.ts:56`), name and mobile (`src/app/api/contact/route.ts:62`), email and slot (`src/app/api/book/route.ts:98`).
+- The API routes read the client IP address from request headers for rate limiting (`src/lib/rate-limit.ts:28-35`). The IP is kept only in the memory of one server instance and removed when its time window ends (`src/lib/rate-limit.ts:6-7`, `src/lib/rate-limit.ts:17-24`).
+- The documented host is Vercel (`README.md:79-85`).
 - Booking confirmations are sent through Resend, a US email API (`src/lib/email.ts:30`).
+- Neon, Vercel, and Resend are the old site's providers. We do not know the new site's stack. The website team must confirm or replace each one, and the privacy policy and subprocessor list must name whatever is really used.
+- The repository shows no recording of Homayar's own sales or demo calls. Booked consultations happen "Online (link to follow by email)" (`src/app/api/book/route.ts:108`). If Homayar records its own calls, it is the controller of those recordings and must tell the participants (Section 4.5).
 - The browser stores two things in `localStorage`: the chosen language (`src/lib/locale.tsx:20`, `src/lib/locale.tsx:59`) and a shopping cart (`src/lib/cart.tsx:14`, `src/lib/cart.tsx:55`).
-- A search of `src/` for analytics scripts, tag managers, and `document.cookie` found none. Fonts come from `next/font/google` (`src/app/layout.tsx:2`). The Next.js docs say these fonts are "downloaded at build time and self-hosted" and "No requests are sent to Google by the browser" [S13]. Inference: the website sets no tracking cookies today. The website team must confirm this on the live site with the browser network panel.
+- A search of `src/` for analytics scripts, tag managers, and `document.cookie` found none. Fonts come from `next/font/google` (`src/app/layout.tsx:2`). The Next.js docs say these fonts are "downloaded at build time and self-hosted" and "No requests are sent to Google by the browser" [S13]. Inference: the website sets no tracking cookies today. The website team must confirm this on the live site with the browser network panel. Note: the nextjs.org page describes the current Next.js release. The repository pins Next.js `16.2.9` (`package.json:22`). `AGENTS.md` says to read the docs in `node_modules/next/dist/docs/`, but `node_modules` is not installed in this worktree, so we could not check the pinned version's docs. The live network check covers this gap.
 - The self-hosted package has "No model download, telemetry, font CDN, analytics beacon, package install, license heartbeat" at runtime (`docs/planning/homayar-commercial-blueprint.md:452`). Support bundles exclude "raw audio/transcripts, secrets and customer identities" unless the customer approves a separate export (`docs/planning/homayar-commercial-blueprint.md:458`). License expiry "must not delete recordings" and there is "No concealed remote kill switch" (`docs/planning/homayar-commercial-blueprint.md:460`). These are plans, not shipped features.
 - Proposed SaaS retention defaults are "original audio 30 days, transcript/findings 90 days, minimal operational/audit metadata 365 days". The blueprint calls them product defaults, "not statutory retention requirements" (`docs/planning/homayar-commercial-blueprint.md:562`). The old privacy policy says a different default: 12 months (`content/legal/privacy.md:43`).
 - "No Homayar certification was verified" (`docs/planning/homayar-commercial-blueprint.md:605`).
@@ -59,6 +68,10 @@ From this repository at `1b34472`:
 - **Option B. Iran minimum only.** Publish only what an Iranian online seller needs: company information, terms, privacy policy, refund policy. Defer everything about the EU and AI.
 - **Option C. Iran-first, EU-ready set, split by deployment (recommended).** Publish 12 pages at launch: the Iranian minimum, plus a DPA, subprocessor list, cookie statement, acceptable use policy, AI transparency page, data retention page, security page, and vulnerability disclosure. Write each page in fa and en. Say clearly what differs between SaaS and self-hosted. Remove agent emotion features from the product description. Defer the SLA, transparency report, and accessibility statement until there is something true to publish.
 - **Option D. Full enterprise trust center now.** Copy the largest vendors (Gong, Atlassian): certifications, SLA with credits, bug bounty, transparency report, trust portal.
+- **Option E. A legal-page generator or template service.** Fill in a form on a policy generator and embed or paste its pages.
+- **Option F. A full set drafted by a lawyer from the start.** Skip the research outline and have a law firm write every page.
+
+Option C is itself phased: 12 pages at launch, 4 later. A "phased" variant of Option B (Iran minimum now, EU pages later) is the same as the owner answering "Iran only" to open question 1 in Section 9.
 
 ## 4. Evidence
 
@@ -93,10 +106,12 @@ Roles per deployment (Inference, from [S2] paras 39, 81, 82 and the IT-support e
 | Data | SaaS | Self-hosted |
 |---|---|---|
 | Call recordings, transcripts, scores, coaching | Customer = controller. Homayar = processor. | Customer = controller. Homayar = neither, because it never sees the data. If Homayar staff get remote support access, Homayar becomes a processor for that access. |
-| Training or improving Homayar's own models with customer calls | Homayar would become a controller for that use [S2 para 81]. Avoid by default. | Not applicable, unless the customer sends data. |
+| Training, improving, or evaluating Homayar's own models with customer calls (including an evaluation or benchmark corpus, `docs/planning/homayar-commercial-blueprint.md:526`) | Homayar would become a controller for that use [S2 para 81]. Avoid by default. If wanted, use a separate written opt-in per customer (Section 8.8 item 7). | Not applicable, unless the customer sends data. |
 | Account data, login, audit logs | Homayar = controller (and processor for audit logs kept for the customer). | Customer = controller. |
 | License, billing, and support contacts | Homayar = controller. | Homayar = controller. |
 | Website forms, bookings | Homayar = controller. Resend = Homayar's processor. | Same. |
+
+**Hybrid mode is out of scope for this document until it ships.** The blueprint plans a mode with "local ASR and redaction followed by cloud reasoning", opt-in per tenant (`docs/planning/homayar-commercial-blueprint.md:470`). It also plans an optional management plane that receives "health/version/license counters only" (`docs/planning/homayar-commercial-blueprint.md:468`). Inference: in the cloud-reasoning mode, Homayar and the cloud AI providers would be processors for the redacted text they receive, so the DPA and the subprocessor list would apply to that part. The blueprint itself says "Redaction cannot guarantee anonymization" (`docs/planning/homayar-commercial-blueprint.md:470`). When hybrid ships, add a column to the role table and the subprocessor list.
 
 Iranian law does not use the words "controller" and "processor" in any law we could read. The E-Commerce Law ties processing to the consent of the person the data is about (Art 59) [S30]. The draft personal data protection bill has not become law, as far as we could verify (Section 4.4.5).
 
@@ -205,7 +220,7 @@ The Commission guidelines on prohibited practices (C(2025) 5052 final, 29 July 2
 | Art 5 prohibitions, incl. 5(1)(f) | 2 February 2025 | [S20] Art 113(a) |
 | Penalties chapter | 2 August 2025 | [S20] Art 113(b) |
 | Art 50 transparency, incl. 50(3) | 2 August 2026 | [S20] Art 113; [S28] para 153 |
-| High-risk duties for Annex III systems (Chapter III Sections 1 to 3, incl. Art 26(7)) | 2 December 2027 | [S24] new Art 113(c)(i) |
+| High-risk duties for Annex III systems ("Chapter III, Sections 1, 2, and 3, with the exception of Article 6(5)", incl. Art 26(7)) | 2 December 2027 | [S24] new Art 113(c)(i) |
 | High-risk duties for Annex I systems | 2 August 2028 | [S24] new Art 113(c)(ii) |
 
 The Council and Parliament press releases on the Omnibus returned HTTP 403 or empty pages. We relied on the Official Journal text [S24] and the Council adoption note [S27].
@@ -216,17 +231,33 @@ The Council and Parliament press releases on the Omnibus returned HTTP 403 or em
 
 | Feature (old catalog wording) | AI Act status for EU use | Action |
 |---|---|---|
-| "track customer and agent emotional state" from "pitch, pace, energy, silence" (`src/data/products.json:225`) | Agent side: prohibited (Art 5(1)(f)). Customer side: allowed but high-risk (Annex III 1(c)). | Remove the agent side. Keep the customer side only with notices. |
+| "track customer and agent emotional state" from "pitch, pace, energy, silence" (`src/data/products.json:225`) | Agent side: prohibited (Art 5(1)(f)). Customer side: allowed but high-risk (Annex III 1(c)). | Remove the agent side. In the EU, keep the customer side only with notices. In Iran, notice may not be enough (see "Iranian law on emotion data" below). |
 | "Agent stress trend dashboards" (`src/data/products.json:243`) | Prohibited [S21 para 257]. | Remove. |
 | "Early burnout signals surfaced weeks before attrition events" (`src/data/products.json:232`) | Prohibited [S21 para 257]. | Remove. |
 | "Fused acoustic + transcript sentiment scoring" (`src/data/products.json:240`) | Uses voice, so it is biometric-based. Same split as the first row. | Customer side only. |
 | Transcript (text) sentiment of the customer | Outside the definition of emotion recognition [S21 para 251]. | Allowed. Call it "text sentiment", not "emotion recognition". |
 | Agent QA scores sent to supervisors | Likely high-risk, Annex III 4(b), from 2 December 2027. Art 6(3) exception blocked by profiling. | Plan the high-risk provider duties. Keep human review. |
 | Transcription, issue detection, summaries | Not listed in Annex III (Inference). | Transparency page only. |
+| Core QC scores of agents: "empathy" and "tone" (`Homayar/README.md:15`, `Homayar/backend/database/models.py:107`, `Homayar/backend/database/models.py:112`) | Today the scores come from an LLM prompt that says "Analyze the call transcript" (`Homayar/backend/prompts/qc_en.txt:1`, `:4`, `:9`). So the input is text. Text-based inference is outside the Art 5(1)(f) ban [S21 para 251]. Still likely high-risk as performance evaluation, Annex III 4(b), from 2 December 2027. | Allowed, if both conditions below hold. Treat as high-risk. |
+| Team Pulse: "Spot agents needing support 2–3 days earlier via sentiment and score trends", "an agent absorbing a streak of difficult calls" (`src/data/products.json:822`, `src/data/products.json:817`, `src/data/products.json:831`) | Depends on whose sentiment and which input. Customer sentiment from text, rolled up per agent: outside the ban (it measures callers, not the agent). The agent's own emotional state or wellbeing, inferred from voice: prohibited, like the "hybrid work teams" example [S21 para 254] and burnout detection [S21 para 257]. The agent's state inferred from text: outside Art 5(1)(f), but still profiling (GDPR Art 4(4)) and possibly health data (GDPR Art 9). Per-agent views are likely Annex III 4(b). | Allowed only as "call difficulty" and "score trend" from customer-side text sentiment and QC scores. Do not describe it as detecting agent stress, mood, or wellbeing. |
+
+All rows in this table are inference from [S20], [S21], and [S29].
+
+**Two conditions keep the core agent scores outside the Art 5(1)(f) ban (Inference):**
+
+1. **Input is text only.** The score is computed from the transcript, not from voice features such as pitch, energy, or speaking rate. The guidelines count voice as biometric [S21 para 251] and give "inferring emotions from voice" in work teams as a prohibited example [S21 para 254]. If a future version adds acoustic features to "tone" or "empathy" scoring (the old catalog proposes "QA scorecards can weight empathy criteria with acoustic evidence", `src/data/products.json:226`), the agent side of that feature becomes prohibited in the EU.
+2. **The output rates observable behavior, not an inferred inner state.** "Empathy" should mean things like "acknowledged the customer's problem" or "offered a next step", checked against rubric evidence in the transcript. It should not mean "the agent felt empathetic" or "the agent was stressed". Recital 18 excludes "mere detection of readily apparent expressions ... unless they are used for identifying or inferring emotions" [S20].
+
+These conditions also belong in the AI transparency page (Section 8.11) and the acceptable use policy (Section 8.7). Whether condition 2 is enough is an EU lawyer question (Section 9). The QC report also has a call-level `sentiment` field that does not say whose sentiment it is (`Homayar/backend/database/models.py:117`). The product should label it as customer sentiment, or split it by speaker, before the website describes it.
 
 The same emotion wording also appears in `content/products/modules-analysis.json:49-90`, `content/i18n/products.fa.json:110`, and `src/data/categories.json:11`.
 
-**Iranian law on emotion data.** E-Commerce Law Art 58 makes it illegal to store or process data about "the physical, psychological, or sexual condition of people, without their explicit consent" [S30, English translation; the Persian text is unverified]. Inference: emotion or stress scores of agents may be "psychological condition" data under Art 58. They would then need explicit consent in Iran too. **[LAWYER]**
+**Iranian law on emotion data.** E-Commerce Law Art 58 makes it illegal to store or process data about "the physical, psychological, or sexual condition of people, without their explicit consent" [S30, English translation; the Persian text is unverified]. Breaking Art 58 carries one to three years in prison (Art 71) [S30].
+
+Inference: this applies to callers as well as agents. Emotion scores of callers (voice-based) and possibly sentiment scores of callers (text-based) may be "psychological condition" data. So may emotion or stress scores of agents. If they are, Art 58 needs **explicit consent** from each person. A notice at the start of the call would then not be enough. Iran is the main market, so this matters more than the EU rules for most customers. Until an Iranian lawyer answers, the safe default for Iranian customers is:
+
+- no emotion inference from voice, for callers or agents;
+- sentiment described as a property of the conversation text ("the call turned negative"), not as a finding about a person's mental state. **[LAWYER]**
 
 **How peers handle this.** Atlassian's acceptable use policy forbids using its AI "to infer the emotions of an individual in workplace and educational settings" [S63a]. We found no emotion statement at Gong, Observe.AI, CallMiner, Level AI, or Cresta [S50-S62]. CallMiner's blog quotes an outside source that welcomes the ban, but this is a quotation, not CallMiner policy [S60c].
 
@@ -308,6 +339,8 @@ Inference: Homayar needs e-Namad before it can take online payments through Ziba
 Inference, from 4.1 to 4.4:
 
 - **The customer (the call center) must inform callers and agents.** In SaaS, it is the controller [S2]. In self-hosted, it runs everything. In the EU, it has the Art 13 and 14 duties [S1], the Art 50(3) duty for customer emotion recognition [S20], and (from 2 December 2027) the Art 26(7) duty to inform workers [S20, S24]. In Iran, the safe basis is notice at the start of the call plus consent where needed (Constitution Art 25, Computer Crimes Law Art 2, E-Commerce Law Art 58 and 59) [S30, S32, S33].
+- **In Iran, notice may not be enough for emotion or sentiment scores.** E-Commerce Law Art 58 needs explicit consent for "psychological condition" data (Section 4.3, "Iranian law on emotion data"). If an Iranian lawyer says caller or agent sentiment or emotion scores fall under Art 58, the customer needs explicit consent from each caller and agent, not only a call-start notice. Until then, Homayar should not offer voice-based emotion scores to Iranian customers, and the notice templates must say they cover notice only. **[LAWYER]**
+- **Homayar's own calls.** The repository shows no recording of Homayar's own sales or demo calls (Section 2). If Homayar starts recording them, Homayar is the controller of those recordings. It must then tell participants at the start of the call and list the recordings in its own privacy policy.
 - **Homayar must require this in its terms**, and must not promise that recording is lawful. The best peer clause we found is Gong's DPA: "Customer shall configure and utilize the consent management features of the Services, including dual-party consent functionality, to ensure lawful recording ... Customer will provide all necessary notices to relevant Data Subjects" [S52]. Level AI's DPA requires the customer to meet "any applicable requirement to provide notice to Data Subjects of or obtain consents" [S61b].
 - The old terms already say "You are solely responsible for the lawful collection of call recordings" and require notices "for both your personnel and your end customers" (`content/legal/terms.md:46`). Keep this idea. It needs an Iranian lawyer's rewrite.
 
@@ -321,7 +354,7 @@ What Homayar's terms (SaaS) and license (self-hosted) must require from customer
 6. Handle data subject requests as controller. Homayar helps as processor.
 7. Indemnify Homayar for breach of these duties (**[LAWYER]** for enforceability in Iran).
 
-Homayar should publish template notice texts in fa and en (a call-start message and an agent notice) to help customers comply. This is a recommendation, not a legal duty.
+Homayar should publish template notice texts in fa and en (a call-start message and an agent notice) to help customers comply. This is a recommendation, not a legal duty. The templates give notice only. They do not collect the explicit consent that E-Commerce Law Art 58 may require in Iran. Each template must say this.
 
 ### 4.6 Cookies and browser storage on the website
 
@@ -405,55 +438,81 @@ Mistakes to avoid, seen on peer pages: "ISO 271001:2022" (CallMiner [S60b]); "IS
 
 - **Option A (do nothing).** It keeps false statements: Stripe, USD, analytics, unverified security claims (Section 4.8). This is a risk under Consumer Protection Law Art 7 [S31]. It sells a prohibited EU feature [S20, S21]. It lacks the refund and company information that the E-Commerce Law asks for (Art 33, 34) [S30], and very likely e-Namad [S39, S41]. Rejected.
 - **Option B (Iran minimum).** It meets the core Iranian needs (Art 33, 34, 37 [S30]; e-Namad [S39]). It leaves the agent emotion feature and AI claims unaddressed. It cannot support even one EU customer (no Art 28 DPA [S1]). It does not match what B2B buyers expect: 6 of 7 peers publish a DPA or subprocessor list (Section 4.7). Acceptable only if the owner decides never to sell outside Iran.
-- **Option C (Iran-first, EU-ready).** It meets the Iranian needs. It covers GDPR processor duties (Art 28), the AI Act prohibition and transparency, and the cookie rules. It matches the peer pattern at the level of the mid-size vendors. It publishes only true statements. The extra cost is about 8 more pages, mostly templates that a lawyer must review.
+- **Option C (Iran-first, EU-ready).** It meets the Iranian needs. It covers GDPR processor duties (Art 28), the AI Act prohibition and transparency, and the cookie rules. It matches the peer pattern at the level of the mid-size vendors. It publishes only true statements. The extra cost is about 8 more pages, mostly templates that a lawyer must review. It also adds recurring upkeep, and some commitments are hard to take back (Section 5).
 - **Option D (full trust center).** Most items would be empty or untrue today. There is no certification (`docs/planning/homayar-commercial-blueprint.md:605`), no measured uptime, and no government request history. Publishing them risks Consumer Protection Law Art 7 [S31]. Only the two largest general SaaS companies publish transparency reports (Section 4.7). Defer.
+- **Option E (generator or template service).** Cheap and fast. We did not evaluate any specific generator, so the following is inference. Generators are usually written for US or EU law. None that we know of covers the Iranian E-Commerce Law, e-Namad, or the AI Act emotion ban for call centers. Many deliver pages through an embedded script or a hosted consent tool. That would add a third-party script and break the no-banner conclusion in Section 4.6. The output still needs a lawyer to check it against Iranian law. Useful at most as a drafting aid for the English text of Option C.
+- **Option F (fully lawyer-drafted from the start).** The best legal quality, and a lawyer must review Option C anyway. The costs: the lawyer still needs the product facts, roles, and data inventory in this document. Without them, the lawyer writes generic text that may not match the product (for example the old pages' Stripe and analytics statements). Inference: the cheapest path is Option C's outline as the brief, then Option F's lawyer for every **[LAWYER]** part. This is a sequence of C and F, not a choice between them.
 
 ## 5. Comparison table
 
-| Criterion | A. Do nothing | B. Iran minimum | C. Iran-first, EU-ready | D. Full trust center |
-|---|---|---|---|---|
-| Meets E-Commerce Law information and refund duties | No | Yes | Yes | Yes |
-| Supports e-Namad and gateway approval | No | Likely | Likely | Likely |
-| All statements true today | No | Yes | Yes | No |
-| Removes the AI Act-prohibited feature | No | No | Yes | Yes |
-| Can sign an EU customer (Art 28 DPA, subprocessors) | No | No | Yes, after lawyer review | Yes |
-| Covers self-hosted (license, roles) | No | No | Yes | Yes |
-| Matches peer practice | Partly | Below Iranian and global peers | Mid-size vendor level | Largest vendor level |
-| Pages at launch | 2 | 4 | 12 | 16+ |
-| Lawyer work | Full rewrite anyway | Low | Medium | High |
+| Criterion | A. Do nothing | B. Iran minimum | C. Iran-first, EU-ready | D. Full trust center | E. Generator | F. Lawyer-drafted |
+|---|---|---|---|---|---|---|
+| Meets E-Commerce Law information and refund duties | No | Yes | Yes | Yes | Unknown (likely no Iranian coverage) | Yes |
+| Supports e-Namad and gateway approval | No | Likely | Likely | Likely | Unknown | Likely |
+| All statements true today | No | Yes | Yes | No | Only if edited | Yes, if the lawyer gets the product facts |
+| Removes the AI Act-prohibited feature | No | No | Yes | Yes | No (pages only) | Only if the lawyer is told |
+| Can sign an EU customer (Art 28 DPA, subprocessors) | No | No | Yes, after lawyer review | Yes | Partly | Yes |
+| Covers self-hosted (license, roles) | No | No | Yes | Yes | Unlikely | Yes |
+| Keeps the no-banner conclusion (no third-party script) | Yes | Yes | Yes | Yes | At risk | Yes |
+| Matches peer practice | Partly | Below Iranian and global peers | Mid-size vendor level | Largest vendor level | Generic | Depends on scope |
+| Pages at launch | 2 | 4 | 12 | 16+ | Varies | 12 or more |
+| Lawyer work | Full rewrite anyway | Low | Medium | High | Medium (Iranian gaps) | Highest |
+| Recurring upkeep (estimate) | None, but the pages stay false | About 1 to 2 hours a month | About 4 to 8 hours a month, plus a lawyer review once a year | About 2 to 4 days a month (certification audits, SLA reporting, transparency report) | Generator subscription plus the Option C duties | Same as C, plus lawyer fees for each change |
+| Hard to reverse once published | Nothing new | Refund terms | DPA commitments (notice periods, breach deadline, no training or evaluation on customer data); published retention defaults | Same as C, plus SLA credits and certification claims | Depends on the generator's text | Same as C |
+
+**Recurring upkeep for Option C.** The effort numbers are our estimates, not measured. Owners are proposals for the owner to confirm (Section 9).
+
+| Duty | Frequency | Proposed owner | Rough effort |
+|---|---|---|---|
+| Subprocessor list and change log; notice to customers before a new subprocessor (30 days recommended) | Each provider change | Engineering lead, who adds or changes providers | 1 hour per change |
+| "Last updated" dates, version archive, change emails to account admins | Each legal text change | Owner or operations | 1 hour per change |
+| Keep fa and en versions in sync | Each legal text change | Website team plus a fluent reviewer | 1 to 2 hours per change |
+| Renew the `Expires` field in `security.txt` (RFC 9116 recommends less than a year ahead [S16]) | At least once a year | Engineering lead | 15 minutes |
+| Answer vulnerability reports within the stated time | As reports arrive | Engineering lead | Varies |
+| Meet the DPA breach-notice period | On each incident | Engineering lead and owner | Varies |
+| Check that retention defaults, AI page, and security page still match the product | Each release, and at least every quarter | Product owner | 2 to 4 hours a quarter |
+| Lawyer review of all legal pages | Once a year, and when a law changes (for example the Iranian data bill) | Owner, with a lawyer | Lawyer fee |
+
+If nobody owns these duties, the pages go stale. A stale page is an untrue statement, which is the Consumer Protection Law Art 7 risk this document tries to avoid [S31].
+
+**What is hard to reverse.** Once customers sign the DPA, its promises bind Homayar until the contract ends. This covers subprocessor notice periods, the breach-notice deadline, and no training or evaluation on customer data. A later change needs notice, and customers may object. Published retention defaults and refund terms apply to every sale made while they were live. Start with commitments Homayar can surely meet. Tightening them later is easier than loosening them.
 
 ## 6. Recommendation
 
-**Choose Option C.** Publish 12 pages at launch in fa and en, with the Persian text governing for Iranian customers. Add 4 more later, when there are true facts to publish. Remove all agent emotion, stress, and burnout features from the product copy before launch.
+**Choose Option C.** Publish 12 pages at launch in fa and en, with the Persian text governing for Iranian customers. Add 4 more later, when there are true facts to publish. Remove all voice-based agent emotion features, and all agent stress and burnout features, from the product copy before launch. Keep the core QC scores and Team Pulse only under the two conditions in Section 4.3, and describe them that way. For Iranian customers, do not offer voice-based emotion of callers until an Iranian lawyer answers the E-Commerce Law Art 58 question.
 
 Why:
 
 - It is the smallest set that covers the laws that apply now: the E-Commerce Law information and refund rules, e-Namad for the gateway, the AI Act prohibition in force since February 2025, and GDPR processor duties for any EU customer.
 - It keeps every public statement true. That protects Homayar under Consumer Protection Law Art 7 and with security reviewers.
-- It supports the owner's goal of holding little data. The pages say clearly that self-hosted means Homayar does not see call data. SaaS pages state short default retention and no training on customer data.
+- It supports the owner's goal of holding little data. The pages say clearly that self-hosted means Homayar does not see call data. SaaS pages state short default retention and no training or evaluation on customer data.
 - It follows the useful patterns from peers without copying claims Homayar cannot support.
 
 What would change this recommendation:
 
+- **Agent scoring adds voice features, or a rubric scores inner states.** Then the core QC scores move inside the Art 5(1)(f) ban for EU use (Section 4.3).
+- **An Iranian lawyer says sentiment or emotion scores are Art 58 "psychological condition" data.** Then customers need explicit consent from callers and agents, and the notice templates and terms must change.
 - **The owner decides never to sell or deliver outside Iran.** Then the DPA, the GDPR page, and the EU representative drop to "not needed". Option B plus the AI transparency page and the AUP would be enough. The AI Act emotion rules would still apply to any EU use of the output (Art 2(1)(c)) [S20].
 - **The Iranian personal data protection bill becomes law.** Then the privacy policy, DPA, and retention page must be rewritten to its terms.
 - **An Iranian lawyer finds a rule on business call recording** (for example a Central Bank circular for bank call centers). Then the recording section and customer notice templates change.
 - **The e-Namad center publishes a different page list.** Then Section 8 must follow it.
-- **Homayar decides to train shared models on customer data.** Then Homayar becomes a controller for that use [S2]. The DPA, privacy policy, and AI page need a new legal basis and an opt-in.
+- **Homayar decides to train or evaluate models on customer data.** The blueprint plans an evaluation corpus of "at least 20 hours of genuinely representative Persian contact-center audio" (`docs/planning/homayar-commercial-blueprint.md:526`). If that audio comes from customers, Homayar becomes a controller for that use [S2 para 81]. The DPA, privacy policy, and AI page then need the opt-in path in Section 8.8 item 7, and callers and agents must be told.
 - **The Commission adopts final high-risk guidelines** that differ from the draft [S29]. Then the classification of agent QA scores must be reviewed.
 - **Homayar gains a certification or measured uptime.** Then add the SLA page and certification lines.
 
 ## 7. Page matrix
 
-"Required" means a law, an official regulator text, or a gateway rule we cite asks for it, or it is needed to meet a duty we cite. "Required (inference)" means our reading of the sources says it is needed, but no text names the page. "Recommended" means good practice, mostly from the benchmark.
+"Required" means a law, an official regulator text, or a gateway rule we cite requires the information on this page to be given to the user, and a page is the normal way to give it. "Required (inference)" means our reading of the sources says the page is needed, but no text we read requires it for this buyer or visitor. "Recommended" means good practice, mostly from the benchmark.
+
+The E-Commerce Law consumer rules (Art 33 to 38) protect a buyer acting "for any purpose other than business or professional occupation" (Art 2(o)) [S30]. Most Homayar buyers are businesses. So rows that rest on those articles are "Required" only for consumer buyers, and "Required (inference)" for business buyers. The e-Namad page list could turn these into plain "Required" once it is confirmed (Section 4.4.6).
 
 | # | Page | Level | Deployment | Basis | Launch |
 |---|---|---|---|---|---|
-| 1 | Company information (imprint) | Required | Both | E-Commerce Law Art 33(b)(c) [S30]; gateway checks of address and phone [S41] | Launch |
-| 2 | Terms of service (SaaS) | Required | SaaS | E-Commerce Law Art 33(f), 34 [S30]; Consumer Protection Law Art 2, 3 [S31] | Launch |
+| 1 | Company information (imprint) | Required for consumer buyers; Required (inference) for business buyers | Both | E-Commerce Law Art 33(b)(c) [S30]; gateway checks of address and phone [S41]; e-Namad list unverified | Launch |
+| 2 | Terms of service (SaaS) | Required (inference) | SaaS | E-Commerce Law Art 33(f), 34 require contract terms for consumer buyers only [S30]. Consumer Protection Law Art 2 and 3 are about soundness and warranty, not a terms page [S31]. Needed in practice to set recording duties (Section 4.5). | Launch |
 | 3 | Self-hosted license (EULA) | Required (inference) | Self-hosted | Software is licensed by contract; also Consumer Protection Law Art 3 [S31] | Launch |
-| 4 | Privacy policy | Required | Both | E-Commerce Law Art 59 [S30]; GDPR Art 13 for EU visitors [S1] | Launch |
-| 5 | Refund and cancellation policy | Required | Both | E-Commerce Law Art 33(f), 34(c)(d), 37, 38 [S30] | Launch |
+| 4 | Privacy policy | Required for EU-covered visitors and customers; Required (inference) in Iran | Both | GDPR Art 13 requires the information at collection [S1]. E-Commerce Law Art 59 sets conditions for processing (stated purpose, consent), not a published policy [S30]; a policy is the usual way to state the purpose. | Launch |
+| 5 | Refund and cancellation policy | Required for consumer buyers; Required (inference) for business buyers | Both | E-Commerce Law Art 33(f), 34(c)(d), 37, 38 [S30] | Launch |
 | 6 | Acceptable use policy | Required (inference) | Both | AI Act Art 5(1)(f) [S20]; GDPR Art 22 [S1]; Constitution Art 25 [S33] | Launch |
 | 7 | Data processing agreement (DPA) | Required for EU customers; Recommended otherwise | SaaS (and self-hosted with remote support) | GDPR Art 28(3), 28(9) [S1] | Launch |
 | 8 | Subprocessor list | Required for EU customers; Recommended otherwise | SaaS mainly; column for self-hosted | GDPR Art 28(2), 13(1)(e) [S1] | Launch |
@@ -474,6 +533,23 @@ This is the build outline for the website team. Routes are suggestions. Use the 
 Text marked **[LAWYER]** must come from, or be approved by, a lawyer. Do not write it from this outline.
 
 Footer: replace the old three links (`src/lib/site.ts:47-52`) with a "Legal" group (hub, terms, privacy, refunds, company information) and a "Trust" group (AI transparency, security, subprocessors, data retention). Show the e-Namad seal in the footer once it is issued.
+
+### Checkout and forms (build duties, apply to the whole site)
+
+Footer links alone do not meet these duties. They follow from the laws in Sections 4.2 and 4.4.1.
+
+**Checkout (any online purchase):**
+
+1. Before payment, show on the checkout page: what is being bought, the full price with tax, the billing period, the supplier's name and contact details, and short summaries of the refund and cancellation terms with links to the full pages (E-Commerce Law Art 33 [S30]).
+2. Before payment, require an explicit action to accept the terms of service (or license) and the refund policy, for example an unticked checkbox. Do not treat silence as acceptance (E-Commerce Law Art 43: "The supplier shall not regard the silence of the consumer as contentment" [S30]).
+3. Record the acceptance: which document versions, the time, and the account or email. **This record is a new personal data item.** Add it to the privacy policy (what, why, how long).
+4. After payment, email a copy (or a link to the exact accepted versions): the terms, the refund and cancellation terms, the complaints address, and the invoice. Art 34 information must go "in a durable medium", and email counts (Art 35, Art 2(s)) [S30]. For consumer buyers, the withdrawal period does not start until this information is given (Art 38(b)) [S30].
+
+**Forms (demo, contact, booking):**
+
+5. Next to each submit button, add one line: who receives the data, why, and a link to the privacy policy. Example: "Homayar uses these details only to answer your request. See our privacy policy." GDPR Art 13 applies "at the time when personal data are obtained" [S1]. E-Commerce Law Art 59(a) requires the purpose to be "specified and clearly described" [S30].
+6. Collect only the fields you need (Art 59(b) [S30]). The old demo form asks for team size and the booking form for time zone (`src/app/api/demo/route.ts:11`, `src/app/api/book/route.ts:21`). Keep them only if they are used.
+7. Do not write names, phone numbers, or emails to server logs (the old site does this when no database is set, Section 2).
 
 ### 8.1 `/legal`: Legal hub
 
@@ -515,7 +591,7 @@ Sections, in order:
 5. Refunds and cancellation: short summary plus link to the refund page.
 6. Your duties on recording and consent: the seven points from Section 4.5. **[LAWYER]**
 7. What you may not do: link to the acceptable use policy.
-8. Your data: you own it. We process it only to provide the service. We do not train shared models on it. Export and deletion at the end. Link to the DPA and retention page.
+8. Your data: you own it. We process it only to provide the service. We do not use it to train, improve, or evaluate our models, unless you sign a separate written opt-in. Export and deletion at the end. Link to the DPA and retention page.
 9. AI outputs: they can be wrong. Keep human review for decisions about people. Link to the AI page.
 10. Service changes and availability (no uptime number until measured).
 11. Confidentiality.
@@ -524,7 +600,7 @@ Sections, in order:
 14. Governing law and disputes: Iranian law, named forum. **[LAWYER]**
 15. Changes to these terms, language that governs, contact.
 
-Key plain-language points: "You must tell callers and agents." "We never decide about your staff; your people do." "We do not train shared AI models on your calls."
+Key plain-language points: "You must tell callers and agents." "We never decide about your staff; your people do." "We do not use your calls to train or test our AI, unless you sign a separate opt-in."
 
 ### 8.4 `/legal/license`: Self-hosted license (EULA)
 
@@ -551,9 +627,9 @@ Sections, in order:
 
 1. Who we are and how to contact us about privacy.
 2. Two roles, in plain words: for the website and your account, we decide how data is used. For call recordings in SaaS, your employer or the company you called decides, and we only process it for them. In self-hosted mode, we do not see call data.
-3. Data we collect on the website: demo form (name, email), contact form (name, mobile, email, message), booking (name, email, time slot). Why, and how long we keep it.
+3. Data we collect on the website (list only the fields the new forms really have; the old site's fields are in Section 2): demo form (name, email, company, team size, message), contact form (name, mobile, email, message), booking (time slot, name, email, company, message, time zone), checkout acceptance records (Section 8, "Checkout and forms"), and IP addresses used briefly for rate limiting, kept only in memory. Why, and how long we keep each (owner question in Section 9).
 4. Account and billing data: what, why, how long. The payment gateway handles card data.
-5. Who receives data: hosting provider, email provider (Resend, United States), payment gateway. Link to the subprocessor list. **[LAWYER]**: sanctions review of US providers (`docs/planning/homayar-commercial-blueprint.md:607`).
+5. Who receives data: website host (old site: Vercel), database provider (old site: Neon), email provider (old site: Resend, United States), payment gateway. Name only the providers the new site really uses. Link to the subprocessor list. **[LAWYER]**: sanctions review of US providers (`docs/planning/homayar-commercial-blueprint.md:607`).
 6. Browser storage: link to the cookies statement. No tracking, no analytics.
 7. International transfers: where data is stored. Iran has no EU adequacy decision [S12]. **[LAWYER]**
 8. Your rights: access, correction, deletion, objection. How to ask. We answer within one month [S1 Art 12(3)].
@@ -585,7 +661,7 @@ Sections, in order:
 
 1. Why this page exists: to protect callers, agents, and other customers.
 2. Recording: only lawfully recorded calls, with notice.
-3. **Never use Homayar to infer the emotions, stress, or mental state of employees or job candidates** (AI Act Art 5(1)(f) [S20]; pattern from Atlassian [S63a]).
+3. **Never use Homayar to infer the emotions, stress, or mental state of employees or job candidates** (AI Act Art 5(1)(f) [S20]; pattern from Atlassian [S63a]). Agent scores such as "empathy" and "tone" rate what the agent said and did in the transcript. Do not use them, or configure custom rubrics, to infer how an agent feels. Do not add voice features to agent scoring (the two conditions in Section 4.3).
 4. No decisions about pay, discipline, promotion, or dismissal based only on Homayar scores. A person with authority must review (GDPR Art 22 [S1], WP251 [S4]).
 5. No voice identification or voiceprints unless a separate written agreement allows it (GDPR Art 9 [S1]).
 6. No unlawful, discriminatory, or deceptive use.
@@ -604,7 +680,7 @@ Sections, in order:
 4. Processor duties (Art 28(3)(a) to (h) [S1]): instructions only; confidentiality; security; subprocessors; help with rights requests; help with security, breach, and DPIA; delete or return at the end; audits.
 5. Subprocessors: link to the list, notice before any new one, and how to object (Art 28(2) [S1]). Recommended: 30 days' notice [S63c].
 6. Breach notice to the customer without undue delay (Art 33(2) [S1]). Recommended: a fixed number of days [S61b].
-7. No training on customer data without separate written opt-in (to stay a processor [S2 para 81]).
+7. No training, improvement, or evaluation of Homayar models on customer data, unless the customer signs a separate written opt-in (to stay a processor [S2 para 81]). The opt-in must state: which data (for example a sample of calls), the purpose (for example the evaluation corpus, `docs/planning/homayar-commercial-blueprint.md:526`), access limits, how long it is kept, and how the customer withdraws. With an opt-in, Homayar is a controller for that use and needs its own legal basis. **[LAWYER]**
 8. International transfers and the transfer tool. **[LAWYER]**
 9. Iranian law duties that may override deletion (Computer Crimes Law Art 33 [S32]). **[LAWYER]**
 10. Downloadable PDF, version, and signature process.
@@ -617,7 +693,7 @@ Title: "Subprocessors" / «پردازشگرهای فرعی».
 
 Table columns: name, purpose, data involved, location, applies to (SaaS / self-hosted / website), date added. Pattern from GitLab [S64b].
 
-Rows known today from the repository: email delivery (Resend, `src/lib/email.ts:30`, website only), payment gateway (ZarinPal or Zibal, pending), hosting provider (pending). List each AI model provider (speech-to-text, LLM) only when it is really used for customer data (`docs/planning/homayar-commercial-blueprint.md:520`).
+Rows known today from the old site's repository, to be confirmed or replaced for the new site: website hosting (Vercel, `README.md:79`, website only), database (Neon PostgreSQL, `src/lib/db.ts:1`, website only), email delivery (Resend, `src/lib/email.ts:30`, website only). Pending: payment gateway (ZarinPal or Zibal) and SaaS product hosting. List each AI model provider (speech-to-text, LLM) only when it is really used for customer data (`docs/planning/homayar-commercial-blueprint.md:520`).
 
 Below the table: how to subscribe to changes, and a dated change log (pattern from Cresta [S62a]).
 
@@ -643,12 +719,12 @@ Sections, in order (per-feature pattern from Atlassian [S63b]):
 
 1. What the AI does and does not do: it transcribes, scores against your rubric, finds issues, suggests coaching. It does not decide about people.
 2. One entry per feature (transcription, QA scoring, issue detection, customer text sentiment, summaries, coaching). Each entry states: models used (by family and where they run), input, output, works best when, known limits (for example Persian accents, 8 kHz audio, overlapping speech; `docs/planning/homayar-commercial-blueprint.md:528`), and the human review step.
-3. What humans decide: final scores, disputes, any action about an agent. Agents can see and contest their scores (`docs/planning/homayar-commercial-blueprint.md:1287`, WP14 review and appeals).
-4. What we do not offer: no inference of employees' emotions, stress, or burnout. Customer sentiment is text-based unless you enable voice features, and those need notices (AI Act Art 5(1)(f), 50(3) [S20]).
-5. Your data and training: we do not train shared models on your calls. Say the same thing in the DPA (lesson from [S56, S58]).
+3. What humans decide: final scores, disputes, any action about an agent. Only when WP14 ships: "Agents can see and contest their scores." WP14 (review, calibration, appeals) is planned work, not a shipped feature (`docs/planning/homayar-commercial-blueprint.md:1287-1299`). Until then, do not state it.
+4. What we do not offer: no inference of employees' emotions, stress, or burnout. Agent "empathy" and "tone" scores come from the transcript text only and rate observable behavior against your rubric, not how the agent feels. Team views show call difficulty and score trends, not agent mood or wellbeing (the two conditions in Section 4.3). Customer sentiment is text-based unless you enable voice features. Voice features need notices in the EU (AI Act Art 50(3) [S20]) and may need explicit consent in Iran (Section 4.3). State this only while it is true of the product.
+5. Your data, training, and evaluation: we do not use your calls to train, improve, or evaluate our models without a separate written opt-in. Say exactly the same thing in the terms and the DPA (lesson from [S56, S58]).
 6. Accuracy: publish measured results only (the blueprint's gates are "targets, not achieved results", `docs/planning/homayar-commercial-blueprint.md:532`).
 7. EU AI Act: which features may be high-risk, dates (Section 4.3), and what Homayar will provide to deployers. **[LAWYER]**
-8. Notice templates for customers (page 17 in Section 7): a call-start message and an agent notice, in fa and en.
+8. Notice templates for customers (page 17 in Section 7): a call-start message and an agent notice, in fa and en. Each template must say it gives notice only, and that explicit consent may be needed in Iran (Section 4.5).
 
 ### 8.12 `/trust/data-retention`: Data retention and deletion
 
@@ -661,7 +737,7 @@ Sections:
 3. Legal holds and legal minimums: Iranian law may require us to keep some account data (Computer Crimes Law Art 33 [S32]). **[LAWYER]**
 4. At the end of a contract: export window, then deletion.
 5. Self-hosted: you set and run retention. We hold nothing.
-6. Website form data: how long we keep leads and bookings.
+6. Website form data: how long we keep leads and bookings. No period has been decided (owner question in Section 9). A proposal to decide on: delete leads with no follow-up after 12 months, and bookings 12 months after the meeting. This is a product choice, not a legal rule.
 
 ### 8.13 `/trust/security`: Security, with vulnerability disclosure
 
@@ -677,7 +753,7 @@ Sections:
 
 ### 8.14 Later pages
 
-- `/legal/gdpr` (GDPR and international customers): before the first EU customer. Contents: when GDPR applies, roles, EU representative (**[LAWYER]**), transfers, how to sign the DPA.
+- `/legal/gdpr` (GDPR and international customers): before the first EU customer. Contents: when GDPR applies, roles, EU representative (**[LAWYER]**), transfers, how to sign the DPA. Also check whether EU targeting adds details to the company information page (e-Commerce Directive 2000/31/EC Art 5; EU lawyer question 8 in Section 9).
 - `/trust/sla`: after uptime is measured. Contents: availability target, how measured, credits.
 - `/trust/transparency-report`: after a lawyer confirms what may be published about government requests.
 - `/accessibility`: a short statement of the WCAG level targeted and a contact for problems.
@@ -688,16 +764,19 @@ Sections:
 
 1. Will Homayar sell to or deliver output to customers outside Iran? This decides whether pages 7, 8, and 13 are required or only recommended.
 2. Do you agree to remove agent emotion, stress, and burnout features from the product and the site (Section 4.3)?
-3. Should customer-side voice emotion remain, with notices, or should Homayar offer only text sentiment? Text sentiment avoids the "emotion recognition" category [S21 para 251].
-4. Will Homayar ever train shared models on customer calls? The recommendation assumes "no".
+3. Should customer-side voice emotion remain, or should Homayar offer only text sentiment? Text sentiment avoids the EU "emotion recognition" category [S21 para 251]. In Iran, voice emotion of callers may need explicit consent from each caller, not only notice (E-Commerce Law Art 58, Section 4.3). Iranian lawyer question 3 decides this.
+4. Will Homayar ever use customer calls to train, improve, or evaluate its models (for example the evaluation corpus in `docs/planning/homayar-commercial-blueprint.md:526`)? The recommendation assumes "no, unless a customer signs a separate opt-in". If the corpus must come from customers, the opt-in path in Section 8.8 item 7 is needed.
 5. What is the registered legal name: "Kohan System Farda" or "KSF Company"?
 6. Should the Persian version govern for all customers, or English for foreign customers?
+7. How long should website leads and bookings be kept? No period has been decided. Section 8.12 item 6 has a proposal (12 months).
+8. Who owns the recurring upkeep duties in Section 5? The table there proposes owners.
+9. Does Homayar record its own sales or demo calls? If yes, the privacy policy must cover those recordings (Section 4.5).
 
 ### For a lawyer in Iran
 
 1. Does Constitution Art 25 limit a private business recording its own calls with notice? Is there any rule for call centers (Central Bank, telecom regulator)?
 2. Is Homayar SaaS a "domestic hosting provider" under Computer Crimes Law Art 23 and 33? If so, how does the 6-month and 15-day retention minimum fit customer-chosen deletion?
-3. Do agent emotion or stress scores count as "psychological condition" data under E-Commerce Law Art 58 (explicit consent)?
+3. Do emotion, stress, or sentiment scores count as "psychological condition" data under E-Commerce Law Art 58, which needs explicit consent? Ask separately for: (a) callers' emotion from voice, (b) callers' sentiment from text, (c) agents' emotion or stress, (d) agent QC scores such as "empathy" and "tone" from text. If yes, is a call-start notice enough, or is explicit consent from each person needed?
 4. Does the 7-working-day withdrawal right (E-Commerce Law Art 37) apply to Homayar's buyers? What are the exceptions in the Art 38/42 regulation?
 5. Is SaaS on the ministry list that requires a warranty and invoice (Consumer Protection Law Art 3 Note 3)?
 6. Confirm the Persian text of the E-Commerce Law articles we cited from the English translation.
@@ -705,15 +784,19 @@ Sections:
 8. Liability, indemnity, late-payment, and dispute clauses under Iranian law.
 9. May Homayar publish statistics on Iranian government data requests?
 10. Sanctions and export review for US providers (Resend, cloud, AI APIs) and for any sale to EU customers (`docs/planning/homayar-commercial-blueprint.md:607`).
+11. Does the site need any registration or seal other than e-Namad, for example the ساماندهی (SAMANDEHI) registration of websites? Not researched in this spike.
+12. Is there any data localization rule that limits where SaaS call data of Iranian customers may be hosted (for example inside Iran only)? Not researched in this spike.
 
 ### For an EU data protection lawyer (before the first EU customer)
 
 1. Is Homayar under GDPR Art 3(2) for an EU customer's data? Does it need an EU representative (Art 27)?
 2. Which transfer tool fits: the 2021 SCCs, or something else [S9, S10, S11]?
 3. Is Homayar the "provider" of a high-risk system (Annex III 4(b)) for agent QA scores? What documentation is needed by 2 December 2027?
-4. Is voice-based customer emotion worth offering, given the high-risk duties (Annex III 1(c))?
-5. National workplace monitoring and works-council rules in each target country (Art 88).
-6. Does SaaS call QA trigger a data protection officer duty (Art 37(1)(b))?
+4. Are text-based agent scores such as "empathy" and "tone", defined as observable behavior against a rubric, outside the Art 5(1)(f) ban? Is the same true for Team Pulse per-agent trends built from customer text sentiment (Section 4.3, the two conditions)?
+5. Is voice-based customer emotion worth offering, given the high-risk duties (Annex III 1(c))?
+6. National workplace monitoring and works-council rules in each target country (Art 88).
+7. Does SaaS call QA trigger a data protection officer duty (Art 37(1)(b))?
+8. If Homayar targets the EU, what must the company information page add? For example the service-provider information in the e-Commerce Directive 2000/31/EC Art 5. Not researched in this spike.
 
 ### For an accountant
 
@@ -741,6 +824,9 @@ Sections:
 10. The Council and Parliament press releases on the AI Omnibus (403 or empty). The Official Journal text was read.
 11. The EDPB endorsement status of WP194.
 12. The draft high-risk guidelines [S29] are a draft for consultation, not final.
+13. Whether Iranian websites need other registrations or seals besides e-Namad (for example SAMANDEHI). Not researched.
+14. Whether Iranian rules require SaaS data to be hosted inside Iran. Not researched.
+15. The Next.js font claim is from the current nextjs.org docs, not the docs for the pinned version `16.2.9` (Section 2).
 
 ## 10. Sources
 
