@@ -1,74 +1,99 @@
-# Payment gateways for Homayar: ZarinPal vs Zibal
+# Payment options for Homayar: gateways, direct debit, and invoice payment
 
 Status: In Review
 
-Date: 2026-09-27 (revised 2026-09-28 after review round 1)
+Date: 2026-09-27 (revised 2026-09-28 after review round 1; revised again 2026-09-28 for the
+owner's request to find alternatives)
 
 Author role: researcher (`pay-t1-res`, research team `pay-t1`). Base commit: `1b34472`.
 
 ## 1. Summary and recommendation
 
-**Main finding: most of Homayar's likely prices do not fit in one gateway payment.**
+**Main finding: most of Homayar's likely prices do not fit in one online card payment.
+That is true for every provider checked, not only ZarinPal and Zibal.**
 
-- ZarinPal accepts at most 100,000,000 toman per payment. Zibal accepts at most
-  200,000,000 toman (section 5.5).
-- Homayar has no rial prices yet. The repository has only USD list prices, which are not
-  validated.
-- At the repository's display rate, three kinds of sale are above **both** caps:
+- Every card gateway has a cap per payment:
+  - ZarinPal: 100M toman.
+  - Zibal: 200M toman.
+  - Vandar: 50M or 100M toman (its pages disagree).
+  - IDPay and PayPing: 50M toman.
+- The buyer's bank also caps card purchases per day. A Central Bank circular of 1403 set
+  200M toman per person per day (section 5.11).
+- A direct contract with a bank PSP does not remove the payer's card cap (section 5.7).
+- Homayar has no rial prices yet. At the repository's display rate, three kinds of sale
+  are above every cap:
   - every yearly plan;
   - the Professional monthly plan;
-  - every package in the blueprint's pricing section.
-- The Starter monthly plan and most monthly add-ons fit.
+  - every package in the blueprint.
+  (Section 5.5.)
 
-So the payment design has two paths:
+**The alternatives do not change that for large payments:**
 
-1. **Main path: pre-invoice plus bank transfer** (پیش‌فاکتور، حواله).
-   - It is for yearly plans, Enterprise, self-hosted licenses, and any payment above the
-     gateway cap.
-   - It is built first, as WP18 step 5 already requires (section 7.1).
-2. **Second path: one online gateway.**
-   - It is for payments under the cap, for example a small monthly plan, an add-on, or a
-     top-up.
-   - It is added after the rial price list exists.
+- **Direct debit** (پرداخت مستقیم, automatic withdrawal from the payer's account under a
+  signed mandate) is offered by Vandar, Jibit and Payman.
+  - It is tied to a person's national ID, card and mobile.
+  - Each bank sets low limits. Examples in Vandar's docs run from 1M toman per withdrawal
+    to 100M toman per day.
+  - So it cannot collect a 40 to 300M toman company renewal (section 5.8).
+- **Payment links** are suspended at ZarinPal "by order of the Central Bank". Zibal does
+  not offer them (section 5.9).
+- **Installment credit (BNPL)** exists only for consumers. No provider offers credit to a
+  company that buys SaaS (section 5.9).
 
-**Which gateway.** The choice depends on the rial prices, which the owner has not set yet:
+**The one alternative that does help is identified deposits** (واریز شناسه‌دار). The
+buyer's bank transfer carries a deposit ID, so it can be matched to the invoice
+automatically.
 
-- **ZarinPal** if most online payments are at or under 100,000,000 toman. Its docs loaded
-  and are complete. It has a free reverse within 30 minutes. Its cap is confirmed on a live
-  page.
-- **Zibal** if many online payments fall between 100,000,000 and 200,000,000 toman. Its
-  higher cap is then the deciding factor. Two things must be confirmed with Zibal first:
-  its cap is known only from an archived page, and Zibal may set a lower cap per merchant.
-- **Above 200,000,000 toman, invoice plus bank transfer in every case.** The gateway choice
-  then matters little.
-- The fee is **not** a reason to choose. Every catalog price is far above both fee caps, so
-  each payment costs about 16,500 toman (ZarinPal) or 22,000 toman (Zibal). The difference
-  is at most 5,500 toman per payment. It may be smaller, because ZarinPal's VAT on its fee
-  is unknown (section 6).
+- Zibal, Jibit and Vandar sell this. Jibit and Vandar say there is no amount limit.
+- All three need a bank account owned by a registered company (section 5.10).
+- This turns the invoice path from a manual chore into an automated path.
 
-**Other parts of the recommendation (unchanged):**
+**Recommendation:**
 
-- **Subscriptions are prepaid periods, not automatic charges.** Neither provider documents
-  automatic recurring charges today.
-- **Self-hosted licenses are signed files** that the customer's server checks offline. A
-  self-hosted install never calls a payment provider.
-- **Card data never reaches Homayar.** The buyer types the card on the provider's hosted
-  page. Homayar stores only a payment reference, the amount, and the status.
+1. **Main path: pre-invoice, bank transfer with a deposit ID, and automatic matching.**
+   - It covers yearly plans, Enterprise, self-hosted licenses, and anything above a card
+     cap.
+   - It is built first, as WP18 step 5 requires (section 7.1).
+   - Buy the deposit-matching service. Do not build a bank connection yourself.
+2. **Second path: one online gateway for small payments,** behind a provider adapter.
+   - **First choice: Zibal.** Four reasons:
+     - its per-payment cap is the highest found (200M toman, from an archived page);
+     - it was on Shaparak's archived list of active facilitators (February 2026);
+     - its identified-deposit API is in a public, machine-readable spec;
+     - that same corporate-banking account also unlocks its documented refund API.
+     One provider then covers both paths.
+   - **Second choice: Vandar.** All of its docs loaded. It has a gateway, a full
+     direct-debit API, and identified deposits. Its gateway cap is lower and unclear (50M
+     or 100M toman).
+   - **ZarinPal is still a good gateway-only choice.** It has the best gateway docs and a
+     live, confirmed 100M cap. No deposit-matching product was found for it, and its direct
+     debit was removed.
+   - **Four checks come before signing** (section 9):
+     - Zibal's cap, confirmed live;
+     - Zibal's current licence status (the listed validity date, 1405/05/27, has passed);
+     - Zibal's corporate-banking activation cost ("from 30M toman");
+     - the reliability of Zibal's help site, which timed out on 2026-09-27 and 2026-09-28.
+3. **No direct debit, payment links, or BNPL at launch.** Revisit direct debit only for
+   small monthly plans (section 7).
+4. **Subscriptions are prepaid periods.** Neither path charges automatically.
+5. **Self-hosted licenses are signed files** checked offline. A self-hosted install never
+   calls a payment provider.
+6. **Card data never reaches Homayar.** Homayar stores a payment reference, the amount,
+   and the status.
 
-**Preconditions** before any gateway work (section 3):
+**Preconditions** (section 3):
 
-- an Iranian host with a fixed outbound IP for the API (INFERENCE: both providers' terms
-  point to this);
-- a rial price list and a rule for the exchange rate;
-- e-Namad and a tax tracking code for the merchant company.
+- an Iranian host with a fixed outbound IP for the gateway calls;
+- a rial price list and an exchange-rate rule;
+- e-Namad, a tax tracking code, and a bank account owned by the company.
 
-Foreign customers cannot pay through either provider. That is an owner decision (section 9).
-Tax invoices (سامانه مودیان, the Moadian e-invoice system) are Homayar's job, not the
-gateway's. They need an accountant.
+Customers outside Iran are out of scope for launch (owner). Tax invoices (سامانه مودیان, the
+Moadian e-invoice system) are Homayar's job, not the gateway's. They need an accountant.
 
-Confidence: medium. The provider facts come from their own docs and pages, read
-2026-09-27 and 2026-09-28. Several legal facts could not be read from primary sources, and
-each one is marked UNVERIFIED.
+Confidence: medium. Provider facts come from their own pages, read 2026-09-27 and
+2026-09-28. Many Iranian sites did not load from the research machine. Where only an
+archived copy or a secondary page was available, the text says so. Several legal and
+regulator facts stay UNVERIFIED.
 
 ## 2. The decision, in the owner's words
 
@@ -82,9 +107,13 @@ Translated from the owner:
 > people's data does not leak from us. If a user wants the SaaS service, they must buy a
 > subscription, offered monthly and yearly. We also need an Enterprise plan."
 
-The question this spike settles: which payment provider (ZarinPal, Zibal, both, or another
-path for some cases) Homayar should integrate. It also settles what Homayar must build or
-buy to do three things without storing card or other sensitive payment data:
+After reading the first version (PR #9), the owner added: "Search and find alternatives."
+The owner also confirmed that the product launches in Iran.
+
+The question this spike settles: which payment path Homayar should use. The candidates are
+ZarinPal, Zibal, another provider, several providers, or a different pattern for some
+cases. It also settles what Homayar must build or buy to do three things without storing
+card or other sensitive payment data:
 
 - sell monthly and yearly SaaS subscriptions,
 - sell Enterprise plans,
@@ -175,40 +204,63 @@ From this repository (base `1b34472`):
      پذیرش در خارج از کشور» ("moving the acceptance tool abroad, or using it abroad").
      ZarinPal also requires registered IPs (section 5.1).
    - Zibal's archived setup article refuses IPs outside Iran (section 5.2).
-   - Both rules point to an Iranian server for these calls. ZarinPal should confirm
+   - The same "using the tool abroad" line is a merchant violation in a Central Bank
+     procedure (section 5.11). So it is not only one provider's rule.
+   - These rules point to an Iranian server for these calls. The provider should confirm
      whether a server abroad counts as "using the tool abroad" (section 9).
 2. **A designed SaaS outbound path.** A proxy or NAT with a stable public IP to register
    with the provider. It does not exist yet (`docs/operations/deployment.md:164-168`).
 3. **A rial price list and an exchange-rate rule** (section 7.1).
 4. **Merchant documents:** e-Namad, a tax tracking code, and company documents (sections
-   5.1 and 5.2).
+   5.1, 5.2, 5.6 and 5.7).
+5. **A bank account owned by the company.** Every identified-deposit service found needs
+   one (section 5.10).
 
 ## 4. Options considered
 
-- **A. ZarinPal only.**
-- **B. Zibal only.**
-- **C. Both at once** (for example, one as a failover for the other).
-- **D. Invoice and bank transfer as the main path, plus one gateway for payments under
-  its cap.** This is not a replacement for A or B. Invoice and transfer sit next to one of
-  them. After the price check in section 5.5, this is the recommended shape.
+Online card gateways (one per provider, or several):
+
+- **A. ZarinPal.**
+- **B. Zibal.**
+- **C. Two providers at once** (for example, one as a failover for the other).
+- **H. Vandar.** A licensed facilitator with a gateway, direct debit, and identified
+  deposits (section 5.6).
+- **I. Jibit.** A licensed facilitator. Its gateway, direct debit, and identified deposits
+  are on its price list, but its developer docs did not load (section 5.6).
+- **J. PayPing.** A licensed facilitator with a gateway, invoices, and payment links, but a
+  50M toman cap and no direct debit (section 5.6).
+- **K. A direct contract with a bank PSP** (a payment service provider, for example SEP,
+  Pasargad, Parsian, or Irankish) instead of a facilitator (section 5.7).
+- **L. Digipay.** A gateway layer over several PSPs, plus consumer credit (section 5.7).
+
+Other patterns:
+
+- **D. Invoice and bank transfer as the main path, plus one gateway for payments under its
+  cap.** After the price check in section 5.5, this is the recommended shape.
+- **M. Identified deposits** (واریز شناسه‌دار) to match bank transfers to invoices
+  automatically. This is an add-on to D (section 5.10).
+- **N. Direct debit** mandates for automatic renewals (section 5.8).
+- **O. Payment links and online invoices** (section 5.9).
+- **P. Installments through a BNPL or credit provider** (section 5.9).
+- **G. Split one large bill into several gateway payments** (section 5.5). Not
+  recommended without the provider's written approval.
 - **E. Do nothing or defer.** Keep "manual" billing (`Homayar/backend/schemas/billing.py:40`)
   and sell every plan by invoice and bank transfer. Add a gateway later.
 - **F. Keep Stripe.** Listed because the old site uses it.
-- **G. Split one large bill into several gateway payments.** Considered in section 5.5. It
-  is not recommended without the provider's written approval.
 
-Other gateway paths were **not researched**. Each is dropped here, with the reason:
+Dropped early, with the reason:
 
-- **A direct bank or PSP gateway** (a contract with one PSP, a payment service provider,
-  instead of a facilitator):
-  - The owner named only ZarinPal and Zibal.
-  - It would not remove the buyer-side daily limit. A ZarinPal post says that limit is set
-    by the Central Bank for all internet payments (section 5.5). That is INFERENCE, and the
-    Central Bank page did not load.
-- **Other payment facilitators** (پرداخت‌یار) licensed by Shaparak:
-  - The owner named only two.
-  - Shaparak's site timed out on 2026-09-27 and 2026-09-28, so its facilitator list could
-    not be read.
+- **IDPay:**
+  - its certificate expired on 2025-05-27;
+  - its newest blog post is from 1401;
+  - its API URL redirects to the home page.
+  INFERENCE: dormant (section 5.6).
+- **Pay.ir:** its domain did not resolve. The archived pages since 2025-09 show no gateway
+  (section 5.6).
+- **NextPay:** its site did not load. The last archived content is from 2025-10-05
+  (section 5.6).
+- **Behpardakht Mellat, Asan Pardakht, Sadad** (as direct PSPs): their sites did not load,
+  and no usable archived docs were found. They are UNVERIFIED, not rejected (section 5.7).
 
 Option F is not realistic. Stripe's own restricted-business page says it does not serve
 "Persons located in, resident in, or a citizen of, or products or services originating
@@ -566,22 +618,15 @@ Could not be verified from primary sources:
 `www.shaparak.ir` redirected and was not read in depth. UNVERIFIED. The only Shaparak rule
 confirmed here is the IP allowlist, and it comes through ZarinPal's own page.
 
-### 5.4 Customers outside Iran and sanctions
+### 5.4 Customers outside Iran (out of scope for launch)
 
-- Neither provider accepts foreign cards (INFERENCE from sections 5.1 and 5.2).
+The owner confirmed that Homayar launches in Iran. So this stays short.
+
+- No provider checked says it accepts foreign cards. ZarinPal and Zibal say they take only
+  Shetab cards, the cards of Iran's domestic card network (INFERENCE, sections 5.1 and 5.2).
 - Stripe does not serve Iran (section 4).
-- US rules:
-  - 31 CFR 560.201 bans «the importation into the United States of any goods or services
-    of Iranian origin».
-  - 31 CFR 560.206(a) says no US person "may engage in any transaction or dealing in or
-    related to ... Goods or services of Iranian origin". This was read from the Cornell LII
-    mirror, not an official page.
-  - The communications license (31 CFR 560.540, the former General License D-2) only lets
-    US persons provide services **to** Iran.
-  - INFERENCE, needs a sanctions lawyer: US customers cannot legally buy Homayar SaaS.
-- Sales to customers in other countries (EU, UK, Gulf) were not researched.
-- Routes such as crypto payments, a foreign legal entity, or exchange services were not
-  researched. They must not be used without a sanctions lawyer.
+- US rules bar US persons from buying Iranian-origin services (31 CFR 560.201 and 560.206).
+- Any later foreign sales need a sanctions lawyer first (section 9).
 
 ### 5.5 Payment limits against Homayar's prices
 
@@ -593,14 +638,40 @@ confirmed here is the IP allowlist, and it comes through ZarinPal's own page.
 | Zibal, one payment | 200,000,000 toman | Wayback copy (2026-05-14) of `help.zibal.ir/article/how-get-and-set-up-online-payment-gateway/`; the live page timed out again on 2026-09-28 |
 | Zibal, per national code per day | 200,000,000 toman | the same archived page |
 | Zibal, per merchant | may be set lower | the same archived page: «در صورتی که نوع کسب و کار شما، نیاز به حداکثر مبلغ مجاز در درگاه پرداخت نداشته باشد، سقف متناسب توسط زیبال روی درگاه شما لحاظ خواهد شد» ("if your business does not need the maximum, Zibal sets a suitable cap on your gateway") |
-| Buyer, all internet payments per day | 400,000,000 toman per person in 1405 | ZarinPal blog «سقف تراکنش درگاه پرداخت اینترنتی 1405 چقدر است؟» (published 2026-07-19). The post cites a Central Bank circular. The circular itself was not read: cbi.ir and shaparak.ir timed out on 2026-09-28. **Weak evidence.** |
-| Buyer, per card | not found | UNVERIFIED (open question 18) |
+| Buyer, card purchases per day, per person (all cards) | 200,000,000 toman (2 billion rial) | Central Bank circular 22848/03 of 1403/02/04, Wayback copy (2025-04-18) of `cbi.ir/showitem/29680.aspx`: «حداکثر تراکنش خرید از هر کارت‌پرداخت و نیز کلیه کارت‌های پرداخت متعلق به مشتری حقیقی، به روزانه مبلغ دو میلیارد ریال افزایش می‌یابد» ("the purchase maximum per card, and for all cards of a natural person, rises to 2 billion rial per day"). The card-issuing bank enforces it. |
+| The same, newer figure | 400,000,000 toman per person per day | **Secondary only.** A ZarinPal blog post (published 2026-07-19) and a news site both name a newer Central Bank circular (10 Esfand 1404). The circular itself was not read: cbi.ir timed out, and its 2026 archive copies are bot-check pages. |
+| Other gateways, one payment | 50M toman (IDPay, PayPing); 50M or 100M toman (Vandar) | section 5.6 |
+| Bank PSP pages, per card | 50M toman per card per day (SEP, June 2026 copy) up to 200M toman per day (Sepehr news, 2024) | section 5.7; the pages are from different dates and disagree |
 
-The same ZarinPal post also names bank-transfer limits for 1405: a SATNA order must be at
-least 100,000,000 toman, and one PAYA order can be up to 200,000,000 toman. SATNA and PAYA
-are Iran's interbank transfer systems. These figures are secondary evidence, for the same
-reason as above. They matter for the invoice path, because a company pays an invoice by
-SATNA or PAYA.
+INFERENCE: the per-person card cap belongs to the **payer's** bank. So no merchant
+contract, facilitator or direct PSP removes it. The payer here is an employee paying with
+a personal card.
+
+**Bank-transfer limits** matter for the invoice path, because a company pays an invoice by
+SATNA or PAYA. SATNA and PAYA are Iran's interbank transfer systems.
+
+- **Official, but older:** a Central Bank notice of 20 Dey 1400 set two limits. Source:
+  Wayback copy (2024-09-18) of `cbi.ir/showitem/22624.aspx`.
+  - The SATNA customer-order floor became 500 million rial (50M toman).
+  - The PAYA cap became 1 billion rial (100M toman) per order.
+- **Newer, secondary only:** ZarinPal blog posts (2026) and news snippets name a circular
+  of Ordibehesht 1404. It gives a SATNA floor of 100M toman and a PAYA cap of 200M toman
+  per order.
+  - ZarinPal's own posts disagree on the year, the fees, and the hours.
+  - The circular itself was not read.
+- **Company accounts:** a Central Bank rule on commercial accounts (1401) says «تمامی
+  حساب‌های سپرده بانکی اشخاص حقوقی، حساب تجاری محسوب می‌شوند» ("all bank accounts of
+  legal persons count as commercial accounts"). Source: Wayback copy (2025-03-24) of
+  `cbi.ir/showitem/24156.aspx`.
+  - Its article 16 lists incentives that banks must apply "as suitable" to commercial
+    account holders. One is raising non-in-person withdrawals up to 5 billion rial (500M
+    toman) per day and 30 billion rial (3 billion toman) per month.
+  - The same rule asks for supporting documents (a contract or the reason for the
+    transfer) when a customer's commercial accounts send more than 10 billion rial (1
+    billion toman) in a day. INFERENCE: Homayar's pre-invoice or contract is that
+    document for the buyer.
+- INFERENCE: a large yearly deal can be paid by several PAYA or SATNA orders, or by a
+  SATNA at a branch. Each order carries the invoice's deposit ID (section 5.10).
 
 **Homayar's prices.** Homayar has **no rial prices** yet. Setting them is an owner
 decision (section 9).
@@ -658,79 +729,403 @@ The rows are arithmetic on repository figures. They are not quotes.
   unmonitored transfers. INFERENCE: splitting one bill on purpose to get around the cap may
   break the provider's rules. Do not build it without written approval from the provider
   (section 9).
-- The buyer's daily limits still apply: Zibal allows 200,000,000 toman per national code
-  per day, and the buyer-side limit is 400,000,000 toman per day (weak evidence). So a
-  large bill would take several days.
+- The payer's daily limits still apply. Zibal allows 200,000,000 toman per national code
+  per day. The Central Bank's card cap is 200,000,000 toman per person per day (1403
+  circular; a newer 400M figure is secondary only). So a large bill would take several
+  days and several cards.
 - An installment plan in a contract is different. Each installment is its own invoice.
   If an installment is under the cap, it can be paid online. That is normal use, not a
   split.
 
+### 5.6 Other payment facilitators
+
+A payment facilitator (پرداخت‌یار) is a licensed company that runs a gateway for many
+merchants on top of the bank PSPs. All pages below are the providers' own, read
+2026-09-28, unless marked Wayback. Licence claims are the providers' own words. Section
+5.11 covers what Shaparak's list shows.
+
+**Vandar (vandar.io, docs.vandar.io). All pages loaded.**
+
+- **Status:** «وندار «پرداخت‌یار» و دارای مجوز از بانک مرکزی است» ("Vandar is a payment
+  facilitator licensed by the Central Bank") (`/faq/`). It is part of Ayandeh Bank's group.
+- **Gateway:**
+  - REST: `POST https://ipg.vandar.io/api/v4/send`, then redirect, then `/verify`.
+  - A transaction expires after 20 minutes.
+  - Verify returns a masked card, `cid` (a SHA256 of the card), and `mobile`.
+  - There is a refund API, full or partial
+    (`/v3/business/:business/transaction/:id/refund`).
+  - A sandbox is given on request.
+  - No official Python SDK was found.
+- **Gateway cap: the pages disagree.**
+  - `/payment-gateway/`: «سقف هر تراکنش ... ۱۰۰ میلیون تومان» ("per-transaction cap 100M
+    toman").
+  - `/faq/`: «حداکثر آن ۵۰میلیون تومان» ("the maximum is 50M toman").
+  - The docs say limits depend on the business level.
+- **Gateway fee: the pages disagree.** `/pricing/` says 1%, from 1,500 to 15,000 toman.
+  Other pages give lower figures.
+- **Direct debit (پرداخت خودکار), with a full API:**
+  - create a mandate, send the payer to the bank, verify, withdraw, revoke, refund;
+  - fee: 2%, from 2,500 to 12,000 toman per withdrawal (`/pricing/`);
+  - details in section 5.8.
+- **Identified deposits:** «بدون محدودیت مبلغ» ("no amount limit") (`/cashin-code/`).
+  Details in section 5.10.
+- **Payment form (a payment link):** up to 50M toman per form. It needs e-Namad and an
+  active gateway (`/form/`).
+- **Requirements:** «برای فعال‌سازی درگاه پرداخت داشتن اینماد و کد مالیاتی الزامیست»
+  ("e-Namad and a tax code are required"). Companies also send their national ID, the
+  official gazette notice, and a letter. `callback_url` and Referer must match the
+  registered domain. More than one IP can be allowlisted.
+
+**Jibit (jibit.ir). Main site loaded. Developer docs (`docs.jibit.ir`,
+`developers.jibit.ir`, `napi.jibit.ir`) timed out.**
+
+- **Status:** «یکی از بزرگ‌ترین پرداخت‌یار‌های رسمی شاپرک» ("one of the largest official
+  Shaparak facilitators") (home page).
+- **Price list** (`/pricing/`, headed «به‌روزرسانی 1405», "1405 update"):
+  - gateway: 1% up to 10,000 toman, for up to 200 transactions a day;
+  - direct debit: «۲٪ حداقل: ۲۰,۰۰۰ ریال حداکثر: ۷۵,۰۰۰ ریال» (2%, from 2,000 to 7,500
+    toman);
+  - identified deposit ("دریافت وجه"): 0.03%, minimum 3,000 toman;
+  - adding a bank account: 10M toman;
+  - 10% VAT on top of all fees.
+- **Identified deposits:** «بدون محدودیت در مبلغ تراکنش» ("no limit on the transaction
+  amount") (home page).
+- **Requirements:** e-Namad, a tax tracking code, and business documents.
+  «امکان پذیرش تراکنش فقط از IPها و دامنه‌های تعیین‌شده» ("transactions only from the IPs
+  and domains you set").
+- **API, caps, direct-debit rules, and verify fields: UNVERIFIED**, because the docs did
+  not load.
+
+**PayPing (payping.ir). All pages loaded.**
+
+- **Status:** «دارای مجوز رسمی پرداخت یاری از شرکت شاپرک» ("holds an official
+  facilitator licence from Shaparak").
+- **Cap:** «سقف آن 50 میلیون تومان برای هر تراکنش» ("the cap is 50M toman per
+  transaction") (`/faq/`).
+- **Fee:** 1% capped at 5,000 toman, plus 500 toman. Paid plans lower the cap on the fee.
+- **API:** a public OpenAPI file (`statics.payping.ir/openapi.json`). Verify must happen
+  within 10 minutes. Reverse is allowed within 30 minutes, only if it was enabled when the
+  payment was created. The sandbox is marked "soon".
+- **Recurring:** scheduled invoices, not direct debit. A payment link is sent on a
+  schedule, and the customer pays by card each time.
+- **Invoices and links:** a full invoice API. Its terms ban payment links on foreign social
+  networks.
+
+**IDPay (idpay.ir). Loaded, but the TLS certificate expired on 2025-05-27.**
+
+- It claims to be «پرداخت یار رسمی بانک مرکزی» (an official Central Bank facilitator).
+- Cap: «سقف آن 50 میلیون تومان» ("the cap is 50M toman") (`/faq`).
+- Default settlement: «۱۴ الی ۴۵ روز کاری» (14 to 45 working days). It is next-day only
+  with e-Namad and a tax code.
+- Signs it is not maintained:
+  - the expired certificate;
+  - the newest blog post is from 1401;
+  - the API URL redirects to the home page.
+- INFERENCE: dormant. Dropped.
+
+**Pay.ir: dropped.** The domain did not resolve on 2026-09-28. Wayback copies from
+2025-09 onward show a one-line personal page, then an admin login page. There is no
+gateway content.
+
+**NextPay: dropped.**
+
+- `nextpay.org` timed out. `nextpay.ir` returned HTTP 522.
+- The last archived content (2025-10-05) says:
+  - «پرداختیار رسمی شاپرک و بانک مرکزی با شماره مجوز 98/ص/1971» ("an official Shaparak
+    and Central Bank facilitator, licence 98/ص/1971");
+  - a cap of «تا سقف 100 میلیون تومان از هر مشتری خود در هر روز» ("up to 100M toman per
+    customer per day").
+- Current status: UNVERIFIED.
+
+### 5.7 Direct bank PSP gateways and Digipay
+
+A direct PSP gateway is a contract with one of Shaparak's 12 PSPs (section 5.11), not a
+facilitator. Most PSP sites did not load from the research machine. Only `pec.ir` and
+`irankish.com` loaded live. The rest come from Wayback copies of their own pages, with the
+copy date.
+
+- **No PSP page shows a recurring or direct-debit API for merchants.** Sadad Informatics
+  (part of Bank Melli's group) lists «برداشت مستقیم» (direct withdrawal) as a product, with
+  no API, fees, or limits (Wayback, 2025-12-08).
+- **No page says a direct PSP merchant gets a higher payer cap than a facilitator
+  merchant.**
+  - The PSP pages repeat per-card caps. SEP's page (Wayback 2026-06-07) says: «طبق
+    الزامات بانک مرکزی هر کارت بانکی روزانه حداکثر 500 میلیون ریال می تواند تراکنش
+    الکترونیکی داشته باشد» ("per Central Bank rules, each card may make at most 500 million
+    rial of electronic transactions a day").
+  - Parsian's contract (1405) sets a per-merchant cap by type of business. It allows a
+    higher cap for business types that Shaparak permits, if the merchant implements
+    «تطبیق» (matching). INFERENCE: this means matching the card to the payer's national ID.
+- **Fees are lower but make no real difference at these amounts.**
+  - Parsian (`pec.ir/karmozd`, "last update 1404"): «0/02 درصد مبلغ خرید را تا سقف حداکثر
+    40 هزار ریال» ("0.02% of the purchase, up to 40,000 rial", that is 4,000 toman).
+  - Pasargad (Wayback 2025-10-03): up to 80,000 rial. The two pages disagree.
+  - No page says the gateway is free for merchants who bank at that bank.
+- **Contracts are heavier.**
+  - Pasargad: «تا اطلاع ثانوی امکان ارائه سرویس به متقاضیان حقیقی وجود ندارد» ("until
+    further notice, no service for natural persons"). So Pasargad is company-only.
+  - Parsian: a five-year contract, and technical docs by email after approval.
+  - Every PSP asks for e-Namad and company documents.
+- **API quality varies:**
+  - Pasargad: a public REST API on GitHub (`pep-ipg/Dorsa-IPG-pasargad`, last push
+    2026-08-15).
+  - Irankish: a public PDF guide (dated 1405/02/26), with modules that include Python.
+  - SEP: REST, with a 30-minute verify window and reverse within 50 minutes.
+  - Parsian: docs are not public.
+- **Data rule:** SEP's technical document v4.1 says: «پذیرنده به هیچ وجه مجاز به ذخیره
+  شماره کارت نیست. فقط مقدار هش شده ...» ("the merchant is never allowed to store the card
+  number; only the hashed value ..."). This supports section 7.4.
+- **Behpardakht Mellat, Asan Pardakht, Sadad PSP:** not loaded, and no usable archived
+  docs. UNVERIFIED.
+
+**Digipay (mydigipay.com). Live site timed out. Wayback copies of 2026.**
+
+- Its gateway routes each payment to several PSPs. INFERENCE: it is a facilitator-type
+  layer.
+- Its credit products (BNPL, loans) are for **consumers**: «هر مشتری می‌تواند تا سقف 200
+  میلیون تومان وام و 20 میلیون تومان اعتبار دریافت کند» ("each customer can get up to a
+  200M toman loan and 20M toman credit") (Wayback 2026-08-31).
+- The merchant gets the full price minus a fee, and does not carry the default risk.
+- One marketing sentence mentions B2B installment credit. There is no product page, limit,
+  or terms. UNVERIFIED.
+- A FAQ category named «پرداخت مستقیم» exists, but its answers were not archived.
+  UNVERIFIED.
+
+### 5.8 Direct debit (پرداخت مستقیم)
+
+Direct debit means the payer signs an electronic mandate once. The merchant can then take
+money from the payer's bank account, within limits, without the payer entering a gateway
+each time.
+
+- **ZarinPal:** removed (section 5.1). The docs index (built 2026-09-15) has 0 results for
+  «پیمان», "payman" and "direct debit". `/docs/directDebit/` redirects.
+- **Zibal:** none found. Its blog post on direct debit returned 504 again. None of the
+  three API specs has direct debit.
+- **Vandar:** a full, documented API (`docs.vandar.io/direct_debit_service/...`).
+  - To create a mandate you send `bank_code`, `mobile`, `count` (withdrawals per month),
+    `limit` (rial per withdrawal), and `expiration_date`. Optional: `daily_limit` and
+    `national_code`.
+  - «هر کاربر مجاز به ایجاد یک قرارداد فعال نزد هر بانک به ازای هر کسب و کار» ("each user
+    may have one active mandate per bank per business").
+  - Withdrawals are closed from 23:00 to 06:00.
+  - Onboarding: pre-register, a sales call, then a contract.
+  - **Per-bank limits come from its bank-list API.** The docs show an example response in
+    rial. For instance:
+    - Tejarat: `"max_withdrawal_amount": 1000000000` (100M toman per day), but
+      `"max_withdrawal_amount_per_transaction": 10000000` (1M toman per withdrawal);
+    - Post Bank: 100,000,000 rial (10M toman) for both.
+    These are example values. The live values come from the API.
+- **Jibit:** priced (2% up to 7,500 toman per debit). No docs loaded. UNVERIFIED.
+- **Payman (paymanpay.ir)**, a company that does only direct debit:
+  - It says it serves «بیش از ۱4۰ کسب‌وکار» (140+ businesses) across 13 banks.
+  - On limits: «این سقف، به‌طور کلی به سیاست‌های بانک و کسب‌وکار مد نظر شما ارتباط دارد»
+    ("the cap depends on the bank's and the business's policy"). No number is published.
+  - The payer needs a card and a mobile number registered to the same national ID.
+  - Its CEO, on Payman's own blog: «پیمان، از یک زیرساخت غیرمتمرکز و خارج از شبکه پرداخت
+    کشور (شاپرک) استفاده می‌کند» ("Payman uses a decentralized infrastructure outside the
+    national payment network, Shaparak").
+- **No Shaparak or Central Bank rule on direct debit was found.** Limits for direct debit
+  are UNVERIFIED at the regulator level.
+
+INFERENCE, why direct debit does not fit Homayar's large renewals:
+
+- The mandate belongs to a **person**, identified by national ID, card, and mobile. A
+  company paying from its own account does not fit this model.
+- The only limits seen are small: 1M to 10M toman per withdrawal in most of Vandar's
+  examples.
+- The public use cases are small consumer debits.
+
+It could fit a small monthly plan paid by a sole trader, if a provider confirms the limits.
+
+### 5.9 Payment links, online invoices, and installment credit
+
+- **Payment links:**
+  - ZarinPal's ZarinLink: «این سرویس حسب دستور بانک مرکزی، موقتاً غیرفعال است» ("this
+    service is temporarily disabled by order of the Central Bank") (`zarinpal.com/zarinlink`).
+  - Zibal: «لینک پرداخت شخصی ارائه نمی‌شود» ("no personal payment links") (`zibal.ir/ipg`).
+  - Vandar's payment form (up to 50M toman) and PayPing's invoices still appear on their
+    sites.
+  - The Central Bank order itself was not found. UNVERIFIED.
+  - A Central Bank rule of 1397 (Wayback copy of `cbi.ir/page/18213.aspx`) says a
+    facilitator may serve an internet payment only when the request comes from the address
+    registered for the merchant. INFERENCE: this may be why links were suspended.
+  - For Homayar, links would not help anyway. They carry the same card caps as the gateway.
+- **Installment credit (BNPL):**
+  - Digipay, SnappPay, and ZarinPal's «زرین پلاس» (Zarin Plus) are consumer credit, from
+    20M to 50M toman per person, with bank loans up to 100M to 200M toman.
+  - SnappPay's and Digipay's "organizational" products are credit an **employer gives its
+    staff**. They are not credit for a company that buys from a vendor.
+  - No provider page offers credit to a company that buys SaaS.
+  - Supply-chain factoring exists (for example scfinance.ir), but it has no public fees
+    and targets goods. UNVERIFIED for SaaS.
+  - INFERENCE: installments for Homayar's buyers should be a schedule in the contract, each
+    part paid by invoice (section 7).
+
+### 5.10 Identified deposits: making the invoice path automatic
+
+An identified deposit (واریز شناسه‌دار) is a bank transfer that carries a deposit ID
+(شناسه واریز). Homayar puts a unique ID on each pre-invoice. The buyer adds it to the PAYA
+or SATNA transfer. A service then reports each incoming deposit with its ID, so it can be
+matched to the invoice without a person checking the bank statement.
+
+| Provider | What it says | Fee | Needs |
+| --- | --- | --- | --- |
+| Zibal corporate banking (بانکداری شرکتی) | Deposits are identified «از طریق شناسه، شماره شبا یا کارت مبدا» (by deposit ID, source IBAN, or source card), from any bank. API: `GET /ebank/v1/account/identified-payment/list/` returns amount, `paymentId`, `sourceIban`, `refCode`; `change-status` confirms or rejects (a reject returns the money) ([EBank spec]). | 0.03% per transfer; «فعال‌سازی از ۳۰٬۰۰۰٬۰۰۰ تومان» ("activation from 30M toman"); plus 10% VAT (`zibal.ir/pricing`) | «تنها برای کسب‌وکارهای حقوقی امکان‌پذیر است» ("only for legal-entity businesses"); activation «بین ۲ تا ۲۰ روز کاری» (2 to 20 working days) (`zibal.ir/ebank`) |
+| Jibit | «بدون محدودیت در مبلغ تراکنش» (no amount limit) | 0.03%, min 3,000 toman per deposit; adding an account 10M toman; plus VAT (`jibit.ir/pricing/`) | a company account (Wayback FAQ); API docs did not load |
+| Vandar Avand (بانکداری تعبیه‌شده, embedded banking) | «بدون محدودیت مبلغ» (no amount limit), via PAYA and SATNA; a webhook for deposits (`vandar.io/cashin-code/`, `docs.vandar.io/avand_service/...`) | 0.02%, from 2,000 to 15,000 toman (`vandar.io/avand/`); whether it applies to incoming deposits is unclear | «صرفا ... حساب بانکی متعلق به کسب‌وکار حقوقی» ("only an account owned by a company"); 4 to 20 working days; forms at a bank branch |
+
+- INFERENCE: incoming deposits must be polled at Zibal, because its spec has a webhook only
+  for outgoing transfers.
+- Finnotech sells a bank-statement API for reconciliation. Its price is not public. It is
+  an option for matching deposits on the company's own bank account.
+- **This is the tool that makes invoice plus bank transfer workable at scale.** It also
+  keeps card data out of the invoice path, because no card is used.
+
+### 5.11 What the regulator's pages show
+
+Shaparak and Central Bank sites did not load from the research machine. These facts come
+from Wayback copies of the official pages, with the copy dates.
+
+- **Shaparak's active facilitator list** (Wayback, 2026-02-18 and 2026-02-27, of
+  `shaparak.ir/fa/companies/pardakhtyar`):
+  - The page shows `total: 21` companies «فعال دارای موافقتنامه معتبر» ("active, with a
+    valid agreement"). Only the first page (12 names) was archived.
+  - **Zibal is on it:** «راهکار نوین زیبال فعال ... تاریخ پایان اعتبار : 1405/05/27»
+    ("Zibal, active, validity end date 1405/05/27").
+  - ZarinPal, Vandar, Jibit, PayPing, and the others were not on the archived page. They
+    may be among the 9 names that were not archived. Their status on Shaparak's list is
+    **UNVERIFIED**, not negative.
+  - INFERENCE: Zibal's listed validity date (1405/05/27, about 2026-08-18) has passed.
+    Whether it was renewed is UNVERIFIED (section 9).
+  - An older list (Wayback, 2021) had about 98 names, including ZarinPal, IDPay, NextPay,
+    Jibit, PayPing, Digipay, and Zibal.
+- **Shaparak's PSP list** (Wayback, 2026-02-27) has 12 PSPs: Pasargad, Saman (SEP), Novin
+  Arian, Parsian, Sadad, Faraprdazan Arvand Omid, Fanava Card, Sepehr, Irankish,
+  Behpardakht Mellat, Electronic Card Damavand, and Asan Pardakht.
+- **The card cap belongs to the payer:** circular 22848/03 of 1403 (section 5.5).
+- **"Using the tool abroad" is a violation.** A Central Bank procedure for merchant
+  violations, approved 1403/12/19, lists this as item 2-4: «انتقال ابزار پذیرش به خارج از
+  کشور و یا استفاده از ابزار پذیرش در خارج از کشور» ("moving the acceptance tool abroad, or
+  using it abroad").
+  - The penalties include disabling the gateway and a blacklist.
+  - It was read from a copy hosted by Vandar (`vandar.io/blog/wp-content/uploads/2025/05/`),
+    not from cbi.ir. So it is SECONDARY hosting of a Central Bank text.
+  - It does not mention hosting. INFERENCE: it supports precondition 1 (section 3).
+- **Direct debit and payment links:** no official rule was found. UNVERIFIED.
+
 ## 6. Comparison
 
-| Item | ZarinPal | Zibal |
-| --- | --- | --- |
-| Flow | request, hosted page, callback, verify | the same |
-| Docs on 2026-09-27 | live and server-rendered; sandbox with any UUID | help site timed out; OpenAPI files on `api.zibal.ir` loaded |
-| Official Python SDK | yes, young (2025), Python 3.12 or newer | no maintained one (2019 sample, 2020 PyPI) |
-| Fee | 0.5% capped at 16,000 toman, plus 500 toman; VAT not stated | 1% capped at 20,000 toman, plus 10% VAT; minimum about 2,000 toman (INFERENCE) |
-| Fee on a catalog-size payment, 37.6M to 94.3M toman (arithmetic; section 5.5) | 16,500 toman (the cap is reached above 3.2M toman); VAT on the fee UNVERIFIED, so up to 18,150 toman if 10% VAT applies | 22,000 toman with VAT (the cap is reached above 2M toman) |
-| Fee on a 100M to 200M toman payment | not possible (above the cap) | 22,000 toman with VAT |
-| Maximum per payment | 100,000,000 toman (live) | 200,000,000 toman (Wayback, 2026-05-14); may be set lower per merchant |
-| Payments that fit (section 5.5) | Starter monthly and 14 add-ons, at the display rate | the same, plus 4 add-ons between 100M and 200M toman |
-| Settlement | next day; pages disagree on the hour | next business-day morning; terms say 1 to 3 business days |
-| Automatic recurring | not in live docs; old "Payman" removed; UNVERIFIED | not documented; UNVERIFIED |
-| Refund | free reverse within 30 minutes; later refund only through an undocumented GraphQL call | refund API with partial refunds and no time limit, but needs paid corporate banking |
-| Data returned | masked card, SHA256 card hash, ref_id | masked card, ref number; hash in lazy mode; mobile in reports |
-| IP rules | registered IPs required since 2026-09-06; at most 5 | registered IPs required; IPs outside Iran refused (archived article) |
-| Domain rules | callback and referrer must match the registered domain | callback and referer must match; Referer header required |
-| Merchant needs | ID or company documents; e-Namad "a necessity" (blog) | e-Namad, tax tracking code, business license |
-| Foreign cards | no (Shetab only, INFERENCE) | no (Shetab only, INFERENCE) |
-| Reconciliation API | GraphQL with OAuth2 token | REST reports with Bearer token |
-| Status page | returned 502 | empty shell |
+**Table 1: providers that are active and could be used.** IDPay, Pay.ir, and NextPay are
+left out (section 4). Digipay is left out because its gateway is a layer over PSPs and its
+credit is for consumers (section 5.7).
 
-**The fee does not decide the pick.** At catalog-size amounts, both fees are flat at their
-caps. The gap is at most 5,500 toman per payment, which is under 0.006% of a 94.3M-toman
-Starter payment. If ZarinPal also adds 10% VAT to its fee, the gap is 3,850 toman.
+| Item | ZarinPal | Zibal | Vandar | Jibit | PayPing | Direct PSP (SEP, Pasargad, Parsian, Irankish) |
+| --- | --- | --- | --- | --- | --- | --- |
+| On Shaparak's archived active list (Feb 2026) | not on the archived page (UNVERIFIED) | **yes**, validity to 1405/05/27 | not on the archived page (UNVERIFIED) | not on the archived page (UNVERIFIED) | not on the archived page (UNVERIFIED) | all four on the PSP list |
+| Max per payment | **100M toman** (live) | **200M toman** (Wayback 2026-05-14); may be set lower per merchant | 50M or 100M toman (pages disagree) | UNVERIFIED | 50M toman | per contract; payer card caps apply |
+| Gateway fee at catalog amounts | 16,500 toman (VAT unknown) | 22,000 toman with VAT | up to 15,000 toman | up to 10,000 toman, plus VAT | up to 5,500 toman, plus VAT | up to 4,000 or 8,000 toman |
+| Docs reachable on 2026-09-28 | **yes**, full; sandbox with any UUID | OpenAPI files yes; help site timed out | **yes**, full; sandbox on request | no (all three docs hosts timed out) | yes, OpenAPI file; sandbox "soon" | Pasargad and Irankish yes; Parsian private; SEP archived |
+| Direct debit | removed | none found | **yes, full API** | priced; docs UNVERIFIED | no (scheduled invoices) | none found |
+| Identified deposits (section 5.10) | none found | **yes**, public API spec; company only; activation from 30M toman | **yes** (Avand); company only; branch forms | **yes** (marketing and price list); API UNVERIFIED | none found | not offered by the gateway |
+| Refund after the short reverse window | undocumented GraphQL call | documented API, needs corporate banking | documented API | offered; API UNVERIFIED | reverse within 30 minutes only | varies; Parsian has an online refund service |
+| Payment links | suspended by Central Bank order | not offered | payment form up to 50M toman | not found | yes, invoice API | no |
+| Data returned on verify | masked card, SHA256 hash | masked card; hash in lazy mode | masked card, SHA256 hash, mobile | UNVERIFIED | masked card, hash | masked card, hash (SEP, Pasargad, Irankish) |
+| Needs | e-Namad (blog); company or personal documents | e-Namad, tax code, licence | e-Namad, tax code | e-Namad, tax code | company registration | e-Namad, company documents; Pasargad company-only |
+
+**Table 2: patterns for Homayar's sales.**
+
+| Pattern | One payment above 200M toman | Monthly renewals | Company buyer | Status today |
+| --- | --- | --- | --- | --- |
+| Card gateway (any provider) | no (caps) | yes, if under the cap, with a reminder each period | yes, but an employee pays with a personal card | works |
+| Direct debit | no (small per-bank limits) | only small amounts | no (mandate is tied to a person's national ID) | Vandar live; Jibit and Payman unverified |
+| Payment link | no (same caps) | no | yes | suspended at ZarinPal; not at Zibal |
+| BNPL or credit | no | no | no (consumer and staff credit only) | not for B2B |
+| Split payment | only with written provider approval, and the payer's daily caps still apply | no | yes | not recommended |
+| **Invoice + bank transfer + identified deposit** | **yes** (PAYA or SATNA orders; no amount limit claimed by Jibit and Vandar) | yes (one invoice per period) | **yes** (paid from the company's own account) | works; needs a company bank account and a service |
+
+**The gateway fee does not decide the pick.** At catalog-size amounts, every gateway fee
+is flat at its cap. The fees run from about 4,000 to 22,000 toman per payment. That is
+under 0.03% of even a 94.3M-toman Starter payment. ZarinPal's VAT on its fee is still
+unknown.
 
 **What decides the pick:**
 
-- the cap, and how many of Homayar's final rial prices fall between 100M and 200M toman;
-- how reliable the docs are (ZarinPal's loaded; Zibal's help site timed out twice);
-- the refund path (ZarinPal: free reverse within 30 minutes; Zibal: a documented refund
-  API that needs paid corporate banking).
+- the per-payment cap, for payments that go online;
+- whether the same provider can also match bank transfers (identified deposits);
+- whether the docs can be read, and how reliable they are;
+- the refund path;
+- regulatory standing (the Shaparak list).
 
 ## 7. Recommendation
 
-1. **Build the invoice path first (option D, first step).**
+1. **Build the invoice path first, and make it automatic with identified deposits.**
    - The flow is:
-     1. pre-invoice (پیش‌فاکتور), with the rial amount and how long it is valid;
+     1. pre-invoice (پیش‌فاکتور), with the rial amount, how long it is valid, and a unique
+        deposit ID (شناسه واریز);
      2. a contract or purchase order when the buyer needs one;
-     3. bank transfer (حواله, by SATNA or PAYA);
-     4. payment status recorded by an admin;
+     3. the buyer's bank transfer by PAYA or SATNA, carrying the deposit ID;
+     4. the identified-deposit service reports the deposit, and Homayar matches it to the
+        invoice (an admin can also record a payment by hand);
      5. the Moadian e-invoice.
-   - Installments are separate invoices on a schedule in the contract.
-   - It covers yearly plans, Enterprise, self-hosted licenses, and anything above the
-     gateway cap. At the display rate, that is most of the revenue (section 5.5).
+   - Installments are separate invoices on a schedule in the contract. No BNPL provider
+     serves company buyers (section 5.9).
+   - It covers yearly plans, Enterprise, self-hosted licenses, and anything above a card
+     cap. At the display rate, that is most of the revenue (section 5.5).
    - This follows WP18 step 5 (`docs/planning/work-packages/WP18/README.md:15`).
+   - **Buy** the deposit-matching service. Candidates:
+     - Zibal corporate banking: public API spec; activation "from 30M toman"; 0.03% per
+       transfer.
+     - Vandar Avand: docs loaded; forms at a bank branch; 0.02%.
+     - Jibit: docs did not load; 0.03%.
+     All three need a bank account owned by the company. Start with the manual admin
+     record, so the path works before the service is active (2 to 20 working days).
    - Why business buyers fit this path:
      - They need a full e-invoice for their tax credit (Moadian article 5(ب), section 5.3).
+     - They pay from a company account, which card gateways and direct debit do not
+       serve well (sections 5.5 and 5.8).
      - INFERENCE, no source: larger company and government buyers often pay by purchase
-       order or in installments, and government buyers may buy through their own
-       procurement channels. Government procurement was not researched (section 9).
-2. **Then add one gateway, through a provider adapter, for payments under its cap.**
-   - The choice rule is in section 1:
-     - ZarinPal if most online payments are at or under 100M toman;
-     - Zibal if many fall between 100M and 200M toman;
-     - invoice in every case above 200M toman.
-   - At the display rate, today's catalog fits ZarinPal for Starter monthly and 14
-     add-ons. Four add-ons fit only Zibal. Final rial prices can move items across these
-     lines.
-   - "Both at once" (option C) is not worth it at launch. It would double the merchant
-     onboarding, the secrets, the IP registration, and the reconciliation work. The two
-     APIs have the same shape, so a second provider is cheap to add later.
+       order or in installments. Government procurement was not researched (section 9).
+2. **Then add one online gateway, through a provider adapter, for payments under its cap.**
+   - **First choice: Zibal.** Reasons:
+     - the highest per-payment cap found (200M toman);
+     - it is on Shaparak's archived active list;
+     - the same corporate-banking account gives both identified deposits (item 1) and its
+       documented refund API;
+     - one provider, one contract, one IP registration, and one set of secrets for both
+       paths.
+     - Risks, to clear before signing (section 9):
+       - its help site timed out on both research days;
+       - its cap comes from an archived page;
+       - its Shaparak validity date (1405/05/27) has passed, and renewal is not confirmed;
+       - the activation cost of corporate banking.
+   - **Second choice: Vandar.**
+     - All of its docs loaded.
+     - It has a gateway, identified deposits, and the only direct-debit API that could be
+       read.
+     - Its gateway cap is 50M or 100M toman (its pages disagree), so fewer catalog items
+       fit online.
+     - It was not on the archived Shaparak page (UNVERIFIED).
+   - **Third choice: ZarinPal, as a gateway only.**
+     - It has the best gateway docs and a confirmed live cap of 100M toman.
+     - It has no identified-deposit product that was found, so deposit matching would need
+       a second provider or Finnotech.
+     - Its direct debit and payment links are off.
+   - **Not chosen for launch:**
+     - Jibit, because its docs did not load;
+     - PayPing, because of its 50M toman cap;
+     - direct PSP contracts, because they are heavier and lower fees make no real
+       difference here (section 5.7).
+     A direct PSP contract can be revisited if online volume grows.
+   - "Two providers at once" (option C) is not worth it at launch. It would double the
+     onboarding, the secrets, the IP registration, and the reconciliation work. The adapter
+     keeps a second provider cheap to add later.
    - Split payments (option G) only with the provider's written approval (section 5.5).
-3. **Subscriptions are prepaid periods.**
-   - A monthly plan under the cap is paid each month through the hosted page.
+3. **No direct debit, payment links, or BNPL at launch** (sections 5.8 and 5.9).
+   - Direct debit can be a later option for small monthly plans paid by a sole trader.
+     Vandar's API would be the first one to test.
+4. **Subscriptions are prepaid periods.**
+   - A monthly plan under the cap is paid each month through the hosted page, or by
+     invoice.
    - A yearly plan is paid by invoice, because no realistic yearly price fits one gateway
      payment (section 5.5).
    - Homayar sends reminders before the end of the period.
@@ -738,27 +1133,27 @@ Starter payment. If ZarinPal also adds 10% VAT to its fee, the gap is 3,850 toma
      becomes `EXPIRED`.
    - There are no automatic charges. The old terms promise automatic renewal
      (`content/legal/terms.md:19`), so they must change.
-4. **Self-hosted licenses are signed files checked offline (section 7.5).**
-5. **Iran only at launch.** Foreign sales wait for an owner decision and a lawyer
-   (section 9).
+5. **Self-hosted licenses are signed files checked offline (section 7.5).**
+6. **Iran only at launch** (owner).
 
 **What would change this recommendation:**
 
-- **Rial prices set low.** If most plans come in under 100M toman per payment and yearly
-  plans under about 8.3M toman per month, the gateway becomes the main path. The invoice
-  path then becomes the exception.
-- **Hosting.** If the API cannot run on an Iranian host with a fixed outbound IP, then
-  neither gateway fits (section 3, precondition 1). Every sale then goes through invoice
-  and bank transfer until that changes.
-- **Direct debit.** If ZarinPal publishes a working direct-debit API, add optional
-  automatic renewal for monthly plans under the cap. If Zibal documents one first, that
-  favors Zibal.
-- **Refunds.** If Homayar needs frequent refunds after 30 minutes, Zibal's documented
-  refund API may be worth the corporate-banking cost.
-- **Split payments.** If a provider approves in writing that one bill can be paid in
-  parts, the gateway can cover larger bills. The buyer's daily limits still apply.
-- **Merchant approval.** If ZarinPal refuses Homayar's business category, or its level
-  rules (error -16) block a new merchant for too long, choose Zibal.
+- **Rial prices set low.** If most plans come in under the gateway cap and yearly plans
+  under about 8.3M toman per month (ZarinPal) or 16.7M toman per month (Zibal), the gateway
+  becomes the main path.
+- **Zibal checks fail.** If its cap is lower, its licence was not renewed, or its corporate
+  banking is too costly, choose Vandar. Choose ZarinPal instead if gateway docs matter most
+  and deposit matching is bought elsewhere.
+- **Hosting.** If the API cannot run on an Iranian host with a fixed outbound IP, then no
+  gateway fits (section 3, precondition 1). The invoice path with identified deposits still
+  works, because the deposit service is polled from Homayar's side. INFERENCE: the deposit
+  service may have its own IP rules.
+- **Direct debit with higher limits.** If a provider confirms, in writing, limits that
+  cover Homayar's monthly prices for company payers, add optional automatic renewal.
+- **Split payments.** If a provider approves in writing that one bill can be paid in parts,
+  the gateway can cover larger bills. The payer's daily caps still apply.
+- **B2B credit.** If a provider offers credit to company buyers for SaaS, it could replace
+  contract installments.
 
 ### 7.1 How a gateway connects to this repository
 
@@ -768,8 +1163,9 @@ All of this is proposed work. Nothing here exists yet.
   - Step 5 says invoices and payment status come "before adding an eligible
     payment-service adapter" (`docs/planning/work-packages/WP18/README.md:15`).
   - This document follows that order:
-    1. invoices, manual payment status, and the admin view;
-    2. then the gateway adapter.
+    1. invoices with deposit IDs, manual payment status, and the admin view;
+    2. then the identified-deposit adapter (section 5.10);
+    3. then the gateway adapter.
   - The invoice path is needed first anyway, because most amounts are above the cap
     (section 5.5).
 - **Billing unit: organization or workspace? This is a decision to make, and it is open.**
@@ -793,8 +1189,9 @@ All of this is proposed work. Nothing here exists yet.
     - `invoice_id`, `plan_key`, `interval`;
     - `amount_rial` (integer), and the price source (see "Rial prices" below);
     - `method`: gateway or bank transfer;
-    - `provider` and `provider_ref` (the `authority`, the `trackId`, or the bank transfer
-      reference), unique together;
+    - `deposit_id` on the invoice: the unique شناسه واریز the buyer puts on the transfer;
+    - `provider` and `provider_ref` (the `authority`, the `trackId`, or the deposit
+      service's reference such as Zibal's `refCode`), unique together;
     - `status`, `ref_id`, `created_at`, `verified_at`, `recorded_by` (the admin, for a
       bank transfer).
 - **Plan prices.** `Plan` has no price columns (`saas_models.py:731-739`). Add monthly and
@@ -859,8 +1256,10 @@ All of this is proposed work. Nothing here exists yet.
     browser), before the provider returns the money;
   - compare payouts with the provider's payout data (ZarinPal GraphQL `Reconciliation`;
     Zibal checkout reports);
-  - match bank transfers against open invoices, using the payment reference on each
-    transfer and the company's bank statement. This is the main path, so it matters most.
+  - read the identified-deposit list (for example Zibal
+    `GET /ebank/v1/account/identified-payment/list/`) and match each deposit to the open
+    invoice with the same deposit ID. Flag a wrong amount or an unknown ID for an admin.
+    This is the main path, so it matters most.
   - ADR 0010 lists "invoice reconciliation" as not covered (line 70). This job fills that
     gap.
 - **Who may pay.** `Permission.BILLING_MANAGE` already exists
@@ -874,8 +1273,9 @@ All of this is proposed work. Nothing here exists yet.
     already lists (`infra/egress/allowlist.txt:10-13`):
     - for ZarinPal: `payment.zarinpal.com:443`, plus `next.zarinpal.com:443` only if the
       GraphQL reconciliation is used;
-    - for Zibal: `gateway.zibal.ir:443`, plus `api.zibal.ir:443` only if its report or
-      refund API is used.
+    - for Zibal: `gateway.zibal.ir:443`, plus `api.zibal.ir:443` for its reports,
+      refunds, and identified deposits;
+    - for Vandar, if chosen instead: `ipg.vandar.io:443` and `api.vandar.io:443`.
   - **The IP to register is not designed yet.**
     - ADR 0031's single `egress-proxy` with one route out describes the **on-premise**
       Compose file (`0031-egress-denial.md:50-57`).
@@ -898,7 +1298,7 @@ All of this is proposed work. Nothing here exists yet.
 - The container deployment can. It serves `/`, `/app/`, and `/api/v1/` from one origin
   through nginx (`docs/operations/deployment.md:5-10`). So the request and callback routes
   belong in FastAPI, for example `POST /api/v1/billing/payments` and
-  `GET /api/v1/billing/payments/zarinpal/callback`.
+  `GET /api/v1/billing/payments/{provider}/callback`.
 - The server that calls `request` and `verify` needs a **fixed outbound IP** registered
   with the provider (at most 5 for ZarinPal).
 - INFERENCE: for either provider, that server should be in Iran:
@@ -1012,13 +1412,14 @@ activation code found none):
 | Invoices and payments tables | Build | organization or workspace key is open; unique `(provider, provider_ref)` |
 | Plan prices, periods, grace, expiry | Build | extends `Plan` and `Subscription` (section 7.1) |
 | Renewal reminders and dunning emails | Build | dunning means reminders after a missed payment; uses the SMTP settings |
+| Identified-deposit service (deposit IDs, deposit list, confirm or reject) | Buy (Zibal corporate banking, Vandar Avand, or Jibit), plus a small adapter to build | section 5.10; needs a company bank account |
 | **Second:** hosted payment page, card entry, 3-D Secure, PIN | Gateway | the chosen provider's page |
 | Provider adapter (request, verify, inquiry, unVerified, reverse) | Build | thin HTTP client in FastAPI; skip the young SDKs |
 | Callback route | Build | FastAPI route on the app origin (section 7.2) |
 | SaaS egress proxy or NAT with a fixed Iranian IP | Build (deployment) | section 3, preconditions 1 and 2 |
 | Reconciliation job (payments and payouts) | Build | same pattern as ADR 0010 |
-| Admin views (payments, manual bank transfers, refunds) | Build | for option D and for refunds after 30 minutes |
-| Refunds after 30 minutes | Build (manual bank transfer) | the ZarinPal refund API is undocumented |
+| Admin views (invoices, deposits to match by hand, refunds) | Build | for the invoice path and for exceptions |
+| Refunds after the short reverse window | The chosen provider's refund API (Zibal and Vandar document one), or a manual bank transfer | ZarinPal's refund API is undocumented |
 | Moadian e-invoices | Buy | a trusted company (شرکت معتمد) or accounting software; details UNVERIFIED |
 | VAT calculation on invoices | Buy, with an accountant | rate and exemption UNVERIFIED |
 | Pre-invoice and contract for Enterprise | Build a simple template, or use accounting software | |
@@ -1030,8 +1431,8 @@ activation code found none):
 ## 8. What the website must show
 
 This section feeds the next website work unit. Items marked (law) come from e-commerce
-law articles 33 and 34. Items marked (Zibal) come from Zibal's terms. They apply only if
-Zibal is chosen. (e-Namad) marks the trust mark.
+law articles 33 and 34. Items marked (Zibal) come from Zibal's terms. Zibal is the first
+choice (section 7), so plan for them. (e-Namad) marks the trust mark.
 
 **Pages:**
 
@@ -1057,7 +1458,8 @@ Zibal is chosen. (e-Namad) marks the trust mark.
      - the rial amount and tax;
      - how long it is valid (law 33 هـ);
      - the bank account for the transfer;
-     - the payment reference to put on the transfer.
+     - the deposit ID (شناسه واریز) to put on the transfer, with a plain instruction:
+       "Put this ID on your PAYA or SATNA transfer so we can match your payment."
 3. **Online checkout (in the console, `/app/`), only under the cap:**
    - Step 1: choose a plan and a period. Hide "pay online" when the total is above the
      cap, and offer "request an invoice" instead.
@@ -1112,8 +1514,10 @@ For the owner (these decide the design):
 3. **Billing unit.** Should invoices and payments belong to the organization (as the
    blueprint says, `homayar-commercial-blueprint.md:438`) or to the workspace (as the
    code does, `saas_models.py:876-878`)? This is also an architecture decision.
-4. **Foreign customers.** Stay Iran-only at launch (recommended), or ask a sanctions lawyer
-   about a foreign entity or other routes? US customers look blocked (section 5.4).
+4. **Company bank account.** Which bank holds the company's account for identified
+   deposits? Zibal's activation takes 2 to 20 working days depending on the bank, and
+   Vandar needs forms at a branch (section 5.10). Customers outside Iran are out of scope
+   for launch (owner).
 5. **Merchant identity.** Which legal entity signs up with the provider (the terms name
    "KSF Company")? Does it already have e-Namad and a tax tracking code?
 6. **Domains.** Will the public site and the app share one host name? This affects the
@@ -1148,46 +1552,65 @@ For a lawyer:
 
 18. How article 37 and 38 withdrawal rights and the by-law exceptions apply to SaaS that
     starts at once, and to business buyers.
-19. Stripe and sanctions: confirm that Homayar cannot use Stripe, and what foreign sales
-    are allowed.
+19. Stripe and sanctions: confirm that Homayar cannot use Stripe. Any later foreign sales
+    need a sanctions review first (section 5.4).
 20. What is the status of any Iranian personal-data protection law, and what does it
     require for billing data? Not researched.
 
-For the provider, or Shaparak and the Central Bank (ask the chosen provider first):
+For Zibal, the first choice (ask before signing):
 
-21. **Per-card and per-person daily limits** for internet payments in 1405. The only
-    figure found (400M toman per person per day) comes from a ZarinPal blog post, not from
-    the Central Bank circular (section 5.5).
-22. **Split payments.** May one invoice be paid as several gateway payments under the cap?
-23. **Zibal's cap for Homayar.** Confirm 200M toman per payment live, and whether Zibal
-    would set a lower cap for Homayar's business category.
-24. **Using the gateway from abroad.** Does a server outside Iran count as "using the
-    acceptance tool abroad" (ZarinPal terms 4-1)? Does ZarinPal accept registered IPs
-    outside Iran? Zibal says no.
-25. Is direct debit ("Payman") still offered by ZarinPal, or offered by Zibal? At what fee,
-    and with which limits?
-26. What is ZarinPal's verify time window before the automatic return of funds?
-27. Is ZarinPal's GraphQL refund API supported for merchants? What are its fee and time
-    limit?
-28. Does a subdomain match the "registered domain" for callbacks?
-29. Is VAT added to ZarinPal's 0.5% fee?
-30. **Holding funds.** When may the provider hold, delay, or freeze settlement? ZarinPal's
+21. **Cap.** Confirm 200M toman per payment on a live page or in writing. Would Zibal set a
+    lower cap for Homayar's business category (section 5.5)?
+22. **Licence.** Shaparak's archived list shows Zibal's validity ending 1405/05/27. Was it
+    renewed (section 5.11)?
+23. **Corporate banking.** What does "activation from 30M toman" cover? Is there a yearly
+    fee? Which banks are supported? Is there a webhook for incoming identified deposits, or
+    must Homayar poll?
+24. **Refunds.** Does the refund API work for all transactions once corporate banking is
+    active? What is the fee?
+25. **Reliability.** Is there a status feed? The help site timed out on 2026-09-27 and
+    2026-09-28, and `status.zibal.ir` showed an empty page.
+26. **Servers abroad.** Do the gateway calls and the corporate-banking API calls both need
+    an Iranian IP?
+
+For Vandar, the second choice:
+
+27. What is the real gateway cap for a company merchant: 50M or 100M toman? What are the
+    live direct-debit limits per bank, and can a company account sign a mandate?
+
+For ZarinPal, if chosen as a gateway only:
+
+28. Is direct debit coming back? What is the verify time window? Is the GraphQL refund
+    API supported for merchants? Is VAT added to the 0.5% fee? Does a registered IP abroad
+    count as "using the acceptance tool abroad"?
+
+For any provider, or Shaparak and the Central Bank:
+
+29. **Payer daily limits in 1405.** The official figure found is 200M toman per person per
+    day (circular of 1403). A newer 400M figure comes only from a ZarinPal post and a news
+    site (section 5.5). What is the current circular?
+30. **Shaparak list.** Are Vandar, ZarinPal, Jibit and PayPing on the current list of
+    active facilitators? Only 12 of 21 names were archived (section 5.11).
+31. **Split payments.** May one invoice be paid as several gateway payments under the cap?
+32. **Callback domain.** Does a subdomain match the "registered domain" for callbacks?
+33. **Holding funds.** When may the provider hold, delay, or freeze settlement? ZarinPal's
     terms allow it to block an account, for example for use on unrelated domains (terms
-    4-4). They do not state rules for holding funds. Not researched for Zibal.
-31. **Disputes.** How does a card holder dispute a payment, through the provider or
+    4-4). Not researched for the others.
+34. **Disputes.** How does a card holder dispute a payment, through the provider or
     Shaparak? What must Homayar provide? Not researched.
-32. **Lead time and order.** How long do e-Namad, the tax tracking code, and merchant
-    approval take? In what order must they be done? Zibal's archived page says a no-star
-    e-Namad activates "within 20 minutes". Merchant review times were not found for
-    ZarinPal.
-33. **Provider outage.** Is there an official status feed or notice channel? Both status
-    pages were unusable on the read date. Until then, the checkout should show "online
-    payment is not available now; request an invoice" when the provider does not answer.
+35. **Lead time and order.** How long do e-Namad, the tax tracking code, the company bank
+    account forms, and merchant approval take? In what order? Zibal's archived page says a
+    no-star e-Namad activates "within 20 minutes".
+36. **Provider outage.** The checkout should show "online payment is not available now;
+    request an invoice" when the gateway does not answer. The invoice path does not depend
+    on the gateway.
+37. **Direct debit rules.** Is there a Central Bank or Shaparak rule for direct debit
+    limits? None was found (section 5.8).
 
 For the build (not open decisions, but not designed here):
 
-34. The audit events for payment verified, payment recorded by an admin, refund, and
-    license issued. They should use the existing audit pattern (ADR 0010 audits
+38. The audit events for payment verified, deposit matched, payment recorded by an admin,
+    refund, and license issued. They should use the existing audit pattern (ADR 0010 audits
     `usage.reconciled`, `0010-usage-ledger-and-reconciliation.md:45-47`).
 
 ## 10. Sources
@@ -1285,6 +1708,96 @@ own page, with the copy date.
 - https://www.law.cornell.edu/cfr/text/31/560.206 (mirror of the CFR text)
 - https://ofac.treasury.gov/media/928871/download?inline= (General License D-2, 87 FR 62003)
 - https://ofac.treasury.gov/sanctions-programs-and-country-information/iran-sanctions
+
+**Alternatives research (turn 3). All read 2026-09-28 unless a Wayback date is given.**
+
+Facilitators:
+
+- Vandar:
+  - https://vandar.io/faq/
+  - https://vandar.io/payment-gateway/
+  - https://vandar.io/pricing/
+  - https://vandar.io/direct-debit/
+  - https://vandar.io/cashin-code/
+  - https://vandar.io/avand/
+  - https://vandar.io/form/
+  - https://docs.vandar.io/ (`direct_debit_service/*`, `ipg_service/*`,
+    `avand_service/cash_in_by_code`)
+- Jibit:
+  - https://jibit.ir/
+  - https://jibit.ir/pricing/ ("به‌روزرسانی 1405")
+  - https://jibit.ir/refund/
+  - https://jibit.ir/internet-payment-gateway/
+  - Failed: https://docs.jibit.ir, https://developers.jibit.ir, https://napi.jibit.ir
+    (timeouts)
+- PayPing:
+  - https://payping.ir/faq/
+  - https://payping.ir/pricing/
+  - https://payping.ir/terms/
+  - https://docs.payping.ir
+  - https://statics.payping.ir/openapi.json
+- IDPay (read with an expired certificate): https://idpay.ir/faq,
+  https://idpay.ir/web-service/v1.1/
+- Pay.ir:
+  - DNS failed.
+  - Wayback copies of https://pay.ir/: 2024-09-12, 2025-09-07, 2026-02-18.
+- NextPay:
+  - Failed live.
+  - Wayback https://nextpay.org/ and /faq/ (2025-10-05).
+- Payman: https://web.paymanpay.ir/, /faq/, /api-reference/ (API PDF v1.6.3, dated
+  1405/04/01), /blog/news/asretarakonesh-interview-1405/
+- Finnotech: https://finnotech.ir/service/سرویس‌های-بر-پایه-حساب, https://finnotech.ir/pricing
+
+Zibal and ZarinPal, re-checked:
+
+- https://zibal.ir/ebank
+- https://zibal.ir/ebank/deposit
+- https://api.zibal.ir/static/helpdocs/ebank.json
+- https://www.zarinpal.com/docs/mcp (search for direct debit: 0 results)
+- Failed: https://zibal.ir/blog/direct-debit/ (504; no Wayback copy)
+
+Bank PSPs and Digipay:
+
+- Parsian:
+  - https://pec.ir/karmozd
+  - https://pec.ir/faq
+  - https://pec.ir/uploads/1/2026/Aug/22/ (the merchant contract PDF, 1405)
+- Irankish:
+  - https://www.irankish.com/page/faq
+  - https://www.irankish.com/App_Data_Public/IPG/IPG_TechnicalGuide.V11.pdf
+- Pasargad:
+  - https://github.com/pep-ipg/Dorsa-IPG-pasargad
+  - Wayback pep.co.ir/ipg/ and /wage/ (2025-10-03)
+- SEP:
+  - Wayback sep.ir internet-gateway page (2026-06-07)
+  - Wayback SEP merchant technical document v4.1 (archive of 2025-07-02)
+- Sepehr: Wayback sepehrpay.com news and FAQ (2024)
+- Sadad: Wayback sadad.co.ir (2025-12-08)
+- Digipay: Wayback mydigipay.com pages (2026-02 to 2026-09), including
+  /developers/docs/upg/
+- SnappPay: https://snapppay.ir/, https://snapppay.ir/merchant-acquisition/
+- Failed or not usable:
+  - behpardakht.com (timeout, no captures since 2022)
+  - asanpardakht.ir (HTTP 550)
+  - sadadpsp.ir (timeout)
+  - mydigipay.com live (timeout)
+
+Regulator pages (Wayback copies of official pages; the live sites timed out):
+
+- https://www.shaparak.ir/fa/companies/pardakhtyar (2026-02-18 and 2026-02-27)
+- https://shaparak.ir/fa/companies/psp (2026-02-27)
+- https://cbi.ir/showitem/29680.aspx (2025-04-18), circular 22848/03 of 1403/02/04
+- https://cbi.ir/showitem/24156.aspx (2025-03-24), commercial-account rule of 1401
+- https://www.cbi.ir/showitem/22624.aspx (2024-09-18), SATNA and PAYA limits of 1400
+- https://www.cbi.ir/page/18213.aspx (2022-05-09), facilitator rules v3.0 of 1397
+- Central Bank procedure for merchant violations (approved 1403/12/19), read from the copy
+  at https://vandar.io/blog/wp-content/uploads/2025/05/ (SECONDARY hosting)
+- Failed live: shaparak.ir, cbi.ir, enamad.ir, intamedia.ir, tax.gov.ir (timeouts)
+
+Secondary (support only):
+
+- ZarinPal blog posts on SATNA and PAYA (2026)
+- etemadonline.com and news snippets on the circular of 10 Esfand 1404
 
 **Secondary** (support only; they carry no claim alone): news sites on the 1405 VAT rate
 (entekhab.ir, eghtesadonline.com, nabzgheymat.ir); blogs on invoice types (yassystem.com,
