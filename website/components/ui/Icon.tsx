@@ -1,0 +1,78 @@
+import type { LucideIcon, LucideProps } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Bot,
+  Check,
+  Cloud,
+  Download,
+  EyeOff,
+  FileText,
+  Gauge,
+  Globe,
+  Home,
+  Layers,
+  LayoutDashboard,
+  Lock,
+  Mail,
+  Menu,
+  Mic,
+  Phone,
+  Scale,
+  Server,
+  Shield,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  TrendingUp,
+  Upload,
+  Users,
+  X,
+  CircleHelp,
+} from "lucide-react";
+
+export const icons = {
+  activity: Activity,
+  alert: AlertTriangle,
+  arrowLeft: ArrowLeft,
+  arrowRight: ArrowRight,
+  book: BookOpen,
+  bot: Bot,
+  check: Check,
+  cloud: Cloud,
+  download: Download,
+  eyeOff: EyeOff,
+  file: FileText,
+  gauge: Gauge,
+  globe: Globe,
+  home: Home,
+  layers: Layers,
+  layout: LayoutDashboard,
+  lock: Lock,
+  mail: Mail,
+  menu: Menu,
+  mic: Mic,
+  phone: Phone,
+  scale: Scale,
+  server: Server,
+  shield: Shield,
+  shieldCheck: ShieldCheck,
+  sparkles: Sparkles,
+  trash: Trash2,
+  trend: TrendingUp,
+  upload: Upload,
+  users: Users,
+  x: X,
+  help: CircleHelp,
+} satisfies Record<string, LucideIcon>;
+
+export type IconName = keyof typeof icons;
+
+/** Decorative icon. Hidden from assistive tech; the visible text next to it carries the meaning. */
+export function Icon({ name, ...props }: { name: string } & LucideProps) {
+  const Cmp = (icons as Record<string, LucideIcon>)[name] ?? CircleHelp;
+  return <Cmp aria-hidden="true" focusable="false" strokeWidth={1.75} {...props} />;
+}
