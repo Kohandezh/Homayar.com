@@ -214,6 +214,7 @@ class IngestionSourceType(str, enum.Enum):
     EXTERNAL_RECORDING_URL = "external_recording_url"
     OFFLINE_FOLDER_WATCHER = "offline_folder_watcher"
     API = "api"
+    VOICEMAIL = "voicemail"
 
 
 class IngestionStatus(str, enum.Enum):

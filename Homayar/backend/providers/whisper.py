@@ -30,6 +30,8 @@ class LocalWhisperProvider(ASRProvider):
         compute_type: str = "default",
         model: Optional[Any] = None,
         model_factory: Optional[ModelFactory] = None,
+        local_files_only: bool = False,
+        model_path: Optional[str] = None,
     ) -> None:
         if not model_name.strip() or not device.strip() or not compute_type.strip():
             raise ValueError("Whisper model, device, and compute type are required")
@@ -41,6 +43,11 @@ class LocalWhisperProvider(ASRProvider):
         self._model = model
         self._model_factory = model_factory
         self._model_lock = threading.Lock()
+        # Offline runtime: load weights only from the local cache/``model_path``
+        # (verified against the manifest's artifacts by preflight); never
+        # download at runtime.  Neither changes the model identity.
+        self._local_files_only = local_files_only
+        self._model_path = model_path.strip() if model_path and model_path.strip() else None
 
     def identity(self) -> ProviderIdentity:
         # The compute type changes the numerics of the transcript; the device
@@ -61,11 +68,20 @@ class LocalWhisperProvider(ASRProvider):
                     from faster_whisper import WhisperModel
 
                     factory = WhisperModel
-                self._model = factory(
-                    self._model_name,
-                    device=self._device,
-                    compute_type=self._compute_type,
-                )
+                kwargs: dict[str, Any] = {
+                    "device": self._device,
+                    "compute_type": self._compute_type,
+                }
+                if self._local_files_only:
+                    kwargs["local_files_only"] = True
+                source = self._model_path or self._model_name
+                if self._model_path is not None and not Path(self._model_path).is_dir():
+                    raise ProviderError(
+                        "asr_model_missing",
+                        "The local Whisper model directory is not present",
+                        retryable=False,
+                    )
+                self._model = factory(source, **kwargs)
         return self._model
 
     def _transcribe_sync(self, request: ASRRequest) -> ASRResult:

@@ -1411,6 +1411,31 @@ def _finalize_unclaimable_job(
         return job.state.value
 
 
+def _run_voicemail_hook(
+    claim: ClaimedJob, *, settings: Settings, failure_reason: str | None
+) -> None:
+    """Voicemail follow-up (P0 wave) after the job's outcome is committed.
+
+    Its own tenant-bound transaction and best effort: the pipeline is
+    idempotent per transcript revision, so a fault here never changes the
+    job's outcome.  Meetings that are not voicemails are a no-op.
+    """
+    from backend.voicemail.pipeline import on_processing_failed, on_transcript_ready
+
+    try:
+        with get_session_factory()() as db:
+            bind_tenant_context(db, workspace_id=claim.workspace_id)
+            if failure_reason is None:
+                on_transcript_ready(db, claim.meeting_id, settings=settings)
+            else:
+                on_processing_failed(db, claim.meeting_id, reason=failure_reason)
+            db.commit()
+    except Exception:
+        logger.exception(
+            "VOICEMAIL_PIPELINE_FAILED job_id=%s meeting_id=%s", claim.job_id, claim.meeting_id
+        )
+
+
 def _delete_audio_after_success(
     claim: ClaimedJob,
     *,
@@ -1954,6 +1979,7 @@ def process_job(
                 storage=active_storage,
                 settings=settings,
             )
+            _run_voicemail_hook(claim, settings=settings, failure_reason=None)
         return {"job_id": job_id, "status": result}
     except Exception as exc:
         error = _classify_exception(exc, job_id=job_id)
@@ -1978,4 +2004,5 @@ def process_job(
     )
     if outcome in {"retry_scheduled", "cancelled", "superseded"}:
         return {"job_id": job_id, "status": outcome, "code": error.code}
+    _run_voicemail_hook(claim, settings=settings, failure_reason=error.code)
     return {"job_id": job_id, "status": "failed", "code": error.code}

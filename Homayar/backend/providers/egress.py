@@ -76,8 +76,10 @@ def _address(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
 def validate_endpoint(url: str, *, kind: str | None) -> str | None:
     """Why ``url`` cannot be an AI endpoint of this kind, or ``None``.
 
-    ``kind`` is ``cloud``, ``private`` or ``None`` (only the checks that hold
-    for every endpoint)."""
+    ``kind`` is ``cloud``, ``private``, ``local`` (offline deployment profile:
+    loopback, private addresses and internal names only, see
+    ``is_local_host``) or ``None`` (only the checks that hold for every
+    endpoint)."""
     parts = urlsplit(url.strip())
     if parts.scheme not in {"http", "https"} or not parts.hostname:
         return "an endpoint is an HTTP(S) URL with a host"
@@ -103,4 +105,35 @@ def validate_endpoint(url: str, *, kind: str | None) -> str | None:
             address.is_private or address.is_loopback or not address.is_global
         ):
             return "a cloud endpoint is a public host"
+    if kind == "local" and not is_local_host(host):
+        return "an offline deployment only reaches loopback, private or internal hosts"
     return None
+
+
+# Name suffixes that never resolve on the public DNS (RFC 6761/6762/8375 and
+# common on-premise conventions).  A name outside them is treated as public.
+_LOCAL_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa", ".intranet")
+
+
+def is_local_host(host: str) -> bool:
+    """Whether ``host`` is, by its spelling, on this machine or the private
+    network: loopback / RFC 1918 / ULA addresses, ``localhost``, single-label
+    names (container/service names) and reserved internal suffixes.  What a
+    name resolves to at request time remains the network layer's job."""
+    value = host.strip().lower().rstrip(".")
+    if not value:
+        return False
+    address = _address(value)
+    if address is not None:
+        if address in _METADATA_ADDRESSES or address.is_link_local:
+            return False
+        return address.is_loopback or address.is_private
+    if value in _METADATA_HOSTS:
+        return False
+    if value == "localhost" or "." not in value:
+        return True
+    return value.endswith(_LOCAL_SUFFIXES)
+
+
+def is_local_endpoint(url: str) -> bool:
+    return validate_endpoint(url, kind="local") is None

@@ -442,6 +442,31 @@ def require_write_permission(permission: Permission):
     return dependency
 
 
+def require_platform_operator(permission: Permission):
+    """Deployment-wide infrastructure (P0 wave): a workspace permission *and*
+    ``User.system_role == "operator"`` from a signed-in session.  API keys never
+    carry platform scope, so a tenant admin cannot act on shared nodes."""
+    write_dependency = require_write_permission(permission)
+
+    async def dependency(
+        context: WorkspaceContext = Depends(write_dependency),
+    ) -> WorkspaceContext:
+        if context.actor.api_key is not None or context.actor.user.system_role != "operator":
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "platform_operator_required",
+                    "message": "Platform operator required",
+                },
+            )
+        return context
+
+    dependency.homayar_permission = permission  # type: ignore[attr-defined]
+    dependency.homayar_write = True  # type: ignore[attr-defined]
+    dependency.homayar_platform = True  # type: ignore[attr-defined]
+    return dependency
+
+
 # --- organization scope (WP03-T03) ---------------------------------------------------
 
 
