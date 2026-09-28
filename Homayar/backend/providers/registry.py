@@ -38,6 +38,10 @@ from backend.providers.egress import validate_endpoint
 MANIFEST_SCHEMA = "homayar.model-manifests/1"
 BUILTIN_MANIFESTS = Path(__file__).resolve().parent / "manifests" / "builtin.json"
 STAGES = ("asr", "diarization", "intelligence")
+# Speech synthesis has manifests (local runtime, offline profile) but is not a
+# stage of the conversation-processing bundle: STAGES stays the processing set.
+TTS_STAGE = "tts"
+MANIFEST_STAGES = (*STAGES, TTS_STAGE)
 UNREGISTERED = "unregistered"
 
 Scalar = str | int | float | bool
@@ -78,12 +82,31 @@ class StructuredOutput(str, Enum):
     JSON_SCHEMA_STRICT = "json_schema_strict"
 
 
+class ModelArtifact(BaseModel):
+    """A local file or directory the model needs, pinned by SHA-256 (offline
+    artifacts).  ``path`` is relative to the deployment's artifact root; a
+    directory digest is ``providers.artifacts.directory_digest``."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(min_length=1, max_length=1024)
+    kind: Literal["file", "directory"] = "file"
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _relative(self) -> ModelArtifact:
+        parts = Path(self.path).parts
+        if Path(self.path).is_absolute() or ".." in parts or "\x00" in self.path:
+            raise ValueError("an artifact path is relative to the artifact root")
+        return self
+
+
 class ModelManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     manifest_id: str
     version: int = Field(ge=1)
-    stage: Literal["asr", "diarization", "intelligence"]
+    stage: Literal["asr", "diarization", "intelligence", "tts"]
     status: ManifestStatus
     provider: str = Field(min_length=1, max_length=128)
     model: str = Field(min_length=1, max_length=256)
@@ -99,6 +122,9 @@ class ModelManifest(BaseModel):
     offline_capable: bool
     structured_output: StructuredOutput = StructuredOutput.NONE
     notes: str | None = Field(default=None, max_length=500)
+    # Offline artifacts (local runtime); omitted from the canonical document
+    # when empty so manifests without artifacts keep their digest.
+    artifacts: list[ModelArtifact] = Field(default_factory=list, max_length=64)
 
     @model_validator(mode="after")
     def _consistent(self) -> ModelManifest:
@@ -130,6 +156,8 @@ class ModelManifest(BaseModel):
                 raise ValueError("a qualified manifest pins the model revision")
             if is_mutable_alias(self.model):
                 raise ValueError("a qualified manifest names a model, not a moving alias")
+        if self.artifacts and self.endpoint_kind is not EndpointKind.IN_PROCESS:
+            raise ValueError("only an in-process model declares local artifacts")
         return self
 
     @property
@@ -137,12 +165,15 @@ class ModelManifest(BaseModel):
         return manifest_digest(self)
 
     def document(self) -> dict[str, object]:
-        return self.model_dump(mode="json")
+        data = self.model_dump(mode="json")
+        if not data.get("artifacts"):
+            data.pop("artifacts", None)
+        return data
 
 
 def manifest_digest(manifest: ModelManifest) -> str:
     canonical = json.dumps(
-        manifest.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        manifest.document(), sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 

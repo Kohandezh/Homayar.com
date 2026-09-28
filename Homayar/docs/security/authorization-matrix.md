@@ -148,6 +148,8 @@ Teams of another workspace or inactive teams are `422 invalid_team`; non-members
 
 Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a permission from §3, with `+csrf` when the route is a cookie-authenticated write. Workspace routes additionally require an effective membership (§1) and, where the resource is a meeting, the record predicate (§5).
 
+`+operator` additionally requires `User.system_role = "operator"` from a signed-in session (never an API key): deployment-wide voice media nodes (P0 wave).
+
 <!-- matrix:routes:start -->
 | Method | Path | Policy |
 | --- | --- | --- |
@@ -252,6 +254,26 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | DELETE | /api/v1/organizations/{organization_id}/scope-grants/{grant_id} | organization:member:manage +csrf |
 | GET | /api/v1/organizations/{organization_id}/aggregates | organization:analytics:read |
 | GET | /api/v1/organizations/{organization_id}/records | organization:records:read |
+| GET | /api/v1/locations | meeting:read |
+| POST | /api/v1/locations | workspace:manage +csrf |
+| POST | /api/v1/locations/resolve | meeting:read |
+| POST | /api/v1/locations/nearest | meeting:read |
+| GET | /api/v1/locations/{location_id} | meeting:read |
+| PATCH | /api/v1/locations/{location_id} | workspace:manage +csrf |
+| DELETE | /api/v1/locations/{location_id} | workspace:manage +csrf |
+| POST | /api/v1/voice/calls | meeting:create +csrf |
+| GET | /api/v1/voice/calls/{session_id} | meeting:read |
+| POST | /api/v1/voice/calls/{session_id}/transitions | meeting:update +csrf |
+| GET | /api/v1/voice/capacity | meeting:read |
+| POST | /api/v1/voice/nodes | workspace:manage +csrf +operator |
+| POST | /api/v1/voice/nodes/{node_id}/heartbeat | workspace:manage +csrf +operator |
+| POST | /api/v1/voice/nodes/{node_id}/drain | workspace:manage +csrf +operator |
+| POST | /api/v1/voice/recover | workspace:manage +csrf +operator |
+| POST | /api/v1/voicemails | meeting:create +csrf |
+| GET | /api/v1/voicemails | meeting:read |
+| GET | /api/v1/voicemails/analytics | meeting:read |
+| GET | /api/v1/voicemails/{voicemail_id} | meeting:read |
+| PATCH | /api/v1/voicemails/{voicemail_id} | meeting:update +csrf |
 <!-- matrix:routes:end -->
 
 Notes on the public rows: `logout` and `refresh` authenticate through the refresh cookie/token they consume; the three `shares/{share_token}` routes are token-addressed and enforce the share contract in §6a on every request; `auth/google/callback` binds to the state cookie issued by `google/start`.

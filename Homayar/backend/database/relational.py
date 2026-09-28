@@ -134,7 +134,7 @@ def create_schema_for_test_or_development(settings: Settings | None = None) -> N
     if settings.environment not in {"test", "development"}:
         raise RuntimeError("Automatic schema creation is forbidden outside test/development")
     from backend.database.rls import apply_row_level_security
-    from backend.database.saas_models import Base
+    from backend.database.model_registry import Base
 
     admin_engine = build_engine(settings, app_role="")
     try:

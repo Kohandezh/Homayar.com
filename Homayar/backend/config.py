@@ -189,6 +189,26 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     local_ai_base_url: str = ""
+    # Offline weights (P0 wave): refuse runtime downloads and load a pinned
+    # local model directory whose artifacts the manifest declares.
+    whisper_local_files_only: bool = False
+    whisper_model_path: str = ""
+    model_artifact_root: str = ""
+    # Speech synthesis (P0 wave): "unavailable" (default), "piper" (local
+    # CLI) or "local_http" (private /v1/audio/speech).  tts_voices maps
+    # voice ids to model files: "id=path,id2=path2".
+    tts_provider: str = "unavailable"
+    tts_piper_binary: str = "piper"
+    tts_voices: str = ""
+    tts_default_voice: str = ""
+    tts_base_url: str = ""
+    tts_model: str = ""
+    # Voice runtime capacity admission (P0 wave, X21).
+    voice_deployment_profile: str = "default"
+    voice_global_call_limit: int = 200
+    voice_default_workspace_call_limit: int = 200
+    voice_node_heartbeat_ttl_seconds: int = 15
+    voice_slot_lease_seconds: int = 30
     # Model registry (WP08-T01, ADR 0026): operator manifest files (comma
     # separated, in addition to the builtin ones), per-stage pins
     # "stage=manifest_id@version" (restore a prior approved version) and
