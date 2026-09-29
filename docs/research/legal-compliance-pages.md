@@ -2,7 +2,7 @@
 
 Status: In Review
 
-Date: 2026-09-27. Revised 2026-09-28 for the owner's decision "The product will launch in Iran."
+Date: 2026-09-27. Revised 2026-09-28 for the owner's decision "The product will launch in Iran." Revised 2026-09-30 for review round 1.
 
 Author role: researcher (`legal-t1-res`), foreman research team `legal-t1`, mission `20260927-homayar-website`.
 
@@ -16,9 +16,9 @@ Homayar launches in Iran. The website needs a small, honest legal set in Persian
 
 Findings that shape the launch:
 
-1. **e-Namad comes first.** Zibal's own FAQ says it gives no payment gateway to a site without e-Namad [S39]. ZarinPal says the same on its own site [S84]. So the site must pass e-Namad before it can sell online. The official e-Namad page list could not be read (enamad.ir unreachable). **[PROVIDER]**
-2. **Iranian law has no data protection code, but it has hard rules.** E-Commerce Law Art 58 needs explicit consent to process data about a person's "psychological condition", with one to three years in prison for breaking it [S30]. Emotion scores of callers or agents may fall under it. Until an Iranian lawyer answers, do not launch voice-based emotion features. Constitution Art 25 forbids recording and disclosing phone calls "except by order of law" [S33]. We found no rule that allows or forbids a business recording its own calls with notice. **[LAWYER]**
-3. **Scores cannot fire anyone by themselves.** The Labour Law lets an employer end a contract for "failure in duties" only after written warnings and a positive opinion of the Islamic Labour Council (or the guild or the Board of Inquiry) (Art 27) [S83]. Homayar's scores are evidence for a human process, not a decision.
+1. **e-Namad comes first.** Zibal's own FAQ says it gives no payment gateway to a site without e-Namad [S39]. ZarinPal says the same on its own site [S84]. So the site must pass e-Namad before it can sell online. An archived official e-Namad FAQ (2022) says the gateway is cut off when the e-Namad file is cancelled [S87]. The e-Namad page list could not be read: enamad.ir was unreachable, and the requirements checklist is shown only to applicants. **[PROVIDER]**
+2. **Iranian law has no data protection code, but it has hard rules.** E-Commerce Law Art 58 needs explicit consent to process data about a person's "psychological condition", with one to three years in prison for breaking it [S30]. Emotion scores of callers or agents may fall under it. Art 58 binds whoever stores or processes the data. In SaaS that includes Homayar, so an indemnity from the customer may not protect Homayar (Inference, Section 4.1). Until an Iranian lawyer answers, do not launch voice-based emotion features. Constitution Art 25 forbids recording and disclosing phone calls "except by order of law" [S33]. We found no rule that allows or forbids a business recording its own calls with notice. **[LAWYER]**
+3. **Scores cannot fire anyone by themselves.** The Labour Law lets an employer end a contract for failure in the assigned duties, or for breaking the workplace disciplinary rules after written warnings, only with a positive opinion of the Islamic Labour Council (or the guild or the Board of Inquiry) (Art 27) [S83]. Staff of government-linked buyers may be under other employment rules (Section 4.2.4). Homayar's scores are evidence for a human process, not a decision.
 4. **A new Iranian AI law exists.** The Guardian Council approved the National AI Development bill on 1405/06/04 and said it can now be called a "law" [S81]. Secondary copies say it lists "ranking and labeling of persons" and "employment" as risk factors [S82]. The official text could not be read. Agent scoring may fall into a higher risk class. **[LAWYER]**
 5. **Government-linked buyers need AFTA.** AFTA's rules (version 1.0, 1398) say executive bodies must buy domestic enterprise software that holds AFTA's security evaluation certificate. They also put patch, vulnerability, and reporting duties on the vendor [S70, S71]. Homayar must not claim this certificate until it has one.
 6. **The old legal text describes a different company.** It names Stripe, USD prices, automatic renewal, website analytics, and security claims nobody has verified (`content/legal/terms.md:17-23`, `content/legal/privacy.md:7`, `content/legal/privacy.md:56-60`). Consumer Protection Law Art 7 bans false or misleading information [S31]. Rewrite the pages. Do not translate them.
@@ -85,7 +85,7 @@ Option C is phased: 11 pages at launch, 6 later.
 
 Sources are numbered [S1], [S2], and so on. Section 10 lists each URL with the date read. Text marked "Inference:" is our reading, not a quote.
 
-A note on archived copies: some official Iranian pages (AFTA, the Supreme Council of Cyberspace, SAMANDEHI, the Majlis Research Center) could not be reached live. For these we read copies saved by the Internet Archive (web.archive.org) of the official page. An archived copy proves what the official page said on that date. It does not prove the rule is still in force today.
+A note on archived copies: some official Iranian pages (AFTA, the Supreme Council of Cyberspace, SAMANDEHI, the Majlis Research Center, e-Namad) could not be reached live. For these we read copies saved by the Internet Archive (web.archive.org) of the official page. An archived copy proves what the official page said on that date. It does not prove the rule is still in force today.
 
 ### 4.1 Who is who: roles and data subjects
 
@@ -112,6 +112,8 @@ Roles per deployment (Inference):
 | Account data, login, audit logs | Homayar decides (and processes audit logs kept for the customer). | Customer decides. |
 | License, billing, and support contacts | Homayar decides. | Homayar decides. |
 | Website forms, bookings | Homayar decides. The email and hosting providers process for Homayar. | Same. |
+
+**The split above does not move Iranian criminal risk (Inference).** The table uses EU concepts. Iranian law does not have them. E-Commerce Law Art 58 makes "Storing, processing or distributing" psychological-condition data "without their explicit consent" illegal. Art 59 allows processing only "Upon the consent of the person" [S30]. Neither article names a party that processes for someone else. In SaaS, Homayar stores and processes the recordings and the scores. So Homayar may carry a direct duty under Art 58 and 59, and the Art 71 penalty (one to three years in prison), if the customer did not get consent. An indemnity from the customer (Section 4.5 item 8) can cover money. It does not cover criminal liability. This is why the terms need a customer warranty on consent (Section 4.5 item 7), and why a product gate before sentiment features run is worth considering. In self-hosted mode, Homayar does not store or process the data, so this risk stays with the customer. **[LAWYER]**
 
 **Hybrid mode is out of scope until it ships.** The blueprint plans "local ASR and redaction followed by cloud reasoning", opt-in per tenant (`docs/planning/homayar-commercial-blueprint.md:470`), and an optional management plane that receives "health/version/license counters only" (`docs/planning/homayar-commercial-blueprint.md:468`). Inference: in the cloud-reasoning mode, Homayar and the cloud AI providers would process the redacted text, so the processing terms and the subprocessor list would apply. The blueprint says "Redaction cannot guarantee anonymization" (`docs/planning/homayar-commercial-blueprint.md:470`).
 
@@ -145,6 +147,7 @@ Source: CPPO PDF [S31]. Verified on an official site.
 - «تبلیغات خلاف واقع و ارایه اطلاعات نادرست ... ممنوع می‌باشد» ("False advertising and giving wrong information ... is forbidden") (Art 7).
 - Late or partial performance means paying damages too (Art 19, Note).
 - Criminal liability falls on the CEO or managing director (Art 16, Note).
+- This law has no online withdrawal right. Inference: a business buyer is a "consumer" here but not under the E-Commerce Law (Section 4.2.1), so its refund rights come from the contract.
 
 Inference: Art 7 makes unverified claims a legal risk, not only a trust risk. This covers certifications, "AES-256", "third-party penetration testing", and a "works-council documentation pack" (`content/legal/privacy.md:56-60`, `src/app/faq/content.tsx:93`). It also covers any AFTA, ISO, or knowledge-based claim before it is real.
 
@@ -166,6 +169,7 @@ Inference: a leak of call recordings could fall under Art 17. Strong access cont
 - **Labour Law Art 27** (verified, Ministry of ICT copy of the 1369 text [S83]): «هرگاه کارگر در انجام وظائف محوله قصور ورزد و یا آئین نامه های انضباطی کارگاه را پس از تذکرات کتبی نقض نماید کارفرما حق دارد در صورت اعلام نظر مثبت شورای اسلامی کار ... قرارداد کاررا فسخ نماید» ("If a worker fails in the assigned duties, or breaks the workplace disciplinary rules after written warnings, the employer may end the contract if the Islamic Labour Council gives a positive opinion"). The employer pays one month of the last wage per year of service. Without a Council, the guild association must agree. Without either, the Board of Inquiry (هیات تشخیص) decides (Art 27 notes, Art 158). Unjustified dismissal means return to work with back pay (Art 165) [S83].
 - **The Labour Law has no article on employee privacy, monitoring, or call recording.** We searched the full text for the Persian words for privacy, private, monitoring, camera, recording, interception, inspection, secrets, confidential, personal, dignity. The only hits are unrelated (safety inspection, medical records in the personnel file, a secrecy duty of labour inspectors) [S83].
 - We read the original 1369 text. Later amendments were not checked. **[LAWYER]**
+- Staff of executive bodies may be under other employment rules (for example the Civil Service Management Law, which Section 4.4 cites for AFTA scope), not the Labour Law. Not researched. This matters for government-linked buyers' call-center agents. **[LAWYER]**
 
 #### 4.2.5 Personal data protection bill and other data laws
 
@@ -183,11 +187,19 @@ Inference: a leak of call recordings could fall under Art 17. Strong access cont
 
 #### 4.2.7 e-Namad, payment gateways, and SAMANDEHI
 
-- **Official e-Namad requirements: unverified.** enamad.ir and trustseal.enamad.ir timed out on both days.
+- **Official e-Namad page list: unverified.** enamad.ir and trustseal.enamad.ir timed out live on 2026-09-27 and 2026-09-28.
+- **Archived official e-Namad pages** (tried on 2026-09-30; newest copies are from 15 August 2022, so they prove what e-Namad said then, not today [S87, S88]):
+  - The FAQ lists the steps. One step is «بررسی چک لیست الزامات نماد اعتماد الکترونیکی» ("review of the e-Namad requirements checklist"). The FAQ says the checklist items are shown in the applicant's own panel (Q3.7). We found no public copy of the checklist. So the page list is still unverified.
+  - Address: the FAQ says every seller must give its postal address, citing «بند (ب) ماده 33 قانون تجارت الکترونیکی» (E-Commerce Law Art 33(b)) (Q3.2).
+  - The public e-Namad profile shows: business name, website, validity, performance record, date issued, response hours, services and licenses, the holder's name, business address, landline phone, and email (Q1.6).
+  - Gateway link, official: after the e-Namad file is cancelled, «درگاه پرداخت اینترنتی نیز قطع می گردد» ("the internet payment gateway is also cut off") (Q10.5).
+  - Validity is two years (Q1.2). A new e-Namad gets one star. Two to five stars come from a separate rating (Q14.2, and the rating page [S88]). This differs from the ZarinPal blog's description of levels [S41]; the archived official text wins.
+  - Showing the e-Namad image before it is issued counts as forging a government mark (Q1.5).
+  - An archived official page says a business doing a guild activity (فعالیت صنفی) also needs a virtual-store business license (پروانه کسب), and gets e-Namad only when that license is issued. Otherwise e-Namad is enough [S89]. Whether selling SaaS is a guild activity is not known. **[LAWYER]**
 - **Zibal** (verified, gateway's own site [S39]): «برای دریافت درگاه، داشتن اینماد معتبر، کد رهگیری مالیاتی به نام متقاضی و حداقل ۱۸ سال سن الزامی است» ("To get a gateway, a valid e-Namad, a tax tracking code in the applicant's name, and being at least 18 are required"). To "Is a gateway offered to sites without e-Namad?", it answers «خیر» ("No").
 - **ZarinPal** (verified, gateway's own site [S84]): «دریافت اینماد برای ساخت درگاه پرداخت زرین پال امری الزامیست» ("Getting e-Namad is required to create a ZarinPal payment gateway"). The same page quotes a Shaparak circular: «از سوم آذرماه، حین ثبت اطلاعات پذیرندگان جدید، اطلاعات ثبت شده در خصوص نماد اعتماد الکترونیکی نیز بررسی می گردد و از تخصیص پایانه به موارد نامنطبق جلوگیری به عمل خواهد آمد» ("From 3 Azar, when new merchants are registered, their e-Namad data is checked, and merchants that do not match get no terminal"). The Shaparak circular itself is **unverified** (shaparak.ir unreachable).
 - ZarinPal's terms forbid «استفاده از ابزار پذیرش در خارج از کشور» ("using the acceptance tool outside the country") and «اخذ هرگونه مبلغ اضافی از خریداران» ("charging buyers any extra amount") (clause 4-1). The gateway may be used only on the merchant's own domain (clause 4-4) [S40].
-- ZarinPal's blog (describing e-Namad, so secondary for e-Namad's rules [S41]) says e-Namad has three levels: no star (temporary), one star, and two stars; two stars need SSL. It says the physical address marked on the map is shown to site visitors, and that companies apply with the Official Gazette notice, articles of association, and the CEO's ID.
+- ZarinPal's blog (describing e-Namad, so secondary for e-Namad's rules [S41]) says e-Namad has three levels: no star (temporary), one star, and two stars; two stars need SSL. The archived official FAQ describes stars differently (see above). It says the physical address marked on the map is shown to site visitors, and that companies apply with the Official Gazette notice, articles of association, and the CEO's ID.
 - **SAMANDEHI** (ساماندهی, the website registration scheme of the Ministry of Culture): an archived official page from 2012 says «کلیه سایتها ... که دارای دامنه منحصر به فرد ( Domain ) می باشند، ملزم به تکمیل فرم ثبت نام در طرح ساماندهی سایتهای ایرانی می باشند» ("All sites ... that have their own domain must register in the Iranian websites organizing scheme") [S78]. The scheme runs under a Cabinet regulation since Dey 1385 [S78]. samandehi.ir itself returned 403 on 2026-09-28. The current scope and the seal to show are **unverified**. Inference: Homayar's own-domain site would fall under the 2012 wording. **[LAWYER]**
 
 Inference: Homayar needs e-Namad before it can take online payments. The site must then show the e-Namad seal, the company's identity, address, and contact details. **[PROVIDER]**: the e-Namad center must confirm the exact list of required pages.
@@ -209,10 +221,10 @@ This section rechecks the product rules for an Iran-only launch. The EU AI Act a
 |---|---|---|
 | Agent emotion, stress, or burnout from voice (old catalog: "Agent stress trend dashboards", `src/data/products.json:243`; "Early burnout signals", `src/data/products.json:232`; agent "emotional state" from "pitch, pace, energy, silence", `src/data/products.json:225`) | Likely "psychological condition" data under E-Commerce Law Art 58: explicit consent from each agent, 1 to 3 years prison if broken [S30]. Consent from an employee to the employer is hard to call free (Inference). | Do not offer. |
 | Caller emotion from voice ("Fused acoustic + transcript sentiment scoring", `src/data/products.json:240`) | Same Art 58 question for callers. A call-start notice may not be explicit consent. | Do not offer at launch. Revisit after an Iranian lawyer answers. |
-| Caller sentiment from transcript text | Possibly Art 58, if read as a finding about a person's mental state. Less likely if it describes the conversation ("the call turned negative"). Art 59 applies in any case: consent, stated purpose, access, correction, removal. | Offer, described as a property of the conversation, not of the person. |
+| Caller sentiment from transcript text | Possibly Art 58, if read as a finding about a person's mental state. Less likely if it describes the conversation ("the call turned negative"). Art 59 applies in any case: consent, stated purpose, access, correction, removal. In SaaS, Homayar stores and processes the scores, so it may share this risk (Section 4.1). | Offer, described as a property of the conversation, not of the person. Only after the customer warrants consent where Art 58 applies (Section 4.5 item 7). Consider keeping it off until the customer confirms this in the product. |
 | Agent QC scores such as "empathy" and "tone" (`Homayar/README.md:15`, `Homayar/backend/database/models.py:107`, `Homayar/backend/database/models.py:112`) | Personal data under Art 59. No Iranian text we read bans AI scoring of employees. The new AI law may place "ranking and labeling of persons" in "employment" in a higher risk class (secondary [S82]). Constitution Art 22 protects dignity and jobs [S33]. | Offer, with the three product rules below. |
 | Team Pulse per-agent trends ("Spot agents needing support 2–3 days earlier via sentiment and score trends", `src/data/products.json:822`) | Same as QC scores. If it infers the agent's mood or wellbeing, the Art 58 question returns. | Offer only as "call difficulty" and "score trend". Never as agent mood, stress, or wellbeing. |
-| Decisions about pay, discipline, or dismissal | Labour Law Art 27: dismissal needs written warnings and the Islamic Labour Council, guild, or Board of Inquiry [S83]. | Scores are evidence for a human process. The product never decides. |
+| Decisions about pay, discipline, or dismissal | Labour Law Art 27: dismissal needs a positive opinion of the Islamic Labour Council, guild, or Board of Inquiry; written warnings come first when the reason is breaking disciplinary rules [S83]. Staff of executive bodies may be under other rules (Section 4.2.4). | Scores are evidence for a human process. The product never decides. |
 
 **Three product rules for agent scoring at launch.**
 
@@ -245,7 +257,7 @@ This section rechecks the product rules for an Iran-only launch. The EU AI Act a
   - Security patches for all customers "for four years after the sale", with or without a support contract (4-2).
   - On finding a vulnerability, tell customers over a secure channel and give a workaround «ظرف ۷۲ ساعت» ("within 72 hours") (6-1).
   - Quarterly reports to AFTA listing customer organizations and found vulnerabilities (8-1).
-- **Process** [S72]: the maker goes to a licensed evaluation lab, which tests against the Common Criteria standard (an international security evaluation standard). The Iran Information Technology Organization (ITO) issues the certificate after AFTA's final approval. A protection profile exists for «برنامه های کاربردی تحت شبکه» (network applications). A 2020 lab list names five labs for application software [S73]. The current list is unverified.
+- **Process** [S72]: the maker goes to a licensed evaluation lab, which tests against the Common Criteria standard (an international security evaluation standard). The Iran Information Technology Organization (ITO) issues the certificate after AFTA's final approval. Duration and cost: not found. Ask a licensed lab. **[PROVIDER]** A protection profile exists for «برنامه های کاربردی تحت شبکه» (network applications). A 2020 lab list names five labs for application software [S73]. The current list is unverified.
 - **Suppliers to financial infrastructure:** in 1398, AFTA briefed 70+ IT companies, with a Central Bank deputy present, on «الزامات امنیتی پایه شرکت های مرتبط با زیرساخت های حیاتی» ("baseline security requirements for companies linked to critical infrastructure"), which it calls "the government's minimum expectations from service providers" [S74]. The text of these requirements was not found.
 - **ISMS (information security management system) at the buyer:** AFTA runs ISMS in critical infrastructure as part of a security plan notified to bodies nationwide [S77a]. It gave ISMS certificates to several banks [S77b].
 - We found **no rule that makes ISO/IEC 27001 mandatory for a software supplier**. Inference: ISMS is a buyer duty. For a vendor, AFTA's documented duty is the product certificate. Buyers may still ask for ISO 27001 as an expectation.
@@ -317,6 +329,7 @@ Inference, from Sections 4.1 to 4.3:
 
 - **The customer (the call center) must inform callers and agents.** In SaaS, it decides why the calls are processed. In self-hosted, it runs everything. In Iran, the safe basis is notice at the start of the call, a written policy for agents, and consent where Art 58 or 59 needs it [S30, S32, S33].
 - **In Iran, notice may not be enough for emotion or sentiment scores** (Art 58, Section 4.3). The notice templates below give notice only. Each template must say that.
+- **In SaaS, the customer's duty is not the whole picture.** Art 58 and 59 bind whoever stores or processes the data, so Homayar may carry a direct duty and criminal risk too (Inference, Section 4.1). The terms therefore need the customer's warranty below, not only an indemnity. **[LAWYER]**
 - **Homayar's own calls.** If Homayar records its own sales or demo calls, Homayar must tell participants at the start and list the recordings in its own privacy policy.
 - **Homayar must require this in its terms**, and must not promise that recording is lawful. The old terms already say "You are solely responsible for the lawful collection of call recordings" and require notices "for both your personnel and your end customers" (`content/legal/terms.md:46`). Keep the idea. It needs an Iranian lawyer's rewrite.
 
@@ -328,7 +341,8 @@ What Homayar's terms (SaaS) and license (self-hosted) must require from customer
 4. Use scores only as evidence in a human process. Any decision about pay, discipline, or dismissal follows the Labour Law procedure (Art 27 [S83]).
 5. Do not upload calls you have no right to record, keep, or process.
 6. Answer requests from callers and agents (access, correction, removal) as the party that decides. Homayar helps.
-7. Indemnify Homayar for breach of these duties (**[LAWYER]** for enforceability in Iran).
+7. Warrant that, before any data reaches Homayar SaaS, the customer has the explicit consent that E-Commerce Law Art 58 needs (where it applies) and the consent Art 59 needs. Turn on sentiment features only after this is true. **[LAWYER]**
+8. Indemnify Homayar for breach of these duties (**[LAWYER]** for enforceability in Iran). An indemnity covers money, not criminal liability (Section 4.1).
 
 Homayar should publish notice templates in Persian (and English): a call-start message and an agent notice. This is a recommendation, not a legal duty.
 
@@ -362,6 +376,7 @@ Homayar should publish notice templates in Persian (and English): a call-start m
 - **Persian is the binding text.** Every legal page is written first in Persian. Each page states: «در صورت هرگونه اختلاف میان متن فارسی و ترجمه‌های آن، متن فارسی معتبر است» ("If the Persian text and any translation differ, the Persian text governs"). Basis: Constitution Art 15 on official texts (Inference), Iranian customers, and Iranian law as the governing law. **[LAWYER]**
 - **English is a courtesy translation.** Publish it for foreign readers and for enterprise buyers' international staff. Label it "Translation for information. The Persian text is binding."
 - If a foreign customer later signs a separate contract, that contract may set its own language. **[LAWYER]**
+- If a customer signs a separate contract (banks, telecoms, insurers, and government bodies often use their own contract or tender terms), that contract governs. The web pages apply to online purchases and inform everyone else. **[LAWYER]** order of precedence between a signed contract and the web pages.
 - Do not publish de, ar, fr, or es versions of legal pages.
 
 ### 4.8 If Homayar sells outside Iran later
@@ -385,6 +400,7 @@ This section keeps the verified EU evidence in short form. None of it drives the
 - Information to people at collection (Art 13); answer requests "within one month" (Art 12(3)).
 - Automated decisions: Art 22(1) gives "the right not to be subject to a decision based solely on automated processing"; human review must be "meaningful, rather than just a token gesture" [S4].
 - Profiling covers "performance at work" (Art 4(4)); scoring agents is profiling; a DPIA (impact assessment) is likely (Art 35(3)(a)).
+- Breach notice: controllers notify the authority within "72 hours" (Art 33(1)); a processor notifies the controller "without undue delay" (Art 33(2)) [S1].
 - Transfers: Iran has no EU adequacy decision [S12]. The 2021 standard contractual clauses "do not work for importers whose processing operations are subject to the GDPR pursuant to Article 3" [S10]; the Commission's page still says a set for that case is "in the process of developing" [S11].
 - Voice: biometric only when processed for unique identification (Art 4(14), Art 9(1)); the EDPB applies "The same reasoning ... to voice" [S8 footnote 31]. Voiceprints would be special-category data.
 - Cookies: the ePrivacy Directive Art 5(3) allows storage "strictly necessary" for a service the user asked for [S5]; shopping-cart storage is exempt, and language preference is exempt short-term or with a notice next to the switcher [S7]. The EDPB counts local storage as storage [S6].
@@ -393,12 +409,15 @@ This section keeps the verified EU evidence in short form. None of it drives the
 **EU AI Act in short** [S20, S21, S24, S29]:
 
 - Art 5(1)(f) prohibits "the placing on the market, the putting into service for this specific purpose, or the use of AI systems to infer emotions of a natural person in the areas of workplace", since 2 February 2025.
-- Commission guidelines, para 254: "Using webcams and voice recognition systems by a call centre to track their employee's emotions, such as anger, is prohibited." Tracking customers' emotions "is not prohibited by Article 5(1)(f)". Para 257: a system "to detect burnout or depression at the workplace ... would remain prohibited". Para 251: inferring emotions "from written text (content/sentiment analyses)" is outside the ban [S21].
+- Commission guidelines, para 254: "Using webcams and voice recognition systems by a call centre to track their employee's emotions, such as anger, is prohibited." Tracking customers' emotions "is not prohibited by Article 5(1)(f)". Para 257: a system "to detect burnout or depression at the workplace ... would remain prohibited". Para 251: inferring emotions "from written text (content/sentiment analyses)" is outside the ban. Para 254 also allows emotion recognition "only deployed for personal training purposes" if "the results are not shared with HR responsible persons and cannot impact the assessment, promotion etc. of the person trained" [S21].
 - So the Iran launch rules 1 and 2 (text only; behavior, not feelings, Section 4.3) are exactly what keeps agent scoring outside the EU ban.
 - High-risk: emotion recognition (Annex III 1(c)) and monitoring or evaluating workers (Annex III 4(b)). The 2026 Digital Omnibus (Regulation (EU) 2026/1744) moved Annex III high-risk duties ("Chapter III, Sections 1, 2, and 3, with the exception of Article 6(5)") to **2 December 2027** [S24]. Transparency duties (Art 50) apply from 2 August 2026 [S28].
-- Penalties for Art 5 breaches: up to EUR 35,000,000 or 7% of worldwide turnover, "whichever is higher"; for SMEs, the lower amount (Art 99(3), 99(6)) [S20].
+- Why agent scoring would be high-risk: the Art 6(3) exception (not high-risk when a system does not "materially influenc[e] the outcome of decision making") does not apply if "the AI system performs profiling of natural persons" [S20]. Scoring agents is profiling (GDPR Art 4(4), above).
+- Penalties: Art 5 breaches, up to EUR 35,000,000 or 7% of worldwide turnover, "whichever is higher" (Art 99(3)); Art 26 or Art 50 breaches, up to EUR 15,000,000 or 3% (Art 99(4)); for SMEs, the lower amount (Art 99(6)) [S20].
 
 **Pages to add when a trigger happens:**
+
+Start lawyer work on the EU representative and the transfer tool when an EU deal is likely, not when it is signed (estimate: weeks to months; the Commission is still developing the transfer tool for this case [S11], and high-risk duties apply from 2 December 2027 [S24]).
 
 1. GDPR and international customers page: roles, EU representative, transfers, how to sign.
 2. EU processing agreement terms (Art 28), added to the processing terms page.
@@ -482,10 +501,14 @@ What would change this recommendation:
 - **An Iranian lawyer finds a rule on business call recording**, for example a Central Bank circular for bank call centers. Change the recording section and templates.
 - **The e-Namad center gives a different page list.** Section 8 follows it.
 - **A government-linked buyer is the first customer.** Then the AFTA certificate becomes the critical path, and the self-hosted package is the likely product (Section 4.4).
+- **An Iranian lawyer says Homayar SaaS is directly liable under Art 58, 59, and 71 when a customer lacks consent** (Section 4.1). Then a product gate (sentiment off until the customer confirms consent) becomes a launch need, and caller text sentiment may have to wait.
+- **A rule is confirmed that private vendors must host Iranian customer data inside Iran** (unverified today, Section 4.4). Then SaaS hosting must move inside Iran, the subprocessor list and privacy policy change, and the old foreign providers (Vercel, Neon, Resend) cannot hold that data.
 - **A trigger in Section 4.8 happens.** Add the EU pages listed there.
 - **Homayar decides to train or evaluate models on customer data** (the blueprint's corpus plan, `docs/planning/homayar-commercial-blueprint.md:526`). Add the opt-in path in Section 8.8 item 7, and callers and agents must be told.
 
 ## 7. Page matrix
+
+The matrix counts 11 launch pages. The legal hub (`/legal`, Section 8.1) is a navigation page that links to them, so it is built at launch but not counted.
 
 "Required" means an Iranian law, an official regulator text, or a gateway rule we cite requires the information on this page, and a page is the normal way to give it. "Required (inference)" means our reading says the page is needed, but no text we read requires it for this buyer. "Recommended" means good practice or a buyer expectation.
 
@@ -512,6 +535,8 @@ The E-Commerce Law consumer rules (Art 33 to 38) protect a buyer acting "for any
 | 17 | Standalone cookie page | Only after an EU trigger, if the privacy section is not enough | Website | Section 4.8 | Later, on trigger |
 
 ## 8. What the website must show
+
+**The e-Namad page list is unverified.** This outline follows the E-Commerce Law and the gateways, and must be checked against e-Namad. The e-Namad requirements checklist is shown only in the applicant's panel (Section 4.2.7).
 
 This is the build outline for the website team. Routes are suggestions. Use the locale prefix the new site uses (for example `/fa/legal/terms` and `/en/legal/terms`).
 
@@ -570,7 +595,7 @@ Title: «شرایط استفاده از خدمات» / "Terms of service".
 3. Accounts and users: the customer is responsible for its users.
 4. Prices and payment: rials (or labeled tomans), tax shown, the gateway named, how renewal works. **[LAWYER] [ACCOUNTANT]**
 5. Refunds and cancellation: short summary plus link.
-6. Your duties on recording and agent notice: the seven points in Section 4.5. **[LAWYER]**
+6. Your duties on recording and agent notice: the eight points in Section 4.5, including the warranty that consent exists where Art 58 applies. **[LAWYER]**
 7. What you may not do: link to the acceptable use policy.
 8. Your data: you own it. We process it only to provide the service. Hosted in [location]. We do not use it to train, improve, or evaluate our models, unless you sign a separate written opt-in. Export and deletion at the end.
 9. AI outputs can be wrong. Scores are evidence for your people, not decisions.
@@ -594,7 +619,7 @@ Title: «مجوز استفاده از نسخه نصب در محل» / "Self-host
 4. Support access: only when you allow it; support bundles exclude audio and transcripts unless you approve a separate export (`docs/planning/homayar-commercial-blueprint.md:458`). During access, the processing terms apply.
 5. License expiry: read-only or grace period; no data deletion; no hidden kill switch (`docs/planning/homayar-commercial-blueprint.md:460`).
 6. Security updates: how long we provide patches and how we tell you about vulnerabilities. For government buyers, AFTA expects four years of patches and a 72-hour workaround [S71]. State only what Homayar will commit to.
-7. Your duties on recording and agent notice: same seven points as the terms.
+7. Your duties on recording and agent notice: same points as the terms (Section 4.5), without the SaaS warranty, because Homayar does not receive the data.
 8. Restrictions: no reverse engineering, no resale, no prohibited uses (link to the AUP).
 9. Third-party and model licenses shipped in the package.
 10. Warranty, liability, governing law. **[LAWYER]**
@@ -623,12 +648,13 @@ Title: «سیاست حریم خصوصی» / "Privacy policy".
 Title: «بازگشت وجه و لغو» / "Refunds and cancellation".
 
 1. Who can cancel within 7 working days after purchase, without a reason, and get a full refund (consumer buyers, E-Commerce Law Art 37 [S30]). **[LAWYER]**: whether business buyers get the same, and the exceptions list.
-2. How to cancel: email or account page.
-3. How and when we refund: to the same card or account, as soon as possible (Art 38(c): "immediately").
-4. Cancelling a subscription later: end of the paid period, or pro-rata. **[LAWYER]**
-5. Self-hosted licenses and installation services: when they can be refunded. **[LAWYER]**
-6. If we fail to deliver: we perform and pay for the damage (Consumer Protection Law Art 19 Note [S31]).
-7. Complaints address (E-Commerce Law Art 34(a) [S30]).
+2. For business buyers, refunds follow the contract. The Consumer Protection Law has no online withdrawal right (Section 4.2.2).
+3. How to cancel: email or account page.
+4. How and when we refund: to the same card or account, as soon as possible (Art 38(c): "immediately").
+5. Cancelling a subscription later: end of the paid period, or pro-rata. **[LAWYER]**
+6. Self-hosted licenses and installation services: when they can be refunded. **[LAWYER]**
+7. If we fail to deliver: we perform and pay for the damage (Consumer Protection Law Art 19 Note [S31]).
+8. Complaints address (E-Commerce Law Art 34(a) [S30]).
 
 ### 8.7 `/legal/acceptable-use`: Acceptable use policy (launch)
 
@@ -736,20 +762,21 @@ Title: «امنیت» / "Security".
 
 1. Does Constitution Art 25 limit a private business recording its own calls with notice? Is there any rule for call centers (Central Bank, telecom regulator)?
 2. Do emotion, stress, or sentiment scores count as "psychological condition" data under E-Commerce Law Art 58? Ask separately for: (a) callers' emotion from voice, (b) callers' sentiment from text, (c) agents' emotion or stress, (d) agent QC scores such as "empathy" and "tone" from text. If yes, is a call-start notice enough, or is explicit consent from each person needed? Can an employee give valid consent to the employer?
-3. What does the National AI Development Law (1405) require, from its official text? Does agent scoring fall in a higher risk class? What are the implementing rules and dates?
-4. Does the National Data and Information Management Law apply to a private company processing customers' call data?
-5. Is Homayar SaaS a "domestic hosting provider" under Computer Crimes Law Art 23 and 33? How does the 6-month and 15-day minimum fit customer-chosen deletion?
-6. Does the 7-working-day withdrawal right (E-Commerce Law Art 37) apply to Homayar's buyers? What are the exceptions in the Art 38/42 regulation?
-7. Confirm the Persian text of the E-Commerce Law articles cited from the English translation.
-8. Were Labour Law Articles 27, 158, 159, and 165 amended after 1369?
-9. Current status of the personal data protection bill.
-10. Is SaaS on the ministry list that requires a warranty and invoice (Consumer Protection Law Art 3 Note 3)?
-11. Does the site need SAMANDEHI registration today, and must it show the seal?
-12. Are the AFTA documents of 1398 (version 1.0) still current? Are banks, telecoms, and insurers "critical infrastructure"? What are AFTA's baseline requirements for suppliers to financial infrastructure?
-13. Is there a rule requiring customer call data of banks, telecoms, or government bodies to be hosted inside Iran (Central Bank, telecom regulator, government cloud rule under the 7th Plan Art 107)?
-14. Liability, indemnity, late-payment, and dispute clauses under Iranian law. The binding-language clause.
-15. May Homayar publish statistics on Iranian government data requests?
-16. Sanctions and export review for foreign providers (Resend, cloud, AI APIs) (`docs/planning/homayar-commercial-blueprint.md:607`).
+3. Under Art 58, 59, and 71, is Homayar, as the SaaS party that stores and processes the data, liable if the customer did not get explicit consent? Does a customer warranty or indemnity reduce that risk?
+4. What does the National AI Development Law (1405) require, from its official text? Does agent scoring fall in a higher risk class? What are the implementing rules and dates?
+5. Does the National Data and Information Management Law apply to a private company processing customers' call data?
+6. Is Homayar SaaS a "domestic hosting provider" under Computer Crimes Law Art 23 and 33? How does the 6-month and 15-day minimum fit customer-chosen deletion?
+7. Does the 7-working-day withdrawal right (E-Commerce Law Art 37) apply to Homayar's buyers? What are the exceptions in the Art 38/42 regulation?
+8. Confirm the Persian text of the E-Commerce Law articles cited from the English translation.
+9. Were Labour Law Articles 27, 158, 159, and 165 amended after 1369? Which employment rules cover call-center agents of executive bodies and other government-linked buyers?
+10. Current status of the personal data protection bill.
+11. Is SaaS on the ministry list that requires a warranty and invoice (Consumer Protection Law Art 3 Note 3)?
+12. Does the site need SAMANDEHI registration today, and must it show the seal? Is selling SaaS a guild activity that needs a virtual-store business license (پروانه کسب) before e-Namad (Section 4.2.7)?
+13. Are the AFTA documents of 1398 (version 1.0) still current? Are banks, telecoms, and insurers "critical infrastructure"? What are AFTA's baseline requirements for suppliers to financial infrastructure?
+14. Is there a rule requiring customer call data of banks, telecoms, or government bodies to be hosted inside Iran (Central Bank, telecom regulator, government cloud rule under the 7th Plan Art 107)?
+15. Liability, indemnity, late-payment, and dispute clauses under Iranian law. The binding-language clause. The order of precedence between a signed customer contract and the web pages (Section 4.7).
+16. May Homayar publish statistics on Iranian government data requests?
+17. Sanctions and export review for foreign providers (Resend, cloud, AI APIs) (`docs/planning/homayar-commercial-blueprint.md:607`).
 
 ### For an EU data protection lawyer (only when a Section 4.8 trigger happens)
 
@@ -770,9 +797,10 @@ Title: «امنیت» / "Security".
 
 ### For providers
 
-1. e-Namad center: the exact pages and details a site must show; one-star versus two-star; the rules for companies.
+1. e-Namad center: the exact pages and details a site must show (the requirements checklist in the applicant's panel); star levels; the rules for companies.
 2. The chosen gateway: recurring charges, refund process, required pages.
 3. The chosen SaaS host inside Iran: location, security terms, and whether it is on any approved list.
+4. A licensed AFTA evaluation lab: how long the security evaluation takes, and what it costs (Section 4.4).
 
 ### Unverified claims in this document
 
@@ -782,7 +810,7 @@ Title: «امنیت» / "Security".
 4. Ta'zirat Art 582 and the Citizens' Rights Law 1383 (secondary only).
 5. Any official rule on business call recording (none found).
 6. The data protection bill's status.
-7. Official e-Namad requirements and the Shaparak circular tying gateways to e-Namad (quoted only by ZarinPal).
+7. The official e-Namad page list (the requirements checklist is not public; archived FAQ of 2022 read, Section 4.2.7); whether the archived 2022 e-Namad FAQ is still current; the Shaparak circular tying gateways to e-Namad (quoted only by ZarinPal).
 8. The official text of the National AI Development Law (approval verified; content secondary).
 9. The National Data and Information Management Law's text and scope.
 10. Later amendments to the Labour Law articles cited.
@@ -798,7 +826,7 @@ Title: «امنیت» / "Security".
 
 ## 10. Sources
 
-Sources [S1] to [S65] were read on 2026-09-27. Sources [S70] to [S86] were read on 2026-09-28. "Failed" means the page could not be fetched that day. "Archived" means a web.archive.org copy of the official page was read.
+Sources [S1] to [S65] were read on 2026-09-27. Sources [S70] to [S86] were read on 2026-09-28. Sources [S87] to [S89] were read on 2026-09-30. "Failed" means the page could not be fetched that day. "Archived" means a web.archive.org copy of the official page was read.
 
 ### Iran
 
@@ -836,6 +864,9 @@ Sources [S1] to [S65] were read on 2026-09-27. Sources [S70] to [S86] were read 
 - [S84] ZarinPal blog, gateway without e-Namad (published 1400-09-06): https://www.zarinpal.com/blog/درگاه-پرداخت-بدون-اینماد/ (read 2026-09-28)
 - [S85] Secondary: 7th Plan Art 107(الف) implementing regulation, ekhtebar.ir: https://www.ekhtebar.ir/آیین-نامه-اجرایی-بند-الف-ماده-107-قانون-ب/ (read 2026-09-28)
 - [S86] Search results only (pages not opened): Guardian Council news items on the National Data and Information Management Law, for example https://www.shora-gc.ir/fa/news/9589/ and https://www.shora-gc.ir/fa/news/9683/ (seen 2026-09-28)
+- [S87] e-Namad FAQ, archived official page (capture of 2022-08-15): https://web.archive.org/web/20220815194248/https://enamad.ir/Faq (read 2026-09-30)
+- [S88] e-Namad rating page, archived official page (capture of 2022-08-15): https://web.archive.org/web/20220815194243/https://enamad.ir/AboutRating (read 2026-09-30)
+- [S89] e-Namad business license page, archived official page (capture of 2022-08-15): https://web.archive.org/web/20220815194243/https://enamad.ir/License (read 2026-09-30)
 - Failed on 2026-09-27 and again on 2026-09-28: qavanin.ir (JavaScript bot check); rc.majlis.ir (connection closed); enamad.ir and trustseal.enamad.ir, shaparak.ir, cbi.ir, tax.gov.ir, intamedia.ir, mcls.gov.ir, afta.gov.ir, ito.gov.ir, sec.ito.gov.ir, cra.ir, sccr.ir (timeout); samandehi.ir and majazi.ir (403, location block); isiri.gov.ir (host not found); scict.ir (certificate error). Also failed on 2026-09-27: dolat.ir, rrk.ir, dotic.ir, ecommerce.gov.ir, judiciary.ir, police.ir, cyberpolice.ir, fata.gov.ir, arvancloud.ir.
 
 ### EU (used only in Section 4.8)
