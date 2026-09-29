@@ -24,7 +24,9 @@ rejected.
 
 from __future__ import annotations
 
-import random
+import hashlib
+import os
+import platform
 import threading
 import time
 from collections.abc import Callable
@@ -125,6 +127,24 @@ def _is_lock_contention(exc: OperationalError) -> bool:
     )
 
 
+def _contention_backoff(attempt: int, retrier: str) -> float:
+    """Seconds to sleep before retrying after lock contention on ``attempt`` (1-based).
+
+    The base delay ``min(0.05, 0.001 * attempt)`` is scaled by a factor in
+    [0.5, 1.5) so retriers that collided do not wake together. The factor is a
+    hash of the retrier's identity and the attempt, so the same inputs always
+    give the same delay: production code fabricates no numbers (WP04/F23).
+    """
+    digest = hashlib.blake2b(f"{retrier}:{attempt}".encode(), digest_size=8).digest()
+    spread = (int.from_bytes(digest, "big") >> 12) / 2**52  # 52 bits: [0, 1), never 1.0
+    return min(0.05, 0.001 * attempt) * (0.5 + spread)
+
+
+def _retrier_identity() -> str:
+    """Host, process and thread of the caller, which tell concurrent retriers apart."""
+    return f"{platform.node()}:{os.getpid()}:{threading.get_ident()}"
+
+
 class VoiceControlPlane:
     def __init__(
         self,
@@ -162,7 +182,7 @@ class VoiceControlPlane:
                 attempt += 1
                 if not _is_lock_contention(exc) or attempt > self.policy.max_retries:
                     raise
-                time.sleep(min(0.05, 0.001 * attempt) * (0.5 + random.random()))  # noqa: S311
+                time.sleep(_contention_backoff(attempt, _retrier_identity()))
             except IntegrityError:
                 # A concurrent insert won (e.g. first creation of the lock row);
                 # the retry observes the committed row.
