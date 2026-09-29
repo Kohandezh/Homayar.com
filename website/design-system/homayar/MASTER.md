@@ -7,9 +7,9 @@
 ---
 
 **Project:** Homayar
-**Generated:** 2026-09-28 00:49:44
+**Generated:** 2026-09-30 02:09:48
 **Category:** Voice Recorder & Memo
-**Design Dials:** Variance 8/10 (Bold / Asymmetric) | Motion 9/10 (Complex)
+**Design Dials:** Variance 8/10 (Bold / Asymmetric) | Motion 10/10 (Complex) | Density 5/10 (Standard)
 
 ---
 
@@ -40,17 +40,19 @@
 
 ### Typography
 
-- **Heading Font:** Inter
-- **Body Font:** Inter
-- **Mood:** dark, cinematic, technical, precision, clean, premium, developer, professional, high-end utility
-- **Google Fonts:** [Inter + Inter](https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap)
+- **Heading Font:** Lexend
+- **Body Font:** Source Sans 3
+- **Mood:** corporate, trustworthy, accessible, readable, professional, clean
+- **Google Fonts:** [Lexend + Source Sans 3](https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap)
 
 **CSS Import:**
 ```css
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
 ```
 
 ### Spacing Variables
+
+*Density: 5/10 — Standard*
 
 | Token | Value | Usage |
 |-------|-------|-------|
@@ -185,17 +187,17 @@
 
 ## Motion
 
-**Scroll Reveal** (Complex) — Trigger: scroll (continuous scrub) | Duration: tied to scroll position | Easing: `none (scrub-driven)`
+**Hover Micro-interaction** (Complex) — Trigger: hover + mousemove | Duration: 300-500ms | Easing: `elastic.out(1,0.4)`
 
 ```js
-gsap.timeline({ scrollTrigger: { trigger: section, start: 'top top', end: '+=150%', scrub: 1, pin: true } }).from('.headline', { opacity: 0, y: 40 }).to('.bg-layer', { yPercent: -20 }, '<');
+const onPointerMove = (e) => { const r = el.getBoundingClientRect(); xTo((e.clientX - r.left - r.width / 2) * 0.3); yTo((e.clientY - r.top - r.height / 2) * 0.3); }; el.addEventListener('pointermove', onPointerMove); return () => el.removeEventListener('pointermove', onPointerMove);
 ```
 
-**Framework notes:** Pinning needs the section to have deterministic height; recalc ScrollTrigger.refresh() after images/fonts load; Use matchMedia('(prefers-reduced-motion: reduce)') to skip non-essential motion and render the final state immediately
+**Framework notes:** Keep a stable named pointer handler so cleanup removes the same function; in React/Vue return the removeEventListener cleanup; use gsap.matchMedia('(prefers-reduced-motion: reduce)') and render x/y at the final neutral state
 
-- ✅ Use scrub: true or a small number (0.5-1.5) instead of instant jumps so it feels tied to the scrollbar
-- ❌ Don't pin more than 1-2 sections per page; excessive pinning fights native scroll feel and hurts mobile UX
-- ⚡ Pinning forces layout reflow; test on mid-tier mobile devices, not just desktop
+- ✅ Clamp the pull strength (e.g. * 0.3) so the element never fully leaves its hit box
+- ❌ Don't apply magnetic effect to more than 1-2 focal elements per screen; it becomes noisy
+- ⚡ Use will-change: transform on the target element for smoother compositing
 
 ---
 
