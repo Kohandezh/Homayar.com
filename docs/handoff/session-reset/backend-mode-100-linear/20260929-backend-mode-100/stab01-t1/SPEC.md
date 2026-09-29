@@ -76,9 +76,9 @@ Services are already running (PostgreSQL 16 on 127.0.0.1:5432, Redis on 6379). A
 ```
 source /root/foreman/20260929-backend-mode-100/testenv.sh
 ```
-Focused (lightweight, no lock needed):
+Focused (touches the shared PostgreSQL database — MUST hold the mission lock; amended turn 1):
 ```
-uv run pytest backend/tests/test_truthful_outputs.py backend/tests/test_voice_admission.py backend/tests/test_voice_api.py -q -p no:cacheprovider
+flock /root/foreman/20260929-backend-mode-100/heavy.lock uv run pytest backend/tests/test_truthful_outputs.py backend/tests/test_voice_admission.py backend/tests/test_voice_api.py -q -p no:cacheprovider
 ```
 Full suite (heavy; shared database — MUST hold the mission lock):
 ```
@@ -129,3 +129,15 @@ A worker that finds this contract incomplete or contradictory sends BLOCKED inst
 
 ## Models
 Implementer: opus (concurrency path -> no sonnet downgrade). Reviewer: opus.
+
+## Amendments (Foreman, after review turn 1)
+- A1 (review finding 3): AC3 allowance recorded here, where it belongs. A deterministic de-synchronization derived from
+  retrier- or call-specific inputs (execution-context identity, attempt number) through a fixed mixing function is NOT a
+  substitute randomness source under AC3, provided it uses none of the listed RNG APIs and its value is used only as a
+  sleep duration (never returned, stored or shown as data). This was stated in the implementer brief turn 1 but not in
+  this SPEC; the review applied exactly this reading.
+- A2 (review finding 4): every command that touches PostgreSQL, including the focused command, runs under
+  `flock /root/foreman/20260929-backend-mode-100/heavy.lock`. Foreman's turn-1 gate run overlapped an unlocked reviewer run
+  (schema-creation race) and is void; gates are re-run after the fix turn.
+- A3 (review finding 2): accepted trade-off. Retriers that share host name, pid and thread id get identical delay
+  sequences; retries stay bounded by max_retries and capacity correctness is guarded by the admission lock.

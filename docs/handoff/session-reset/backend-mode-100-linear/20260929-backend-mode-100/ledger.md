@@ -45,8 +45,8 @@ Defect follow-up: HOM-140 [STAB-01] (child of HOM-8).
 ## Work units
 | Team | Linear | Type | Group | Maker | Checker | Worktrees | State |
 |---|---|---|---|---|---|---|---|
-| planning | — | research (plan) | 0 | planner (general-purpose, opus) | — | read-only | running |
-| stab01-t1 | HOM-140 | implementation | 0 | stab01-t1-impl (general-purpose, opus) | stab01-t1-rev (code-review-specialist, opus) | wt/stab01-t1, wt/stab01-t1-check | phase A (oracle) running |
+| planning | — | research (plan) | 0 | planner (general-purpose, opus) | — | read-only | ACCEPTED 02:52Z |
+| stab01-t1 | HOM-140 | implementation | 0 | stab01-t1-impl (general-purpose, opus) | stab01-t1-rev (code-review-specialist, opus) | wt/stab01-t1, wt/stab01-t1-check | ACCEPTED r2; d4daf6e; Linear In Progress (review-pending, CI blocked) |
 
 ## Agent substitutions
 - strategic-planning-architect -> general-purpose subagent briefed with the real definition
@@ -62,3 +62,29 @@ Defect follow-up: HOM-140 [STAB-01] (child of HOM-8).
 - Queue head: HOM-140 -> N11 -> WP02-T03 -> REC-02 -> WP22-T02 -> WP18-T03 -> WP01-T04 (Docker unavailable: partial) -> WP01-T06 -> N03.
 - Linear coverage gap: N-items, AppVision §6 rows and REC-02 have no Linear issue yet; created just-in-time on activation,
   remaining ones batch-created at the integration-closure checkpoint.
+
+## HOM-140 (stab01-t1) — accepted 2026-09-29T20:45Z
+- Oracle (blind, 56 cases): base 4 red / 52 green (Foreman re-run); patch 56/56 (Foreman run, turns 1 and 2).
+- Review: turn 1 ACCEPTED with F1 low (fixed), F2 low (accepted, SPEC A3), F3/F4 info (Foreman contract/harness errors,
+  SPEC A1/A2), F5 info (style, no action). Turn 2 ACCEPTED; info T2-1 (pid dimension untested) recorded as follow-up.
+- Gates (Foreman, turn 2, nothing else running): ruff clean; full suite 0 failed / 1055 passed / 46 skipped.
+  Turn-1 Foreman gate VOID (overlapped unlocked reviewer run -> harness fix: all PG commands under heavy.lock).
+- Delivered: maker commit 145d5ea -> cherry-picked as d4daf6e on claude/inspiring-tesla-ie06gi; focused 25/25 on
+  integration checkout; pushed. Draft PR #13 https://github.com/Kohandezh/Homayar.com/pull/13 (cumulative).
+- Linear: HOM-140 comment c9869396 (marker [mission · HOM-140 · rev d4daf6e]); links attached; state In Progress (read back).
+- Worktree cleanup adaptation: branch not merged (CI blocked), but the accepted commit is durable on the integration branch
+  and evidence is archived, so team worktrees are removed to bound disk (Foreman cleanup rule assumes merge).
+
+## Lessons (harness)
+- Every PostgreSQL-touching command, by any role, runs under heavy.lock.
+- Container restarts kill services and background jobs: services.sh after every restart; never trust a gate that
+  overlapped a restart or another agent.
+- Briefs must not attribute wording to the SPEC that the SPEC does not contain (F3).
+
+## Linear additions
+- HOM-141 [CAP] parent; N01..N15 = HOM-142..HOM-156 (N11 = HOM-152, N03 = HOM-144, N12 = HOM-153).
+
+## Queue position
+- Next active issue: HOM-152 (N11) — SPEC drafted at n11-t1/SPEC.md; base = d4daf6e.
+- Then: WP02-T03 (HOM-32), REC-02 (needs Linear issue), WP22-T02 (HOM-120), WP18-T03 (HOM-101), WP01-T04 (HOM-28, partial: no Docker),
+  WP01-T06 (HOM-29), N03 (HOM-144).
