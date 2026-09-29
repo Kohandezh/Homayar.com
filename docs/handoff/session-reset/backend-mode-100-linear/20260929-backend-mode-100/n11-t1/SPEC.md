@@ -11,8 +11,7 @@ two-round cap apply unchanged.
 - Dependency group 0. Priority P0.
 
 ## Base
-`BASE_SHA` = the accepted integration revision after HOM-140 (filled in by Foreman when the worktrees are created;
-see the "Worktrees" section).
+`BASE_SHA` = `692affb` (integration head: HOM-140 fix d4daf6e + mission records only).
 
 ## Context (verified by Foreman against the source)
 - `backend/main.py:178-193` mounts only the 16 v1 routers. None of the modules below is mounted or imported by live code.
@@ -99,7 +98,11 @@ flock /root/foreman/20260929-backend-mode-100/heavy.lock uv run pytest backend/t
 Lint on changed Python files: `uv run ruff check <files> && uv run ruff format --check <files>`
 
 ## Known baseline
-Filled in at worktree creation (expected: the HOM-140 accepted revision, 0 failed / 1055 passed / 46 skipped).
+Base code = d4daf6e: full suite 0 failed / 1055 passed / 46 skipped (Foreman gate, stab01-t1/gates/turn-2).
+
+## Worktrees
+- Maker: /root/foreman/20260929-backend-mode-100/wt/n11-t1 (branch mission/n11-t1 at 692affb)
+- Checker: /root/foreman/20260929-backend-mode-100/wt/n11-t1-check (detached at 692affb, clean)
 
 ## Communication map, envelope, turn protocol, team directory
 As in stab01-t1/SPEC.md, with team `n11-t1`, names `n11-t1-impl` and `n11-t1-rev`, directory
@@ -107,3 +110,29 @@ As in stab01-t1/SPEC.md, with team `n11-t1`, names `n11-t1-impl` and `n11-t1-rev
 
 ## Models
 Implementer: opus (removal touching config/security guard). Reviewer: opus.
+
+## Amendments (Foreman, after phase A, before phase B)
+- A1 (scope, verified by Foreman): `backend/prompts/` (package `__init__.py` with `load_prompt`, and its `.txt` prompt
+  files) is part of the dead closure — its only consumer is `backend/services/copilot_service.py`. Retire it too:
+  `backend.prompts` must not be importable, it is appended to `REMOVED_MODULES`, and the inventory lists it.
+  Maker may delete `Homayar/backend/prompts/` entirely.
+- A2 (correctness): delete each retired package DIRECTORY entirely (`backend/websocket/`, `backend/prompts/`),
+  including any `__pycache__`. A directory left holding only `__pycache__` is an importable namespace package and
+  would violate AC1.
+- A3 (AC6 precision): the retirement inventory names each retired path individually by its full repository-relative
+  path (for example `Homayar/backend/routers/webhook.py`), one entry per path — no brace-compressed lists.
+- A4 (new AC9, documentation): `Homayar/README.md` must not keep documenting what this change removes. Edit ONLY:
+  the "Optional: per-agent model override" env lines (`LLM_MODEL_QC`…), the "LDAP / Active Directory" env block, the
+  "VOIP Webhook" env block, the API-table rows for `/api/dashboard`, `/api/graph`, `/api/copilot`, `/api/webhook`,
+  `/api/ldap`, and the project-structure lines naming retired files; add one line pointing to
+  `Homayar/docs/architecture/legacy-retirement.md`. Do not rewrite other README content (other stale README content
+  is recorded as a follow-up, not fixed here). `Homayar/README.md` is added to maker file ownership for these edits only.
+- A5 (after review turn 1, finding "AC9 residual"): A4's closed list was too narrow. AC9 now also covers, in
+  `Homayar/README.md`: the feature-list lines that advertise retired capabilities (LDAP/AD sync, Copilot chat, VOIP
+  webhook ingestion, graph explorer — currently around lines 40-47), the "N endpoints across M routers" sentence
+  (around line 112; replace with a neutral pointer to the v1 API instead of a new count), and the VOIP webhook section
+  with curl examples to `/api/webhook/voip/call-event` (around lines 160-176; remove it). Still no other README rewrites.
+  Also fix the dangling pointer in `Homayar/docs/architecture/legacy-retirement.md` (around lines 190-191) so it names
+  `Homayar/docs/handoff/session-a/adr/README.md`.
+- A6 (recorded, not in this unit): `config.py` `jwt_expiry_hours` has no consumer (review info); removal is a separate
+  follow-up because this unit's oracle pins all other base fields.

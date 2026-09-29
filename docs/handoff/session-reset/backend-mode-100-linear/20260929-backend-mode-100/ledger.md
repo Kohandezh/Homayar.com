@@ -47,6 +47,7 @@ Defect follow-up: HOM-140 [STAB-01] (child of HOM-8).
 |---|---|---|---|---|---|---|---|
 | planning | — | research (plan) | 0 | planner (general-purpose, opus) | — | read-only | ACCEPTED 02:52Z |
 | stab01-t1 | HOM-140 | implementation | 0 | stab01-t1-impl (general-purpose, opus) | stab01-t1-rev (code-review-specialist, opus) | wt/stab01-t1, wt/stab01-t1-check | ACCEPTED r2; d4daf6e; Linear In Progress (review-pending, CI blocked) |
+| n11-t1 | HOM-152 | implementation (retirement) | 0 | n11-t1-impl (general-purpose, opus) | n11-t1-rev (code-review-specialist, opus) | removed | ACCEPTED r2; d5bbe5d; Linear In Progress (CI blocked) |
 
 ## Agent substitutions
 - strategic-planning-architect -> general-purpose subagent briefed with the real definition
@@ -85,6 +86,26 @@ Defect follow-up: HOM-140 [STAB-01] (child of HOM-8).
 - HOM-141 [CAP] parent; N01..N15 = HOM-142..HOM-156 (N11 = HOM-152, N03 = HOM-144, N12 = HOM-153).
 
 ## Queue position
-- Next active issue: HOM-152 (N11) — SPEC drafted at n11-t1/SPEC.md; base = d4daf6e.
-- Then: WP02-T03 (HOM-32), REC-02 (needs Linear issue), WP22-T02 (HOM-120), WP18-T03 (HOM-101), WP01-T04 (HOM-28, partial: no Docker),
+- Next active issue: HOM-32 (WP02-T03) — SPEC drafted at wp02t03-t1/SPEC.md; base = d5bbe5d.
+- Then: REC-02 (HOM-157), WP22-T02 (HOM-120), WP18-T03 (HOM-101), WP01-T04 (HOM-28, partial: no Docker),
   WP01-T06 (HOM-29), N03 (HOM-144).
+
+## HOM-152 (n11-t1) — accepted 2026-09-29T22:20Z
+- Oracle (blind, 199 cases): base 692affb 129 red / 70 green (Foreman re-run); patch 199/199 (Foreman). Archived sha 8b5cf08a.
+- SPEC amended A1–A4 before phase B (prompts/ added to retired set; delete dirs incl. __pycache__; per-path inventory; README AC9).
+- Maker turn 1: 35 files, +390/-2321; own full suite 0 failed / 1109 passed / 46 skipped (chunked).
+- Foreman gates: ruff clean; full suite in 4 foreground chunks = 0 failed / 1109 passed / 46 skipped.
+- Phase C turn 1: reviewer resumed with REVIEW-INPUT.diff (git diff -D).
+- Follow-up (frontend, out of scope): product console pages still call unmounted endpoints (frontend/src/lib/hooks.ts
+  /dashboard/*, GraphPage, CopilotPage, IncidentsPage, AnalyticsPage) — already failing at base.
+- Harness: full suite now run as 4 foreground chunks (<10 min each) so a container restart loses at most one chunk.
+- Outcome: Review r1: 2 low (AC9 residual -> A5 fix; comments -> precedent), 3 info
+  (pointer -> fixed; jwt_expiry_hours -> A6 follow-up; frontend -> out of scope). r2: 2 low README residue (cap reached)
+  -> follow-up HOM-158. Delivered d5bbe5d (maker d5bbe5d2), landed diff == reviewed diff (script), focused 83/83 on
+  integration, pushed. Linear comment 452cfe66, links; In Progress. PR #13 body updated; CI status comment 5900297722
+  (billing: jobs never start, logs 404).
+- Worktrees removed (checker first; REVIEW-INPUT.diff deleted; oracle hash matched archive before delete).
+
+## Linear additions (2)
+- HOM-157 [REC-02] voice admission invariants on PostgreSQL (created on activation path; Backlog).
+- HOM-158 README residue + jwt_expiry_hours (N11 follow-up; Backlog).
