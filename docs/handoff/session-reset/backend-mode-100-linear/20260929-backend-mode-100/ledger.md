@@ -52,3 +52,13 @@ Defect follow-up: HOM-140 [STAB-01] (child of HOM-8).
 - strategic-planning-architect -> general-purpose subagent briefed with the real definition
   (kohandezh-live-avatar/.claude/agents/strategic-planning-architect.md). Not registered natively here.
 - Herdr panes -> native Agent subagents; git worktrees created by Foreman as in herdr-topology.md.
+
+## Planning unit (accepted 2026-09-29T02:52Z)
+- Deliverables: planning/PLAN.md, planning/coverage-ledger.json (222 capability rows; 161 subtasks verified; 160-item queue).
+- Foreman acceptance: load-bearing claims spot-checked against source: D-12 (tenancy_service.py:79-82 via main.py:95),
+  legacy routers unmounted (main.py:178-193), legacy webhook `!=` secret compare (routers/webhook.py:46-48). All confirmed.
+- Correction by Foreman: planner did not run tests; REC-01 (baseline) already done by Foreman (run 2) and found one real
+  failure -> HOM-140 (STAB-01) is queue item #0.5, ahead of N11.
+- Queue head: HOM-140 -> N11 -> WP02-T03 -> REC-02 -> WP22-T02 -> WP18-T03 -> WP01-T04 (Docker unavailable: partial) -> WP01-T06 -> N03.
+- Linear coverage gap: N-items, AppVision §6 rows and REC-02 have no Linear issue yet; created just-in-time on activation,
+  remaining ones batch-created at the integration-closure checkpoint.
