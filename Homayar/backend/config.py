@@ -238,11 +238,6 @@ class Settings(BaseSettings):
     gapgpt_api_key: str = ""
     gapgpt_base_url: str = "https://gapgpt.app/api/v1"
     llm_model: str = "default"
-    llm_model_qc: str = ""
-    llm_model_problem: str = ""
-    llm_model_insight: str = ""
-    llm_model_teacher: str = ""
-    llm_model_copilot: str = ""
     llm_provider: str = "auto"
 
     # EMAIL
@@ -259,16 +254,6 @@ class Settings(BaseSettings):
     neo4j_password: str = ""
     neo4j_database: str = "neo4j"
     enable_neo4j_projection: bool = False
-    ldap_server: str = ""
-    ldap_port: int = 636
-    ldap_use_ssl: bool = True
-    ldap_bind_dn: str = ""
-    ldap_bind_password: str = ""
-    ldap_search_base: str = ""
-    ldap_user_ou: str = "OU=Users"
-    voip_webhook_secret: str = ""
-    enable_voip_webhook: bool = False
-    admin_default_password: str = ""  # Legacy bootstrap; rejected in production.
 
     # OBSERVABILITY / BILLING
     sentry_dsn: str = ""
@@ -401,8 +386,6 @@ class Settings(BaseSettings):
                 raise ValueError("MODEL_MANIFEST_STRICT cannot be disabled in production")
             if self.auto_create_schema:
                 raise ValueError("Production schema changes must run through Alembic migrations")
-            if self.enable_voip_webhook and not self.voip_webhook_secret:
-                raise ValueError("VOIP_WEBHOOK_SECRET is required when the webhook is enabled")
         if self.enable_google_auth and not (self.google_client_id and self.google_client_secret):
             raise ValueError("Google authentication is enabled but credentials are missing")
         if self.enable_phone_auth and not (self.asanak_api_key and self.asanak_sender):

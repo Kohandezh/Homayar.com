@@ -26,6 +26,29 @@ REMOVED_MODULES = (
     "backend.auth",
     "backend.middleware.auth",
     "backend.routers.auth",
+    # Unmounted legacy stack (N11 / F01): Neo4j dashboard, graph, Copilot,
+    # LDAP sync and VoIP webhook routers, the services only they used, the
+    # legacy Pydantic models, the WebSocket stub and the Copilot prompt loader.
+    # Inventory: Homayar/docs/architecture/legacy-retirement.md.
+    "backend.routers.copilot",
+    "backend.routers.dashboard",
+    "backend.routers.graph",
+    "backend.routers.ldap_sync",
+    "backend.routers.webhook",
+    "backend.services.copilot_service",
+    "backend.services.dashboard_service",
+    "backend.services.graph_service",
+    "backend.services.issue_aggregation_service",
+    "backend.services.call_service",
+    "backend.services.ad_service",
+    "backend.services.user_service",
+    "backend.services.pdf_service",
+    "backend.services.redis_service",
+    "backend.services.llm_router",
+    "backend.database.models",
+    "backend.websocket",
+    "backend.websocket.manager",
+    "backend.prompts",
 )
 
 # Development-only data seeding for the legacy graph demo; never imported by the
