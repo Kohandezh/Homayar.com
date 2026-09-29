@@ -10,9 +10,10 @@ import { Chip } from "@/components/ui/Cards";
 import { Icon } from "@/components/ui/Icon";
 import { AppWindow } from "@/components/mockups/AppWindow";
 import { PhoneFrame } from "@/components/mockups/PhoneFrame";
-import { HeroStage } from "@/components/scene/HeroStage";
-import { LiveDemo } from "@/components/demo/LiveDemo";
-import { AgentStory } from "@/components/story/AgentStory";
+import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
+import { WarpBand } from "@/components/story/WarpBand";
+import { BrainScene } from "@/components/story/BrainScene";
+import { AgentJourney } from "@/components/story/AgentJourney";
 import { FlowDiagram } from "@/components/story/FlowDiagram";
 import { CommandCta } from "@/components/site/CommandCta";
 
@@ -39,20 +40,29 @@ export default async function HomePage({ params }: PageProps<"/[locale]">) {
 
   return (
     <>
-      <HeroStage label={dict.common.decorativeMockup} rtl={locale === "fa"} className="min-h-[calc(100svh-var(--header-h))]">
-        <div className="container-x flex min-h-[calc(100svh-var(--header-h))] flex-col justify-between py-12 md:py-16">
-          <div className="max-w-4xl pt-8 md:pt-16">
-            <p className="chip chip-amber" data-reveal>
+      <section className="flight relative isolate overflow-hidden" data-scene="tunnel" data-pin data-flight data-testid="hero-flight">
+        <SceneBackdrop kind="tunnel" priority />
+        <div className="scene-fade-bottom" aria-hidden="true" />
+        <div className="container-x w-full py-16 md:py-20">
+          <div className="max-w-4xl" data-flight-content>
+            <h1 className="display max-w-[16ch]" data-split>
+              {h.hero.title}
+            </h1>
+            <p className="chip chip-accent mt-6" data-flight-item>
               <span className="dot dot-live" aria-hidden="true" />
               {h.hero.eyebrow}
             </p>
-            <h1 className="display mt-6 max-w-[16ch]" data-split>
-              {h.hero.title}
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg text-ink-2 md:text-xl" data-reveal>
+            <p className="mt-5 max-w-2xl text-lg text-ink-2 md:text-xl" data-flight-item>
               {h.hero.text}
             </p>
-            <div className="mt-8 flex flex-wrap gap-3" data-reveal>
+            <ul className="mt-6 flex flex-wrap gap-2" data-flight-item>
+              {h.hero.facts.map((f) => (
+                <li key={f}>
+                  <Chip>{bidi(f, locale)}</Chip>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-wrap gap-3" data-flight-item>
               <Link href={`${base}/contact`} className="btn btn-primary" data-magnetic>
                 {h.hero.primary}
                 <Icon name={arrow} size={18} />
@@ -61,50 +71,43 @@ export default async function HomePage({ params }: PageProps<"/[locale]">) {
                 {h.hero.secondary}
               </Link>
             </div>
-          </div>
-          <div className="mt-16 flex flex-wrap items-end justify-between gap-4">
-            <ul className="flex flex-wrap gap-2" data-reveal-group>
-              {h.hero.facts.map((f) => (
-                <li key={f}>
-                  <Chip>{bidi(f, locale)}</Chip>
-                </li>
-              ))}
-            </ul>
-            <p className="mono flex items-center gap-2 text-xs text-ink-3" data-reveal>
+            <p className="label mt-10 flex items-center gap-2 text-[11px] text-ink-3" data-flight-item>
               <Icon name="scan" size={14} />
-              {h.hero.hint}
+              {dict.scene.flight.hint}
             </p>
           </div>
         </div>
-      </HeroStage>
+      </section>
 
-      <Section className="!pt-4">
-        <LiveDemo demo={dict.demo} mock={dict.mock} locale={locale} brand={dict.brand} frame="stage" />
-      </Section>
+      <WarpBand eyebrow={dict.scene.warp.eyebrow} title={dict.scene.warp.title} text={dict.scene.warp.text} />
 
-      <AgentStory dict={dict} locale={locale} />
+      <BrainScene dict={dict} locale={locale} />
 
-      <Section tone="raised">
+      <AgentJourney dict={dict} locale={locale} />
+
+      <Section scene="field">
         <SectionHeading eyebrow={dict.story.surfaces.eyebrow} title={dict.story.surfaces.title} text={dict.story.surfaces.text} split />
+        <p className="chip mt-4">
+          <Icon name="scan" size={13} />
+          {dict.scene.depth.hint}
+        </p>
         <div className="mt-12 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-          <div data-reveal>
+          <div data-depth="360">
             <AppWindow dict={dict} locale={locale} label={dict.common.decorativeMockup} />
           </div>
-          <div className="flex flex-col gap-4">
-            <div className="flex justify-center" data-reveal="0.1">
-              <div data-parallax="-6">
-                <PhoneFrame dict={dict} locale={locale} label={dict.common.decorativeMockup} />
-              </div>
+          <div className="flex justify-center">
+            <div data-depth="240">
+              <PhoneFrame dict={dict} locale={locale} label={dict.common.decorativeMockup} />
             </div>
           </div>
         </div>
         <ul className="mt-6 grid gap-px overflow-hidden rounded-2xl border border-border-2 bg-border-2 sm:grid-cols-2 lg:grid-cols-3" data-reveal-group>
           {h.product.items.map((item, i) => (
             <li key={item.title} className="flex gap-4 bg-surface p-5">
-              <span className="mono pt-1 text-xs text-amber-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
+              <span className="label pt-1 text-xs text-accent-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
               <div>
                 <h3 className="flex items-center gap-2 font-semibold">
-                  <Icon name={item.icon} size={16} className="text-teal" />
+                  <Icon name={item.icon} size={16} className="text-accent-text" />
                   {item.title}
                 </h3>
                 <p className="mt-1 text-sm text-ink-2">{bidi(item.text, locale)}</p>
@@ -120,16 +123,16 @@ export default async function HomePage({ params }: PageProps<"/[locale]">) {
         </div>
       </Section>
 
-      <Section tone="glow">
+      <Section scene="field" tone="glow">
         <SectionHeading eyebrow={dict.story.flow.eyebrow} title={dict.story.flow.title} text={dict.story.flow.text} split />
-        <div className="mt-12 grid gap-4 lg:grid-cols-3" data-reveal-group>
+        <div className="mt-12 grid gap-4 lg:grid-cols-3">
           {h.deployment.items.map((item, i) => (
-            <article key={item.title} className={`panel flex flex-col gap-5 p-5 ${i === 1 ? "panel-glow" : ""}`}>
+            <article key={item.title} className={`panel flex flex-col gap-5 p-5 ${i === 1 ? "panel-glow" : ""}`} data-depth={String(220 + i * 80)}>
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-bold">{item.title}</h3>
-                <Chip tone={i === 1 ? "amber" : "default"}>{flowModes[i]}</Chip>
+                <Chip tone={i === 1 ? "accent" : "default"}>{flowModes[i]}</Chip>
               </div>
-              <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
+              <div className="rounded-xl border border-border-2 bg-bg-deep p-3">
                 <FlowDiagram flow={dict.deployment.flow} mode={flowModes[i]} compact />
               </div>
               <p className="text-sm text-ink-2">{bidi(item.text, locale)}</p>
@@ -144,16 +147,16 @@ export default async function HomePage({ params }: PageProps<"/[locale]">) {
         </div>
       </Section>
 
-      <Section>
+      <Section scene="field">
         <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr]">
           <SectionHeading eyebrow={dict.story.trust.eyebrow} title={dict.story.trust.title} split />
           <ol className="divide-y divide-border-2 border-y border-border-2" data-reveal-group>
             {h.trust.items.map((item, i) => (
               <li key={item.title} className="grid gap-2 py-5 sm:grid-cols-[auto_1fr] sm:gap-6">
-                <span className="mono text-xs text-amber-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
+                <span className="label text-xs text-accent-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
                 <div>
                   <h3 className="flex items-center gap-2 text-lg font-semibold">
-                    <Icon name={item.icon} size={18} className="text-teal" />
+                    <Icon name={item.icon} size={18} className="text-accent-text" />
                     {item.title}
                   </h3>
                   <p className="mt-1.5 text-ink-2">{bidi(item.text, locale)}</p>

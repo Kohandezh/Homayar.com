@@ -5,6 +5,7 @@ import { getDictionary } from "@/i18n";
 import { isLocale, locales } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
 import { Chip, Notice } from "@/components/ui/Cards";
+import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
 
 const docs = ["privacy", "terms", "gdpr"] as const;
 type Doc = (typeof docs)[number];
@@ -34,11 +35,14 @@ export default async function LegalPage({ params }: PageProps<"/[locale]/legal/[
   const page = dict.legal[doc];
 
   return (
-    <div className="container-x py-14 md:py-20">
+    <div className="relative isolate overflow-hidden" data-scene="tunnel" data-hero-scene>
+      <SceneBackdrop kind="tunnel" priority />
+      <div className="scene-fade-bottom" aria-hidden="true" />
+      <div className="container-x min-h-[70svh] py-14 md:py-20" data-hero-content>
       <div className="mx-auto max-w-3xl">
         <div className="flex items-center gap-3" data-reveal>
           <p className="eyebrow">{dict.footer.legal}</p>
-          <Chip tone="amber" live>{dict.common.inProgress}</Chip>
+          <Chip tone="accent" live>{dict.common.inProgress}</Chip>
         </div>
         <h1 className="display mt-5" data-split>{page.title}</h1>
         <div className="mt-8">
@@ -52,6 +56,7 @@ export default async function LegalPage({ params }: PageProps<"/[locale]/legal/[
             {dict.nav.security}
           </Link>
         </div>
+      </div>
       </div>
     </div>
   );

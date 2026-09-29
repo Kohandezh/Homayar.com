@@ -5,6 +5,7 @@ import { getDictionary } from "@/i18n";
 import { isLocale } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
 import { Chip, Notice } from "@/components/ui/Cards";
+import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/transparency">): Promise<Metadata> {
   const { locale } = await params;
@@ -20,11 +21,14 @@ export default async function TransparencyPage({ params }: PageProps<"/[locale]/
   const t = dict.transparency;
 
   return (
-    <div className="container-x py-14 md:py-20">
+    <div className="relative isolate overflow-hidden" data-scene="tunnel" data-hero-scene>
+      <SceneBackdrop kind="tunnel" priority />
+      <div className="scene-fade-bottom" aria-hidden="true" />
+      <div className="container-x min-h-[70svh] py-14 md:py-20" data-hero-content>
       <div className="mx-auto max-w-3xl">
         <div className="flex items-center gap-3" data-reveal>
           <p className="eyebrow">{dict.footer.trust}</p>
-          <Chip tone="amber" live>{dict.common.inProgress}</Chip>
+          <Chip tone="accent" live>{dict.common.inProgress}</Chip>
         </div>
         <h1 className="display mt-5" data-split>{t.title}</h1>
         <div className="mt-8">
@@ -35,6 +39,7 @@ export default async function TransparencyPage({ params }: PageProps<"/[locale]/
             {t.backLink}
           </Link>
         </div>
+      </div>
       </div>
     </div>
   );

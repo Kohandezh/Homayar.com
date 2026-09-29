@@ -71,7 +71,7 @@ export function LiveDemo({
           const el = stageStates[i];
           if (!el) return;
           el.textContent = demo.states[state];
-          el.className = `demo-stage-state chip !min-h-0 !px-2 !py-0.5 !text-[10px] ${state === "done" ? "chip-teal" : state === "running" ? "chip-amber" : ""}`;
+          el.className = `demo-stage-state chip !min-h-0 !px-2 !py-0.5 !text-[10px] ${state === "done" ? "chip-accent" : state === "running" ? "chip-accent" : ""}`;
         };
         const resetStages = () => {
           for (let i = 0; i < stageStates.length; i++) setStage(i, "waiting");
@@ -239,10 +239,10 @@ export function LiveDemo({
       <div className="flex flex-col gap-4">
         <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="mono text-[11px] text-ink-3" dir="ltr">
+            <span className="label text-[11px] text-ink-3" dir="ltr">
               {demo.recording}
             </span>
-            <span className="mono text-[11px] text-ink-2">{demo.call}</span>
+            <span className="label text-[11px] text-ink-2">{demo.call}</span>
           </div>
           <div className="relative mt-3 overflow-hidden rounded-lg">
             <div className="wave" aria-hidden="true">
@@ -250,16 +250,16 @@ export function LiveDemo({
                 <span key={i} className="wave-bar" style={{ height: `${Math.round(h * 100)}%` }} />
               ))}
             </div>
-            <span className="wave-head pointer-events-none absolute inset-0 bg-amber/15" style={{ transformOrigin: locale === "fa" ? "100% 50%" : "0 50%" }} aria-hidden="true" />
+            <span className="wave-head pointer-events-none absolute inset-0 bg-accent/15" style={{ transformOrigin: locale === "fa" ? "100% 50%" : "0 50%" }} aria-hidden="true" />
           </div>
           <ol className="mt-3 grid gap-1.5 sm:grid-cols-2">
             {mock.stages.map((s, i) => (
               <li key={s} className="flex items-center justify-between gap-2 rounded-md border border-border-2 bg-surface px-2.5 py-1.5 text-[11px]">
                 <span className="flex items-center gap-2">
-                  <span className="mono inline-grid size-4 place-items-center rounded-full bg-surface-2 text-[9px] font-bold">{localizeDigits(i + 1, locale)}</span>
+                  <span className="label inline-grid size-4 place-items-center rounded-full bg-surface-2 text-[9px] font-bold">{localizeDigits(i + 1, locale)}</span>
                   {s}
                 </span>
-                <span className="demo-stage-state chip chip-teal !min-h-0 !px-2 !py-0.5 !text-[10px]">{demo.states.done}</span>
+                <span className="demo-stage-state chip chip-accent !min-h-0 !px-2 !py-0.5 !text-[10px]">{demo.states.done}</span>
               </li>
             ))}
           </ol>
@@ -276,7 +276,7 @@ export function LiveDemo({
                   lang={l}
                   aria-pressed={lang === l}
                   onClick={() => setLang(l)}
-                  className={`mono min-h-7 rounded-full px-2.5 text-[11px] font-semibold ${lang === l ? "bg-amber/15 text-amber-text" : "text-ink-3 hover:text-ink"}`}
+                  className={`label min-h-7 rounded-full px-2.5 text-[11px] font-semibold ${lang === l ? "bg-accent/15 text-accent-text" : "text-ink-3 hover:text-ink"}`}
                 >
                   {l === "fa" ? "فارسی" : "English"}
                 </button>
@@ -286,7 +286,7 @@ export function LiveDemo({
           <ol className="flex flex-col gap-2 text-[12px]" dir={rtlTranscript ? "rtl" : "ltr"} lang={lang}>
             {lines.map((l, i) => (
               <li key={`${lang}-${i}`} className="demo-line flex gap-2">
-                <span className={`mono w-16 shrink-0 text-[10px] font-semibold ${l.who === "agent" ? "text-teal" : "text-amber-text"}`} lang={locale}>
+                <span className={`label w-16 shrink-0 text-[10px] font-semibold ${l.who === "agent" ? "text-accent-text" : "text-accent-text"}`} lang={locale}>
                   {demo.speakers[l.who as "customer" | "agent"]}
                 </span>
                 <span className="demo-text min-h-[1.2em] text-ink-2" data-text={l.text}>
@@ -301,7 +301,7 @@ export function LiveDemo({
       <div className="flex flex-col gap-3 rounded-xl border border-border-2 bg-bg-2 p-3">
         <div className="flex items-center justify-between">
           <span className="text-[12px] font-semibold">{demo.report}</span>
-          <span className="demo-ready chip chip-teal !min-h-0 !px-2 !py-0.5 !text-[10px]">
+          <span className="demo-ready chip chip-accent !min-h-0 !px-2 !py-0.5 !text-[10px]">
             <Icon name="check" size={10} strokeWidth={3} />
             {demo.ready}
           </span>
@@ -316,7 +316,7 @@ export function LiveDemo({
                 <div className="score-track flex-1">
                   <div className="score-fill demo-fill" style={{ width: `${s.value}%`, background: s.value < 75 ? "#f59e0b" : undefined }} />
                 </div>
-                <span className="demo-num mono w-6 text-end font-semibold" data-value={s.value}>
+                <span className="demo-num label w-6 text-end font-semibold" data-value={s.value}>
                   {localizeDigits(s.value, locale)}
                 </span>
               </div>
@@ -331,7 +331,7 @@ export function LiveDemo({
               {demo.agents.problems.items.map((it, i) => (
                 <li key={it.label} className="demo-finding flex items-center justify-between gap-2 rounded-md bg-surface-2 px-2 py-1.5 text-[11px]">
                   <span className="truncate">{it.label}</span>
-                  <span className={`chip shrink-0 !min-h-0 !px-1.5 !py-0 !text-[10px] ${i === 0 ? "chip-ember" : "chip-amber"}`}>{it.severity}</span>
+                  <span className={`chip shrink-0 !min-h-0 !px-1.5 !py-0 !text-[10px] ${i === 0 ? "chip-strong" : "chip-accent"}`}>{it.severity}</span>
                 </li>
               ))}
             </ul>
@@ -354,7 +354,7 @@ export function LiveDemo({
           <ul className="mt-2 flex flex-col gap-1.5 text-[11px] text-ink-2">
             {demo.agents.teacher.items.map((it) => (
               <li key={it} className="demo-finding flex items-start gap-2">
-                <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber" aria-hidden="true" />
+                <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
                 {it}
               </li>
             ))}
@@ -385,10 +385,10 @@ export function LiveDemo({
             <span />
             <span />
           </span>
-          <span className="mono ms-3 hidden rounded-md bg-surface px-2 py-0.5 text-[10px] text-ink-3 sm:inline" dir="ltr">
+          <span className="label ms-3 hidden rounded-md bg-surface px-2 py-0.5 text-[10px] text-ink-3 sm:inline" dir="ltr">
             app.homayar.local/calls/104
           </span>
-          <span id={`${uid}-title`} className="chip chip-amber ms-auto">
+          <span id={`${uid}-title`} className="chip chip-accent ms-auto">
             <span className="dot dot-live" aria-hidden="true" />
             {demo.label}
           </span>
@@ -397,12 +397,12 @@ export function LiveDemo({
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2 border-b border-border-2 bg-bg-2 px-4 py-3">
-          <span id={`${uid}-title`} className="chip chip-amber">
+          <span id={`${uid}-title`} className="chip chip-accent">
             <span className="dot dot-live" aria-hidden="true" />
             {demo.label}
           </span>
           <span className="chip">{demo.sample}</span>
-          <span className="mono hidden text-[11px] text-ink-3 md:inline">{brand}</span>
+          <span className="label hidden text-[11px] text-ink-3 md:inline">{brand}</span>
           <span className="ms-auto">{controlsRow}</span>
         </div>
       )}
@@ -417,9 +417,9 @@ function AgentHead({ name, agent, done }: { name: string; agent: string; done: s
     <div className="flex items-center justify-between gap-2">
       <span className="flex items-baseline gap-2">
         <span className="text-[11px] font-semibold">{name}</span>
-        <span className="mono text-[10px] text-ink-3">{agent}</span>
+        <span className="label text-[10px] text-ink-3">{agent}</span>
       </span>
-      <span className="demo-agent-state chip chip-teal !min-h-0 !px-1.5 !py-0 !text-[10px]">{done}</span>
+      <span className="demo-agent-state chip chip-accent !min-h-0 !px-1.5 !py-0 !text-[10px]">{done}</span>
     </div>
   );
 }

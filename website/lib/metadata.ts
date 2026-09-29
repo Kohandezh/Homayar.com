@@ -35,11 +35,13 @@ export function pageMetadata({
       locale: locale === "fa" ? "fa_IR" : "en_US",
       alternateLocale: locale === "fa" ? "en_US" : "fa_IR",
       url: absoluteUrl(locale, path),
+      images: [{ url: "/media/og.jpg", width: 1200, height: 630, alt: siteName }],
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title,
       description,
+      images: ["/media/og.jpg"],
     },
   };
 }

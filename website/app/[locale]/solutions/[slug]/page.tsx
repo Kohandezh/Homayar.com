@@ -6,7 +6,7 @@ import { bidi } from "@/lib/bidi";
 import { isLocale, locales, localizeDigits } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
 import { solutionSlugs, type SolutionSlug } from "@/lib/site";
-import { Section } from "@/components/ui/Section";
+import { PageHero, Section } from "@/components/ui/Section";
 import { CheckList, Chip } from "@/components/ui/Cards";
 import { CommandCta } from "@/components/site/CommandCta";
 import { Icon } from "@/components/ui/Icon";
@@ -41,26 +41,18 @@ export default async function SolutionPage({ params }: PageProps<"/[locale]/solu
 
   return (
     <>
-      <section className="relative isolate overflow-hidden border-b border-border pb-12 pt-10 md:pb-16 md:pt-16">
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
-          <div className="absolute inset-0 grid-lines" />
-          <div className="glow-teal absolute -top-40 -start-40 h-[520px] w-[520px]" data-parallax="8" />
-        </div>
-        <div className="container-x">
-          <Link href={`/${locale}/solutions`} className="link-arrow text-sm" data-reveal>
+      <PageHero
+        eyebrow={role.name}
+        title={role.hero.title}
+        text={t(role.hero.text)}
+        back={
+          <Link href={`/${locale}/solutions`} className="link-arrow mb-4 text-sm" data-reveal>
             <Icon name={locale === "fa" ? "arrowRight" : "arrowLeft"} size={16} />
             {dict.nav.solutions}
           </Link>
-          <div className="mt-4 grid gap-10 lg:grid-cols-[1.1fr_1fr] lg:items-center">
-            <div>
-              <p className="eyebrow" data-reveal>{role.name}</p>
-              <h1 className="display mt-5" data-split>{role.hero.title}</h1>
-              <p className="mt-6 max-w-2xl text-lg text-ink-2" data-reveal>{t(role.hero.text)}</p>
-              <Link href={`/${locale}/contact`} className="btn btn-primary mt-8" data-reveal data-magnetic>
-                {dict.solutions.cta}
-              </Link>
-            </div>
-            <div className="panel panel-glow p-4" role="img" aria-label={mockLabel} data-reveal="0.15">
+        }
+        aside={
+            <div className="panel panel-glow p-4" role="img" aria-label={mockLabel}>
               <div aria-hidden="true" className="flex flex-col gap-3">
                 {slug === "qa-managers" ? (
                   <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
@@ -88,24 +80,27 @@ export default async function SolutionPage({ params }: PageProps<"/[locale]/solu
                 )}
               </div>
             </div>
-          </div>
-        </div>
-      </section>
+        }
+      >
+        <Link href={`/${locale}/contact`} className="btn btn-primary" data-magnetic>
+          {dict.solutions.cta}
+        </Link>
+      </PageHero>
 
-      <Section>
+      <Section scene="field">
         <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr]">
-          <div className="panel p-6 md:p-8" data-reveal>
+          <div className="panel p-6 md:p-8" data-depth="260">
             <h2 className="text-xl font-bold">{role.needs.title}</h2>
             <ul className="mt-5 flex flex-col gap-4">
               {role.needs.items.map((n, i) => (
                 <li key={n} className="flex gap-3">
-                  <span className="mono inline-grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-xs font-bold text-amber-text">{localizeDigits(i + 1, locale)}</span>
+                  <span className="label inline-grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-xs font-bold text-accent-text">{localizeDigits(i + 1, locale)}</span>
                   <span className="text-ink-2">{t(n)}</span>
                 </li>
               ))}
             </ul>
           </div>
-          <div className="panel panel-glow p-6 md:p-8" data-reveal="0.1">
+          <div className="panel panel-glow p-6 md:p-8" data-depth="340">
             <h2 className="text-xl font-bold">{role.gets.title}</h2>
             <div className="mt-5">
               <CheckList items={role.gets.items} render={t} />
@@ -113,12 +108,12 @@ export default async function SolutionPage({ params }: PageProps<"/[locale]/solu
             <div className="mt-6 border-t border-border-2 pt-5">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold">{role.roadmap.title}</h3>
-                <Chip tone="amber">{dict.common.comingSoon}</Chip>
+                <Chip tone="accent">{dict.common.comingSoon}</Chip>
               </div>
               <ul className="mt-3 flex flex-col gap-2 text-ink-2">
                 {role.roadmap.items.map((r) => (
                   <li key={r} className="flex items-start gap-2">
-                    <span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-amber" />
+                    <span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-accent" />
                     {t(r)}
                   </li>
                 ))}

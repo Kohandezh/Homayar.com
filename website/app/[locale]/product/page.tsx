@@ -11,6 +11,7 @@ import { SectionTabs } from "@/components/site/SectionTabs";
 import { LiveDemo } from "@/components/demo/LiveDemo";
 import { CopilotChat, KpiGrid, RootCauses, ScoreBars, SentimentBars, Stages, TranscriptLines, TrendChart, UploadBox } from "@/components/mockups/parts";
 import { Icon } from "@/components/ui/Icon";
+import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/product">): Promise<Metadata> {
   const { locale } = await params;
@@ -33,13 +34,11 @@ export default async function ProductPage({ params }: PageProps<"/[locale]/produ
 
   return (
     <>
-      <section className="relative isolate overflow-hidden border-b border-border pb-10 pt-14 md:pt-20">
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
-          <div className="absolute inset-0 grid-lines" />
-          <div className="glow-amber absolute -top-72 start-1/2 h-[640px] w-[900px] -translate-x-1/2 rtl:translate-x-1/2" />
-        </div>
+      <section className="relative isolate overflow-hidden border-b border-border pb-10 pt-14 md:pt-20" data-scene="tunnel" data-hero-scene>
+        <SceneBackdrop kind="tunnel" priority />
+        <div className="scene-fade-bottom" aria-hidden="true" />
         <div className="container-x">
-          <div className="mx-auto max-w-3xl text-center">
+          <div className="mx-auto max-w-3xl text-center" data-hero-content>
             <p className="eyebrow justify-center" data-reveal>
               {p.hero.eyebrow}
             </p>
@@ -50,7 +49,7 @@ export default async function ProductPage({ params }: PageProps<"/[locale]/produ
               {p.hero.text}
             </p>
           </div>
-          <div className="mt-12" data-reveal="0.1">
+          <div className="mt-12" data-depth="420">
             <LiveDemo demo={dict.demo} mock={m} locale={locale} brand={dict.brand} frame="window" />
           </div>
         </div>
@@ -58,7 +57,7 @@ export default async function ProductPage({ params }: PageProps<"/[locale]/produ
 
       <SectionTabs items={anchors.map((a) => ({ id: a.id, label: a.label }))} label={dict.common.onThisPage} />
 
-      <Section id={s.ingest.id} className="scroll-mt-28">
+      <Section id={s.ingest.id} className="scroll-mt-28" scene="field">
         <div className="grid items-center gap-10 lg:grid-cols-2">
           <div>
             <p className="eyebrow" data-reveal>{s.ingest.label}</p>
@@ -66,12 +65,12 @@ export default async function ProductPage({ params }: PageProps<"/[locale]/produ
             <p className="mt-5 text-lg text-ink-2" data-reveal>{t(s.ingest.text)}</p>
             <div className="mt-6"><CheckList items={s.ingest.bullets} render={t} /></div>
           </div>
-          <div className="panel p-4" role="img" aria-label={mockLabel} data-reveal>
+          <div className="panel p-4" role="img" aria-label={mockLabel} data-depth="320">
             <div aria-hidden="true" className="flex flex-col gap-3">
               <UploadBox mock={m} />
               <div className="rounded-xl border border-border-2 bg-bg-2 p-3 text-[11px]">
-                <p className="mono mb-2 font-semibold text-ink-3">VOIP webhook</p>
-                <pre dir="ltr" className="mono overflow-x-auto rounded-lg bg-bg p-3 text-[10px] leading-relaxed text-teal">{`POST /api/webhook/voip/call-event
+                <p className="label mb-2 font-semibold text-ink-3">VOIP webhook</p>
+                <pre dir="ltr" className="label overflow-x-auto rounded-lg bg-bg p-3 text-[10px] leading-relaxed text-accent-text">{`POST /api/webhook/voip/call-event
 X-Webhook-Secret: ••••••••
 { "extension": "104", "direction": "inbound",
   "duration": 372, "recording_base64": "…" }`}</pre>
@@ -83,7 +82,7 @@ X-Webhook-Secret: ••••••••
 
       <Section id={s.transcription.id} tone="raised" className="scroll-mt-28">
         <div className="grid items-center gap-10 lg:grid-cols-2">
-          <div className="panel order-2 p-4 lg:order-1" role="img" aria-label={mockLabel} data-reveal>
+          <div className="panel order-2 p-4 lg:order-1" role="img" aria-label={mockLabel} data-depth="320">
             <div aria-hidden="true" className="flex flex-col gap-3">
               <Stages mock={m} />
               <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
@@ -101,16 +100,16 @@ X-Webhook-Secret: ••••••••
         </div>
       </Section>
 
-      <Section id={s.agents.id} tone="glow" className="scroll-mt-28">
+      <Section id={s.agents.id} tone="glow" className="scroll-mt-28" scene="field">
         <p className="eyebrow" data-reveal>{s.agents.label}</p>
         <h2 className="display-2 mt-4 max-w-3xl" data-split>{s.agents.title}</h2>
         <p className="mt-5 max-w-3xl text-lg text-ink-2" data-reveal>{t(s.agents.text)}</p>
         <ol className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-border-2 bg-border-2 sm:grid-cols-2 lg:grid-cols-4" data-reveal-group>
           {s.agents.items.map((a, i) => (
             <li key={a.title} className="flex flex-col gap-3 bg-surface p-6">
-              <span className="mono text-xs text-amber-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
+              <span className="label text-xs text-accent-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
               <h3 className="flex items-center gap-2 text-lg font-semibold">
-                <Icon name={["gauge", "alert", "trend", "book"][i]} size={18} className="text-teal" />
+                <Icon name={["gauge", "alert", "trend", "book"][i]} size={18} className="text-accent-text" />
                 {t(a.title)}
               </h3>
               <p className="text-sm text-ink-2">{t(a.text)}</p>
@@ -119,7 +118,7 @@ X-Webhook-Secret: ••••••••
         </ol>
       </Section>
 
-      <Section id={s.dashboard.id} className="scroll-mt-28">
+      <Section id={s.dashboard.id} className="scroll-mt-28" scene="field">
         <div className="grid items-center gap-10 lg:grid-cols-[1fr_1.2fr]">
           <div>
             <p className="eyebrow" data-reveal>{s.dashboard.label}</p>
@@ -127,7 +126,7 @@ X-Webhook-Secret: ••••••••
             <p className="mt-5 text-lg text-ink-2" data-reveal>{t(s.dashboard.text)}</p>
             <div className="mt-6"><CheckList items={s.dashboard.bullets} render={t} /></div>
           </div>
-          <div className="panel panel-glow p-4" role="img" aria-label={mockLabel} data-reveal>
+          <div className="panel panel-glow p-4" role="img" aria-label={mockLabel} data-depth="360">
             <div aria-hidden="true" className="flex flex-col gap-3">
               <KpiGrid mock={m} />
               <div className="grid gap-3 sm:grid-cols-2">
@@ -141,7 +140,7 @@ X-Webhook-Secret: ••••••••
 
       <Section id={s.reports.id} tone="raised" className="scroll-mt-28">
         <div className="grid items-center gap-10 lg:grid-cols-[1.2fr_1fr]">
-          <div className="panel order-2 p-4 lg:order-1" role="img" aria-label={mockLabel} data-reveal>
+          <div className="panel order-2 p-4 lg:order-1" role="img" aria-label={mockLabel} data-depth="320">
             <div aria-hidden="true" className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
                 <div className="mb-2 flex items-center justify-between">
@@ -163,7 +162,7 @@ X-Webhook-Secret: ••••••••
                   <ul className="flex flex-col gap-1 text-[11px] text-ink-2">
                     {dict.demo.agents.teacher.items.slice(0, 2).map((o) => (
                       <li key={o} className="flex items-start gap-2">
-                        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber" />
+                        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent" />
                         {o}
                       </li>
                     ))}
@@ -181,7 +180,7 @@ X-Webhook-Secret: ••••••••
         </div>
       </Section>
 
-      <Section id={s.copilot.id} className="scroll-mt-28">
+      <Section id={s.copilot.id} className="scroll-mt-28" scene="field">
         <div className="grid items-center gap-10 lg:grid-cols-2">
           <div>
             <p className="eyebrow" data-reveal>{s.copilot.label}</p>
@@ -189,10 +188,10 @@ X-Webhook-Secret: ••••••••
             <p className="mt-5 text-lg text-ink-2" data-reveal>{t(s.copilot.text)}</p>
             <div className="mt-6"><CheckList items={s.copilot.bullets} render={t} /></div>
           </div>
-          <div className="panel panel-glow p-4" role="img" aria-label={mockLabel} data-reveal>
+          <div className="panel panel-glow p-4" role="img" aria-label={mockLabel} data-depth="360">
             <div aria-hidden="true">
               <div className="mb-3 flex items-center gap-2 rounded-lg border border-border-2 bg-bg-2 px-3 py-2 text-[11px] text-ink-3">
-                <Icon name="sparkles" size={12} className="text-amber-text" />
+                <Icon name="sparkles" size={12} className="text-accent-text" />
                 {m.nav[4]}
                 <span className="kbd ms-auto">⌘K</span>
               </div>
@@ -203,13 +202,13 @@ X-Webhook-Secret: ••••••••
       </Section>
 
       <Section id={s.admin.id} tone="raised" className="scroll-mt-28">
-        <div className="panel p-6 md:p-10" data-reveal>
+        <div className="panel p-6 md:p-10" data-depth="260">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="eyebrow">{s.admin.label}</p>
               <h2 className="display-2 mt-4">{s.admin.title}</h2>
             </div>
-            <Chip tone="teal" live>
+            <Chip tone="accent" live>
               LDAP · AD
             </Chip>
           </div>

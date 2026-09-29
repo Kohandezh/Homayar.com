@@ -79,7 +79,7 @@ export function MobileMenu({
       >
         <div className="sheet-body">
           <div className="mb-3 flex items-center justify-between">
-            <p id={titleId} className="mono text-xs font-semibold text-ink-3">
+            <p id={titleId} className="label text-xs font-semibold text-ink-3">
               {brand}
             </p>
             <button type="button" className="inline-grid size-11 place-items-center rounded-full hover:bg-surface-2" aria-label={closeLabel} onClick={() => setOpen(false)}>
@@ -97,7 +97,7 @@ export function MobileMenu({
                     aria-current={active ? "page" : undefined}
                     onClick={() => setOpen(false)}
                     className={`flex min-h-14 items-center gap-3 rounded-xl border px-3 py-2 font-semibold ${
-                      active ? "border-amber/50 bg-amber/10 text-amber-text" : "border-border-2 bg-bg-2 text-ink"
+                      active ? "border-accent/50 bg-accent/10 text-accent-text" : "border-border-2 bg-bg-2 text-ink"
                     }`}
                   >
                     <Icon name={item.icon} size={20} />

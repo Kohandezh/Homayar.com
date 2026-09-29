@@ -89,8 +89,8 @@ export function ContactForm({ copy, locale }: { copy: Copy; locale: Locale }) {
 
   if (status === "sent") {
     return (
-      <div role="status" className="flex flex-col items-start gap-3 rounded-2xl border border-teal/40 bg-teal/10 p-6">
-        <span className="inline-grid size-11 place-items-center rounded-full bg-teal text-on-amber">
+      <div role="status" className="flex flex-col items-start gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-6">
+        <span className="inline-grid size-11 place-items-center rounded-full bg-accent text-on-accent">
           <Icon name="check" size={22} strokeWidth={2.5} />
         </span>
         <h2 className="text-xl font-bold">{copy.successTitle}</h2>
@@ -198,7 +198,7 @@ function Field({
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="flex items-baseline justify-between gap-2 text-sm font-semibold">
         <span>{label}</span>
-        <span className="mono text-[11px] font-medium text-ink-3">{required ? `${required} *` : optional}</span>
+        <span className="label text-[11px] font-medium text-ink-3">{required ? `${required} *` : optional}</span>
       </label>
       {children}
       {hint ? (

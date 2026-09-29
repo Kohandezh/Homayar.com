@@ -28,8 +28,8 @@ export function SectionTabs({ items, label }: { items: { id: string; label: stri
               <a
                 href={`#${i.id}`}
                 aria-current={active === i.id ? "true" : undefined}
-                className={`mono inline-flex min-h-11 items-center rounded-full px-4 text-xs font-semibold transition-colors ${
-                  active === i.id ? "bg-amber/12 text-amber-text" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+                className={`label inline-flex min-h-11 items-center rounded-full px-4 text-xs font-semibold transition-colors ${
+                  active === i.id ? "bg-accent/12 text-accent-text" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
                 }`}
               >
                 {i.label}

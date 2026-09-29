@@ -39,15 +39,15 @@ export default async function SolutionsPage({ params }: PageProps<"/[locale]/sol
   return (
     <>
       <PageHero eyebrow={s.hero.eyebrow} title={s.hero.title} text={s.hero.text} />
-      <Section>
-        <div className="grid gap-4 md:grid-cols-2" data-reveal-group>
+      <Section scene="field">
+        <div className="grid gap-4 md:grid-cols-2">
           {solutionSlugs.map((slug, i) => {
             const role = s.roles[slug];
             return (
-              <Link key={slug} href={`/${locale}/solutions/${slug}`} className={`panel group flex flex-col gap-5 p-6 transition-colors hover:border-amber/50 md:p-7 ${i === 0 ? "panel-glow" : ""}`}>
+              <Link key={slug} href={`/${locale}/solutions/${slug}`} className={`panel group flex flex-col gap-5 p-6 transition-colors hover:border-accent/50 md:p-7 ${i === 0 ? "panel-glow" : ""}`} data-depth={String(220 + (i % 2) * 120)}>
                 <div className="flex items-center justify-between">
-                  <span className="mono text-xs text-amber-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
-                  <Icon name={role.icon} size={20} className="text-teal" />
+                  <span className="label text-xs text-accent-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
+                  <Icon name={role.icon} size={20} className="text-accent-text" />
                 </div>
                 <div className="rounded-xl border border-border-2 bg-bg-2 p-3" aria-hidden="true">
                   {preview(slug)}

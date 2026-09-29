@@ -928,6 +928,30 @@ const en = {
     ],
   },
 
+  theme: { toDark: "Switch to dark mode", toLight: "Switch to light mode" },
+
+  loader: { loading: "Loading" },
+
+  scene: {
+    flight: { hint: "Scroll to fly in" },
+    warp: {
+      eyebrow: "Space to space",
+      title: "The call ends. The analysis space opens.",
+      text: "Keep scrolling. You are entering the network that reads the conversation.",
+    },
+    brain: {
+      eyebrow: "Inside the analysis",
+      title: "The core reads every line as it is said",
+      text: "A sample call. Each line lights up the part of the network that reads it. At the end the report comes to you.",
+      conversation: "Sample conversation",
+      analyzing: "Analyzing the conversation",
+      ready: "Report ready",
+      sample: "Sample data, invented names and numbers",
+    },
+    journey: { hint: "Scroll to travel", step: "Agent" },
+    depth: { hint: "Scroll: each surface comes to you" },
+  },
+
   mock: {
     nav: ["Overview", "Calls", "Incidents", "Analytics", "Copilot", "Graph", "Settings"],
     workspace: "Support queue",

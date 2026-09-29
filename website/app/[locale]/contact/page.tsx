@@ -6,6 +6,7 @@ import { isLocale, localizeDigits } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
 import { ContactForm } from "@/components/site/ContactForm";
 import { Icon } from "@/components/ui/Icon";
+import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/contact">): Promise<Metadata> {
   const { locale } = await params;
@@ -26,16 +27,15 @@ export default async function ContactPage({ params }: PageProps<"/[locale]/conta
   ];
 
   return (
-    <div className="relative isolate overflow-hidden">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
-        <div className="glow-amber absolute -top-40 -end-40 h-[560px] w-[560px]" data-parallax="8" />
-      </div>
+    <div className="relative isolate overflow-hidden" data-scene="tunnel" data-hero-scene>
+      <SceneBackdrop kind="tunnel" priority />
+      <div className="scene-fade-bottom" aria-hidden="true" />
       <div className="container-x grid gap-10 py-14 md:py-20 lg:grid-cols-[1.2fr_1fr] lg:gap-16">
         <div>
           <p className="eyebrow" data-reveal>{c.hero.eyebrow}</p>
           <h1 className="display mt-5" data-split>{c.hero.title}</h1>
           <p className="mt-5 max-w-xl text-lg text-ink-2" data-reveal>{c.hero.text}</p>
-          <div className="panel panel-glow mt-8 p-5 md:p-8" data-reveal>
+          <div className="panel panel-glow mt-8 p-5 md:p-8" data-depth="300">
             <ContactForm copy={c.form} locale={locale} />
           </div>
         </div>
@@ -48,14 +48,14 @@ export default async function ContactPage({ params }: PageProps<"/[locale]/conta
               </div>
               {c.aside.steps.map((s, i) => (
                 <li key={s} className="relative flex gap-4" data-step>
-                  <span className="mono relative z-10 inline-grid size-7 shrink-0 place-items-center rounded-full border-4 border-surface bg-amber text-xs font-bold text-on-amber">{localizeDigits(i + 1, locale)}</span>
+                  <span className="label relative z-10 inline-grid size-7 shrink-0 place-items-center rounded-full border-4 border-surface bg-accent text-xs font-bold text-on-accent">{localizeDigits(i + 1, locale)}</span>
                   <span className="pt-0.5 text-ink-2">{s}</span>
                 </li>
               ))}
             </ol>
           </div>
           <div className="panel mt-4 p-6">
-            <h2 className="mono text-xs font-semibold text-ink-3">{c.aside.linksTitle}</h2>
+            <h2 className="label text-xs font-semibold text-ink-3">{c.aside.linksTitle}</h2>
             <ul className="mt-3 flex flex-col gap-1">
               {links.map((l) => (
                 <li key={l.href}>

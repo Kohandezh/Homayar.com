@@ -5,6 +5,7 @@ import { ActiveLink } from "./ActiveLink";
 import { LangSwitcher } from "./LangSwitcher";
 import { Logo } from "./Logo";
 import { MobileMenu } from "./MobileMenu";
+import { ThemeToggle } from "./ThemeToggle";
 import { primaryNav } from "./nav";
 
 export function Header({ locale, dict }: { locale: Locale; dict: Dictionary }) {
@@ -18,7 +19,7 @@ export function Header({ locale, dict }: { locale: Locale; dict: Dictionary }) {
   return (
     <header className="site-header">
       <span className="progress-line" aria-hidden="true" />
-      <div className="container-x flex h-full items-center justify-between gap-3">
+      <div className="container-x flex h-full items-center justify-between gap-2">
         <Logo locale={locale} brand={dict.brand} tagline={dict.tagline} />
 
         <nav aria-label={dict.nav.home} className="hidden items-center gap-0.5 lg:flex">
@@ -29,7 +30,8 @@ export function Header({ locale, dict }: { locale: Locale; dict: Dictionary }) {
           ))}
         </nav>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <ThemeToggle toDark={dict.theme.toDark} toLight={dict.theme.toLight} />
           <LangSwitcher locale={locale} label={dict.common.switchLanguage} shortLabel={dict.common.switchLanguageShort} />
           <a href={appUrl} className="btn btn-ghost hidden text-sm md:inline-flex" data-testid="login-link">
             {dict.common.login}

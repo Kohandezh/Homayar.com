@@ -17,12 +17,3 @@ export const jakarta = localFont({
   preload: true,
   fallback: ["Segoe UI", "Helvetica Neue", "Arial", "sans-serif"],
 });
-
-export const mono = localFont({
-  src: "../fonts/JetBrainsMono-Variable-latin.woff2",
-  weight: "400 700",
-  display: "swap",
-  variable: "--font-mono",
-  preload: false,
-  fallback: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
-});

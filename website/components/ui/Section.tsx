@@ -1,20 +1,25 @@
 import type { ReactNode } from "react";
+import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
+import type { SceneKind } from "@/components/scene/bus";
 
 export function Section({
   id,
   children,
   className = "",
   tone = "base",
+  scene,
 }: {
   id?: string;
   children: ReactNode;
   className?: string;
   tone?: "base" | "raised" | "glow";
+  scene?: SceneKind;
 }) {
-  const bg = tone === "raised" ? "bg-bg-2 hairline-y" : tone === "glow" ? "relative isolate overflow-hidden" : "";
+  const bg = tone === "raised" ? "bg-bg-deep hairline-y" : tone === "glow" || scene ? "relative isolate overflow-hidden" : "";
   return (
-    <section id={id} className={`py-16 md:py-24 ${bg} ${className}`}>
-      {tone === "glow" ? <div aria-hidden="true" className="glow-amber pointer-events-none absolute -top-40 start-1/2 -z-10 h-[520px] w-[720px] -translate-x-1/2 rtl:translate-x-1/2" /> : null}
+    <section id={id} className={`py-16 md:py-24 ${bg} ${className}`} data-scene={scene}>
+      {scene ? <SceneBackdrop kind={scene} /> : null}
+      {tone === "glow" ? <div aria-hidden="true" className="glow-accent pointer-events-none absolute -top-40 start-1/2 -z-10 h-[520px] w-[720px] -translate-x-1/2 rtl:translate-x-1/2" /> : null}
       <div className="container-x">{children}</div>
     </section>
   );
@@ -30,7 +35,7 @@ export function SectionHeading({
 }: {
   eyebrow?: string;
   title: string;
-  text?: string;
+  text?: ReactNode;
   align?: "start" | "center";
   as?: "h1" | "h2";
   split?: boolean;
@@ -51,31 +56,35 @@ export function SectionHeading({
   );
 }
 
+/** Inner-page hero: a short flight through the grid (or into the warp) behind the page title. */
 export function PageHero({
   eyebrow,
   title,
   text,
   children,
   aside,
+  scene = "tunnel",
+  back,
 }: {
   eyebrow?: string;
   title: string;
-  text?: string;
+  text?: ReactNode;
   children?: ReactNode;
   aside?: ReactNode;
+  scene?: SceneKind;
+  back?: ReactNode;
 }) {
   return (
-    <section className="relative isolate overflow-hidden border-b border-border pb-12 pt-14 md:pb-16 md:pt-24">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute inset-0 grid-lines" />
-        <div className="glow-amber absolute -top-64 -end-40 h-[560px] w-[560px]" data-parallax="8" />
-      </div>
-      <div className={`container-x ${aside ? "grid gap-10 lg:grid-cols-[1.1fr_1fr] lg:items-center" : ""}`}>
+    <section className="relative isolate overflow-hidden border-b border-border" data-scene={scene} data-hero-scene>
+      <SceneBackdrop kind={scene} priority />
+      <div className="scene-fade-bottom" aria-hidden="true" />
+      <div className={`container-x flex min-h-[68svh] flex-col justify-center pb-14 pt-14 md:pb-20 md:pt-20 ${aside ? "lg:grid lg:grid-cols-[1.1fr_1fr] lg:items-center lg:gap-10" : ""}`} data-hero-content>
         <div>
+          {back}
           <SectionHeading eyebrow={eyebrow} title={title} text={text} as="h1" split />
           {children ? <div className="mt-8" data-reveal>{children}</div> : null}
         </div>
-        {aside ? <div data-reveal="0.15">{aside}</div> : null}
+        {aside ? <div className="mt-10 lg:mt-0" data-depth="260">{aside}</div> : null}
       </div>
     </section>
   );

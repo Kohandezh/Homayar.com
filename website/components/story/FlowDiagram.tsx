@@ -3,16 +3,16 @@ import { Icon } from "@/components/ui/Icon";
 
 type Flow = Dictionary["deployment"]["flow"];
 
-function Node({ label, icon, tone = "default", compact = false }: { label: string; icon: string; tone?: "default" | "amber" | "muted"; compact?: boolean }) {
+function Node({ label, icon, tone = "default", compact = false }: { label: string; icon: string; tone?: "default" | "accent" | "muted"; compact?: boolean }) {
   const cls =
-    tone === "amber"
-      ? "border-amber/50 bg-amber/10 text-ink shadow-[0_0_40px_-10px_rgba(245,158,11,0.6)]"
+    tone === "accent"
+      ? "border-accent/50 bg-accent/10 text-ink shadow-[0_0_40px_-10px_rgba(245,158,11,0.6)]"
       : tone === "muted"
         ? "border-border-2 bg-bg-2 text-ink-3 border-dashed"
         : "border-border-2 bg-surface text-ink";
   return (
     <div className={`flex items-center justify-center gap-2.5 rounded-xl border px-3 text-center font-semibold ${compact ? "min-h-[48px] py-2 text-xs" : "min-h-[72px] py-3 text-sm"} ${cls}`}>
-      <Icon name={icon} size={compact ? 15 : 18} className={tone === "amber" ? "text-amber-text" : tone === "muted" ? "text-ink-3" : "text-teal"} />
+      <Icon name={icon} size={compact ? 15 : 18} className={tone === "accent" ? "text-accent-text" : tone === "muted" ? "text-ink-3" : "text-accent-text"} />
       {label}
     </div>
   );
@@ -35,7 +35,7 @@ function Connector({ blocked = false, label, vertical = false }: { blocked?: boo
   return (
     <div className={`flex items-center justify-center gap-2 ${vertical ? "flex-row py-1" : "flex-col md:min-w-[88px]"}`}>
       {line}
-      {label ? <span className={`mono text-[10px] leading-tight ${blocked ? "text-ember" : "text-ink-3"}`}>{label}</span> : null}
+      {label ? <span className={`label text-[10px] leading-tight ${blocked ? "text-accent-text" : "text-ink-3"}`}>{label}</span> : null}
     </div>
   );
 }
@@ -57,10 +57,10 @@ export function FlowDiagram({ flow, mode, compact = false }: { flow: Flow; mode:
       <div className="flex flex-col" aria-hidden="true">
         <Node label={flow.source} icon="phone" compact />
         <Connector vertical />
-        <Node label={flow.app} icon="activity" tone="amber" compact />
+        <Node label={flow.app} icon="activity" tone="accent" compact />
         <Connector vertical blocked={blocked} label={connectorLabel} />
         {third}
-        {blocked ? <p className="mono mt-2 text-center text-[10px] text-ink-3">{flow.allowlist}</p> : null}
+        {blocked ? <p className="label mt-2 text-center text-[10px] text-ink-3">{flow.allowlist}</p> : null}
       </div>
     );
   }
@@ -69,10 +69,10 @@ export function FlowDiagram({ flow, mode, compact = false }: { flow: Flow; mode:
     <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-center" aria-hidden="true">
       <Node label={flow.source} icon="phone" />
       <Connector />
-      <Node label={flow.app} icon="activity" tone="amber" />
+      <Node label={flow.app} icon="activity" tone="accent" />
       <Connector label={connectorLabel} blocked={blocked} />
       {third}
-      {blocked ? <p className="mono text-center text-[11px] text-ink-3 md:col-span-5 md:text-start">{flow.allowlist}</p> : null}
+      {blocked ? <p className="label text-center text-[11px] text-ink-3 md:col-span-5 md:text-start">{flow.allowlist}</p> : null}
     </div>
   );
 }
