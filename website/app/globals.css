@@ -631,7 +631,7 @@
   }
   .palette-row:hover, .palette-row:focus-visible { background: rgb(var(--t-line) / 0.06); }
 
-  .depth-stage { perspective: 1400px; perspective-origin: 50% 40%; }
+  .depth-stage { perspective: 1400px; perspective-origin: 50% 40%; overflow-x: clip; }
   [data-depth] { transform-style: preserve-3d; will-change: transform, opacity; }
 
   .flight { min-height: 100svh; display: flex; align-items: center; }

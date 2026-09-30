@@ -41,7 +41,7 @@ export default async function PricingPage({ params }: PageProps<"/[locale]/prici
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           {p.plans.map((plan, i) => (
-            <div key={plan.name} className={`panel flex flex-col p-6 md:p-8 ${i === 2 ? "panel-glow" : ""}`} data-depth={String(200 + i * 80)}>
+            <div key={plan.name} className={`panel flex flex-col p-6 md:p-8 ${i === 2 ? "panel-glow" : ""}`} data-reveal={String(i * 0.08)}>
               <h2 className="text-2xl font-bold">{plan.name}</h2>
               <p className="mt-1 text-ink-2">{plan.text}</p>
               <div className="mt-8">
