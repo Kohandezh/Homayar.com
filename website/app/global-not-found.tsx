@@ -11,6 +11,7 @@ import { Footer } from "@/components/site/Footer";
 import { BottomTabBar } from "@/components/site/BottomTabBar";
 import { tabBarNav } from "@/components/site/nav";
 import { Stage } from "@/components/scene/Stage";
+import { PosterDefs } from "@/components/scene/PosterDefs";
 import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
 import { TransitionLayer } from "@/components/site/TransitionLayer";
 
@@ -36,6 +37,7 @@ export default async function GlobalNotFound() {
         <a href="#main" className="skip-link">
           {dict.common.skipToContent}
         </a>
+        <PosterDefs />
         <Stage rtl={locale === "fa"} />
         <div className="site-layer">
           <Header locale={locale} dict={dict} />

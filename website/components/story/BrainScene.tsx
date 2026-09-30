@@ -14,12 +14,6 @@ export function BrainScene({ dict, locale }: { dict: Dictionary; locale: Locale 
   return (
     <section className="relative isolate overflow-hidden" data-scene="brain" data-pin data-brain data-testid="brain-scene">
       <SceneBackdrop kind="brain" />
-      <div className="brain-video" aria-hidden="true">
-        <video muted playsInline loop preload="none" data-poster="/media/neurons-poster.webp" data-brain-video tabIndex={-1}>
-          <source data-src="/media/neurons-720.webm" data-src-wide="/media/neurons-1280.webm" type="video/webm" />
-          <source data-src="/media/neurons-720.mp4" data-src-wide="/media/neurons-1280.mp4" type="video/mp4" />
-        </video>
-      </div>
       <div className="brain-stage container-x py-16 md:py-24">
         <div className="brain-intro mx-auto max-w-2xl text-center" data-brain-intro>
           <p className="eyebrow justify-center">{s.eyebrow}</p>

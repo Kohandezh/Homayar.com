@@ -7,7 +7,7 @@ type Theme = "dark" | "light";
 
 const PALETTE: Record<Theme, { line: string; bright: string; deep: string }> = {
   dark: { line: "#22bec6", bright: "#7fdde2", deep: "#125a5e" },
-  light: { line: "#22bec6", bright: "#125a5e", deep: "#0d4346" },
+  light: { line: "#125a5e", bright: "#0d4346", deep: "#1a8a90" },
 };
 
 function applyBlend(m: THREE.Material, theme: Theme) {
@@ -24,11 +24,11 @@ type Role = "line" | "bright" | "deep";
 
 const LINE_VERT = `
 uniform float uNear; uniform float uFar;
-attribute vec3 aColor;
+attribute vec3 aColor; attribute float aShade;
 varying float vFade; varying vec3 vColor;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vFade = 1.0 - smoothstep(uNear, uFar, -mv.z);
+  vFade = (1.0 - smoothstep(uNear, uFar, -mv.z)) * aShade;
   vColor = aColor;
   gl_Position = projectionMatrix * mv;
 }`;
@@ -90,10 +90,11 @@ function makeMat(kind: "line" | "point", role: Role, theme: Theme, opts: { near:
   return m;
 }
 
-function geo(positions: number[], colors?: number[]) {
+function geo(positions: number[], colors?: number[], shades?: number[]) {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   g.setAttribute("aColor", new THREE.Float32BufferAttribute(colors ?? new Array(positions.length).fill(1), 3));
+  g.setAttribute("aShade", new THREE.Float32BufferAttribute(shades ?? new Array(positions.length / 3).fill(1), 1));
   return g;
 }
 
@@ -124,33 +125,72 @@ interface Ctx {
   smoothPointer: { x: number; y: number };
 }
 
+const TUNNEL_DIST = 90;
+
 function makeTunnel(ctx: Ctx, warp: boolean): Unit {
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(64, 1, 0.1, 140);
+  const camera = new THREE.PerspectiveCamera(64, 1, 0.1, 160);
   const W = 8;
   const H = 4.5;
-  const L = 96;
+  const L = 132;
   const step = 3;
+  const period = 24;
   const mats: Mat[] = [];
+
   const pos: number[] = [];
   const xs = ctx.light ? 4 : 2;
-  for (let x = -W; x <= W + 0.001; x += xs) pos.push(x, -H, 0, x, -H, -L, x, H, 0, x, H, -L);
-  for (let y = -H + 1.5; y <= H - 1.5 + 0.001; y += ctx.light ? 3 : 1.5) pos.push(-W, y, 0, -W, y, -L, W, y, 0, W, y, -L);
-  const longMat = makeMat("line", "deep", ctx.theme, { near: 6, far: 70, opacity: 0.6 });
+  for (let x = -W; x <= W + 0.001; x += xs) pos.push(x, -H, 4, x, -H, -L, x, H, 4, x, H, -L);
+  for (let y = -H + 1.5; y <= H - 1.5 + 0.001; y += ctx.light ? 3 : 1.5) pos.push(-W, y, 4, -W, y, -L, W, y, 4, W, y, -L);
+  const longMat = makeMat("line", "deep", ctx.theme, { near: 6, far: 84, opacity: 0.6 });
   const long = new THREE.LineSegments(geo(pos), longMat);
+
   const rp: number[] = [];
-  for (let z = 0; z >= -L; z -= step) rp.push(-W, -H, z, W, -H, z, W, -H, z, W, H, z, W, H, z, -W, H, z, -W, H, z, -W, -H, z);
-  const ringMat = makeMat("line", "line", ctx.theme, { near: 4, far: 60, opacity: 0.75 });
-  const rings = new THREE.LineSegments(geo(rp), ringMat);
+  const rs: number[] = [];
+  const rect = (w: number, h: number, z: number, shade: number) => {
+    rp.push(-w, -h, z, w, -h, z, w, -h, z, w, h, z, w, h, z, -w, h, z, -w, h, z, -w, -h, z);
+    for (let i = 0; i < 8; i++) rs.push(shade);
+  };
+  for (let z = 4; z >= -L; z -= step) {
+    const idx = Math.round((4 - z) / step);
+    const gate = idx % (period / step) === 0;
+    rect(W, H, z, gate ? 1 : 0.4 + 0.2 * (idx % 3));
+    if (gate) {
+      rect(W - 0.5, H - 0.5, z, 0.9);
+      rp.push(-W, -H, z, -W, -H, z - 1.2, W, -H, z, W, -H, z - 1.2, -W, H, z, -W, H, z - 1.2, W, H, z, W, H, z - 1.2);
+      for (let i = 0; i < 8; i++) rs.push(1);
+    }
+  }
+  const ringMat = makeMat("line", "line", ctx.theme, { near: 4, far: 72, opacity: 0.85 });
+  const rings = new THREE.LineSegments(geo(rp, undefined, rs), ringMat);
   const group = new THREE.Group();
   group.add(long, rings);
   mats.push(longMat, ringMat);
+
+  const SN = ctx.light ? 24 : 60;
+  const rnd = mulberry(5);
+  const streakBase: number[] = [];
+  for (let i = 0; i < SN; i++) {
+    const wall = rnd() < 0.5 ? -1 : 1;
+    const onSide = rnd() < 0.6;
+    const x = onSide ? wall * (W - 0.3 - rnd() * 2.2) : (rnd() - 0.5) * 2 * (W - 1);
+    const y = onSide ? (rnd() - 0.5) * 2 * (H - 0.4) : wall * (H - 0.3 - rnd() * 1.4);
+    streakBase.push(x, y, -rnd() * 74);
+  }
+  const streakPos = new Float32Array(SN * 6);
+  const streakGeo = new THREE.BufferGeometry();
+  streakGeo.setAttribute("position", new THREE.BufferAttribute(streakPos, 3));
+  streakGeo.setAttribute("aColor", new THREE.Float32BufferAttribute(new Array(SN * 6).fill(1), 3));
+  streakGeo.setAttribute("aShade", new THREE.Float32BufferAttribute(new Array(SN * 2).fill(1), 1));
+  const streakMat = makeMat("line", "bright", ctx.theme, { near: 2, far: 74, opacity: 0 });
+  const streaks = new THREE.LineSegments(streakGeo, streakMat);
+  mats.push(streakMat);
 
   const N = ctx.light ? 90 : 180;
   const wavePos = new Float32Array(N * 3);
   const waveGeo = new THREE.BufferGeometry();
   waveGeo.setAttribute("position", new THREE.BufferAttribute(wavePos, 3));
   waveGeo.setAttribute("aColor", new THREE.Float32BufferAttribute(new Array(N * 3).fill(1), 3));
+  waveGeo.setAttribute("aShade", new THREE.Float32BufferAttribute(new Array(N).fill(1), 1));
   waveGeo.setAttribute("aSize", new THREE.Float32BufferAttribute(new Array(N).fill(1), 1));
   const wavePtMat = makeMat("point", "bright", ctx.theme, { near: 2, far: 60, opacity: 0.95, size: 2.4, dpr: ctx.dpr });
   const waveLnMat = makeMat("line", "bright", ctx.theme, { near: 2, far: 60, opacity: 0.8 });
@@ -174,9 +214,12 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
   const frame = new THREE.LineLoop(geo([-1.3, -1.3, 0, 1.3, -1.3, 0, 1.3, 1.3, 0, -1.3, 1.3, 0]), frameMat);
   square.add(frame);
   mats.push(frameMat);
-  scene.add(group, wavePts, waveLine, square);
+  scene.add(group, streaks, wavePts, waveLine, square);
 
   const cam = { x: 0, y: 0, rx: 0, ry: 0 };
+  let lastP = -1;
+  let lastT = 0;
+  let speed = 0;
 
   return {
     kind: warp ? "warp" : "tunnel",
@@ -185,9 +228,15 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
     mats,
     update(p, t, alpha) {
       const sp = ctx.smoothPointer;
-      const speed = warp ? 30 + 260 * p * p : 42;
-      const travel = p * speed + t * 1.4;
-      group.position.z = travel % step;
+      const travel = warp ? 60 * p + 180 * p * p : TUNNEL_DIST * p;
+      const dt = Math.max(0.001, t - lastT);
+      if (lastP >= 0) {
+        const target = Math.min(1, Math.abs(p - lastP) / dt / (warp ? 0.9 : 0.55));
+        speed += (target - speed) * (target > speed ? 0.35 : 0.06);
+      }
+      lastP = p;
+      lastT = t;
+      group.position.z = ((travel % period) + period) % period;
       group.scale.z = warp ? 1 - 0.6 * smooth(0.2, 0.9, p) : 1;
       cam.x += (sp.x * 1.6 - cam.x) * 0.08;
       cam.y += (sp.y * 1.0 - cam.y) * 0.08;
@@ -195,6 +244,23 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
       cam.rx += (sp.y * 0.12 - cam.rx) * 0.08;
       camera.position.set(cam.x, cam.y, 0);
       camera.rotation.set(cam.rx, cam.ry, 0);
+
+      const len = 0.5 + speed * 7;
+      for (let i = 0; i < SN; i++) {
+        const z0 = streakBase[i * 3 + 2] + travel;
+        const zw = ((((z0 + 70) % 74) + 74) % 74) - 70;
+        const x = streakBase[i * 3];
+        const y = streakBase[i * 3 + 1];
+        streakPos[i * 6] = x;
+        streakPos[i * 6 + 1] = y;
+        streakPos[i * 6 + 2] = zw;
+        streakPos[i * 6 + 3] = x;
+        streakPos[i * 6 + 4] = y;
+        streakPos[i * 6 + 5] = zw + len;
+      }
+      streakGeo.attributes.position.needsUpdate = true;
+      streakMat.uniforms.uOpacity.value = smooth(0.08, 0.7, speed) * 0.9 * alpha;
+
       const env = 0.55 + 0.45 * Math.sin(t * 0.7);
       const px = sp.x * 6;
       const fadeWave = warp ? 1 - smooth(0.15, 0.55, p) : 1;
@@ -210,7 +276,7 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
       wavePtMat.uniforms.uOpacity.value = 0.95 * fadeWave * alpha;
       waveLnMat.uniforms.uOpacity.value = 0.8 * fadeWave * alpha;
       longMat.uniforms.uOpacity.value = 0.6 * alpha * dim(ctx);
-      ringMat.uniforms.uOpacity.value = 0.75 * alpha * dim(ctx);
+      ringMat.uniforms.uOpacity.value = (0.85 + 0.15 * speed) * alpha * dim(ctx);
       const sq = warp ? smooth(0.25, 0.95, p) : 0;
       square.position.z = -70 + 68 * sq;
       const s = 1 + 6 * sq * sq;
@@ -275,6 +341,7 @@ function makeBrain(ctx: Ctx): Unit {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
   g.setAttribute("aColor", new THREE.BufferAttribute(colorArr, 3));
+  g.setAttribute("aShade", new THREE.Float32BufferAttribute(new Array(N).fill(1), 1));
   g.setAttribute("aSize", new THREE.Float32BufferAttribute(sizes, 1));
   const ptMat = makeMat("point", "line", ctx.theme, { near: 1, far: 22, opacity: 0.9, size: 1.7, dpr: ctx.dpr, useVertex: true });
   const points = new THREE.Points(g, ptMat);
@@ -337,6 +404,7 @@ function makeBrain(ctx: Ctx): Unit {
   const coreGeo = new THREE.BufferGeometry();
   coreGeo.setAttribute("position", new THREE.Float32BufferAttribute(cp, 3));
   coreGeo.setAttribute("aColor", new THREE.Float32BufferAttribute(new Array(CN * 3).fill(1), 3));
+  coreGeo.setAttribute("aShade", new THREE.Float32BufferAttribute(new Array(CN).fill(1), 1));
   coreGeo.setAttribute("aSize", new THREE.Float32BufferAttribute(cs, 1));
   const coreMat = makeMat("point", "bright", ctx.theme, { near: 0.5, far: 30, opacity: 1, size: 2.6, dpr: ctx.dpr });
   const core = new THREE.Points(coreGeo, coreMat);
@@ -348,13 +416,26 @@ function makeBrain(ctx: Ctx): Unit {
   const packetGeo = new THREE.BufferGeometry();
   packetGeo.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0], 3));
   packetGeo.setAttribute("aColor", new THREE.Float32BufferAttribute([1, 1, 1], 3));
+  packetGeo.setAttribute("aShade", new THREE.Float32BufferAttribute([1], 1));
   packetGeo.setAttribute("aSize", new THREE.Float32BufferAttribute([3], 1));
   const packetMat = makeMat("point", "bright", ctx.theme, { near: 0.5, far: 30, opacity: 0, size: 3, dpr: ctx.dpr });
   const packet = new THREE.Points(packetGeo, packetMat);
   mats.push(beamMat, packetMat);
 
+  const glowMat = new THREE.ShaderMaterial({
+    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader:
+      "precision mediump float; uniform vec3 uColor; uniform float uOpacity; varying vec2 vUv; void main(){ float d = length(vUv - 0.5) * 2.0; float al = pow(max(0.0, 1.0 - d), 2.6) * uOpacity; gl_FragColor = vec4(uColor * al, al); }",
+    uniforms: { uColor: { value: new THREE.Color(ctx.theme === "light" ? PALETTE.light.line : PALETTE.dark.line) }, uOpacity: { value: 0 } },
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+  });
+  applyBlend(glowMat, ctx.theme);
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), glowMat);
+  glow.position.z = -1.5;
   const brain = new THREE.Group();
-  brain.add(points, lines, core, beam, packet);
+  brain.add(glow, points, lines, core, beam, packet);
   scene.add(brain);
 
   let lastFocus = -2;
@@ -400,6 +481,8 @@ function makeBrain(ctx: Ctx): Unit {
       ptMat.uniforms.uOpacity.value = 0.9 * alpha * fade;
       linkMat.uniforms.uOpacity.value = 0.45 * alpha * fade * dim(ctx);
       const pulse = 0.5 + 0.5 * Math.sin(t * 3.2);
+      glow.quaternion.copy(camera.quaternion);
+      glowMat.uniforms.uOpacity.value = (ctx.theme === "light" ? 0.16 : 0.32) * (0.6 + 0.4 * inside) * (1 + 0.15 * pulse) * alpha * fade;
       coreMat.uniforms.uSize.value = 2.2 + 0.9 * pulse + 1.2 * report;
       coreMat.uniforms.uOpacity.value = alpha;
       const focus = focusAt(p);
@@ -427,6 +510,8 @@ function makeBrain(ctx: Ctx): Unit {
       coreGeo.dispose();
       beamGeo.dispose();
       packetGeo.dispose();
+      glow.geometry.dispose();
+      glowMat.dispose();
       mats.forEach((m) => m.dispose());
     },
   };
@@ -456,6 +541,7 @@ function makeField(ctx: Ctx): Unit {
   const pg = new THREE.BufferGeometry();
   pg.setAttribute("position", new THREE.Float32BufferAttribute(pp, 3));
   pg.setAttribute("aColor", new THREE.Float32BufferAttribute(new Array(PN * 3).fill(1), 3));
+  pg.setAttribute("aShade", new THREE.Float32BufferAttribute(new Array(PN).fill(1), 1));
   pg.setAttribute("aSize", new THREE.Float32BufferAttribute(ps, 1));
   const ptMat = makeMat("point", "line", ctx.theme, { near: 2, far: 40, opacity: 0.7, size: 1.6, dpr: ctx.dpr });
   const pts = new THREE.Points(pg, ptMat);

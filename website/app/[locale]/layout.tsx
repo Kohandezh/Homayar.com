@@ -10,6 +10,7 @@ import { Footer } from "@/components/site/Footer";
 import { BottomTabBar } from "@/components/site/BottomTabBar";
 import { PageMotion } from "@/components/motion/PageMotion";
 import { Stage } from "@/components/scene/Stage";
+import { PosterDefs } from "@/components/scene/PosterDefs";
 import { TransitionLayer } from "@/components/site/TransitionLayer";
 import { tabBarNav } from "@/components/site/nav";
 
@@ -50,6 +51,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps<"/[
         <a href="#main" className="skip-link">
           {dict.common.skipToContent}
         </a>
+        <PosterDefs />
         <Stage rtl={locale === "fa"} />
         <div className="site-layer">
           <Header locale={locale} dict={dict} />

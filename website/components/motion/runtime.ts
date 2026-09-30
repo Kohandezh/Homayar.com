@@ -101,33 +101,6 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
         tl.to(report, { scale: 1.5, autoAlpha: 0, filter: "blur(10px)", duration: REPORT_OUT - REPORT_PEAK, ease: "none" }, REPORT_PEAK);
       }
       if (statusDone) tl.to(statusDone, { autoAlpha: 0, duration: 0.04, ease: "none" }, REPORT_OUT - 0.04);
-
-      const video = section.querySelector<HTMLVideoElement>("[data-brain-video]");
-      if (video) {
-        let loaded = false;
-        const io = new IntersectionObserver(
-          (entries) => {
-            for (const e of entries) {
-              if (e.isIntersecting) {
-                if (!loaded) {
-                  loaded = true;
-                  q<HTMLSourceElement>(video, "source[data-src]").forEach((s) => {
-                    s.src = (phone ? s.dataset.src : s.dataset.srcWide) ?? s.dataset.src ?? "";
-                  });
-                  if (video.dataset.poster) video.poster = video.dataset.poster;
-                  video.load();
-                }
-                video.play().catch(() => undefined);
-              } else video.pause();
-            }
-          },
-          { rootMargin: "60% 0px" },
-        );
-        io.observe(section);
-        tl.eventCallback("onComplete", null);
-        ScrollTrigger.create({ trigger: section, start: "top bottom", onLeaveBack: () => video.pause() });
-        mm.add("all", () => () => io.disconnect());
-      }
     }
 
     for (const section of q<HTMLElement>(root, "[data-journey]")) {
