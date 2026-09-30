@@ -114,6 +114,7 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
                   q<HTMLSourceElement>(video, "source[data-src]").forEach((s) => {
                     s.src = (phone ? s.dataset.src : s.dataset.srcWide) ?? s.dataset.src ?? "";
                   });
+                  if (video.dataset.poster) video.poster = video.dataset.poster;
                   video.load();
                 }
                 video.play().catch(() => undefined);
