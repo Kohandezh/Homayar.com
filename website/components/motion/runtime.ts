@@ -139,7 +139,7 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       const bar = section.querySelector<HTMLElement>("[data-journey-progress]");
       if (!track) continue;
       mm.add(DESKTOP, () => {
-        const dist = () => Math.max(0, track.getBoundingClientRect().width / (gsap.getProperty(track, "scaleX") as number || 1) - window.innerWidth);
+        const dist = () => Math.max(0, track.scrollWidth - window.innerWidth);
         const dir = rtl ? 1 : -1;
         const tween = gsap.to(track, {
           x: () => dir * dist(),

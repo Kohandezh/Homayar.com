@@ -46,7 +46,7 @@ export function AgentJourney({ dict, locale }: { dict: Dictionary; locale: Local
           <div className="h-full origin-left bg-accent rtl:origin-right" style={{ transform: "scaleX(0)" }} data-journey-progress />
         </div>
       </div>
-      <ol className="journey-track container-x lg:mt-4" data-journey-track>
+      <ol className="journey-track px-4 sm:px-6 lg:mt-4 lg:px-8" data-journey-track>
         {items.map((item, i) => (
           <li key={item.title} className="journey-panel panel flex flex-col gap-4 p-5 md:p-6" data-journey-panel>
             <div className="flex items-center justify-between">

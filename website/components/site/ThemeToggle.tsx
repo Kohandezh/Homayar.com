@@ -8,6 +8,7 @@ function subscribe(cb: () => void) {
   const onStorage = (e: StorageEvent) => {
     if (e.key === THEME_KEY && (e.newValue === "dark" || e.newValue === "light")) {
       document.documentElement.setAttribute("data-theme", e.newValue);
+      window.dispatchEvent(new CustomEvent("themechange", { detail: e.newValue }));
       cb();
     }
   };

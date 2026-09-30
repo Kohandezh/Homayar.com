@@ -8,7 +8,7 @@ const tabIcons = ["layout", "phone", "alert", "bot"];
 export function PhoneFrame({ dict, locale, label, className = "" }: { dict: Dictionary; locale: Locale; label: string; className?: string }) {
   const m = dict.mock;
   return (
-    <div className={`w-[220px] rounded-[40px] border border-border-2 bg-bg-2 p-2.5 shadow-[0_40px_80px_-30px_rgba(245,158,11,0.35)] ${className}`} role="img" aria-label={label}>
+    <div className={`w-[220px] rounded-[40px] border border-border-2 bg-bg-2 p-2.5 shadow-[0_40px_80px_-30px_rgb(var(--t-glow)/0.35)] ${className}`} role="img" aria-label={label}>
       <div className="flex h-[440px] flex-col overflow-hidden rounded-[32px] bg-bg" aria-hidden="true">
         <div className="label flex items-center justify-between px-4 pt-3 text-[10px] font-semibold">
           <span>9:41</span>

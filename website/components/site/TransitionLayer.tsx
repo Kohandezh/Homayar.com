@@ -209,7 +209,7 @@ export function TransitionLayer({ locale, loadingLabel, brand }: { locale: Local
         <p className="label text-xs text-ink-2">
           <span className="sr-only">{brand} </span>
           {active ? loadingLabel : ""}
-          <span aria-hidden="true"> {active ? localizeDigits(pct, locale) + "%" : ""}</span>
+          <span aria-hidden="true"> {active ? localizeDigits(pct, locale) + (locale === "fa" ? "٪" : "%") : ""}</span>
         </p>
       </div>
     </div>

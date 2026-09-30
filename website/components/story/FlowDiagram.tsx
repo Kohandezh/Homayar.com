@@ -6,7 +6,7 @@ type Flow = Dictionary["deployment"]["flow"];
 function Node({ label, icon, tone = "default", compact = false }: { label: string; icon: string; tone?: "default" | "accent" | "muted"; compact?: boolean }) {
   const cls =
     tone === "accent"
-      ? "border-accent/50 bg-accent/10 text-ink shadow-[0_0_40px_-10px_rgba(245,158,11,0.6)]"
+      ? "border-accent/50 bg-accent/10 text-ink shadow-[0_0_40px_-10px_rgb(var(--t-glow)/0.6)]"
       : tone === "muted"
         ? "border-border-2 bg-bg-2 text-ink-3 border-dashed"
         : "border-border-2 bg-surface text-ink";
