@@ -21,14 +21,14 @@ function Node({ label, icon, tone = "default", compact = false }: { label: strin
 function Connector({ blocked = false, label, vertical = false }: { blocked?: boolean; label?: string; vertical?: boolean }) {
   const line = (
     <svg viewBox="0 0 88 12" className={vertical ? "h-8 w-3 rotate-90" : "h-3 w-full min-w-[64px]"} preserveAspectRatio="none" aria-hidden="true">
-      <line x1="2" y1="6" x2="86" y2="6" stroke={blocked ? "#f97316" : "#2dd4bf"} strokeWidth="2" strokeLinecap="round" className={blocked ? "" : "flow-path"} strokeDasharray={blocked ? "3 6" : undefined} vectorEffect="non-scaling-stroke" />
+      <line x1="2" y1="6" x2="86" y2="6" stroke={blocked ? "var(--color-ink-3)" : "var(--color-accent)"} strokeWidth="2" strokeLinecap="round" className={blocked ? "" : "flow-path"} strokeDasharray={blocked ? "3 6" : undefined} vectorEffect="non-scaling-stroke" />
       {blocked ? (
-        <g stroke="#f97316" strokeWidth="2" strokeLinecap="round" vectorEffect="non-scaling-stroke">
+        <g stroke="var(--color-ink-3)" strokeWidth="2" strokeLinecap="round" vectorEffect="non-scaling-stroke">
           <line x1="40" y1="2" x2="48" y2="10" />
           <line x1="48" y1="2" x2="40" y2="10" />
         </g>
       ) : (
-        <circle cx="86" cy="6" r="2.5" fill="#2dd4bf" />
+        <circle cx="86" cy="6" r="2.5" fill="var(--color-accent)" />
       )}
     </svg>
   );

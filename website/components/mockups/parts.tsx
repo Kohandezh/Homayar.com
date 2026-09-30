@@ -37,12 +37,12 @@ export function TrendChart({ mock }: { mock: Mock }) {
       <svg viewBox={`0 0 ${w} ${h + 4}`} className="h-16 w-full" preserveAspectRatio="none">
         <defs>
           <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="#2dd4bf" stopOpacity="0.35" />
-            <stop offset="1" stopColor="#2dd4bf" stopOpacity="0" />
+            <stop offset="0" stopColor="var(--color-accent)" stopOpacity="0.35" />
+            <stop offset="1" stopColor="var(--color-accent)" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={`${path} L${w},${h + 4} L0,${h + 4} Z`} fill="url(#trendFill)" />
-        <path d={path} fill="none" stroke="#2dd4bf" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        <path d={path} fill="none" stroke="var(--color-accent)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
       </svg>
     </div>
   );
@@ -76,7 +76,7 @@ export function ScoreBars({ mock, locale, limit }: { mock: Mock; locale: Locale;
         <div key={s.label} className="flex items-center gap-2 text-[11px]">
           <span className={`w-24 shrink-0 truncate ${i === 0 ? "font-semibold text-ink" : "text-ink-2"}`}>{s.label}</span>
           <div className="score-track flex-1">
-            <div className="score-fill" style={{ width: `${s.value}%`, background: s.value < 75 ? "#f59e0b" : undefined }} />
+            <div className="score-fill" style={{ width: `${s.value}%`, background: s.value < 75 ? "var(--color-teal-deep)" : undefined }} />
           </div>
           <span className="label w-6 text-end font-semibold">{localizeDigits(s.value, locale)}</span>
         </div>

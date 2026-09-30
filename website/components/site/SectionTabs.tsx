@@ -20,7 +20,7 @@ export function SectionTabs({ items, label }: { items: { id: string; label: stri
   }, [items]);
 
   return (
-    <nav aria-label={label} className="sticky top-[var(--header-h)] z-30 border-b border-border bg-bg/80 backdrop-blur-md">
+    <nav aria-label={label} className="sticky top-[var(--header-h)] z-30 border-b border-border bg-scrim backdrop-blur-md">
       <div className="container-x -mx-0 overflow-x-auto">
         <ul className="flex w-max gap-1 py-2">
           {items.map((i) => (

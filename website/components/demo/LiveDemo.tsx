@@ -314,7 +314,7 @@ export function LiveDemo({
               <div key={s.label} className="flex items-center gap-2 text-[11px]">
                 <span className={`w-24 shrink-0 truncate ${i === 0 ? "font-semibold text-ink" : "text-ink-2"}`}>{s.label}</span>
                 <div className="score-track flex-1">
-                  <div className="score-fill demo-fill" style={{ width: `${s.value}%`, background: s.value < 75 ? "#f59e0b" : undefined }} />
+                  <div className="score-fill demo-fill" style={{ width: `${s.value}%`, background: s.value < 75 ? "var(--color-teal-deep)" : undefined }} />
                 </div>
                 <span className="demo-num label w-6 text-end font-semibold" data-value={s.value}>
                   {localizeDigits(s.value, locale)}

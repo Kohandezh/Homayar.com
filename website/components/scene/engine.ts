@@ -150,7 +150,7 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
     vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
     fragmentShader:
       "precision mediump float; uniform vec3 uColor; uniform float uOpacity; varying vec2 vUv; void main(){ vec2 c = vUv - 0.5; float d = max(abs(c.x), abs(c.y)) * 2.0; float glow = pow(1.0 - smoothstep(0.0, 1.0, d), 2.2); float edge = smoothstep(0.86, 0.9, d) * (1.0 - smoothstep(0.9, 0.96, d)); gl_FragColor = vec4(uColor, (glow * 0.85 + edge * 0.9) * uOpacity); }",
-    uniforms: { uColor: { value: new THREE.Color(PALETTE[ctx.theme].bright) }, uOpacity: { value: 0 } },
+    uniforms: { uColor: { value: new THREE.Color(ctx.theme === "light" ? PALETTE.light.line : PALETTE.dark.bright) }, uOpacity: { value: 0 } },
     transparent: true,
     depthWrite: false,
     depthTest: false,
@@ -504,7 +504,7 @@ export interface Engine {
 export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; light: boolean; rtl: boolean }): Engine | null {
   let renderer: THREE.WebGLRenderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: "low-power", preserveDrawingBuffer: true });
+    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: "low-power", preserveDrawingBuffer: true, premultipliedAlpha: false });
   } catch {
     return null;
   }
@@ -650,7 +650,7 @@ export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; li
           const mesh = o as THREE.Mesh;
           const mat = mesh.material as THREE.ShaderMaterial | undefined;
           if (mat && mat.uniforms?.uColor && !u.mats.includes(mat as Mat)) {
-            (mat.uniforms.uColor.value as THREE.Color).set(pal.bright);
+            (mat.uniforms.uColor.value as THREE.Color).set(theme === "light" ? pal.line : pal.bright);
             mat.blending = pal.blend;
             mat.needsUpdate = true;
           }

@@ -10,10 +10,10 @@ export function PageMotion({ children, locale }: { children: ReactNode; locale: 
 
   useEffect(() => {
     const root = ref.current;
+    document.documentElement.dataset.hydrated = "1";
     if (!root || !document.documentElement.classList.contains("motion")) return;
     let cleanup: (() => void) | undefined;
     let cancelled = false;
-    document.documentElement.dataset.hydrated = "1";
     import("./runtime")
       .then((m) => {
         if (cancelled) return;
