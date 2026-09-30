@@ -932,11 +932,17 @@
     .stepper-grid { grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr); align-items: start; }
     html.motion .stepper-pin { min-height: 100svh; display: flex; align-items: center; padding-top: var(--header-h); }
     html.motion .stepper-rail { display: flex; flex-direction: column; gap: 0.75rem; }
-    html.motion .stepper-stage { position: relative; display: block; min-height: 22rem; }
+    html.motion .stepper-stage { position: relative; display: block; min-height: 17rem; }
     html.motion .stepper-step { position: absolute; inset: 0; opacity: 0; visibility: hidden; padding: 2.5rem; }
     html.motion .stepper-step.is-active { opacity: 1; visibility: visible; }
   }
 
   .voice-live { width: 100%; max-width: 16rem; aspect-ratio: 3 / 2; color: var(--color-accent); filter: drop-shadow(0 0 18px rgb(var(--t-glow) / 0.5)); }
   .voice-live-bar { transform-box: fill-box; transform-origin: center; }
+}
+
+@layer components {
+  @media (max-width: 63.99rem) {
+    :is(.console-hint, .ring-hint, .day-hint, .layers-hint, .zones-hint, .stepper-hint) { display: none; }
+  }
 }
