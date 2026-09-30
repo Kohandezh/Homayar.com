@@ -77,7 +77,7 @@ export default async function SecurityPage({ params }: PageProps<"/[locale]/secu
                   {sec.redaction.detected.items.map((i) => (
                     <li key={i} className="flex gap-2">
                       <span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-accent" />
-                      {t(i)}
+                      <span>{t(i)}</span>
                     </li>
                   ))}
                 </ul>
@@ -93,7 +93,7 @@ export default async function SecurityPage({ params }: PageProps<"/[locale]/secu
                   {sec.redaction.limits.items.map((i) => (
                     <li key={i} className="flex gap-2">
                       <span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-teal-deep" />
-                      {t(i)}
+                      <span>{t(i)}</span>
                     </li>
                   ))}
                 </ul>

@@ -90,7 +90,7 @@ export function ConsoleAssembly({ dict, locale }: { dict: Dictionary; locale: Lo
                       {d.bullets.slice(0, 2).map((b) => (
                         <li key={b} className="flex gap-2">
                           <span className="mt-2 size-1.5 shrink-0 rounded-full bg-accent" />
-                          {t(b)}
+                          <span>{t(b)}</span>
                         </li>
                       ))}
                     </ul>

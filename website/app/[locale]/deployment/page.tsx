@@ -95,7 +95,7 @@ export default async function DeploymentPage({ params }: PageProps<"/[locale]/de
                 <span className="inline-grid size-7 shrink-0 place-items-center rounded-full border border-teal-deep/50 text-accent-text">
                   <Icon name="x" size={14} strokeWidth={2.5} />
                 </span>
-                {t(i)}
+                <span>{t(i)}</span>
               </li>
             ))}
           </ul>

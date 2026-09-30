@@ -84,7 +84,7 @@ export default async function SolutionPage({ params }: PageProps<"/[locale]/solu
                 {role.roadmap.items.map((r) => (
                   <li key={r} className="flex items-start gap-2">
                     <span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-accent" />
-                    {t(r)}
+                    <span>{t(r)}</span>
                   </li>
                 ))}
               </ul>
