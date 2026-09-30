@@ -37,9 +37,7 @@ VOIP Call → Audio Saved → Homayar → STT (Whisper) → LLM Analysis → Das
 
 ## Features
 
-- **Dashboard** — 8 KPI cards, QC trend charts, sentiment distribution, issue tracking
 - **Call Reports** — Full analysis with score bars, root cause tables, business insights, transcript
-- **PDF Export** — Generate and download professional call reports
 - **User Management** — Role-based access (admin/supervisor/agent) with CRUD operations
 
 ## Quick Start
@@ -100,17 +98,11 @@ GAPGPT_API_KEY=your-key
 
 # Auth
 JWT_SECRET=change-this-in-production
-JWT_EXPIRY_HOURS=24
 ```
 
 ## API Endpoints
 
 The product API is served under `/api/v1`; its route inventory is in [docs/security/authorization-matrix.md](docs/security/authorization-matrix.md) (§6).
-
-| Router | Endpoints | Purpose |
-|--------|-----------|---------|
-| `/api/auth` | 6 | Login, user CRUD, JWT management |
-| `/api/calls` | 6 | Upload, list, detail, analyze, PDF export |
 
 The legacy dashboard, graph, Copilot, VoIP webhook and LDAP routers, their services and settings are retired: see [docs/architecture/legacy-retirement.md](docs/architecture/legacy-retirement.md).
 
@@ -159,8 +151,6 @@ homayar/
 - bcrypt password hashing
 - Role-based access control (admin, supervisor, agent)
 - Rate limiting (60 req/min default)
-- Cypher injection protection (label whitelist, depth clamping)
-- Webhook secret verification
 - Global exception handler (no stack traces leaked)
 
 ## License

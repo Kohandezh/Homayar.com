@@ -277,7 +277,6 @@ class Settings(BaseSettings):
     jwt_audience: str = "homayar-api"
     access_token_minutes: int = 15
     refresh_token_days: int = 30
-    jwt_expiry_hours: int = 24  # Legacy API compatibility only.
     secure_cookies: bool = False
     cookie_domain: str | None = None
     trusted_hosts: str = "localhost,127.0.0.1,testserver"

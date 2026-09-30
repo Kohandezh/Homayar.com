@@ -34,6 +34,7 @@ RETIRED_SETTINGS = (
     "voip_webhook_secret",
     "enable_voip_webhook",
     "admin_default_password",
+    "jwt_expiry_hours",
 )
 LIVE_SETTINGS = ("llm_model", "redis_url")
 
