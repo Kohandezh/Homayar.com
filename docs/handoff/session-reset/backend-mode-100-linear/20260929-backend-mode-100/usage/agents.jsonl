@@ -23,3 +23,8 @@
 {"agent":"capdoc-t1-impl","role":"docs maker turn 2","model":"opus","issue":"CAP N01-N15","subagent_tokens":351921,"tool_uses":10,"duration_ms":145270,"source":"task-notification usage"}
 {"agent":"capdoc-t1-impl","role":"docs maker turn 2 addendum","model":"opus","issue":"CAP N01-N15","subagent_tokens":357394,"tool_uses":15,"duration_ms":197580,"source":"task-notification usage"}
 {"agent":"capdoc-t1-rev","role":"docs checker phase C round 2","model":"sonnet","issue":"CAP N01-N15","subagent_tokens":494066,"tool_uses":8,"duration_ms":159391,"source":"task-notification usage"}
+{"agent":"rec02-t1-rev","role":"reviewer phase A (blind oracle)","model":"opus","issue":"HOM-157","lane":1,"subagent_tokens":272283,"tool_uses":55,"duration_ms":1936335,"source":"task-notification usage"}
+{"agent":"wp18t03-t1-rev","role":"reviewer phase A (blind oracle)","model":"opus","issue":"HOM-101","lane":3,"subagent_tokens":331227,"tool_uses":83,"duration_ms":2277634,"source":"task-notification usage"}
+{"agent":"wp22t02-t1-rev","role":"reviewer phase A (blind oracle)","model":"opus","issue":"HOM-120","lane":2,"subagent_tokens":402386,"tool_uses":100,"duration_ms":2892569,"source":"task-notification usage"}
+{"agent":"stab02-drafter","role":"SPEC drafter (+ measurement)","model":"sonnet","issue":"HOM-163","lane":4,"subagent_tokens":296619,"tool_uses":109,"duration_ms":4838832,"source":"task-notification usage"}
+{"agent":"rec02-t1-impl","role":"implementer turn 1","model":"opus","issue":"HOM-157","lane":1,"subagent_tokens":237559,"tool_uses":69,"duration_ms":2038575,"source":"task-notification usage"}

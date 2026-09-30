@@ -16,3 +16,4 @@ Homayar/backend/routers/v1/auth.py	HOM-120	L2	WP22-T02 (OTP digit translation on
 Homayar/backend/voicemail/ingest.py	HOM-120	L2	WP22-T02 (digit translation only)
 Homayar/backend/database/rls.py	HOM-101	L3	WP18-T03 HOT (two literal additions)
 docs/operations/deployment.md	HOM-101	L3	WP18-T03 (Plan catalog paragraph)
+Homayar/backend/tests/test_transport_drills.py	HOM-163	L4	STAB-02 (already listed; confirmed at activation)

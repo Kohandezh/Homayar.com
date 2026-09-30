@@ -86,7 +86,6 @@ Defect follow-up: HOM-140 [STAB-01] (child of HOM-8).
 - HOM-141 [CAP] parent; N01..N15 = HOM-142..HOM-156 (N11 = HOM-152, N03 = HOM-144, N12 = HOM-153).
 
 ## Queue position
-- Next active issue: HOM-32 (WP02-T03) — SPEC drafted at wp02t03-t1/SPEC.md; base = d5bbe5d.
 - Then: REC-02 (HOM-157), WP22-T02 (HOM-120), WP18-T03 (HOM-101), WP01-T04 (HOM-28, partial: no Docker),
   WP01-T06 (HOM-29), N03 (HOM-144).
 
@@ -186,3 +185,16 @@ Defect follow-up: HOM-140 [STAB-01] (child of HOM-8).
 - Oracle (checker's check.py, blind): base exit 1 (0/15) -> patch exit 0 PASS=157 FAIL=0 MISSING=0. Review r1 low5 fixed;
   N02<->N03 loop fixed (same class); r2 ACCEPTED low1 (N03 row/record V02-V04 inconsistency -> recorded on HOM-141).
 - Landed 6b311e0 (landed == reviewed), pushed. Linear HOM-141 comment. Lock released; worktrees removed.
+- HOM-32 worktrees removed (oracle hash matched archive v2). Evidence archived in 9fa160e.
+- PR #13 events 02:02-02:05Z (heads 6b311e0, 9fa160e): same billing blocker (2-3 s, log 404, downstream skipped); already reported; no new comment. Check-in armed for 02:48Z.
+- REC-02 (L1) phase A: oracle 18 cases (sha b558d2a5…), Foreman re-run on base 7 red / 11 green (matches). Reviewer's
+  own PG proof (9 controls, mutation-validated) is GREEN on base: base admission holds the invariants on PostgreSQL across
+  independent planes -> deliverable is the committed proof (A2). Info: recover() leaves voice_recovery scope in
+  session.info (callers close the session; no leak today). Maker launched.
+- WP18-T03 (L3) phase A: oracle 126 cases (sha 52c014f2…), Foreman re-run base 98 red / 28 green (matches). SPEC A1 (validation types), A2 (team scratch). Harness fix: per-team scratch dirs (scratchpad collision reported by wp18t03-rev). Maker launched.
+- WP22-T02 (L2) phase A: oracle 396 cases (sha afcbc639…; exhaustive BMP differential sweep + literal goldens), Foreman
+  re-run base 22 red / 374 green (matches). SPEC A1 (AC8 format vs grant), A2 (golden provenance), A3 (scratch).
+  INCIDENT (reviewer F7): wp22t02-rev ran rm -rf on the shared session scratchpad contents while relocating files,
+  restored from its copy within ~1 min; Foreman verified key files present afterwards. It asked for removal of duplicate
+  copies in wp22t02-t1/scratch that the harness denied it -> NOT done by Foreman (denied action; surfaced to owner).
+  Harness rule added to all briefs: never delete outside own worktree/team scratch. Maker launched.
