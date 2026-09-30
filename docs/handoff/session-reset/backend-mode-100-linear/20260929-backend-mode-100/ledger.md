@@ -109,3 +109,80 @@ Defect follow-up: HOM-140 [STAB-01] (child of HOM-8).
 ## Linear additions (2)
 - HOM-157 [REC-02] voice admission invariants on PostgreSQL (created on activation path; Backlog).
 - HOM-158 README residue + jwt_expiry_hours (N11 follow-up; Backlog).
+
+## HOM-32 (wp02t03-t1) — active
+- Claimed 2026-09-29T22:38Z (Linear In Progress, assignee set; read back). BASE_SHA 3d64130.
+- SPEC context re-verified at base; Foreman probe (fake values): repr(Settings) leaks jwt_secret; ValidationError text
+  carries a truncated input_value dict (head+tail) -> added to SPEC context.
+- Worktrees: wt/wp02t03-t1 (mission/wp02t03-t1), wt/wp02t03-t1-check (detached). uv synced.
+- Harness: suite.sh codifies the 4-chunk full-suite runner (contiguous split, one chunk per foreground command).
+- Phase A launched: wp02t03-t1-rev (code-review-specialist, opus).
+- Phase A ACCEPTED by Foreman: oracle 951 lines, sha c051cdb0…; Foreman re-run on base = 350 failed / 171 passed
+  (matches reviewer). Boolean scan: no repository credential literal in oracle, phase record or base output.
+  Archived at wp02t03-t1/oracle/test_oracle_wp02t03.py. SPEC amended A1–A5 (interpretations pinned before phase B).
+- Phase B turn 1 launched: wp02t03-t1-impl (general-purpose, opus).
+- Maker turn 1 REVIEW_NEEDED: own full suite 0 failed / 1245 passed / 47 skipped (chunked); 2 contract conflicts raised.
+  Foreman verified both against source and ruled (contract corrections, not review rounds):
+  A6 README:94 literal -> maker may change that line only; A7 SMTP rule was wrong (email_service.py:57 forces STARTTLS on
+  587; compose defaults 587+flag false) -> rule = plaintext only when port not in {465,587} and no TLS flag;
+  A8 on-prem compose runs production against http://minio:9000 -> on-prem-only explicit opt-in
+  STORAGE_ALLOW_INSECURE_ENDPOINT (+ one compose line). Follow-up to record: bundled MinIO over TLS.
+- Turn 1b sent to maker; phase-A oracle update sent to reviewer (SPEC-only change, still blind).
+- Phase A update accepted: oracle v2 sha 731339af…; Foreman re-run on base 392 failed / 192 passed (matches). Archived oracle/test_oracle_wp02t03.v2.py.
+- Foreman gates on turn 1b: oracle v2 392 red -> 584/584 green; AC5 literal scan 0 hits (807 files + team dir);
+  ruff clean; full suite 0 failed / 1259 passed / 47 skipped (4 chunks). Record: wp02t03-t1/oracle/red-to-green.md.
+- Phase C turn 1: REVIEW-INPUT.diff (1508 lines, sha 67d30cae…) -> reviewer resumed.
+- Phase C turn 1 ACCEPTED: census c0 h0 m0 low1 info7. Low: deployment.md:99 overstates case-duplicate rejection
+  (.env last spelling wins). Info incl. model_dump() exposes secrets (pre-existing, outside AC3 -> follow-up), BOM kept
+  (undocumented), dev compose ignores NEO4J_PASSWORD_FILE, Makefile seed target broken at base (follow-up).
+- Foreman: doc-only maker turn 2 (low + two doc infos) BEFORE the final security review, so the final reviewer sees the
+  final diff. Code hashes at turn 1b recorded (gates/turn-1b-code-hashes.txt) to prove turn 2 is doc-only.
+- Maker turn 2 doc-only verified (per-file compare; code hashes same); oracle v2 584/584 on turn-2 tree. Final security review launched.
+- PR #13 activity subscription created (2026-09-30T00:21Z). No steward/babysit skill on head. Head 3d64130: entry jobs
+  fail in ~2 s, downstream skipped, job log 404; main 2e834ed red identically -> billing blocker already reported
+  (comment 5900297722); no review threads. Hourly self check-in armed: trig_01TohSqMjYA2ovD9RxDzJAFx (01:23Z).
+- Final security review (wp02t03-t1-final, security-vulnerability-scanner) ACCEPTED: c0 h0 m0 low3 info10.
+  Foreman ruling: fix now L-3 (seed follows configured NEO4J_URI after this unit and runs DETACH DELETE with no
+  production guard: introduced by A4) and L-1 + I-2 (unbounded/special-file secret reads in the new code) as A9/A10;
+  follow-ups: L-2, I-4, I-8, MinIO TLS, Makefile seed. Maker turn 3 sent.
+- Linear follow-ups (children of HOM-6, Backlog): HOM-159 L-2 AWS endpoint bypass (High); HOM-160 model_dump secrets
+  (Medium); HOM-161 plaintext internal transports + bundled MinIO TLS (Medium); HOM-162 Makefile seed target (Low).
+- Maker turn 3 (A9/A10) REVIEW_NEEDED. Foreman gates: scope 4 files; oracle v2 584/584; ruff clean; full suite
+  0 failed / 1278 passed / 47 skipped; literal scan 0 hits. Maker-observed intermittent drill failure (reproduced on
+  base) -> HOM-163 [STAB-02] (child of HOM-8). Final reviewer round 2 (last) sent with full + delta diffs.
+
+## HOM-32 (wp02t03-t1) — accepted 2026-09-30T01:10Z, delivered 7112407
+- Final review r2 ACCEPTED (c0 h0 m0 low1 [L-2 = HOM-159] info11). Maker commit 6a3533a -> cherry-picked 7112407;
+  landed == reviewed (8 files); focused 217 passed / 1 skipped on integration; pushed. Linear comment 81cac329 + links;
+  In Progress (Done gate: merge + CI, blocked by Actions billing).
+
+## Parallel mode (owner request 2026-09-30T01:05Z: "run in parallel, maximum agents, no duplicate work, no overlap")
+- Capacity: 4 CPU / 15 GB; five_hour rate limit reported "rejected" (reset 01:30Z) at 01:06Z; cost $93.45 at 01:06Z.
+- Design: 4 lanes (L1-L4), each with its OWN PostgreSQL cluster (ports 5433-5436; roles like homayar_rls_probe are
+  cluster-global -> shared-cluster lanes interfered: proof v1 had 3 cross-lane failures), own Redis db pair
+  (2k/2k+1), own temp dirs, own lane lock; testenv-l<k>.sh; `LANE=k suite.sh`. One docs team (D1) needs no lane.
+- Overlap control: locks.tsv (single writer per path/prefix; HOT = migrations, saas_models.py, main.py, config.py,
+  rls.py, authorization.py); an issue activates only if its SPEC file set is disjoint from all active locks and its
+  prerequisites are landed. Landing is serialized by Foreman (cherry-pick onto integration head, landed==reviewed
+  check, focused tests on the integration checkout); a full-suite integration gate runs after each batch.
+- Batch 1: L1 REC-02 (HOM-157), L2 WP22-T02 (HOM-120), L3 WP18-T03 (HOM-101), L4 STAB-02 (HOM-163), D1 AppVision
+  N01-N15 (docs). Cost controls: sonnet makers for test-only/docs units (L4, D1), opus elsewhere; opus reviewers.
+- Budget rule unchanged: reported cost >= $200 -> no new activations; finish active issues, handover, stop.
+- Lane proof v2 (separate clusters, chunk 03 on L1+L2 concurrently): each 1 failed / 329 passed / 43 skipped; the only
+  failure is HOM-163's drill (load-sensitive) -> cross-lane isolation PROVEN; lane gate exception = that one test
+  until STAB-02 lands.
+- Batch 1 activation: HOM-157 (L1), HOM-120 (L2), HOM-101 (L3) claimed In Progress (read back). SPEC drafters: WP22-T02
+  (lock grants auth.py OTP translation, voicemail/ingest.py digits) and WP18-T03 (lock grants rls.py two literals,
+  deployment.md paragraph; Q3 accepted; Q4 legacy subs pinned v1). Phase-A reviewers launched on L1/L2/L3.
+- capdoc (D1): maker turn 1 +388/-4; checker oracle check.py (base exit 1; 44 mutants caught); Foreman gate on patch
+  PASS=157 FAIL=0 MISSING=0 (WARN 3, REVIEW 4) -> phase C sent.
+- Follow-ups filed: HOM-164 PRIV-01 postal-code redaction leak (High), HOM-165 PRIV-02 digit scripts, HOM-166
+  WP22-T02b locale formatting, HOM-167 WP18-F1 entitlement gaps (High).
+- PR #13 check-in 01:24Z: head 7112407 CI same billing blocker (2-4 s, log 404, downstream skipped); no threads/conflicts; body updated with HOM-32; next check-in trig_019DL3jHCSRxH3ZD5harFDYx (02:48Z).
+- capdoc phase C turn 1 ACCEPTED (c0 h0 m0 low5 info3): N08 foundation understated, N11 'completes' WP01-T03, N13 present-tense catalog, N05/N15/N08 dependency cycle, undefined catalog types. Foreman: fix round (turn 2, last) sent to maker.
+- capdoc maker turn 2: 5 lows fixed (17 lines in place); maker found N02<->N03 dependency loop (same class as finding 4) -> Foreman approved one-clause fix in the same turn.
+
+## CAP N01-N15 AppVision (capdoc-t1) — accepted r2, delivered 6b311e0 (2026-09-30)
+- Oracle (checker's check.py, blind): base exit 1 (0/15) -> patch exit 0 PASS=157 FAIL=0 MISSING=0. Review r1 low5 fixed;
+  N02<->N03 loop fixed (same class); r2 ACCEPTED low1 (N03 row/record V02-V04 inconsistency -> recorded on HOM-141).
+- Landed 6b311e0 (landed == reviewed), pushed. Linear HOM-141 comment. Lock released; worktrees removed.

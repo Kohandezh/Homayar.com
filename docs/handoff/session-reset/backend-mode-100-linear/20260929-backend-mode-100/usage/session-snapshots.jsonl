@@ -1,2 +1,3 @@
 {"at":"2026-09-29T02:37Z","cost_usd":1.848,"input":2076,"output":21758,"cache_read":4978653,"cache_write":51133,"context_used":203124,"source":"get_session"}
 {"at":"2026-09-29T20:49Z","cost_usd":33.412704,"input":3996,"output":407131,"cache_read":65393120,"cache_write":1812114,"context_used":668564,"source":"get_session"}
+{"at":"2026-09-29T22:57Z","cost_usd":59.79,"input_tokens":8068,"output_tokens":750800,"cache_read_tokens":132371278,"cache_write_tokens":2949381,"note":"HOM-32 phase B launched"}
