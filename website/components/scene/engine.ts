@@ -502,6 +502,8 @@ export interface Engine {
 }
 
 export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; light: boolean; rtl: boolean }): Engine | null {
+  // Custom shaders write colors as given; keep the palette hex values in sRGB.
+  THREE.ColorManagement.enabled = false;
   let renderer: THREE.WebGLRenderer;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: "low-power", preserveDrawingBuffer: true, premultipliedAlpha: false });
