@@ -62,9 +62,9 @@ ends in 2-4 s, logs 404, on `main` too (billing/spending limit) — no CI verdic
 
 ## 11. Pull requests and commits
 PR #13 (https://github.com/Kohandezh/Homayar.com/pull/13). Product commits: d4daf6e (HOM-140), d5bbe5d (HOM-152),
-7112407 (HOM-32), 6b311e0 (AppVision), fa241da (HOM-157), STAB02_SHA (HOM-163), SMALLFIX_SHAS (HOM-158, HOM-162, N03).
-Mission-record commits: 682ffee (Foreman skill), 119112b, 269105f, 692affb, 3d64130, 9fa160e, 20820e7, FINAL_DOCS_SHA.
-Merge: MERGE_RESULT.
+7112407 (HOM-32), 6b311e0 (AppVision), fa241da (HOM-157), 3e3a2f2 (HOM-163), c8a8899, 54a60f0, 21d8289, c34d124 (HOM-158, HOM-162, N03).
+Mission-record commits: 682ffee (Foreman skill), 119112b, 269105f, 692affb, 3d64130, 9fa160e, 20820e7, b69d37f, 50f04f8 and the final docs commit.
+Merge: PR #13 merged into `main` with a merge commit on the owner's explicit instruction (2026-09-30), although GitHub Actions could not run (billing). The integration head was gated locally first: full backend suite on PostgreSQL (see §10). Verify with `git log --first-parent main`.
 
 ## 12. AppVision updates
 N01-N15 added; `ReportAppvisionProgress.md` §I added; `vision/AppVision-Status-Notes.md` created.

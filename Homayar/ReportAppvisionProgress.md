@@ -126,8 +126,8 @@ Redis 7, ffmpeg, `ci.yml` values). Linear project "Homayar Backend"; no issue is
 | HOM-32 | WP02-T03 secret references (`*_FILE`), secret redaction, production SMTP/S3 rules | PARTIAL | 7112407 | oracle 584/584; 2 final security reviews |
 | HOM-141 | AppVision N01-N15 approved capabilities | PARTIAL (docs) | 6b311e0 | scripted oracle PASS, 0 FAIL |
 | HOM-157 | REC-02 voice admission caps proven on PostgreSQL across 6 planes | PARTIAL | fa241da | 250->200/50, node 20+20, workspace 15 exact; app role + RLS |
-| HOM-163 | STAB-02 transport-drill race (test-only) | PARTIAL | STAB02_SHA | stress: base fails, fix 8/8 |
-| HOM-158, HOM-162 | README/settings residue; Makefile venv paths | PARTIAL | SMALLFIX_SHAS | focused 253 passed; make seed red->green |
+| HOM-163 | STAB-02 transport-drill race (test-only) | PARTIAL | 3e3a2f2 | stress: base fails, fix 8/8 |
+| HOM-158, HOM-162 | README/settings residue; Makefile venv paths | PARTIAL | c8a8899, 54a60f0, 21d8289, c34d124 | focused 253 passed; make seed red->green |
 | HOM-101 | WP18-T03 versioned plans | IN_PROGRESS (unreviewed WIP patch) | - | docs/handoff/.../wip/wp18t03-t1 |
 | HOM-120 | WP22-T02 single normalization owner | IN_PROGRESS (unreviewed WIP patch) | - | docs/handoff/.../wip/wp22t02-t1 |
 
