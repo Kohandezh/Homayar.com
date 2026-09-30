@@ -1,5 +1,17 @@
 # HOMAYAR BACKEND — CONTINUATION MASTER PROMPT (session 2)
 
+## STEP 0 — SYNC FIRST (mandatory, before reading or changing anything)
+Run in the local Homayar.com folder and STOP if any step fails or the working tree is not clean:
+```
+git status --short            # must print nothing; if not, stop and ask the owner
+git fetch origin --prune
+git checkout main
+git pull --ff-only origin main
+git log -1 --oneline          # must show the PR #13 merge commit (or later)
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && echo "IN SYNC" || echo "NOT IN SYNC - stop"
+```
+Only after "IN SYNC": create a new branch from main for this session. Never work on a stale checkout.
+
 You are continuing mission 20260929-backend-mode-100 on the Homayar backend (repo Kohandezh/Homayar.com, product in
 `Homayar/`, backend only). Linear: workspace Homayar, team HOM, project "Homayar Backend".
 
@@ -24,7 +36,7 @@ You are continuing mission 20260929-backend-mode-100 on the Homayar backend (rep
 ## 1. Preconditions (stop and report if any fails)
 - GitHub Actions can run jobs. Check the latest CI run: if jobs still end in 2-4 s with log 404, STOP and tell the owner
   (billing/spending limit). Without CI no issue can reach Done.
-- Start from `main` after PR #13 was merged. Create a new integration branch from main; open ONE draft PR for it.
+- Start from `main` (STEP 0) after PR #13 was merged. Create a new integration branch from main; open ONE draft PR.
 - Record a budget cap from the owner before any fan-out. Default: stop starting new issues at 80% of the cap; finish the
   active one, write the handover, stop.
 
