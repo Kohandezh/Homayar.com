@@ -5,10 +5,21 @@ import { ENTER_END, focusAt, REPORT_IN, REPORT_PEAK } from "./timing";
 
 type Theme = "dark" | "light";
 
-const PALETTE: Record<Theme, { line: string; bright: string; deep: string; blend: THREE.Blending }> = {
-  dark: { line: "#22bec6", bright: "#7fdde2", deep: "#125a5e", blend: THREE.AdditiveBlending },
-  light: { line: "#22bec6", bright: "#125a5e", deep: "#0d4346", blend: THREE.NormalBlending },
+const PALETTE: Record<Theme, { line: string; bright: string; deep: string }> = {
+  dark: { line: "#22bec6", bright: "#7fdde2", deep: "#125a5e" },
+  light: { line: "#22bec6", bright: "#125a5e", deep: "#0d4346" },
 };
+
+/** Shaders write premultiplied color. Dark adds light; light composites "over" the page. */
+function applyBlend(m: THREE.Material, theme: Theme) {
+  m.blending = THREE.CustomBlending;
+  m.blendEquation = THREE.AddEquation;
+  m.blendSrc = THREE.OneFactor;
+  m.blendDst = theme === "light" ? THREE.OneMinusSrcAlphaFactor : THREE.OneFactor;
+  m.blendSrcAlpha = THREE.OneFactor;
+  m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+  m.needsUpdate = true;
+}
 
 type Role = "line" | "bright" | "deep";
 
@@ -28,7 +39,8 @@ uniform vec3 uColor; uniform float uOpacity; uniform float uUseVertex;
 varying float vFade; varying vec3 vColor;
 void main() {
   vec3 c = mix(uColor, vColor, uUseVertex);
-  gl_FragColor = vec4(c, uOpacity * vFade);
+  float a = uOpacity * vFade;
+  gl_FragColor = vec4(c * a, a);
 }`;
 const POINT_VERT = `
 uniform float uNear; uniform float uFar; uniform float uSize; uniform float uDpr;
@@ -50,7 +62,8 @@ void main() {
   float d = length(c);
   float a = smoothstep(0.5, 0.1, d);
   vec3 col = mix(uColor, vColor, uUseVertex);
-  gl_FragColor = vec4(col, a * uOpacity * vFade);
+  float al = a * uOpacity * vFade;
+  gl_FragColor = vec4(col * al, al);
 }`;
 
 type Mat = THREE.ShaderMaterial & { userData: { role: Role } };
@@ -72,8 +85,8 @@ function makeMat(kind: "line" | "point", role: Role, theme: Theme, opts: { near:
     transparent: true,
     depthWrite: false,
     depthTest: false,
-    blending: pal.blend,
   }) as Mat;
+  applyBlend(m, theme);
   m.userData.role = role;
   return m;
 }
@@ -149,13 +162,13 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
   const squareMat = new THREE.ShaderMaterial({
     vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
     fragmentShader:
-      "precision mediump float; uniform vec3 uColor; uniform float uOpacity; varying vec2 vUv; void main(){ vec2 c = vUv - 0.5; float d = max(abs(c.x), abs(c.y)) * 2.0; float glow = pow(1.0 - smoothstep(0.0, 1.0, d), 2.2); float edge = smoothstep(0.86, 0.9, d) * (1.0 - smoothstep(0.9, 0.96, d)); gl_FragColor = vec4(uColor, (glow * 0.85 + edge * 0.9) * uOpacity); }",
+      "precision mediump float; uniform vec3 uColor; uniform float uOpacity; varying vec2 vUv; void main(){ vec2 c = vUv - 0.5; float d = max(abs(c.x), abs(c.y)) * 2.0; float glow = pow(1.0 - smoothstep(0.0, 1.0, d), 2.2); float edge = smoothstep(0.86, 0.9, d) * (1.0 - smoothstep(0.9, 0.96, d)); float al = (glow * 0.85 + edge * 0.9) * uOpacity; gl_FragColor = vec4(uColor * al, al); }",
     uniforms: { uColor: { value: new THREE.Color(ctx.theme === "light" ? PALETTE.light.line : PALETTE.dark.bright) }, uOpacity: { value: 0 } },
     transparent: true,
     depthWrite: false,
     depthTest: false,
-    blending: PALETTE[ctx.theme].blend,
   });
+  applyBlend(squareMat, ctx.theme);
   const square = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), squareMat);
   square.position.z = -70;
   const frameMat = makeMat("line", "bright", ctx.theme, { near: 2, far: 90, opacity: 0.9 });
@@ -506,7 +519,7 @@ export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; li
   THREE.ColorManagement.enabled = false;
   let renderer: THREE.WebGLRenderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: "low-power", preserveDrawingBuffer: true, premultipliedAlpha: false });
+    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: "low-power", preserveDrawingBuffer: true });
   } catch {
     return null;
   }
@@ -640,8 +653,7 @@ export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; li
       units.forEach((u) => {
         u.mats.forEach((m) => {
           (m.uniforms.uColor.value as THREE.Color).set(pal[m.userData.role]);
-          m.blending = pal.blend;
-          m.needsUpdate = true;
+          applyBlend(m, theme);
         });
         if (u.kind === "brain") {
           u.dispose();
@@ -653,8 +665,7 @@ export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; li
           const mat = mesh.material as THREE.ShaderMaterial | undefined;
           if (mat && mat.uniforms?.uColor && !u.mats.includes(mat as Mat)) {
             (mat.uniforms.uColor.value as THREE.Color).set(theme === "light" ? pal.line : pal.bright);
-            mat.blending = pal.blend;
-            mat.needsUpdate = true;
+            applyBlend(mat, theme);
           }
         });
       });
