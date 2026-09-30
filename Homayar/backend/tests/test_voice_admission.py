@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 
+from backend.voice import admission as admission_module
 from backend.voice.admission import (
     REJECT_CAPACITY_GLOBAL,
     REJECT_CAPACITY_NODE,
@@ -263,3 +267,124 @@ def test_concurrent_per_node_limit_is_exact(factory, workspaces):
     assert report["errors"] == []
     assert report["outcomes"] == {"admitted": 40, REJECT_CAPACITY_NODE: 20}
     assert report["held_after_admission"] == 40
+
+
+# -- retry loop (lock contention) ---------------------------------------------
+
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.commits = 0
+        self.rollbacks = 0
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+def _fails(times: int, error):
+    calls = {"n": 0}
+
+    def work() -> str:
+        calls["n"] += 1
+        if calls["n"] <= times:
+            raise error()
+        return "done"
+
+    return work, calls
+
+
+def _locked() -> OperationalError:
+    return OperationalError("UPDATE", {}, sqlite3.OperationalError("database is locked"))
+
+
+def _broken() -> OperationalError:
+    return OperationalError("SELECT", {}, sqlite3.OperationalError("no such table: x"))
+
+
+def _duplicate() -> IntegrityError:
+    return IntegrityError("INSERT", {}, sqlite3.IntegrityError("UNIQUE constraint failed"))
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    recorded: list[float] = []
+    monkeypatch.setattr(admission_module.time, "sleep", recorded.append)
+    return recorded
+
+
+def test_persistent_lock_contention_backs_off_then_raises(sleeps):
+    db = _FakeSession()
+    work, calls = _fails(10**6, _locked)
+    with pytest.raises(OperationalError):
+        _plane(max_retries=5)._retrying(db, work)
+    assert calls["n"] == 6  # first try + max_retries retries
+    assert len(sleeps) == 5
+    assert all(0 < delay <= 0.075 for delay in sleeps)
+    assert (db.commits, db.rollbacks) == (0, 6)
+
+
+def test_lock_contention_clearing_at_max_retries_succeeds(sleeps):
+    db = _FakeSession()
+    work, calls = _fails(5, _locked)
+    assert _plane(max_retries=5)._retrying(db, work) == "done"
+    assert calls["n"] == 6
+    assert len(sleeps) == 5
+    assert all(0 < delay <= 0.075 for delay in sleeps)
+    assert (db.commits, db.rollbacks) == (1, 5)
+
+
+def test_non_contention_operational_error_is_not_retried(sleeps):
+    db = _FakeSession()
+    work, calls = _fails(1, _broken)
+    with pytest.raises(OperationalError):
+        _plane(max_retries=5)._retrying(db, work)
+    assert calls["n"] == 1
+    assert sleeps == []
+
+
+def test_integrity_error_retries_are_bounded_without_sleeping(sleeps):
+    db = _FakeSession()
+    work, calls = _fails(10**6, _duplicate)
+    with pytest.raises(IntegrityError):
+        _plane(max_retries=2)._retrying(db, work)
+    assert calls["n"] == 3
+    assert sleeps == []
+
+
+def test_contention_backoff_is_bounded_deterministic_and_desynchronized():
+    retriers = [f"{host}:{pid}:{thread}" for host in "ab" for pid in (1, 2) for thread in (7, 8)]
+    for attempt in range(1, 251):
+        base = min(0.05, 0.001 * attempt)
+        for retrier in retriers:
+            delay = admission_module._contention_backoff(attempt, retrier)
+            assert 0.5 * base <= delay < 1.5 * base
+            assert 0 < delay <= 0.075
+            assert delay == admission_module._contention_backoff(attempt, retrier)
+    # Retriers that failed together do not wake together.
+    assert len({admission_module._contention_backoff(1, r) for r in retriers}) == len(retriers)
+
+
+def test_concurrent_threads_get_distinct_identities_and_first_delays():
+    threads = 12
+    barrier = threading.Barrier(threads)
+    identities: list[str] = []
+    lock = threading.Lock()
+
+    def contend() -> None:
+        barrier.wait()  # every thread is alive at once, so no thread id is reused
+        identity = admission_module._retrier_identity()
+        with lock:
+            identities.append(identity)
+
+    workers = [threading.Thread(target=contend) for _ in range(threads)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert len(identities) == threads
+    assert len(set(identities)) == threads
+    delays = {admission_module._contention_backoff(1, identity) for identity in identities}
+    assert len(delays) == threads
