@@ -13,10 +13,12 @@ export function PageMotion({ children, locale }: { children: ReactNode; locale: 
     if (!root || !document.documentElement.classList.contains("motion")) return;
     let cleanup: (() => void) | undefined;
     let cancelled = false;
+    document.documentElement.dataset.hydrated = "1";
     import("./runtime")
       .then((m) => {
         if (cancelled) return;
         cleanup = m.setupPage(root, locale);
+        document.documentElement.dataset.motionReady = "1";
       })
       .catch(() => document.documentElement.classList.remove("motion"));
     return () => {

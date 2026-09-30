@@ -648,6 +648,7 @@
 
   /* Home hero flight. */
   .flight { min-height: 100svh; display: flex; align-items: center; }
+  html.motion .flight, html.motion .brain-stage, html.motion .journey { padding-top: var(--header-h); }
 
   /* Warp band: the flash to the theme color. */
   .warp-flash { position: absolute; inset: 0; background: var(--color-bg-deep); opacity: 0; pointer-events: none; }

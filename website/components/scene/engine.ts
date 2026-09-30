@@ -7,7 +7,7 @@ type Theme = "dark" | "light";
 
 const PALETTE: Record<Theme, { line: string; bright: string; deep: string; blend: THREE.Blending }> = {
   dark: { line: "#22bec6", bright: "#7fdde2", deep: "#125a5e", blend: THREE.AdditiveBlending },
-  light: { line: "#125a5e", bright: "#22bec6", deep: "#0d4346", blend: THREE.NormalBlending },
+  light: { line: "#22bec6", bright: "#125a5e", deep: "#0d4346", blend: THREE.NormalBlending },
 };
 
 type Role = "line" | "bright" | "deep";
@@ -38,7 +38,7 @@ void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   vFade = 1.0 - smoothstep(uNear, uFar, -mv.z);
   vColor = aColor;
-  gl_PointSize = uSize * aSize * uDpr * (24.0 / max(1.0, -mv.z));
+  gl_PointSize = uSize * aSize * uDpr * min(3.5, 24.0 / max(1.0, -mv.z));
   gl_Position = projectionMatrix * mv;
 }`;
 const POINT_FRAG = `
@@ -83,6 +83,10 @@ function geo(positions: number[], colors?: number[]) {
   g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   g.setAttribute("aColor", new THREE.Float32BufferAttribute(colors ?? new Array(positions.length).fill(1), 3));
   return g;
+}
+
+function dim(ctx: Ctx) {
+  return ctx.theme === "light" ? 0.55 : 1;
 }
 
 function smooth(a: number, b: number, x: number) {
@@ -142,7 +146,16 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
   const waveLine = new THREE.Line(waveGeo, waveLnMat);
   mats.push(wavePtMat, waveLnMat);
 
-  const squareMat = new THREE.MeshBasicMaterial({ color: PALETTE[ctx.theme].bright, transparent: true, opacity: 0, blending: PALETTE[ctx.theme].blend, depthWrite: false });
+  const squareMat = new THREE.ShaderMaterial({
+    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader:
+      "precision mediump float; uniform vec3 uColor; uniform float uOpacity; varying vec2 vUv; void main(){ vec2 c = vUv - 0.5; float d = max(abs(c.x), abs(c.y)) * 2.0; float glow = pow(1.0 - smoothstep(0.0, 1.0, d), 2.2); float edge = smoothstep(0.86, 0.9, d) * (1.0 - smoothstep(0.9, 0.96, d)); gl_FragColor = vec4(uColor, (glow * 0.85 + edge * 0.9) * uOpacity); }",
+    uniforms: { uColor: { value: new THREE.Color(PALETTE[ctx.theme].bright) }, uOpacity: { value: 0 } },
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: PALETTE[ctx.theme].blend,
+  });
   const square = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), squareMat);
   square.position.z = -70;
   const frameMat = makeMat("line", "bright", ctx.theme, { near: 2, far: 90, opacity: 0.9 });
@@ -172,7 +185,7 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
       camera.rotation.set(cam.rx, cam.ry, 0);
       const env = 0.55 + 0.45 * Math.sin(t * 0.7);
       const px = sp.x * 6;
-      const fadeWave = warp ? 1 - smooth(0.3, 0.8, p) : 1;
+      const fadeWave = warp ? 1 - smooth(0.15, 0.55, p) : 1;
       for (let i = 0; i < N; i++) {
         const x = -5.5 + (11 * i) / (N - 1);
         const boost = 1 + 2.2 * Math.exp(-((x - px) * (x - px)) / 2.2);
@@ -184,13 +197,13 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
       waveGeo.attributes.position.needsUpdate = true;
       wavePtMat.uniforms.uOpacity.value = 0.95 * fadeWave * alpha;
       waveLnMat.uniforms.uOpacity.value = 0.8 * fadeWave * alpha;
-      longMat.uniforms.uOpacity.value = 0.6 * alpha;
-      ringMat.uniforms.uOpacity.value = 0.75 * alpha;
+      longMat.uniforms.uOpacity.value = 0.6 * alpha * dim(ctx);
+      ringMat.uniforms.uOpacity.value = 0.75 * alpha * dim(ctx);
       const sq = warp ? smooth(0.25, 0.95, p) : 0;
       square.position.z = -70 + 68 * sq;
       const s = 1 + 6 * sq * sq;
       square.scale.set(s, s, 1);
-      squareMat.opacity = (warp ? smooth(0.35, 0.85, p) * 0.9 : 0) * alpha;
+      squareMat.uniforms.uOpacity.value = (warp ? smooth(0.3, 0.85, p) : 0) * alpha;
       frameMat.uniforms.uOpacity.value = (warp ? 0.3 + 0.7 * sq : 0) * alpha;
     },
     dispose() {
@@ -376,7 +389,7 @@ function makeBrain(ctx: Ctx): Unit {
       brain.rotation.set(rot.x, rot.y + t * 0.04 + p * 0.5, 0);
       const fade = 1 - 0.7 * report;
       ptMat.uniforms.uOpacity.value = 0.9 * alpha * fade;
-      linkMat.uniforms.uOpacity.value = 0.45 * alpha * fade;
+      linkMat.uniforms.uOpacity.value = 0.45 * alpha * fade * dim(ctx);
       const pulse = 0.5 + 0.5 * Math.sin(t * 3.2);
       coreMat.uniforms.uSize.value = 2.2 + 0.9 * pulse + 1.2 * report;
       coreMat.uniforms.uOpacity.value = alpha;
@@ -454,7 +467,7 @@ function makeField(ctx: Ctx): Unit {
       cam.y += (sp.y * 0.6 - cam.y) * 0.06;
       camera.position.set(cam.x, 0.4 + cam.y, 2);
       camera.rotation.set(-0.06 + sp.y * 0.05, -sp.x * 0.1, 0);
-      gridMat.uniforms.uOpacity.value = 0.5 * alpha;
+      gridMat.uniforms.uOpacity.value = 0.5 * alpha * dim(ctx);
       ptMat.uniforms.uOpacity.value = 0.7 * alpha;
     },
     dispose() {
@@ -491,7 +504,7 @@ export interface Engine {
 export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; light: boolean; rtl: boolean }): Engine | null {
   let renderer: THREE.WebGLRenderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: "low-power" });
+    renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: "low-power", preserveDrawingBuffer: true });
   } catch {
     return null;
   }
@@ -519,7 +532,7 @@ export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; li
   let running = false;
   let width = 0;
   let height = 0;
-  const clock = new THREE.Clock();
+  const clock = new THREE.Timer();
 
   const resize = () => {
     const w = window.innerWidth;
@@ -545,7 +558,8 @@ export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; li
     raf = 0;
     if (!running) return;
     resize();
-    const t = clock.getElapsedTime();
+    clock.update();
+    const t = clock.getElapsed();
     ctx.smoothPointer.x += (ctx.pointer.x - ctx.smoothPointer.x) * 0.1;
     ctx.smoothPointer.y += (ctx.pointer.y - ctx.smoothPointer.y) * 0.1;
 
@@ -634,9 +648,9 @@ export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; li
         }
         u.scene.traverse((o) => {
           const mesh = o as THREE.Mesh;
-          const mat = mesh.material as THREE.MeshBasicMaterial | undefined;
-          if (mat && (mat as THREE.MeshBasicMaterial).isMeshBasicMaterial) {
-            mat.color.set(pal.bright);
+          const mat = mesh.material as THREE.ShaderMaterial | undefined;
+          if (mat && mat.uniforms?.uColor && !u.mats.includes(mat as Mat)) {
+            (mat.uniforms.uColor.value as THREE.Color).set(pal.bright);
             mat.blending = pal.blend;
             mat.needsUpdate = true;
           }
