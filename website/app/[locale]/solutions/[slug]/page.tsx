@@ -10,7 +10,7 @@ import { PageHero, Section } from "@/components/ui/Section";
 import { CheckList, Chip } from "@/components/ui/Cards";
 import { CommandCta } from "@/components/site/CommandCta";
 import { Icon } from "@/components/ui/Icon";
-import { KpiGrid, RootCauses, ScoreBars, Stages, TrendChart } from "@/components/mockups/parts";
+import { DayTimeline } from "@/components/story/DayTimeline";
 
 export const dynamicParams = false;
 
@@ -35,8 +35,6 @@ export default async function SolutionPage({ params }: PageProps<"/[locale]/solu
   if (!isLocale(locale) || !isSlug(slug)) notFound();
   const dict = await getDictionary(locale);
   const role = dict.solutions.roles[slug];
-  const m = dict.mock;
-  const mockLabel = dict.common.decorativeMockup;
   const t = (text: string) => bidi(text, locale);
 
   return (
@@ -51,43 +49,15 @@ export default async function SolutionPage({ params }: PageProps<"/[locale]/solu
             {dict.nav.solutions}
           </Link>
         }
-        aside={
-            <div className="panel panel-glow p-4" role="img" aria-label={mockLabel}>
-              <div aria-hidden="true" className="flex flex-col gap-3">
-                {slug === "qa-managers" ? (
-                  <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
-                    <p className="mb-2 text-[10px] font-semibold text-ink-3">{m.qc}</p>
-                    <ScoreBars mock={m} locale={locale} />
-                  </div>
-                ) : slug === "supervisors" ? (
-                  <>
-                    <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
-                      <p className="mb-2 text-[10px] font-semibold text-ink-3">{m.problems}</p>
-                      <RootCauses mock={m} />
-                    </div>
-                    <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
-                      <p className="mb-2 text-[10px] font-semibold text-ink-3">{m.qc}</p>
-                      <ScoreBars mock={m} locale={locale} limit={4} />
-                    </div>
-                  </>
-                ) : slug === "contact-center-operations" ? (
-                  <>
-                    <KpiGrid mock={m} />
-                    <TrendChart mock={m} />
-                  </>
-                ) : (
-                  <Stages mock={m} />
-                )}
-              </div>
-            </div>
-        }
       >
         <Link href={`/${locale}/contact`} className="btn btn-primary" data-magnetic>
           {dict.solutions.cta}
         </Link>
       </PageHero>
 
-      <Section scene="field">
+      <DayTimeline dict={dict} locale={locale} slug={slug} />
+
+      <Section tone="raised">
         <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr]">
           <div className="panel p-6 md:p-8" data-depth="260">
             <h2 className="text-xl font-bold">{role.needs.title}</h2>

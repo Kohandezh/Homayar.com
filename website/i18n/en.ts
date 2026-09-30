@@ -164,6 +164,18 @@ const en = {
       title: "Everything between the recording and the decision",
       text: "Homayar is a post-call analysis engine. It takes a recording, produces a transcript, runs four agents over it and turns the result into reports and dashboards your team can act on.",
     },
+    console: {
+      eyebrow: "Assemble the console",
+      title: "The console builds itself as you scroll",
+      text: "Seven panels dock into one window, in the order a recording travels through the product.",
+      hint: "Scroll: each panel docks into the window",
+      waiting: "Waiting",
+      docked: "Docked",
+      complete: "Console complete",
+      demoEyebrow: "Live demo",
+      demoTitle: "Watch a sample call being analyzed",
+      demoText: "Waveform, transcript, four agents and the report, with sample data.",
+    },
     sections: {
       ingest: {
         id: "ingest",
@@ -289,6 +301,20 @@ const en = {
       },
     ],
     rail: { todo: "Not started", done: "Done", running: "Running" },
+    snake: {
+      hint: "Scroll: the line travels with you",
+      checks: ["Size", "Signature", "Duration"],
+      agents: ["QC", "Problems", "Insight", "Teacher"],
+      tiles: ["Dashboard", "Call report", "Copilot"],
+      providers: [
+        { name: "Local Whisper", allowed: true },
+        { name: "Local analysis model", allowed: true },
+        { name: "Cloud provider outside the policy", allowed: false },
+      ],
+      allowed: "Allowed",
+      refused: "Refused",
+      passing: "The line is here",
+    },
     states: {
       eyebrow: "Truthful states",
       title: "A missing stage is shown, not filled in",
@@ -321,6 +347,19 @@ const en = {
       title: "The same call, seen from four seats",
       text: "Homayar serves the people who score calls, the people who coach agents, the people who own the numbers and the people who approve where data goes.",
     },
+    ring: {
+      eyebrow: "Four seats, one call",
+      hint: "Scroll: the ring turns and the report re-filters",
+      seat: "Seat",
+      sees: "What this role sees",
+      open: "Open the page",
+      views: {
+        "qa-managers": "Six criteria scored, transcript one click away",
+        supervisors: "Incidents by severity and open issues",
+        "contact-center-operations": "Queue KPIs, quality trend and sentiment",
+        "it-security": "Stages, roles and where the data lives",
+      },
+    },
     roles: {
       "qa-managers": {
         slug: "qa-managers",
@@ -350,6 +389,17 @@ const en = {
             "The transcript on the same page as the report.",
             "A training package per agent generated from the weak points.",
             "PDF export of a call report to share with an agent or a manager.",
+          ],
+        },
+        day: {
+          title: "A day with Homayar",
+          hint: "Scroll: travel through the day",
+          items: [
+            { time: "08:30", task: "Open the dashboard", text: "Yesterday's calls are scored on the same six criteria. The average QC score and open issues are on the first screen.", screen: "kpis" },
+            { time: "10:00", task: "Check a disputed score", text: "The call report shows the score bars with the transcript on the same page, so the score can be checked against the words.", screen: "report" },
+            { time: "12:30", task: "Share a report", text: "A PDF of the call report goes to the agent and their manager.", screen: "pdf" },
+            { time: "15:00", task: "Turn weak points into coaching", text: "The training package lists behavioral recommendations built from the agent's weak points.", screen: "training" },
+            { time: "17:30", task: "Look at the trend", text: "The QC trend chart shows whether the week moved in the right direction.", screen: "trend" },
           ],
         },
         roadmap: {
@@ -387,6 +437,17 @@ const en = {
             "A training package per agent with behavioral recommendations.",
           ],
         },
+        day: {
+          title: "A day with Homayar",
+          hint: "Scroll: travel through the day",
+          items: [
+            { time: "08:30", task: "Start with the incidents", text: "The incidents view is filtered by severity, so the few calls worth listening to are at the top.", screen: "incidents" },
+            { time: "10:00", task: "Read the root causes", text: "Each detected problem has a root cause and a severity, tied to the call it came from.", screen: "issues" },
+            { time: "12:30", task: "Compare the team", text: "Agent comparison charts in the analytics view show who needs time this week.", screen: "compare" },
+            { time: "15:00", task: "Coach with a package", text: "The training package for one agent gives specific behavioral recommendations for the next conversation.", screen: "training" },
+            { time: "17:30", task: "Ask the copilot", text: "One question in plain language returns the issues that came up most this week.", screen: "copilot" },
+          ],
+        },
         roadmap: {
           title: "Coming soon",
           items: ["Coaching assignments with follow-up.", "Alerts for high-severity findings."],
@@ -420,6 +481,17 @@ const en = {
             "Issue tracking with root causes and severity.",
             "Business insight signals: upsell, churn-risk and satisfaction trend per call.",
             "A copilot that answers natural-language questions from stored call data.",
+          ],
+        },
+        day: {
+          title: "A day with Homayar",
+          hint: "Scroll: travel through the day",
+          items: [
+            { time: "08:30", task: "Read the KPI cards", text: "Total calls, average QC score, open issues and calls today, for the period you choose.", screen: "kpis" },
+            { time: "10:00", task: "Check the sentiment", text: "The sentiment distribution shows how the queue felt, not one call.", screen: "sentiment" },
+            { time: "12:30", task: "Track recurring issues", text: "Issue tracking groups detected problems with root causes and severity.", screen: "issues" },
+            { time: "15:00", task: "Read the business signals", text: "Upsell, churn-risk and satisfaction-trend signals per call.", screen: "signals" },
+            { time: "17:30", task: "Ask the data", text: "The copilot answers from stored call data and explains the result in plain language.", screen: "copilot" },
           ],
         },
         roadmap: {
@@ -457,6 +529,17 @@ const en = {
             "JWT authentication, bcrypt password hashing, role-based access, rate limiting and PostgreSQL row-level security.",
           ],
         },
+        day: {
+          title: "A day with Homayar",
+          hint: "Scroll: travel through the day",
+          items: [
+            { time: "08:30", task: "Connect the PBX", text: "The VOIP webhook receives each finished call. Every call is verified with a shared secret.", screen: "webhook" },
+            { time: "10:00", task: "Sync the directory", text: "Users authenticate through LDAP and Active Directory sync. Roles are admin, supervisor and agent.", screen: "ldap" },
+            { time: "12:30", task: "Confirm there is no route out", text: "No application container has a route to the internet. Optional outbound traffic goes only through a deny-by-default proxy.", screen: "egress" },
+            { time: "15:00", task: "Check the isolation", text: "Row-level security is forced. A connection with no tenant context sees no tenant rows.", screen: "roles" },
+            { time: "17:30", task: "Run the runbook", text: "Health and readiness endpoints, the migration job, drain and rollback steps are documented.", screen: "runbook" },
+          ],
+        },
         roadmap: {
           title: "Coming soon",
           items: ["OIDC single sign-on through an identity broker.", "Kubernetes manifests for customers who already run Kubernetes."],
@@ -477,6 +560,17 @@ const en = {
       title: "What we built, and what we do not claim",
       text: "Call recordings are among the most sensitive data a company holds. This page describes the controls that exist in the product today, as they are described in our architecture decisions, and lists what we do not claim.",
     },
+    layers: {
+      eyebrow: "Through the layers",
+      title: "Four layers between a recording and anyone who should not see it",
+      hint: "Scroll: pass through each layer",
+      items: [
+        { icon: "server", title: "Network wall", text: "In the self-hosted package no application container has a route to the internet." },
+        { icon: "layers", title: "Tenant isolation", text: "The application's authorization matrix and PostgreSQL row-level security, enforced twice." },
+        { icon: "eyeOff", title: "Personal-data masking", text: "Phone numbers, e-mails, IDs and card numbers become stable placeholders in the transcript." },
+        { icon: "trash", title: "Retention and deletion", text: "Explicit retention modes and a tombstone-first deletion that removes the bytes." },
+      ],
+    },
     maskDemo: {
       eyebrow: "Masking, live",
       title: "Watch a phone number disappear from the transcript",
@@ -486,6 +580,7 @@ const en = {
       before: "You can reach me at 0912 345 6789 after five.",
       after: "You can reach me at [PHONE_1] after five.",
       badge: "1 phone number masked",
+      hint: "Scroll: the number dissolves",
     },
     sections: {
       redaction: {
@@ -615,6 +710,21 @@ const en = {
       optIn: "Opt-in per tenant",
       region: "Qualified cloud region",
     },
+    zones: {
+      eyebrow: "Three places to run",
+      title: "Follow the block",
+      text: "The same product moves between three zones. Watch what changes around it.",
+      hint: "Scroll: the block travels",
+      block: "Homayar",
+      items: [
+        { name: "Cloud (SaaS)", note: "Qualified cloud region" },
+        { name: "Your server", note: "A wall closes behind it: no route out" },
+        { name: "Hybrid", note: "It splits: local data plane, optional cloud pieces" },
+      ],
+      wall: "No route",
+      halves: ["Local data plane", "Optional cloud pieces"],
+      compareHint: "Scroll: the table builds itself",
+    },
     options: [
       {
         id: "saas",
@@ -706,6 +816,8 @@ const en = {
         { title: "Rollout", text: "Training, acceptance and a support handoff." },
       ],
     },
+    constellation: { eyebrow: "Six principles", hint: "Scroll: the links are drawn" },
+    stepper: { hint: "Scroll: step by step", step: "Step", of: "of" },
     status: {
       title: "Where we are",
       text: "Homayar is an early product working with design partners. We do not show customer logos or results until a customer has given permission and the numbers have a method behind them.",
@@ -1002,6 +1114,11 @@ const en = {
       { title: "Ext. 118 · Inbound", meta: "03:48 · QC 71" },
       { title: "Ext. 104 · Outbound", meta: "08:05 · QC 88" },
     ],
+    roles: ["Admin", "Supervisor", "Agent"],
+    compare: ["Ext. 104", "Ext. 118", "Ext. 121"],
+    runbook: ["Health", "Readiness", "Migration job", "Drain", "Rollback"],
+    rls: "Row-level security: forced",
+    webhookTitle: "VOIP webhook",
     phoneTabs: ["Overview", "Calls", "Incidents", "Copilot"],
     agent: "Agent",
     duration: "Duration",

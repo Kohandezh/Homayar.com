@@ -8,8 +8,8 @@ import { PageHero, Section } from "@/components/ui/Section";
 import { CheckList, Chip } from "@/components/ui/Cards";
 import { CommandCta } from "@/components/site/CommandCta";
 import { FlowDiagram } from "@/components/story/FlowDiagram";
+import { DeployZones } from "@/components/story/DeployZones";
 import { Icon } from "@/components/ui/Icon";
-import { WarpBand } from "@/components/story/WarpBand";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/deployment">): Promise<Metadata> {
   const { locale } = await params;
@@ -31,34 +31,39 @@ export default async function DeploymentPage({ params }: PageProps<"/[locale]/de
     <>
       <PageHero eyebrow={d.hero.eyebrow} title={d.hero.title} text={d.hero.text} />
 
-      {d.options.map((o, i) => (
-        <div key={o.id}>
-          {i > 0 ? <WarpBand compact eyebrow={d.hero.eyebrow} title={o.name} text={t(o.summary)} /> : null}
-          <Section scene="field">
-            <article id={o.id} className={`panel grid gap-6 p-6 md:p-8 lg:grid-cols-[1fr_1.2fr] ${i === 1 ? "panel-glow" : ""}`} data-depth="360">
-              <div>
-                <div className="flex items-center gap-3">
-                  <Chip tone={i === 1 ? "accent" : "default"}>{modes[i]}</Chip>
-                  <span className="label text-xs text-ink-3">{o.id}</span>
-                </div>
-                <h2 className="display-2 mt-4">{o.name}</h2>
-                <p className="mt-2 text-lg text-ink-2">{t(o.summary)}</p>
-                <div className="mt-6 rounded-xl border border-border-2 bg-bg-2 p-4">
-                  <FlowDiagram flow={d.flow} mode={modes[i]} />
-                </div>
-                <p className="mt-4 rounded-xl border border-border-2 bg-surface-2 p-3 text-sm text-ink-2">{t(o.fit)}</p>
-              </div>
-              <div className="lg:border-s lg:border-border-2 lg:ps-8">
-                <CheckList items={o.points} render={t} />
-              </div>
-            </article>
-          </Section>
-        </div>
-      ))}
+      <DeployZones dict={dict} locale={locale} />
 
       <Section tone="raised">
-        <h2 className="display-2" data-split>{d.compare.title}</h2>
-        <div className="panel mt-8 overflow-x-auto" data-depth="260">
+        <div className="grid gap-4 lg:grid-cols-3">
+          {d.options.map((o, i) => (
+            <article key={o.id} id={o.id} className={`panel scroll-mt-24 flex flex-col gap-5 p-6 ${i === 1 ? "panel-glow" : ""}`} data-reveal={String(i * 0.08)}>
+              <div className="flex items-center gap-3">
+                <Chip tone={i === 1 ? "accent" : "default"}>{modes[i]}</Chip>
+                <span className="label text-xs text-ink-3">{o.id}</span>
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold md:text-3xl">{o.name}</h2>
+                <p className="mt-2 text-ink-2">{t(o.summary)}</p>
+              </div>
+              <div className="rounded-xl border border-border-2 bg-bg-2 p-3">
+                <FlowDiagram flow={d.flow} mode={modes[i]} compact />
+              </div>
+              <CheckList items={o.points} render={t} />
+              <p className="mt-auto rounded-xl border border-border-2 bg-surface-2 p-3 text-sm text-ink-2">{t(o.fit)}</p>
+            </article>
+          ))}
+        </div>
+      </Section>
+
+      <Section>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <h2 className="display-2" data-split>{d.compare.title}</h2>
+          <p className="chip compare-hint">
+            <Icon name="scan" size={13} />
+            {d.zones.compareHint}
+          </p>
+        </div>
+        <div className="panel mt-8 overflow-x-auto" data-table-build data-testid="compare-table">
           <table className="table-clean min-w-[640px]">
             <thead>
               <tr>
@@ -81,8 +86,8 @@ export default async function DeploymentPage({ params }: PageProps<"/[locale]/de
         </div>
       </Section>
 
-      <Section scene="field">
-        <div className="panel panel-glow grid gap-6 p-6 md:grid-cols-[1fr_1fr] md:items-center md:p-10" data-depth="260">
+      <Section tone="raised">
+        <div className="panel panel-glow grid gap-6 p-6 md:grid-cols-[1fr_1fr] md:items-center md:p-10" data-reveal>
           <h2 className="display-2">{d.runtimeNote.title}</h2>
           <ul className="grid gap-3 sm:grid-cols-2" data-reveal-group>
             {d.runtimeNote.items.map((i) => (

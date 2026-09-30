@@ -27,7 +27,7 @@ export default async function PricingPage({ params }: PageProps<"/[locale]/prici
         <Notice title={dict.common.inProgress}>{p.notice}</Notice>
       </PageHero>
 
-      <Section scene="field">
+      <Section>
         <div className="mb-6 flex flex-wrap gap-3" data-reveal-group>
           {p.deployments.map((d, i) => (
             <div key={d.name} className="flex items-center gap-3 rounded-full border border-border-2 bg-surface py-2 pe-4 ps-2">

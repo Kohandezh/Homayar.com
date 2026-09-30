@@ -6,7 +6,7 @@ import { isLocale, localizeDigits } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
 import { ContactForm } from "@/components/site/ContactForm";
 import { Icon } from "@/components/ui/Icon";
-import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
+import { VoiceMarkLive } from "@/components/site/VoiceMarkLive";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/contact">): Promise<Metadata> {
   const { locale } = await params;
@@ -27,21 +27,20 @@ export default async function ContactPage({ params }: PageProps<"/[locale]/conta
   ];
 
   return (
-    <div className="relative isolate overflow-hidden" data-scene="tunnel" data-hero-scene>
-      <SceneBackdrop kind="tunnel" priority />
-      <div className="scene-fade-bottom" aria-hidden="true" />
+    <div className="relative" data-voice-scope data-testid="contact-calm">
       <div className="container-x grid gap-10 py-14 md:py-20 lg:grid-cols-[1.2fr_1fr] lg:gap-16">
         <div>
           <p className="eyebrow" data-reveal>{c.hero.eyebrow}</p>
           <h1 className="display mt-5" data-split>{c.hero.title}</h1>
           <p className="mt-5 max-w-xl text-lg text-ink-2" data-reveal>{c.hero.text}</p>
-          <div className="panel panel-glow mt-8 p-5 md:p-8" data-depth="300">
+          <div className="panel panel-glow mt-8 p-5 md:p-8" data-reveal="0.1">
             <ContactForm copy={c.form} locale={locale} />
           </div>
         </div>
         <aside className="lg:sticky lg:top-[calc(var(--header-h)+1.5rem)] lg:self-start" data-reveal="0.15">
           <div className="panel p-6 md:p-8">
-            <h2 className="text-xl font-bold">{c.aside.title}</h2>
+            <VoiceMarkLive label={dict.brand} />
+            <h2 className="mt-4 text-xl font-bold">{c.aside.title}</h2>
             <ol className="relative mt-6 flex flex-col gap-4" data-rail>
               <div aria-hidden="true" className="rail start-[14px]">
                 <div className="rail-fill" />

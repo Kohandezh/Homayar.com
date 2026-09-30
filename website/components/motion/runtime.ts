@@ -2,6 +2,7 @@ import { DESKTOP, FINE_POINTER, MOTION_OK, ScrollTrigger, SplitText, gsap } from
 import { localizeDigits, type Locale } from "@/lib/i18n";
 import { sceneBus } from "@/components/scene/bus";
 import { BRAIN_LINES, ENTER_END, lineAt, REPORT_IN, REPORT_OUT, REPORT_PEAK } from "@/components/scene/timing";
+import { setupScenarios } from "./scenarios";
 
 type Cleanup = () => void;
 const PHONE = "(max-width: 767px)";
@@ -220,17 +221,7 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       }
     }
 
-    for (const box of q<HTMLElement>(root, "[data-mask]")) {
-      const original = box.querySelector<HTMLElement>(".mask-original");
-      const masked = box.querySelector<HTMLElement>(".mask-masked");
-      const badge = box.querySelector<HTMLElement>(".mask-badge");
-      if (!original || !masked) continue;
-      gsap
-        .timeline({ scrollTrigger: { trigger: box, start: "top 75%", end: "top 25%", scrub: 0.5 } })
-        .fromTo(original, { opacity: 1, y: 0 }, { opacity: 0, y: -10, ease: "none" }, 0)
-        .fromTo(masked, { opacity: 0, y: 10 }, { opacity: 1, y: 0, ease: "none" }, 0)
-        .fromTo(badge, { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, ease: "none" }, 0.4);
-    }
+    setupScenarios(root, locale, mm);
 
     mm.add(FINE_POINTER, () => {
       const handlers: Array<() => void> = [];

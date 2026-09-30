@@ -62,8 +62,9 @@ export function PageHero({
   text,
   children,
   aside,
-  scene = "tunnel",
+  scene,
   back,
+  className = "",
 }: {
   eyebrow?: string;
   title: string;
@@ -72,12 +73,13 @@ export function PageHero({
   aside?: ReactNode;
   scene?: SceneKind;
   back?: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="relative isolate overflow-hidden border-b border-border" data-scene={scene} data-hero-scene>
-      <SceneBackdrop kind={scene} priority />
-      <div className="scene-fade-bottom" aria-hidden="true" />
-      <div className={`container-x flex min-h-[68svh] flex-col justify-center pb-14 pt-14 md:pb-20 md:pt-20 ${aside ? "lg:grid lg:grid-cols-[1.1fr_1fr] lg:items-center lg:gap-10" : ""}`} data-hero-content>
+    <section className={`relative isolate overflow-hidden ${scene ? "border-b border-border" : ""} ${className}`} data-scene={scene} data-hero-scene={scene ? "" : undefined}>
+      {scene ? <SceneBackdrop kind={scene} priority /> : null}
+      {scene ? <div className="scene-fade-bottom" aria-hidden="true" /> : null}
+      <div className={`container-x flex ${scene ? "min-h-[68svh]" : "min-h-[44svh]"} flex-col justify-center pb-12 pt-14 md:pb-16 md:pt-20 ${aside ? "lg:grid lg:grid-cols-[1.1fr_1fr] lg:items-center lg:gap-10" : ""}`} data-hero-content={scene ? "" : undefined}>
         <div>
           {back}
           <SectionHeading eyebrow={eyebrow} title={title} text={text} as="h1" split />
