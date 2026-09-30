@@ -70,10 +70,24 @@ const en = {
       description:
         "Homayar transcribes authorized call recordings, runs four analysis agents and gives supervisors scored reports, detected problems and coaching points. Persian and English, cloud or self-hosted.",
     },
+    particles: {
+      brand: "Homayar",
+      slogan: "Every call, an insight.",
+      hint: "Scroll: the points spell it out",
+    },
     hero: {
       eyebrow: "Post-call analysis for contact centers",
       title: "Turn call recordings into quality reviews you can trust.",
       text: "Homayar transcribes authorized call recordings, runs four analysis agents and gives supervisors a scored report, detected problems and coaching points. Persian and English. In the cloud or fully on your own servers.",
+      headlines: [
+        "Turning calls",
+        "into audio files",
+        "for review",
+        "of response quality",
+        "uncovering your organization's problems",
+        "with artificial intelligence.",
+        "Multilingual support.",
+      ],
       primary: "Request a demo",
       secondary: "See the product",
       hint: "Scroll: a call becomes a report",

@@ -15,32 +15,17 @@ const CX = W / 2;
 const CY = H / 2;
 const f = (n: number) => Math.round(n * 10) / 10;
 
-function corridor(rings: number, withLongLines: boolean) {
+function corridor(rows: number, withLongLines: boolean) {
   const parts: string[] = [];
-  const corners = [
-    [-1, -1],
-    [1, -1],
-    [1, 1],
-    [-1, 1],
-  ];
+  const horizon = CY + 60;
   if (withLongLines) {
-    for (let i = -6; i <= 6; i++) {
-      const x = CX + (i / 6) * 1000;
-      parts.push(`M${f(x)} 0L${CX} ${CY}`);
-      parts.push(`M${f(x)} ${H}L${CX} ${CY}`);
-    }
-    for (let i = -3; i <= 3; i++) {
-      const y = CY + (i / 3) * 620;
-      parts.push(`M0 ${f(y)}L${CX} ${CY}`);
-      parts.push(`M${W} ${f(y)}L${CX} ${CY}`);
+    for (let i = -14; i <= 14; i++) {
+      parts.push(`M${f(CX + i * 190)} ${H}L${f(CX + i * 6)} ${horizon}`);
     }
   }
-  for (let k = 0; k < rings; k++) {
-    const s = 1 / (1 + k * 0.42);
-    const w = 1000 * s;
-    const h = 620 * s;
-    const pts = corners.map(([sx, sy]) => `${f(CX + sx * w)} ${f(CY + sy * h)}`);
-    parts.push(`M${pts[0]}L${pts[1]}L${pts[2]}L${pts[3]}Z`);
+  for (let k = 0; k < rows; k++) {
+    const y = horizon + (H - horizon) * Math.pow((k + 1) / rows, 2.2);
+    parts.push(`M0 ${f(y)}L${W} ${f(y)}`);
   }
   return parts.join("");
 }
@@ -99,6 +84,18 @@ function field() {
 
 const br = brain();
 
+function dots() {
+  const rnd = mulberry(21);
+  const out: Array<[number, number, number]> = [];
+  for (let i = 0; i < 420; i++) {
+    const a = rnd() * Math.PI * 2;
+    const r = Math.sqrt(rnd());
+    out.push([CX + Math.cos(a) * r * 300, CY + Math.sin(a) * r * 300, 2 + (1 - r) * 3]);
+  }
+  return out;
+}
+const sphereDots = dots();
+
 export function PosterDefs() {
   return (
     <svg width="0" height="0" style={{ position: "absolute", width: 0, height: 0 }} aria-hidden="true" focusable="false">
@@ -118,13 +115,13 @@ export function PosterDefs() {
         </mask>
         <symbol id="poster-tunnel" viewBox={`0 0 ${W} ${H}`}>
           <g mask="url(#poster-fog-mask)" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d={corridor(14, true)} opacity="0.55" />
+            <path d={corridor(16, true)} opacity="0.55" />
           </g>
           <path d={wave()} fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" opacity="0.9" />
         </symbol>
         <symbol id="poster-warp" viewBox={`0 0 ${W} ${H}`}>
           <g mask="url(#poster-fog-mask)" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d={corridor(22, false)} opacity="0.7" />
+            <path d={corridor(24, true)} opacity="0.7" />
           </g>
           <rect x={CX - 90} y={CY - 90} width="180" height="180" fill="url(#poster-glow)" />
           <rect x={CX - 60} y={CY - 60} width="120" height="120" fill="none" stroke="currentColor" strokeWidth="4" opacity="0.95" />
@@ -138,6 +135,14 @@ export function PosterDefs() {
           </g>
           <circle cx={CX} cy={CY} r="160" fill="url(#poster-glow)" />
           <circle cx={CX} cy={CY} r="22" fill="currentColor" />
+        </symbol>
+        <symbol id="poster-particles" viewBox={`0 0 ${W} ${H}`}>
+          <circle cx={CX} cy={CY} r="340" fill="url(#poster-glow)" opacity="0.5" />
+          <g fill="currentColor" opacity="0.85">
+            {sphereDots.map((p, i) => (
+              <circle key={i} cx={f(p[0])} cy={f(p[1])} r={f(p[2])} />
+            ))}
+          </g>
         </symbol>
         <symbol id="poster-field" viewBox={`0 0 ${W} ${H}`}>
           <path d={field()} fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.4" />

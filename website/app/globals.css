@@ -635,6 +635,21 @@
   [data-depth] { transform-style: preserve-3d; will-change: transform, opacity; }
 
   .flight { min-height: 100svh; display: flex; align-items: center; }
+  .flight-h1 { font-size: clamp(1.5rem, 1rem + 1.6vw, 2.25rem); line-height: 1.25; font-weight: 600; color: var(--color-ink-2); max-width: 28ch; }
+  .flight-headlines { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.5rem; }
+  .flight-headline { max-width: 16ch; }
+  html:not(.motion) .flight-headline { font-size: clamp(1.75rem, 1.2rem + 2vw, 3rem); line-height: 1.15; }
+  html.motion .flight-h1 { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  html.motion .flight-headlines { position: relative; min-height: 2.4em; margin-top: 0; display: block; font-size: clamp(2.5rem, 1.6rem + 3.6vw, 5.25rem); }
+  html.motion .flight-headline { position: absolute; inset-inline-start: 0; top: 0; opacity: 0; visibility: hidden; }
+  html.motion .flight-headline:first-child { position: relative; }
+  .particles { min-height: 100svh; display: flex; align-items: center; justify-content: center; text-align: center; }
+  .particles-stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 70svh; }
+  .particles-slogan { font-size: clamp(1.25rem, 0.9rem + 1.6vw, 2.25rem); font-weight: 500; color: var(--color-ink-2); line-height: 1.3; }
+  .particles-hint { display: none; }
+  html.motion:not(.no-webgl) .particles { padding-top: var(--header-h); }
+  html.motion:not(.no-webgl) .particles-title { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  html.motion:not(.no-webgl) .particles-hint { display: inline-flex; position: absolute; bottom: 8svh; left: 50%; transform: translateX(-50%); }
   html.motion .flight, html.motion .brain-stage, html.motion .journey { padding-top: var(--header-h); }
 
   .warp-flash { position: absolute; inset: 0; background: var(--color-bg-deep); opacity: 0; pointer-events: none; }

@@ -1,4 +1,4 @@
-# Design decisions for the Homayar website (turn 5, code-only scenes and one scenario per page)
+# Design decisions for the Homayar website (turn 6, particle hero, floor grid and headline sequence)
 
 Short record of what the site uses and where each choice came from. Skill output lives in
 `design-system/homayar/MASTER.md` and `design-system/homayar/pages/*.md` (re-generated on
@@ -14,7 +14,11 @@ are no photos, no owner images and no video (Addendum 6, owner decision of 2026-
 persistent WebGL canvas sits behind the home page. Scrolling moves the camera forward through
 three kinds of space:
 
-1. **Wire grid.** A wireframe tunnel with a glowing sound wave in the middle (the call).
+0. **Particles.** Several thousand glowing points form a slowly turning sphere. Scrolling sends
+   them to positions that spell the brand and the slogan (Addendum 7).
+1. **Floor grid.** An infinite wireframe floor receding to a dark horizon, with a glowing sound
+   wave floating above it (the call). Walls and ceiling were removed on the owner's request
+   (Addendum 7b).
 2. **Warp.** The tunnel narrows to a bright square, the screen flashes to the theme color, and you
    come out in a different space (from the call into the analysis).
 3. **Brain.** A neural network. Inside it, a customer and an agent talk. A glowing core reads each
@@ -59,9 +63,9 @@ Named inspirations (2025 to 2026, inspiration only, nothing copied):
   colors, so the palette below is the owner's. The style is "Parallax Storytelling" from run J.
 - Runs A and K list Google Fonts imports. The site makes no third-party request, so fonts are
   self-hosted files under `fonts/`.
-- Run D says pin at most one or two sections. The owner asked for a pinned grid flight, a pinned
-  brain scene and a pinned horizontal section on the home page. Home has three pins on desktop.
-  On phones the horizontal section is a plain vertical stack, so home has two pins there.
+- Run D says pin at most one or two sections. The owner asked for a pinned particle hero, a pinned
+  grid flight, a pinned brain scene and a pinned horizontal section on the home page. Home has four
+  pins on desktop. On phones the horizontal section is a plain vertical stack, so home has three.
 
 ## Palette (final tokens)
 
@@ -148,7 +152,8 @@ scene sections. Inner pages draw their scenario with SVG and CSS, so the canvas 
 
 | Scene | What you see | Pointer | Phone (under 768px) |
 |---|---|---|---|
-| `tunnel` | A procedural wireframe corridor: floor, walls and ceiling lines along the depth axis, a rectangular ring every 3 units, a brighter gate every 24 units, depth fog to the page color. Scroll is distance: the camera position along the corridor is `progress * 90` units, nothing else moves it, so scrolling back reverses the travel exactly. Fast scrolling adds speed streaks (short line segments near the walls whose length and opacity follow the scroll velocity). The voice wave in the center is a live line of points that keeps moving in time. Lines are `#22bec6` on the dark base and `#125a5e` on white. | Camera yaw and pitch follow the pointer, the wave swells near it. | Half the lines, DPR 1. |
+| `particles` | 6000 points (2600 on phones) on a Fibonacci sphere, one draw for the core and one soft glow draw of the same geometry. The vertex shader mixes each point from its sphere position to a text target along a small outward arc, with a per-point delay so the flight looks organic. Targets are sampled from the two lines drawn on an offscreen 2D canvas with the site font (Vazirmatn shapes Persian correctly, `direction: rtl`), after `document.fonts.ready`. Progress is the pinned section's scroll progress, so the morph is scrubbed and reversible. Colors: `#22bec6` points shaded toward `#125a5e` by depth, `#7fdde2` in the word; light theme `#125a5e` on white. | The sphere turns and tilts toward the pointer; the word barely breathes. | 2600 points, DPR 1. |
+| `tunnel` | A procedural wireframe floor: longitudinal lines every 1 unit (2 on phones) and a cross line every 3 units, a brighter double line every 24 units, depth fog to the page color, nothing above the floor. Scroll is distance: the camera position along the corridor is `progress * 90` units, nothing else moves it, so scrolling back reverses the travel exactly. Fast scrolling adds speed streaks (short line segments near the walls whose length and opacity follow the scroll velocity). The voice wave in the center is a live line of points that keeps moving in time. Lines are `#22bec6` on the dark base and `#125a5e` on white. | Camera yaw and pitch follow the pointer, the wave swells near it. | Half the lines, DPR 1. |
 | `warp` | The same corridor accelerates (distance grows with the square of progress), rings tighten, a bright square grows ahead, then the screen flashes to the theme color. | Same as tunnel. | Same, lighter. |
 | `brain` | A neural network (points and links in a brain-shaped cloud) with a pulsing core and a soft inner glow. The camera flies inside. Node clusters light up on the side of each conversation line. No video. | The network tilts toward the pointer. | A lighter network (520 points). |
 | `field` | Sparse floor grid and slow particles, very low cost, for content pages. | Parallax. | Fewer particles. |
@@ -172,7 +177,7 @@ the finished layout) and a lighter phone version (under 64rem nothing is pinned)
 
 | Page | What the user sees while scrolling | Technique | Phone | Reduced motion |
 |---|---|---|---|---|
-| Home | Grid tunnel flight (pinned 260vh) > warp into a new space (160vh) > brain scene with the conversation and the growing call report (pinned 520vh) > pinned horizontal journey through the 4 agents > product surfaces, deployment spaces and trust list on the calm field > command palette CTA. | WebGL scenes from the table above, GSAP ScrollTrigger timelines per section (`runtime.ts`). | Lighter scenes, journey is a vertical stack. | SVG frames, plain lists. |
+| Home | Particle sphere that spells the brand and the slogan as you scroll (pinned 200vh) > floor grid flight where the owner's seven headline lines take turns (each enters, holds and fades; the full title stays as a visually hidden `h1`), then the description, facts and buttons arrive (pinned 260vh) > warp into a new space (160vh) > brain scene with the conversation and the growing call report (pinned 520vh) > pinned horizontal journey through the 4 agents > product surfaces, deployment spaces and trust list on the calm field > command palette CTA. | WebGL scenes from the table above, GSAP ScrollTrigger timelines per section (`runtime.ts`). The particle words are also in the DOM as visually hidden text; the seven lines are `aria-hidden` paragraphs next to the `h1`. | Lighter scenes, journey is a vertical stack, same headline sequence with smaller type. | SVG frames (a dotted disc for the particles), the words and the seven lines as a static block under the visible `h1`. |
 | How it works | **The snake path.** One curved line, stroke 10 CSS px, `#22bec6`, with a blurred glow copy and a bright head. It starts at the top of the page and is drawn as you scroll. It swings left and right and passes behind each of the 7 step cards (file check > Whisper > speakers > 4 agents > console > partial stages > policy) and comes out below. The card under the head lights up and plays its small demo (bars become text, speakers get colors, 4 scores fill, stage chips switch state, providers are allowed or refused). Persian starts from the right. | `SnakePath` (client) measures the card centers and writes a Catmull-Rom path into one absolute `<svg>` behind the cards (`z-index: 0`, cards `z-index: 1`). The runtime maps the viewport line at 60% height to a path length with a 400-point lookup table and sets `stroke-dashoffset`, the head position and the active card. Demos are CSS transitions keyed on `.is-active` and `.is-done`. | Amplitude of the swing drops to about 12% of the width, cards stack. | Full path, all cards in their finished state. |
 | Product | **Assemble the console.** A large app window stays pinned. Each scroll step docks one panel into its slot (upload > transcript > 4 agents > dashboard > call report > copilot > integrations) until the console is complete. The side text explains the panel that just arrived. Below it the live demo plays a sample call. | Pinned timeline (`+=490%`), each panel tweens from small and low to its grid slot, slot outline glows on arrival, side texts cross-fade. Slots are CSS grid areas inside `ConsoleAssembly`. | Window shown complete, the 7 explanations as a numbered list. | Same as phone. |
 | Solutions | **Four seats, one call.** One call report sits in the middle of a ring with 4 seats (QA manager, supervisor, operations, IT and security). Scrolling rotates the ring in 3D and brings each seat to the front; the report re-filters to what that role sees. Each seat is a link to its page. | CSS 3D: `perspective` stage, seats at `rotateY(i*90deg) translateZ(R)` with hidden backfaces, the ring's `rotationY` is scrubbed 0 to -270 (mirrored in RTL). The active seat gets `.is-front`; four report views cross-fade. | Seats become a swipe row (`scroll-snap-type: x mandatory`) under the report. | Four seats in a 2x2 grid around the report. |
@@ -205,7 +210,7 @@ posters and Open Graph. What replaced them:
 |---|---|
 | Scene posters (reduced motion, no WebGL) | Four inline SVG frames drawn by code (`components/scene/PosterDefs.tsx`), reused through `<use>`. |
 | Inside-the-brain video layer | Nothing. The WebGL brain has a soft inner glow instead. |
-| `og.jpg` | `app/[locale]/opengraph-image.tsx` renders the corridor, the wave and the voice-bar mark with `ImageResponse` at build time (1200x630 PNG). The text in the image is the Latin brand name, because `ImageResponse` needs a TTF, OTF or WOFF font and the site only ships WOFF2 files. The Persian page title travels in `og:title`; the image alt is localized. |
+| `og.jpg` | `app/[locale]/opengraph-image.tsx` renders the floor grid, the wave and the voice-bar mark with `ImageResponse` at build time (1200x630 PNG). The text in the image is the Latin brand name, because `ImageResponse` needs a TTF, OTF or WOFF font and the site only ships WOFF2 files. The Persian page title travels in `og:title`; the image alt is localized. |
 
 ## Motion system (GSAP 3.15, ScrollTrigger, SplitText)
 
@@ -218,12 +223,12 @@ posters and Open Graph. What replaced them:
 | Ease in | `expo.out` | Arrivals |
 | Ease scrub | `none` | Everything tied to scroll |
 
-Rules: motion means something (flight is progress, the core reads the line, the report comes to
-you, the snake travels with you). Declarative reveals stay (`data-reveal`, `data-reveal-group`,
+Rules: motion means something (points become words, flight is progress, the core reads the
+line, the report comes to you, the snake travels with you). Declarative reveals stay (`data-reveal`, `data-reveal-group`,
 `data-split`, `data-parallax`, `data-depth`). Scenario hooks: `data-snake`, `data-console`,
 `data-ring`, `data-day`, `data-layers`, `data-mask`, `data-zones`, `data-table-build`,
 `data-constellation`, `data-stepper`, `data-voice-react`. Every main page has at least three
-scroll-driven changes of transform or opacity. Pins per page: home 3 on desktop (owner request),
+scroll-driven changes of transform or opacity. Pins per page: home 4 on desktop (owner request),
 product 1, solutions 1, solution pages 1, security 1, deployment 1, about 1, others 0.
 Reduced motion: `gsap.matchMedia` wraps every tween, the `motion` class is set only when the user
 has no reduced-motion preference, so nothing is ever hidden for them.

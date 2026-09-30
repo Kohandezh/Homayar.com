@@ -27,6 +27,23 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       gsap.fromTo(line, { scaleX: 0 }, { scaleX: 1, ease: "none", scrollTrigger: { start: 0, end: "max", scrub: 0.3 } });
     }
 
+    for (const section of q<HTMLElement>(root, "[data-particles]")) {
+      const hint = section.querySelector<HTMLElement>(".particles-hint");
+      const tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: section,
+          start: "top top",
+          end: "+=200%",
+          pin: true,
+          scrub: 0.5,
+          anticipatePin: 1,
+          onUpdate: (self) => sceneBus.set(section, self.progress),
+        },
+      });
+      tl.to({}, { duration: 1 }, 0);
+      if (hint) tl.to(hint, { autoAlpha: 0, y: 10, duration: 0.12, ease: "none" }, 0.04);
+    }
+
     for (const section of q<HTMLElement>(root, "[data-flight]")) {
       const items = q<HTMLElement>(section, "[data-flight-item]");
       const content = section.querySelector<HTMLElement>("[data-flight-content]");
@@ -42,11 +59,20 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
         },
       });
       tl.to({}, { duration: 1 }, 0);
-      items.forEach((el, i) => {
-        const at = 0.08 + i * 0.16;
-        tl.fromTo(el, { autoAlpha: 0, y: 36, z: -120 }, { autoAlpha: 1, y: 0, z: 0, duration: 0.14, ease: "none" }, at);
+      const heads = q<HTMLElement>(section, "[data-headline]");
+      const n = Math.max(1, heads.length);
+      const seg = 1 / n;
+      heads.forEach((el, i) => {
+        const at = i * seg;
+        tl.fromTo(el, { autoAlpha: 0, y: 48, filter: "blur(10px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: seg * 0.28, ease: "none" }, at);
+        if (i < n - 1) tl.to(el, { autoAlpha: 0, y: -44, filter: "blur(10px)", duration: seg * 0.24, ease: "none" }, at + seg * 0.72);
       });
-      if (content) tl.fromTo(content, { scale: 1 }, { scale: 1.04, y: -24, duration: 1, ease: "none" }, 0);
+      const base = (n - 1) * seg + seg * 0.3;
+      items.forEach((el, i) => {
+        const at = Math.min(0.92, base + i * (seg * 0.6) / Math.max(1, items.length));
+        tl.fromTo(el, { autoAlpha: 0, y: 36, z: -120 }, { autoAlpha: 1, y: 0, z: 0, duration: 0.07, ease: "none" }, at);
+      });
+      if (content) tl.fromTo(content, { scale: 1 }, { scale: 1.03, y: -18, duration: 1, ease: "none" }, 0);
     }
 
     for (const section of q<HTMLElement>(root, "[data-warp]")) {

@@ -38,16 +38,46 @@ export default async function HomePage({ params }: PageProps<"/[locale]">) {
   const base = `/${locale}`;
   const arrow = locale === "fa" ? "arrowLeft" : "arrowRight";
 
+  const pt = h.particles;
+
   return (
     <>
+      <section
+        className="particles relative isolate overflow-hidden"
+        data-scene="particles"
+        data-pin
+        data-particles
+        data-line1={pt.brand}
+        data-line2={pt.slogan}
+        data-testid="particle-hero"
+      >
+        <SceneBackdrop kind="particles" priority />
+        <div className="scene-fade-bottom" aria-hidden="true" />
+        <div className="container-x particles-stage">
+          <p className="particles-title display" data-particles-title>
+            <span className="block">{pt.brand}</span>
+            <span className="particles-slogan mt-4 block">{pt.slogan}</span>
+          </p>
+          <p className="chip particles-hint">
+            <Icon name="scan" size={13} />
+            {pt.hint}
+          </p>
+        </div>
+      </section>
+
       <section className="flight relative isolate overflow-hidden" data-scene="tunnel" data-pin data-flight data-testid="hero-flight">
         <SceneBackdrop kind="tunnel" priority />
         <div className="scene-fade-bottom" aria-hidden="true" />
         <div className="container-x w-full py-16 md:py-20">
           <div className="max-w-4xl" data-flight-content>
-            <h1 className="display max-w-[16ch]" data-split>
-              {h.hero.title}
-            </h1>
+            <h1 className="flight-h1">{h.hero.title}</h1>
+            <div className="flight-headlines" data-flight-headlines aria-hidden="true">
+              {h.hero.headlines.map((line) => (
+                <p key={line} className="display flight-headline" data-headline>
+                  {line}
+                </p>
+              ))}
+            </div>
             <p className="chip chip-accent mt-6" data-flight-item>
               <span className="dot dot-live" aria-hidden="true" />
               {h.hero.eyebrow}

@@ -1,4 +1,4 @@
-export type SceneKind = "tunnel" | "warp" | "brain" | "field";
+export type SceneKind = "tunnel" | "warp" | "brain" | "field" | "particles";
 
 const progress = new WeakMap<Element, number>();
 

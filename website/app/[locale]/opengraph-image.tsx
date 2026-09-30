@@ -12,19 +12,11 @@ const CY = H / 2 - 40;
 
 function corridor() {
   const parts: string[] = [];
-  for (let i = -6; i <= 6; i++) {
-    const x = CX + (i / 6) * 700;
-    parts.push(`M${x} 0L${CX} ${CY}M${x} ${H}L${CX} ${CY}`);
-  }
-  for (let i = -3; i <= 3; i++) {
-    const y = CY + (i / 3) * 400;
-    parts.push(`M0 ${y}L${CX} ${CY}M${W} ${y}L${CX} ${CY}`);
-  }
-  for (let k = 0; k < 12; k++) {
-    const s = 1 / (1 + k * 0.45);
-    const w = 700 * s;
-    const h = 400 * s;
-    parts.push(`M${CX - w} ${CY - h}L${CX + w} ${CY - h}L${CX + w} ${CY + h}L${CX - w} ${CY + h}Z`);
+  const horizon = CY + 30;
+  for (let i = -12; i <= 12; i++) parts.push(`M${CX + i * 130} ${H}L${CX + i * 4} ${horizon}`);
+  for (let k = 0; k < 14; k++) {
+    const y = horizon + (H - horizon) * Math.pow((k + 1) / 14, 2.2);
+    parts.push(`M0 ${y.toFixed(1)}L${W} ${y.toFixed(1)}`);
   }
   return parts.join("");
 }
