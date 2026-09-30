@@ -1,14 +1,240 @@
 from __future__ import annotations
 
+import os
 import re
+import stat
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
-from pydantic import model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, ValidationError, model_validator
+from pydantic.fields import FieldInfo
+from pydantic_core import PydanticCustomError
+from pydantic_settings import (
+    BaseSettings,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    SettingsError,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# Secret-bearing settings (HOM-32). Each can instead be read from the file named by
+# `<NAME>_FILE` (secret-manager mounts, Docker/Kubernetes secrets), and none of them
+# appears in `repr(settings)`, `str(settings)` or a settings validation error.
+SECRET_FIELDS: tuple[str, ...] = (
+    "database_url",
+    "redis_url",
+    "jwt_secret",
+    "token_pepper",
+    "google_client_secret",
+    "asanak_api_key",
+    "storage_access_key",
+    "storage_secret_key",
+    "pii_mapping_keys",
+    "llm_fallback_api_key",
+    "zai_api_key",
+    "gapgpt_api_key",
+    "smtp_password",
+    "neo4j_password",
+    "sentry_dsn",
+)
+
+# A secret-bearing setting: a plain `str` for every consumer, left out of repr/str.
+SecretSetting = Annotated[str, Field(repr=False)]
+
+# O_NONBLOCK: a path swapped for a FIFO after the pre-open check cannot block the open.
+_SECRET_FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+# Secrets are short: a larger file is refused after reading at most one byte more than this.
+SECRET_FILE_MAX_BYTES = 64 * 1024
+# Kernel file systems expose process environments, memory and devices, never secret files.
+_KERNEL_FILE_SYSTEMS = (Path("/proc"), Path("/sys"))
+_REDACTED = "[redacted]"
+
+
+class SecretReferenceError(SettingsError):
+    """A `<NAME>_FILE` reference is ambiguous, empty or unreadable.
+
+    The message names variables and paths only, never a value.
+    """
+
+
+def _pre_open_problem(path: str) -> str | None:
+    """Why `path` must not be opened: a kernel file system, missing, or not a regular file."""
+    try:
+        resolved = Path(os.path.realpath(path))
+        if any(resolved == root or root in resolved.parents for root in _KERNEL_FILE_SYSTEMS):
+            return "resolves under /proc or /sys (kernel files are refused)"
+        mode = os.stat(path).st_mode
+    except FileNotFoundError:
+        return "does not exist"
+    except PermissionError:
+        return "is not readable (permission denied)"
+    except OSError as exc:
+        return f"cannot be inspected ({exc.strerror or type(exc).__name__})"
+    except ValueError:  # e.g. an embedded NUL character
+        return "is not a valid path"
+    return None if stat.S_ISREG(mode) else "is not a regular file"
+
+
+def _read_at_most(descriptor: int, limit: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = limit
+    while remaining > 0:
+        chunk = os.read(descriptor, remaining)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def read_secret_file(variable: str, path: str) -> str:
+    """Return the UTF-8 text of the regular file at `path` minus one trailing newline.
+
+    Exactly one trailing `\\n` or `\\r\\n` is removed; a lone `\\r`, other whitespace and a
+    byte-order mark are content. A path under /proc or /sys (after symlinks) or one that is
+    not a regular file is refused before it is opened (and re-checked on the open file), and
+    a file larger than SECRET_FILE_MAX_BYTES is refused after a bounded read. A failure
+    raises SecretReferenceError naming `variable` and `path`. It is raised outside every
+    `except` block, so no chained exception is attached (a UnicodeDecodeError, for one,
+    carries the file's bytes).
+    """
+    problem = _pre_open_problem(path)
+    data = b""
+    if problem is None:
+        try:
+            descriptor = os.open(path, _SECRET_FILE_FLAGS)
+        except FileNotFoundError:
+            problem = "does not exist"
+        except PermissionError:
+            problem = "is not readable (permission denied)"
+        except OSError as exc:
+            problem = f"cannot be opened ({exc.strerror or type(exc).__name__})"
+        else:
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    problem = "is not a regular file"
+                else:
+                    data = _read_at_most(descriptor, SECRET_FILE_MAX_BYTES + 1)
+                    if len(data) > SECRET_FILE_MAX_BYTES:
+                        problem = f"is larger than 64 KiB ({SECRET_FILE_MAX_BYTES} bytes)"
+                        data = b""
+            except OSError as exc:
+                problem = f"cannot be read ({exc.strerror or type(exc).__name__})"
+            finally:
+                os.close(descriptor)
+    text: str | None = None
+    if problem is None:
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            problem = "is not valid UTF-8 text"
+    if problem is not None or text is None:
+        raise SecretReferenceError(f"{variable} points to {path!r}, which {problem}")
+    if text.endswith("\r\n"):
+        return text[:-2]
+    if text.endswith("\n"):
+        return text[:-1]
+    return text
+
+
+class _SecretFileReferences(PydanticBaseSettingsSource):
+    """Values of the `<NAME>_FILE` references of the secret fields found in one place.
+
+    `variables` is the environment or .env source whose variables are searched, so a
+    reference follows the same letter-case and prefix rules as the plain `<NAME>`. `environ`
+    (process environment only) is scanned for a reference spelled in more than one case.
+    A value and a reference for the same field in the same place are rejected, never ranked.
+    """
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        variables: EnvSettingsSource,
+        where: str,
+        environ: Mapping[str, str] | None = None,
+    ) -> None:
+        super().__init__(settings_cls)
+        self._variables = variables
+        self._where = where
+        self._environ = environ
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        return None, field_name, False  # __call__ resolves every reference at once
+
+    def __call__(self) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        for field_name in SECRET_FIELDS:
+            value = self._resolve(field_name)
+            if value is not None:
+                values[field_name] = value
+        return values
+
+    def _key(self, name: str) -> str:
+        return name if self._variables.case_sensitive else name.lower()
+
+    def _spellings(self, key: str) -> list[str]:
+        return sorted(name for name in self._environ or () if self._key(name) == key)
+
+    def _describe(self, key: str, canonical: str) -> str:
+        """The canonical variable name, plus the spellings used when they differ from it."""
+        others = [name for name in self._spellings(key) if name != canonical]
+        return f"{canonical} (set as {', '.join(others)})" if others else canonical
+
+    def _resolve(self, field_name: str) -> str | None:
+        plain = f"{self._variables.env_prefix}{field_name}"
+        plain_key, reference_key = self._key(plain), self._key(f"{plain}_file")
+        variables = self._variables.env_vars
+        path = variables.get(reference_key)
+        if path is None:
+            return None
+        reference = self._describe(reference_key, f"{plain.upper()}_FILE")
+        if len(self._spellings(reference_key)) > 1:
+            raise SecretReferenceError(
+                f"{reference} is set more than once in the {self._where} with different "
+                "letter case; set it once"
+            )
+        if variables.get(plain_key) is not None:
+            raise SecretReferenceError(
+                f"{self._describe(plain_key, plain.upper())} and {reference} are both set in "
+                f"the {self._where}; set only one of them"
+            )
+        if not path:
+            raise SecretReferenceError(
+                f"{reference} is set but empty in the {self._where}; point it to a secret "
+                "file or unset it"
+            )
+        return read_secret_file(reference, path)
+
+
+def _redacted_validation_error(error: ValidationError) -> ValidationError:
+    """The same error types, locations and messages without the offending input values."""
+    return ValidationError.from_exception_data(
+        error.title,
+        [
+            {
+                "type": PydanticCustomError(line["type"], line["msg"]),
+                "loc": line["loc"],
+                "input": _REDACTED,
+            }
+            for line in error.errors(include_url=False, include_context=False, include_input=False)
+        ],
+        hide_input=True,
+    )
+
+
+def _is_https_url(url: str) -> bool:
+    """True for an absolute `https://host...` URL (the scheme in any letter case)."""
+    if url[:8].lower() != "https://":
+        return False
+    try:
+        return bool(urlsplit(url).hostname)
+    except ValueError:  # e.g. an unterminated IPv6 literal
+        return False
 
 
 class Settings(BaseSettings):
@@ -19,6 +245,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # APP
@@ -33,7 +260,7 @@ class Settings(BaseSettings):
     auto_create_schema: bool = False
 
     # DATABASE / REDIS
-    database_url: str = "sqlite:///./homayar-dev.db"
+    database_url: SecretSetting = "sqlite:///./homayar-dev.db"
     database_pool_size: int = 10
     database_max_overflow: int = 20
     # PostgreSQL role switched to with SET ROLE on every pooled connection
@@ -41,11 +268,11 @@ class Settings(BaseSettings):
     # non-superuser member of homayar_app; set to "homayar_app" when the login
     # role is the migration owner (single-role compose/dev/CI databases).
     database_app_role: str = ""
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: SecretSetting = "redis://localhost:6379/0"
 
     # AUTH / SECURITY
-    jwt_secret: str = ""
-    token_pepper: str = ""
+    jwt_secret: SecretSetting = ""
+    token_pepper: SecretSetting = ""
     jwt_issuer: str = "homayar"
     jwt_audience: str = "homayar-api"
     access_token_minutes: int = 15
@@ -60,11 +287,11 @@ class Settings(BaseSettings):
     # AUTH FEATURES
     enable_google_auth: bool = False
     google_client_id: str = ""
-    google_client_secret: str = ""
+    google_client_secret: SecretSetting = ""
     google_redirect_uri: str = "http://localhost:8001/api/v1/auth/google/callback"
     enable_phone_auth: bool = False
     asanak_base_url: str = "https://panel.asanak.com/webservice/v1rest/sendsms"
-    asanak_api_key: str = ""
+    asanak_api_key: SecretSetting = ""
     asanak_sender: str = ""
     otp_ttl_seconds: int = 180
     otp_resend_cooldown_seconds: int = 60
@@ -78,9 +305,12 @@ class Settings(BaseSettings):
     storage_local_root: str = str(PROJECT_ROOT / "data" / "objects")
     storage_bucket: str = "homayar-private"
     storage_endpoint_url: str = ""
+    # On-premise only: production may reach a non-https endpoint (the bundled
+    # MinIO on the internal compose network). Cloud production cannot opt out.
+    storage_allow_insecure_endpoint: bool = False
     storage_region: str = "us-east-1"
-    storage_access_key: str = ""
-    storage_secret_key: str = ""
+    storage_access_key: SecretSetting = ""
+    storage_secret_key: SecretSetting = ""
     storage_presign_ttl_seconds: int = 300
     # API keys (WP03-T07, ADR 0013): per-key request rate, live keys per
     # workspace and the longest expiry an owner/admin may request.
@@ -165,7 +395,7 @@ class Settings(BaseSettings):
     # entries, comma separated, from the secret manager; the active id
     # encrypts new mappings, the others still decrypt older ones (rotation).
     # Empty: redaction still works, but originals are not retained.
-    pii_mapping_keys: str = ""
+    pii_mapping_keys: SecretSetting = ""
     pii_mapping_active_key_id: str = ""
     # Execution leases (WP06-T04): one policy object (backend.jobs.leases)
     # derives every timing decision from these; no other module keeps its own.
@@ -230,12 +460,12 @@ class Settings(BaseSettings):
     # same eligibility filter as the primary.
     llm_fallback_base_url: str = ""
     llm_fallback_model: str = ""
-    llm_fallback_api_key: str = ""
+    llm_fallback_api_key: SecretSetting = ""
 
     # Legacy LLM compatibility
-    zai_api_key: str = ""
+    zai_api_key: SecretSetting = ""
     zai_base_url: str = "https://api.z.ai/v1"
-    gapgpt_api_key: str = ""
+    gapgpt_api_key: SecretSetting = ""
     gapgpt_base_url: str = "https://gapgpt.app/api/v1"
     llm_model: str = "default"
     llm_provider: str = "auto"
@@ -244,21 +474,54 @@ class Settings(BaseSettings):
     smtp_host: str = ""
     smtp_port: int = 1025
     smtp_username: str = ""
-    smtp_password: str = ""
+    smtp_password: SecretSetting = ""
     smtp_from: str = "noreply@homayar.com"
     smtp_use_tls: bool = False
 
     # OPTIONAL ENTERPRISE / LEGACY INTEGRATIONS
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: str = ""
+    neo4j_password: SecretSetting = ""
     neo4j_database: str = "neo4j"
     enable_neo4j_projection: bool = False
 
     # OBSERVABILITY / BILLING
-    sentry_dsn: str = ""
+    sentry_dsn: SecretSetting = ""
     metrics_enabled: bool = True
     billing_provider: str = "manual"
+
+    def __init__(self, **values: Any) -> None:
+        # Validation errors never carry input values: the merged input holds every secret
+        # (and any unrelated .env entry), which pydantic would otherwise attach and echo.
+        try:
+            super().__init__(**values)
+        except ValidationError as exc:
+            redacted = _redacted_validation_error(exc)
+        else:
+            return
+        raise redacted  # outside the except block: no chained original error
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # `<NAME>_FILE` references rank with the variables they come from: keyword arguments
+        # over the environment over the .env file, exactly as for a plain `<NAME>`.
+        sources: list[PydanticBaseSettingsSource] = [init_settings]
+        if isinstance(env_settings, EnvSettingsSource):
+            sources.append(
+                _SecretFileReferences(settings_cls, env_settings, "environment", os.environ)
+            )
+        sources.append(env_settings)
+        if isinstance(dotenv_settings, EnvSettingsSource):
+            sources.append(_SecretFileReferences(settings_cls, dotenv_settings, ".env file"))
+        sources += [dotenv_settings, file_secret_settings]
+        return tuple(sources)
 
     @property
     def is_production(self) -> bool:
@@ -386,6 +649,25 @@ class Settings(BaseSettings):
                 raise ValueError("MODEL_MANIFEST_STRICT cannot be disabled in production")
             if self.auto_create_schema:
                 raise ValueError("Production schema changes must run through Alembic migrations")
+            # Mirrors backend.services.email_service: 465 is implicit TLS, 587 always
+            # issues STARTTLS, any other port only when SMTP_USE_TLS is true.
+            if self.smtp_host and self.smtp_port not in (465, 587) and not self.smtp_use_tls:
+                raise ValueError(
+                    "SMTP_HOST is set, so production mail needs TLS: use SMTP_PORT 465 "
+                    "(implicit TLS) or 587 (STARTTLS), or set SMTP_USE_TLS=true"
+                )
+            if (
+                self.storage_backend == "s3"
+                and self.storage_endpoint_url
+                and not _is_https_url(self.storage_endpoint_url)
+                and not (self.storage_allow_insecure_endpoint and self.deployment_mode == "onprem")
+            ):
+                raise ValueError(
+                    "STORAGE_ENDPOINT_URL must be an https:// URL in production (leave it "
+                    "empty for the provider's default endpoint); only an on-premise deployment "
+                    "(DEPLOYMENT_MODE=onprem) may allow another endpoint with "
+                    "STORAGE_ALLOW_INSECURE_ENDPOINT=true"
+                )
         if self.enable_google_auth and not (self.google_client_id and self.google_client_secret):
             raise ValueError("Google authentication is enabled but credentials are missing")
         if self.enable_phone_auth and not (self.asanak_api_key and self.asanak_sender):

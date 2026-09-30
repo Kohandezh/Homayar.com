@@ -1,11 +1,43 @@
-"""Seed script — post-call voice intelligence domain."""
-import uuid
+"""Seed script — post-call voice intelligence domain.
+
+Development only. Run from `Homayar/` with `uv run python -m backend.database.seed`. The Neo4j
+URI, user and password come from Settings built when the seed runs (NEO4J_URI, NEO4J_USER and
+NEO4J_PASSWORD or NEO4J_PASSWORD_FILE, from the environment or the .env file). The seed deletes
+the whole graph first, so it refuses to run unless ENVIRONMENT is development or test, and it
+refuses to run without a password.
+"""
 import random
+import sys
+import uuid
 from datetime import datetime, timedelta
+
 from neo4j import GraphDatabase
 
-URI = "bolt://localhost:7687"
-AUTH = ("neo4j", "homayar_dev_2024")
+from backend.config import Settings
+
+
+class SeedConfigurationError(RuntimeError):
+    """The seed refuses to run: the Neo4j credential is not configured."""
+
+
+def neo4j_connection(settings: Settings | None = None) -> tuple[str, str, str]:
+    """Neo4j URI, user and password from Settings read now.
+
+    Refused (before any driver exists) outside development/test and without a password.
+    """
+    settings = Settings() if settings is None else settings
+    if settings.environment not in ("development", "test"):
+        raise SeedConfigurationError(
+            f"ENVIRONMENT is {settings.environment!r}; the seed deletes the whole Neo4j graph "
+            "and runs only when ENVIRONMENT is development or test"
+        )
+    if not settings.neo4j_password.strip():
+        raise SeedConfigurationError(
+            "NEO4J_PASSWORD (or NEO4J_PASSWORD_FILE) must be set; the seed refuses to run "
+            "without a Neo4j password"
+        )
+    return settings.neo4j_uri, settings.neo4j_user, settings.neo4j_password
+
 
 # ─── Call Center Agents ──────────────────────────────────────
 
@@ -183,8 +215,9 @@ def create_calls(templates, agents, count):
     return calls
 
 
-def seed():
-    driver = GraphDatabase.driver(URI, auth=AUTH)
+def seed(settings: Settings | None = None):
+    uri, user, password = neo4j_connection(settings)
+    driver = GraphDatabase.driver(uri, auth=(user, password))
     with driver.session() as session:
         session.run("MATCH (n) DETACH DELETE n")
         print("Cleared existing data")
@@ -307,4 +340,7 @@ def seed():
 
 
 if __name__ == "__main__":
-    seed()
+    try:
+        seed()
+    except SeedConfigurationError as exc:
+        sys.exit(f"seed refused: {exc}")

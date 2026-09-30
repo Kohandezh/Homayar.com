@@ -91,7 +91,7 @@ Copy `.env.example` to `.env` and configure:
 ```env
 # Database
 NEO4J_URI=bolt://localhost:7687
-NEO4J_PASSWORD=homayar_dev_2024
+NEO4J_PASSWORD=your-local-password   # docker-compose.yml's Neo4j needs this; the backend/seed may use NEO4J_PASSWORD_FILE instead (docs/operations/deployment.md)
 
 # LLM Provider (required for real analysis)
 LLM_PROVIDER=auto          # auto | gapgpt | zai
