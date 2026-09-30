@@ -1,0 +1,31 @@
+fix-noload run 1 exit=0 seconds=101 
+fix-noload run 2 exit=0 seconds=101 
+base-noload run 1 exit=0 seconds=101 
+base-noload run 2 exit=1 seconds=99 'status': 'already_running' 
+fix-load run 1 exit=0 seconds=122 
+fix-load run 2 exit=0 seconds=122 
+fix-load run 3 exit=0 seconds=122 
+fix-load run 4 exit=0 seconds=121 
+fix-load run 5 exit=0 seconds=122 
+fix-load run 6 exit=0 seconds=122 
+ALLDONE
+basedelay-3s run 1 exit=1 seconds=99 'status': 'already_running' 
+fixdelay-3s run 1 exit=0 seconds=105 
+ALLDONE2
+base-load run 1 exit=0 seconds=122 1 passed, 3 warnings in 105.41s (0:01:45)
+base-load run 2 exit=0 seconds=122 1 passed, 3 warnings in 105.21s (0:01:45)
+base-load run 3 exit=0 seconds=127 1 passed, 3 warnings in 110.01s (0:01:50)
+base-load run 4 exit=0 seconds=123 1 passed, 3 warnings in 105.29s (0:01:45)
+fixfile run 1 exit=0 seconds=143 4 passed, 1 skipped, 19 warnings in 139.04s (0:02:19)
+fixdelay-75s run 1 exit=1 seconds=161 1 failed, 3 warnings in 157.78s (0:02:37)
+ALLDONE3
+base-childload run 1 exit=1 seconds=101 1 failed, 3 warnings in 97.20s (0:01:37)
+base-childload run 2 exit=1 seconds=101 1 failed, 3 warnings in 97.12s (0:01:37)
+base-childload run 3 exit=1 seconds=102 1 failed, 3 warnings in 97.59s (0:01:37)
+base-all8 run 1 exit=0 seconds=113 1 passed, 3 warnings in 102.27s (0:01:42)
+base-all8 run 2 exit=0 seconds=119 1 passed, 3 warnings in 104.35s (0:01:44)
+base-all8 run 3 exit=0 seconds=117 1 passed, 3 warnings in 103.90s (0:01:43)
+ALLDONE4
+stress.sh fix x8:  rc=0
+stress.sh base x3: consecutive passes: 1 of 3
+ALLDONE5

@@ -101,3 +101,7 @@ Implementer: opus (concurrency). Reviewer: opus. Final reviewer (if admission.py
   already holds the invariants on PostgreSQL across independent planes. The deliverable is therefore primarily the
   committed PostgreSQL proof (and any harness support in `voice/loadtest.py`). Change `voice/admission.py` ONLY if your
   proof exposes a real defect (AC5), and then state the failing evidence first.
+- A3 (Foreman ruling, phase C, on the one red oracle case): AC3 is satisfied by a burst in which the capped workspace
+  receives more than L simultaneous admissions and admits exactly L (rest rejected with the workspace-capacity
+  reason), even when the same burst also carries another tenant's calls; the mixed burst additionally proves the
+  other tenant is unaffected. The oracle's single-workspace-burst requirement exceeds the SPEC wording.
