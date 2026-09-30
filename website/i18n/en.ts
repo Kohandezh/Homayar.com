@@ -80,9 +80,8 @@ const en = {
       title: "Turn call recordings into quality reviews you can trust.",
       text: "Homayar transcribes authorized call recordings, runs four analysis agents and gives supervisors a scored report, detected problems and coaching points. Persian and English. In the cloud or fully on your own servers.",
       headlines: [
-        "Turning calls",
-        "into audio files",
-        "for review",
+        "Turning call recordings",
+        "into review reports",
         "of response quality",
         "uncovering your organization's problems",
         "with artificial intelligence.",
