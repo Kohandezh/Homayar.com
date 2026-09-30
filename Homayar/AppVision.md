@@ -300,7 +300,7 @@ V03 in O means internal extension calls only, not public prospect calling. P04/P
 | G03 | Temporary, limited and revocable Agent delegation | Y | Y | Y | Y | WP03/24 | Action/resource/budget/expiry enforcement and revocation before execution |
 | G04 | Central approval inbox with recipient, payload and cost | Y | Y | Y | Y | WP22/24 | Immutable approval binding, rejection, expiry and changed-payload tests |
 | G05 | Independent multi-person approvals | Y | Y | Y | Y | WP03/23/24 | Distinct approvers and separation-of-duty policy enforced |
-| N03 | Recording consent policy: versioned jurisdiction policies, consent receipts and per-purpose permissions enforced before recording, processing, export or outbound action | Y | Y | Y | Y | GR12; GR14; GR25; F15; V02–V04 | Missing or withdrawn consent blocks the action server-side at every entry point; receipts cite the policy version |
+| N03 | Recording consent policy: versioned jurisdiction policies, consent receipts and per-purpose permissions enforced before recording, processing, export or outbound action | Y | Y | Y | Y | GR12; GR14; GR25; F15 | Missing or withdrawn consent blocks the action server-side at every entry point; receipts cite the policy version |
 
 ### 6.5 BYOK, providers and settings
 
@@ -409,7 +409,7 @@ Rules for every record below:
 - **Purpose:** decide, before any recording, processing, analysis, export or outbound action, whether an approved basis and the required notice exist for that conversation, and keep the proof.
 - **Backend contract:** jurisdiction-aware policies; policy versions; lawful or approved basis; announcement requirements; consent receipt; recording permission; processing permission; analysis permission; export permission; withdrawal; opt-out; expiry; retention relationship; channel relationship; audit; enforcement before recording, processing or outbound action. Homayar remains the enforcement authority; an external consent service may hold records but never decides alone.
 - **Deployment modes:** S Y · P Y · H Y · O Y. Policy evaluation and receipts must be local and need no call-out.
-- **Dependencies:** GR12, GR14, GR25; F15 retention and subject export; ingestion paths (uploads, voicemail and V01 imports); the processing claim in the job pipeline (F17); exports (F70); outbound V03 and channels C01–C06. Consumers include V02–V04, N02, N06 and N07.
+- **Dependencies:** GR12, GR14, GR25; F15 retention and subject export; ingestion paths (uploads, voicemail and V01 imports); the processing claim in the job pipeline (F17); exports (F70). Consumers include V02–V04, N02, N06 and N07; outbound V03 and channels C01–C06 are enforcement points.
 - **Security and privacy:** default deny when no applicable policy or basis exists; withdrawal takes effect before the next action; permissions are purpose-specific, so a recording permission does not allow export; receipts are tamper-evident and hold minimal personal data.
 - **Tenant boundary:** policies and receipts are workspace-scoped; platform defaults are templates copied into a tenant, not shared records.
 - **Audit:** policy version publication, receipt creation, withdrawal, opt-out, expiry, and every denied action with the policy version applied.
