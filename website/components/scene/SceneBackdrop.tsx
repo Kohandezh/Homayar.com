@@ -7,10 +7,6 @@ const posters: Record<SceneKind, string> = {
   field: "tunnel-wave",
 };
 
-/**
- * Poster picture for a scene section. Shown when motion is reduced, WebGL is missing, or
- * JavaScript is off. Hidden (and never downloaded) while the WebGL engine runs.
- */
 export function SceneBackdrop({ kind, priority = false }: { kind: SceneKind; priority?: boolean }) {
   const name = posters[kind];
   return (

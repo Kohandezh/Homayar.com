@@ -10,7 +10,6 @@ const PALETTE: Record<Theme, { line: string; bright: string; deep: string }> = {
   light: { line: "#22bec6", bright: "#125a5e", deep: "#0d4346" },
 };
 
-/** Shaders write premultiplied color. Dark adds light; light composites "over" the page. */
 function applyBlend(m: THREE.Material, theme: Theme) {
   m.blending = THREE.CustomBlending;
   m.blendEquation = THREE.AddEquation;
@@ -204,7 +203,7 @@ function makeTunnel(ctx: Ctx, warp: boolean): Unit {
         const boost = 1 + 2.2 * Math.exp(-((x - px) * (x - px)) / 2.2);
         const y = (Math.sin(x * 1.7 + t * 1.8) * 0.6 * env + Math.sin(x * 4.3 - t * 2.6) * 0.28 + Math.sin(x * 9.1 + t * 4.1) * 0.1) * boost;
         wavePos[i * 3] = x;
-        wavePos[i * 3 + 1] = y - sp.y * 0.6;
+        wavePos[i * 3 + 1] = y - sp.y * 0.6 - (ctx.light ? 1.9 : 0);
         wavePos[i * 3 + 2] = -16 - (warp ? 30 * smooth(0.2, 0.9, p) : 0);
       }
       waveGeo.attributes.position.needsUpdate = true;
@@ -281,7 +280,6 @@ function makeBrain(ctx: Ctx): Unit {
   const points = new THREE.Points(g, ptMat);
   mats.push(ptMat);
 
-  // Links: each node connects to its nearest neighbors inside a grid cell search.
   const cell = 1.15;
   const grid = new Map<string, number[]>();
   const key = (x: number, y: number, z: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
@@ -328,7 +326,6 @@ function makeBrain(ctx: Ctx): Unit {
   const lines = new THREE.LineSegments(linkGeo, linkMat);
   mats.push(linkMat);
 
-  // Core: a dense bright cluster in the middle.
   const CN = ctx.light ? 60 : 140;
   const cp: number[] = [];
   const cs: number[] = [];
@@ -345,7 +342,6 @@ function makeBrain(ctx: Ctx): Unit {
   const core = new THREE.Points(coreGeo, coreMat);
   mats.push(coreMat);
 
-  // Beam from the core to the line being read, plus a packet that travels along it.
   const beamGeo = geo([0, 0, 0, 0, 0, 0]);
   const beamMat = makeMat("line", "bright", ctx.theme, { near: 0.5, far: 30, opacity: 0 });
   const beam = new THREE.Line(beamGeo, beamMat);
@@ -515,7 +511,6 @@ export interface Engine {
 }
 
 export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; light: boolean; rtl: boolean }): Engine | null {
-  // Custom shaders write colors as given; keep the palette hex values in sRGB.
   THREE.ColorManagement.enabled = false;
   let renderer: THREE.WebGLRenderer;
   try {

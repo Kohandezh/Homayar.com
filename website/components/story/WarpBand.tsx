@@ -1,6 +1,5 @@
 import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
 
-/** Space-to-space transition: the corridor narrows to a bright square, the screen flashes, a new space opens. */
 export function WarpBand({ eyebrow, title, text, compact = false }: { eyebrow: string; title: string; text?: React.ReactNode; compact?: boolean }) {
   return (
     <section className={`warp-band relative isolate overflow-hidden ${compact ? "py-16 md:py-24" : "py-24 md:py-32"}`} data-scene="warp" data-warp data-testid="warp-band">

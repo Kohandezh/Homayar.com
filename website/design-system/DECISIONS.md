@@ -142,7 +142,7 @@ viewport center is drawn; neighbors cross-fade.
 |---|---|---|---|
 | `tunnel` | Wireframe grid corridor, accent lines, fog to the page color, a sound wave of points in the middle. Progress moves the camera forward. | Camera yaw and pitch follow the pointer, the wave swells near it. | Half the lines, DPR 1. |
 | `warp` | The same corridor speeds up, rings tighten, a bright square grows ahead, then the screen flashes to the theme color. | Same as tunnel. | Same, lighter. |
-| `brain` | A neural network (points and links in a brain-shaped cloud) with a pulsing core. The camera flies inside. Node clusters light up on the side of each conversation line. | The network tilts toward the pointer. | The owner video plays behind the lines instead of the network. |
+| `brain` | A neural network (points and links in a brain-shaped cloud) with a pulsing core. The camera flies inside. Node clusters light up on the side of each conversation line. The owner video plays at low opacity as the inside-the-brain layer. | The network tilts toward the pointer. | The owner video plays behind the lines instead of the network. |
 | `field` | Sparse floor grid and slow particles, very low cost, for content pages. | Parallax. | Fewer particles. |
 
 Rules:
@@ -216,8 +216,8 @@ All files live in `public/media/`. Widths are pixels, sizes are bytes on disk.
 | `brain-1920.avif` / `.webp` | 86,404 / 98,724 | Poster of the `brain` scene, and the look reference for the 3D network. |
 | `brain-960.avif` / `.webp` | 14,380 / 13,216 | Same, phones. |
 | `og.jpg` (1200x630) | 93,365 | Open Graph image, cropped from the tunnel-wave source. |
-| `neurons-1280.mp4` / `.webm` | 1,850,077 / 2,075,087 | Audio stripped. Inside-the-brain layer on phones and low-power devices. `preload="none"`, `muted playsinline`, loads when the brain section nears the viewport. |
-| `neurons-720.mp4` / `.webm` | 1,059,932 / 1,503,127 | Same, under 768px. |
+| `neurons-1280.mp4` / `.webm` | 1,850,077 / 1,848,979 | Audio stripped. Inside-the-brain layer behind the conversation on desktop (30% opacity in dark, 10% in light, under the WebGL network). `preload="none"`, `muted playsinline`, loads when the brain section nears the viewport. |
+| `neurons-720.mp4` / `.webm` | 1,059,932 / 1,503,127 | Same, under 768px, where it replaces the WebGL network (55% opacity in dark, 12% in light). |
 | `neurons-poster.avif` / `.webp` | 45,744 / 54,458 | Poster frame of the video. Under reduced motion only the poster shows and the video never plays. |
 
 Posters are `<picture>` elements with `loading="lazy"`, `decoding="async"` and a fixed aspect

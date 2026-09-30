@@ -1,4 +1,3 @@
-/** Shared timing of the brain scene, in scroll progress (0 to 1). The engine and the DOM timeline both read it. */
 export const BRAIN_LINES = 5;
 export const ENTER_END = 0.18;
 export const LINE_START = 0.2;
@@ -11,7 +10,6 @@ export function lineAt(i: number) {
   return LINE_START + i * LINE_GAP;
 }
 
-/** Which conversation line the core is reading at this progress, or -1. */
 export function focusAt(p: number) {
   if (p < LINE_START || p >= REPORT_IN) return -1;
   return Math.min(BRAIN_LINES - 1, Math.floor((p - LINE_START) / LINE_GAP));

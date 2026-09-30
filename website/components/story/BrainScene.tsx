@@ -6,10 +6,6 @@ import { Icon } from "@/components/ui/Icon";
 
 const tops = ["16%", "29%", "42%", "55%", "68%"];
 
-/**
- * The signature scene. Server-rendered: the conversation is a plain list and the report sits below it.
- * Under motion the section is pinned, lines appear on alternating sides and the report grows toward the camera.
- */
 export function BrainScene({ dict, locale }: { dict: Dictionary; locale: Locale }) {
   const s = dict.scene.brain;
   const d = dict.demo;
@@ -20,8 +16,8 @@ export function BrainScene({ dict, locale }: { dict: Dictionary; locale: Locale 
       <SceneBackdrop kind="brain" />
       <div className="brain-video" aria-hidden="true">
         <video muted playsInline loop preload="none" poster="/media/neurons-poster.webp" data-brain-video tabIndex={-1}>
-          <source data-src="/media/neurons-720.webm" type="video/webm" />
-          <source data-src="/media/neurons-720.mp4" type="video/mp4" />
+          <source data-src="/media/neurons-720.webm" data-src-wide="/media/neurons-1280.webm" type="video/webm" />
+          <source data-src="/media/neurons-720.mp4" data-src-wide="/media/neurons-1280.mp4" type="video/mp4" />
         </video>
       </div>
       <div className="brain-stage container-x py-16 md:py-24">

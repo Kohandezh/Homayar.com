@@ -7,10 +7,6 @@ import type { Engine } from "./engine";
 
 const MOTION_OK = "(prefers-reduced-motion: no-preference)";
 
-/**
- * One fixed WebGL canvas behind the whole site. The engine loads after first paint,
- * on the first scroll, pointer move or key, or 1.5 s after load, whichever comes first.
- */
 export function Stage({ rtl }: { rtl: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);

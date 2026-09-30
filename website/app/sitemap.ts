@@ -2,7 +2,6 @@ import type { MetadataRoute } from "next";
 import { locales } from "@/lib/i18n";
 import { absoluteUrl, sitePaths } from "@/lib/site";
 
-/** Every route in both locales, each with its language alternates. */
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date("2026-09-27");
   return sitePaths.flatMap((path) =>

@@ -10,10 +10,6 @@ type Gsap = typeof import("@/lib/gsap")["gsap"];
 
 const MOTION_OK = "(prefers-reduced-motion: no-preference)";
 
-/**
- * Module-level state machine. It survives a layout remount (a locale switch) so the cover
- * can always finish its reveal, and it keeps React state changes out of effects.
- */
 const store = {
   phase: "idle" as Phase,
   target: null as string | null,
@@ -144,7 +140,6 @@ function finish() {
   );
 }
 
-/** Called when the router has committed a new pathname. */
 function onRouteCommit(pathname: string) {
   if (store.phase === "idle") return;
   if (store.target && pathname !== store.target) return;

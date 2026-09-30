@@ -5,7 +5,6 @@ import { RootCauses, ScoreBars } from "@/components/mockups/parts";
 import { Icon } from "@/components/ui/Icon";
 import { SectionHeading } from "@/components/ui/Section";
 
-/** The four agents as a horizontal journey (desktop, pinned) or a vertical stack (phones, reduced motion). */
 export function AgentJourney({ dict, locale }: { dict: Dictionary; locale: Locale }) {
   const items = dict.home.outputs.items;
   const d = dict.demo;

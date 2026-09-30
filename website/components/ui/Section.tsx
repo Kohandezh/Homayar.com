@@ -56,7 +56,6 @@ export function SectionHeading({
   );
 }
 
-/** Inner-page hero: a short flight through the grid (or into the warp) behind the page title. */
 export function PageHero({
   eyebrow,
   title,

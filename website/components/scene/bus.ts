@@ -1,4 +1,3 @@
-/** Tiny shared state between the DOM motion runtime and the WebGL engine. */
 export type SceneKind = "tunnel" | "warp" | "brain" | "field";
 
 const progress = new WeakMap<Element, number>();

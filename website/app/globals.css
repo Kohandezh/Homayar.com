@@ -167,7 +167,6 @@
 
   bdi { unicode-bidi: isolate; }
 
-  /* Pre-hidden states exist only when JavaScript runs and motion is allowed. */
   html.motion [data-reveal],
   html.motion [data-reveal-group] > *,
   html.motion [data-split],
@@ -213,7 +212,6 @@
   }
   html[lang="fa"] .display-2 { line-height: 1.25; }
 
-  /* The former mono layer: the sans font with tabular digits. */
   .label {
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
@@ -420,7 +418,6 @@
     -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
   }
 
-  /* Scene stage: one fixed canvas behind the whole page. */
   .stage {
     position: fixed;
     inset: 0;
@@ -642,20 +639,16 @@
   }
   .palette-row:hover, .palette-row:focus-visible { background: rgb(var(--t-line) / 0.06); }
 
-  /* Depth: panels come toward the camera as they enter. */
   .depth-stage { perspective: 1400px; perspective-origin: 50% 40%; }
   [data-depth] { transform-style: preserve-3d; will-change: transform, opacity; }
 
-  /* Home hero flight. */
   .flight { min-height: 100svh; display: flex; align-items: center; }
   html.motion .flight, html.motion .brain-stage, html.motion .journey { padding-top: var(--header-h); }
 
-  /* Warp band: the flash to the theme color. */
   .warp-flash { position: absolute; inset: 0; background: var(--color-bg-deep); opacity: 0; pointer-events: none; }
   html.motion .warp-band { min-height: 160vh; }
   html.motion .warp-band .warp-text { position: sticky; top: 0; min-height: 100svh; display: flex; align-items: center; }
 
-  /* Brain scene: static list by default, a pinned stage under motion. */
   .brain-lines { display: grid; gap: 0.75rem; }
   .brain-line { max-width: 34rem; }
   .brain-line-customer { justify-self: start; }
@@ -668,6 +661,9 @@
     box-shadow: 0 0 60px rgb(var(--t-glow) / 0.55), 0 0 140px rgb(var(--t-glow) / 0.25);
   }
   .brain-video { display: none; }
+  html.motion .brain-video { display: block; position: absolute; inset: 0; z-index: -1; }
+  html.motion .brain-video video { width: 100%; height: 100%; object-fit: cover; opacity: 0.3; }
+  html.motion[data-theme="light"] .brain-video video { opacity: 0.1; }
   .brain-core-wrap { display: none; }
   html.motion .brain-stage .brain-core-wrap { display: block; }
   html.motion .brain-stage { position: relative; height: 100svh; overflow: hidden; }
@@ -695,12 +691,10 @@
   html.motion .brain-stage .brain-intro { position: absolute; inset-inline: 0; top: 14%; text-align: center; }
   @media (max-width: 767px) {
     html.motion .brain-stage .brain-line { width: min(78vw, 22rem); }
-    html.motion .brain-video { display: block; position: absolute; inset: 0; z-index: -1; }
-    html.motion .brain-video video { width: 100%; height: 100%; object-fit: cover; opacity: 0.55; }
-    :root[data-theme="light"] html.motion .brain-video video, html.motion[data-theme="light"] .brain-video video { opacity: 0.12; }
+    html.motion .brain-video video { opacity: 0.55; }
+    html.motion[data-theme="light"] .brain-video video { opacity: 0.12; }
   }
 
-  /* Horizontal journey. */
   .journey-track { display: flex; flex-direction: column; gap: 1rem; }
   .journey-panel { width: 100%; }
   .journey-progress { display: none; }
@@ -711,7 +705,6 @@
     html.motion .journey-progress { display: block; }
   }
 
-  /* Page transition cover and loader. */
   .cover {
     position: fixed;
     inset: 0;

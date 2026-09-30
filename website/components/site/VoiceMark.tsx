@@ -1,4 +1,3 @@
-/** The Homayar mark: five voice bars. Used by the logo and the page loader. */
 export function VoiceMark({ size = 20, className = "" }: { size?: number; className?: string }) {
   const bars = [
     { x: 3, h: 6 },

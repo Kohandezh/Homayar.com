@@ -26,7 +26,6 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       gsap.fromTo(line, { scaleX: 0 }, { scaleX: 1, ease: "none", scrollTrigger: { start: 0, end: "max", scrub: 0.3 } });
     }
 
-    // 1. Home hero: pinned flight through the grid; the text lines arrive one by one.
     for (const section of q<HTMLElement>(root, "[data-flight]")) {
       const items = q<HTMLElement>(section, "[data-flight-item]");
       const content = section.querySelector<HTMLElement>("[data-flight-content]");
@@ -49,7 +48,6 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       if (content) tl.fromTo(content, { scale: 1 }, { scale: 1.04, y: -24, duration: 1, ease: "none" }, 0);
     }
 
-    // 2. Warp band: text in, flash to the theme color, text out.
     for (const section of q<HTMLElement>(root, "[data-warp]")) {
       const text = section.querySelector<HTMLElement>("[data-warp-text]");
       const flash = section.querySelector<HTMLElement>("[data-warp-flash]");
@@ -65,7 +63,6 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       }
     }
 
-    // 3. Brain: the conversation, the core and the report, all tied to one pinned scroll range.
     for (const section of q<HTMLElement>(root, "[data-brain]")) {
       const lines = q<HTMLElement>(section, "[data-line]").slice(0, BRAIN_LINES);
       const core = section.querySelector<HTMLElement>("[data-brain-core]");
@@ -105,9 +102,8 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       }
       if (statusDone) tl.to(statusDone, { autoAlpha: 0, duration: 0.04, ease: "none" }, REPORT_OUT - 0.04);
 
-      // Phones: the owner video plays behind the lines instead of the network.
       const video = section.querySelector<HTMLVideoElement>("[data-brain-video]");
-      if (video && phone) {
+      if (video) {
         let loaded = false;
         const io = new IntersectionObserver(
           (entries) => {
@@ -116,7 +112,7 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
                 if (!loaded) {
                   loaded = true;
                   q<HTMLSourceElement>(video, "source[data-src]").forEach((s) => {
-                    s.src = s.dataset.src ?? "";
+                    s.src = (phone ? s.dataset.src : s.dataset.srcWide) ?? s.dataset.src ?? "";
                   });
                   video.load();
                 }
@@ -133,7 +129,6 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       }
     }
 
-    // 4. Horizontal journey (desktop): vertical scroll drives horizontal travel in reading direction.
     for (const section of q<HTMLElement>(root, "[data-journey]")) {
       const track = section.querySelector<HTMLElement>("[data-journey-track]");
       const bar = section.querySelector<HTMLElement>("[data-journey-progress]");
@@ -178,7 +173,6 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       });
     }
 
-    // 5. Depth: a panel comes toward the camera as it enters.
     for (const el of q<HTMLElement>(root, "[data-depth]")) {
       el.parentElement?.classList.add("depth-stage");
       const amount = Number(el.dataset.depth || 320);
@@ -189,7 +183,6 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
       );
     }
 
-    // 6. Short hero flights on inner pages: the text sinks as the camera moves on.
     for (const section of q<HTMLElement>(root, "[data-hero-scene]")) {
       const content = section.querySelector<HTMLElement>("[data-hero-content]");
       if (!content) continue;
