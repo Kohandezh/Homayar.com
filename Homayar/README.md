@@ -44,7 +44,7 @@ VOIP Call → Audio Saved → Homayar → STT (Whisper) → LLM Analysis → Das
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.12 (>=3.12,<3.14)
 - Node.js 18+
 - Docker (for Neo4j)
 
@@ -80,8 +80,6 @@ make frontend
 | API Docs | http://localhost:8001/docs |
 | Neo4j Browser | http://localhost:7474 |
 
-**Default login:** `admin@homayar.io` / `admin123`
-
 ## Configuration
 
 Copy `.env.example` to `.env` and configure:
@@ -113,18 +111,15 @@ homayar/
 ├── backend/
 │   ├── main.py                 # FastAPI app entry point
 │   ├── config.py               # Settings (env-based)
-│   ├── database/
-│   │   ├── neo4j_connection.py  # Neo4j driver singleton
-│   │   └── seed.py             # Sample data generator
-│   ├── middleware/
-│   │   └── auth.py             # JWT validation + RBAC
-│   ├── routers/
-│   │   ├── auth.py             # Auth + user management
-│   │   ├── calls.py            # Call upload, list, analyze, PDF
-│   ├── services/
-│   │   ├── analysis_service.py  # 4-agent LLM pipeline
-│   │   └── logging_service.py  # Structured JSON logging
-│   └── tests/                  # pytest test suite (22 tests)
+│   ├── database/               # SQLAlchemy models, RLS, Neo4j projection, dev seed
+│   ├── migrations/             # Alembic revisions (single linear head)
+│   ├── routers/v1/             # The /api/v1 routers (route inventory: authorization matrix)
+│   ├── security/               # Tenant context, authorization, tokens
+│   ├── services/               # Domain services
+│   ├── jobs/                   # Processing pipeline, outbox, leases
+│   ├── providers/              # Speech/LLM/TTS provider adapters and registry
+│   ├── voice/, voicemail/, locations/, speech/, privacy/
+│   └── tests/                  # pytest suite (PostgreSQL-, Redis- and ffmpeg-marked groups)
 ├── frontend/
 │   └── src/
 │       ├── App.tsx             # Routes + auth guard
@@ -150,7 +145,7 @@ homayar/
 - JWT authentication on all API routes
 - bcrypt password hashing
 - Role-based access control (admin, supervisor, agent)
-- Rate limiting (60 req/min default)
+- Per-scope rate limits (uploads, API keys, provider calls)
 - Global exception handler (no stack traces leaked)
 
 ## License
