@@ -10,7 +10,7 @@ VALIDATED requires passing evidence on the recorded SHA. Historical WP statuses 
 
 | Field | Value |
 | --- | --- |
-| Updated (UTC) | 2026-09-27 |
+| Updated (UTC) | 2026-09-30 (backend mission 20260929-backend-mode-100; see §I) |
 | Repository | github.com/Kohandezh/Homayar.com (monorepo; product in `Homayar/`, ADR 0033) |
 | Working branch | `feat/backend-p0-wave` from main `88073c8` (merge of PR #6) |
 | Migration head | `a1c3e5f7b9d2` (P0 wave; 31 linear migrations; main before merge: `f5b1d7c3a9e2`) |
@@ -104,7 +104,7 @@ None. Wave P0-1 is PARTIAL: repository-controlled foundations landed; live quali
 
 1. Wire `speech.text_normalize`/`entities` into the processor output (transcript post-processing) and into `locations.extract` and `voicemail.classify` (remove their local normalizers). Parallel-safe per package.
 2. Voice runtime media bridge contract (SIP/WebRTC adapter interface, LiveKit/Asterisk ARI) behind `voice/` — interfaces + fakes; live qualification BLOCKED_EXTERNAL.
-3. Measure voice admission on PostgreSQL (loadtest against PG) and record numbers.
+3. ~~Measure voice admission on PostgreSQL~~ done by HOM-157 (§I); next: fix the recover()/transition() race HOM-169.
 4. Voice-specific permissions (VOICE_CALL_*), operator route for workspace call limits.
 5. TTS in AiPolicy stages (owner decision on stored-policy digest change).
 6. WP09-T01 channel-aware speech (see `docs/handoff/session-reset/WP09_T01_SESSION_PROMPT.md`).
@@ -112,3 +112,28 @@ None. Wave P0-1 is PARTIAL: repository-controlled foundations landed; live quali
 8. WP18 quotas/plans (F18) on the existing usage ledger; WP24 approvals/governed actions.
 9. WP16 signed webhooks delivery ledger (tables exist).
 10. WP20 observability/audit export.
+
+## I. Backend mission 20260929-backend-mode-100 (2026-09-29 .. 2026-09-30)
+
+Integration branch `claude/inspiring-tesla-ie06gi`, PR #13. GitHub Actions could not start jobs during the mission
+(account billing limit), so nothing below is CI-validated; evidence is local CI-equivalent runs (PostgreSQL 16,
+Redis 7, ffmpeg, `ci.yml` values). Linear project "Homayar Backend"; no issue is Done (Done needs merge + green CI).
+
+| Linear | Item | Status | Commit | Evidence |
+| --- | --- | --- | --- | --- |
+| HOM-140 | STAB-01: main was red (voice admission imported `random`) | PARTIAL (not CI-validated) | d4daf6e | blind oracle 56/56; suite 0 failed |
+| HOM-152 | N11 legacy retirement (29 files, unsafe webhook secret compare) | PARTIAL | d5bbe5d | oracle 199/199; live route set unchanged |
+| HOM-32 | WP02-T03 secret references (`*_FILE`), secret redaction, production SMTP/S3 rules | PARTIAL | 7112407 | oracle 584/584; 2 final security reviews |
+| HOM-141 | AppVision N01-N15 approved capabilities | PARTIAL (docs) | 6b311e0 | scripted oracle PASS, 0 FAIL |
+| HOM-157 | REC-02 voice admission caps proven on PostgreSQL across 6 planes | PARTIAL | fa241da | 250->200/50, node 20+20, workspace 15 exact; app role + RLS |
+| HOM-163 | STAB-02 transport-drill race (test-only) | PARTIAL | STAB02_SHA | stress: base fails, fix 8/8 |
+| HOM-158, HOM-162 | README/settings residue; Makefile venv paths | PARTIAL | SMALLFIX_SHAS | focused 253 passed; make seed red->green |
+| HOM-101 | WP18-T03 versioned plans | IN_PROGRESS (unreviewed WIP patch) | - | docs/handoff/.../wip/wp18t03-t1 |
+| HOM-120 | WP22-T02 single normalization owner | IN_PROGRESS (unreviewed WIP patch) | - | docs/handoff/.../wip/wp22t02-t1 |
+
+Measured (local, not qualification): 250-call burst on 6 planes, admission p50 1.16-1.38 s, p95 2.0-2.3 s.
+Open defects filed: HOM-159 (S3 endpoint bypass via AWS_ENDPOINT_URL), HOM-160 (model_dump exposes secrets),
+HOM-161 (plaintext internal transports), HOM-164 (postal-code redaction leak), HOM-165, HOM-166, HOM-167 (entitlement
+gaps), HOM-168 (retention gap, unverified), HOM-169 (voice recover/transition race).
+Continuation point: `docs/handoff/session-reset/backend-mode-100-linear/20260929-backend-mode-100/NEXT_SESSION_MASTER_PROMPT.md`.
+
