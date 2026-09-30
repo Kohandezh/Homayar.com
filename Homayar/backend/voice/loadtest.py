@@ -6,6 +6,12 @@ Every call is held until every admission has been decided, so the number of
 simultaneously held slots equals the number admitted and any over-admission
 would be visible.
 
+By default every call goes through one ``VoiceControlPlane``, whose in-process
+lock serializes admissions before the database is touched. Passing several
+``plane_factories`` gives each one its own plane (and so its own in-process
+lock) and its own session factory: a stand-in for separate worker processes,
+between which only the database admission lock serializes.
+
     python -m backend.voice.loadtest --calls 250 --global-limit 200
 """
 
@@ -16,7 +22,8 @@ import json
 import tempfile
 import threading
 import time
-from collections import Counter
+from collections import Counter, defaultdict
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +69,19 @@ def seed_workspaces(factory: sessionmaker[Session], count: int) -> list[str]:
         return [w.id for w in workspaces]
 
 
+def _held_by(db: Session, column: Any, run_id: str) -> dict[str, int]:
+    """Held slots of this run's nodes, grouped by ``column``."""
+    rows = db.execute(
+        select(column, func.count(VoiceCapacitySlot.id))
+        .where(
+            VoiceCapacitySlot.released_at.is_(None),
+            VoiceCapacitySlot.node_id.like(f"{run_id}-node-%"),
+        )
+        .group_by(column)
+    ).all()
+    return {str(key): int(count) for key, count in rows}
+
+
 def run_load(
     factory: sessionmaker[Session],
     *,
@@ -71,37 +91,65 @@ def run_load(
     node_capacity: int = 64,
     policy: AdmissionPolicy | None = None,
     run_id: str = "load",
+    plane_factories: Sequence[sessionmaker[Session]] | None = None,
+    bind_tenant: Callable[[Session, str], None] | None = None,
 ) -> dict[str, Any]:
+    """Run one barrier-released admission burst and report what was held.
+
+    ``factory`` registers the nodes and counts held slots. ``plane_factories``
+    (default: ``[factory]``) creates one independent control plane per factory;
+    call ``i`` goes to plane ``i % planes`` and to workspace
+    ``(i // planes) % len(workspace_ids)``, so every plane serves every
+    workspace. ``bind_tenant(db, workspace_id)``, when given, binds each call's
+    sessions to the call's workspace before the admission and before the
+    lifecycle transitions, as an authenticated request does.
+    """
     metrics = VoiceMetrics()
-    plane = VoiceControlPlane(policy or AdmissionPolicy(), metrics=metrics)
+    policy = policy or AdmissionPolicy()
+    factories = list(plane_factories) if plane_factories else [factory]
+    planes = [VoiceControlPlane(policy, metrics=metrics) for _ in factories]
     with factory() as db:
         for index in range(nodes):
-            plane.register_node(db, node_id=f"{run_id}-node-{index}", max_concurrent=node_capacity)
+            planes[0].register_node(
+                db, node_id=f"{run_id}-node-{index}", max_concurrent=node_capacity
+            )
 
     start_barrier = threading.Barrier(calls)
     admitted_barrier = threading.Barrier(calls + 1)
     counted_barrier = threading.Barrier(calls + 1)
     latencies: list[float] = []
     outcomes: Counter[str] = Counter()
+    outcomes_by_workspace: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    outcomes_by_plane: list[Counter[str]] = [Counter() for _ in planes]
     errors: list[str] = []
     lock = threading.Lock()
     peak_held = {"value": 0}
+    peak_by_node: dict[str, int] = {}
+    peak_by_workspace: dict[str, int] = {}
 
     def one_call(index: int) -> None:
+        plane_index = index % len(planes)
+        plane, call_factory = planes[plane_index], factories[plane_index]
+        workspace_id = workspace_ids[(index // len(planes)) % len(workspace_ids)]
         result = None
         try:
-            with factory() as db:
+            with call_factory() as db:
                 start_barrier.wait()
+                if bind_tenant is not None:
+                    bind_tenant(db, workspace_id)
                 result = plane.admit(
                     db,
-                    workspace_id=workspace_ids[index % len(workspace_ids)],
+                    workspace_id=workspace_id,
                     external_call_id=f"{run_id}-call-{index}",
                     direction="inbound",
                     channel="sip",
                 )
+                outcome = "admitted" if result.admitted else result.reason or "?"
                 with lock:
                     latencies.append(result.latency_ms)
-                    outcomes["admitted" if result.admitted else result.reason or "?"] += 1
+                    outcomes[outcome] += 1
+                    outcomes_by_workspace[workspace_id][outcome] += 1
+                    outcomes_by_plane[plane_index][outcome] += 1
         except Exception as exc:  # pragma: no cover - reported, not raised
             with lock:
                 errors.append(f"admit {index}: {exc!r}")
@@ -111,8 +159,10 @@ def run_load(
         if result is None or not result.admitted:
             return
         try:
-            with factory() as db:
+            with call_factory() as db:
                 call = result.session
+                if bind_tenant is not None:
+                    bind_tenant(db, call.workspace_id)
                 plane.transition(
                     db,
                     workspace_id=call.workspace_id,
@@ -146,6 +196,8 @@ def run_load(
                 )
             ).scalar_one()
         )
+        peak_by_node.update(_held_by(db, VoiceCapacitySlot.node_id, run_id))
+        peak_by_workspace.update(_held_by(db, VoiceCapacitySlot.workspace_id, run_id))
     counted_barrier.wait()
     for thread in threads:
         thread.join()
@@ -161,12 +213,17 @@ def run_load(
         )
     return {
         "calls": calls,
-        "global_limit": plane.policy.global_limit,
+        "global_limit": policy.global_limit,
         "nodes": nodes,
         "node_capacity": node_capacity,
         "workspaces": len(workspace_ids),
+        "planes": len(planes),
         "outcomes": dict(outcomes),
+        "outcomes_by_workspace": {ws: dict(c) for ws, c in outcomes_by_workspace.items()},
+        "outcomes_by_plane": [dict(c) for c in outcomes_by_plane],
         "held_after_admission": peak_held["value"],
+        "held_after_admission_by_node": peak_by_node,
+        "held_after_admission_by_workspace": peak_by_workspace,
         "held_after_end": still_held,
         "errors": errors,
         "admission_latency_ms": {
