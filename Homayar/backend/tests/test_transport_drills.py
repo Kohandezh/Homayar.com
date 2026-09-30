@@ -412,6 +412,13 @@ def test_visibility_timeout_redelivery_during_a_live_attempt_is_inert(drill: Dri
         assert (job.attempt_count, job.lease_generation) == (1, 1)
         drill.open_gate()
         _wait(lambda: _job(job_id).state == JobState.COMPLETED, what="held attempt completed")
+        # COMPLETED commits inside the task before it returns, and stop() signals
+        # the whole process group, pool child included: wait for the task's own
+        # result line so the child is not killed before it logs it.
+        _wait(
+            lambda: "completed" in _statuses(holder, other),
+            what="held attempt returned its result",
+        )
         _wait(
             lambda: drill.redis() == {"queued": 0, "unacked": 0}, what="all deliveries acknowledged"
         )
