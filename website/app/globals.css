@@ -946,3 +946,11 @@
     :is(.console-hint, .ring-hint, .day-hint, .layers-hint, .zones-hint, .stepper-hint) { display: none; }
   }
 }
+
+@layer components {
+  main .grid > * { min-width: 0; }
+  .console-grid { grid-template-columns: minmax(0, 1fr); }
+  .console-texts, .console-window, .console-slot, .console-panel { min-width: 0; }
+  .console-slots { grid-template-columns: minmax(0, 1fr); }
+  .chip-wrap { white-space: normal; text-align: start; }
+}

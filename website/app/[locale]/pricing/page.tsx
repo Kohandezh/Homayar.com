@@ -5,7 +5,7 @@ import { getDictionary } from "@/i18n";
 import { isLocale } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
 import { PageHero, Section } from "@/components/ui/Section";
-import { Chip, Notice } from "@/components/ui/Cards";
+import { Notice } from "@/components/ui/Cards";
 import { Icon } from "@/components/ui/Icon";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/pricing">): Promise<Metadata> {
@@ -45,7 +45,7 @@ export default async function PricingPage({ params }: PageProps<"/[locale]/prici
               <h2 className="text-2xl font-bold">{plan.name}</h2>
               <p className="mt-1 text-ink-2">{plan.text}</p>
               <div className="mt-8">
-                <Chip tone={i === 2 ? "accent" : "default"}>{plan.amount}</Chip>
+                <span className={`chip chip-wrap ${i === 2 ? "chip-accent" : ""}`}>{plan.amount}</span>
               </div>
               <Link href={`/${locale}/contact`} className={`btn mt-8 ${i === 2 ? "btn-primary" : "btn-ghost"}`}>
                 {p.cta}
