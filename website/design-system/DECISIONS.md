@@ -1,4 +1,4 @@
-# Design decisions for the Homayar website (turn 3, owner palette and 3D scenes)
+# Design decisions for the Homayar website (turn 5, code-only scenes and one scenario per page)
 
 Short record of what the site uses and where each choice came from. Skill output lives in
 `design-system/homayar/MASTER.md` and `design-system/homayar/pages/*.md` (re-generated on
@@ -8,8 +8,11 @@ The CSS tokens in `app/globals.css` must match the hex values listed here.
 
 ## Concept: walk into the machine
 
-The site is a flight through the product. One persistent WebGL canvas sits behind every page.
-Scrolling moves the camera forward through three kinds of space:
+The site is a flight through the product. Every picture on the site is drawn by code: WebGL for
+the home scenes, SVG and CSS for the inner pages, `ImageResponse` for the Open Graph image. There
+are no photos, no owner images and no video (Addendum 6, owner decision of 2026-10-01). One
+persistent WebGL canvas sits behind the home page. Scrolling moves the camera forward through
+three kinds of space:
 
 1. **Wire grid.** A wireframe tunnel with a glowing sound wave in the middle (the call).
 2. **Warp.** The tunnel narrows to a bright square, the screen flashes to the theme color, and you
@@ -17,9 +20,9 @@ Scrolling moves the camera forward through three kinds of space:
 3. **Brain.** A neural network. Inside it, a customer and an agent talk. A glowing core reads each
    line, and the call report grows toward you and fades away.
 
-Every page uses the same language: the hero is a short flight through the grid, the body sits on a
-calm particle field, and one signature scene per page tells that page's story. Text is always
-server-rendered and readable without JavaScript. Motion is a layer on top.
+Every inner page has its own scenario (see "Scenario per page"). The only shared parts are the
+header, the footer, the page transition and the theme. Text is always server-rendered and readable
+without JavaScript. Motion is a layer on top.
 
 Named inspirations (2025 to 2026, inspiration only, nothing copied):
 
@@ -45,6 +48,10 @@ Named inspirations (2025 to 2026, inspiration only, nothing copied):
 | I | `"immersive 3D scroll storytelling product hero" --domain landing` | "Horizontal Scroll Journey" and "Scroll-Triggered Storytelling": keep a normal vertical reading path, disable scroll-jacking under reduced motion, pause off screen, progress indicator. |
 | J | `"dark immersive 3D wireframe neural AI cinematic" --domain style` | "Parallax Storytelling": 3 to 5 layers, full-screen chapters, skip option, mobile alternative, reduced motion fallback. |
 | K | `"Persian Arabic sans serif bilingual dark product" --domain typography` | No Persian pairing in the dataset that fits a product site. Vazirmatn stays (SPEC section 3). |
+| L | `"svg path draw scroll scrub stroke" --domain gsap` (2026-10-01) | Scrub-driven reveal preset: `scrub: 0.5 to 1.5`, never instant jumps, deterministic section height, `ScrollTrigger.refresh()` after fonts. Applied to the snake path, the constellation links and the table build. |
+| M | `"3d rotate carousel scroll pin" --domain gsap` and `"3d carousel rotating cards accessibility focus" --domain ux` | Rotating content needs user control and must stop under reduced motion. The solutions ring is driven by scroll only (no timer), every seat is a real link, and reduced motion shows the four seats in a grid. |
+| N | `"horizontal timeline scroll reduced motion keyboard" --domain ux` | Horizontal scroll is only allowed inside a pinned section driven by vertical scroll; content never widens the page; reduced motion shows the final readable state. Applied to the day timeline. |
+| O | `"stepper progress pinned counter" --domain gsap` | Keep a pinned stepper short (the about page pins 220% only) and pause work when off screen. |
 
 ## Overrides of the skill output
 
@@ -136,59 +143,45 @@ dependency list stays short). The engine (`components/scene/engine.ts`) loads af
 on the first scroll, pointer move or key press, or 1.5 s after `load`, whichever comes first.
 Sections declare what the canvas shows with `data-scene="tunnel|warp|brain|field"`. The engine
 creates one ScrollTrigger per section and hands its progress to that scene. The scene under the
-viewport center is drawn; neighbors cross-fade.
+viewport center is drawn; neighbors cross-fade. Only the home page and the 404 page declare
+scene sections. Inner pages draw their scenario with SVG and CSS, so the canvas sleeps there.
 
 | Scene | What you see | Pointer | Phone (under 768px) |
 |---|---|---|---|
-| `tunnel` | Wireframe grid corridor, accent lines, fog to the page color, a sound wave of points in the middle. Progress moves the camera forward. | Camera yaw and pitch follow the pointer, the wave swells near it. | Half the lines, DPR 1. |
-| `warp` | The same corridor speeds up, rings tighten, a bright square grows ahead, then the screen flashes to the theme color. | Same as tunnel. | Same, lighter. |
-| `brain` | A neural network (points and links in a brain-shaped cloud) with a pulsing core. The camera flies inside. Node clusters light up on the side of each conversation line. The owner video plays at low opacity as the inside-the-brain layer. | The network tilts toward the pointer. | A lighter network (520 points) plus the 720 video at higher opacity. |
+| `tunnel` | A procedural wireframe corridor: floor, walls and ceiling lines along the depth axis, a rectangular ring every 3 units, a brighter gate every 24 units, depth fog to the page color. Scroll is distance: the camera position along the corridor is `progress * 90` units, nothing else moves it, so scrolling back reverses the travel exactly. Fast scrolling adds speed streaks (short line segments near the walls whose length and opacity follow the scroll velocity). The voice wave in the center is a live line of points that keeps moving in time. Lines are `#22bec6` on the dark base and `#125a5e` on white. | Camera yaw and pitch follow the pointer, the wave swells near it. | Half the lines, DPR 1. |
+| `warp` | The same corridor accelerates (distance grows with the square of progress), rings tighten, a bright square grows ahead, then the screen flashes to the theme color. | Same as tunnel. | Same, lighter. |
+| `brain` | A neural network (points and links in a brain-shaped cloud) with a pulsing core and a soft inner glow. The camera flies inside. Node clusters light up on the side of each conversation line. No video. | The network tilts toward the pointer. | A lighter network (520 points). |
 | `field` | Sparse floor grid and slow particles, very low cost, for content pages. | Parallax. | Fewer particles. |
 
 Rules:
 
 - The canvas pauses when the tab is hidden and when no scene section is in view.
 - Pixel ratio at most 1.5 on desktop and 1 on phones.
-- Reduced motion: the engine never loads. Each scene section shows its poster picture instead
-  (`SceneBackdrop`), nothing is pinned, nothing is hidden, and the brain conversation is a plain
-  list with the report panel in place.
-- Without WebGL the same posters are shown.
+- Reduced motion: the engine never loads. Each scene section shows a static frame drawn as
+  inline SVG (`SceneBackdrop`, four `<symbol>` definitions from `PosterDefs` reused with
+  `<use>`), nothing is pinned, nothing is hidden, and the brain conversation is a plain list with
+  the report panel in place. No raster image is requested anywhere on the site.
+- Without WebGL the same SVG frames are shown.
 - Without JavaScript all text is visible (pre-hidden states exist only under `html.motion`).
 
-## Scenes per page, in scroll order
+## Scenario per page (Addendum 6, approved 2026-10-01)
 
-Home:
+Each page has one signature scenario. The technique column says how it is built. Every scenario
+has a static final state for reduced motion (the `motion` class is missing, so the CSS default is
+the finished layout) and a lighter phone version (under 64rem nothing is pinned).
 
-1. `tunnel`, pinned 260vh: the h1 is visible at once, then the description, the facts and the
-   buttons appear one by one as the camera flies forward.
-2. `warp`, 160vh: one transitional sentence, the flash to the theme color, and we are inside.
-3. `brain`, pinned 520vh: five conversation lines alternate sides (customer and agent, RTL
-   correct), the core pulses and links to each line, then the "گزارش تماس" panel grows toward the
-   camera and fades. Sample data, labeled as a demo.
-4. Horizontal journey, pinned 300vh (vertical stack on phones): four panels, one per agent, travel
-   follows the reading direction.
-5. `field`: product surfaces (desktop window and phone), deployment spaces, trust list.
-6. Command palette call to action, then the footer on `bg-deep`.
-
-Product: `tunnel` hero (short, 140vh, not pinned) > live demo window with the sticky section
-tabs > capability sections with depth (each panel comes toward the camera as it enters, CSS
-perspective plus GSAP z) > `field` > CTA.
-
-How it works: `tunnel` hero > pipeline timeline where each step is a gate the camera passes
-(`tunnel` with progress tied to the rail) > state glossary > policy block > CTA.
-
-Solutions: `tunnel` hero > role switcher over `field` > CTA. Role pages: `tunnel` hero > role
-surface with depth > checklist > CTA.
-
-Security: `warp` hero (you go into the vault, the page rests on `bg-deep`) > settings index >
-policy cards with depth > live masking demo > CTA.
-
-Deployment: `tunnel` hero > three environment spaces with a `warp` between each pair (SaaS,
-self-hosted, hybrid) > comparison table > runtime list > CTA.
-
-About: `tunnel` hero > principles over `field` > working steps rail > status note.
-Contact: `tunnel` hero > form panel with the "what happens next" rail. Pricing, legal,
-transparency: `tunnel` hero > status placeholder. 404: `warp` hero.
+| Page | What the user sees while scrolling | Technique | Phone | Reduced motion |
+|---|---|---|---|---|
+| Home | Grid tunnel flight (pinned 260vh) > warp into a new space (160vh) > brain scene with the conversation and the growing call report (pinned 520vh) > pinned horizontal journey through the 4 agents > product surfaces, deployment spaces and trust list on the calm field > command palette CTA. | WebGL scenes from the table above, GSAP ScrollTrigger timelines per section (`runtime.ts`). | Lighter scenes, journey is a vertical stack. | SVG frames, plain lists. |
+| How it works | **The snake path.** One curved line, stroke 10 CSS px, `#22bec6`, with a blurred glow copy and a bright head. It starts at the top of the page and is drawn as you scroll. It swings left and right and passes behind each of the 7 step cards (file check > Whisper > speakers > 4 agents > console > partial stages > policy) and comes out below. The card under the head lights up and plays its small demo (bars become text, speakers get colors, 4 scores fill, stage chips switch state, providers are allowed or refused). Persian starts from the right. | `SnakePath` (client) measures the card centers and writes a Catmull-Rom path into one absolute `<svg>` behind the cards (`z-index: 0`, cards `z-index: 1`). The runtime maps the viewport line at 60% height to a path length with a 400-point lookup table and sets `stroke-dashoffset`, the head position and the active card. Demos are CSS transitions keyed on `.is-active` and `.is-done`. | Amplitude of the swing drops to about 12% of the width, cards stack. | Full path, all cards in their finished state. |
+| Product | **Assemble the console.** A large app window stays pinned. Each scroll step docks one panel into its slot (upload > transcript > 4 agents > dashboard > call report > copilot > integrations) until the console is complete. The side text explains the panel that just arrived. Below it the live demo plays a sample call. | Pinned timeline (`+=490%`), each panel tweens from small and low to its grid slot, slot outline glows on arrival, side texts cross-fade. Slots are CSS grid areas inside `ConsoleAssembly`. | Window shown complete, the 7 explanations as a numbered list. | Same as phone. |
+| Solutions | **Four seats, one call.** One call report sits in the middle of a ring with 4 seats (QA manager, supervisor, operations, IT and security). Scrolling rotates the ring in 3D and brings each seat to the front; the report re-filters to what that role sees. Each seat is a link to its page. | CSS 3D: `perspective` stage, seats at `rotateY(i*90deg) translateZ(R)` with hidden backfaces, the ring's `rotationY` is scrubbed 0 to -270 (mirrored in RTL). The active seat gets `.is-front`; four report views cross-fade. | Seats become a swipe row (`scroll-snap-type: x mandatory`) under the report. | Four seats in a 2x2 grid around the report. |
+| Solution pages (4) | **A day in the role.** A pinned horizontal timeline from morning to evening. Each hour shows the task of the role and the Homayar screen that helps. | Pinned section, the track's `x` follows the vertical scroll with `ease: "none"`, an hour axis fills as you travel. Direction follows the reading direction. Content of the five hours comes from the facts already on the page. | Vertical list of the five hours. | Same as phone. |
+| Security | **Through the layers.** You pass through four translucent layers one after another: network wall, tenant isolation, personal-data masking, retention and deletion. Then the signature demo: a phone number in a transcript line dissolves into `[PHONE_1]` as you scroll. The detail sections and the "what we do not claim" list stay plain. | Pinned timeline: each glass layer scales from 0.4 to 1 (approach), then to 2.6 and fades (pass through). Mask demo: the digits are `<span>` characters that scatter, blur and fade while the placeholder chip scales in, all scrubbed over the block's travel from 70% to 30% of the viewport. | Layers stack as cards with depth; the mask demo stays scrubbed. | Stack of cards, masked line shown. |
+| Deployment | **Three places to run.** One glowing server block travels between three zones: cloud (SaaS), your server (a wall closes behind it: no route), hybrid (it splits in two). A comparison table builds itself at the end. | Pinned timeline; the block's `x` is measured from the zone centers at refresh (RTL safe). The wall is a bar that slides in with the "No route" label. The split moves two halves apart with their labels. The table rows are revealed by a scrubbed stagger. | Three zone cards, each with its own static block state. | Same as phone. |
+| About | **Principles as a constellation.** The 6 principles are stars; scrolling draws the links between them. Then the 4-step way of working (discovery > sample > pilot > rollout) as a short pinned stepper. | `Constellation` (client) measures the star of each principle card and writes the link path; `stroke-dashoffset` is scrubbed. Stepper: pinned `+=220%`, one step visible at a time, a 4-dot rail. | Links drawn on scroll, stepper is a vertical list. | Links fully drawn, vertical list. |
+| Contact | Calm. The form next to the animated voice-bar mark, which reacts softly while the user types. No 3D. | `input` events on the form drive a short GSAP pulse on the bars; idle is a slow breath that pauses off screen. | Same. | Static mark. |
+| Pricing, legal, transparency, 404 | Calm reading pages with light motion only. 404 keeps the warp frame. | Reveals only. | Same. | Static. |
 
 ## Page transitions and loader
 
@@ -203,27 +196,16 @@ transparency: `tunnel` hero > status placeholder. 404: `warp` hero.
 - Reduced motion: no interception, no loader, instant swap.
 - `aria-busy` on the loader, `role="status"` with the localized "loading" text.
 
-## Media plan (owner assets, Addendum 5)
+## Media (Addendum 6: none)
 
-All files live in `public/media/`. Widths are pixels, sizes are bytes on disk.
+`public/media/` is gone. The owner video and the three owner images are removed from scenes,
+posters and Open Graph. What replaced them:
 
-| File | Size | Use |
-|---|---|---|
-| `tunnel-wave-1920.avif` / `.webp` | 38,199 / 51,614 | Poster of the `tunnel` scene (reduced motion, no WebGL, no JS). |
-| `tunnel-wave-960.avif` / `.webp` | 6,051 / 5,862 | Same, phones. |
-| `tunnel-warp-1920.avif` / `.webp` | 37,813 / 51,262 | Poster of the `warp` scene and the loader backdrop. |
-| `tunnel-warp-960.avif` / `.webp` | 8,452 / 8,016 | Same, phones. |
-| `brain-1920.avif` / `.webp` | 86,404 / 98,724 | Poster of the `brain` scene, and the look reference for the 3D network. |
-| `brain-960.avif` / `.webp` | 14,380 / 13,216 | Same, phones. |
-| `og.jpg` (1200x630) | 93,365 | Open Graph image, cropped from the tunnel-wave source. |
-| `neurons-1280.mp4` / `.webm` | 1,850,077 / 1,848,979 | Audio stripped. Inside-the-brain layer behind the conversation on desktop (30% opacity in dark, 10% in light, under the WebGL network). `preload="none"`, `muted playsinline`, loads when the brain section nears the viewport. |
-| `neurons-720.mp4` / `.webm` | 1,059,932 / 1,503,127 | Same, under 768px, behind the lighter WebGL network (55% opacity in dark, 12% in light). |
-| `neurons-poster.avif` / `.webp` | 45,744 / 54,458 | Poster frame of the video. Under reduced motion only the poster shows and the video never plays. |
-
-Posters are `<picture>` elements with `loading="lazy"`, `decoding="async"` and a fixed aspect
-box, so nothing shifts. They are `display: none` under `html.motion`, so a browser with the
-WebGL engine never downloads them. First-load transfer of the home page stays under 1.5 MB:
-the video is not requested before scroll.
+| Former use | Now |
+|---|---|
+| Scene posters (reduced motion, no WebGL) | Four inline SVG frames drawn by code (`components/scene/PosterDefs.tsx`), reused through `<use>`. |
+| Inside-the-brain video layer | Nothing. The WebGL brain has a soft inner glow instead. |
+| `og.jpg` | `app/[locale]/opengraph-image.tsx` renders the corridor, the wave and the voice-bar mark with `ImageResponse` at build time (1200x630 PNG). The text in the image is the Latin brand name, because `ImageResponse` needs a TTF, OTF or WOFF font and the site only ships WOFF2 files. The Persian page title travels in `og:title`; the image alt is localized. |
 
 ## Motion system (GSAP 3.15, ScrollTrigger, SplitText)
 
@@ -237,8 +219,12 @@ the video is not requested before scroll.
 | Ease scrub | `none` | Everything tied to scroll |
 
 Rules: motion means something (flight is progress, the core reads the line, the report comes to
-you). Declarative reveals stay (`data-reveal`, `data-reveal-group`, `data-split`, `data-parallax`,
-`data-depth`). Every main page has at least three scroll-driven changes of transform or opacity.
+you, the snake travels with you). Declarative reveals stay (`data-reveal`, `data-reveal-group`,
+`data-split`, `data-parallax`, `data-depth`). Scenario hooks: `data-snake`, `data-console`,
+`data-ring`, `data-day`, `data-layers`, `data-mask`, `data-zones`, `data-table-build`,
+`data-constellation`, `data-stepper`, `data-voice-react`. Every main page has at least three
+scroll-driven changes of transform or opacity. Pins per page: home 3 on desktop (owner request),
+product 1, solutions 1, solution pages 1, security 1, deployment 1, about 1, others 0.
 Reduced motion: `gsap.matchMedia` wraps every tween, the `motion` class is set only when the user
 has no reduced-motion preference, so nothing is ever hidden for them.
 
