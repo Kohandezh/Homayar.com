@@ -11,16 +11,16 @@ neo4j-down: ## Stop Neo4j
 	docker compose down
 
 seed: ## Seed database with dev data
-	cd backend && .venv/bin/python -m database.seed
+	.venv/bin/python -m backend.database.seed
 
 backend: ## Start FastAPI server (port 8001)
-	cd backend && .venv/bin/uvicorn backend.main:app --reload --port 8001 --host 0.0.0.0
+	.venv/bin/uvicorn backend.main:app --reload --port 8001 --host 0.0.0.0
 
 frontend: ## Start React dev server (port 5174)
 	cd frontend && npx vite --port 5174 --host
 
 celery: ## Start Celery worker
-	cd backend && .venv/bin/celery -A backend.celery_app worker --queues processing --loglevel=info --concurrency=2
+	.venv/bin/celery -A backend.celery_app worker --queues processing --loglevel=info --concurrency=2
 
 worker: celery ## Alias for celery
 
@@ -35,13 +35,13 @@ up: ## Start everything (Neo4j + Redis + Backend + Celery + Frontend)
 	@docker start homayar-redis 2>/dev/null || docker run -d --name homayar-redis -p 6379:6379 redis:7-alpine 2>/dev/null || true
 	@sleep 2
 	@echo "  Starting backend (port 8001)..."
-	@cd backend && .venv/bin/uvicorn backend.main:app --reload --port 8001 --host 0.0.0.0 &\
+	@.venv/bin/uvicorn backend.main:app --reload --port 8001 --host 0.0.0.0 &\
 		sleep 3 && echo "  Backend ready." &&\
 		echo "  Starting Celery worker..." &&\
 		.venv/bin/celery -A backend.celery_app worker --loglevel=warning --concurrency=2 &\
 		sleep 2 && echo "  Celery ready." &&\
 		echo "  Starting frontend (port 5174)..." &&\
-		cd ../frontend && npx vite --port 5174 --host
+		cd frontend && npx vite --port 5174 --host
 
 down: ## Stop all services
 	@echo "Stopping Homayar..."
