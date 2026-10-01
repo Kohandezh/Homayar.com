@@ -54,6 +54,9 @@ SERVICE_SCOPE_RECOVERY = "recovery"
 # (ids, workspace, metric — no customer content, no writes); every repair
 # then binds the workspace read from the persisted entitlement row.
 SERVICE_SCOPE_USAGE_RECONCILIATION = "usage_reconciliation"
+# Voice recovery (P0 wave, X21): fails live calls of lapsed media nodes and
+# expired capacity slots across tenants (state/end columns only).
+SERVICE_SCOPE_VOICE_RECOVERY = "voice_recovery"
 
 ALL_GUCS: tuple[str, ...] = (
     GUC_USER_ID,

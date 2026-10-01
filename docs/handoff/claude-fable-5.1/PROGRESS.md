@@ -631,6 +631,20 @@
 - External blockers: unchanged (Padyar AI Gateway contract, provider credentials, representative evaluation data, live S3, production topology).
 - Next exact action: `docs/handoff/session-reset/NEW_SESSION_MASTER_PROMPT.md` — WP09-T01 with R-02 as its precondition.
 
+### Session 18 — Session A backend stabilization: red `main` after PR #5, bounded decode diagnostics
+
+- Date / environment: 2026-09-26/27; isolated clone `/Users/emperor/Dev/homayar-com-session-a`, branch `fix/r02-media-diagnostics-and-drill` from `main` `1b34472`; single agent, no subagents/workflows/external models. (PR #5 itself was prepared by the safe-recovery session, which left no entry here.)
+- Package / subtask: R-02 completion (WP01-T05 follow-up) and the failing `main` backend job; no WP09 work.
+- Baseline repo/ref/dirty state: `main` `1b34472` (PR #5 merged at `88a77c2`), run 36253589355 red in the backend job; branch commits `e29de4d`/`87d3323` pushed after the merge, never merged or run in CI.
+- Scope and files: `Homayar/backend/media/validation.py`, `Homayar/backend/tests/{test_media_validation,test_media_fixtures,test_transport_drills}.py`; `docs/handoff/session-reset/*` (new `SESSION_A_BACKEND_CLOSEOUT.md`), `docs/operations/ci.md`, Graphify records.
+- Change and reason: the redelivery drill accepted only `already_running`, but a copy claimed during a heartbeat renewal answers `busy` (SKIP LOCKED) and a renewal delayed past 2 s of slack lapses the 4 s lease (`lease_expired`); the drill now accepts both inert answers, fails at once on any other, uses a 30 s lease, and every drill prints worker log tails on failure. The decode reads at most one byte of stderr and kills the decoder at its first diagnostic (the merged version buffered all stderr in memory; the unmerged one stored it on disk).
+- Commands/results newly executed: Linux replica (`ubuntu:24.04`, apt ffmpeg 6.1.1-3ubuntu5, PostgreSQL 17, Redis 7.4, `homayar_app` verified): both answers demonstrated, `main`'s drill body reproduced the exact CI message with the row locked at redelivery, the fixed drill passed under the same injection; media 89 passed / 0 skipped; fail-closed exit 4 without ffmpeg; drills 4 passed / 1 skipped; full suite after `check-migrations.sh` on fresh services 716 passed / 46 skipped / 0 failed. Flood measurement: 396 MB in memory (`88a77c2`), 403 MB on disk (`e29de4d`), ≤ one pipe buffer (final). Remote CI: PR #6 run 36293584514 on `ea967dc`: six jobs green, backend 716 passed / 46 skipped / 0 failed with ffmpeg 6.1.1.
+- Acceptance satisfied: evidence-based diagnosis; corrected records (PR #5 merged; no lag; no byte cap from a timeout; temporary-file diagnostics were stored).
+- Acceptance pending: see `SESSION_A_BACKEND_CLOSEOUT.md` §5 for the corrective pull request's CI, merge and `main` result.
+- Review: self-review.
+- External blockers: unchanged.
+- Next exact action: `docs/handoff/session-reset/WP09_T01_SESSION_PROMPT.md` (WP09-T01).
+
 ## Template for next session
 
 - Date / environment:

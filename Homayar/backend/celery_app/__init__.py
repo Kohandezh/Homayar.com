@@ -17,6 +17,7 @@ PROCESS_MEETING_TASK = "backend.jobs.process_meeting"
 DISPATCH_SWEEP_TASK = "backend.jobs.sweep_dispatch_outbox"
 LEASE_RECOVERY_TASK = "backend.jobs.sweep_expired_leases"
 USAGE_RECONCILIATION_TASK = "backend.jobs.reconcile_usage"
+VOICE_RECOVERY_TASK = "backend.voice.sweep_recovery"
 ARTIFACT_CLEANUP_TASK = "backend.jobs.sweep_abandoned_artifacts"
 MEDIA_RECONCILIATION_TASK = "backend.jobs.reconcile_media_objects"
 RETENTION_PURGE_TASK = "backend.jobs.run_retention_purge"
@@ -57,6 +58,7 @@ def make_celery() -> Celery:
             USAGE_RECONCILIATION_TASK: {"queue": PROCESSING_QUEUE},
             ARTIFACT_CLEANUP_TASK: {"queue": PROCESSING_QUEUE},
             MEDIA_RECONCILIATION_TASK: {"queue": PROCESSING_QUEUE},
+            VOICE_RECOVERY_TASK: {"queue": PROCESSING_QUEUE},
         },
         # Attempt bound of last resort (WP06-T04): the soft limit raises inside
         # the task (finalised as a retryable ``attempt_timeout``); the hard
@@ -87,6 +89,12 @@ def make_celery() -> Celery:
                 "schedule": float(settings.dispatch_sweep_interval_seconds),
                 "options": {"queue": PROCESSING_QUEUE, "expires":
                     float(settings.dispatch_sweep_interval_seconds)},
+            },
+            "voice-recovery": {
+                "task": VOICE_RECOVERY_TASK,
+                "schedule": float(settings.voice_node_heartbeat_ttl_seconds),
+                "options": {"queue": PROCESSING_QUEUE, "expires":
+                    float(settings.voice_node_heartbeat_ttl_seconds)},
             },
             "job-lease-recovery": {
                 "task": LEASE_RECOVERY_TASK,

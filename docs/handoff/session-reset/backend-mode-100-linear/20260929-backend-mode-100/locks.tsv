@@ -1,0 +1,19 @@
+# path-or-prefix	owner-issue	lane	note (single-writer: one active issue per entry; hot files marked HOT)
+Homayar/backend/voice/	HOM-157	L1	REC-02
+Homayar/backend/tests/test_voice_admission	HOM-157	L1	REC-02 (prefix: incl. new _postgres test)
+Homayar/backend/speech/text_normalize.py	HOM-120	L2	WP22-T02
+Homayar/backend/locations/textnorm.py	HOM-120	L2	WP22-T02
+Homayar/backend/voicemail/classify.py	HOM-120	L2	WP22-T02
+Homayar/backend/privacy/text_pii.py	HOM-120	L2	WP22-T02
+Homayar/backend/security/normalization.py	HOM-120	L2	WP22-T02
+Homayar/backend/services/tenancy_service.py	HOM-101	L3	WP18-T03
+Homayar/backend/database/saas_models.py	HOM-101	L3	WP18-T03 HOT
+Homayar/backend/migrations/versions/	HOM-101	L3	WP18-T03 HOT (single migration writer)
+Homayar/backend/main.py	HOM-101	L3	WP18-T03 HOT
+Homayar/backend/tests/test_transport_drills.py	HOM-163	L4	STAB-02
+Homayar/backend/tests/_transport.py	HOM-163	L4	STAB-02
+Homayar/backend/routers/v1/auth.py	HOM-120	L2	WP22-T02 (OTP digit translation only)
+Homayar/backend/voicemail/ingest.py	HOM-120	L2	WP22-T02 (digit translation only)
+Homayar/backend/database/rls.py	HOM-101	L3	WP18-T03 HOT (two literal additions)
+docs/operations/deployment.md	HOM-101	L3	WP18-T03 (Plan catalog paragraph)
+Homayar/backend/tests/test_transport_drills.py	HOM-163	L4	STAB-02 (already listed; confirmed at activation)

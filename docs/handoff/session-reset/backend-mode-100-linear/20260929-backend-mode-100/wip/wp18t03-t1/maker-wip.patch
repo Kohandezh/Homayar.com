@@ -1,0 +1,2099 @@
+diff --git a/Homayar/backend/database/rls.py b/Homayar/backend/database/rls.py
+index ede6642..a933773 100644
+--- a/Homayar/backend/database/rls.py
++++ b/Homayar/backend/database/rls.py
+@@ -273,6 +273,7 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
+         "oauth_challenges",
+         "otp_challenges",
+         "plans",
++        "plan_versions",
+         "model_manifests",
+         "provider_health",
+         "alembic_version",
+@@ -292,6 +293,7 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
+     "model_manifests",
+     "ai_policy_versions",
+     "run_policy_snapshots",
++    "plan_versions",
+ )
+ 
+ 
+diff --git a/Homayar/backend/database/saas_models.py b/Homayar/backend/database/saas_models.py
+index 7c0f1f2..4a15066 100644
+--- a/Homayar/backend/database/saas_models.py
++++ b/Homayar/backend/database/saas_models.py
+@@ -13,6 +13,7 @@ from sqlalchemy import (
+     Enum,
+     Float,
+     ForeignKey,
++    ForeignKeyConstraint,
+     Index,
+     Integer,
+     LargeBinary,
+@@ -738,6 +739,41 @@ class Plan(Base, TimestampMixin):
+     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+     entitlements_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+     display_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
++    # The plan_versions row whose terms (name, is_public, entitlements_json) this
++    # row carries (WP18-T03); moved only by publishing a new version.
++    current_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
++
++    __table_args__ = (CheckConstraint("current_version >= 1", name="ck_plan_current_version"),)
++
++
++class PlanVersion(Base):
++    """One immutable version of a plan's commercial terms (WP18-T03).
++
++    A global catalog, not tenant data: append-only (ORM guard below and no
++    UPDATE/DELETE grant for the application role).  A subscription is pinned
++    to the version it was granted under, so a later publish never changes what
++    an existing tenant was given.
++    """
++
++    __tablename__ = "plan_versions"
++
++    plan_key: Mapped[str] = mapped_column(ForeignKey("plans.key"), primary_key=True)
++    version: Mapped[int] = mapped_column(Integer, primary_key=True)
++    name: Mapped[str] = mapped_column(String(100), nullable=False)
++    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False)
++    entitlements_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
++    source: Mapped[str] = mapped_column(String(40), nullable=False)
++    created_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), default=utcnow, nullable=False
++    )
++
++    __table_args__ = (
++        CheckConstraint("version >= 1", name="ck_plan_version_version"),
++        CheckConstraint(
++            "source IN ('catalog_seed', 'legacy_snapshot', 'operator', 'config')",
++            name="ck_plan_version_source",
++        ),
++    )
+ 
+ 
+ class ModelManifestRecord(Base):
+@@ -878,6 +914,8 @@ class Subscription(Base, TimestampMixin):
+         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+     )
+     plan_key: Mapped[str] = mapped_column(ForeignKey("plans.key"), nullable=False)
++    # The plan version the subscription was granted under (WP18-T03).
++    plan_version: Mapped[int] = mapped_column(Integer, nullable=False)
+     status: Mapped[SubscriptionStatus] = mapped_column(
+         Enum(SubscriptionStatus, native_enum=False, length=20), nullable=False
+     )
+@@ -888,7 +926,14 @@ class Subscription(Base, TimestampMixin):
+     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+ 
+-    __table_args__ = (Index("ix_subscription_workspace_status", "workspace_id", "status"),)
++    __table_args__ = (
++        Index("ix_subscription_workspace_status", "workspace_id", "status"),
++        ForeignKeyConstraint(
++            ["plan_key", "plan_version"],
++            ["plan_versions.plan_key", "plan_versions.version"],
++            name="fk_subscription_plan_version",
++        ),
++    )
+ 
+ 
+ class Entitlement(Base, TimestampMixin):
+@@ -2336,6 +2381,25 @@ def _refuse_manifest_update(_mapper, _connection, target: object) -> None:
+         )
+ 
+ 
++class PlanVersionImmutableError(RuntimeError):
++    """An ORM update or delete tried to change a published plan version."""
++
++
++@event.listens_for(PlanVersion, "before_update")
++def _refuse_plan_version_update(_mapper, _connection, target: object) -> None:
++    changed = _changed_columns(target)
++    if changed:
++        raise PlanVersionImmutableError(
++            "Plan versions are append-only; publish a new version instead "
++            f"(attempted: {', '.join(sorted(changed))})"
++        )
++
++
++@event.listens_for(PlanVersion, "before_delete")
++def _refuse_plan_version_delete(_mapper, _connection, target: object) -> None:
++    raise PlanVersionImmutableError("Plan versions are append-only")
++
++
+ class PolicyRecordImmutableError(RuntimeError):
+     """An ORM update or delete tried to change a policy version or run snapshot."""
+ 
+diff --git a/Homayar/backend/migrations/versions/c5e7a9b1d3f6_versioned_plans.py b/Homayar/backend/migrations/versions/c5e7a9b1d3f6_versioned_plans.py
+new file mode 100644
+index 0000000..103de1d
+--- /dev/null
++++ b/Homayar/backend/migrations/versions/c5e7a9b1d3f6_versioned_plans.py
+@@ -0,0 +1,159 @@
++"""Versioned plans: append-only plan_versions and subscription pins (WP18-T03).
++
++Revision ID: c5e7a9b1d3f6
++Revises: a1c3e5f7b9d2
++Create Date: 2026-09-30
++
++Adds ``plan_versions``, the append-only history of each plan's commercial
++terms (``name``, ``is_public``, ``entitlements_json``).  It adds
++``plans.current_version``, the version a plan row carries, and
++``subscriptions.plan_version``, the version a subscription was granted under.
++The composite foreign key ``fk_subscription_plan_version`` references
++``plan_versions (plan_key, version)``.  ``plan_versions`` is a global catalog
++(no row policy, like ``plans``).  The application role may read and insert it
++but never update or delete it.
++
++Upgrade is lossless.  Every existing plan, catalog or not, gets version 1
++(``source = 'legacy_snapshot'``) copied from its row; the row itself is not
++modified and its ``current_version`` is 1.  Every existing subscription is
++pinned to version 1 of its plan.
++
++The only data step (``backfill_plan_versions``) reads ``plans`` and inserts
++into ``plan_versions``, neither of which has row-level security.  The pins
++come from a column DEFAULT inside the DDL, which is dropped afterwards.  The
++migration therefore runs no DML on a table with FORCE ROW LEVEL SECURITY, and
++behaves the same for a superuser and for a plain table owner.
++
++Downgrade drops ``plan_versions``, ``plans.current_version``,
++``subscriptions.plan_version`` and ``fk_subscription_plan_version``.  Only the
++version history and the pins are lost: ``plans`` rows keep their current
++terms (those of their latest version), and ``subscriptions`` and
++``entitlements`` rows are untouched.
++"""
++
++from __future__ import annotations
++
++import logging
++from collections.abc import Sequence
++from datetime import UTC, datetime
++
++import sqlalchemy as sa
++from alembic import op
++
++from backend.database.rls import apply_row_level_security
++
++# revision identifiers, used by Alembic.
++revision: str = "c5e7a9b1d3f6"
++down_revision: str | Sequence[str] | None = "a1c3e5f7b9d2"
++branch_labels: str | Sequence[str] | None = None
++depends_on: str | Sequence[str] | None = None
++
++log = logging.getLogger("alembic.runtime.migration")
++
++
++def upgrade() -> None:
++    op.create_table(
++        "plan_versions",
++        sa.Column("plan_key", sa.String(length=40), nullable=False),
++        sa.Column("version", sa.Integer(), nullable=False),
++        sa.Column("name", sa.String(length=100), nullable=False),
++        sa.Column("is_public", sa.Boolean(), nullable=False),
++        sa.Column("entitlements_json", sa.JSON(), nullable=False),
++        sa.Column("source", sa.String(length=40), nullable=False),
++        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
++        sa.CheckConstraint("version >= 1", name="ck_plan_version_version"),
++        sa.CheckConstraint(
++            "source IN ('catalog_seed', 'legacy_snapshot', 'operator', 'config')",
++            name="ck_plan_version_source",
++        ),
++        sa.ForeignKeyConstraint(["plan_key"], ["plans.key"]),
++        sa.PrimaryKeyConstraint("plan_key", "version"),
++    )
++    with op.batch_alter_table("plans", schema=None) as batch_op:
++        batch_op.add_column(
++            sa.Column("current_version", sa.Integer(), nullable=False, server_default="1")
++        )
++        batch_op.create_check_constraint("ck_plan_current_version", "current_version >= 1")
++
++    inserted = backfill_plan_versions(op.get_bind())
++    log.info("plan version backfill: %d legacy snapshot(s)", inserted)
++
++    # Every existing subscription is pinned to version 1 of its plan by the
++    # column default (DDL, not an UPDATE under row-level security).
++    with op.batch_alter_table("subscriptions", schema=None) as batch_op:
++        batch_op.add_column(
++            sa.Column("plan_version", sa.Integer(), nullable=False, server_default="1")
++        )
++    with op.batch_alter_table("plans", schema=None) as batch_op:
++        batch_op.alter_column("current_version", server_default=None)
++    with op.batch_alter_table("subscriptions", schema=None) as batch_op:
++        batch_op.alter_column("plan_version", server_default=None)
++        batch_op.create_foreign_key(
++            "fk_subscription_plan_version",
++            "plan_versions",
++            ["plan_key", "plan_version"],
++            ["plan_key", "version"],
++        )
++    # Grants for the new table, including the append-only revoke.
++    apply_row_level_security(op.get_bind())
++
++
++def backfill_plan_versions(connection: sa.Connection) -> int:
++    """Insert version 1 (``legacy_snapshot``) for every plan that has no version.
++
++    The name, is_public and entitlements_json values are copied from the row
++    in SQL, so the JSON text is kept exactly as stored.  Idempotent: returns
++    the number of versions inserted (0 when every plan already has one).
++    """
++    plans = sa.table(
++        "plans",
++        sa.column("key", sa.String),
++        sa.column("name", sa.String),
++        sa.column("is_public", sa.Boolean),
++        sa.column("entitlements_json", sa.JSON),
++    )
++    plan_versions = sa.table(
++        "plan_versions",
++        sa.column("plan_key", sa.String),
++        sa.column("version", sa.Integer),
++        sa.column("name", sa.String),
++        sa.column("is_public", sa.Boolean),
++        sa.column("entitlements_json", sa.JSON),
++        sa.column("source", sa.String),
++        sa.column("created_at", sa.DateTime(timezone=True)),
++    )
++    snapshot = sa.select(
++        plans.c.key,
++        sa.literal(1, sa.Integer),
++        plans.c.name,
++        plans.c.is_public,
++        plans.c.entitlements_json,
++        sa.literal("legacy_snapshot", sa.String),
++        sa.literal(datetime.now(UTC), sa.DateTime(timezone=True)),
++    ).where(~sa.exists().where(plan_versions.c.plan_key == plans.c.key))
++    result = connection.execute(
++        plan_versions.insert().from_select(
++            [
++                "plan_key",
++                "version",
++                "name",
++                "is_public",
++                "entitlements_json",
++                "source",
++                "created_at",
++            ],
++            snapshot,
++        ),
++        execution_options={"preserve_rowcount": True},  # INSERT rowcount is not kept by default
++    )
++    return result.rowcount
++
++
++def downgrade() -> None:
++    with op.batch_alter_table("subscriptions", schema=None) as batch_op:
++        batch_op.drop_constraint("fk_subscription_plan_version", type_="foreignkey")
++        batch_op.drop_column("plan_version")
++    with op.batch_alter_table("plans", schema=None) as batch_op:
++        batch_op.drop_constraint("ck_plan_current_version", type_="check")
++        batch_op.drop_column("current_version")
++    op.drop_table("plan_versions")
+diff --git a/Homayar/backend/services/tenancy_service.py b/Homayar/backend/services/tenancy_service.py
+index cfb59be..0ec83bb 100644
+--- a/Homayar/backend/services/tenancy_service.py
++++ b/Homayar/backend/services/tenancy_service.py
+@@ -1,9 +1,13 @@
+ from __future__ import annotations
+ 
++import json
++import re
+ import secrets
+ from datetime import UTC, datetime
++from typing import Any
+ 
+-from sqlalchemy import select
++from sqlalchemy import and_, select
++from sqlalchemy.dialects import postgresql, sqlite
+ from sqlalchemy.orm import Session
+ 
+ from backend.config import Settings, get_settings
+@@ -12,6 +16,7 @@ from backend.database.saas_models import (
+     Membership,
+     Organization,
+     Plan,
++    PlanVersion,
+     Subscription,
+     SubscriptionStatus,
+     User,
+@@ -22,6 +27,7 @@ from backend.database.saas_models import (
+ from backend.database.tenant_context import bind_tenant_context, bind_user_context
+ from backend.security.authorization import selectable_workspace_clause
+ from backend.security.normalization import normalize_workspace_slug
++from backend.services.logging_service import logger
+ from backend.services.organization_service import bootstrap_owner_membership
+ 
+ PLAN_CATALOG = (
+@@ -58,28 +64,348 @@ PLAN_CATALOG = (
+ )
+ 
+ 
++DEMO_PLAN_KEY = "demo"
++# Metrics the usage ledger meters: the only entitlement keys a plan version
++# provisions as Entitlement rows (other keys, such as "seats", are not metered).
++METERED_METRICS: tuple[str, ...] = ("audio_seconds", "concurrent_jobs")
++# Sources a caller may publish; catalog_seed and legacy_snapshot are written
++# only by the seed and the migration.
++PUBLISH_SOURCES = frozenset({"operator", "config"})
++ENTITLEMENT_KEY = re.compile(r"[a-z][a-z0-9_]{0,59}")
++MAX_ENTITLEMENT_VALUE = 2_147_483_647  # entitlements.limit_value is a 32-bit INTEGER
++PLAN_NAME_MAX_LENGTH = 100
++_INSERT_BY_DIALECT = {"postgresql": postgresql.insert, "sqlite": sqlite.insert}
++_MISSING = object()
++
++
++class PlanCatalogError(ValueError):
++    """A plan version was refused; nothing was written."""
++
++
+ def ensure_plan_catalog(db: Session, settings: Settings | None = None) -> None:
++    """Startup seed of the plan catalog (WP18-T03, defect D-12).
++
++    ``PLAN_CATALOG`` owns only the *existence* of its keys: a missing key is
++    inserted with the code defaults and version 1 (``catalog_seed``).  An
++    existing row is commercial data and is never rewritten.  The one exception
++    is the demo allowance, owned by ``DEMO_QUOTA_SECONDS``: when it differs, a
++    ``config`` version is appended.  A row whose versioned terms differ from
++    its current version (a direct SQL edit) is reported as
++    ``PLAN_CATALOG_DRIFT``, not changed.  Flushes, never commits.
++    """
+     settings = settings or get_settings()
++    _insert_missing_catalog_plans(db, settings)
++    _report_catalog_drift(db)
++    _apply_demo_quota(db, settings.demo_quota_seconds)
++
++
++def publish_plan_version(
++    db: Session,
++    plan_key: str,
++    *,
++    entitlements: dict[str, int | None],
++    name: str | None = None,
++    is_public: bool | None = None,
++    source: str = "operator",
++) -> PlanVersion:
++    """Append version ``current_version + 1`` of a plan and make it current.
++
++    The one sanctioned write path for a plan's terms.  ``entitlements`` is
++    the complete dict of the new version.  ``name`` and ``is_public`` default
++    to the row's current values.  ``is_active`` and ``display_json`` are not
++    versioned and stay unchanged.  Existing subscriptions keep their pinned
++    version.  The demo plan's ``audio_seconds`` belongs to
++    ``DEMO_QUOTA_SECONDS``, so an operator publish must repeat the current
++    value.  Raises ``PlanCatalogError`` before writing anything.  Flushes,
++    never commits.
++    """
++    if not isinstance(source, str) or source not in PUBLISH_SOURCES:
++        raise PlanCatalogError(f"source must be one of {sorted(PUBLISH_SOURCES)}")
++    terms = _validated_entitlements(entitlements)
++    if name is not None and (
++        not isinstance(name, str) or not name.strip() or len(name) > PLAN_NAME_MAX_LENGTH
++    ):
++        raise PlanCatalogError(
++            f"name must be a non-blank string of at most {PLAN_NAME_MAX_LENGTH} characters"
++        )
++    if is_public is not None and not isinstance(is_public, bool):
++        raise PlanCatalogError("is_public must be a bool")
++    plan = _lock_plan(db, plan_key) if isinstance(plan_key, str) else None
++    if plan is None:
++        raise PlanCatalogError(f"Unknown plan: {plan_key!r}")
++    if plan.key == DEMO_PLAN_KEY and source == "operator":
++        current = plan.entitlements_json if isinstance(plan.entitlements_json, dict) else {}
++        if "audio_seconds" not in terms or not _same_value(
++            terms["audio_seconds"], current.get("audio_seconds", _MISSING)
++        ):
++            raise PlanCatalogError(
++                "The demo plan's audio_seconds is owned by DEMO_QUOTA_SECONDS; change that "
++                "setting and restart instead, and repeat the current value when publishing"
++            )
++    return _append_version(
++        db,
++        plan,
++        name=plan.name if name is None else name,
++        is_public=plan.is_public if is_public is None else is_public,
++        entitlements=terms,
++        source=source,
++    )
++
++
++def _same_value(left: object, right: object) -> bool:
++    # Strict: True is not 1 and 1.0 is not 1.
++    return type(left) is type(right) and left == right
++
++
++def _validated_entitlements(entitlements: object) -> dict[str, int | None]:
++    if not isinstance(entitlements, dict):
++        raise PlanCatalogError("entitlements must be a dict of metric -> limit")
++    validated: dict[str, int | None] = {}
++    for key, value in entitlements.items():
++        if not isinstance(key, str) or not ENTITLEMENT_KEY.fullmatch(key):
++            raise PlanCatalogError(
++                "entitlement keys must be lower-case identifiers of at most 60 characters"
++            )
++        if value is not None and not _is_limit(value):
++            raise PlanCatalogError(
++                f"entitlement {key} must be an integer from 0 to {MAX_ENTITLEMENT_VALUE}, "
++                "or None for unlimited"
++            )
++        validated[key] = value
++    return validated
++
++
++def _is_limit(value: object) -> bool:
++    return type(value) is int and 0 <= value <= MAX_ENTITLEMENT_VALUE
++
++
++def _catalog_entitlements(item: dict[str, Any], settings: Settings) -> dict[str, Any]:
++    entitlements = dict(item["entitlements"])
++    if item["key"] == DEMO_PLAN_KEY:
++        entitlements["audio_seconds"] = settings.demo_quota_seconds
++    return entitlements
++
++
++def _insert_missing_catalog_plans(db: Session, settings: Settings) -> list[str]:
++    """Insert each catalog key that has no row, with its version 1.
++
++    Insert-only and race-safe: ``ON CONFLICT DO NOTHING`` waits for a
++    concurrent transaction inserting the same key and then skips it.  An
++    existing row is never locked or rewritten.
++    """
++    keys = [item["key"] for item in PLAN_CATALOG]
++    existing = set(db.scalars(select(Plan.key).where(Plan.key.in_(keys))))
++    insert = _INSERT_BY_DIALECT[db.get_bind().dialect.name]
++    inserted: list[str] = []
+     for item in PLAN_CATALOG:
+-        plan = db.get(Plan, item["key"])
+-        entitlements = dict(item["entitlements"])
+-        if item["key"] == "demo":
+-            entitlements["audio_seconds"] = settings.demo_quota_seconds
+-        if plan is None:
+-            db.add(
+-                Plan(
+-                    key=item["key"],
+-                    name=item["name"],
+-                    is_public=item["is_public"],
+-                    is_active=True,
+-                    entitlements_json=entitlements,
+-                    display_json={},
+-                )
++        if item["key"] in existing:
++            continue
++        entitlements = _catalog_entitlements(item, settings)
++        created = db.execute(
++            insert(Plan.__table__)
++            .values(
++                key=item["key"],
++                name=item["name"],
++                is_public=item["is_public"],
++                is_active=True,
++                entitlements_json=entitlements,
++                display_json={},
++                current_version=1,
+             )
+-        else:
+-            plan.name = item["name"]
+-            plan.is_public = item["is_public"]
+-            plan.entitlements_json = entitlements
++            .on_conflict_do_nothing(index_elements=["key"])
++            .returning(Plan.__table__.c.key)
++        ).scalar_one_or_none()
++        if created is None:
++            continue  # inserted concurrently by another transaction
++        db.add(
++            PlanVersion(
++                plan_key=item["key"],
++                version=1,
++                name=item["name"],
++                is_public=item["is_public"],
++                entitlements_json=dict(entitlements),
++                source="catalog_seed",
++            )
++        )
++        inserted.append(item["key"])
++    if inserted:
++        db.flush()
++    return inserted
++
++
++def _canonical(value: object) -> str:
++    return json.dumps(value, sort_keys=True, separators=(",", ":"))
++
++
++def _drifted_fields(plan: Plan, version: PlanVersion | None) -> list[str]:
++    if version is None:
++        return ["name", "is_public", "entitlements_json"]
++    fields = []
++    if plan.name != version.name:
++        fields.append("name")
++    if plan.is_public != version.is_public:
++        fields.append("is_public")
++    if _canonical(plan.entitlements_json) != _canonical(version.entitlements_json):
++        fields.append("entitlements_json")
++    return fields
++
++
++def _report_catalog_drift(db: Session) -> None:
++    """Warn about rows whose versioned terms differ from their current version.
++
++    Direct SQL edits persist but are not versions: new sign-ups keep getting the
++    current version's terms.  Field names only, never values.
++    """
++    rows = db.execute(
++        select(Plan, PlanVersion)
++        .outerjoin(
++            PlanVersion,
++            and_(PlanVersion.plan_key == Plan.key, PlanVersion.version == Plan.current_version),
++        )
++        .order_by(Plan.key)
++    ).all()
++    for plan, version in rows:
++        fields = _drifted_fields(plan, version)
++        if fields:
++            logger.warning("PLAN_CATALOG_DRIFT plan=%s fields=%s", plan.key, ",".join(fields))
++
++
++def _lock_plan(db: Session, plan_key: str) -> Plan | None:
++    """The plan row under ``FOR UPDATE``, refreshed from the database.
++
++    Serializes version appends per plan; ``plan_versions`` rows are never
++    locked or updated (the application role holds no UPDATE grant on them).
++    """
++    db.flush()
++    return db.scalars(
++        select(Plan)
++        .where(Plan.key == plan_key)
++        .with_for_update()
++        .execution_options(populate_existing=True)
++    ).one_or_none()
++
++
++def _current_version(db: Session, plan: Plan) -> PlanVersion | None:
++    return db.get(PlanVersion, (plan.key, plan.current_version))
++
++
++def _quota_applied(plan: Plan, version: PlanVersion | None, quota: int) -> bool:
++    def carries(terms: object) -> bool:
++        return isinstance(terms, dict) and _same_value(terms.get("audio_seconds"), quota)
++
++    return carries(plan.entitlements_json) and (
++        version is None or carries(version.entitlements_json)
++    )
++
++
++def _apply_demo_quota(db: Session, quota: int) -> None:
++    """Append a ``config`` demo version when ``DEMO_QUOTA_SECONDS`` changed.
++
++    Every other term is carried from the row as it is.  Checked without a lock
++    first, so an unchanged setting writes and locks nothing; re-checked under
++    the row lock, so concurrent starts append exactly one version.
++    """
++    plan = db.get(Plan, DEMO_PLAN_KEY)
++    if plan is None or _quota_applied(plan, _current_version(db, plan), quota):
++        return
++    plan = _lock_plan(db, DEMO_PLAN_KEY)
++    if plan is None or _quota_applied(plan, _current_version(db, plan), quota):
++        return
++    entitlements = dict(plan.entitlements_json) if isinstance(plan.entitlements_json, dict) else {}
++    entitlements["audio_seconds"] = quota
++    _append_version(
++        db,
++        plan,
++        name=plan.name,
++        is_public=plan.is_public,
++        entitlements=entitlements,
++        source="config",
++    )
++
++
++def _append_version(
++    db: Session,
++    plan: Plan,
++    *,
++    name: str,
++    is_public: bool,
++    entitlements: dict[str, Any],
++    source: str,
++) -> PlanVersion:
++    """Append ``current_version + 1`` to a plan row locked by the caller."""
++    version = PlanVersion(
++        plan_key=plan.key,
++        version=plan.current_version + 1,
++        name=name,
++        is_public=is_public,
++        entitlements_json=dict(entitlements),
++        source=source,
++    )
++    db.add(version)
++    plan.name = name
++    plan.is_public = is_public
++    plan.entitlements_json = dict(entitlements)
++    plan.current_version = version.version
++    db.flush()
++    logger.info(
++        "PLAN_VERSION_PUBLISHED plan=%s version=%d source=%s", plan.key, version.version, source
++    )
++    return version
++
++
++def _grant_demo(db: Session, *, workspace_id: str, now: datetime) -> None:
++    """The free demo: a subscription pinned to the demo plan's current version.
++
++    Entitlement rows come from that version's metered metrics.  JSON null is an
++    unlimited limit; a metric the version does not define gets no row, so its
++    use is refused (fail closed).
++    """
++    version = db.scalars(
++        select(PlanVersion)
++        .join(
++            Plan,
++            and_(Plan.key == PlanVersion.plan_key, Plan.current_version == PlanVersion.version),
++        )
++        .where(Plan.key == DEMO_PLAN_KEY)
++    ).one_or_none()
++    if version is None:
++        logger.warning("DEMO_GRANT_SKIPPED plan=%s reason=no_current_version", DEMO_PLAN_KEY)
++        return
++    db.add(
++        Subscription(
++            workspace_id=workspace_id,
++            plan_key=DEMO_PLAN_KEY,
++            plan_version=version.version,
++            status=SubscriptionStatus.TRIALING,
++            provider="internal",
++            starts_at=now,
++        )
++    )
++    terms = version.entitlements_json if isinstance(version.entitlements_json, dict) else {}
++    for metric in METERED_METRICS:
++        if metric not in terms:
++            continue
++        limit = terms[metric]
++        if limit is not None and not _is_limit(limit):
++            logger.warning(
++                "DEMO_GRANT_METRIC_SKIPPED plan=%s version=%d metric=%s",
++                DEMO_PLAN_KEY,
++                version.version,
++                metric,
++            )
++            continue
++        db.add(
++            Entitlement(
++                workspace_id=workspace_id,
++                metric=metric,
++                source="demo",
++                limit_value=limit,
++                used_value=0,
++                reserved_value=0,
++                period_start=now,
++                period_end=None,
++            )
++        )
+ 
+ 
+ def create_personal_workspace(
+@@ -90,7 +416,8 @@ def create_personal_workspace(
+     settings: Settings | None = None,
+ ) -> Workspace:
+     settings = settings or get_settings()
+-    ensure_plan_catalog(db, settings)
++    # Sign-up may create a missing catalog key but never modifies the catalog.
++    _insert_missing_catalog_plans(db, settings)
+     workspace_name = (name or user.display_name or "My Workspace").strip()[:180]
+     base_slug = normalize_workspace_slug(workspace_name)
+     unique_suffix = secrets.token_hex(3)
+@@ -120,41 +447,8 @@ def create_personal_workspace(
+     # the only organization role a bootstrap ever grants.
+     bootstrap_owner_membership(db, organization=organization, user=user)
+ 
+-    now = datetime.now(UTC)
+     if settings.enable_free_demo:
+-        db.add(
+-            Subscription(
+-                workspace_id=workspace.id,
+-                plan_key="demo",
+-                status=SubscriptionStatus.TRIALING,
+-                provider="internal",
+-                starts_at=now,
+-            )
+-        )
+-        db.add(
+-            Entitlement(
+-                workspace_id=workspace.id,
+-                metric="audio_seconds",
+-                source="demo",
+-                limit_value=settings.demo_quota_seconds,
+-                used_value=0,
+-                reserved_value=0,
+-                period_start=now,
+-                period_end=None,
+-            )
+-        )
+-        db.add(
+-            Entitlement(
+-                workspace_id=workspace.id,
+-                metric="concurrent_jobs",
+-                source="demo",
+-                limit_value=1,
+-                used_value=0,
+-                reserved_value=0,
+-                period_start=now,
+-                period_end=None,
+-            )
+-        )
++        _grant_demo(db, workspace_id=workspace.id, now=datetime.now(UTC))
+     db.flush()
+     return workspace
+ 
+@@ -179,4 +473,3 @@ def list_user_workspaces(
+         .order_by(Membership.created_at.asc())
+     )
+     return list(rows.all())
+-
+diff --git a/Homayar/backend/tests/test_plan_catalog.py b/Homayar/backend/tests/test_plan_catalog.py
+new file mode 100644
+index 0000000..acbc888
+--- /dev/null
++++ b/Homayar/backend/tests/test_plan_catalog.py
+@@ -0,0 +1,1323 @@
++"""WP18-T03 (HOM-101): versioned plans; startup never overwrites the plan catalog.
++
++Defect D-12: the catalog seed rewrote ``name``, ``is_public`` and
++``entitlements_json`` of every catalog plan on every API start and on every
++sign-up, so operator/negotiated terms were silently reset.  After this unit:
++
++* startup and sign-up only *insert* missing catalog keys (with version 1);
++* an existing plan row is never rewritten.  The one exception is the demo
++  allowance, owned by ``DEMO_QUOTA_SECONDS``: a change appends a ``config``
++  version;
++* ``plan_versions`` is an append-only history.  ``publish_plan_version`` is the
++  one sanctioned write path.  A subscription is pinned to the version it was
++  granted under, and the demo grant's entitlement rows come from that version;
++* the migration snapshots existing rows losslessly and round-trips.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import re
++import threading
++import time
++from collections.abc import Callable, Iterator
++from contextlib import contextmanager
++from datetime import UTC, datetime
++from pathlib import Path
++
++import pytest
++import sqlalchemy as sa
++from alembic import command
++from alembic.config import Config
++from alembic.script import ScriptDirectory
++from fastapi.testclient import TestClient
++from sqlalchemy import JSON, Text, cast, create_engine, delete, func, select, text, update
++from sqlalchemy.engine import make_url
++from sqlalchemy.exc import DBAPIError
++from sqlalchemy.orm import Session
++
++from backend.config import Settings, reset_settings_cache
++from backend.database.model_registry import Base
++from backend.database.relational import (
++    configure_database,
++    create_schema_for_test_or_development,
++    get_session_factory,
++    reset_database_state,
++)
++from backend.database.rls import APP_ROLE, APPEND_ONLY_TABLES, UNPROTECTED_TABLES
++from backend.database.saas_models import (
++    Entitlement,
++    Membership,
++    Organization,
++    Plan,
++    PlanVersion,
++    PlanVersionImmutableError,
++    Subscription,
++    User,
++    Workspace,
++    WorkspaceRole,
++)
++from backend.database.tenant_context import bind_tenant_context
++from backend.main import create_app
++from backend.security.context import ACCESS_COOKIE, CSRF_COOKIE, REFRESH_COOKIE
++from backend.services.rate_limit_service import RateLimiter
++from backend.services.tenancy_service import (
++    PlanCatalogError,
++    create_personal_workspace,
++    ensure_plan_catalog,
++    publish_plan_version,
++)
++from backend.tests._database import inspection_session_factory, reset_postgres_schema
++from backend.tests.conftest import login_user, register_user
++
++REPO_ROOT = Path(__file__).resolve().parents[2]
++BACKEND_ROOT = Path(__file__).resolve().parents[1]
++BASE_REVISION = "a1c3e5f7b9d2"
++
++CATALOG_DEFAULTS: dict[str, tuple[str, bool, dict]] = {
++    "demo": ("Free Demo", True, {"audio_seconds": 1800, "concurrent_jobs": 1, "seats": 1}),
++    "professional": ("Professional", True, {}),
++    "business": ("Business", True, {}),
++    "enterprise": ("Enterprise", False, {}),
++    "on_premise": ("On-Premise", False, {}),
++}
++
++DRIFT_LINE = re.compile(r"^PLAN_CATALOG_DRIFT plan=(?P<plan>\S+) fields=(?P<fields>\S+)$")
++PUBLISHED_LINE = re.compile(
++    r"^PLAN_VERSION_PUBLISHED plan=(?P<plan>\S+) version=(?P<version>\d+) source=(?P<source>\S+)$"
++)
++
++
++# --- helpers ------------------------------------------------------------------------
++
++
++@pytest.fixture
++def plan_logs(caplog: pytest.LogCaptureFixture) -> Iterator[pytest.LogCaptureFixture]:
++    """Records of the ``homayar`` logger.
++
++    An in-process Alembic run (``fileConfig`` in ``env.py``) disables every
++    logger that exists at that moment, ``homayar`` included; re-enable it for
++    the duration of the test.
++    """
++    homayar = logging.getLogger("homayar")
++    was_disabled = homayar.disabled
++    homayar.disabled = False
++    caplog.set_level(logging.INFO, logger="homayar")
++    yield caplog
++    homayar.disabled = was_disabled
++
++
++@pytest.fixture
++def catalog_db(settings: Settings) -> Iterator[Settings]:
++    """An application database with the catalog seeded, without starting the API."""
++    configure_database(settings)
++    create_schema_for_test_or_development(settings)
++    with get_session_factory()() as db:
++        ensure_plan_catalog(db, settings)
++        db.commit()
++    yield settings
++    reset_database_state()
++
++
++@contextmanager
++def _running_app(settings: Settings) -> Iterator[TestClient]:
++    """A new application lifespan against the same database: an API restart."""
++    reset_database_state()
++    RateLimiter.reset_memory()
++    with TestClient(create_app(settings)) as api:
++        yield api
++
++
++def _restart(settings: Settings) -> None:
++    with _running_app(settings):
++        pass
++
++
++def _rows(table: sa.Table) -> dict[tuple, dict]:
++    """Every row of ``table`` by primary key, JSON columns as stored text (byte-exact)."""
++    columns = [
++        cast(column, Text).label(column.name) if isinstance(column.type, JSON) else column
++        for column in table.columns
++    ]
++    key_columns = list(table.primary_key.columns)
++    with inspection_session_factory()() as db:
++        result = db.execute(select(*columns).order_by(*key_columns))
++        return {
++            tuple(row._mapping[column.name] for column in key_columns): dict(row._mapping)
++            for row in result
++        }
++
++
++def _catalog_state() -> tuple[dict, dict]:
++    return _rows(Plan.__table__), _rows(PlanVersion.__table__)
++
++
++def _tenant_state() -> tuple[dict, dict]:
++    return _rows(Subscription.__table__), _rows(Entitlement.__table__)
++
++
++def _drift(logs: pytest.LogCaptureFixture) -> dict[str, list[str]]:
++    found: dict[str, list[str]] = {}
++    for record in logs.records:
++        match = DRIFT_LINE.match(record.getMessage())
++        if record.name != "homayar" or match is None:
++            continue
++        assert record.levelno == logging.WARNING, record.getMessage()
++        assert match["plan"] not in found, f"two drift lines for {match['plan']}"
++        found[match["plan"]] = match["fields"].split(",")
++    return found
++
++
++def _published(logs: pytest.LogCaptureFixture) -> list[tuple[str, int, str]]:
++    lines = []
++    for record in logs.records:
++        match = PUBLISHED_LINE.match(record.getMessage())
++        if record.name == "homayar" and match is not None:
++            assert record.levelno == logging.INFO
++            lines.append((match["plan"], int(match["version"]), match["source"]))
++    return lines
++
++
++def _dba_edits() -> None:
++    """AC1's direct SQL edits by a DBA (not through the sanctioned write path)."""
++    plans = Plan.__table__
++    with inspection_session_factory()() as db:
++        db.execute(
++            update(plans)
++            .where(plans.c.key == "professional")
++            .values(
++                entitlements_json={"audio_seconds": 360000, "concurrent_jobs": 3},
++                display_json={"badge": "x"},
++            )
++        )
++        db.execute(update(plans).where(plans.c.key == "business").values(is_public=False))
++        db.execute(
++            update(plans)
++            .where(plans.c.key == "enterprise")
++            .values(
++                name="Enterprise (negotiated)",
++                entitlements_json={"audio_seconds": 900000, "seats": 50},
++            )
++        )
++        db.execute(update(plans).where(plans.c.key == "on_premise").values(is_active=False))
++        db.commit()
++
++
++def _cookies(client: TestClient) -> dict[str, str]:
++    return {
++        name: value
++        for name in (ACCESS_COOKIE, REFRESH_COOKIE, CSRF_COOKIE)
++        if (value := client.cookies.get(name))
++    }
++
++
++def _signup(client: TestClient, email_outbox: list[dict[str, str]], email: str) -> dict:
++    """Register + verify + log in; returns the new workspace and its session cookies."""
++    client.cookies.clear()
++    credentials = register_user(client, email_outbox, email=email)
++    session = login_user(client, credentials)
++    return {
++        "user_id": session["user"]["id"],
++        "workspace_id": session["workspaces"][0]["id"],
++        "cookies": _cookies(client),
++    }
++
++
++def _grant(workspace_id: str) -> tuple[list[tuple], dict[str, tuple]]:
++    """The workspace's subscriptions ``(plan_key, plan_version)`` and entitlement limits."""
++    with inspection_session_factory()() as db:
++        subscriptions = db.execute(
++            select(Subscription.plan_key, Subscription.plan_version).where(
++                Subscription.workspace_id == workspace_id
++            )
++        ).all()
++        entitlements = {
++            row.metric: (row.limit_value, row.source)
++            for row in db.scalars(
++                select(Entitlement).where(Entitlement.workspace_id == workspace_id)
++            )
++        }
++    return [tuple(row) for row in subscriptions], entitlements
++
++
++def _plan(key: str) -> Plan:
++    with inspection_session_factory()() as db:
++        plan = db.get(Plan, key)
++        assert plan is not None
++        return plan
++
++
++def _versions(key: str) -> list[PlanVersion]:
++    with inspection_session_factory()() as db:
++        return list(
++            db.scalars(
++                select(PlanVersion)
++                .where(PlanVersion.plan_key == key)
++                .order_by(PlanVersion.version.asc())
++            )
++        )
++
++
++def _terms(item: Plan | PlanVersion) -> tuple[str, bool, dict]:
++    return item.name, item.is_public, item.entitlements_json
++
++
++def _publish(plan_key: str, **kwargs) -> PlanVersion:
++    with get_session_factory()() as db:
++        created = publish_plan_version(db, plan_key, **kwargs)
++        db.commit()
++        return created
++
++
++# --- AC1: startup never overwrites existing plans (D-12) -----------------------------
++
++
++def test_restart_keeps_operator_edits_and_reports_only_the_drifted_fields(
++    client: TestClient,
++    email_outbox: list[dict[str, str]],
++    settings: Settings,
++    plan_logs: pytest.LogCaptureFixture,
++) -> None:
++    owner = _signup(client, email_outbox, "catalog-owner@example.com")
++    _dba_edits()
++
++    def catalog(api: TestClient) -> dict[str, dict]:
++        response = api.get(
++            "/api/v1/billing/plans",
++            cookies=owner["cookies"],
++            headers={"X-Workspace-ID": owner["workspace_id"]},
++        )
++        assert response.status_code == 200, response.text
++        return {item["key"]: item for item in response.json()["items"]}
++
++    before = catalog(client)
++    assert before["professional"]["entitlements"] == {"audio_seconds": 360000, "concurrent_jobs": 3}
++    assert "business" not in before
++    plans, versions = _catalog_state()
++    plan_logs.clear()
++
++    with _running_app(settings) as api:
++        after = catalog(api)
++
++    # Every pre-existing row is identical in every column (updated_at and
++    # current_version included) and no version was appended.
++    assert _catalog_state() == (plans, versions)
++    assert after == before
++    drift = _drift(plan_logs)
++    assert {plan: set(fields) for plan, fields in drift.items()} == {
++        "professional": {"entitlements_json"},
++        "business": {"is_public"},
++        "enterprise": {"name", "entitlements_json"},
++    }
++    assert _published(plan_logs) == []
++
++
++def test_a_restart_without_edits_writes_and_reports_nothing(
++    client: TestClient, settings: Settings, plan_logs: pytest.LogCaptureFixture
++) -> None:
++    plans, versions = _catalog_state()
++    assert len(plans) == 5 and len(versions) == 5
++    plan_logs.clear()
++    _restart(settings)
++    assert _catalog_state() == (plans, versions)
++    assert _drift(plan_logs) == {}
++    assert _published(plan_logs) == []
++
++
++def test_a_missing_current_version_row_is_reported_as_drift(
++    client: TestClient, settings: Settings, plan_logs: pytest.LogCaptureFixture
++) -> None:
++    with inspection_session_factory()() as db:
++        db.execute(update(Plan.__table__).where(Plan.key == "enterprise").values(current_version=4))
++        db.commit()
++    plans, versions = _catalog_state()
++    plan_logs.clear()
++    _restart(settings)
++    assert _catalog_state() == (plans, versions)
++    drift = _drift(plan_logs)
++    assert set(drift) == {"enterprise"}
++    assert set(drift["enterprise"]) <= {"name", "is_public", "entitlements_json"}
++
++
++# --- AC2: sign-up never modifies the catalog ----------------------------------------
++
++
++def test_signup_and_the_demo_account_never_modify_the_catalog(
++    client: TestClient, email_outbox: list[dict[str, str]], settings: Settings
++) -> None:
++    _dba_edits()
++    _publish("professional", entitlements={"audio_seconds": 720000, "concurrent_jobs": 5})
++    plans, versions = _catalog_state()
++    assert len(versions) == 6
++
++    tenant = _signup(client, email_outbox, "catalog-signup@example.com")
++    assert _grant(tenant["workspace_id"])[0] == [("demo", 1)]
++    assert _catalog_state() == (plans, versions)
++
++    # The development demo account is created by the lifespan through the same
++    # workspace bootstrap.
++    with _running_app(settings.model_copy(update={"enable_demo_account": True})):
++        pass
++    with inspection_session_factory()() as db:
++        demo_user = db.scalar(select(User).where(User.email == "demo@local.homayar"))
++        assert demo_user is not None
++        demo_workspace = db.scalar(
++            select(Membership.workspace_id).where(Membership.user_id == demo_user.id)
++        )
++    assert _grant(demo_workspace)[0] == [("demo", 1)]
++    assert _catalog_state() == (plans, versions)
++
++
++# --- AC3: missing catalog keys are inserted, never others -----------------------------
++
++
++def test_an_empty_database_gets_exactly_the_code_catalog_with_version_one(
++    settings: Settings,
++) -> None:
++    custom = settings.model_copy(update={"demo_quota_seconds": 2400})
++    configure_database(custom)
++    create_schema_for_test_or_development(custom)
++    try:
++        with get_session_factory()() as db:
++            ensure_plan_catalog(db, custom)
++            db.commit()
++    finally:
++        reset_database_state()
++
++    expected = dict(CATALOG_DEFAULTS)
++    expected["demo"] = (
++        "Free Demo",
++        True,
++        {"audio_seconds": 2400, "concurrent_jobs": 1, "seats": 1},
++    )
++    with inspection_session_factory()() as db:
++        plans = {plan.key: plan for plan in db.scalars(select(Plan))}
++        versions = list(db.scalars(select(PlanVersion)))
++    assert set(plans) == set(expected)
++    for key, terms in expected.items():
++        plan = plans[key]
++        assert _terms(plan) == terms, key
++        assert plan.is_active is True and plan.display_json == {} and plan.current_version == 1
++    assert sorted((v.plan_key, v.version, v.source, *_terms(v)) for v in versions) == sorted(
++        (key, 1, "catalog_seed", *terms) for key, terms in expected.items()
++    )
++
++
++def test_a_deleted_catalog_key_is_recreated_alone(client: TestClient, settings: Settings) -> None:
++    _dba_edits()
++    with inspection_session_factory()() as db:
++        db.execute(delete(PlanVersion.__table__).where(PlanVersion.plan_key == "enterprise"))
++        db.execute(delete(Plan.__table__).where(Plan.key == "enterprise"))
++        db.commit()
++    plans, versions = _catalog_state()
++    assert ("enterprise",) not in plans
++
++    _restart(settings)
++
++    plans_after, versions_after = _catalog_state()
++    recreated = plans_after.pop(("enterprise",))
++    assert plans_after == plans
++    new_version = versions_after.pop(("enterprise", 1))
++    assert versions_after == versions
++    assert (
++        recreated["name"],
++        recreated["is_public"],
++        json.loads(recreated["entitlements_json"]),
++    ) == CATALOG_DEFAULTS["enterprise"]
++    assert recreated["is_active"] is True and json.loads(recreated["display_json"]) == {}
++    assert recreated["current_version"] == 1
++    assert new_version["source"] == "catalog_seed"
++    assert (new_version["name"], new_version["is_public"], new_version["entitlements_json"]) == (
++        recreated["name"],
++        recreated["is_public"],
++        recreated["entitlements_json"],
++    )
++
++
++# --- AC4: versions are immutable and numbered ------------------------------------------
++
++
++def test_publish_appends_the_next_version_and_leaves_history_intact(
++    catalog_db: Settings, plan_logs: pytest.LogCaptureFixture
++) -> None:
++    with inspection_session_factory()() as db:
++        db.execute(
++            update(Plan.__table__)
++            .where(Plan.key == "professional")
++            .values(display_json={"badge": "x"}, is_active=False)
++        )
++        db.commit()
++    _plans, versions = _catalog_state()
++    row_before = _rows(Plan.__table__)[("professional",)]
++
++    with get_session_factory()() as db:
++        created = publish_plan_version(
++            db,
++            "professional",
++            entitlements={"audio_seconds": 360000, "concurrent_jobs": 3, "seats": None},
++            name="Professional 2026",
++        )
++        assert isinstance(created, PlanVersion)
++        assert (created.plan_key, created.version, created.source) == (
++            "professional",
++            2,
++            "operator",
++        )
++        # Flushed, not committed: visible in this transaction only.
++        assert (
++            db.scalar(
++                select(func.count())
++                .select_from(PlanVersion)
++                .where(PlanVersion.plan_key == "professional")
++            )
++            == 2
++        )
++        db.rollback()
++    assert _catalog_state()[1] == versions
++    plan_logs.clear()
++
++    created = _publish(
++        "professional",
++        entitlements={"audio_seconds": 360000, "concurrent_jobs": 3, "seats": None},
++        name="Professional 2026",
++    )
++    assert created.version == 2
++    rows = _rows(PlanVersion.__table__)
++    assert rows[("professional", 1)] == versions[("professional", 1)]  # byte-identical
++    row = _rows(Plan.__table__)[("professional",)]
++    version = rows[("professional", 2)]
++    assert version["source"] == "operator"
++    assert (row["name"], row["is_public"], row["entitlements_json"]) == (
++        version["name"],
++        version["is_public"],
++        version["entitlements_json"],
++    )
++    assert row["name"] == "Professional 2026" and row["is_public"] is True
++    assert json.loads(row["entitlements_json"]) == {
++        "audio_seconds": 360000,
++        "concurrent_jobs": 3,
++        "seats": None,
++    }
++    assert row["current_version"] == 2
++    assert (row["is_active"], row["display_json"]) == (
++        row_before["is_active"],
++        row_before["display_json"],
++    )
++
++    third = _publish("professional", entitlements={}, is_public=False, source="config")
++    assert (third.version, third.source) == (3, "config")
++    plan = _plan("professional")
++    assert _terms(plan) == ("Professional 2026", False, {}) and plan.current_version == 3
++    assert [v.version for v in _versions("professional")] == [1, 2, 3]
++    assert _published(plan_logs) == [("professional", 2, "operator"), ("professional", 3, "config")]
++
++
++def test_plan_versions_refuse_orm_updates_and_deletes(catalog_db: Settings) -> None:
++    _plans, versions = _catalog_state()
++    for factory in (get_session_factory(), inspection_session_factory()):
++        with factory() as db:
++            version = db.get(PlanVersion, ("demo", 1))
++            assert version is not None
++            version.entitlements_json = {"audio_seconds": 1}
++            with pytest.raises(PlanVersionImmutableError):
++                db.flush()
++            db.rollback()
++            version = db.get(PlanVersion, ("demo", 1))
++            version.name = "Renamed"
++            with pytest.raises(PlanVersionImmutableError):
++                db.flush()
++            db.rollback()
++            db.delete(db.get(PlanVersion, ("demo", 1)))
++            with pytest.raises(PlanVersionImmutableError):
++                db.flush()
++            db.rollback()
++    assert _catalog_state()[1] == versions
++
++
++def test_plan_versions_are_an_append_only_global_table() -> None:
++    assert "plan_versions" in UNPROTECTED_TABLES
++    assert "plan_versions" in APPEND_ONLY_TABLES
++
++
++@pytest.mark.postgres
++def test_the_app_role_cannot_update_or_delete_plan_versions(catalog_db: Settings) -> None:
++    _plans, versions = _catalog_state()
++    with get_session_factory()() as db:
++        assert db.scalar(text("SELECT current_user")) == APP_ROLE
++        for statement in (
++            "UPDATE plan_versions SET name = 'rewritten'",
++            "DELETE FROM plan_versions",
++        ):
++            with pytest.raises(DBAPIError, match="permission denied"):
++                db.execute(text(statement))
++            db.rollback()
++        # Reads and appends are allowed.
++        assert db.scalar(text("SELECT count(*) FROM plan_versions")) == 5
++        db.execute(
++            text(
++                "INSERT INTO plan_versions (plan_key, version, name, is_public, "
++                "entitlements_json, source, created_at) VALUES ('enterprise', 2, 'Enterprise', "
++                "false, '{}', 'operator', now())"
++            )
++        )
++        db.rollback()
++    assert _catalog_state()[1] == versions
++
++
++def test_invalid_publishes_raise_and_write_nothing(catalog_db: Settings) -> None:
++    cases: list[tuple[str, str, object, dict]] = [
++        ("unknown plan", "gold", {"audio_seconds": 1}, {}),
++        ("plan key is case-sensitive", "Professional", {"audio_seconds": 1}, {}),
++        ("entitlements is a list", "professional", ["audio_seconds"], {}),
++        ("entitlements is None", "professional", None, {}),
++        ("entitlements is a str", "professional", "audio_seconds=1", {}),
++        ("upper-case key", "professional", {"Audio": 1}, {}),
++        ("key starts with a digit", "professional", {"1audio": 1}, {}),
++        ("key with a dash", "professional", {"audio-seconds": 1}, {}),
++        ("empty key", "professional", {"": 1}, {}),
++        ("key longer than 60", "professional", {"a" * 61: 1}, {}),
++        ("non-str key", "professional", {3: 1}, {}),
++        ("negative value", "professional", {"audio_seconds": -1}, {}),
++        ("bool value", "professional", {"audio_seconds": True}, {}),
++        ("float value", "professional", {"audio_seconds": 1.5}, {}),
++        ("integral float", "professional", {"audio_seconds": 10.0}, {}),
++        ("str value", "professional", {"audio_seconds": "10"}, {}),
++        ("dict value", "professional", {"audio_seconds": {"max": 1}}, {}),
++        ("list value", "professional", {"audio_seconds": [1]}, {}),
++        ("above int32", "professional", {"audio_seconds": 2147483648}, {}),
++        ("one bad value among good ones", "professional", {"seats": 5, "audio_seconds": -5}, {}),
++        ("empty name", "professional", {}, {"name": ""}),
++        ("blank name", "professional", {}, {"name": "   "}),
++        ("name longer than 100", "professional", {}, {"name": "x" * 101}),
++        ("non-str name", "professional", {}, {"name": 7}),
++        ("non-bool is_public", "professional", {}, {"is_public": "yes"}),
++        ("source catalog_seed", "professional", {}, {"source": "catalog_seed"}),
++        ("source legacy_snapshot", "professional", {}, {"source": "legacy_snapshot"}),
++        ("unknown source", "professional", {}, {"source": "manual"}),
++        (
++            "operator changes demo audio_seconds",
++            "demo",
++            {"audio_seconds": 3600, "concurrent_jobs": 1, "seats": 1},
++            {},
++        ),
++        ("operator omits demo audio_seconds", "demo", {"concurrent_jobs": 2, "seats": 1}, {}),
++        ("operator sets demo audio_seconds unlimited", "demo", {"audio_seconds": None}, {}),
++    ]
++    state = _catalog_state()
++    for label, plan_key, entitlements, extra in cases:
++        with get_session_factory()() as db:
++            with pytest.raises(PlanCatalogError) as caught:
++                publish_plan_version(db, plan_key, entitlements=entitlements, **extra)
++            db.commit()
++        assert isinstance(caught.value, ValueError), label
++        if plan_key == "demo":
++            assert "DEMO_QUOTA_SECONDS" in str(caught.value), label
++        assert _catalog_state() == state, label
++
++
++def test_zero_unlimited_and_int32_values_are_accepted(catalog_db: Settings) -> None:
++    created = _publish(
++        "business",
++        entitlements={"audio_seconds": 0, "concurrent_jobs": None, "seats": 2147483647},
++    )
++    assert created.version == 2
++    assert _plan("business").entitlements_json == {
++        "audio_seconds": 0,
++        "concurrent_jobs": None,
++        "seats": 2147483647,
++    }
++
++
++# --- AC5: DEMO_QUOTA_SECONDS owns the demo allowance ----------------------------------------
++
++
++def test_a_changed_demo_quota_appends_one_config_version(
++    client: TestClient, settings: Settings, plan_logs: pytest.LogCaptureFixture
++) -> None:
++    # An operator version first, so the config version must carry its terms.
++    _publish(
++        "demo",
++        entitlements={"audio_seconds": 1800, "concurrent_jobs": 2, "seats": 1, "exports": 10},
++        name="Free Demo 2026",
++    )
++    with inspection_session_factory()() as db:
++        db.execute(
++            update(Plan.__table__).where(Plan.key == "demo").values(display_json={"badge": "new"})
++        )
++        db.commit()
++    plans, versions = _catalog_state()
++    plan_logs.clear()
++
++    raised = settings.model_copy(update={"demo_quota_seconds": 3600})
++    _restart(raised)
++
++    plans_after, versions_after = _catalog_state()
++    demo_before, demo_after = plans.pop(("demo",)), plans_after.pop(("demo",))
++    assert plans_after == plans  # no other plan changes
++    appended = versions_after.pop(("demo", 3))
++    assert versions_after == versions
++    assert appended["source"] == "config"
++    assert json.loads(appended["entitlements_json"]) == {
++        "audio_seconds": 3600,
++        "concurrent_jobs": 2,
++        "seats": 1,
++        "exports": 10,
++    }
++    assert (appended["name"], appended["is_public"]) == ("Free Demo 2026", True)
++    assert (demo_after["name"], demo_after["is_public"], demo_after["entitlements_json"]) == (
++        appended["name"],
++        appended["is_public"],
++        appended["entitlements_json"],
++    )
++    assert demo_after["current_version"] == 3
++    for column in ("is_active", "display_json", "created_at"):
++        assert demo_after[column] == demo_before[column], column
++    assert _published(plan_logs) == [("demo", 3, "config")]
++    assert _drift(plan_logs) == {}
++
++    # A second restart with the same setting is a no-op.
++    state = _catalog_state()
++    plan_logs.clear()
++    _restart(raised)
++    assert _catalog_state() == state
++    assert _published(plan_logs) == [] and _drift(plan_logs) == {}
++
++
++def test_an_operator_demo_publish_survives_restarts_and_reaches_only_new_signups(
++    client: TestClient, email_outbox: list[dict[str, str]], settings: Settings
++) -> None:
++    first = _signup(client, email_outbox, "demo-first@example.com")
++    created = _publish(
++        "demo", entitlements={"audio_seconds": 1800, "concurrent_jobs": 2, "seats": 1}
++    )
++    assert created.version == 2
++    state = _catalog_state()
++    _restart(settings)
++    _restart(settings)
++    assert _catalog_state() == state
++    assert _terms(_plan("demo"))[2] == {"audio_seconds": 1800, "concurrent_jobs": 2, "seats": 1}
++
++    with _running_app(settings) as api:
++        second = _signup(api, email_outbox, "demo-second@example.com")
++    assert _grant(first["workspace_id"]) == (
++        [("demo", 1)],
++        {"audio_seconds": (1800, "demo"), "concurrent_jobs": (1, "demo")},
++    )
++    assert _grant(second["workspace_id"]) == (
++        [("demo", 2)],
++        {"audio_seconds": (1800, "demo"), "concurrent_jobs": (2, "demo")},
++    )
++
++
++# --- AC6: real entitlements at sign-up, pinned to a version -----------------------------------
++
++
++def test_the_signup_grant_comes_from_the_pinned_version(
++    client: TestClient, email_outbox: list[dict[str, str]]
++) -> None:
++    default = _signup(client, email_outbox, "grant-default@example.com")
++    assert _plan("demo").current_version == 1
++    assert _grant(default["workspace_id"]) == (
++        [("demo", 1)],
++        {"audio_seconds": (1800, "demo"), "concurrent_jobs": (1, "demo")},  # no "seats" row
++    )
++    usage = client.get(
++        "/api/v1/billing/usage",
++        cookies=default["cookies"],
++        headers={"X-Workspace-ID": default["workspace_id"]},
++    )
++    assert usage.status_code == 200, usage.text
++    snapshots = {item["metric"]: item for item in usage.json()["items"]}
++    assert snapshots["audio_seconds"]["remaining"] == 1800
++    assert snapshots["concurrent_jobs"]["remaining"] == 1
++
++    # JSON null is an unlimited (NULL) limit.
++    _publish("demo", entitlements={"audio_seconds": 1800, "concurrent_jobs": None})
++    unlimited = _signup(client, email_outbox, "grant-unlimited@example.com")
++    assert _grant(unlimited["workspace_id"]) == (
++        [("demo", 2)],
++        {"audio_seconds": (1800, "demo"), "concurrent_jobs": (None, "demo")},
++    )
++
++    # A metered metric absent from the version gets no row (fail closed).
++    _publish("demo", entitlements={"audio_seconds": 1800})
++    absent = _signup(client, email_outbox, "grant-absent@example.com")
++    assert _grant(absent["workspace_id"]) == ([("demo", 3)], {"audio_seconds": (1800, "demo")})
++
++    # A direct SQL edit of the row is not a version: the grant still follows v3.
++    with inspection_session_factory()() as db:
++        db.execute(
++            update(Plan.__table__)
++            .where(Plan.key == "demo")
++            .values(entitlements_json={"audio_seconds": 1800, "concurrent_jobs": 9})
++        )
++        db.commit()
++    drifted = _signup(client, email_outbox, "grant-drifted@example.com")
++    assert _grant(drifted["workspace_id"]) == ([("demo", 3)], {"audio_seconds": (1800, "demo")})
++
++    # Earlier workspaces keep their pins and limits.
++    assert _grant(default["workspace_id"])[0] == [("demo", 1)]
++    assert _grant(unlimited["workspace_id"])[1]["concurrent_jobs"] == (None, "demo")
++
++
++def test_signup_without_the_free_demo_creates_no_subscription(
++    client: TestClient, email_outbox: list[dict[str, str]], settings: Settings
++) -> None:
++    state = _catalog_state()
++    with _running_app(settings.model_copy(update={"enable_free_demo": False})) as api:
++        tenant = _signup(api, email_outbox, "no-demo@example.com")
++    assert _grant(tenant["workspace_id"]) == ([], {})
++    assert _catalog_state() == state
++
++
++# --- AC7: tenant-negotiated rows are never touched ------------------------------------------
++
++
++def test_existing_subscriptions_and_entitlements_are_never_touched(
++    client: TestClient, email_outbox: list[dict[str, str]], settings: Settings
++) -> None:
++    one = _signup(client, email_outbox, "tenant-one@example.com")
++    _signup(client, email_outbox, "tenant-two@example.com")
++    with inspection_session_factory()() as db:
++        db.execute(
++            update(Entitlement.__table__)
++            .where(
++                Entitlement.workspace_id == one["workspace_id"],
++                Entitlement.metric == "audio_seconds",
++            )
++            .values(limit_value=5000)
++        )
++        db.commit()
++    tenants = _tenant_state()
++    assert len(tenants[0]) == 2 and len(tenants[1]) == 4
++
++    _restart(settings)  # (a)
++    assert _tenant_state() == tenants
++    _publish("demo", entitlements={"audio_seconds": 1800, "concurrent_jobs": 3, "seats": 1})  # (b)
++    assert _tenant_state() == tenants
++    _restart(settings.model_copy(update={"demo_quota_seconds": 3600}))  # (c)
++    assert [v.source for v in _versions("demo")] == ["catalog_seed", "operator", "config"]
++    assert _tenant_state() == tenants
++    assert _grant(one["workspace_id"])[1]["audio_seconds"] == (5000, "demo")
++
++
++# --- AC8: concurrency (PostgreSQL, app role, separate sessions) -------------------------------
++
++
++def _race(*calls: Callable[[Session], object]) -> None:
++    """Run each call in its own application session, released together by a barrier.
++
++    Each transaction stays open briefly after its call so the other one queues
++    behind its locks instead of running after it.
++    """
++    barrier = threading.Barrier(len(calls))
++    errors: list[str] = []
++
++    def run(call: Callable[[Session], object]) -> None:
++        try:
++            with get_session_factory()() as db:
++                barrier.wait(timeout=15)
++                call(db)
++                time.sleep(0.3)
++                db.commit()
++        except BaseException as exc:  # surfaced by the assertion below
++            errors.append(repr(exc))
++
++    threads = [threading.Thread(target=run, args=(call,)) for call in calls]
++    for thread in threads:
++        thread.start()
++    for thread in threads:
++        thread.join(timeout=60)
++    assert all(not thread.is_alive() for thread in threads), "a racer hung"
++    assert errors == []
++
++
++@pytest.mark.postgres
++def test_concurrent_seeding_of_an_empty_database_creates_one_catalog(settings: Settings) -> None:
++    configure_database(settings)
++    create_schema_for_test_or_development(settings)
++    try:
++        _race(*(lambda db: ensure_plan_catalog(db, settings) for _ in range(2)))
++    finally:
++        reset_database_state()
++    plans, versions = _catalog_state()
++    assert set(plans) == {(key,) for key in CATALOG_DEFAULTS}
++    assert set(versions) == {(key, 1) for key in CATALOG_DEFAULTS}
++
++
++@pytest.mark.postgres
++def test_concurrent_restarts_with_a_changed_quota_append_one_config_version(
++    catalog_db: Settings,
++) -> None:
++    raised = catalog_db.model_copy(update={"demo_quota_seconds": 3600})
++    _race(*(lambda db: ensure_plan_catalog(db, raised) for _ in range(2)))
++    versions = _versions("demo")
++    assert [(v.version, v.source) for v in versions] == [(1, "catalog_seed"), (2, "config")]
++    assert versions[1].entitlements_json["audio_seconds"] == 3600
++    assert _plan("demo").current_version == 2
++    assert len(_catalog_state()[1]) == 6
++
++
++@pytest.mark.postgres
++def test_concurrent_publishes_get_consecutive_versions(catalog_db: Settings) -> None:
++    terms = [{"seats": 10}, {"seats": 20}]
++    _race(
++        *(
++            lambda db, entitlements=entitlements: publish_plan_version(
++                db, "professional", entitlements=entitlements
++            )
++            for entitlements in terms
++        )
++    )
++    versions = _versions("professional")
++    assert [v.version for v in versions] == [1, 2, 3]
++    assert sorted((v.entitlements_json for v in versions[1:]), key=str) == sorted(terms, key=str)
++    plan = _plan("professional")
++    assert plan.current_version == 3
++    assert _terms(plan) == _terms(versions[2])
++
++
++# --- AC9 / AC10: migration upgrade, backfill and downgrade (PostgreSQL) ------------------------
++
++OWNER_PROBE_ROLE = "homayar_plan_owner_probe"
++OWNER_PROBE_PASSWORD = "plan-owner-probe-only"  # noqa: S105 - throwaway role on a test database
++
++LEGACY_PLANS = sa.table(
++    "plans",
++    sa.column("key"),
++    sa.column("name"),
++    sa.column("is_public"),
++    sa.column("is_active"),
++    sa.column("entitlements_json", sa.JSON),
++    sa.column("display_json", sa.JSON),
++    sa.column("created_at"),
++    sa.column("updated_at"),
++)
++LEGACY_SUBSCRIPTIONS = sa.table(
++    "subscriptions",
++    sa.column("id"),
++    sa.column("workspace_id"),
++    sa.column("plan_key"),
++    sa.column("status"),
++    sa.column("provider"),
++    sa.column("starts_at"),
++    sa.column("created_at"),
++    sa.column("updated_at"),
++)
++
++
++def _alembic(database_url: str, monkeypatch: pytest.MonkeyPatch, action: str, target: str) -> None:
++    homayar = logging.getLogger("homayar")
++    was_disabled = homayar.disabled
++    monkeypatch.setenv("DATABASE_URL", database_url)
++    monkeypatch.setenv("ENVIRONMENT", "test")
++    reset_settings_cache()
++    try:
++        getattr(command, action)(Config(str(REPO_ROOT / "alembic.ini")), target)
++    finally:
++        reset_settings_cache()
++        homayar.disabled = was_disabled  # env.py's fileConfig disables existing loggers
++
++
++def _admin(*statements: str) -> None:
++    with inspection_session_factory()() as db:
++        for statement in statements:
++            db.execute(text(statement))
++        db.commit()
++
++
++def _table_rows(table: str, key: str) -> dict[str, dict]:
++    """``SELECT *`` of a table at whatever revision, JSON columns also as exact text."""
++    with inspection_session_factory()() as db:
++        json_columns = (
++            db.execute(
++                text(
++                    "SELECT column_name FROM information_schema.columns "
++                    "WHERE table_schema = 'public' AND table_name = :table AND data_type = 'json'"
++                ),
++                {"table": table},
++            )
++            .scalars()
++            .all()
++        )
++        extra = "".join(f", {column}::text AS {column}__text" for column in json_columns)
++        rows = db.execute(text(f"SELECT *{extra} FROM {table}")).mappings().all()  # noqa: S608
++    return {row[key]: dict(row) for row in rows}
++
++
++def _without(rows: dict[str, dict], column: str) -> dict[str, dict]:
++    return {key: {k: v for k, v in row.items() if k != column} for key, row in rows.items()}
++
++
++def _columns(table: str) -> set[str]:
++    with inspection_session_factory()() as db:
++        return set(
++            db.execute(
++                text(
++                    "SELECT column_name FROM information_schema.columns "
++                    "WHERE table_schema = 'public' AND table_name = :table"
++                ),
++                {"table": table},
++            ).scalars()
++        )
++
++
++def _scalar(sql: str, **params: object) -> object:
++    with inspection_session_factory()() as db:
++        return db.execute(text(sql), params).scalar()
++
++
++def _transfer_ownership(role: str) -> None:
++    """Make ``role`` the plain owner of every relation (the ADR 0005 deployment shape)."""
++    with inspection_session_factory()() as db:
++        relations = db.execute(
++            text(
++                "SELECT c.relname, c.relkind FROM pg_class c "
++                "JOIN pg_namespace n ON n.oid = c.relnamespace "
++                "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'S') "
++                "AND NOT (c.relkind = 'S' AND EXISTS (SELECT 1 FROM pg_depend d "
++                "WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid "
++                "AND d.deptype IN ('a', 'i')))"
++            )
++        ).all()
++        keywords = {"r": "TABLE", "p": "TABLE", "v": "VIEW", "m": "MATERIALIZED VIEW"}
++        for name, kind in relations:
++            keyword = keywords.get(kind, "SEQUENCE")
++            db.execute(text(f'ALTER {keyword} "{name}" OWNER TO {role}'))
++        db.commit()
++
++
++@pytest.fixture(params=["superuser", "plain_owner"])
++def legacy_database(
++    request: pytest.FixtureRequest, settings: Settings, monkeypatch: pytest.MonkeyPatch
++) -> Iterator[str]:
++    """The schema at the base revision; yields the URL the new revision runs as.
++
++    ``plain_owner``: a LOGIN role that owns every table but is neither a
++    superuser nor BYPASSRLS, so FORCE ROW LEVEL SECURITY applies to it.
++    """
++    reset_database_state()
++    reset_postgres_schema(settings.database_url)
++    _alembic(settings.database_url, monkeypatch, "upgrade", BASE_REVISION)
++    role_url = settings.database_url
++    if request.param == "plain_owner":
++        _admin(
++            f"DROP ROLE IF EXISTS {OWNER_PROBE_ROLE}",
++            f"CREATE ROLE {OWNER_PROBE_ROLE} LOGIN PASSWORD '{OWNER_PROBE_PASSWORD}' "
++            "NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE",
++            f"GRANT USAGE, CREATE ON SCHEMA public TO {OWNER_PROBE_ROLE}",
++        )
++        _transfer_ownership(OWNER_PROBE_ROLE)
++        role_url = (
++            make_url(settings.database_url)
++            .set(username=OWNER_PROBE_ROLE, password=OWNER_PROBE_PASSWORD)
++            .render_as_string(hide_password=False)
++        )
++        assert (
++            _scalar(
++                "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = :role",
++                role=OWNER_PROBE_ROLE,
++            )
++            is False
++        )
++    try:
++        yield role_url
++    finally:
++        reset_database_state()
++        reset_postgres_schema(settings.database_url)
++        if request.param == "plain_owner":
++            _admin(f"DROP OWNED BY {OWNER_PROBE_ROLE}", f"DROP ROLE IF EXISTS {OWNER_PROBE_ROLE}")
++
++
++def _seed_legacy_deployment() -> None:
++    """A deployment at the base revision: edited catalog, a custom plan, tenants."""
++    now = datetime.now(UTC)
++    catalog = {key: list(terms) for key, terms in CATALOG_DEFAULTS.items()}
++    catalog["professional"][2] = {"audio_seconds": 360000, "concurrent_jobs": 3}
++    catalog["business"][1] = False
++    catalog["enterprise"][0] = "Enterprise (negotiated)"
++    catalog["enterprise"][2] = {"audio_seconds": 900000, "seats": 50}
++    catalog["acme_custom"] = ["Acme Custom", False, {"audio_seconds": 42}]
++    with inspection_session_factory()() as db:
++        for key, (name, is_public, entitlements) in catalog.items():
++            db.execute(
++                LEGACY_PLANS.insert().values(
++                    key=key,
++                    name=name,
++                    is_public=is_public,
++                    is_active=key != "on_premise",
++                    entitlements_json=entitlements,
++                    display_json={"badge": "x"} if key == "professional" else {},
++                    created_at=now,
++                    updated_at=now,
++                )
++            )
++        for index, plan_key in enumerate(("demo", "acme_custom")):
++            organization = Organization(name=f"Legacy {index}", slug=f"legacy-{index}")
++            workspace = Workspace(organization=organization, name=f"Legacy {index}", slug="default")
++            db.add_all([organization, workspace])
++            db.flush()
++            db.execute(
++                LEGACY_SUBSCRIPTIONS.insert().values(
++                    id=f"00000000-0000-0000-0000-00000000000{index}",
++                    workspace_id=workspace.id,
++                    plan_key=plan_key,
++                    status="TRIALING" if plan_key == "demo" else "ACTIVE",
++                    provider="internal" if plan_key == "demo" else "manual",
++                    starts_at=now,
++                    created_at=now,
++                    updated_at=now,
++                )
++            )
++            db.add(
++                Entitlement(
++                    workspace_id=workspace.id,
++                    metric="audio_seconds",
++                    source="demo" if plan_key == "demo" else "contract",
++                    limit_value=5000 if plan_key == "demo" else 42,
++                    used_value=0,
++                    reserved_value=0,
++                    period_start=now,
++                )
++            )
++        db.commit()
++
++
++def _assert_head_matches_the_legacy_rows(
++    plans: dict[str, dict], subscriptions: dict[str, dict], entitlements: dict[str, dict]
++) -> None:
++    """AC9: every row kept; one ``legacy_snapshot`` v1 per plan; pins at 1."""
++    plans_now = _table_rows("plans", "key")
++    assert _without(plans_now, "current_version") == plans
++    assert {row["current_version"] for row in plans_now.values()} == {1}
++    with inspection_session_factory()() as db:
++        versions = (
++            db.execute(
++                text(
++                    "SELECT plan_key, version, name, is_public, source, "
++                    "entitlements_json::text AS entitlements_text FROM plan_versions"
++                )
++            )
++            .mappings()
++            .all()
++        )
++    assert sorted(row["plan_key"] for row in versions) == sorted(plans)
++    for row in versions:
++        plan = plans[row["plan_key"]]
++        assert (row["version"], row["source"]) == (1, "legacy_snapshot")
++        assert (row["name"], row["is_public"], row["entitlements_text"]) == (
++            plan["name"],
++            plan["is_public"],
++            plan["entitlements_json__text"],
++        )
++    subscriptions_now = _table_rows("subscriptions", "id")
++    assert _without(subscriptions_now, "plan_version") == subscriptions
++    assert {row["plan_version"] for row in subscriptions_now.values()} == {1}
++    assert _table_rows("entitlements", "id") == entitlements
++
++
++@pytest.mark.postgres
++def test_migration_snapshots_a_legacy_deployment_and_round_trips(
++    legacy_database: str, settings: Settings, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    _seed_legacy_deployment()
++    plans = _table_rows("plans", "key")
++    subscriptions = _table_rows("subscriptions", "id")
++    entitlements = _table_rows("entitlements", "id")
++    assert "acme_custom" in plans and len(subscriptions) == 2
++
++    # --- AC9: upgrade ---
++    _alembic(legacy_database, monkeypatch, "upgrade", "head")
++    _assert_head_matches_the_legacy_rows(plans, subscriptions, entitlements)
++    for table, column in (("plans", "current_version"), ("subscriptions", "plan_version")):
++        assert (
++            _scalar(
++                "SELECT column_default FROM information_schema.columns "
++                "WHERE table_name = :table AND column_name = :column",
++                table=table,
++                column=column,
++            )
++            is None
++        ), f"{table}.{column} kept its migration default"
++    assert (
++        _scalar("SELECT count(*) FROM pg_constraint WHERE conname = 'fk_subscription_plan_version'")
++        == 1
++    )
++    # apply_row_level_security ran: plan_versions is append-only for the app role.
++    privileges = {
++        privilege: _scalar(
++            "SELECT has_table_privilege(:role, 'plan_versions', :privilege)",
++            role=APP_ROLE,
++            privilege=privilege,
++        )
++        for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE")
++    }
++    assert privileges == {"SELECT": True, "INSERT": True, "UPDATE": False, "DELETE": False}
++
++    # The backfill is idempotent.
++    config = Config(str(REPO_ROOT / "alembic.ini"))
++    script = ScriptDirectory.from_config(config)
++    head = script.get_revision(script.get_current_head())
++    engine = create_engine(legacy_database)
++    try:
++        with engine.begin() as connection:
++            assert head.module.backfill_plan_versions(connection) == 0
++    finally:
++        engine.dispose()
++    _assert_head_matches_the_legacy_rows(plans, subscriptions, entitlements)
++
++    # The first application start afterwards writes nothing.
++    app_settings = settings.model_copy(update={"auto_create_schema": False})
++    catalog_before = _catalog_state()
++    _restart(app_settings)
++    assert _catalog_state() == catalog_before
++    _assert_head_matches_the_legacy_rows(plans, subscriptions, entitlements)
++
++    # --- AC10: a published v2 and a pinned sign-up, then downgrade ---
++    _publish(
++        "professional",
++        entitlements={"audio_seconds": 720000, "concurrent_jobs": 5},
++        name="Professional v2",
++    )
++    with get_session_factory()() as db:
++        user = User(email="pinned@example.com", display_name="Pinned")
++        db.add(user)
++        db.flush()
++        pinned_workspace = create_personal_workspace(db, user=user, settings=app_settings).id
++        db.commit()
++    reset_database_state()
++    assert _grant(pinned_workspace)[0] == [("demo", 1)]
++    plans_head = _table_rows("plans", "key")
++    assert plans_head["professional"]["current_version"] == 2
++    subscriptions_head = _table_rows("subscriptions", "id")
++    entitlements_head = _table_rows("entitlements", "id")
++
++    _alembic(legacy_database, monkeypatch, "downgrade", BASE_REVISION)
++    assert _scalar("SELECT to_regclass('public.plan_versions')") is None
++    assert "current_version" not in _columns("plans")
++    assert "plan_version" not in _columns("subscriptions")
++    assert (
++        _scalar("SELECT count(*) FROM pg_constraint WHERE conname = 'fk_subscription_plan_version'")
++        == 0
++    )
++    plans_down = _table_rows("plans", "key")
++    assert plans_down == _without(plans_head, "current_version")
++    assert plans_down["professional"]["name"] == "Professional v2"
++    assert json.loads(plans_down["professional"]["entitlements_json__text"]) == {
++        "audio_seconds": 720000,
++        "concurrent_jobs": 5,
++    }
++    assert _table_rows("subscriptions", "id") == _without(subscriptions_head, "plan_version")
++    assert _table_rows("entitlements", "id") == entitlements_head
++
++    # Upgrading again yields the AC9 state for the downgraded rows.
++    _alembic(legacy_database, monkeypatch, "upgrade", "head")
++    _assert_head_matches_the_legacy_rows(
++        plans_down, _without(subscriptions_head, "plan_version"), entitlements_head
++    )
++
++
++def test_exactly_one_new_revision_follows_the_base() -> None:
++    script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "alembic.ini")))
++    heads = script.get_heads()
++    assert len(heads) == 1
++    children = [
++        revision for revision in script.walk_revisions() if revision.down_revision == BASE_REVISION
++    ]
++    assert [revision.revision for revision in children] == heads
++    head = script.get_revision(heads[0])
++    assert Path(head.path).name.endswith("_versioned_plans.py")
++    assert callable(head.module.backfill_plan_versions)
++    source = Path(head.path).read_text(encoding="utf-8")
++    assert "apply_row_level_security" in source
++
++
++# --- AC11: tenancy ------------------------------------------------------------------------------
++
++
++@pytest.mark.postgres
++def test_a_tenant_session_sees_only_its_own_pinned_subscription(
++    client: TestClient, email_outbox: list[dict[str, str]]
++) -> None:
++    one = _signup(client, email_outbox, "pin-one@example.com")
++    _publish("demo", entitlements={"audio_seconds": 1800, "concurrent_jobs": 2, "seats": 1})
++    two = _signup(client, email_outbox, "pin-two@example.com")
++    for tenant, version in ((one, 1), (two, 2)):
++        with get_session_factory()() as db:
++            bind_tenant_context(db, workspace_id=tenant["workspace_id"])
++            rows = db.execute(
++                select(Subscription.workspace_id, Subscription.plan_key, Subscription.plan_version)
++            ).all()
++            assert [tuple(row) for row in rows] == [(tenant["workspace_id"], "demo", version)]
++
++
++# --- AC12: authorization unchanged ------------------------------------------------------------
++
++
++def test_the_plan_catalog_has_no_write_route(
++    client: TestClient, email_outbox: list[dict[str, str]]
++) -> None:
++    owner = _signup(client, email_outbox, "catalog-write-owner@example.com")
++    member = _signup(client, email_outbox, "catalog-write-member@example.com")
++    with inspection_session_factory()() as db:
++        db.add(
++            Membership(
++                workspace_id=owner["workspace_id"],
++                user_id=member["user_id"],
++                role=WorkspaceRole.MEMBER,
++            )
++        )
++        db.commit()
++    state = _catalog_state()
++    headers = {
++        "X-Workspace-ID": owner["workspace_id"],
++        "X-CSRF-Token": owner["cookies"][CSRF_COOKIE],
++    }
++    for method in ("POST", "PUT", "PATCH", "DELETE"):
++        response = client.request(
++            method,
++            "/api/v1/billing/plans",
++            cookies=owner["cookies"],
++            headers=headers,
++            json={"key": "professional", "entitlements": {"seats": 99}},
++        )
++        assert response.status_code == 405, (method, response.text)
++    assert _catalog_state() == state
++
++    allowed = client.get("/api/v1/billing/plans", cookies=owner["cookies"], headers=headers)
++    assert allowed.status_code == 200
++    denied = client.get(
++        "/api/v1/billing/plans",
++        cookies=member["cookies"],
++        headers={"X-Workspace-ID": owner["workspace_id"]},
++    )
++    assert denied.status_code == 403
++
++    for route in client.app.routes:
++        assert getattr(route, "endpoint", None) is not publish_plan_version
++    for path in (BACKEND_ROOT / "routers").rglob("*.py"):
++        assert "publish_plan_version" not in path.read_text(encoding="utf-8"), path
++
++
++# --- AC13: the SQLite fallback -------------------------------------------------------------------
++
++
++def test_the_sqlite_fallback_creates_the_schema_and_versions_plans(
++    tmp_path: Path, settings: Settings
++) -> None:
++    engine = create_engine(f"sqlite:///{tmp_path / 'fallback.db'}")
++    try:
++        Base.metadata.create_all(engine)
++        with Session(engine) as db:
++            ensure_plan_catalog(db, settings)
++            db.commit()
++            ensure_plan_catalog(db, settings)
++            db.commit()
++            created = publish_plan_version(db, "professional", entitlements={"seats": 5})
++            db.commit()
++            assert created.version == 2
++            assert db.scalar(select(func.count()).select_from(PlanVersion)) == 6
++            assert db.get(Plan, "professional").entitlements_json == {"seats": 5}
++    finally:
++        engine.dispose()
+diff --git a/docs/operations/deployment.md b/docs/operations/deployment.md
+index 255445e..c45a37c 100644
+--- a/docs/operations/deployment.md
++++ b/docs/operations/deployment.md
+@@ -179,6 +179,15 @@ product default. Secrets among them come from the secret manager, never from bui
+ | `ENABLE_FREE_DEMO`, `DEMO_QUOTA_SECONDS` | `true`, `1800` | Demo allowance of new workspaces |
+ | `EGRESS_PROXY_URL` | empty | `http://egress-proxy:3128` when the egress profile runs (see "Network egress") |
+ 
++Plan catalog: the API start creates missing catalog plans and never rewrites an existing
++one. A plan's terms (name, `is_public`, entitlements) change only by appending a plan
++version, and each subscription stays on the version it was granted. The one version a
++start appends is the demo allowance, which `DEMO_QUOTA_SECONDS` owns: after a change, the
++next start appends a demo version with the new value, and only later sign-ups get it.
++Retire a plan with `is_active = false`. A direct SQL edit of a plan's terms persists but
++is not a version: the demo grant at sign-up still follows the current version, and each
++start logs `PLAN_CATALOG_DRIFT plan=<key> fields=<names>`.
++
+ The API refuses to start with Google or phone sign-in enabled but its credentials
+ missing. The console no longer has `VITE_ENABLE_GOOGLE_AUTH` / `VITE_ENABLE_PHONE_AUTH`
+ build flags: it asks `GET /api/v1/auth/methods`, which reports a method only when it is

@@ -19,6 +19,8 @@ from backend.providers.schemas import (
     IntelligenceResult,
     SMSRequest,
     SMSResult,
+    TTSRequest,
+    TTSResult,
 )
 
 
@@ -116,6 +118,16 @@ class DiarizationProvider(_IdentifiedProvider, ABC):
 class IntelligenceProvider(_IdentifiedProvider, ABC):
     @abstractmethod
     async def analyze(self, request: IntelligenceRequest) -> IntelligenceResult:
+        raise NotImplementedError
+
+
+class TTSProvider(_IdentifiedProvider, ABC):
+    """Speech synthesis.  An adapter that cannot synthesize raises a
+    ``ProviderError`` (``tts_unavailable`` ...); it never returns silence or
+    placeholder audio as if it were speech (mocks mark ``is_mock``)."""
+
+    @abstractmethod
+    async def synthesize(self, request: TTSRequest) -> TTSResult:
         raise NotImplementedError
 
 

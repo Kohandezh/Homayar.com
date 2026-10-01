@@ -66,6 +66,8 @@ def _route_policy(route: APIRoute) -> str:
         permission = getattr(call, "homayar_permission", None)
         if permission is not None:
             suffix = " +csrf" if getattr(call, "homayar_write", False) else ""
+            if getattr(call, "homayar_platform", False):
+                suffix += " +operator"
             found.append(f"{permission.value}{suffix}")
             return
         if call is ctx.require_workspace:

@@ -84,6 +84,80 @@ The cloud profile additionally requires `STORAGE_BUCKET`, `STORAGE_REGION`, and 
 settings require static S3 credentials. Workload identity should replace them only after
 the application supports a credential provider chain without requiring access keys.
 
+### Secret references
+
+Every process that loads the backend settings (API, worker, scheduler, migration job) accepts
+each secret-bearing setting either as the plain variable `NAME` or as a reference `NAME_FILE`
+whose value is the path of a file holding the secret (a secret-manager mount, a Docker or
+Kubernetes secret, a systemd credential). The covered settings are `DATABASE_URL`,
+`REDIS_URL`, `JWT_SECRET`, `TOKEN_PEPPER`, `GOOGLE_CLIENT_SECRET`, `ASANAK_API_KEY`,
+`STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `PII_MAPPING_KEYS`, `LLM_FALLBACK_API_KEY`,
+`ZAI_API_KEY`, `GAPGPT_API_KEY`, `SMTP_PASSWORD`, `NEO4J_PASSWORD`, and `SENTRY_DSN`.
+For example, `JWT_SECRET_FILE=/run/secrets/jwt_secret` replaces `JWT_SECRET`.
+
+- **Names.** Like every setting, names are case-insensitive (`JWT_SECRET_FILE`,
+  `jwt_secret_file`). In the process environment, the same reference set twice in different
+  letter case is rejected. In the `.env` file it is not: the spelling that appears last in
+  the file silently wins, as for any other `.env` entry. Write each name only once in `.env`.
+- **Conflict rule.** `NAME` and `NAME_FILE` set together in the process environment, or
+  together in the `.env` file, stop startup with an error that names both variables. This
+  holds even when `NAME` is empty, so remove `NAME` when you add `NAME_FILE`. An empty
+  `NAME_FILE=` is also rejected. The bundled Compose profiles pass the plain variables; a
+  deployment that uses references must provide `NAME_FILE` instead of `NAME`, not beside it.
+- **Precedence between places** is unchanged: explicit keyword arguments (code and tests),
+  then the process environment, then the `.env` file, then defaults. A reference ranks with
+  the place it is set in: `NAME_FILE` in the environment overrides `NAME` in the `.env` file,
+  and `NAME` in the environment overrides `NAME_FILE` in the `.env` file. Every reference
+  that is set is read and checked, even when a higher-ranked value wins.
+- **The file** must be a readable regular UTF-8 file. Symbolic links are followed, so
+  Kubernetes projected secrets work. Use absolute paths; a relative path resolves against the
+  process working directory. A missing or unreadable file, a directory, a FIFO or device,
+  or content that is not UTF-8 stops startup with an error that names the variable and the
+  path, never the content. The error shows the path, so never put a secret itself into
+  `NAME_FILE`. Some paths are refused before they are opened: a path that is not a regular
+  file, and any path that resolves under `/proc` or `/sys` after symbolic links (for example
+  `/proc/self/environ`). A file larger than 64 KiB (65536 bytes) is refused after reading at
+  most 64 KiB plus one byte.
+- **Newline handling.** Exactly one trailing newline (`\n` or `\r\n`) is removed and nothing
+  else is changed: leading or trailing spaces, a lone trailing `\r`, and any further
+  newlines are part of the value. A UTF-8 byte-order mark at the start of the file is also
+  kept as part of the value, so write secret files without a BOM. An empty file yields an
+  empty value, which production then rejects through its existing checks (for example the
+  32-character `JWT_SECRET`).
+- **Neo4j.** `NEO4J_PASSWORD_FILE` is read by the backend and the development seed
+  (`python -m backend.database.seed`), which load these settings. The Neo4j container in
+  the development `Homayar/docker-compose.yml` does not load them: it takes its credential
+  from `NEO4J_PASSWORD` (environment or `Homayar/.env`), so set `NEO4J_PASSWORD` for that
+  container even when the backend uses `NEO4J_PASSWORD_FILE`. The seed deletes the whole
+  graph before loading sample data. It therefore refuses to run unless `ENVIRONMENT` is
+  `development` or `test`, and it refuses to run without a password.
+- **Redaction.** None of these values appears in `repr()` or `str()` of the settings object,
+  and settings validation errors keep their messages but carry no input values.
+
+Production also refuses two insecure transports (development, test, and staging are
+unchanged):
+
+- **SMTP.** With `SMTP_HOST` set, plaintext mail is refused. The rule matches how mail is
+  sent: port 465 uses implicit TLS, port 587 always issues STARTTLS (and fails if the server
+  does not offer it), and any other port uses TLS only with `SMTP_USE_TLS=true`. Accepted are
+  therefore `SMTP_PORT=465` or `587` (with either `SMTP_USE_TLS` value), any port with
+  `SMTP_USE_TLS=true`, or an empty `SMTP_HOST` (no e-mail). Refused is any other port (for
+  example 25) with `SMTP_USE_TLS=false`. The Compose default, port 587 with
+  `SMTP_USE_TLS=false`, is accepted.
+- **Object store.** `STORAGE_BACKEND=s3` with a non-empty `STORAGE_ENDPOINT_URL` requires an
+  `https://` URL with a host. `http://` in any letter case, any other scheme, and a
+  scheme-less `host:port` are refused. An empty endpoint (the provider's default) is
+  accepted. The one exception is on-premise:
+  - `STORAGE_ALLOW_INSECURE_ENDPOINT=true` (default `false`) lets production use a non-https
+    endpoint, but only together with `DEPLOYMENT_MODE=onprem`. With `DEPLOYMENT_MODE=cloud`
+    the flag has no effect, and without the flag the endpoint is refused.
+  - `compose.onprem.yaml` sets the flag because its bundled MinIO is reached at
+    `http://minio:9000` on the internal compose network.
+  - Residual risk: object traffic between the API or worker and MinIO, including
+    recordings and credentials, is plaintext on that internal network. Keep MinIO off
+    published ports and shared networks. Serving the bundled MinIO over TLS, which retires
+    the flag, is a planned follow-up.
+
 ### Optional runtime settings (defaults keep them off)
 
 Both Compose files pass these through `x-app-environment`; empty means disabled or the

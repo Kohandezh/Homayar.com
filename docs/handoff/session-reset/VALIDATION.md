@@ -4,20 +4,31 @@ Tested source revisions are named per row. `2a30213` is the final PR #3 head; `m
 merge and has the **same tree** (`b57b3520`), so results on `2a30213` apply to `main` as merged.
 The handover commit that adds this file changes only documentation and Graphify records.
 
+Updated 2026-09-27 by Session A (backend stabilization, `SESSION_A_BACKEND_CLOSEOUT.md`): the runs
+from PR #5 onward in §1, §2a (redelivery drill on `main` `1b34472`) and §2b (bounded decode
+diagnostics). Earlier rows are historical and unchanged.
+
 ## 1. Remote CI (`.github/workflows/ci.yml`, GitHub-hosted `ubuntu-latest`)
 
 | Run | Revision | Result |
 | --- | --- | --- |
+| [36293584514](https://github.com/Kohandezh/Homayar.com/actions/runs/36293584514) | PR #6 `ea967dc` (code `4428756` + records) | **all six jobs passed**; backend 716 passed, 46 skipped (41 live S3, 3 Padyar, 1 SQLite-only drill, 1 broker-restart drill), 0 failed; ffmpeg/ffprobe `6.1.1-3ubuntu5`, no `ffmpeg` skip. The records-only commit on top of it and the merge are on PR #6 |
+| [36253589355](https://github.com/Kohandezh/Homayar.com/actions/runs/36253589355) | `main` `1b34472` (merge of PR #5) | backend **failed**: `test_visibility_timeout_redelivery_during_a_live_attempt_is_inert` (1 failed, 702 passed, 46 skipped); five other jobs passed — §2a |
+| [36252829293](https://github.com/Kohandezh/Homayar.com/actions/runs/36252829293) | PR #5 `88a77c2` (final head, merged) | all six passed; backend 703 passed, 46 skipped; media tests executed with ffmpeg/ffprobe `6.1.1-3ubuntu5`. Validates `88a77c2` only — the later branch commits `e29de4d`/`87d3323` were never run in CI and never merged |
+| [36250360273](https://github.com/Kohandezh/Homayar.com/actions/runs/36250360273) | PR #5 `80ae521` | backend **4 failed**, 698 passed, 46 skipped: ffmpeg 6.1.1 accepted `corrupt.mp3`, `corrupt.flac`, `tail.mp3` (three `test_bounded_decode_catches_corruption_the_probe_accepts` cases and the upload-route `corrupt.mp3` case) — §2b; five other jobs passed |
+| [36235859248](https://github.com/Kohandezh/Homayar.com/actions/runs/36235859248) | `main` `620f14c` (merge of PR #4) | all six passed |
 | [36234124732](https://github.com/Kohandezh/Homayar.com/actions/runs/36234124732) | PR #3 `2a30213` (final) | **all six jobs passed**: source contract · secret scan (Gitleaks, full history) · public web lint/build · console lint/build/tests · backend migrations + tests (**667 passed, 81 skipped, 0 failed**) · container configuration |
-| [36234814693](https://github.com/Kohandezh/Homayar.com/actions/runs/36234814693) | `main` `edfcb78` (merge of PR #3) | see the handover pull request for the final result of this run |
+| [36234814693](https://github.com/Kohandezh/Homayar.com/actions/runs/36234814693) | `main` `edfcb78` (merge of PR #3) | all six passed (checked 2026-09-27) |
 | [36218268005](https://github.com/Kohandezh/Homayar.com/actions/runs/36218268005) | PR #3 `1d03edd` | backend failed: `test_killed_pool_child_requeues_inertly_and_recovery_settles_once` (1 failed, 666 passed, 81 skipped); five other jobs passed |
 | [36210838431](https://github.com/Kohandezh/Homayar.com/actions/runs/36210838431) | `main` `a1c3d60` (PR #2 merge) | backend failed on the same drill (1 failed, 665 passed, 81 skipped) |
 | [36128541895](https://github.com/Kohandezh/Homayar.com/actions/runs/36128541895) | PR #2 `b68803d` | all six passed after one re-run of the backend job (a Redis transport drill timed out once; which drill was not recorded) |
 
-**CI skip breakdown (81, derived from markers and confirmed by count):** 35 `ffmpeg` (the runner
-has no ffmpeg — a CI gap, `REMAINING_WORK.md` R-02) · 41 `live_s3` (opt-in; no bucket) · 3 Padyar AI
+**CI skip breakdown (81 at `2a30213`, derived from markers and confirmed by count):** 35 `ffmpeg` (the runner
+had no ffmpeg — R-02) · 41 `live_s3` (opt-in; no bucket) · 3 Padyar AI
 Gateway (contract missing) · 1 SQLite-only restore drill (inapplicable on PostgreSQL) · 1
-broker-restart drill (needs `TEST_REDIS_CONTAINER`).
+broker-restart drill (needs `TEST_REDIS_CONTAINER`). **Since PR #5** the job installs ffmpeg and
+`HOMAYAR_REQUIRE_MEDIA_TOOLS=1` refuses to skip the `ffmpeg` marker, so 46 remain: 41 `live_s3`,
+3 Padyar, 1 SQLite-only drill, 1 broker-restart drill.
 
 **What the backend job exercises:** PostgreSQL 17 service; `check-migrations.sh` (single head,
 upgrade, no drift); the application engine runs as the non-bypass role `homayar_app` through
@@ -61,6 +72,55 @@ reported as missing from the repository (they exist only in the original checkou
   667 passed, 81 skipped, 0 failed. The drill was not re-run until green: it passed on the first
   CI run after the fix.
 
+## 2a. Redelivery drill on `main` `1b34472` (Session A, 2026-09-27)
+
+- **Failure:** `test_visibility_timeout_redelivery_during_a_live_attempt_is_inert` —
+  `redelivered copy rejected by the live lease: not reached within 200.0s` (job 108436100006).
+  Not the kill-child drill of §2 and not the media change.
+- **Cause (timing-dependent):** the drill accepted only `already_running` from the redelivered
+  copy. The claim locks the job row with `SKIP LOCKED`, so a copy arriving during a heartbeat
+  renewal answers `busy` (inert); a renewal delayed beyond the drill's 2 s slack (4 s lease, 2 s
+  renewal) lapses the lease and the copy answers `lease_expired`. Either answer is acknowledged and
+  leaves nothing for kombu to restore, so the drill times out. The `main` runner was ~1.4× slower
+  than the PR runner in every segment of the suite. Which answer occurred there is not retained (no
+  worker logs in CI).
+- **Linux replica** (`ubuntu:24.04` with apt ffmpeg 6.1.1-3ubuntu5, Python 3.12.3, uv 0.11.24,
+  `postgres:17-alpine`, `redis:7.4-alpine`, the job's environment; worker sessions verified as
+  `homayar_app`, not superuser, no `BYPASSRLS`): original drill on `1b34472` passed once; copy with
+  a live lease → `already_running`; copy while the row is locked → `busy`, Redis drained; renewing
+  process stopped 6 s → `JOB_LEASE_LOST … expired`, copy → `lease_expired`; **`main`'s drill body
+  with the row locked at the redelivery reproduced the exact CI message** (copy answered `busy`);
+  the corrected drill passed under the same injection (copy `busy`).
+- **Fix (test only, `c45e798`):** both inert answers accepted; any other answer fails at once;
+  lease generation asserted unchanged; exactly one inert copy and one completed attempt;
+  `_completed_once` unchanged; this drill's workers use a 30 s lease renewed every 10 s; every
+  drill prints its worker log tails at teardown (shown by pytest only on failure).
+
+## 2b. Bounded decode diagnostics (R-02 completion, Session A)
+
+- **Finding (PR #5 run 36250360273):** ffmpeg 6.1.1 (Ubuntu 24.04) exits 0 for `corrupt.mp3`,
+  `corrupt.flac` and `tail.mp3` despite `-xerror` (ffmpeg 5.1.9 and 8.1.2 exit non-zero), so an
+  Ubuntu 24.04 host would have accepted corrupted uploads that other hosts refused.
+- `88a77c2` (merged) refused any error-level stderr but buffered all of it in memory
+  (`subprocess.run(stderr=PIPE)`). `e29de4d` (never merged) wrote it to an anonymous temporary file.
+  **Correction of that commit's record:** the `-t` window and the timeout do not bound the volume,
+  and the temporary file does store the diagnostics (on disk). Measured with a stand-in decoder
+  writing without end, 10 s timeout: `88a77c2` ~396 MB written, 860 MB peak RSS, classified as a
+  transient timeout; `e29de4d` ~403 MB written to disk, also a transient timeout.
+- **Final (`4428756`):** `-v error -nostats`; stderr is a pipe of which at most one byte is read on
+  a watcher thread; the first diagnostic byte is a terminal `media_decode_failed` and the decoder
+  is killed (it can write at most one kernel pipe buffer); a silent decoder past the timeout is a
+  transient `media_decode_timeout`; missing binary transient; the decoder is killed if running and
+  reaped on every path, including an exception raised while waiting. Same measurement: refused in
+  0.9 s, nothing beyond the pipe buffer written, 20 MB peak RSS.
+- **Tests:** stand-in decoder processes (argv, stdin/stdout on the null device, exit codes, exit 0
+  with a diagnostic, timeout, flood bound, interrupted wait, no leak of path or diagnostic text,
+  stdout output not a diagnostic) and real ffmpeg (valid fixtures leave stderr empty under the exact
+  command; a 60 s file over the deployed 30 s window is accepted; corrupt/truncated fixtures
+  refused). Replica with ffmpeg 6.1.1: media validation, fixtures and upload-route adversarial
+  tests **89 passed, 0 skipped**; with ffmpeg removed and `HOMAYAR_REQUIRE_MEDIA_TOOLS=1`, pytest
+  stops with the usage error (exit 4). macOS ffmpeg 8.1.2: the same unit and fixture files 80 passed.
+
 ## 3. Other checks (historical results; tested source unchanged since, unless noted)
 
 | Check | Revision | Result | Recorded in |
@@ -90,7 +150,7 @@ PostgreSQL 16 local run are the same test suite on different environments.
 | Real backend integration | PostgreSQL (16 locally, 17 in CI) with RLS as `homayar_app`; Redis; real Celery prefork workers and beat; real ffprobe/ffmpeg locally; real nginx configuration in the journey; real SMTP client against a local sink |
 | Fixture or fake-provider tests | mock ASR/analysis (development only); diarization "unavailable"; S3 adapter over a controlled fake client; provider contract tests with fakes; Session B's QA audit (fixture API, superseded by Session C re-checks) |
 | Live external-service validation | **none**: no model, the Padyar AI Gateway, Google, Asanak, a mail server, an S3 bucket, or a deployed topology was used |
-| Not run | ffmpeg tests in CI (R-02); live S3 (41); Padyar (3); broker-restart drill in CI; website browser tests (not in the repository); real devices, Safari/Firefox, screen readers; load tests; restore rehearsal on real infrastructure |
+| Not run | live S3 (41); Padyar (3); broker-restart drill in CI; website browser tests (not in the repository); real devices, Safari/Firefox, screen readers; load tests; restore rehearsal on real infrastructure |
 
 ## 5. How to reproduce the CI backend job locally (Linux replica)
 
@@ -99,6 +159,9 @@ Disposable, all names prefixed per session; no shared services.
 1. Docker network plus `postgres:17-alpine` (user/password/db as in the `backend` job of `ci.yml`)
    and `redis:7.4-alpine` on it.
 2. Clean clone of the revision (never the working checkout), mounted into `python:3.12-slim`.
+   For the runner's ffmpeg (6.1.1-3ubuntu5), use `ubuntu:24.04` with `apt-get install python3
+   python3-venv python3-pip ffmpeg procps` and `pip install --break-system-packages uv==<UV_VERSION>`
+   instead (pullable again on 2026-09-27; Session A's replica, §2a).
 3. Inside: `apt-get install procps` (and `ffmpeg` to include the 35 media tests),
    `pip install uv==<UV_VERSION from ci.yml>`, `cd Homayar && uv sync --frozen`, export the `env:`
    block of the `backend` job (host names of the service containers instead of `127.0.0.1`), run
@@ -112,5 +175,5 @@ Session C's workaround.
 
 ## 6. Remaining validation gaps
 
-See `REMAINING_WORK.md`: R-02 (ffmpeg in CI), R-03 (website tests), R-09…R-13 (external services),
+See `REMAINING_WORK.md`: R-03 (website tests), R-09…R-13 (external services),
 R-06 (reproducible builds), and every production gate in `PROJECT_STATE.md` §8.

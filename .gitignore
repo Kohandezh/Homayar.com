@@ -43,7 +43,10 @@ yarn-error.log*
 next-env.d.ts
 
 # local tooling / caches
-.claude/
+# .claude/ is local, except the shared skills and agents
+.claude/*
+!.claude/skills/
+!.claude/agents/
 .codex/
 .gstack/
 .pnpm-store/

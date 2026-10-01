@@ -1,0 +1,1404 @@
+diff --git a/Homayar/backend/tests/_text_normalization_reference.py b/Homayar/backend/tests/_text_normalization_reference.py
+new file mode 100644
+index 0000000..07b83c1
+--- /dev/null
++++ b/Homayar/backend/tests/_text_normalization_reference.py
+@@ -0,0 +1,548 @@
++"""Frozen BASE_SHA reference copies of every Persian/Arabic normaliser (WP22-T02, HOM-120).
++
++Provenance: base commit ``7112407`` (BASE_SHA of team wp22t02-t1).  Every ``_NAME_a_b``
++string below (after its opening newline) is a verbatim copy of lines ``a``-``b`` of the named
++base file under ``Homayar/backend/`` (``git show 7112407:Homayar/backend/<file> | sed -n
++'a,bp'``); its sha256 is recorded in ``_DIGESTS`` and checked at import.  Source files of the
++migrated copies:
++
++- ``backend/privacy/text_pii.py:53,60-62`` (``_DIGITS``, ``normalize_digits``)
++- ``backend/speech/text_normalize.py:19-25,28-227`` (all of it except the text_pii import at :26)
++- ``backend/locations/textnorm.py:10-12,16-83`` (all of it except the text_pii import at :14)
++- ``backend/voicemail/classify.py:16-22,28-60,313-315,348-349`` (imports, the normalisation
++  section, ``MIN_WORD_CHARS``/``_WORD_CHARS`` and ``is_empty_transcript``; not the models import)
++- ``backend/security/normalization.py:1-4,8-9,20-33`` (``normalize_iranian_mobile``)
++- ``backend/voicemail/ingest.py:91-106`` (``normalize_caller_number``)
++- ``backend/routers/v1/auth.py:616-618`` (the inline OTP digit translation, wrapped in a call)
++
++Each copy is executed in its own namespace (the copies share names such as ``_CHAR_MAP``,
++``_PUNCT`` and ``normalize_text``).  The imports the base files made of other backend modules
++are replaced by injecting the matching frozen copy: speech and locations get this module's
++text_pii ``normalize_digits``, ingest gets this module's ``normalize_iranian_mobile``.  Nothing
++here imports production code, so the references stay at BASE_SHA whatever the owner becomes.
++
++Underscore module: not collected by pytest.  Used by ``test_text_normalization_golden.py``.
++"""
++
++from __future__ import annotations
++import __future__
++
++import hashlib
++import linecache
++import sys
++import types
++from types import SimpleNamespace
++
++BASE_SHA = "7112407"
++
++# backend/privacy/text_pii.py:53-53 @ 7112407
++_TEXT_PII_53 = r"""
++_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
++"""
++
++# backend/privacy/text_pii.py:60-62 @ 7112407
++_TEXT_PII_60_62 = r'''
++def normalize_digits(text: str) -> str:
++    """Persian/Arabic-Indic digits to ASCII; one character each, offsets kept."""
++    return text.translate(_DIGITS)
++'''
++
++# backend/speech/text_normalize.py:19-25 @ 7112407
++_SPEECH_19_25 = r"""
++from __future__ import annotations
++
++import re
++import unicodedata
++from collections.abc import Callable, Mapping
++from dataclasses import dataclass
++
++"""
++
++# backend/speech/text_normalize.py:28-227 @ 7112407
++_SPEECH_28_227 = r'''
++ZWNJ = "‌"
++
++_ARABIC_TO_PERSIAN = str.maketrans(
++    {
++        "ي": "ی",
++        "ى": "ی",
++        "ك": "ک",
++        "ة": "ه",
++        "ۀ": "ه",
++        "أ": "ا",
++        "إ": "ا",
++        "ٱ": "ا",
++        "ؤ": "و",
++        "ٲ": "ا",
++    }
++)
++
++# Harakat, tanwin, shadda, sukun, superscript alef, and tatweel.
++_DIACRITICS_RE = re.compile("[ً-ٰٟـ]")
++_PUNCT = str.maketrans({"?": "؟", ";": "؛", ",": "،", "«": '"', "»": '"'})
++_SPACE_RE = re.compile(r"[ \t  -​  　]+")
++_ZW_RUN_RE = re.compile(f"[{ZWNJ}‍]+")
++_SPACE_AROUND_ZWNJ_RE = re.compile(f" *{ZWNJ} *")
++_SPACE_BEFORE_PUNCT_RE = re.compile(r" +([.،؛؟!:)])")
++# می / نمی verb prefix followed by a space or nothing before a verb stem.
++_MI_PREFIX_RE = re.compile(r"(?<![\w؀-ۿ])(ن?می)[ ]+(?=[؀-ۿ]{2,})")
++# Plural suffix separated by a space: "کتاب ها" -> "کتاب‌ها".
++_HA_SUFFIX_RE = re.compile(r"(?<=[؀-ۿ]{2}) +(ها(?:ی|یی|یم|یت|یش|یمان|یتان|یشان)?)(?![؀-ۿ])")
++
++# Common spoken Tehrani forms → formal written forms.  Deliberately small and
++# overridable; callers own completeness.
++DEFAULT_COLLOQUIAL_FA: Mapping[str, str] = {
++    "میخوام": "می‌خواهم",
++    "می‌خوام": "می‌خواهم",
++    "میخوای": "می‌خواهی",
++    "می‌خوای": "می‌خواهی",
++    "میخواد": "می‌خواهد",
++    "می‌خواد": "می‌خواهد",
++    "نمیخوام": "نمی‌خواهم",
++    "نمی‌خوام": "نمی‌خواهم",
++    "میتونم": "می‌توانم",
++    "می‌تونم": "می‌توانم",
++    "میتونید": "می‌توانید",
++    "می‌تونید": "می‌توانید",
++    "نمیتونم": "نمی‌توانم",
++    "نمی‌تونم": "نمی‌توانم",
++    "میشه": "می‌شود",
++    "می‌شه": "می‌شود",
++    "نمیشه": "نمی‌شود",
++    "نمی‌شه": "نمی‌شود",
++    "میگم": "می‌گویم",
++    "می‌گم": "می‌گویم",
++    "میدم": "می‌دهم",
++    "می‌دم": "می‌دهم",
++    "بدین": "بدهید",
++    "بگین": "بگویید",
++    "دارین": "دارید",
++    "هستین": "هستید",
++    "کنین": "کنید",
++    "اینجوری": "این‌جوری",
++    "چجوری": "چطور",
++    "چیه": "چیست",
++    "کجاست": "کجاست",
++    "دیگه": "دیگر",
++    "الان": "الان",
++    "اگه": "اگر",
++    "واسه": "برای",
++    "ممنونم": "ممنونم",
++    "باشه": "باشد",
++    "یه": "یک",
++}
++
++
++def unify_arabic_letters(text: str) -> str:
++    return text.translate(_ARABIC_TO_PERSIAN)
++
++
++def strip_diacritics(text: str) -> str:
++    return _DIACRITICS_RE.sub("", text)
++
++
++def normalize_whitespace(text: str) -> str:
++    text = _SPACE_RE.sub(" ", text.replace("​", " "))
++    text = re.sub(r"[\r\n]+", " ", text)
++    return re.sub(" {2,}", " ", text).strip()
++
++
++def normalize_zwnj(text: str) -> str:
++    text = _ZW_RUN_RE.sub(ZWNJ, text)
++    text = _SPACE_AROUND_ZWNJ_RE.sub(ZWNJ, text)
++    text = _MI_PREFIX_RE.sub(lambda m: m.group(1) + ZWNJ, text)
++    text = _HA_SUFFIX_RE.sub(lambda m: ZWNJ + m.group(1), text)
++    # A ZWNJ at a word boundary carries no meaning.
++    text = re.sub(f"(^|[ ]){ZWNJ}+|{ZWNJ}+($|[ ])", r"\1\2", text)
++    return text
++
++
++def normalize_punctuation_fa(text: str) -> str:
++    text = text.translate(_PUNCT)
++    return _SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
++
++
++def apply_token_map(text: str, table: Mapping[str, str]) -> str:
++    """Whole-token replacement (tokens are split on single spaces)."""
++    if not table:
++        return text
++    return " ".join(table.get(tok, tok) for tok in text.split(" "))
++
++
++def normalize_fa(
++    text: str,
++    *,
++    colloquial: Mapping[str, str] | None = None,
++    punctuation: bool = True,
++) -> str:
++    """Full Persian normalisation.  ``colloquial=None`` disables rewriting;
++    pass :data:`DEFAULT_COLLOQUIAL_FA` (or your own table) to enable it."""
++    text = unicodedata.normalize("NFC", text)
++    text = unify_arabic_letters(text)
++    text = strip_diacritics(text)
++    text = normalize_digits(text)
++    text = normalize_whitespace(text)
++    if colloquial:
++        # Match both the ZWNJ and non-ZWNJ spellings before ZWNJ repair.
++        text = apply_token_map(text, colloquial)
++    text = normalize_zwnj(text)
++    if punctuation:
++        text = normalize_punctuation_fa(text)
++    return text
++
++
++def normalize_en(text: str, **_: object) -> str:
++    text = unicodedata.normalize("NFKC", text)
++    text = normalize_digits(text)
++    text = text.replace("’", "'").replace("‘", "'")
++    return normalize_whitespace(text)
++
++
++_AZ_LATIN = str.maketrans({"ä": "ə", "Ä": "Ə", "ǝ": "ə", "Ǝ": "Ə"})
++
++
++def normalize_az(text: str, **_: object) -> str:
++    """Azerbaijani basics: NFC, schwa variants unified (Latin script),
++    Arabic-script letters unified with Persian conventions (Iranian
++    Azerbaijani), digits, whitespace.  No orthography conversion."""
++    text = unicodedata.normalize("NFC", text).translate(_AZ_LATIN)
++    text = unify_arabic_letters(text)
++    text = strip_diacritics(text)
++    text = normalize_digits(text)
++    return normalize_zwnj(normalize_whitespace(text))
++
++
++def normalize_for_matching(text: str, language: str = "fa") -> str:
++    """Aggressive form for WER/CER and keyword matching: normalised, casefolded,
++    punctuation removed, ZWNJ treated as a word-internal join (removed)."""
++    text = get_normalizer(language)(text)
++    text = text.replace(ZWNJ, "")
++    text = re.sub(r"[^\w\s]", " ", text.casefold())
++    return normalize_whitespace(text)
++
++
++@dataclass(frozen=True)
++class NormalizerEntry:
++    language: str
++    func: Callable[..., str]
++    description: str
++
++
++_REGISTRY: dict[str, NormalizerEntry] = {
++    "fa": NormalizerEntry(
++        "fa", normalize_fa, "Persian: letters, diacritics, digits, ZWNJ, punctuation"
++    ),
++    "en": NormalizerEntry("en", normalize_en, "English: NFKC, quotes, digits, whitespace"),
++    "az": NormalizerEntry(
++        "az", normalize_az, "Azerbaijani basics: Latin schwa, Arabic-script letters"
++    ),
++}
++
++
++def register_normalizer(language: str, func: Callable[..., str], description: str = "") -> None:
++    _REGISTRY[language.lower()] = NormalizerEntry(language.lower(), func, description)
++
++
++def get_normalizer(language: str) -> Callable[..., str]:
++    """``fa-IR``/``az-Latn`` resolve to their primary subtag.  Unknown -> KeyError."""
++    key = language.lower().replace("_", "-")
++    if key in _REGISTRY:
++        return _REGISTRY[key].func
++    primary = key.split("-", 1)[0]
++    if primary in _REGISTRY:
++        return _REGISTRY[primary].func
++    raise KeyError(f"No normalizer registered for language {language!r}")
++
++
++def registered_languages() -> tuple[str, ...]:
++    return tuple(sorted(_REGISTRY))
++
++
++def normalize(text: str, language: str = "fa", **options: object) -> str:
++    return get_normalizer(language)(text, **options)
++'''
++
++# backend/locations/textnorm.py:10-12 @ 7112407
++_LOCATIONS_10_12 = r"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++"""
++
++# backend/locations/textnorm.py:16-83 @ 7112407
++_LOCATIONS_16_83 = r'''
++_CHAR_MAP = {
++    "ي": "ی",  # Arabic yeh -> Persian yeh
++    "ى": "ی",  # alef maksura -> Persian yeh
++    "ك": "ک",  # Arabic kaf -> Persian keheh
++    "ة": "ه",  # teh marbuta -> heh
++    "أ": "ا",
++    "إ": "ا",
++    "ٱ": "ا",
++    "‌": " ",  # ZWNJ -> space
++    "‍": "",
++    "‏": "",
++    "‎": "",
++    "ـ": "",  # tatweel
++    "٫": ".",  # Arabic decimal separator
++    "٬": ",",
++    "،": ",",  # Arabic comma
++    " ": " ",
++}
++# Harakat / tanwin / shadda / sukun: dropped.
++_DROP = {chr(c) for c in range(0x064B, 0x0660)} | {"ٰ"}
++
++
++@dataclass(frozen=True)
++class NormalizedText:
++    text: str
++    offsets: tuple[int, ...]  # offsets[i] = original index of normalized char i
++    original: str
++
++    def span(self, start: int, end: int) -> tuple[int, int]:
++        """Map a normalized [start, end) span back onto the original text."""
++        if start >= len(self.offsets):
++            return len(self.original), len(self.original)
++        o_start = self.offsets[start]
++        o_end = self.offsets[end - 1] + 1 if end > start else o_start
++        return o_start, o_end
++
++
++def normalize_char_stream(text: str) -> NormalizedText:
++    digits = normalize_digits(text)
++    out: list[str] = []
++    offsets: list[int] = []
++    prev_space = False
++    for index, char in enumerate(digits):
++        if char in _DROP:
++            continue
++        mapped = _CHAR_MAP.get(char, char)
++        if mapped == "":
++            continue
++        if len(mapped) == 1 and mapped.isascii() and mapped.isalpha():
++            mapped = mapped.lower()
++        if mapped.isspace():
++            if prev_space:
++                continue
++            mapped = " "
++            prev_space = True
++        else:
++            prev_space = False
++        out.append(mapped)
++        offsets.append(index)
++    return NormalizedText(text="".join(out), offsets=tuple(offsets), original=text)
++
++
++def normalize_text(text: str) -> str:
++    return normalize_char_stream(text).text.strip()
++
++
++def is_word_char(char: str) -> bool:
++    return char.isalnum() or char == "_"
++'''
++
++# backend/voicemail/classify.py:16-22 @ 7112407
++_VOICEMAIL_16_22 = r"""
++from __future__ import annotations
++
++import re
++import unicodedata
++from collections.abc import Iterable
++from dataclasses import dataclass, field
++from typing import Protocol
++"""
++
++# backend/voicemail/classify.py:28-60 @ 7112407
++_VOICEMAIL_28_60 = r'''
++# --- normalisation -------------------------------------------------------------
++
++_CHAR_MAP = str.maketrans(
++    {
++        "ي": "ی",  # Arabic yeh -> Persian yeh
++        "ى": "ی",  # alef maksura -> Persian yeh
++        "ك": "ک",  # Arabic kaf -> Persian keheh
++        "ة": "ه",  # teh marbuta -> heh
++        "ۀ": "ه",  # heh with yeh above -> heh
++        "أ": "ا",  # alef with hamza above -> alef
++        "إ": "ا",  # alef with hamza below -> alef
++        "ٱ": "ا",  # alef wasla -> alef
++        "ؤ": "و",  # waw with hamza -> waw
++        "‌": " ",  # ZWNJ -> space
++        "‍": "",  # ZWJ
++        "‏": "",  # RLM
++        "‎": "",  # LRM
++        "ـ": "",  # tatweel
++        **{chr(0x06F0 + i): str(i) for i in range(10)},  # Persian digits
++        **{chr(0x0660 + i): str(i) for i in range(10)},  # Arabic-Indic digits
++    }
++)
++_DIACRITICS = re.compile(r"[ً-ٰٟۖ-ۭ]")
++_SPACE = re.compile(r"\s+")
++_PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
++
++
++def normalize_text(value: str) -> str:
++    """Casefolded, Arabic-variant-free, ZWNJ-as-space, punctuation-free text."""
++    text = unicodedata.normalize("NFKC", value or "").translate(_CHAR_MAP)
++    text = _DIACRITICS.sub("", text).casefold()
++    text = _PUNCT.sub(" ", text)
++    return _SPACE.sub(" ", text).strip()
++'''
++
++# backend/voicemail/classify.py:313-315 @ 7112407
++_VOICEMAIL_313_315 = r"""
++# Fewer word characters than this is "no speech" (e.g. "uh", ".", "[noise]").
++MIN_WORD_CHARS = 3
++_WORD_CHARS = re.compile(r"\w", re.UNICODE)
++"""
++
++# backend/voicemail/classify.py:348-349 @ 7112407
++_VOICEMAIL_348_349 = r"""
++def is_empty_transcript(text: str) -> bool:
++    return len(_WORD_CHARS.findall(normalize_text(text))) < MIN_WORD_CHARS
++"""
++
++# backend/security/normalization.py:1-4 @ 7112407
++_SECURITY_1_4 = r"""
++from __future__ import annotations
++
++import re
++import unicodedata
++"""
++
++# backend/security/normalization.py:8-9 @ 7112407
++_SECURITY_8_9 = r"""
++_PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
++_ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
++"""
++
++# backend/security/normalization.py:20-33 @ 7112407
++_SECURITY_20_33 = r"""
++def normalize_iranian_mobile(value: str) -> str:
++    raw = unicodedata.normalize("NFKC", value).translate(_PERSIAN_DIGITS).translate(_ARABIC_DIGITS)
++    digits = re.sub(r"[^0-9+]", "", raw)
++    if digits.startswith("0098"):
++        digits = "+" + digits[2:]
++    elif digits.startswith("98") and not digits.startswith("+"):
++        digits = "+" + digits
++    elif digits.startswith("09"):
++        digits = "+98" + digits[1:]
++    elif digits.startswith("9") and len(digits) == 10:
++        digits = "+98" + digits
++    if not re.fullmatch(r"\+989\d{9}", digits):
++        raise ValueError("Invalid Iranian mobile number")
++    return digits
++"""
++
++# backend/voicemail/ingest.py:91-106 @ 7112407
++_INGEST_91_106 = r'''
++def normalize_caller_number(value: str | None) -> tuple[str | None, bool]:
++    """``(+989xxxxxxxxx, True)`` for an Iranian mobile; else digits-only, ``False``."""
++    if value is None or not value.strip():
++        return None, False
++    try:
++        return normalize_iranian_mobile(value), True
++    except ValueError:
++        # Landlines, international and extensions: keep a comparable,
++        # digits-only form (leading "+" kept) so repeat-caller detection works.
++        raw = value.strip().translate(
++            {**{0x06F0 + i: str(i) for i in range(10)}, **{0x0660 + i: str(i) for i in range(10)}}
++        )
++        digits = "".join(ch for ch in raw if ch.isdigit())
++        if not digits:
++            return None, False
++        return (("+" if raw.startswith("+") else "") + digits)[:32], False
++'''
++
++# backend/routers/v1/auth.py:616-618 @ 7112407
++_AUTH_616_618 = r"""
++            code=payload.code.translate(
++                str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
++            ),
++"""
++
++
++_DIGESTS = {
++    "_TEXT_PII_53": "4d6589c22a23a7320e17bb453edd2ffa46abd64c895c89fb2ebc43cf49d1511d",
++    "_TEXT_PII_60_62": "098557fbb05d57ae9ebbede0fb4e58788f748acff6da6c613b360252d7a896b3",
++    "_SPEECH_19_25": "e614e349be2bb4444cd341746dc3a9341203442210997879e5561eab86e0e8c3",
++    "_SPEECH_28_227": "526230f42f4a7619d1bcc7ae965e9a7a3731e10ce3be6a99745ac619a599227f",
++    "_LOCATIONS_10_12": "5c85b2ffc87021aa936e8846d04916cb7c28778bd85cb01db04f2f8740d14c0a",
++    "_LOCATIONS_16_83": "c8dca834aaa3ce144b71abb337f70d3231dd3583b261b797b799e1b7b66ad5b9",
++    "_VOICEMAIL_16_22": "9d4ee474b5469da922016ca18f0b77c8e5364d861a6c5628f6e14a4a05d08d6d",
++    "_VOICEMAIL_28_60": "28613105c75707bcaa8e918af98dd10ab75d8ebc6d4d92a33bc76eb57262862c",
++    "_VOICEMAIL_313_315": "d3d928605ca1ecc9f2d7051bab028c0543c27f139e2f14dac7387dd41e142f67",
++    "_VOICEMAIL_348_349": "5381f18499f07350c478e76a03cb6280a14dd68254b291e3f0c5b84f40f8c069",
++    "_SECURITY_1_4": "d191398843dbe1eefda714bb5fb2f2a12cc4f940fe783de0307862ad927b26cc",
++    "_SECURITY_8_9": "960407def7c27aeff0c1309f52e5d5a2211d1d883073ec800efa36d916286017",
++    "_SECURITY_20_33": "0f4b60a89bb40014e68484740b07e2315bf9f2e59a6f07f1d6270d0e6eca9467",
++    "_INGEST_91_106": "a67ed43619a0ed3247951815bbbd5c4a19d2af558d5450bad2234653895ea3eb",
++    "_AUTH_616_618": "16f971352e2f7ac81c994d10f72919f9ba5b00402705b8d3faf16b8bc04f2457",
++}
++
++
++def _checked(name: str) -> str:
++    source = globals()[name].removeprefix("\n")  # each literal opens with one newline
++    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
++    if digest != _DIGESTS[name]:
++        raise RuntimeError(f"frozen reference {name} was edited: sha256 {digest}")
++    return source
++
++
++def _load(part: str, snippets: tuple[str, ...], **inject: object) -> types.ModuleType:
++    """Execute verbatim base snippets, in order, in one fresh namespace."""
++    module = types.ModuleType(f"{__name__}.{part}")
++    sys.modules[module.__name__] = module  # dataclasses resolve annotations through it
++    module.__dict__.update(inject)
++    for name in snippets:
++        source = _checked(name)
++        filename = f"<{BASE_SHA}:{name}>"
++        linecache.cache[filename] = (len(source), None, source.splitlines(True), filename)
++        code = compile(
++            source,
++            filename,
++            "exec",
++            flags=__future__.annotations.compiler_flag,
++            dont_inherit=True,
++        )
++        exec(code, module.__dict__)  # noqa: S102 - verbatim frozen base source, see header
++    return module
++
++
++text_pii = _load("text_pii", ("_TEXT_PII_53", "_TEXT_PII_60_62"))
++speech = _load(
++    "speech",
++    ("_SPEECH_19_25", "_SPEECH_28_227"),
++    normalize_digits=text_pii.normalize_digits,
++)
++locations = _load(
++    "locations",
++    ("_LOCATIONS_10_12", "_LOCATIONS_16_83"),
++    normalize_digits=text_pii.normalize_digits,
++)
++voicemail = _load(
++    "voicemail",
++    ("_VOICEMAIL_16_22", "_VOICEMAIL_28_60", "_VOICEMAIL_313_315", "_VOICEMAIL_348_349"),
++)
++security = _load("security", ("_SECURITY_1_4", "_SECURITY_8_9", "_SECURITY_20_33"))
++ingest = _load(
++    "ingest",
++    ("_INGEST_91_106",),
++    normalize_iranian_mobile=security.normalize_iranian_mobile,
++)
++
++# routers/v1/auth.py:616-618 is a keyword argument inside the verify_otp(...) call; the copy
++# evaluates exactly those three lines as the argument list of dict(...) with ``payload`` bound.
++_AUTH_OTP_CALL = eval(  # noqa: S307 - frozen base expression, see the module docstring
++    compile(
++        "lambda payload: dict(\n" + _checked("_AUTH_616_618") + ')["code"]',
++        f"<{BASE_SHA}:_AUTH_616_618>",
++        "eval",
++        dont_inherit=True,
++    )
++)
++
++
++def otp_code_digits(code: str) -> str:
++    """The base OTP ``code`` translation (routers/v1/auth.py:616-618) applied to ``code``."""
++    return _AUTH_OTP_CALL(SimpleNamespace(code=code))
+diff --git a/Homayar/backend/tests/test_text_normalization_golden.py b/Homayar/backend/tests/test_text_normalization_golden.py
+new file mode 100644
+index 0000000..b2dc6c8
+--- /dev/null
++++ b/Homayar/backend/tests/test_text_normalization_golden.py
+@@ -0,0 +1,844 @@
++"""WP22-T02 (HOM-120) golden no-behaviour-change tests for Persian/Arabic text normalisation.
++
++Provenance: captured at base ``7112407`` (BASE_SHA of team wp22t02-t1) from the copies in
++``backend/speech/text_normalize.py``, ``backend/locations/textnorm.py``,
++``backend/voicemail/classify.py``, ``backend/privacy/text_pii.py`` and
++``backend/security/normalization.py`` (plus the granted sites ``backend/voicemail/ingest.py``
++:99-101 and ``backend/routers/v1/auth.py``:616-618).  The frozen reference copies, with their
++file:line ranges, live in ``backend/tests/_text_normalization_reference.py``.
++
++Two kinds of evidence, both pure functions (no database, no client):
++
++- An exhaustive differential sweep: every BMP code point except the surrogates, in eight
++  templates, through every normaliser, compared with the frozen BASE_SHA copies (not with
++  literals, so the sweep holds whatever Unicode version Python ships).  The sweep is split into
++  jobs that run in worker processes when the machine has more than one CPU.
++- A literal golden corpus: detector, redaction, voicemail classification/prioritisation and
++  location extraction outputs, written as literals captured at base.  Literal inputs use only
++  code points whose Unicode properties are the same in Unicode 15.0 and 15.1.
++
++This module imports only names that exist at BASE_SHA, so it passes unmodified on a clean
++base checkout (Foreman gate G-base) and on the migrated head.
++"""
++
++# ruff: noqa: E501 - the literal corpus below keeps one captured case per line
++
++from __future__ import annotations
++
++import functools
++import multiprocessing
++import os
++import threading
++from collections.abc import Callable
++from concurrent.futures import ProcessPoolExecutor
++
++import pytest
++
++from backend.locations import textnorm as prod_locations
++from backend.locations.extract import extract_locations
++from backend.privacy import text_pii as prod_text_pii
++from backend.privacy.redaction_service import policy_digest
++from backend.security import normalization as prod_security
++from backend.speech import text_normalize as prod_speech
++from backend.tests import _text_normalization_reference as ref
++from backend.voicemail import classify as prod_voicemail
++from backend.voicemail import ingest as prod_ingest
++
++# --- exhaustive differential sweep --------------------------------------------------
++
++CODE_POINTS: tuple[int, ...] = tuple(c for c in range(0x10000) if not 0xD800 <= c <= 0xDFFF)
++
++# (label, prefix, suffix): the sweep string is prefix + chr(code point) + suffix.
++TEMPLATES: tuple[tuple[str, str, str], ...] = (
++    ("c", "", ""),
++    ("beh c beh", "ب", "ب"),
++    ("fa-one c 2", "۱", "2"),
++    ("arabic-yeh c", "\u064a", ""),
++    ("c hamza-above", "", "\u0654"),
++    ("c maddah-above", "", "\u0653"),
++    ("mi-space c ravam", "می ", "روم"),
++    ("ketab-space c ha", "کتاب ", "ها"),
++)
++
++_CHUNK = 7936  # code points per job: 8 jobs per template, 64 jobs in all
++_MAX_REPORTED = 5  # mismatching inputs reported per function and job
++
++
++def _outcome(func: Callable[[str], object], text: str) -> tuple[str, object]:
++    """A value or the exception it raised, so raising functions compare like values."""
++    try:
++        return ("value", func(text))
++    except Exception as exc:  # the exception type and message are the result
++        return ("raises", f"{type(exc).__name__}: {exc}")
++
++
++def _stream_view(result) -> tuple[object, ...]:
++    """``normalize_char_stream`` result plus ``span(i, j)`` for every 0 <= i <= j <= len."""
++    size = len(result.text)
++    span = result.span
++    spans = [span(i, j) for i in range(size + 1) for j in range(i, size + 1)]
++    return (result.text, result.offsets, result.original, spans)
++
++
++def _raising(func: Callable[[str], object]) -> Callable[[str], object]:
++    return functools.partial(_outcome, func)
++
++
++def _viewed(func: Callable[[str], object]) -> Callable[[str], object]:
++    def call(text: str) -> object:
++        return _stream_view(func(text))
++
++    return call
++
++
++# name -> (production, frozen base reference).  Production names all exist at BASE_SHA.
++SWEEP: dict[str, tuple[Callable[[str], object], Callable[[str], object]]] = {
++    "text_pii.normalize_digits": (prod_text_pii.normalize_digits, ref.text_pii.normalize_digits),
++    "auth OTP code digits (routers/v1/auth.py:616-618)": (
++        prod_text_pii.normalize_digits,
++        ref.otp_code_digits,
++    ),
++    "speech.unify_arabic_letters": (
++        prod_speech.unify_arabic_letters,
++        ref.speech.unify_arabic_letters,
++    ),
++    "speech.strip_diacritics": (prod_speech.strip_diacritics, ref.speech.strip_diacritics),
++    "speech.normalize_whitespace": (
++        prod_speech.normalize_whitespace,
++        ref.speech.normalize_whitespace,
++    ),
++    "speech.normalize_zwnj": (prod_speech.normalize_zwnj, ref.speech.normalize_zwnj),
++    "speech.normalize_punctuation_fa": (
++        prod_speech.normalize_punctuation_fa,
++        ref.speech.normalize_punctuation_fa,
++    ),
++    "speech.normalize_fa": (prod_speech.normalize_fa, ref.speech.normalize_fa),
++    "speech.normalize_fa(colloquial=DEFAULT_COLLOQUIAL_FA)": (
++        functools.partial(prod_speech.normalize_fa, colloquial=prod_speech.DEFAULT_COLLOQUIAL_FA),
++        functools.partial(ref.speech.normalize_fa, colloquial=ref.speech.DEFAULT_COLLOQUIAL_FA),
++    ),
++    "speech.normalize_fa(punctuation=False)": (
++        functools.partial(prod_speech.normalize_fa, punctuation=False),
++        functools.partial(ref.speech.normalize_fa, punctuation=False),
++    ),
++    "speech.normalize_en": (prod_speech.normalize_en, ref.speech.normalize_en),
++    "speech.normalize_az": (prod_speech.normalize_az, ref.speech.normalize_az),
++    "speech.normalize_for_matching(fa)": (
++        functools.partial(prod_speech.normalize_for_matching, language="fa"),
++        functools.partial(ref.speech.normalize_for_matching, language="fa"),
++    ),
++    "speech.normalize_for_matching(en)": (
++        functools.partial(prod_speech.normalize_for_matching, language="en"),
++        functools.partial(ref.speech.normalize_for_matching, language="en"),
++    ),
++    "speech.normalize_for_matching(az)": (
++        functools.partial(prod_speech.normalize_for_matching, language="az"),
++        functools.partial(ref.speech.normalize_for_matching, language="az"),
++    ),
++    "locations.normalize_char_stream (text, offsets, original, every span)": (
++        _viewed(prod_locations.normalize_char_stream),
++        _viewed(ref.locations.normalize_char_stream),
++    ),
++    "locations.normalize_text": (prod_locations.normalize_text, ref.locations.normalize_text),
++    "locations.is_word_char": (prod_locations.is_word_char, ref.locations.is_word_char),
++    "voicemail.normalize_text": (prod_voicemail.normalize_text, ref.voicemail.normalize_text),
++    "voicemail.is_empty_transcript": (
++        prod_voicemail.is_empty_transcript,
++        ref.voicemail.is_empty_transcript,
++    ),
++    "security.normalize_iranian_mobile (value or exception)": (
++        _raising(prod_security.normalize_iranian_mobile),
++        _raising(ref.security.normalize_iranian_mobile),
++    ),
++    "voicemail.ingest.normalize_caller_number": (
++        prod_ingest.normalize_caller_number,
++        ref.ingest.normalize_caller_number,
++    ),
++}
++# One-to-one maps whose output length must equal the input length (offsets depend on it).
++LENGTH_PRESERVING: dict[str, Callable[[str], str]] = {
++    "text_pii.normalize_digits": prod_text_pii.normalize_digits,
++    "speech.unify_arabic_letters": prod_speech.unify_arabic_letters,
++}
++
++
++def _sweep_inputs(template: int, start: int, stop: int) -> list[str]:
++    _label, prefix, suffix = TEMPLATES[template]
++    return [prefix + chr(code) + suffix for code in CODE_POINTS[start:stop]]
++
++
++def _describe(text: str, produced: object, expected: object) -> str:
++    return (
++        f"input {text!r} (code points {[hex(ord(c)) for c in text]}): {produced!r} != {expected!r}"
++    )
++
++
++def _sweep_job(job: tuple[int, int, int]) -> dict[str, object]:
++    """One template x one slice of code points through every function (worker entry point)."""
++    template, start, stop = job
++    inputs = _sweep_inputs(template, start, stop)
++    checked: dict[str, int] = {}
++    mismatches: dict[str, list[str]] = {}
++    for name, (production, reference) in SWEEP.items():
++        try:
++            produced = list(map(production, inputs))
++            expected = list(map(reference, inputs))
++            fast = produced == expected
++        except Exception:  # compare input by input below, exceptions included
++            fast = False
++        if not fast:
++            produced = [_outcome(production, text) for text in inputs]
++            expected = [_outcome(reference, text) for text in inputs]
++            bad = [i for i, (p, e) in enumerate(zip(produced, expected, strict=True)) if p != e]
++            if bad:
++                mismatches[name] = [
++                    _describe(inputs[i], produced[i], expected[i]) for i in bad[:_MAX_REPORTED]
++                ] + ([f"... {len(bad)} mismatching inputs in this job"] if len(bad) > 1 else [])
++        checked[name] = len(inputs)
++    length_violations: dict[str, list[str]] = {}
++    for name, func in LENGTH_PRESERVING.items():
++        wrong = [text for text in inputs if len(func(text)) != len(text)]
++        if wrong:
++            length_violations[name] = [repr(text) for text in wrong[:_MAX_REPORTED]]
++    return {
++        "job": job,
++        "checked": checked,
++        "mismatches": mismatches,
++        "length_violations": length_violations,
++    }
++
++
++def _jobs() -> list[tuple[int, int, int]]:
++    return [
++        (template, start, min(start + _CHUNK, len(CODE_POINTS)))
++        for template in range(len(TEMPLATES))
++        for start in range(0, len(CODE_POINTS), _CHUNK)
++    ]
++
++
++def _worker_count() -> int:
++    try:
++        cpus = len(os.sched_getaffinity(0))
++    except AttributeError:  # not Linux
++        cpus = os.cpu_count() or 1
++    return max(1, min(4, cpus))
++
++
++def _single_threaded() -> bool:
++    try:
++        return len(os.listdir("/proc/self/task")) == 1
++    except OSError:
++        return threading.active_count() == 1
++
++
++@pytest.fixture(scope="module")
++def sweep() -> dict[str, object]:
++    jobs = _jobs()
++    workers = _worker_count()
++    if workers == 1:
++        results = [_sweep_job(job) for job in jobs]
++    else:
++        # fork is cheap and safe while this process has one thread; otherwise spawn.
++        context = multiprocessing.get_context("fork" if _single_threaded() else "spawn")
++        with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
++            results = list(pool.map(_sweep_job, jobs))
++    checked: dict[str, int] = {}
++    mismatches: dict[str, list[str]] = {}
++    length_violations: dict[str, list[str]] = {}
++    covered: dict[int, list[tuple[int, int]]] = {}
++    for result in results:
++        template, start, stop = result["job"]
++        covered.setdefault(template, []).append((start, stop))
++        for name, count in result["checked"].items():
++            checked[name] = checked.get(name, 0) + count
++        for name, lines in result["mismatches"].items():
++            mismatches.setdefault(name, []).extend(f"[{TEMPLATES[template][0]}] {x}" for x in lines)
++        for name, lines in result["length_violations"].items():
++            length_violations.setdefault(name, []).extend(lines)
++    return {
++        "checked": checked,
++        "mismatches": mismatches,
++        "length_violations": length_violations,
++        "covered": covered,
++    }
++
++
++def test_sweep_covers_every_bmp_code_point_in_every_template(sweep) -> None:
++    assert len(CODE_POINTS) == 0x10000 - 0x800 and len(set(CODE_POINTS)) == len(CODE_POINTS)
++    assert CODE_POINTS[0] == 0 and CODE_POINTS[-1] == 0xFFFF
++    assert not any(0xD800 <= code <= 0xDFFF for code in CODE_POINTS)
++    assert sorted(sweep["covered"]) == list(range(len(TEMPLATES)))
++    for ranges in sweep["covered"].values():
++        edges = sorted(ranges)
++        assert edges[0][0] == 0 and edges[-1][1] == len(CODE_POINTS)
++        assert all(left[1] == right[0] for left, right in zip(edges, edges[1:], strict=False))
++
++
++@pytest.mark.parametrize("name", list(SWEEP))
++def test_sweep_output_equals_the_frozen_base_copy(sweep, name: str) -> None:
++    assert sweep["checked"][name] == len(CODE_POINTS) * len(TEMPLATES)
++    assert sweep["mismatches"].get(name, []) == []
++
++
++@pytest.mark.parametrize("name", list(LENGTH_PRESERVING))
++def test_sweep_one_to_one_maps_keep_the_length(sweep, name: str) -> None:
++    assert sweep["length_violations"].get(name, []) == []
++
++
++# --- literal golden corpus, captured at 7112407 (one case per line) -----------------------
++# Generated at base by running the production functions on these inputs; the values are
++# literals.  Confusable, invisible and combining characters are written as escapes.
++
++# fmt: off
++BASE_DETECTOR_VERSION = "text-pii/1"
++BASE_RULES_VERSION = "vm-rules-2026.09.1"
++BASE_POLICY_DIGEST_ALL = "959fd446dfa18828da8543a05eefb4e4be20bb0cbbcbf84b92f45b58b3ed35ad"
++BASE_POLICY_DIGEST_EMAIL = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058cdd1d8"
++# (input, speech.normalize_fa, locations stream text, stream offsets,
++#  locations.normalize_text, voicemail.normalize_text)
++PROFILE_TABLE = [
++    ("خان\u06c0", "خانه", "خان\u06c0", (0, 1, 2, 3), "خان\u06c0", "خانه"),
++    ("م\u0624سسه", "موسسه", "م\u0624سسه", (0, 1, 2, 3, 4), "م\u0624سسه", "موسسه"),
++    ("\u0672", "ا", "\u0672", (0,), "\u0672", "\u0672"),
++    ("ا\u0653ب", "آب", "اب", (0, 2), "اب", "آب"),
++    ("\u064a\u0654", "ئ", "ی", (0,), "ی", "ئ"),
++    ("\ufef1\ufeee", "\ufef1\ufeee", "\ufef1\ufeee", (0, 1), "\ufef1\ufeee", "یو"),
++    ("می\u200cروم", "می\u200cروم", "می روم", (0, 1, 2, 3, 4, 5), "می روم", "می روم"),
++    ("\u200fسلام\u200e", "\u200fسلام\u200e", "سلام", (1, 2, 3, 4), "سلام", "سلام"),
++    ("۳۵\u066b۷، ۵۱\u066c۴", "35\u066b7، 51\u066c4", "35.7, 51,4", (0, 1, 2, 3, 4, 5, 6, 7, 8, 9), "35.7, 51,4", "35 7 51 4"),
++    ("\uff11\uff12\uff13", "\uff11\uff12\uff13", "\uff11\uff12\uff13", (0, 1, 2), "\uff11\uff12\uff13", "123"),
++    ("سلام\u06ddا", "سلام\u06ddا", "سلام\u06ddا", (0, 1, 2, 3, 4, 5), "سلام\u06ddا", "سلاما"),
++    ("ته\u0640\u0640\u0640ران", "تهران", "تهران", (0, 1, 5, 6, 7), "تهران", "تهران"),
++    ("ABC Tehran", "ABC Tehran", "abc tehran", (0, 1, 2, 3, 4, 5, 6, 7, 8, 9), "abc tehran", "abc tehran"),
++    ("خ\u064aابان  ول\u064a\u200cعصر، پلا\u0643 ۱۲", "خیابان ولی\u200cعصر، پلاک 12", "خیابان ولی عصر, پلاک 12", (0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23), "خیابان ولی عصر, پلاک 12", "خیابان ولی عصر پلاک 12"),
++    ("عل\u064a \u0643تاب", "علی کتاب", "علی کتاب", (0, 1, 2, 3, 4, 5, 6, 7), "علی کتاب", "علی کتاب"),
++    ("ئ", "ئ", "ئ", (0,), "ئ", "ئ"),
++    ("۱۲۳ و ٤٥٦", "123 و 456", "123 و 456", (0, 1, 2, 3, 4, 5, 6, 7, 8), "123 و 456", "123 و 456"),
++    ("عل\u064a", "علی", "علی", (0, 1, 2), "علی", "علی"),
++]
++ADDRESS = "خ\u064aابان  ول\u064a\u200cعصر، پلا\u0643 ۱۲"
++ADDRESS_SPAN_7_14 = (8, 15)
++ADDRESS_ORIGINAL_7_14 = "ول\u064a\u200cعصر"
++NORMALIZE_DIGITS = [
++    ("۳۵\u066b۷، ۵۱\u066c۴", "35\u066b7، 51\u066c4"),
++    ("\uff11\uff12\uff13", "\uff11\uff12\uff13"),
++    ("۱۲۳ و ٤٥٦", "123 و 456"),
++    ("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"),
++    ("٠٩١٢ ۳۴۵ 6789", "0912 345 6789"),
++]
++# (input, E.164 value or the ValueError message)
++IRANIAN_MOBILE = [
++    ("۰۹۱۲۳۴۵۶۷۸۹", ("value", "+989123456789")),
++    ("٠٩١٢٣٤٥٦٧٨٩", ("value", "+989123456789")),
++    ("\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", ("value", "+989123456789")),
++    ("+۹۸ ۹۱۲ ۳۴۵ ۶۷۸۹", ("value", "+989123456789")),
++    ("۰۹۱۲۳۴۵۶۷۸", ("ValueError", "Invalid Iranian mobile number")),
++    ("۰۰۹۸۹۱۲۳۴۵۶۷۸۹", ("value", "+989123456789")),
++    ("۹۱۲۳۴۵۶۷۸۹", ("value", "+989123456789")),
++    ("۰۹۱۲ ۱۲۳ ۴۵۶۷", ("value", "+989121234567")),
++    ("0912-123-4567", ("value", "+989121234567")),
++    ("٠٢١٨٨٧٧٦٦٥٥", ("ValueError", "Invalid Iranian mobile number")),
++    ("", ("ValueError", "Invalid Iranian mobile number")),
++]
++NORMALIZE_CALLER_NUMBER = [
++    ("۰۲۱-۸۸۷۷۶۶۵۵", ("02188776655", False)),
++    ("٠٩١٢٣٤٥٦٧٨٩", ("+989123456789", True)),
++    ("+۴۴ ۲۰ ۷۹۴۶ ۰۰۰۰", ("+442079460000", False)),
++    ("ext ۱۲۳", ("123", False)),
++    ("", (None, False)),
++    (None, (None, False)),
++    ("\uff10\uff12\uff11\uff18\uff18\uff17\uff17\uff16\uff16\uff15\uff15", ("\uff10\uff12\uff11\uff18\uff18\uff17\uff17\uff16\uff16\uff15\uff15", False)),
++    ("   ", (None, False)),
++    ("+٤٤ (٢٠) ٧٩٤٦-٠٠٠٠", ("+442079460000", False)),
++    ("۰۹۱۲ ۳۴۵ ۶۷۸۹", ("+989123456789", True)),
++    ("no digits", (None, False)),
++]
++VOICEMAIL_NORMALIZE_NONE = ""
++# (text, detect(text) as (start, end, class, value),
++#  redact(text) as (redacted text, [(start, end, class, placeholder, original)]))
++PII_CASES = [
++    ("کد ملی 0012345679", [(7, 17, "ir_national_id", "0012345679")], ("کد ملی [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "0012345679")])),
++    ("کد ملی ۰۰۱۲۳۴۵۶۷۹", [(7, 17, "ir_national_id", "0012345679")], ("کد ملی [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "۰۰۱۲۳۴۵۶۷۹")])),
++    ("کد ملی ٠٠١٢٣٤٥٦٧٩", [(7, 17, "ir_national_id", "0012345679")], ("کد ملی [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "٠٠١٢٣٤٥٦٧٩")])),
++    ("\u0643د مل\u064a 0012345679", [(7, 17, "ir_national_id", "0012345679")], ("\u0643د مل\u064a [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "0012345679")])),
++    ("کد\u200cملی 0012345679", [(7, 17, "ir_national_id", "0012345679")], ("کد\u200cملی [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "0012345679")])),
++    ("\u0643د مل\u064a ۰۰۱۲۳۴۵۶۷۹", [(7, 17, "ir_national_id", "0012345679")], ("\u0643د مل\u064a [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "۰۰۱۲۳۴۵۶۷۹")])),
++    ("کد\u200cملی ۰۰۱۲۳۴۵۶۷۹", [(7, 17, "ir_national_id", "0012345679")], ("کد\u200cملی [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "۰۰۱۲۳۴۵۶۷۹")])),
++    ("\u0643د مل\u064a ٠٠١٢٣٤٥٦٧٩", [(7, 17, "ir_national_id", "0012345679")], ("\u0643د مل\u064a [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "٠٠١٢٣٤٥٦٧٩")])),
++    ("کد\u200cملی ٠٠١٢٣٤٥٦٧٩", [(7, 17, "ir_national_id", "0012345679")], ("کد\u200cملی [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "٠٠١٢٣٤٥٦٧٩")])),
++    ("کد ملی 001-234567-9", [(7, 19, "ir_national_id", "0012345679")], ("کد ملی [IR_NATIONAL_ID_1]", [(7, 19, "ir_national_id", "[IR_NATIONAL_ID_1]", "001-234567-9")])),
++    ("کد ملی ۰۰۱-۲۳۴۵۶۷-۹", [(7, 19, "ir_national_id", "0012345679")], ("کد ملی [IR_NATIONAL_ID_1]", [(7, 19, "ir_national_id", "[IR_NATIONAL_ID_1]", "۰۰۱-۲۳۴۵۶۷-۹")])),
++    ("کد ملی ٠٠١-٢٣٤٥٦٧-٩", [(7, 19, "ir_national_id", "0012345679")], ("کد ملی [IR_NATIONAL_ID_1]", [(7, 19, "ir_national_id", "[IR_NATIONAL_ID_1]", "٠٠١-٢٣٤٥٦٧-٩")])),
++    ("\u0643د مل\u064a 001-234567-9", [(7, 19, "ir_national_id", "0012345679")], ("\u0643د مل\u064a [IR_NATIONAL_ID_1]", [(7, 19, "ir_national_id", "[IR_NATIONAL_ID_1]", "001-234567-9")])),
++    ("کد\u200cملی 001-234567-9", [(7, 19, "ir_national_id", "0012345679")], ("کد\u200cملی [IR_NATIONAL_ID_1]", [(7, 19, "ir_national_id", "[IR_NATIONAL_ID_1]", "001-234567-9")])),
++    ("موبایل ۰۹۱۲۳۴۵۶۷۸۹", [(7, 18, "phone", "09123456789")], ("موبایل [PHONE_1]", [(7, 18, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹")])),
++    ("موبایل ٠٩١٢٣٤٥٦٧٨٩", [(7, 18, "phone", "09123456789")], ("موبایل [PHONE_1]", [(7, 18, "phone", "[PHONE_1]", "٠٩١٢٣٤٥٦٧٨٩")])),
++    ("موبا\u064aل ۰۹۱۲۳۴۵۶۷۸۹", [(7, 18, "phone", "09123456789")], ("موبا\u064aل [PHONE_1]", [(7, 18, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹")])),
++    ("موبایل\u200c۰۹۱۲۳۴۵۶۷۸۹", [(7, 18, "phone", "09123456789")], ("موبایل\u200c[PHONE_1]", [(7, 18, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹")])),
++    ("موبایل ۰۹۱۲ ۳۴۵ ۶۷۸۹", [(7, 20, "phone", "09123456789")], ("موبایل [PHONE_1]", [(7, 20, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹")])),
++    ("موبایل ٠٩١٢ ٣٤٥ ٦٧٨٩", [(7, 20, "phone", "09123456789")], ("موبایل [PHONE_1]", [(7, 20, "phone", "[PHONE_1]", "٠٩١٢ ٣٤٥ ٦٧٨٩")])),
++    ("موبا\u064aل ۰۹۱۲ ۳۴۵ ۶۷۸۹", [(7, 20, "phone", "09123456789")], ("موبا\u064aل [PHONE_1]", [(7, 20, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹")])),
++    ("موبایل\u200c۰۹۱۲ ۳۴۵ ۶۷۸۹", [(7, 20, "phone", "09123456789")], ("موبایل\u200c[PHONE_1]", [(7, 20, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹")])),
++    ("mobile +98 912 345 6789.", [(7, 23, "phone", "09123456789")], ("mobile [PHONE_1].", [(7, 23, "phone", "[PHONE_1]", "+98 912 345 6789")])),
++    ("mobile +۹۸ ۹۱۲ ۳۴۵ ۶۷۸۹.", [(7, 23, "phone", "09123456789")], ("mobile [PHONE_1].", [(7, 23, "phone", "[PHONE_1]", "+۹۸ ۹۱۲ ۳۴۵ ۶۷۸۹")])),
++    ("mobile +٩٨ ٩١٢ ٣٤٥ ٦٧٨٩.", [(7, 23, "phone", "09123456789")], ("mobile [PHONE_1].", [(7, 23, "phone", "[PHONE_1]", "+٩٨ ٩١٢ ٣٤٥ ٦٧٨٩")])),
++    ("mobile\u200c+98 912 345 6789.", [(7, 23, "phone", "09123456789")], ("mobile\u200c[PHONE_1].", [(7, 23, "phone", "[PHONE_1]", "+98 912 345 6789")])),
++    ("mobile +989123456789", [(7, 20, "phone", "09123456789")], ("mobile [PHONE_1]", [(7, 20, "phone", "[PHONE_1]", "+989123456789")])),
++    ("mobile +۹۸۹۱۲۳۴۵۶۷۸۹", [(7, 20, "phone", "09123456789")], ("mobile [PHONE_1]", [(7, 20, "phone", "[PHONE_1]", "+۹۸۹۱۲۳۴۵۶۷۸۹")])),
++    ("mobile +٩٨٩١٢٣٤٥٦٧٨٩", [(7, 20, "phone", "09123456789")], ("mobile [PHONE_1]", [(7, 20, "phone", "[PHONE_1]", "+٩٨٩١٢٣٤٥٦٧٨٩")])),
++    ("mobile\u200c+989123456789", [(7, 20, "phone", "09123456789")], ("mobile\u200c[PHONE_1]", [(7, 20, "phone", "[PHONE_1]", "+989123456789")])),
++    ("mobile 0098-912-345-6789", [(7, 24, "phone", "09123456789")], ("mobile [PHONE_1]", [(7, 24, "phone", "[PHONE_1]", "0098-912-345-6789")])),
++    ("mobile ۰۰۹۸-۹۱۲-۳۴۵-۶۷۸۹", [(7, 24, "phone", "09123456789")], ("mobile [PHONE_1]", [(7, 24, "phone", "[PHONE_1]", "۰۰۹۸-۹۱۲-۳۴۵-۶۷۸۹")])),
++    ("mobile ٠٠٩٨-٩١٢-٣٤٥-٦٧٨٩", [(7, 24, "phone", "09123456789")], ("mobile [PHONE_1]", [(7, 24, "phone", "[PHONE_1]", "٠٠٩٨-٩١٢-٣٤٥-٦٧٨٩")])),
++    ("mobile\u200c0098-912-345-6789", [(7, 24, "phone", "09123456789")], ("mobile\u200c[PHONE_1]", [(7, 24, "phone", "[PHONE_1]", "0098-912-345-6789")])),
++    ("تلفن ۰۲۱-۸۸۷۷۶۶۵۵", [(5, 17, "phone", "02188776655")], ("تلفن [PHONE_1]", [(5, 17, "phone", "[PHONE_1]", "۰۲۱-۸۸۷۷۶۶۵۵")])),
++    ("تلفن ٠٢١-٨٨٧٧٦٦٥٥", [(5, 17, "phone", "02188776655")], ("تلفن [PHONE_1]", [(5, 17, "phone", "[PHONE_1]", "٠٢١-٨٨٧٧٦٦٥٥")])),
++    ("تلفن\u200c۰۲۱-۸۸۷۷۶۶۵۵", [(5, 17, "phone", "02188776655")], ("تلفن\u200c[PHONE_1]", [(5, 17, "phone", "[PHONE_1]", "۰۲۱-۸۸۷۷۶۶۵۵")])),
++    ("تلفن (۰۲۱) ۸۸۷۷ ۶۶۵۵", [(5, 20, "phone", "02188776655")], ("تلفن [PHONE_1]", [(5, 20, "phone", "[PHONE_1]", "(۰۲۱) ۸۸۷۷ ۶۶۵۵")])),
++    ("تلفن (٠٢١) ٨٨٧٧ ٦٦٥٥", [(5, 20, "phone", "02188776655")], ("تلفن [PHONE_1]", [(5, 20, "phone", "[PHONE_1]", "(٠٢١) ٨٨٧٧ ٦٦٥٥")])),
++    ("تلفن\u200c(۰۲۱) ۸۸۷۷ ۶۶۵۵", [(5, 20, "phone", "02188776655")], ("تلفن\u200c[PHONE_1]", [(5, 20, "phone", "[PHONE_1]", "(۰۲۱) ۸۸۷۷ ۶۶۵۵")])),
++    ("call +1 202 555 0143 today", [(5, 20, "phone", "0012025550143")], ("call [PHONE_1] today", [(5, 20, "phone", "[PHONE_1]", "+1 202 555 0143")])),
++    ("call +۱ ۲۰۲ ۵۵۵ ۰۱۴۳ today", [(5, 20, "phone", "0012025550143")], ("call [PHONE_1] today", [(5, 20, "phone", "[PHONE_1]", "+۱ ۲۰۲ ۵۵۵ ۰۱۴۳")])),
++    ("call +١ ٢٠٢ ٥٥٥ ٠١٤٣ today", [(5, 20, "phone", "0012025550143")], ("call [PHONE_1] today", [(5, 20, "phone", "[PHONE_1]", "+١ ٢٠٢ ٥٥٥ ٠١٤٣")])),
++    ("call\u200c+1 202 555 0143 today", [(5, 20, "phone", "0012025550143")], ("call\u200c[PHONE_1] today", [(5, 20, "phone", "[PHONE_1]", "+1 202 555 0143")])),
++    ("card 6037991123456786", [(5, 21, "bank_card", "6037991123456786")], ("card [BANK_CARD_1]", [(5, 21, "bank_card", "[BANK_CARD_1]", "6037991123456786")])),
++    ("card ۶۰۳۷۹۹۱۱۲۳۴۵۶۷۸۶", [(5, 21, "bank_card", "6037991123456786")], ("card [BANK_CARD_1]", [(5, 21, "bank_card", "[BANK_CARD_1]", "۶۰۳۷۹۹۱۱۲۳۴۵۶۷۸۶")])),
++    ("card ٦٠٣٧٩٩١١٢٣٤٥٦٧٨٦", [(5, 21, "bank_card", "6037991123456786")], ("card [BANK_CARD_1]", [(5, 21, "bank_card", "[BANK_CARD_1]", "٦٠٣٧٩٩١١٢٣٤٥٦٧٨٦")])),
++    ("card\u200c6037991123456786", [(5, 21, "bank_card", "6037991123456786")], ("card\u200c[BANK_CARD_1]", [(5, 21, "bank_card", "[BANK_CARD_1]", "6037991123456786")])),
++    ("کارت ۶۰۳۷ ۹۹۱۱ ۲۳۴۵ ۶۷۸۶", [(5, 24, "bank_card", "6037991123456786")], ("کارت [BANK_CARD_1]", [(5, 24, "bank_card", "[BANK_CARD_1]", "۶۰۳۷ ۹۹۱۱ ۲۳۴۵ ۶۷۸۶")])),
++    ("کارت ٦٠٣٧ ٩٩١١ ٢٣٤٥ ٦٧٨٦", [(5, 24, "bank_card", "6037991123456786")], ("کارت [BANK_CARD_1]", [(5, 24, "bank_card", "[BANK_CARD_1]", "٦٠٣٧ ٩٩١١ ٢٣٤٥ ٦٧٨٦")])),
++    ("\u0643ارت ۶۰۳۷ ۹۹۱۱ ۲۳۴۵ ۶۷۸۶", [(5, 24, "bank_card", "6037991123456786")], ("\u0643ارت [BANK_CARD_1]", [(5, 24, "bank_card", "[BANK_CARD_1]", "۶۰۳۷ ۹۹۱۱ ۲۳۴۵ ۶۷۸۶")])),
++    ("کارت\u200c۶۰۳۷ ۹۹۱۱ ۲۳۴۵ ۶۷۸۶", [(5, 24, "bank_card", "6037991123456786")], ("کارت\u200c[BANK_CARD_1]", [(5, 24, "bank_card", "[BANK_CARD_1]", "۶۰۳۷ ۹۹۱۱ ۲۳۴۵ ۶۷۸۶")])),
++    ("شبا IR630190000000101234567890", [(4, 30, "iban", "IR630190000000101234567890")], ("شبا [IBAN_1]", [(4, 30, "iban", "[IBAN_1]", "IR630190000000101234567890")])),
++    ("شبا IR۶۳۰۱۹۰۰۰۰۰۰۰۱۰۱۲۳۴۵۶۷۸۹۰", [(4, 30, "iban", "IR630190000000101234567890")], ("شبا [IBAN_1]", [(4, 30, "iban", "[IBAN_1]", "IR۶۳۰۱۹۰۰۰۰۰۰۰۱۰۱۲۳۴۵۶۷۸۹۰")])),
++    ("شبا IR٦٣٠١٩٠٠٠٠٠٠٠١٠١٢٣٤٥٦٧٨٩٠", [(4, 30, "iban", "IR630190000000101234567890")], ("شبا [IBAN_1]", [(4, 30, "iban", "[IBAN_1]", "IR٦٣٠١٩٠٠٠٠٠٠٠١٠١٢٣٤٥٦٧٨٩٠")])),
++    ("شبا\u200cIR630190000000101234567890", [(4, 30, "iban", "IR630190000000101234567890")], ("شبا\u200c[IBAN_1]", [(4, 30, "iban", "[IBAN_1]", "IR630190000000101234567890")])),
++    ("شبا IR63 0190 0000 0010 1234 5678 90", [(4, 36, "iban", "IR630190000000101234567890")], ("شبا [IBAN_1]", [(4, 36, "iban", "[IBAN_1]", "IR63 0190 0000 0010 1234 5678 90")])),
++    ("شبا IR۶۳ ۰۱۹۰ ۰۰۰۰ ۰۰۱۰ ۱۲۳۴ ۵۶۷۸ ۹۰", [(4, 36, "iban", "IR630190000000101234567890")], ("شبا [IBAN_1]", [(4, 36, "iban", "[IBAN_1]", "IR۶۳ ۰۱۹۰ ۰۰۰۰ ۰۰۱۰ ۱۲۳۴ ۵۶۷۸ ۹۰")])),
++    ("شبا IR٦٣ ٠١٩٠ ٠٠٠٠ ٠٠١٠ ١٢٣٤ ٥٦٧٨ ٩٠", [(4, 36, "iban", "IR630190000000101234567890")], ("شبا [IBAN_1]", [(4, 36, "iban", "[IBAN_1]", "IR٦٣ ٠١٩٠ ٠٠٠٠ ٠٠١٠ ١٢٣٤ ٥٦٧٨ ٩٠")])),
++    ("شبا\u200cIR63 0190 0000 0010 1234 5678 90", [(4, 36, "iban", "IR630190000000101234567890")], ("شبا\u200c[IBAN_1]", [(4, 36, "iban", "[IBAN_1]", "IR63 0190 0000 0010 1234 5678 90")])),
++    ("iban ir630190000000101234567890", [(5, 31, "iban", "IR630190000000101234567890")], ("iban [IBAN_1]", [(5, 31, "iban", "[IBAN_1]", "ir630190000000101234567890")])),
++    ("iban ir۶۳۰۱۹۰۰۰۰۰۰۰۱۰۱۲۳۴۵۶۷۸۹۰", [(5, 31, "iban", "IR630190000000101234567890")], ("iban [IBAN_1]", [(5, 31, "iban", "[IBAN_1]", "ir۶۳۰۱۹۰۰۰۰۰۰۰۱۰۱۲۳۴۵۶۷۸۹۰")])),
++    ("iban ir٦٣٠١٩٠٠٠٠٠٠٠١٠١٢٣٤٥٦٧٨٩٠", [(5, 31, "iban", "IR630190000000101234567890")], ("iban [IBAN_1]", [(5, 31, "iban", "[IBAN_1]", "ir٦٣٠١٩٠٠٠٠٠٠٠١٠١٢٣٤٥٦٧٨٩٠")])),
++    ("iban\u200cir630190000000101234567890", [(5, 31, "iban", "IR630190000000101234567890")], ("iban\u200c[IBAN_1]", [(5, 31, "iban", "[IBAN_1]", "ir630190000000101234567890")])),
++    ("mail Ali.Rezaei+crm@Example.co.ir now", [(5, 33, "email", "ali.rezaei+crm@example.co.ir")], ("mail [EMAIL_1] now", [(5, 33, "email", "[EMAIL_1]", "Ali.Rezaei+crm@Example.co.ir")])),
++    ("mail\u200cAli.Rezaei+crm@Example.co.ir now", [(5, 33, "email", "ali.rezaei+crm@example.co.ir")], ("mail\u200c[EMAIL_1] now", [(5, 33, "email", "[EMAIL_1]", "Ali.Rezaei+crm@Example.co.ir")])),
++    ("ایمیل: sara_k@mail.example.com", [(7, 30, "email", "sara_k@mail.example.com")], ("ایمیل: [EMAIL_1]", [(7, 30, "email", "[EMAIL_1]", "sara_k@mail.example.com")])),
++    ("ا\u064aم\u064aل: sara_k@mail.example.com", [(7, 30, "email", "sara_k@mail.example.com")], ("ا\u064aم\u064aل: [EMAIL_1]", [(7, 30, "email", "[EMAIL_1]", "sara_k@mail.example.com")])),
++    ("ایمیل:\u200csara_k@mail.example.com", [(7, 30, "email", "sara_k@mail.example.com")], ("ایمیل:\u200c[EMAIL_1]", [(7, 30, "email", "[EMAIL_1]", "sara_k@mail.example.com")])),
++    ("کد پستی ۱۴۳۵۶۷۸۹۱۲ است", [(8, 18, "ir_postal_code", "1435678912")], ("کد پستی [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۱۴۳۵۶۷۸۹۱۲")])),
++    ("کد پستی ١٤٣٥٦٧٨٩١٢ است", [(8, 18, "ir_postal_code", "1435678912")], ("کد پستی [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "١٤٣٥٦٧٨٩١٢")])),
++    ("\u0643د پست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [], ("\u0643د پست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [])),
++    ("کد\u200cپستی ۱۴۳۵۶۷۸۹۱۲ است", [], ("کد\u200cپستی ۱۴۳۵۶۷۸۹۱۲ است", [])),
++    ("postal code: 14356-78912", [(13, 24, "ir_postal_code", "1435678912")], ("postal code: [IR_POSTAL_CODE_1]", [(13, 24, "ir_postal_code", "[IR_POSTAL_CODE_1]", "14356-78912")])),
++    ("postal code: ۱۴۳۵۶-۷۸۹۱۲", [(13, 24, "ir_postal_code", "1435678912")], ("postal code: [IR_POSTAL_CODE_1]", [(13, 24, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۱۴۳۵۶-۷۸۹۱۲")])),
++    ("postal code: ١٤٣٥٦-٧٨٩١٢", [(13, 24, "ir_postal_code", "1435678912")], ("postal code: [IR_POSTAL_CODE_1]", [(13, 24, "ir_postal_code", "[IR_POSTAL_CODE_1]", "١٤٣٥٦-٧٨٩١٢")])),
++    ("postal\u200ccode: 14356-78912", [], ("postal\u200ccode: 14356-78912", [])),
++    ("کدپستی 0012345679", [(7, 17, "ir_postal_code", "0012345679")], ("کدپستی [IR_POSTAL_CODE_1]", [(7, 17, "ir_postal_code", "[IR_POSTAL_CODE_1]", "0012345679")])),
++    ("کدپستی ۰۰۱۲۳۴۵۶۷۹", [(7, 17, "ir_postal_code", "0012345679")], ("کدپستی [IR_POSTAL_CODE_1]", [(7, 17, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۰۰۱۲۳۴۵۶۷۹")])),
++    ("کدپستی ٠٠١٢٣٤٥٦٧٩", [(7, 17, "ir_postal_code", "0012345679")], ("کدپستی [IR_POSTAL_CODE_1]", [(7, 17, "ir_postal_code", "[IR_POSTAL_CODE_1]", "٠٠١٢٣٤٥٦٧٩")])),
++    ("\u0643دپست\u064a 0012345679", [(7, 17, "ir_national_id", "0012345679")], ("\u0643دپست\u064a [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "0012345679")])),
++    ("کدپستی\u200c0012345679", [(7, 17, "ir_national_id", "0012345679")], ("کدپستی\u200c[IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "0012345679")])),
++    ("مبلغ ۱۲۳۴۵۶۷۸۹۰ ریال پرداخت شد", [], ("مبلغ ۱۲۳۴۵۶۷۸۹۰ ریال پرداخت شد", [])),
++    ("مبلغ ١٢٣٤٥٦٧٨٩٠ ریال پرداخت شد", [], ("مبلغ ١٢٣٤٥٦٧٨٩٠ ریال پرداخت شد", [])),
++    ("مبلغ ۱۲۳۴۵۶۷۸۹۰ ر\u064aال پرداخت شد", [], ("مبلغ ۱۲۳۴۵۶۷۸۹۰ ر\u064aال پرداخت شد", [])),
++    ("مبلغ\u200c۱۲۳۴۵۶۷۸۹۰ ریال پرداخت شد", [], ("مبلغ\u200c۱۲۳۴۵۶۷۸۹۰ ریال پرداخت شد", [])),
++    ("تاریخ ۱۴۰۳/۰۵/۱۲ ساعت ۱۰:۳۰", [], ("تاریخ ۱۴۰۳/۰۵/۱۲ ساعت ۱۰:۳۰", [])),
++    ("تاریخ ١٤٠٣/٠٥/١٢ ساعت ١٠:٣٠", [], ("تاریخ ١٤٠٣/٠٥/١٢ ساعت ١٠:٣٠", [])),
++    ("تار\u064aخ ۱۴۰۳/۰۵/۱۲ ساعت ۱۰:۳۰", [], ("تار\u064aخ ۱۴۰۳/۰۵/۱۲ ساعت ۱۰:۳۰", [])),
++    ("تاریخ\u200c۱۴۰۳/۰۵/۱۲ ساعت ۱۰:۳۰", [], ("تاریخ\u200c۱۴۰۳/۰۵/۱۲ ساعت ۱۰:۳۰", [])),
++    ("سفارش INV1234567890 ثبت شد", [], ("سفارش INV1234567890 ثبت شد", [])),
++    ("سفارش INV۱۲۳۴۵۶۷۸۹۰ ثبت شد", [], ("سفارش INV۱۲۳۴۵۶۷۸۹۰ ثبت شد", [])),
++    ("سفارش INV١٢٣٤٥٦٧٨٩٠ ثبت شد", [], ("سفارش INV١٢٣٤٥٦٧٨٩٠ ثبت شد", [])),
++    ("سفارش\u200cINV1234567890 ثبت شد", [], ("سفارش\u200cINV1234567890 ثبت شد", [])),
++    ("number 1234567890123456 is not a card", [], ("number 1234567890123456 is not a card", [])),
++    ("number ۱۲۳۴۵۶۷۸۹۰۱۲۳۴۵۶ is not a card", [], ("number ۱۲۳۴۵۶۷۸۹۰۱۲۳۴۵۶ is not a card", [])),
++    ("number ١٢٣٤٥٦٧٨٩٠١٢٣٤٥٦ is not a card", [], ("number ١٢٣٤٥٦٧٨٩٠١٢٣٤٥٦ is not a card", [])),
++    ("number\u200c1234567890123456 is not a card", [], ("number\u200c1234567890123456 is not a card", [])),
++    ("0000000000 and 1111111111", [], ("0000000000 and 1111111111", [])),
++    ("۰۰۰۰۰۰۰۰۰۰ and ۱۱۱۱۱۱۱۱۱۱", [], ("۰۰۰۰۰۰۰۰۰۰ and ۱۱۱۱۱۱۱۱۱۱", [])),
++    ("٠٠٠٠٠٠٠٠٠٠ and ١١١١١١١١١١", [], ("٠٠٠٠٠٠٠٠٠٠ and ١١١١١١١١١١", [])),
++    ("0000000000\u200cand 1111111111", [], ("0000000000\u200cand 1111111111", [])),
++    ("version 2.4.1 build 20260923", [], ("version 2.4.1 build 20260923", [])),
++    ("version ۲.۴.۱ build ۲۰۲۶۰۹۲۳", [], ("version ۲.۴.۱ build ۲۰۲۶۰۹۲۳", [])),
++    ("version ٢.٤.١ build ٢٠٢٦٠٩٢٣", [], ("version ٢.٤.١ build ٢٠٢٦٠٩٢٣", [])),
++    ("version\u200c2.4.1 build 20260923", [], ("version\u200c2.4.1 build 20260923", [])),
++    ("قیمت ۴۵,۰۰۰,۰۰۰ تومان", [], ("قیمت ۴۵,۰۰۰,۰۰۰ تومان", [])),
++    ("قیمت ٤٥,٠٠٠,٠٠٠ تومان", [], ("قیمت ٤٥,٠٠٠,٠٠٠ تومان", [])),
++    ("ق\u064aمت ۴۵,۰۰۰,۰۰۰ تومان", [], ("ق\u064aمت ۴۵,۰۰۰,۰۰۰ تومان", [])),
++    ("قیمت\u200c۴۵,۰۰۰,۰۰۰ تومان", [], ("قیمت\u200c۴۵,۰۰۰,۰۰۰ تومان", [])),
++    ("the IBAN IR000190000000101234567890 is mistyped", [], ("the IBAN IR000190000000101234567890 is mistyped", [])),
++    ("the IBAN IR۰۰۰۱۹۰۰۰۰۰۰۰۱۰۱۲۳۴۵۶۷۸۹۰ is mistyped", [], ("the IBAN IR۰۰۰۱۹۰۰۰۰۰۰۰۱۰۱۲۳۴۵۶۷۸۹۰ is mistyped", [])),
++    ("the IBAN IR٠٠٠١٩٠٠٠٠٠٠٠١٠١٢٣٤٥٦٧٨٩٠ is mistyped", [], ("the IBAN IR٠٠٠١٩٠٠٠٠٠٠٠١٠١٢٣٤٥٦٧٨٩٠ is mistyped", [])),
++    ("the\u200cIBAN IR000190000000101234567890 is mistyped", [], ("the\u200cIBAN IR000190000000101234567890 is mistyped", [])),
++    ("user@localhost is not a routable address", [], ("user@localhost is not a routable address", [])),
++    ("user@localhost\u200cis not a routable address", [], ("user@localhost\u200cis not a routable address", [])),
++    ("۹۱۲۳۴۵۶۷۸۹", [], ("۹۱۲۳۴۵۶۷۸۹", [])),
++    ("٩١٢٣٤٥٦٧٨٩", [], ("٩١٢٣٤٥٦٧٨٩", [])),
++    ("x0012345679y", [], ("x0012345679y", [])),
++    ("x۰۰۱۲۳۴۵۶۷۹y", [], ("x۰۰۱۲۳۴۵۶۷۹y", [])),
++    ("x٠٠١٢٣٤٥٦٧٩y", [], ("x٠٠١٢٣٤٥٦٧٩y", [])),
++    ("00123456", [], ("00123456", [])),
++    ("۰۰۱۲۳۴۵۶", [], ("۰۰۱۲۳۴۵۶", [])),
++    ("٠٠١٢٣٤٥٦", [], ("٠٠١٢٣٤٥٦", [])),
++    ("واتساپ +۹۸۹۱۹۸۷۶۵۴۳۲۱", [], ("واتساپ +۹۸۹۱۹۸۷۶۵۴۳۲۱", [])),
++    ("واتساپ +٩٨٩١٩٨٧٦٥٤٣٢١", [], ("واتساپ +٩٨٩١٩٨٧٦٥٤٣٢١", [])),
++    ("واتساپ\u200c+۹۸۹۱۹۸۷۶۵۴۳۲۱", [], ("واتساپ\u200c+۹۸۹۱۹۸۷۶۵۴۳۲۱", [])),
++    ("کد پستی را بعدا می\u200cگویم؛ فعلا مبلغ ۱۲۳۴۵۶۷۸۹۰ ریال", [], ("کد پستی را بعدا می\u200cگویم؛ فعلا مبلغ ۱۲۳۴۵۶۷۸۹۰ ریال", [])),
++    ("کد پستی را بعدا می\u200cگویم؛ فعلا مبلغ ١٢٣٤٥٦٧٨٩٠ ریال", [], ("کد پستی را بعدا می\u200cگویم؛ فعلا مبلغ ١٢٣٤٥٦٧٨٩٠ ریال", [])),
++    ("\u0643د پست\u064a را بعدا م\u064a\u200cگو\u064aم؛ فعلا مبلغ ۱۲۳۴۵۶۷۸۹۰ ر\u064aال", [], ("\u0643د پست\u064a را بعدا م\u064a\u200cگو\u064aم؛ فعلا مبلغ ۱۲۳۴۵۶۷۸۹۰ ر\u064aال", [])),
++    ("کد پستی را بعدا می گویم؛ فعلا مبلغ ۱۲۳۴۵۶۷۸۹۰ ریال", [], ("کد پستی را بعدا می گویم؛ فعلا مبلغ ۱۲۳۴۵۶۷۸۹۰ ریال", [])),
++    ("سلام، من علی هستم. کد ملی ۰۰۱۲۳۴۵۶۷۹ و موبایل ۰۹۱۲ ۳۴۵ ۶۷۸۹. ایمیل ali.rezaei@example.com است و دوباره ۰۹۱۲۳۴۵۶۷۸۹ را تکرار می\u200cکنم.", [(26, 36, "ir_national_id", "0012345679"), (46, 59, "phone", "09123456789"), (67, 89, "email", "ali.rezaei@example.com"), (103, 114, "phone", "09123456789")], ("سلام، من علی هستم. کد ملی [IR_NATIONAL_ID_1] و موبایل [PHONE_1]. ایمیل [EMAIL_1] است و دوباره [PHONE_1] را تکرار می\u200cکنم.", [(26, 36, "ir_national_id", "[IR_NATIONAL_ID_1]", "۰۰۱۲۳۴۵۶۷۹"), (46, 59, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹"), (67, 89, "email", "[EMAIL_1]", "ali.rezaei@example.com"), (103, 114, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹")])),
++    ("سلام، من علی هستم. کد ملی ٠٠١٢٣٤٥٦٧٩ و موبایل ٠٩١٢ ٣٤٥ ٦٧٨٩. ایمیل ali.rezaei@example.com است و دوباره ٠٩١٢٣٤٥٦٧٨٩ را تکرار می\u200cکنم.", [(26, 36, "ir_national_id", "0012345679"), (46, 59, "phone", "09123456789"), (67, 89, "email", "ali.rezaei@example.com"), (103, 114, "phone", "09123456789")], ("سلام، من علی هستم. کد ملی [IR_NATIONAL_ID_1] و موبایل [PHONE_1]. ایمیل [EMAIL_1] است و دوباره [PHONE_1] را تکرار می\u200cکنم.", [(26, 36, "ir_national_id", "[IR_NATIONAL_ID_1]", "٠٠١٢٣٤٥٦٧٩"), (46, 59, "phone", "[PHONE_1]", "٠٩١٢ ٣٤٥ ٦٧٨٩"), (67, 89, "email", "[EMAIL_1]", "ali.rezaei@example.com"), (103, 114, "phone", "[PHONE_1]", "٠٩١٢٣٤٥٦٧٨٩")])),
++    ("سلام، من عل\u064a هستم. \u0643د مل\u064a ۰۰۱۲۳۴۵۶۷۹ و موبا\u064aل ۰۹۱۲ ۳۴۵ ۶۷۸۹. ا\u064aم\u064aل ali.rezaei@example.com است و دوباره ۰۹۱۲۳۴۵۶۷۸۹ را ت\u0643رار م\u064a\u200c\u0643نم.", [(26, 36, "ir_national_id", "0012345679"), (46, 59, "phone", "09123456789"), (67, 89, "email", "ali.rezaei@example.com"), (103, 114, "phone", "09123456789")], ("سلام، من عل\u064a هستم. \u0643د مل\u064a [IR_NATIONAL_ID_1] و موبا\u064aل [PHONE_1]. ا\u064aم\u064aل [EMAIL_1] است و دوباره [PHONE_1] را ت\u0643رار م\u064a\u200c\u0643نم.", [(26, 36, "ir_national_id", "[IR_NATIONAL_ID_1]", "۰۰۱۲۳۴۵۶۷۹"), (46, 59, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹"), (67, 89, "email", "[EMAIL_1]", "ali.rezaei@example.com"), (103, 114, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹")])),
++    ("سلام، من علی هستم. کد ملی ۰۰۱۲۳۴۵۶۷۹ و موبایل ۰۹۱۲ ۳۴۵ ۶۷۸۹. ایمیل ali.rezaei@example.com است و دوباره ۰۹۱۲۳۴۵۶۷۸۹ را تکرار می کنم.", [(26, 36, "ir_national_id", "0012345679"), (46, 59, "phone", "09123456789"), (67, 89, "email", "ali.rezaei@example.com"), (103, 114, "phone", "09123456789")], ("سلام، من علی هستم. کد ملی [IR_NATIONAL_ID_1] و موبایل [PHONE_1]. ایمیل [EMAIL_1] است و دوباره [PHONE_1] را تکرار می کنم.", [(26, 36, "ir_national_id", "[IR_NATIONAL_ID_1]", "۰۰۱۲۳۴۵۶۷۹"), (46, 59, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹"), (67, 89, "email", "[EMAIL_1]", "ali.rezaei@example.com"), (103, 114, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹")])),
++    ("شماره من ۰۹۱۲ ۳۴۵ ۶۷۸۹ است", [(9, 22, "phone", "09123456789")], ("شماره من [PHONE_1] است", [(9, 22, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹")])),
++    ("شماره من ٠٩١٢ ٣٤٥ ٦٧٨٩ است", [(9, 22, "phone", "09123456789")], ("شماره من [PHONE_1] است", [(9, 22, "phone", "[PHONE_1]", "٠٩١٢ ٣٤٥ ٦٧٨٩")])),
++    ("شماره\u200cمن ۰۹۱۲ ۳۴۵ ۶۷۸۹ است", [(9, 22, "phone", "09123456789")], ("شماره\u200cمن [PHONE_1] است", [(9, 22, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹")])),
++    ("\u0643د پست\u064a ١٤٣٥٦٧٨٩١٢ است", [], ("\u0643د پست\u064a ١٤٣٥٦٧٨٩١٢ است", [])),
++    ("\u0643د\u200cپست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [], ("\u0643د\u200cپست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [])),
++    ("کد\u200cپستی ١٤٣٥٦٧٨٩١٢ است", [], ("کد\u200cپستی ١٤٣٥٦٧٨٩١٢ است", [])),
++    ("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
++    ("موبا\u064aل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبا\u064aل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
++    ("موبایل\u200c\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبایل\u200c\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
++    ("کد \uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")], ("کد [IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
++    ("\u0643د \uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")], ("\u0643د [IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
++    ("کد\u200c\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")], ("کد\u200c[IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
++    ("شماره ۰۹۱۲۳۴۵۶۷۸۹ و 09123456789 و 09351234567", [(6, 17, "phone", "09123456789"), (20, 31, "phone", "09123456789"), (34, 45, "phone", "09351234567")], ("شماره [PHONE_1] و [PHONE_1] و [PHONE_2]", [(6, 17, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹"), (20, 31, "phone", "[PHONE_1]", "09123456789"), (34, 45, "phone", "[PHONE_2]", "09351234567")])),
++    ("شماره ۰۹۱۲۳۴۵۶۷۸۹ و ۰۹۱۲۳۴۵۶۷۸۹ و ۰۹۳۵۱۲۳۴۵۶۷", [(6, 17, "phone", "09123456789"), (20, 31, "phone", "09123456789"), (34, 45, "phone", "09351234567")], ("شماره [PHONE_1] و [PHONE_1] و [PHONE_2]", [(6, 17, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹"), (20, 31, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹"), (34, 45, "phone", "[PHONE_2]", "۰۹۳۵۱۲۳۴۵۶۷")])),
++    ("شماره ٠٩١٢٣٤٥٦٧٨٩ و ٠٩١٢٣٤٥٦٧٨٩ و ٠٩٣٥١٢٣٤٥٦٧", [(6, 17, "phone", "09123456789"), (20, 31, "phone", "09123456789"), (34, 45, "phone", "09351234567")], ("شماره [PHONE_1] و [PHONE_1] و [PHONE_2]", [(6, 17, "phone", "[PHONE_1]", "٠٩١٢٣٤٥٦٧٨٩"), (20, 31, "phone", "[PHONE_1]", "٠٩١٢٣٤٥٦٧٨٩"), (34, 45, "phone", "[PHONE_2]", "٠٩٣٥١٢٣٤٥٦٧")])),
++    ("شماره\u200c۰۹۱۲۳۴۵۶۷۸۹ و 09123456789 و 09351234567", [(6, 17, "phone", "09123456789"), (20, 31, "phone", "09123456789"), (34, 45, "phone", "09351234567")], ("شماره\u200c[PHONE_1] و [PHONE_1] و [PHONE_2]", [(6, 17, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹"), (20, 31, "phone", "[PHONE_1]", "09123456789"), (34, 45, "phone", "[PHONE_2]", "09351234567")])),
++]
++# ((category, intent, topics, confidence, needs_review, review_reason, matched_terms),
++#  (prioritize(text, result, PriorityContext()) and prioritize(..., PriorityContext(
++#   recent_calls_from_caller=2, caller_is_vip=True)) as (priority, score, reasons)),
++#  [every input text with exactly that outcome])
++VOICEMAIL_GROUPS = [
++    (("complaint", "report_dissatisfaction", (), 1.0, False, None, {"complaint": ["شکایت", "ناراضی"]}), (("high", 45, ({"code": "category_base", "weight": 30, "category": "complaint"}, {"code": "negative_sentiment", "weight": 15, "terms": ["شکایت", "ناراضی"]})), ("urgent", 95, ({"code": "category_base", "weight": 30, "category": "complaint"}, {"code": "negative_sentiment", "weight": 15, "terms": ["شکایت", "ناراضی"]}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["سلام، از خدمات شما خیلی ناراضی هستم و شکایت دارم", "سلام، از خدمات شما خ\u064aل\u064a ناراض\u064a هستم و ش\u0643ا\u064aت دارم", "سلام،\u200cاز خدمات شما خیلی ناراضی هستم و شکایت دارم", "سلام، از خد\u0651مات شما خیلی نار\u064eاضی ه\u0640ستم و شکایت د\u0651ار\u064eم", "سلام، از خدمات شما خیلی ناراضی هستم و شکایت دارم ۰۹۱۲ ٣٤٥", "\u200fسلام، از خدمات شما خیلی ناراضی هستم و شکایت دارم\u200e", "من ش\u0643ا\u064aت دارم و ناراض\u064a هستم", "من\u200cش\u0643ا\u064aت دارم و ناراض\u064a هستم", "من ش\u0643ا\u064aت د\u0651ار\u064eم و نار\u064eاض\u064a ه\u0640ستم", "من ش\u0643ا\u064aت دارم و ناراض\u064a هستم ۰۹۱۲ ٣٤٥", "\u200fمن ش\u0643ا\u064aت دارم و ناراض\u064a هستم\u200e"]),
++    (("sales_inquiry", "purchase_inquiry", ("pricing",), 1.0, False, None, {"sales_inquiry": ["خرید", "قیمت", "چنده"]}), (("normal", 20, ({"code": "category_base", "weight": 20, "category": "sales_inquiry"},)), ("urgent", 70, ({"code": "category_base", "weight": 20, "category": "sales_inquiry"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["سلام، قیمت پکیج سازمانی چنده؟ می\u200cخواستم خرید کنم", "سلام، ق\u064aمت پ\u0643\u064aج سازمان\u064a چنده؟ م\u064a\u200cخواستم خر\u064aد \u0643نم", "سلام، قیمت پکیج سازمانی چنده؟ می خواستم خرید کنم", "سلام، قیمت پکیج سازمانی چند\u0651ه\u0640؟ می\u200cخواستم خر\u064eید\u0651 کنم", "سلام، قیمت پکیج سازمانی چنده؟ می\u200cخواستم خرید کنم ۰۹۱۲ ٣٤٥", "\u200fسلام، قیمت پکیج سازمانی چنده؟ می\u200cخواستم خرید کنم\u200e"]),
++    (("support", "request_support", ("connectivity",), 1.0, False, None, {"support": ["قطع", "کار نمی کند"]}), (("normal", 25, ({"code": "category_base", "weight": 25, "category": "support"},)), ("urgent", 75, ({"code": "category_base", "weight": 25, "category": "support"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["اینترنت ما از صبح قطع است و کار نمی\u200cکند", "ا\u064aنترنت ما از صبح قطع است و \u0643ار نم\u064a\u200c\u0643ند", "اینترنت ما از صبح قطع است و کار نمی کند", "اینتر\u064eنت ما از صب\u064bح قطع است و کار\u064e نمی\u200cکند\u0651", "اینترنت ما از صبح قطع است و کار نمی\u200cکند ۰۹۱۲ ٣٤٥", "\u200fاینترنت ما از صبح قطع است و کار نمی\u200cکند\u200e"]),
++    (("appointment", "schedule_appointment", ("scheduling",), 1.0, False, None, {"appointment": ["رزرو", "نوبت"]}), (("low", 15, ({"code": "category_base", "weight": 15, "category": "appointment"},)), ("high", 65, ({"code": "category_base", "weight": 15, "category": "appointment"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["می\u200cخواستم برای هفته بعد نوبت رزرو کنم", "م\u064a\u200cخواستم برا\u064a هفته بعد نوبت رزرو \u0643نم", "می خواستم برای هفته بعد نوبت رزرو کنم", "می\u200cخواستم ب\u064bر\u064eای ه\u0640فته\u0640 ب\u064bعد\u0651 نوب\u064bت ر\u064eزر\u064eو کنم", "می\u200cخواستم برای هفته بعد نوبت رزرو کنم ۰۹۱۲ ٣٤٥", "\u200fمی\u200cخواستم برای هفته بعد نوبت رزرو کنم\u200e"]),
++    (("callback_request", "request_callback", (), 1.0, False, None, {"callback_request": ["با این شماره تماس"]}), (("normal", 20, ({"code": "category_base", "weight": 20, "category": "callback_request"},)), ("urgent", 70, ({"code": "category_base", "weight": 20, "category": "callback_request"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["لطفا\u064b با این شماره تماس بگیرید", "لطفا\u064b با ا\u064aن شماره تماس بگ\u064aر\u064aد", "لطفا\u064b\u200cبا این شماره تماس بگیرید", "لطفا\u064b ب\u064bا این شمار\u064eه\u0640 تماس ب\u064bگیر\u064eید\u0651", "لطفا\u064b با این شماره تماس بگیرید ۰۹۱۲ ٣٤٥", "\u200fلطفا\u064b با این شماره تماس بگیرید\u200e"]),
++    (("billing", "resolve_billing", ("invoice", "payment"), 1.0, False, None, {"billing": ["فاکتور", "کسر شده"]}), (("normal", 25, ({"code": "category_base", "weight": 25, "category": "billing"},)), ("urgent", 75, ({"code": "category_base", "weight": 25, "category": "billing"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["فاکتور ماه قبل دوبار از کارت کسر شده", "فا\u0643تور ماه قبل دوبار از \u0643ارت \u0643سر شده", "فاکتور\u200cماه قبل دوبار از کارت کسر شده", "فاکتور\u064e ماه\u0640 قب\u064bل د\u0651وب\u064bار\u064e از کار\u064eت کسر\u064e شد\u0651ه\u0640", "فاکتور ماه قبل دوبار از کارت کسر شده ۰۹۱۲ ٣٤٥", "\u200fفاکتور ماه قبل دوبار از کارت کسر شده\u200e"]),
++    (("spam", "unsolicited", (), 1.0, False, None, {"spam": ["برنده شدید", "قرعه کشی"]}), (("low", 0, ({"code": "category_spam", "weight": 0},)), ("low", 0, ({"code": "category_spam", "weight": 0},))), ["تبریک! شما در قرعه کشی برنده شدید", "تبر\u064a\u0643! شما در قرعه \u0643ش\u064a برنده شد\u064aد", "تبریک!\u200cشما در قرعه کشی برنده شدید", "تب\u064bر\u064eیک! شما د\u0651ر\u064e قر\u064eعه\u0640 کشی ب\u064bر\u064eند\u0651ه\u0640 شد\u0651ید\u0651", "تبریک! شما در قرعه کشی برنده شدید ۰۹۱۲ ٣٤٥", "\u200fتبریک! شما در قرعه کشی برنده شدید\u200e"]),
++    (("complaint", "report_dissatisfaction", (), 1.0, False, None, {"complaint": ["complaint", "unacceptable", "unhappy"]}), (("high", 45, ({"code": "category_base", "weight": 30, "category": "complaint"}, {"code": "negative_sentiment", "weight": 15, "terms": ["unacceptable"]})), ("urgent", 95, ({"code": "category_base", "weight": 30, "category": "complaint"}, {"code": "negative_sentiment", "weight": 15, "terms": ["unacceptable"]}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["Hi, I am very unhappy, this is unacceptable, I want to file a complaint", "Hi,\u200cI am very unhappy, this is unacceptable, I want to file a complaint", "Hi, I am very unhappy, this is unacceptable, I want to file a complaint ۰۹۱۲ ٣٤٥", "\u200fHi, I am very unhappy, this is unacceptable, I want to file a complaint\u200e"]),
++    (("sales_inquiry", "purchase_inquiry", ("pricing",), 1.0, False, None, {"sales_inquiry": ["how much", "quote"]}), (("normal", 20, ({"code": "category_base", "weight": 20, "category": "sales_inquiry"},)), ("urgent", 70, ({"code": "category_base", "weight": 20, "category": "sales_inquiry"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["Hello, how much is the premium plan? I'd like a quote", "Hello,\u200chow much is the premium plan? I'd like a quote", "Hello, how much is the premium plan? I'd like a quote ۰۹۱۲ ٣٤٥", "\u200fHello, how much is the premium plan? I'd like a quote\u200e"]),
++    (("callback_request", "request_callback", (), 1.0, False, None, {"callback_request": ["please call"]}), (("normal", 20, ({"code": "category_base", "weight": 20, "category": "callback_request"},)), ("urgent", 70, ({"code": "category_base", "weight": 20, "category": "callback_request"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["Please call me back when you get this", "Please\u200ccall me back when you get this", "Please call me back when you get this ۰۹۱۲ ٣٤٥", "\u200fPlease call me back when you get this\u200e", "Please call me back", "Please\u200ccall me back", "Please call me back ۰۹۱۲ ٣٤٥", "\u200fPlease call me back\u200e"]),
++    (("billing", "resolve_billing", ("invoice", "payment"), 1.0, False, None, {"billing": ["charged", "invoice"]}), (("normal", 25, ({"code": "category_base", "weight": 25, "category": "billing"},)), ("urgent", 75, ({"code": "category_base", "weight": 25, "category": "billing"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["I was charged twice on my last invoice", "I\u200cwas charged twice on my last invoice", "I was charged twice on my last invoice ۰۹۱۲ ٣٤٥", "\u200fI was charged twice on my last invoice\u200e"]),
++    (("appointment", "schedule_appointment", ("scheduling",), 1.0, False, None, {"appointment": ["appointment", "reschedule"]}), (("low", 15, ({"code": "category_base", "weight": 15, "category": "appointment"},)), ("high", 65, ({"code": "category_base", "weight": 15, "category": "appointment"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["I'd like to reschedule my appointment", "I'd\u200clike to reschedule my appointment", "I'd like to reschedule my appointment ۰۹۱۲ ٣٤٥", "\u200fI'd like to reschedule my appointment\u200e"]),
++    (("other", "unknown", (), 0.0, False, None, {}), (("low", 10, ({"code": "category_base", "weight": 10, "category": "other"},)), ("high", 60, ({"code": "category_base", "weight": 10, "category": "other"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["Just wanted to say hello to the team", "Just\u200cwanted to say hello to the team", "Just wanted to say hello to the team ۰۹۱۲ ٣٤٥", "\u200fJust wanted to say hello to the team\u200e", "۰۹۱۲", "۰۹۱۲ ۰۹۱۲ ٣٤٥", "\u200f۰۹۱۲\u200e", "hello team", "hello\u200cteam", "hello team ۰۹۱۲ ٣٤٥", "\u200fhello team\u200e"]),
++    (("complaint", "report_dissatisfaction", (), 1.0, False, None, {"complaint": ["شکایت"]}), (("high", 45, ({"code": "category_base", "weight": 30, "category": "complaint"}, {"code": "negative_sentiment", "weight": 15, "terms": ["شکایت"]})), ("urgent", 95, ({"code": "category_base", "weight": 30, "category": "complaint"}, {"code": "negative_sentiment", "weight": 15, "terms": ["شکایت"]}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["ش\u0643ا\u064aت  دارم", "ش\u0643ا\u064aت\u200c دارم", "ش\u0643ا\u064aت  د\u0651ار\u064eم", "ش\u0643ا\u064aت  دارم ۰۹۱۲ ٣٤٥", "\u200fش\u0643ا\u064aت  دارم\u200e", "\ufeb7\ufedc\ufe8e\ufef3\ufe96 \ufea9\ufe8d\ufead\ufee1", "\ufeb7\ufedc\ufe8e\ufef3\ufe96\u200c\ufea9\ufe8d\ufead\ufee1", "\ufeb7\ufedc\ufe8e\ufef3\ufe96 \ufea9\ufe8d\ufead\ufee1 ۰۹۱۲ ٣٤٥", "\u200f\ufeb7\ufedc\ufe8e\ufef3\ufe96 \ufea9\ufe8d\ufead\ufee1\u200e"]),
++    (("support", "request_support", (), 1.0, False, None, {"support": ["کار نمی کند"]}), (("normal", 25, ({"code": "category_base", "weight": 25, "category": "support"},)), ("urgent", 75, ({"code": "category_base", "weight": 25, "category": "support"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["کار نمی\u200cکند", "\u0643ار نم\u064a\u200c\u0643ند", "کار نمی کند", "کار\u064e نمی\u200cکند\u0651", "کار نمی\u200cکند ۰۹۱۲ ٣٤٥", "\u200fکار نمی\u200cکند\u200e"]),
++    (("other", "unknown", (), 0.0, False, None, {}), (("high", 45, ({"code": "category_base", "weight": 10, "category": "other"}, {"code": "urgency_terms", "weight": 35, "terms": ["فورا"]})), ("urgent", 95, ({"code": "category_base", "weight": 10, "category": "other"}, {"code": "urgency_terms", "weight": 35, "terms": ["فورا"]}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["فورا\u064b!", "فور\u064eا\u064b!", "فورا\u064b! ۰۹۱۲ ٣٤٥", "\u200fفورا\u064b!\u200e"]),
++    (("other", "unknown", (), 0.0, False, None, {}), (("high", 45, ({"code": "category_base", "weight": 10, "category": "other"}, {"code": "urgency_terms", "weight": 35, "terms": ["urgent"]})), ("urgent", 95, ({"code": "category_base", "weight": 10, "category": "other"}, {"code": "urgency_terms", "weight": 35, "terms": ["urgent"]}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["URGENT, Please", "URGENT,\u200cPlease", "URGENT, Please ۰۹۱۲ ٣٤٥", "\u200fURGENT, Please\u200e"]),
++    (("billing", "resolve_billing", ("refund", "invoice", "payment", "delivery"), 0.667, False, None, {"complaint": ["refund"], "billing": ["charged", "invoice"]}), (("normal", 25, ({"code": "category_base", "weight": 25, "category": "billing"},)), ("urgent", 75, ({"code": "category_base", "weight": 25, "category": "billing"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["I was charged on the invoice and want a refund for the delivery", "I\u200cwas charged on the invoice and want a refund for the delivery", "I was charged on the invoice and want a refund for the delivery ۰۹۱۲ ٣٤٥", "\u200fI was charged on the invoice and want a refund for the delivery\u200e"]),
++    (("complaint", "report_dissatisfaction", ("contract",), 1.0, False, None, {"complaint": ["ناراضی"]}), (("urgent", 100, ({"code": "category_base", "weight": 30, "category": "complaint"}, {"code": "urgency_terms", "weight": 35, "terms": ["فوری"]}, {"code": "negative_sentiment", "weight": 15, "terms": ["ناراضی"]}, {"code": "churn_risk", "weight": 20, "terms": ["لغو قرارداد"]})), ("urgent", 100, ({"code": "category_base", "weight": 30, "category": "complaint"}, {"code": "urgency_terms", "weight": 35, "terms": ["فوری"]}, {"code": "negative_sentiment", "weight": 15, "terms": ["ناراضی"]}, {"code": "churn_risk", "weight": 20, "terms": ["لغو قرارداد"]}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["این فوری است! از خدمات شما ناراضی هستم و می\u200cخواهم لغو قرارداد کنم", "ا\u064aن فور\u064a است! از خدمات شما ناراض\u064a هستم و م\u064a\u200cخواهم لغو قرارداد \u0643نم", "این فوری است! از خدمات شما ناراضی هستم و می خواهم لغو قرارداد کنم", "این فور\u064eی است! از خد\u0651مات شما نار\u064eاضی ه\u0640ستم و می\u200cخواه\u0640م لغو قر\u064eار\u064eد\u0651اد\u0651 کنم", "این فوری است! از خدمات شما ناراضی هستم و می\u200cخواهم لغو قرارداد کنم ۰۹۱۲ ٣٤٥", "\u200fاین فوری است! از خدمات شما ناراضی هستم و می\u200cخواهم لغو قرارداد کنم\u200e"]),
++    (("callback_request", "request_callback", (), 1.0, False, None, {"callback_request": ["please call"]}), (("high", 55, ({"code": "category_base", "weight": 20, "category": "callback_request"}, {"code": "urgency_terms", "weight": 35, "terms": ["asap", "urgent"]})), ("urgent", 100, ({"code": "category_base", "weight": 20, "category": "callback_request"}, {"code": "urgency_terms", "weight": 35, "terms": ["asap", "urgent"]}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["urgent please call me back asap", "urgent\u200cplease call me back asap", "urgent please call me back asap ۰۹۱۲ ٣٤٥", "\u200furgent please call me back asap\u200e"]),
++    (("spam", "unsolicited", (), 1.0, False, None, {"spam": ["free gift", "press 1", "you have won"]}), (("low", 0, ({"code": "category_spam", "weight": 0},)), ("low", 0, ({"code": "category_spam", "weight": 0},))), ["urgent! you have won a free gift, press 1", "urgent!\u200cyou have won a free gift, press 1", "urgent! you have won a free gift, press 1 ۰۹۱۲ ٣٤٥", "\u200furgent! you have won a free gift, press 1\u200e"]),
++    (("billing", "resolve_billing", ("invoice",), 0.5, False, None, {"callback_request": ["تماس بگیرید"], "billing": ["فاکتور"]}), (("normal", 25, ({"code": "category_base", "weight": 25, "category": "billing"},)), ("urgent", 75, ({"code": "category_base", "weight": 25, "category": "billing"}, {"code": "repeat_caller", "weight": 25, "earlier_calls": 2}, {"code": "vip_caller", "weight": 25}))), ["سلام، فاکتور من اشتباه است، لطفا تماس بگیرید", "سلام، فا\u0643تور من اشتباه است، لطفا تماس بگ\u064aر\u064aد", "سلام،\u200cفاکتور من اشتباه است، لطفا تماس بگیرید", "سلام، فاکتور\u064e من اشتب\u064bاه\u0640 است، لطفا تماس ب\u064bگیر\u064eید\u0651", "سلام، فاکتور من اشتباه است، لطفا تماس بگیرید ۰۹۱۲ ٣٤٥", "\u200fسلام، فاکتور من اشتباه است، لطفا تماس بگیرید\u200e"]),
++    (("spam", "unsolicited", (), 1.0, False, None, {"spam": ["جایزه", "عدد 1 را"]}), (("low", 0, ({"code": "category_spam", "weight": 0},)), ("low", 0, ({"code": "category_spam", "weight": 0},))), ["برای جایزه عدد ۱ را بزنید", "برا\u064a جا\u064aزه عدد ۱ را بزن\u064aد", "برای\u200cجایزه عدد ۱ را بزنید", "ب\u064bر\u064eای جایزه\u0640 عد\u0651د\u0651 ۱ ر\u064eا ب\u064bزنید\u0651", "برای جایزه عدد ۱ را بزنید ۰۹۱۲ ٣٤٥", "\u200fبرای جایزه عدد ۱ را بزنید\u200e", "برای جایزه عدد ١ را بزنید", "برا\u064a جا\u064aزه عدد ١ را بزن\u064aد", "برای\u200cجایزه عدد ١ را بزنید", "ب\u064bر\u064eای جایزه\u0640 عد\u0651د\u0651 ١ ر\u064eا ب\u064bزنید\u0651", "برای جایزه عدد ١ را بزنید ۰۹۱۲ ٣٤٥", "\u200fبرای جایزه عدد ١ را بزنید\u200e"]),
++    (("empty", None, (), None, True, "no_speech", {}), (("low", 0, ({"code": "category_empty", "weight": 0},)), ("low", 0, ({"code": "category_empty", "weight": 0},))), ["", "   ", "…", "ا\u0650", "uh", "?!"]),
++]
++# Place.as_dict() of every place a candidate below refers to, by key.
++LOCATION_PLACES = {
++    "astaneh_ashrafiyeh": {"key": "astaneh_ashrafiyeh", "kind": "city", "name_fa": "آستانه اشرفیه", "name_en": "Astaneh-ye Ashrafiyeh", "province_key": "gilan", "latitude": 37.2598, "longitude": 49.9437, "approximate": True},
++    "astaneh_markazi": {"key": "astaneh_markazi", "kind": "city", "name_fa": "آستانه", "name_en": "Astaneh", "province_key": "markazi", "latitude": 33.886, "longitude": 49.353, "approximate": True},
++    "bandar_abbas": {"key": "bandar_abbas", "kind": "city", "name_fa": "بندرعباس", "name_en": "Bandar Abbas", "province_key": "hormozgan", "latitude": 27.1832, "longitude": 56.2666, "approximate": True},
++    "east_azerbaijan": {"key": "east_azerbaijan", "kind": "province", "name_fa": "آذربایجان شرقی", "name_en": "East Azerbaijan", "province_key": None, "latitude": 37.9, "longitude": 46.6, "approximate": True},
++    "fars": {"key": "fars", "kind": "province", "name_fa": "فارس", "name_en": "Fars", "province_key": None, "latitude": 29.3, "longitude": 53.0, "approximate": True},
++    "isfahan": {"key": "isfahan", "kind": "city", "name_fa": "اصفهان", "name_en": "Isfahan", "province_key": "isfahan_p", "latitude": 32.6546, "longitude": 51.668, "approximate": True},
++    "isfahan_p": {"key": "isfahan_p", "kind": "province", "name_fa": "اصفهان", "name_en": "Isfahan", "province_key": None, "latitude": 32.7, "longitude": 51.95, "approximate": True},
++    "karaj": {"key": "karaj", "kind": "city", "name_fa": "کرج", "name_en": "Karaj", "province_key": "alborz", "latitude": 35.84, "longitude": 50.9391, "approximate": True},
++    "kashan": {"key": "kashan", "kind": "city", "name_fa": "کاشان", "name_en": "Kashan", "province_key": "isfahan_p", "latitude": 33.985, "longitude": 51.41, "approximate": True},
++    "khorramabad": {"key": "khorramabad", "kind": "city", "name_fa": "خرم آباد", "name_en": "Khorramabad", "province_key": "lorestan", "latitude": 33.4878, "longitude": 48.3558, "approximate": True},
++    "lorestan": {"key": "lorestan", "kind": "province", "name_fa": "لرستان", "name_en": "Lorestan", "province_key": None, "latitude": 33.5, "longitude": 48.3, "approximate": True},
++    "mashhad": {"key": "mashhad", "kind": "city", "name_fa": "مشهد", "name_en": "Mashhad", "province_key": "razavi_khorasan", "latitude": 36.2605, "longitude": 59.6168, "approximate": True},
++    "north_khorasan": {"key": "north_khorasan", "kind": "province", "name_fa": "خراسان شمالی", "name_en": "North Khorasan", "province_key": None, "latitude": 37.4, "longitude": 57.0, "approximate": True},
++    "nurabad_delfan": {"key": "nurabad_delfan", "kind": "city", "name_fa": "نورآباد", "name_en": "Nurabad", "province_key": "lorestan", "latitude": 34.0734, "longitude": 47.9725, "approximate": True},
++    "nurabad_mamasani": {"key": "nurabad_mamasani", "kind": "city", "name_fa": "نورآباد", "name_en": "Nurabad", "province_key": "fars", "latitude": 30.1142, "longitude": 51.5217, "approximate": True},
++    "razavi_khorasan": {"key": "razavi_khorasan", "kind": "province", "name_fa": "خراسان رضوی", "name_en": "Razavi Khorasan", "province_key": None, "latitude": 35.6, "longitude": 59.0, "approximate": True},
++    "shiraz": {"key": "shiraz", "kind": "city", "name_fa": "شیراز", "name_en": "Shiraz", "province_key": "fars", "latitude": 29.5918, "longitude": 52.5837, "approximate": True},
++    "south_khorasan": {"key": "south_khorasan", "kind": "province", "name_fa": "خراسان جنوبی", "name_en": "South Khorasan", "province_key": None, "latitude": 32.5, "longitude": 59.0, "approximate": True},
++    "tabriz": {"key": "tabriz", "kind": "city", "name_fa": "تبریز", "name_en": "Tabriz", "province_key": "east_azerbaijan", "latitude": 38.08, "longitude": 46.2919, "approximate": True},
++    "tehran": {"key": "tehran", "kind": "city", "name_fa": "تهران", "name_en": "Tehran", "province_key": "tehran_p", "latitude": 35.6892, "longitude": 51.389, "approximate": True},
++    "west_azerbaijan": {"key": "west_azerbaijan", "kind": "province", "name_fa": "آذربایجان غربی", "name_en": "West Azerbaijan", "province_key": None, "latitude": 37.45, "longitude": 45.3, "approximate": True},
++}
++# (text, status, [candidate.as_dict() with places as keys of LOCATION_PLACES],
++#  resolved.as_dict() or None, clarification, postal_code, landmarks)
++LOCATION_CASES = [
++    ("سلام، از اصفهان زنگ می\u200cزنم", "resolved", [{"type": "city", "text": "اصفهان", "start": 9, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["isfahan"], "value": {}, "note": None}], {"latitude": 32.6546, "longitude": 51.668, "precision": "city", "confidence": 0.75, "city_key": "isfahan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("سلام، از اصفهان زنگ م\u064a\u200cزنم", "resolved", [{"type": "city", "text": "اصفهان", "start": 9, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["isfahan"], "value": {}, "note": None}], {"latitude": 32.6546, "longitude": 51.668, "precision": "city", "confidence": 0.75, "city_key": "isfahan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("سلام، از اصفهان زنگ می زنم", "resolved", [{"type": "city", "text": "اصفهان", "start": 9, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["isfahan"], "value": {}, "note": None}], {"latitude": 32.6546, "longitude": 51.668, "precision": "city", "confidence": 0.75, "city_key": "isfahan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("سلام، از اصفه\u0640ان زنگ می\u200cزنم", "resolved", [{"type": "city", "text": "اصفه\u0640ان", "start": 9, "end": 16, "confidence": 0.75, "ambiguous": False, "places": ["isfahan"], "value": {}, "note": None}], {"latitude": 32.6546, "longitude": 51.668, "precision": "city", "confidence": 0.75, "city_key": "isfahan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("من سا\u0643ن تهران هستم", "resolved", [{"type": "city", "text": "تهران", "start": 8, "end": 13, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, []),
++    ("من\u200cسا\u0643ن تهران هستم", "resolved", [{"type": "city", "text": "تهران", "start": 8, "end": 13, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, []),
++    ("من سا\u0643ن ته\u0640ر\u064eان ه\u0640ستم", "resolved", [{"type": "city", "text": "ته\u0640ر\u064eان", "start": 8, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, []),
++    ("شهر کاشان، استان اصفهان", "resolved", [{"type": "city", "text": "شهر کاشان", "start": 0, "end": 9, "confidence": 0.9, "ambiguous": False, "places": ["kashan"], "value": {}, "note": None}, {"type": "province", "text": "استان اصفهان", "start": 11, "end": 23, "confidence": 0.9, "ambiguous": False, "places": ["isfahan_p"], "value": {}, "note": None}], {"latitude": 33.985, "longitude": 51.41, "precision": "city", "confidence": 0.8, "city_key": "kashan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("شهر \u0643اشان، استان اصفهان", "resolved", [{"type": "city", "text": "شهر \u0643اشان", "start": 0, "end": 9, "confidence": 0.9, "ambiguous": False, "places": ["kashan"], "value": {}, "note": None}, {"type": "province", "text": "استان اصفهان", "start": 11, "end": 23, "confidence": 0.9, "ambiguous": False, "places": ["isfahan_p"], "value": {}, "note": None}], {"latitude": 33.985, "longitude": 51.41, "precision": "city", "confidence": 0.8, "city_key": "kashan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("شهر\u200cکاشان، استان اصفهان", "resolved", [{"type": "city", "text": "شهر\u200cکاشان", "start": 0, "end": 9, "confidence": 0.9, "ambiguous": False, "places": ["kashan"], "value": {}, "note": None}, {"type": "province", "text": "استان اصفهان", "start": 11, "end": 23, "confidence": 0.9, "ambiguous": False, "places": ["isfahan_p"], "value": {}, "note": None}], {"latitude": 33.985, "longitude": 51.41, "precision": "city", "confidence": 0.8, "city_key": "kashan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("شه\u0640ر\u064e کاشان، استان اصفه\u0640ان", "resolved", [{"type": "city", "text": "شه\u0640ر\u064e کاشان", "start": 0, "end": 11, "confidence": 0.9, "ambiguous": False, "places": ["kashan"], "value": {}, "note": None}, {"type": "province", "text": "استان اصفه\u0640ان", "start": 13, "end": 26, "confidence": 0.9, "ambiguous": False, "places": ["isfahan_p"], "value": {}, "note": None}], {"latitude": 33.985, "longitude": 51.41, "precision": "city", "confidence": 0.8, "city_key": "kashan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("در ش\u064aراز نمایندگی دارید؟", "resolved", [{"type": "city", "text": "ش\u064aراز", "start": 3, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["shiraz"], "value": {}, "note": None}], {"latitude": 29.5918, "longitude": 52.5837, "precision": "city", "confidence": 0.75, "city_key": "shiraz", "province_key": "fars", "source": "city_centroid"}, None, None, []),
++    ("در ش\u064aراز نما\u064aندگ\u064a دار\u064aد؟", "resolved", [{"type": "city", "text": "ش\u064aراز", "start": 3, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["shiraz"], "value": {}, "note": None}], {"latitude": 29.5918, "longitude": 52.5837, "precision": "city", "confidence": 0.75, "city_key": "shiraz", "province_key": "fars", "source": "city_centroid"}, None, None, []),
++    ("در\u200cش\u064aراز نمایندگی دارید؟", "resolved", [{"type": "city", "text": "ش\u064aراز", "start": 3, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["shiraz"], "value": {}, "note": None}], {"latitude": 29.5918, "longitude": 52.5837, "precision": "city", "confidence": 0.75, "city_key": "shiraz", "province_key": "fars", "source": "city_centroid"}, None, None, []),
++    ("د\u0651ر\u064e ش\u064aر\u064eاز نمایند\u0651گی د\u0651ار\u064eید\u0651؟", "resolved", [{"type": "city", "text": "ش\u064aر\u064eاز", "start": 5, "end": 11, "confidence": 0.75, "ambiguous": False, "places": ["shiraz"], "value": {}, "note": None}], {"latitude": 29.5918, "longitude": 52.5837, "precision": "city", "confidence": 0.75, "city_key": "shiraz", "province_key": "fars", "source": "city_centroid"}, None, None, []),
++    ("خرم\u200cآباد هستم", "resolved", [{"type": "city", "text": "خرم\u200cآباد", "start": 0, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], {"latitude": 33.4878, "longitude": 48.3558, "precision": "city", "confidence": 0.75, "city_key": "khorramabad", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("خرم آباد هستم", "resolved", [{"type": "city", "text": "خرم آباد", "start": 0, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], {"latitude": 33.4878, "longitude": 48.3558, "precision": "city", "confidence": 0.75, "city_key": "khorramabad", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("خر\u064eم\u200cآب\u064bاد\u0651 ه\u0640ستم", "resolved", [{"type": "city", "text": "خر\u064eم\u200cآب\u064bاد", "start": 0, "end": 10, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], {"latitude": 33.4878, "longitude": 48.3558, "precision": "city", "confidence": 0.75, "city_key": "khorramabad", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("خرمآباد هستم", "resolved", [{"type": "city", "text": "خرمآباد", "start": 0, "end": 7, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], {"latitude": 33.4878, "longitude": 48.3558, "precision": "city", "confidence": 0.75, "city_key": "khorramabad", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("خرمآباد\u200cهستم", "resolved", [{"type": "city", "text": "خرمآباد", "start": 0, "end": 7, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], {"latitude": 33.4878, "longitude": 48.3558, "precision": "city", "confidence": 0.75, "city_key": "khorramabad", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("خر\u064eمآب\u064bاد\u0651 ه\u0640ستم", "resolved", [{"type": "city", "text": "خر\u064eمآب\u064bاد", "start": 0, "end": 9, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], {"latitude": 33.4878, "longitude": 48.3558, "precision": "city", "confidence": 0.75, "city_key": "khorramabad", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("از بندر عباس تماس می\u200cگیرم", "resolved", [{"type": "city", "text": "بندر عباس", "start": 3, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["bandar_abbas"], "value": {}, "note": None}], {"latitude": 27.1832, "longitude": 56.2666, "precision": "city", "confidence": 0.75, "city_key": "bandar_abbas", "province_key": "hormozgan", "source": "city_centroid"}, None, None, []),
++    ("از بندر عباس تماس م\u064a\u200cگ\u064aرم", "resolved", [{"type": "city", "text": "بندر عباس", "start": 3, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["bandar_abbas"], "value": {}, "note": None}], {"latitude": 27.1832, "longitude": 56.2666, "precision": "city", "confidence": 0.75, "city_key": "bandar_abbas", "province_key": "hormozgan", "source": "city_centroid"}, None, None, []),
++    ("از بندر عباس تماس می گیرم", "resolved", [{"type": "city", "text": "بندر عباس", "start": 3, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["bandar_abbas"], "value": {}, "note": None}], {"latitude": 27.1832, "longitude": 56.2666, "precision": "city", "confidence": 0.75, "city_key": "bandar_abbas", "province_key": "hormozgan", "source": "city_centroid"}, None, None, []),
++    ("از ب\u064bند\u0651ر\u064e عب\u064bاس تماس می\u200cگیر\u064eم", "resolved", [{"type": "city", "text": "ب\u064bند\u0651ر\u064e عب\u064bاس", "start": 3, "end": 16, "confidence": 0.75, "ambiguous": False, "places": ["bandar_abbas"], "value": {}, "note": None}], {"latitude": 27.1832, "longitude": 56.2666, "precision": "city", "confidence": 0.75, "city_key": "bandar_abbas", "province_key": "hormozgan", "source": "city_centroid"}, None, None, []),
++    ("بندرعباس", "resolved", [{"type": "city", "text": "بندرعباس", "start": 0, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["bandar_abbas"], "value": {}, "note": None}], {"latitude": 27.1832, "longitude": 56.2666, "precision": "city", "confidence": 0.75, "city_key": "bandar_abbas", "province_key": "hormozgan", "source": "city_centroid"}, None, None, []),
++    ("ب\u064bند\u0651ر\u064eعب\u064bاس", "resolved", [{"type": "city", "text": "ب\u064bند\u0651ر\u064eعب\u064bاس", "start": 0, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["bandar_abbas"], "value": {}, "note": None}], {"latitude": 27.1832, "longitude": 56.2666, "precision": "city", "confidence": 0.75, "city_key": "bandar_abbas", "province_key": "hormozgan", "source": "city_centroid"}, None, None, []),
++    ("I am calling from Mashhad", "resolved", [{"type": "city", "text": "Mashhad", "start": 18, "end": 25, "confidence": 0.75, "ambiguous": False, "places": ["mashhad"], "value": {}, "note": None}], {"latitude": 36.2605, "longitude": 59.6168, "precision": "city", "confidence": 0.75, "city_key": "mashhad", "province_key": "razavi_khorasan", "source": "city_centroid"}, None, None, []),
++    ("I\u200cam calling from Mashhad", "resolved", [{"type": "city", "text": "Mashhad", "start": 18, "end": 25, "confidence": 0.75, "ambiguous": False, "places": ["mashhad"], "value": {}, "note": None}], {"latitude": 36.2605, "longitude": 59.6168, "precision": "city", "confidence": 0.75, "city_key": "mashhad", "province_key": "razavi_khorasan", "source": "city_centroid"}, None, None, []),
++    ("customer in tabriz", "resolved", [{"type": "city", "text": "tabriz", "start": 12, "end": 18, "confidence": 0.75, "ambiguous": False, "places": ["tabriz"], "value": {}, "note": None}], {"latitude": 38.08, "longitude": 46.2919, "precision": "city", "confidence": 0.75, "city_key": "tabriz", "province_key": "east_azerbaijan", "source": "city_centroid"}, None, None, []),
++    ("customer\u200cin tabriz", "resolved", [{"type": "city", "text": "tabriz", "start": 12, "end": 18, "confidence": 0.75, "ambiguous": False, "places": ["tabriz"], "value": {}, "note": None}], {"latitude": 38.08, "longitude": 46.2919, "precision": "city", "confidence": 0.75, "city_key": "tabriz", "province_key": "east_azerbaijan", "source": "city_centroid"}, None, None, []),
++    ("نورآباد فارس", "resolved", [{"type": "city", "text": "نورآباد", "start": 0, "end": 7, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}, {"type": "province", "text": "فارس", "start": 8, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["fars"], "value": {}, "note": None}], {"latitude": 30.1142, "longitude": 51.5217, "precision": "city", "confidence": 0.5, "city_key": "nurabad_mamasani", "province_key": "fars", "source": "city_centroid"}, None, None, []),
++    ("نورآباد\u200cفارس", "resolved", [{"type": "city", "text": "نورآباد", "start": 0, "end": 7, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}, {"type": "province", "text": "فارس", "start": 8, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["fars"], "value": {}, "note": None}], {"latitude": 30.1142, "longitude": 51.5217, "precision": "city", "confidence": 0.5, "city_key": "nurabad_mamasani", "province_key": "fars", "source": "city_centroid"}, None, None, []),
++    ("نور\u064eآب\u064bاد\u0651 فار\u064eس", "resolved", [{"type": "city", "text": "نور\u064eآب\u064bاد", "start": 0, "end": 9, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}, {"type": "province", "text": "فار\u064eس", "start": 11, "end": 16, "confidence": 0.75, "ambiguous": False, "places": ["fars"], "value": {}, "note": None}], {"latitude": 30.1142, "longitude": 51.5217, "precision": "city", "confidence": 0.5, "city_key": "nurabad_mamasani", "province_key": "fars", "source": "city_centroid"}, None, None, []),
++    ("نورآباد لرستان", "resolved", [{"type": "city", "text": "نورآباد", "start": 0, "end": 7, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}, {"type": "province", "text": "لرستان", "start": 8, "end": 14, "confidence": 0.75, "ambiguous": False, "places": ["lorestan"], "value": {}, "note": None}], {"latitude": 34.0734, "longitude": 47.9725, "precision": "city", "confidence": 0.5, "city_key": "nurabad_delfan", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("نورآباد\u200cلرستان", "resolved", [{"type": "city", "text": "نورآباد", "start": 0, "end": 7, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}, {"type": "province", "text": "لرستان", "start": 8, "end": 14, "confidence": 0.75, "ambiguous": False, "places": ["lorestan"], "value": {}, "note": None}], {"latitude": 34.0734, "longitude": 47.9725, "precision": "city", "confidence": 0.5, "city_key": "nurabad_delfan", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("نور\u064eآب\u064bاد\u0651 لر\u064eستان", "resolved", [{"type": "city", "text": "نور\u064eآب\u064bاد", "start": 0, "end": 9, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}, {"type": "province", "text": "لر\u064eستان", "start": 11, "end": 18, "confidence": 0.75, "ambiguous": False, "places": ["lorestan"], "value": {}, "note": None}], {"latitude": 34.0734, "longitude": 47.9725, "precision": "city", "confidence": 0.5, "city_key": "nurabad_delfan", "province_key": "lorestan", "source": "city_centroid"}, None, None, []),
++    ("آستانه اشرفیه هستم", "resolved", [{"type": "city", "text": "آستانه اشرفیه", "start": 0, "end": 13, "confidence": 0.75, "ambiguous": False, "places": ["astaneh_ashrafiyeh"], "value": {}, "note": None}], {"latitude": 37.2598, "longitude": 49.9437, "precision": "city", "confidence": 0.75, "city_key": "astaneh_ashrafiyeh", "province_key": "gilan", "source": "city_centroid"}, None, None, []),
++    ("آستانه اشرف\u064aه هستم", "resolved", [{"type": "city", "text": "آستانه اشرف\u064aه", "start": 0, "end": 13, "confidence": 0.75, "ambiguous": False, "places": ["astaneh_ashrafiyeh"], "value": {}, "note": None}], {"latitude": 37.2598, "longitude": 49.9437, "precision": "city", "confidence": 0.75, "city_key": "astaneh_ashrafiyeh", "province_key": "gilan", "source": "city_centroid"}, None, None, []),
++    ("آستانه\u200cاشرفیه هستم", "resolved", [{"type": "city", "text": "آستانه\u200cاشرفیه", "start": 0, "end": 13, "confidence": 0.75, "ambiguous": False, "places": ["astaneh_ashrafiyeh"], "value": {}, "note": None}], {"latitude": 37.2598, "longitude": 49.9437, "precision": "city", "confidence": 0.75, "city_key": "astaneh_ashrafiyeh", "province_key": "gilan", "source": "city_centroid"}, None, None, []),
++    ("آستانه\u0640 اشر\u064eفیه\u0640 ه\u0640ستم", "resolved", [{"type": "city", "text": "آستانه\u0640 اشر\u064eفیه", "start": 0, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["astaneh_ashrafiyeh"], "value": {}, "note": None}], {"latitude": 37.2598, "longitude": 49.9437, "precision": "city", "confidence": 0.75, "city_key": "astaneh_ashrafiyeh", "province_key": "gilan", "source": "city_centroid"}, None, None, []),
++    ("میدان ونک تهران", "resolved", [{"type": "landmark", "text": "میدان ونک", "start": 0, "end": 9, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "square", "name": "ونک"}, "note": "unresolved free-text landmark"}, {"type": "city", "text": "تهران", "start": 10, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, ["ونک"]),
++    ("م\u064aدان ون\u0643 تهران", "resolved", [{"type": "landmark", "text": "م\u064aدان ون\u0643", "start": 0, "end": 9, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "square", "name": "ونک"}, "note": "unresolved free-text landmark"}, {"type": "city", "text": "تهران", "start": 10, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, ["ونک"]),
++    ("میدان\u200cونک تهران", "resolved", [{"type": "landmark", "text": "میدان\u200cونک", "start": 0, "end": 9, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "square", "name": "ونک"}, "note": "unresolved free-text landmark"}, {"type": "city", "text": "تهران", "start": 10, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, ["ونک"]),
++    ("مید\u0651ان ونک ته\u0640ر\u064eان", "resolved", [{"type": "landmark", "text": "مید\u0651ان ونک", "start": 0, "end": 10, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "square", "name": "ونک"}, "note": "unresolved free-text landmark"}, {"type": "city", "text": "ته\u0640ر\u064eان", "start": 11, "end": 18, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, ["ونک"]),
++    ("میدان آزادی", "unresolved", [{"type": "landmark", "text": "میدان آزادی", "start": 0, "end": 11, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "square", "name": "آزادی"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["آزادی"]),
++    ("م\u064aدان آزاد\u064a", "unresolved", [{"type": "landmark", "text": "م\u064aدان آزاد\u064a", "start": 0, "end": 11, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "square", "name": "آزادی"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["آزادی"]),
++    ("میدان\u200cآزادی", "unresolved", [{"type": "landmark", "text": "میدان\u200cآزادی", "start": 0, "end": 11, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "square", "name": "آزادی"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["آزادی"]),
++    ("مید\u0651ان آزاد\u0651ی", "unresolved", [{"type": "landmark", "text": "مید\u0651ان آزاد\u0651ی", "start": 0, "end": 13, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "square", "name": "آزادی"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["آزادی"]),
++    ("بلوار کشاورز", "unresolved", [{"type": "landmark", "text": "بلوار کشاورز", "start": 0, "end": 12, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "boulevard", "name": "کشاورز"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["کشاورز"]),
++    ("بلوار \u0643شاورز", "unresolved", [{"type": "landmark", "text": "بلوار \u0643شاورز", "start": 0, "end": 12, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "boulevard", "name": "کشاورز"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["کشاورز"]),
++    ("بلوار\u200cکشاورز", "unresolved", [{"type": "landmark", "text": "بلوار\u200cکشاورز", "start": 0, "end": 12, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "boulevard", "name": "کشاورز"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["کشاورز"]),
++    ("ب\u064bلوار\u064e کشاور\u064eز", "unresolved", [{"type": "landmark", "text": "ب\u064bلوار\u064e کشاور\u064eز", "start": 0, "end": 15, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "boulevard", "name": "کشاورز"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["کشاورز"]),
++    ("بزرگراه همت", "unresolved", [{"type": "landmark", "text": "بزرگراه همت", "start": 0, "end": 11, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "highway", "name": "همت"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["همت"]),
++    ("بزرگراه\u200cهمت", "unresolved", [{"type": "landmark", "text": "بزرگراه\u200cهمت", "start": 0, "end": 11, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "highway", "name": "همت"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["همت"]),
++    ("ب\u064bزر\u064eگر\u064eاه\u0640 ه\u0640مت", "unresolved", [{"type": "landmark", "text": "ب\u064bزر\u064eگر\u064eاه\u0640 ه\u0640مت", "start": 0, "end": 16, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "highway", "name": "همت"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["همت"]),
++    ("near Valiasr St", "unresolved", [{"type": "landmark", "text": "Valiasr St", "start": 5, "end": 15, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "valiasr"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["valiasr"]),
++    ("near\u200cValiasr St", "unresolved", [{"type": "landmark", "text": "Valiasr St", "start": 5, "end": 15, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "valiasr"}, "note": "unresolved free-text landmark"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, ["valiasr"]),
++    ("سا\u0643ن \u0643رج هستم", "resolved", [{"type": "city", "text": "\u0643رج", "start": 5, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], {"latitude": 35.84, "longitude": 50.9391, "precision": "city", "confidence": 0.75, "city_key": "karaj", "province_key": "alborz", "source": "city_centroid"}, None, None, []),
++    ("سا\u0643ن\u200c\u0643رج هستم", "resolved", [{"type": "city", "text": "\u0643رج", "start": 5, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], {"latitude": 35.84, "longitude": 50.9391, "precision": "city", "confidence": 0.75, "city_key": "karaj", "province_key": "alborz", "source": "city_centroid"}, None, None, []),
++    ("سا\u0643ن \u0643ر\u064eج ه\u0640ستم", "resolved", [{"type": "city", "text": "\u0643ر\u064eج", "start": 5, "end": 9, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], {"latitude": 35.84, "longitude": 50.9391, "precision": "city", "confidence": 0.75, "city_key": "karaj", "province_key": "alborz", "source": "city_centroid"}, None, None, []),
++    ("استان فارس هستم", "resolved", [{"type": "province", "text": "استان فارس", "start": 0, "end": 10, "confidence": 0.9, "ambiguous": False, "places": ["fars"], "value": {}, "note": None}], {"latitude": 29.3, "longitude": 53.0, "precision": "province", "confidence": 0.4, "city_key": None, "province_key": "fars", "source": "province_centroid"}, {"slot": "city", "options": [], "question_fa": "در کدام شهر هستید؟"}, None, []),
++    ("استان\u200cفارس هستم", "resolved", [{"type": "province", "text": "استان\u200cفارس", "start": 0, "end": 10, "confidence": 0.9, "ambiguous": False, "places": ["fars"], "value": {}, "note": None}], {"latitude": 29.3, "longitude": 53.0, "precision": "province", "confidence": 0.4, "city_key": None, "province_key": "fars", "source": "province_centroid"}, {"slot": "city", "options": [], "question_fa": "در کدام شهر هستید؟"}, None, []),
++    ("استان فار\u064eس ه\u0640ستم", "resolved", [{"type": "province", "text": "استان فار\u064eس", "start": 0, "end": 11, "confidence": 0.9, "ambiguous": False, "places": ["fars"], "value": {}, "note": None}], {"latitude": 29.3, "longitude": 53.0, "precision": "province", "confidence": 0.4, "city_key": None, "province_key": "fars", "source": "province_centroid"}, {"slot": "city", "options": [], "question_fa": "در کدام شهر هستید؟"}, None, []),
++    ("اصفهان", "resolved", [{"type": "city", "text": "اصفهان", "start": 0, "end": 6, "confidence": 0.75, "ambiguous": False, "places": ["isfahan"], "value": {}, "note": None}], {"latitude": 32.6546, "longitude": 51.668, "precision": "city", "confidence": 0.75, "city_key": "isfahan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("اصفه\u0640ان", "resolved", [{"type": "city", "text": "اصفه\u0640ان", "start": 0, "end": 7, "confidence": 0.75, "ambiguous": False, "places": ["isfahan"], "value": {}, "note": None}], {"latitude": 32.6546, "longitude": 51.668, "precision": "city", "confidence": 0.75, "city_key": "isfahan", "province_key": "isfahan_p", "source": "city_centroid"}, None, None, []),
++    ("از نورآباد تماس می\u200cگیرم", "ambiguous", [{"type": "city", "text": "نورآباد", "start": 3, "end": 10, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}], None, {"slot": "city", "options": [{"key": "nurabad_mamasani", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "fars"}, {"key": "nurabad_delfan", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "منظورتان کدام است؟ نورآباد (فارس) یا نورآباد (لرستان)"}, None, []),
++    ("از نورآباد تماس م\u064a\u200cگ\u064aرم", "ambiguous", [{"type": "city", "text": "نورآباد", "start": 3, "end": 10, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}], None, {"slot": "city", "options": [{"key": "nurabad_mamasani", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "fars"}, {"key": "nurabad_delfan", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "منظورتان کدام است؟ نورآباد (فارس) یا نورآباد (لرستان)"}, None, []),
++    ("از نورآباد تماس می گیرم", "ambiguous", [{"type": "city", "text": "نورآباد", "start": 3, "end": 10, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}], None, {"slot": "city", "options": [{"key": "nurabad_mamasani", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "fars"}, {"key": "nurabad_delfan", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "منظورتان کدام است؟ نورآباد (فارس) یا نورآباد (لرستان)"}, None, []),
++    ("از نور\u064eآب\u064bاد\u0651 تماس می\u200cگیر\u064eم", "ambiguous", [{"type": "city", "text": "نور\u064eآب\u064bاد", "start": 3, "end": 12, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}], None, {"slot": "city", "options": [{"key": "nurabad_mamasani", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "fars"}, {"key": "nurabad_delfan", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "منظورتان کدام است؟ نورآباد (فارس) یا نورآباد (لرستان)"}, None, []),
++    ("از آذربایجان هستم", "ambiguous", [{"type": "region", "text": "آذربایجان", "start": 3, "end": 12, "confidence": 0.5, "ambiguous": True, "places": ["east_azerbaijan", "west_azerbaijan"], "value": {}, "note": "name matches several places"}], None, {"slot": "province", "options": [{"key": "east_azerbaijan", "label_fa": "آذربایجان شرقی", "label_en": "East Azerbaijan", "kind": "province", "province_key": None}, {"key": "west_azerbaijan", "label_fa": "آذربایجان غربی", "label_en": "West Azerbaijan", "kind": "province", "province_key": None}], "question_fa": "منظورتان کدام است؟ آذربایجان شرقی یا آذربایجان غربی"}, None, []),
++    ("از آذربا\u064aجان هستم", "ambiguous", [{"type": "region", "text": "آذربا\u064aجان", "start": 3, "end": 12, "confidence": 0.5, "ambiguous": True, "places": ["east_azerbaijan", "west_azerbaijan"], "value": {}, "note": "name matches several places"}], None, {"slot": "province", "options": [{"key": "east_azerbaijan", "label_fa": "آذربایجان شرقی", "label_en": "East Azerbaijan", "kind": "province", "province_key": None}, {"key": "west_azerbaijan", "label_fa": "آذربایجان غربی", "label_en": "West Azerbaijan", "kind": "province", "province_key": None}], "question_fa": "منظورتان کدام است؟ آذربایجان شرقی یا آذربایجان غربی"}, None, []),
++    ("از\u200cآذربایجان هستم", "ambiguous", [{"type": "region", "text": "آذربایجان", "start": 3, "end": 12, "confidence": 0.5, "ambiguous": True, "places": ["east_azerbaijan", "west_azerbaijan"], "value": {}, "note": "name matches several places"}], None, {"slot": "province", "options": [{"key": "east_azerbaijan", "label_fa": "آذربایجان شرقی", "label_en": "East Azerbaijan", "kind": "province", "province_key": None}, {"key": "west_azerbaijan", "label_fa": "آذربایجان غربی", "label_en": "West Azerbaijan", "kind": "province", "province_key": None}], "question_fa": "منظورتان کدام است؟ آذربایجان شرقی یا آذربایجان غربی"}, None, []),
++    ("از آذر\u064eب\u064bایجان ه\u0640ستم", "ambiguous", [{"type": "region", "text": "آذر\u064eب\u064bایجان", "start": 3, "end": 14, "confidence": 0.5, "ambiguous": True, "places": ["east_azerbaijan", "west_azerbaijan"], "value": {}, "note": "name matches several places"}], None, {"slot": "province", "options": [{"key": "east_azerbaijan", "label_fa": "آذربایجان شرقی", "label_en": "East Azerbaijan", "kind": "province", "province_key": None}, {"key": "west_azerbaijan", "label_fa": "آذربایجان غربی", "label_en": "West Azerbaijan", "kind": "province", "province_key": None}], "question_fa": "منظورتان کدام است؟ آذربایجان شرقی یا آذربایجان غربی"}, None, []),
++    ("خراسان", "ambiguous", [{"type": "region", "text": "خراسان", "start": 0, "end": 6, "confidence": 0.5, "ambiguous": True, "places": ["razavi_khorasan", "north_khorasan", "south_khorasan"], "value": {}, "note": "name matches several places"}], None, {"slot": "province", "options": [{"key": "razavi_khorasan", "label_fa": "خراسان رضوی", "label_en": "Razavi Khorasan", "kind": "province", "province_key": None}, {"key": "north_khorasan", "label_fa": "خراسان شمالی", "label_en": "North Khorasan", "kind": "province", "province_key": None}, {"key": "south_khorasan", "label_fa": "خراسان جنوبی", "label_en": "South Khorasan", "kind": "province", "province_key": None}], "question_fa": "منظورتان کدام است؟ خراسان رضوی یا خراسان شمالی یا خراسان جنوبی"}, None, []),
++    ("خر\u064eاسان", "ambiguous", [{"type": "region", "text": "خر\u064eاسان", "start": 0, "end": 7, "confidence": 0.5, "ambiguous": True, "places": ["razavi_khorasan", "north_khorasan", "south_khorasan"], "value": {}, "note": "name matches several places"}], None, {"slot": "province", "options": [{"key": "razavi_khorasan", "label_fa": "خراسان رضوی", "label_en": "Razavi Khorasan", "kind": "province", "province_key": None}, {"key": "north_khorasan", "label_fa": "خراسان شمالی", "label_en": "North Khorasan", "kind": "province", "province_key": None}, {"key": "south_khorasan", "label_fa": "خراسان جنوبی", "label_en": "South Khorasan", "kind": "province", "province_key": None}], "question_fa": "منظورتان کدام است؟ خراسان رضوی یا خراسان شمالی یا خراسان جنوبی"}, None, []),
++    ("آستانه", "ambiguous", [{"type": "city", "text": "آستانه", "start": 0, "end": 6, "confidence": 0.5, "ambiguous": True, "places": ["astaneh_ashrafiyeh", "astaneh_markazi"], "value": {}, "note": "name matches several places"}], None, {"slot": "city", "options": [{"key": "astaneh_ashrafiyeh", "label_fa": "آستانه اشرفیه", "label_en": "Astaneh-ye Ashrafiyeh", "kind": "city", "province_key": "gilan"}, {"key": "astaneh_markazi", "label_fa": "آستانه", "label_en": "Astaneh", "kind": "city", "province_key": "markazi"}], "question_fa": "منظورتان کدام است؟ آستانه اشرفیه (گیلان) یا آستانه (مرکزی)"}, None, []),
++    ("آستانه\u0640", "ambiguous", [{"type": "city", "text": "آستانه", "start": 0, "end": 6, "confidence": 0.5, "ambiguous": True, "places": ["astaneh_ashrafiyeh", "astaneh_markazi"], "value": {}, "note": "name matches several places"}], None, {"slot": "city", "options": [{"key": "astaneh_ashrafiyeh", "label_fa": "آستانه اشرفیه", "label_en": "Astaneh-ye Ashrafiyeh", "kind": "city", "province_key": "gilan"}, {"key": "astaneh_markazi", "label_fa": "آستانه", "label_en": "Astaneh", "kind": "city", "province_key": "markazi"}], "question_fa": "منظورتان کدام است؟ آستانه اشرفیه (گیلان) یا آستانه (مرکزی)"}, None, []),
++    ("تهران یا کرج، فرقی نمی\u200cکند", "ambiguous", [{"type": "city", "text": "تهران", "start": 0, "end": 5, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}, {"type": "city", "text": "کرج", "start": 9, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], None, {"slot": "city", "options": [{"key": "tehran", "label_fa": "تهران", "label_en": "Tehran", "kind": "city", "province_key": "tehran_p"}, {"key": "karaj", "label_fa": "کرج", "label_en": "Karaj", "kind": "city", "province_key": "alborz"}], "question_fa": "کدام شهر مد نظر شماست؟ تهران یا کرج"}, None, []),
++    ("تهران \u064aا \u0643رج، فرق\u064a نم\u064a\u200c\u0643ند", "ambiguous", [{"type": "city", "text": "تهران", "start": 0, "end": 5, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}, {"type": "city", "text": "\u0643رج", "start": 9, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], None, {"slot": "city", "options": [{"key": "tehran", "label_fa": "تهران", "label_en": "Tehran", "kind": "city", "province_key": "tehran_p"}, {"key": "karaj", "label_fa": "کرج", "label_en": "Karaj", "kind": "city", "province_key": "alborz"}], "question_fa": "کدام شهر مد نظر شماست؟ تهران یا کرج"}, None, []),
++    ("تهران یا کرج، فرقی نمی کند", "ambiguous", [{"type": "city", "text": "تهران", "start": 0, "end": 5, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}, {"type": "city", "text": "کرج", "start": 9, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], None, {"slot": "city", "options": [{"key": "tehran", "label_fa": "تهران", "label_en": "Tehran", "kind": "city", "province_key": "tehran_p"}, {"key": "karaj", "label_fa": "کرج", "label_en": "Karaj", "kind": "city", "province_key": "alborz"}], "question_fa": "کدام شهر مد نظر شماست؟ تهران یا کرج"}, None, []),
++    ("ته\u0640ر\u064eان یا کر\u064eج، فر\u064eقی نمی\u200cکند\u0651", "ambiguous", [{"type": "city", "text": "ته\u0640ر\u064eان", "start": 0, "end": 7, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}, {"type": "city", "text": "کر\u064eج", "start": 11, "end": 15, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], None, {"slot": "city", "options": [{"key": "tehran", "label_fa": "تهران", "label_en": "Tehran", "kind": "city", "province_key": "tehran_p"}, {"key": "karaj", "label_fa": "کرج", "label_en": "Karaj", "kind": "city", "province_key": "alborz"}], "question_fa": "کدام شهر مد نظر شماست؟ تهران یا کرج"}, None, []),
++    ("خیابان شیراز، تهران", "resolved", [{"type": "landmark", "text": "خیابان شیراز", "start": 0, "end": 12, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "شیراز"}, "note": "unresolved free-text landmark"}, {"type": "city", "text": "تهران", "start": 14, "end": 19, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, ["شیراز"]),
++    ("خ\u064aابان ش\u064aراز، تهران", "resolved", [{"type": "landmark", "text": "خ\u064aابان ش\u064aراز", "start": 0, "end": 12, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "شیراز"}, "note": "unresolved free-text landmark"}, {"type": "city", "text": "تهران", "start": 14, "end": 19, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, ["شیراز"]),
++    ("خیابان\u200cشیراز، تهران", "resolved", [{"type": "landmark", "text": "خیابان\u200cشیراز", "start": 0, "end": 12, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "شیراز"}, "note": "unresolved free-text landmark"}, {"type": "city", "text": "تهران", "start": 14, "end": 19, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, ["شیراز"]),
++    ("خیاب\u064bان شیر\u064eاز، ته\u0640ر\u064eان", "resolved", [{"type": "landmark", "text": "خیاب\u064bان شیر\u064eاز", "start": 0, "end": 14, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "شیراز"}, "note": "unresolved free-text landmark"}, {"type": "city", "text": "ته\u0640ر\u064eان", "start": 16, "end": 23, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, None, ["شیراز"]),
++    ("سا\u0643ن تهران، منطقه ۳، خ\u064aابان ولیعصر، کوچه ۱۲، پلاک ۴۵، کد پستی ۱۴۳۵۶-۷۸۹۱۳", "resolved", [{"type": "city", "text": "تهران", "start": 5, "end": 10, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}, {"type": "district", "text": "منطقه ۳", "start": 12, "end": 19, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "3"}, "note": None}, {"type": "landmark", "text": "خ\u064aابان ولیعصر", "start": 21, "end": 34, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "ولیعصر"}, "note": "unresolved free-text landmark"}, {"type": "landmark", "text": "کوچه ۱۲", "start": 36, "end": 43, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "alley", "name": "12"}, "note": "unresolved free-text landmark"}, {"type": "plate", "text": "پلاک ۴۵", "start": 45, "end": 52, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "45"}, "note": None}, {"type": "postal_code", "text": "۱۴۳۵۶-۷۸۹۱۳", "start": 62, "end": 73, "confidence": 0.9, "ambiguous": False, "places": [], "value": {"postal_code": "1435678913", "valid": True}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, "1435678913", ["ولیعصر", "12"]),
++    ("سا\u0643ن تهران، منطقه ۳، خ\u064aابان ول\u064aعصر، \u0643وچه ۱۲، پلا\u0643 ۴۵، \u0643د پست\u064a ۱۴۳۵۶-۷۸۹۱۳", "resolved", [{"type": "city", "text": "تهران", "start": 5, "end": 10, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}, {"type": "district", "text": "منطقه ۳", "start": 12, "end": 19, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "3"}, "note": None}, {"type": "landmark", "text": "خ\u064aابان ول\u064aعصر", "start": 21, "end": 34, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "ولیعصر"}, "note": "unresolved free-text landmark"}, {"type": "landmark", "text": "\u0643وچه ۱۲", "start": 36, "end": 43, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "alley", "name": "12"}, "note": "unresolved free-text landmark"}, {"type": "plate", "text": "پلا\u0643 ۴۵", "start": 45, "end": 52, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "45"}, "note": None}, {"type": "postal_code", "text": "۱۴۳۵۶-۷۸۹۱۳", "start": 62, "end": 73, "confidence": 0.9, "ambiguous": False, "places": [], "value": {"postal_code": "1435678913", "valid": True}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, "1435678913", ["ولیعصر", "12"]),
++    ("سا\u0643ن\u200cتهران، منطقه ۳، خ\u064aابان ولیعصر، کوچه ۱۲، پلاک ۴۵، کد پستی ۱۴۳۵۶-۷۸۹۱۳", "resolved", [{"type": "city", "text": "تهران", "start": 5, "end": 10, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}, {"type": "district", "text": "منطقه ۳", "start": 12, "end": 19, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "3"}, "note": None}, {"type": "landmark", "text": "خ\u064aابان ولیعصر", "start": 21, "end": 34, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "ولیعصر"}, "note": "unresolved free-text landmark"}, {"type": "landmark", "text": "کوچه ۱۲", "start": 36, "end": 43, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "alley", "name": "12"}, "note": "unresolved free-text landmark"}, {"type": "plate", "text": "پلاک ۴۵", "start": 45, "end": 52, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "45"}, "note": None}, {"type": "postal_code", "text": "۱۴۳۵۶-۷۸۹۱۳", "start": 62, "end": 73, "confidence": 0.9, "ambiguous": False, "places": [], "value": {"postal_code": "1435678913", "valid": True}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, "1435678913", ["ولیعصر", "12"]),
++    ("سا\u0643ن ته\u0640ر\u064eان، منطقه\u0640 ۳، خ\u064aاب\u064bان ولیعصر\u064e، کوچه\u0640 ۱۲، پلاک ۴۵، کد\u0651 پستی ۱۴۳۵۶-۷۸۹۱۳", "resolved", [{"type": "city", "text": "ته\u0640ر\u064eان", "start": 5, "end": 12, "confidence": 0.75, "ambiguous": False, "places": ["tehran"], "value": {}, "note": None}, {"type": "district", "text": "منطقه\u0640 ۳", "start": 14, "end": 22, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "3"}, "note": None}, {"type": "landmark", "text": "خ\u064aاب\u064bان ولیعصر", "start": 24, "end": 38, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "street", "name": "ولیعصر"}, "note": "unresolved free-text landmark"}, {"type": "landmark", "text": "کوچه\u0640 ۱۲", "start": 41, "end": 49, "confidence": 0.6, "ambiguous": False, "places": [], "value": {"landmark_type": "alley", "name": "12"}, "note": "unresolved free-text landmark"}, {"type": "plate", "text": "پلاک ۴۵", "start": 51, "end": 58, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "45"}, "note": None}, {"type": "postal_code", "text": "۱۴۳۵۶-۷۸۹۱۳", "start": 69, "end": 80, "confidence": 0.9, "ambiguous": False, "places": [], "value": {"postal_code": "1435678913", "valid": True}, "note": None}], {"latitude": 35.6892, "longitude": 51.389, "precision": "city", "confidence": 0.75, "city_key": "tehran", "province_key": "tehran_p", "source": "city_centroid"}, None, "1435678913", ["ولیعصر", "12"]),
++    ("موقعیتم ۳۵\u066b۷۰۱, ۵۱\u066b۴۰۱ است", "resolved", [{"type": "coordinates", "text": "۳۵\u066b۷۰۱, ۵۱\u066b۴۰۱", "start": 8, "end": 22, "confidence": 0.95, "ambiguous": False, "places": [], "value": {"latitude": 35.701, "longitude": 51.401}, "note": None}], {"latitude": 35.701, "longitude": 51.401, "precision": "coordinates", "confidence": 0.95, "city_key": None, "province_key": None, "source": "explicit_coordinates"}, None, None, []),
++    ("موقع\u064aتم ۳۵\u066b۷۰۱, ۵۱\u066b۴۰۱ است", "resolved", [{"type": "coordinates", "text": "۳۵\u066b۷۰۱, ۵۱\u066b۴۰۱", "start": 8, "end": 22, "confidence": 0.95, "ambiguous": False, "places": [], "value": {"latitude": 35.701, "longitude": 51.401}, "note": None}], {"latitude": 35.701, "longitude": 51.401, "precision": "coordinates", "confidence": 0.95, "city_key": None, "province_key": None, "source": "explicit_coordinates"}, None, None, []),
++    ("موقعیتم\u200c۳۵\u066b۷۰۱, ۵۱\u066b۴۰۱ است", "resolved", [{"type": "coordinates", "text": "۳۵\u066b۷۰۱, ۵۱\u066b۴۰۱", "start": 8, "end": 22, "confidence": 0.95, "ambiguous": False, "places": [], "value": {"latitude": 35.701, "longitude": 51.401}, "note": None}], {"latitude": 35.701, "longitude": 51.401, "precision": "coordinates", "confidence": 0.95, "city_key": None, "province_key": None, "source": "explicit_coordinates"}, None, None, []),
++    ("95.1234, 51.4000", "unresolved", [], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("95.1234,\u200c51.4000", "unresolved", [], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("۹۵.۱۲۳۴, ۵۱.۴۰۰۰", "unresolved", [], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("کد پستی ۰۰۰۰۰۰۰۰۰۰", "unresolved", [{"type": "postal_code", "text": "۰۰۰۰۰۰۰۰۰۰", "start": 8, "end": 18, "confidence": 0.3, "ambiguous": False, "places": [], "value": {"postal_code": "0000000000", "valid": False}, "note": "does not follow the Iranian postal code pattern"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("\u0643د پست\u064a ۰۰۰۰۰۰۰۰۰۰", "unresolved", [{"type": "postal_code", "text": "۰۰۰۰۰۰۰۰۰۰", "start": 8, "end": 18, "confidence": 0.3, "ambiguous": False, "places": [], "value": {"postal_code": "0000000000", "valid": False}, "note": "does not follow the Iranian postal code pattern"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("کد\u200cپستی ۰۰۰۰۰۰۰۰۰۰", "unresolved", [{"type": "postal_code", "text": "۰۰۰۰۰۰۰۰۰۰", "start": 8, "end": 18, "confidence": 0.3, "ambiguous": False, "places": [], "value": {"postal_code": "0000000000", "valid": False}, "note": "does not follow the Iranian postal code pattern"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("کد\u0651 پستی ۰۰۰۰۰۰۰۰۰۰", "unresolved", [{"type": "postal_code", "text": "۰۰۰۰۰۰۰۰۰۰", "start": 9, "end": 19, "confidence": 0.3, "ambiguous": False, "places": [], "value": {"postal_code": "0000000000", "valid": False}, "note": "does not follow the Iranian postal code pattern"}], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("سلام وقت بخیر", "unresolved", [], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("سلام وقت بخ\u064aر", "unresolved", [], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("سلام\u200cوقت بخیر", "unresolved", [], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("سلام وقت ب\u064bخیر\u064e", "unresolved", [], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("نورآباد", "ambiguous", [{"type": "city", "text": "نورآباد", "start": 0, "end": 7, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}], None, {"slot": "city", "options": [{"key": "nurabad_mamasani", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "fars"}, {"key": "nurabad_delfan", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "منظورتان کدام است؟ نورآباد (فارس) یا نورآباد (لرستان)"}, None, []),
++    ("نور\u064eآب\u064bاد\u0651", "ambiguous", [{"type": "city", "text": "نور\u064eآب\u064bاد", "start": 0, "end": 9, "confidence": 0.5, "ambiguous": True, "places": ["nurabad_mamasani", "nurabad_delfan"], "value": {}, "note": "name matches several places"}], None, {"slot": "city", "options": [{"key": "nurabad_mamasani", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "fars"}, {"key": "nurabad_delfan", "label_fa": "نورآباد", "label_en": "Nurabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "منظورتان کدام است؟ نورآباد (فارس) یا نورآباد (لرستان)"}, None, []),
++    ("سلام", "unresolved", [], None, {"slot": "city", "options": [], "question_fa": "لطفا\u064b شهر یا محدوده\u200cی خود را بفرمایید."}, None, []),
++    ("از کرج", "resolved", [{"type": "city", "text": "کرج", "start": 3, "end": 6, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], {"latitude": 35.84, "longitude": 50.9391, "precision": "city", "confidence": 0.75, "city_key": "karaj", "province_key": "alborz", "source": "city_centroid"}, None, None, []),
++    ("از \u0643رج", "resolved", [{"type": "city", "text": "\u0643رج", "start": 3, "end": 6, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], {"latitude": 35.84, "longitude": 50.9391, "precision": "city", "confidence": 0.75, "city_key": "karaj", "province_key": "alborz", "source": "city_centroid"}, None, None, []),
++    ("از\u200cکرج", "resolved", [{"type": "city", "text": "کرج", "start": 3, "end": 6, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], {"latitude": 35.84, "longitude": 50.9391, "precision": "city", "confidence": 0.75, "city_key": "karaj", "province_key": "alborz", "source": "city_centroid"}, None, None, []),
++    ("از کر\u064eج", "resolved", [{"type": "city", "text": "کر\u064eج", "start": 3, "end": 7, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}], {"latitude": 35.84, "longitude": 50.9391, "precision": "city", "confidence": 0.75, "city_key": "karaj", "province_key": "alborz", "source": "city_centroid"}, None, None, []),
++    ("استان اصفهان", "resolved", [{"type": "province", "text": "استان اصفهان", "start": 0, "end": 12, "confidence": 0.9, "ambiguous": False, "places": ["isfahan_p"], "value": {}, "note": None}], {"latitude": 32.7, "longitude": 51.95, "precision": "province", "confidence": 0.4, "city_key": None, "province_key": "isfahan_p", "source": "province_centroid"}, {"slot": "city", "options": [], "question_fa": "در کدام شهر هستید؟"}, None, []),
++    ("استان\u200cاصفهان", "resolved", [{"type": "province", "text": "استان\u200cاصفهان", "start": 0, "end": 12, "confidence": 0.9, "ambiguous": False, "places": ["isfahan_p"], "value": {}, "note": None}], {"latitude": 32.7, "longitude": 51.95, "precision": "province", "confidence": 0.4, "city_key": None, "province_key": "isfahan_p", "source": "province_centroid"}, {"slot": "city", "options": [], "question_fa": "در کدام شهر هستید؟"}, None, []),
++    ("استان اصفه\u0640ان", "resolved", [{"type": "province", "text": "استان اصفه\u0640ان", "start": 0, "end": 13, "confidence": 0.9, "ambiguous": False, "places": ["isfahan_p"], "value": {}, "note": None}], {"latitude": 32.7, "longitude": 51.95, "precision": "province", "confidence": 0.4, "city_key": None, "province_key": "isfahan_p", "source": "province_centroid"}, {"slot": "city", "options": [], "question_fa": "در کدام شهر هستید؟"}, None, []),
++    ("سا\u0643ن \u0643رج، پلا\u0643 ۴۵ و خرم\u200cآباد", "ambiguous", [{"type": "city", "text": "\u0643رج", "start": 5, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}, {"type": "plate", "text": "پلا\u0643 ۴۵", "start": 10, "end": 17, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "45"}, "note": None}, {"type": "city", "text": "خرم\u200cآباد", "start": 20, "end": 28, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], None, {"slot": "city", "options": [{"key": "karaj", "label_fa": "کرج", "label_en": "Karaj", "kind": "city", "province_key": "alborz"}, {"key": "khorramabad", "label_fa": "خرم آباد", "label_en": "Khorramabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "کدام شهر مد نظر شماست؟ کرج یا خرم آباد"}, None, []),
++    ("سا\u0643ن \u0643رج، پلا\u0643 ۴۵ و خرم آباد", "ambiguous", [{"type": "city", "text": "\u0643رج", "start": 5, "end": 8, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}, {"type": "plate", "text": "پلا\u0643 ۴۵", "start": 10, "end": 17, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "45"}, "note": None}, {"type": "city", "text": "خرم آباد", "start": 20, "end": 28, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], None, {"slot": "city", "options": [{"key": "karaj", "label_fa": "کرج", "label_en": "Karaj", "kind": "city", "province_key": "alborz"}, {"key": "khorramabad", "label_fa": "خرم آباد", "label_en": "Khorramabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "کدام شهر مد نظر شماست؟ کرج یا خرم آباد"}, None, []),
++    ("سا\u0643ن \u0643ر\u064eج، پلا\u0643 ۴۵ و خر\u064eم\u200cآب\u064bاد\u0651", "ambiguous", [{"type": "city", "text": "\u0643ر\u064eج", "start": 5, "end": 9, "confidence": 0.75, "ambiguous": False, "places": ["karaj"], "value": {}, "note": None}, {"type": "plate", "text": "پلا\u0643 ۴۵", "start": 11, "end": 18, "confidence": 0.8, "ambiguous": False, "places": [], "value": {"number": "45"}, "note": None}, {"type": "city", "text": "خر\u064eم\u200cآب\u064bاد", "start": 21, "end": 31, "confidence": 0.75, "ambiguous": False, "places": ["khorramabad"], "value": {}, "note": None}], None, {"slot": "city", "options": [{"key": "karaj", "label_fa": "کرج", "label_en": "Karaj", "kind": "city", "province_key": "alborz"}, {"key": "khorramabad", "label_fa": "خرم آباد", "label_en": "Khorramabad", "kind": "city", "province_key": "lorestan"}], "question_fa": "کدام شهر مد نظر شماست؟ کرج یا خرم آباد"}, None, []),
++]
++# fmt: on
++
++
++PRIORITY_CONTEXTS = (
++    prod_voicemail.PriorityContext(),
++    prod_voicemail.PriorityContext(recent_calls_from_caller=2, caller_is_vip=True),
++)
++VOICEMAIL_CASES = [(text, cls, pri) for cls, pri, texts in VOICEMAIL_GROUPS for text in texts]
++
++
++def _ids(prefix: str, cases: list) -> list[str]:
++    return [f"{prefix}-{index:03d}" for index in range(len(cases))]
++
++
++def test_versions_and_policy_digests_are_the_base_values() -> None:
++    assert prod_text_pii.DETECTOR_VERSION == BASE_DETECTOR_VERSION == "text-pii/1"
++    assert prod_voicemail.RULES_VERSION == BASE_RULES_VERSION == "vm-rules-2026.09.1"
++    assert policy_digest(list(prod_text_pii.PiiClass)) == BASE_POLICY_DIGEST_ALL
++    assert policy_digest([prod_text_pii.PiiClass.EMAIL]) == BASE_POLICY_DIGEST_EMAIL
++    assert BASE_POLICY_DIGEST_ALL == (
++        "959fd446dfa18828da8543a05eefb4e4be20bb0cbbcbf84b92f45b58b3ed35ad"
++    )
++    assert BASE_POLICY_DIGEST_EMAIL == (
++        "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058cdd1d8"
++    )
++
++
++def test_colloquial_table_is_the_base_table() -> None:
++    assert type(prod_speech.DEFAULT_COLLOQUIAL_FA) is type(ref.speech.DEFAULT_COLLOQUIAL_FA)
++    assert prod_speech.DEFAULT_COLLOQUIAL_FA == ref.speech.DEFAULT_COLLOQUIAL_FA
++    assert prod_speech.ZWNJ == ref.speech.ZWNJ == "\u200c"
++
++
++@pytest.mark.parametrize(
++    ("raw", "speech_fa", "stream_text", "stream_offsets", "locations_text", "voicemail_text"),
++    PROFILE_TABLE,
++    ids=_ids("profile", PROFILE_TABLE),
++)
++def test_profile_divergences_are_preserved(
++    raw, speech_fa, stream_text, stream_offsets, locations_text, voicemail_text
++) -> None:
++    assert prod_speech.normalize_fa(raw) == speech_fa
++    stream = prod_locations.normalize_char_stream(raw)
++    assert (stream.text, stream.offsets, stream.original) == (stream_text, stream_offsets, raw)
++    assert prod_locations.normalize_text(raw) == locations_text
++    assert prod_voicemail.normalize_text(raw) == voicemail_text
++
++
++def test_locations_span_maps_back_onto_the_original_address() -> None:
++    stream = prod_locations.normalize_char_stream(ADDRESS)
++    assert stream.span(7, 14) == ADDRESS_SPAN_7_14 == (8, 15)
++    assert ADDRESS[slice(*stream.span(7, 14))] == ADDRESS_ORIGINAL_7_14
++
++
++@pytest.mark.parametrize(
++    ("raw", "expected"), NORMALIZE_DIGITS, ids=_ids("digits", NORMALIZE_DIGITS)
++)
++def test_normalize_digits_literals(raw: str, expected: str) -> None:
++    assert prod_text_pii.normalize_digits(raw) == expected
++    assert len(prod_text_pii.normalize_digits(raw)) == len(raw)
++
++
++@pytest.mark.parametrize(("raw", "expected"), IRANIAN_MOBILE, ids=_ids("mobile", IRANIAN_MOBILE))
++def test_iranian_mobile_literals(raw: str, expected: tuple[str, str]) -> None:
++    try:
++        outcome = ("value", prod_security.normalize_iranian_mobile(raw))
++    except ValueError as exc:
++        outcome = ("ValueError", str(exc))
++    assert outcome == expected
++
++
++@pytest.mark.parametrize(
++    ("raw", "expected"), NORMALIZE_CALLER_NUMBER, ids=_ids("caller", NORMALIZE_CALLER_NUMBER)
++)
++def test_caller_number_literals(raw, expected) -> None:
++    assert prod_ingest.normalize_caller_number(raw) == expected
++
++
++def test_voicemail_normalize_text_of_none_is_empty() -> None:
++    assert prod_voicemail.normalize_text(None) == VOICEMAIL_NORMALIZE_NONE == ""
++
++
++@pytest.mark.parametrize(("text", "spans", "redaction"), PII_CASES, ids=_ids("pii", PII_CASES))
++def test_pii_detect_and_redact_literals(text: str, spans, redaction) -> None:
++    found = prod_text_pii.detect(text)
++    assert [(s.start, s.end, s.pii_class.value, s.value) for s in found] == spans
++    redacted, replacements = prod_text_pii.redact(text)
++    got = [(r.start, r.end, r.pii_class.value, r.placeholder, r.value) for r in replacements]
++    assert (redacted, got) == redaction
++    assert all(text[r.start : r.end] == r.value for r in replacements)  # original offsets
++
++
++def test_spec_detector_probes() -> None:
++    """The detector values the SPEC lists under its divergence table, spelled out."""
++    detect = prod_text_pii.detect
++    phone = "شماره من ۰۹۱۲ ۳۴۵ ۶۷۸۹ است"
++    assert [(s.start, s.end, s.pii_class.value, s.value) for s in detect(phone)] == [
++        (9, 22, "phone", "09123456789")
++    ]
++    redacted, replacements = prod_text_pii.redact(phone)
++    assert redacted == "شماره من [PHONE_1] است"
++    assert [r.value for r in replacements] == ["۰۹۱۲ ۳۴۵ ۶۷۸۹"]
++    postal = detect("کد پستی ۱۴۳۵۶۷۸۹۱۲ است")
++    assert [(s.start, s.end, s.pii_class.value, s.value) for s in postal] == [
++        (8, 18, "ir_postal_code", "1435678912")
++    ]
++    assert detect("\u0643د پست\u064a ۱۴۳۵۶۷۸۹۱۲ است") == []  # Arabic kaf and yeh
++    assert detect("کد\u200cپستی ۱۴۳۵۶۷۸۹۱۲ است") == []
++    assert detect("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19") == []
++    fullwidth_id = "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11"
++    spans = detect("کد " + fullwidth_id + " تمام")
++    assert [(s.start, s.end, s.pii_class.value, s.value) for s in spans] == [
++        (3, 13, "ir_national_id", fullwidth_id)
++    ]
++
++
++@pytest.mark.parametrize(
++    ("text", "classification", "priorities"),
++    VOICEMAIL_CASES,
++    ids=_ids("voicemail", VOICEMAIL_CASES),
++)
++def test_voicemail_classification_and_priority_literals(text: str, classification, priorities):
++    result = prod_voicemail.RuleClassifier().classify(prod_voicemail.ClassificationInput(text=text))
++    assert (
++        result.category.value,
++        result.intent,
++        result.topics,
++        result.confidence,
++        result.needs_review,
++        result.review_reason,
++        result.matched_terms,
++    ) == classification
++    for context, expected in zip(PRIORITY_CONTEXTS, priorities, strict=True):
++        priority = prod_voicemail.prioritize(text, result, context)
++        assert (priority.priority.value, priority.score, priority.reasons) == expected
++
++
++@pytest.mark.parametrize(
++    ("text", "status", "candidates", "resolved", "clarification", "postal_code", "landmarks"),
++    LOCATION_CASES,
++    ids=_ids("location", LOCATION_CASES),
++)
++def test_location_extraction_literals(
++    text, status, candidates, resolved, clarification, postal_code, landmarks
++) -> None:
++    result = extract_locations(text)
++    expected_candidates = [
++        {**candidate, "places": [LOCATION_PLACES[key] for key in candidate["places"]]}
++        for candidate in candidates
++    ]
++    assert result.status == status
++    assert [candidate.as_dict() for candidate in result.candidates] == expected_candidates
++    assert (result.resolved.as_dict() if result.resolved else None) == resolved
++    assert result.clarification == clarification
++    assert result.postal_code == postal_code
++    assert result.landmarks == landmarks
++    for candidate in result.candidates:  # spans point into the original text
++        assert text[candidate.start : candidate.end] == candidate.text

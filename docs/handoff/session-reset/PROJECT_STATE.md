@@ -114,7 +114,7 @@ No package is complete in production terms. WP03, WP04 and WP06 are validated in
 | Authentication | Password accounts, e-mail verification with resend (cooldown, supersession), password reset, session rotation/revocation, CSRF, method discovery `GET /auth/methods`; SMTP sender (stdlib) — backend tests, and the Session C journey through the real nginx config with an SMTP sink | Google sign-in and Asanak SMS OTP never run against the real services (explicit `503` classes when unavailable); no SMTP relay tested; enterprise SSO (WP23) |
 | Tenant isolation | Authorization matrix with deny-by-default route inventory; row-level security with a non-bypass role, per-transaction context; two-tenant negative suites — PostgreSQL tests in CI | managed PostgreSQL/PgBouncer, penetration test |
 | Privacy | Retention modes, legal hold, tombstone-first deletion, durable purge, tombstone journal/reapply, text PII redaction with restricted mappings, redacted-by-default views with audited reveal, subject-scope export — tests; redaction and reveal seen in the journey | retention/backup policy decisions (owner); legal review |
-| Storage | Local object storage and S3 adapter over a contract suite (controlled fake client); media validation with ffprobe and adversarial fixtures | live S3-compatible run (41 opt-in tests); **the 35 ffmpeg tests do not run in CI** (runner lacks ffmpeg; fix on local branch `ci/r02-ffmpeg-backend-tests`, remote CI not run — R-02) |
+| Storage | Local object storage and S3 adapter over a contract suite (controlled fake client); media validation with ffprobe and adversarial fixtures | live S3-compatible run (41 opt-in tests); the ffmpeg media tests run in CI since PR #5, with bounded decode diagnostics since Session A (R-02 resolved, `VALIDATION.md` §2b) |
 | Processing | Outbox dispatch, leases with fencing, heartbeat, checkpoints, failure classes, dead letter and replay, recovery sweeps, invariant checker, transport drills with real Celery prefork workers and Redis — in CI | deployed stack; broker-restart drill skipped in CI |
 | Usage | Append-only usage ledger, single settlement enforced by the database, reconciliation, quota refusal with details — tests and journey | plans/billing (WP18); empty-transcript charging is an owner decision |
 | Provider routing | Versioned manifests, per-workspace AI policies with snapshots, eligibility filtering before ranking, deadlines/circuits/fallback, egress guard; on-prem network egress denial and allowlist proxy tested in CI; air-gap gate | Padyar AI Gateway contract (blocked_external); no real model qualified; cloud firewall and production egress unverified |
@@ -231,7 +231,8 @@ API call, source hashes 440/440 equal to the committed blobs. **HTML rendering w
 
 - Anything involving real models, providers, e-mail/SMS services, S3, a deployed topology, TLS,
   backups/restore on real infrastructure, load, or GPU workers.
-- Media validation in CI (35 ffmpeg tests skipped on the runner, R-02).
+- Media validation on ffmpeg releases other than those tested (macOS 8.1.2, Debian 5.1.9, Ubuntu
+  6.1.1): 6.1.1 was found to conceal decode errors (`VALIDATION.md` §2b).
 - The website's own behavior beyond lint and build (no tests in the repository).
 - Browser coverage beyond Chromium in the built-in browser pane.
 - One console test run with 1/113 failing (name not captured, not reproduced; `REMAINING_WORK.md`

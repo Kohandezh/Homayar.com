@@ -60,5 +60,11 @@
     "title": "graphify - code map (2026-09-26 closeout refresh)",
     "status": "not_run",
     "reason": "the refresh tool skips HTML above 5,000 resolved nodes (5,480); no graph.html exists for this snapshot, so there is nothing to render. The JSON, report and diagnostics are the validated outputs (source hashes checked against website 2a30213)."
+  },
+  {
+    "kind": "code",
+    "title": "graphify - code map (2026-09-27 Session A refresh)",
+    "status": "not_run",
+    "reason": "the refresh tool skips HTML above 5,000 resolved nodes (5,510); no graph.html exists for this snapshot, so there is nothing to render. The JSON, report and diagnostics are the validated outputs (source hashes checked against 4428756)."
   }
 ]

@@ -76,6 +76,10 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "notifications",
     "ai_policy_versions",
     "run_policy_snapshots",
+    # P0 wave
+    "service_locations",
+    "voice_workspace_limits",
+    "voicemail_messages",
 )
 
 # A presented share token exposes exactly one meeting's content (WP03-T06):
@@ -134,6 +138,12 @@ POLICIES: dict[str, tuple[str, str]] = {
     # rows across tenants under the 'recovery' service scope: read-only (the
     # WITH CHECK stays tenant-bound), ids/lease columns only — every recovery
     # write then binds the job's own tenant from the persisted row.
+    # Voice recovery (P0 wave) ends the live calls of a lost media node in
+    # every tenant; nothing else crosses tenants on this table.
+    "voice_call_sessions": (
+        f"workspace_id = {TENANT} OR {SERVICE} = 'voice_recovery'",
+        f"workspace_id = {TENANT} OR {SERVICE} = 'voice_recovery'",
+    ),
     "processing_jobs": (
         f"workspace_id = {TENANT} OR id = {JOB} OR {SERVICE} = 'recovery'",
         f"workspace_id = {TENANT}",
@@ -266,6 +276,11 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
         "model_manifests",
         "provider_health",
         "alembic_version",
+        # Deployment-wide voice capacity (P0 wave): counts must span tenants;
+        # rows hold node ids, generations and slot leases, no content.
+        "voice_media_nodes",
+        "voice_admission_locks",
+        "voice_capacity_slots",
     }
 )
 
