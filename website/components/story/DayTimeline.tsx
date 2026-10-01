@@ -79,7 +79,7 @@ function MiniScreen({ kind, dict, locale }: { kind: string; dict: Dictionary; lo
       return (
         <div className="rounded-lg border border-border-2 bg-bg-2 p-2 text-[10px]">
           <p className="label mb-1 font-semibold text-ink-3">{m.webhookTitle}</p>
-          <pre dir="ltr" className="overflow-x-auto rounded-md bg-bg p-2 text-[10px] leading-relaxed text-accent-text">{`POST /api/webhook/voip/call-event
+          <pre dir="ltr" className="font-sans overflow-x-auto rounded-md bg-bg p-2 text-[10px] leading-relaxed text-accent-text" style={{ fontFamily: "var(--font-sans)" }}>{`POST /api/webhook/voip/call-event
 X-Webhook-Secret: ••••••••`}</pre>
         </div>
       );

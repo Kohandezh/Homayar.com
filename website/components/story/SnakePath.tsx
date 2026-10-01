@@ -29,14 +29,17 @@ export function SnakePath() {
       const cards = Array.from(section.querySelectorAll<HTMLElement>("[data-snake-card]"));
       if (cards.length === 0) return;
       const pts: Array<[number, number]> = [];
+      const rtl = getComputedStyle(section).direction === "rtl";
+      const amp = box.width < 768 ? box.width * 0.15 : 0;
+      const swing = (i: number) => (i % 2 === 0 ? -amp : amp) * (rtl ? -1 : 1);
       const first = cards[0].getBoundingClientRect();
-      pts.push([first.left + first.width / 2 - box.left, 0]);
-      for (const c of cards) {
+      pts.push([first.left + first.width / 2 - box.left + swing(0), 0]);
+      cards.forEach((c, i) => {
         const r = c.getBoundingClientRect();
-        pts.push([r.left + r.width / 2 - box.left, r.top + r.height / 2 - box.top]);
-      }
+        pts.push([r.left + r.width / 2 - box.left + swing(i), r.top + r.height / 2 - box.top]);
+      });
       const last = cards[cards.length - 1].getBoundingClientRect();
-      const lastX = last.left + last.width / 2 - box.left;
+      const lastX = last.left + last.width / 2 - box.left + swing(cards.length - 1);
       pts.push([box.width - lastX, box.height]);
       const d = spline(pts);
       svg.setAttribute("viewBox", `0 0 ${Math.round(box.width)} ${Math.round(box.height)}`);

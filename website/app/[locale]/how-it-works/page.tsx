@@ -107,7 +107,7 @@ export default async function HowItWorksPage({ params }: PageProps<"/[locale]/ho
               {s}
             </span>
             <span className="sd-state" style={delay(i, 200)}>
-              <span className="sd-state-wait chip !min-h-0 !px-2 !py-0.5 !text-[10px]">{h.rail.todo}</span>
+              <span className="sd-state-wait chip !min-h-0 !px-2 !py-0.5 !text-[10px]" aria-hidden="true">{h.rail.todo}</span>
               <span className={`sd-state-final chip !min-h-0 !px-2 !py-0.5 !text-[10px] ${i === 2 ? "chip-strong" : "chip-accent"}`}>{m.stageStates[i]}</span>
             </span>
           </li>
