@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
+import sys
+import textwrap
+import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -432,36 +437,87 @@ def test_plausibility_floor_applies_to_compressed_audio_only(run: Mock, tmp_path
     assert result.container == "wav"
 
 
-@patch("backend.media.validation.subprocess.run")
-def test_decode_probe_runs_after_the_probe_with_fixed_argv(run: Mock, tmp_path: Path) -> None:
-    media_path = _media_file(tmp_path)
-    run.side_effect = [_completed(_probe_payload()), _completed("", returncode=0)]
+# The bounded decode runs a real child process: these tests use a stand-in
+# decoder (a script) to control what it writes and how long it runs, and
+# observe what validation does with it. Real ffmpeg behaviour on real media is
+# covered by the ``ffmpeg``-marked tests in test_media_fixtures.py.
+POSIX_SCRIPTS = pytest.mark.skipif(
+    os.name != "posix", reason="the stand-in decoder is a POSIX shebang script"
+)
 
-    result = validate_media_upload(
-        media_path,
+
+def _fake_decoder(tmp_path: Path, body: str, name: str = "fake-ffmpeg") -> Path:
+    """An executable standing in for ffmpeg; it records its pid first."""
+    script = tmp_path / name
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys, time\n"
+        "with open(sys.argv[0] + '.pid', 'w') as handle:\n"
+        "    handle.write(str(os.getpid()))\n" + textwrap.dedent(body),
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+def _reaped(decoder: Path) -> bool:
+    """The stand-in's process no longer exists (killed or exited, and reaped)."""
+    pid = int(Path(f"{decoder}.pid").read_text(encoding="utf-8"))
+    try:
+        os.kill(pid, 0)  # a zombie still exists: only a reaped process is gone
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def _validate_with(decoder: str | Path, tmp_path: Path, *, timeout: float = 20.0):
+    return validate_media_upload(
+        _media_file(tmp_path),
         original_filename="call.mp3",
         declared_mime_type="audio/mpeg",
         policy=MediaValidationPolicy(decode_probe_seconds=15),
-        ffmpeg_path="ffmpeg --help; touch should-not-run",
-        ffmpeg_timeout_seconds=7.5,
+        ffmpeg_path=str(decoder),
+        ffmpeg_timeout_seconds=timeout,
     )
 
+
+@POSIX_SCRIPTS
+@patch("backend.media.validation.subprocess.run")
+def test_decode_probe_runs_after_the_probe_with_fixed_argv(run: Mock, tmp_path: Path) -> None:
+    run.return_value = _completed(_probe_payload())
+    # Shell metacharacters in the configured path are part of a file name.
+    decoder = _fake_decoder(
+        tmp_path,
+        """
+        devnull = os.stat(os.devnull)
+        with open(sys.argv[0] + '.argv', 'w') as handle:
+            json.dump({
+                'argv': sys.argv[1:],
+                'stdin_devnull': os.path.samestat(os.fstat(0), devnull),
+                'stdout_devnull': os.path.samestat(os.fstat(1), devnull),
+            }, handle)
+        """,
+        name="ffmpeg --help; touch should-not-run",
+    )
+
+    result = _validate_with(decoder, tmp_path)
+
     assert result.container == "mp3"
-    assert run.call_count == 2
-    decode = run.call_args_list[1]
-    command = decode.args[0]
-    assert command[0] == "ffmpeg --help; touch should-not-run"
-    assert command[-1] == "-" and command[-3:] == ["-f", "null", "-"]
+    assert run.call_count == 1  # the probe; the decode is its own child process
+    seen = json.loads(Path(f"{decoder}.argv").read_text(encoding="utf-8"))
+    command = seen["argv"]
+    media_path = str((tmp_path / "quarantined-upload").resolve())
+    assert command[-3:] == ["-f", "null", "-"]
     assert command[command.index("-t") + 1] == "15"
     assert command[command.index("-threads") + 1] == "1"
-    assert "-xerror" in command and "-nostdin" in command and "-vn" in command
+    assert command[command.index("-v") + 1] == "error"
     assert command[command.index("-map") + 1] == "0:a:0"
-    assert command.count(str(media_path.resolve())) == 1
-    assert decode.kwargs["shell"] is False
-    assert decode.kwargs["stdin"] is subprocess.DEVNULL
-    assert decode.kwargs["stdout"] is subprocess.DEVNULL
-    assert decode.kwargs["stderr"] is subprocess.PIPE
-    assert decode.kwargs["timeout"] == 7.5
+    for flag in ("-xerror", "-nostdin", "-nostats", "-vn", "-hide_banner"):
+        assert flag in command
+    assert command.count(media_path) == 1
+    assert seen["stdin_devnull"] and seen["stdout_devnull"]
+    assert not (tmp_path / "should-not-run").exists() and not Path("should-not-run").exists()
+    assert _reaped(decoder)
 
 
 @patch("backend.media.validation.subprocess.run")
@@ -473,31 +529,131 @@ def test_decode_probe_is_skipped_when_disabled(run: Mock, tmp_path: Path) -> Non
     assert run.call_count == 1  # policy default: no decode
 
 
+@POSIX_SCRIPTS
 @pytest.mark.parametrize(
-    ("second_call", "expected", "terminal"),
+    ("body", "timeout", "expected", "terminal"),
     [
-        (_completed("", returncode=1), MediaDecodeError, True),
-        # ffmpeg 6.1 conceals some decode errors and exits 0: diagnostics still refuse.
-        (_completed("", returncode=0, stderr="Invalid data found\n"), MediaDecodeError, True),
-        (subprocess.TimeoutExpired(cmd=["ffmpeg"], timeout=1.0), MediaDecodeTimeoutError, False),
-        (FileNotFoundError(), MediaDecoderUnavailableError, False),
+        ("sys.exit(1)\n", 20.0, MediaDecodeError, True),
+        # ffmpeg 6.1.1 conceals some decode errors and exits 0: its diagnostic still refuses.
+        ("os.write(2, b'[mp3float] invalid new backstep -1\\n')\nsys.exit(0)\n", 20.0,
+         MediaDecodeError, True),
+        ("time.sleep(60)\n", 2.0, MediaDecodeTimeoutError, False),
     ],
-)
+    ids=["nonzero-exit", "exit-zero-with-diagnostic", "silent-past-timeout"],
+)  # fmt: skip
 @patch("backend.media.validation.subprocess.run")
 def test_decode_outcomes_are_classified(
-    run: Mock, tmp_path: Path, second_call: object, expected: type[Exception], terminal: bool
+    run: Mock,
+    tmp_path: Path,
+    body: str,
+    timeout: float,
+    expected: type[Exception],
+    terminal: bool,
 ) -> None:
-    run.side_effect = [_completed(_probe_payload()), second_call]
+    run.return_value = _completed(_probe_payload())
+    decoder = _fake_decoder(tmp_path, body)
+    started = time.monotonic()
 
     with pytest.raises(expected) as error:
-        validate_media_upload(
-            _media_file(tmp_path),
-            original_filename="call.mp3",
-            declared_mime_type="audio/mpeg",
-            policy=MediaValidationPolicy(decode_probe_seconds=5),
-        )
+        _validate_with(decoder, tmp_path, timeout=timeout)
 
     assert error.value.terminal is terminal
+    assert time.monotonic() - started < timeout + 10
+    assert _reaped(decoder)
+
+
+@patch("backend.media.validation.subprocess.run")
+def test_missing_decoder_is_transient(run: Mock, tmp_path: Path) -> None:
+    run.return_value = _completed(_probe_payload())
+    with pytest.raises(MediaDecoderUnavailableError) as error:
+        _validate_with(tmp_path / "no-such-ffmpeg", tmp_path)
+    assert not error.value.terminal
+
+
+@POSIX_SCRIPTS
+@patch("backend.media.validation.subprocess.run")
+def test_silent_decoder_output_on_stdout_is_not_a_diagnostic(run: Mock, tmp_path: Path) -> None:
+    run.return_value = _completed(_probe_payload())
+    decoder = _fake_decoder(tmp_path, "os.write(1, b'x' * (1 << 20))\nsys.exit(0)\n")
+    assert _validate_with(decoder, tmp_path).container == "mp3"
+    assert _reaped(decoder)
+
+
+@POSIX_SCRIPTS
+@patch("backend.media.validation.subprocess.run")
+def test_decode_diagnostics_do_not_leak(
+    run: Mock, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    run.return_value = _completed(_probe_payload())
+    decoder = _fake_decoder(
+        tmp_path,
+        "media = sys.argv[sys.argv.index('-i') + 1]\n"
+        "os.write(2, ('failed to read ' + media + ': private-marker\\n').encode())\n"
+        "sys.exit(0)\n",
+    )
+    with pytest.raises(MediaDecodeError) as error:
+        _validate_with(decoder, tmp_path)
+    shown = f"{error.value} {error.value.code} {error.value!r}"
+    assert "private-marker" not in shown and "quarantined-upload" not in shown
+    assert "private-marker" not in caplog.text
+
+
+@POSIX_SCRIPTS
+@patch("backend.media.validation.subprocess.run")
+def test_diagnostic_flood_is_cut_off_at_the_first_byte(run: Mock, tmp_path: Path) -> None:
+    run.return_value = _completed(_probe_payload())
+    # Writes diagnostics forever and records how much it managed to write.
+    decoder = _fake_decoder(
+        tmp_path,
+        """
+        chunk, written = b'E' * 4096, 0
+        while True:
+            os.write(2, chunk)
+            written += len(chunk)
+            with open(sys.argv[0] + '.written.tmp', 'w') as handle:
+                handle.write(str(written))
+            os.replace(sys.argv[0] + '.written.tmp', sys.argv[0] + '.written')
+        """,
+    )
+    started = time.monotonic()
+
+    with pytest.raises(MediaDecodeError) as error:
+        _validate_with(decoder, tmp_path, timeout=30.0)
+
+    # Refused at the first diagnostic, long before the timeout; the decoder
+    # was stopped rather than left to fill memory, a file or the timeout.
+    assert error.value.terminal
+    assert time.monotonic() - started < 10
+    assert _reaped(decoder)
+    counter = Path(f"{decoder}.written")
+    written = int(counter.read_text(encoding="utf-8")) if counter.exists() else 0
+    # At most the pipe's kernel buffer (64 KiB on Linux and macOS) was ever
+    # accepted from it; the generous bound only guards against unbounded growth.
+    assert written <= 1024 * 1024
+
+
+@pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="needs POSIX interval timers")
+@POSIX_SCRIPTS
+@patch("backend.media.validation.subprocess.run")
+def test_decoder_is_stopped_when_the_wait_is_interrupted(run: Mock, tmp_path: Path) -> None:
+    run.return_value = _completed(_probe_payload())
+    decoder = _fake_decoder(tmp_path, "time.sleep(60)\n")
+
+    class Cancelled(BaseException):
+        pass
+
+    def cancel(_signum: int, _frame: object) -> None:
+        raise Cancelled
+
+    previous = signal.signal(signal.SIGALRM, cancel)
+    signal.setitimer(signal.ITIMER_REAL, 1.5)
+    try:
+        with pytest.raises(Cancelled):
+            _validate_with(decoder, tmp_path, timeout=30.0)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    assert _reaped(decoder)
 
 
 def test_policy_bounds_for_the_new_limits() -> None:

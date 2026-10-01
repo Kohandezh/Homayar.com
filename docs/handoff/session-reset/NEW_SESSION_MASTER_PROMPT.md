@@ -80,6 +80,8 @@ Why this task: it is the next dependency-ready step on the critical path
 
 0. Precondition (R-02): make the CI `backend` job install a pinned `ffmpeg` so tests marked
    `ffmpeg` run on the runner (today 35 are skipped there). Update `docs/operations/ci.md`.
+   **Done since this prompt was written** (PR #5 and Session A; `REMAINING_WORK.md` R-02);
+   use `WP09_T01_SESSION_PROMPT.md` instead of this prompt.
 1. Channel metadata per validated audio stream, extending the existing bounded ffprobe path in
    `Homayar/backend/media/validation.py`: channel count and layout, sample rate, codec, duration.
    `channel_count` columns already exist in `Homayar/backend/database/saas_models.py`; extend

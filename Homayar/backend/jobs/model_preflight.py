@@ -12,6 +12,12 @@ truthfully before it can be qualified.  ``--register`` stores the resolved
 manifests in the catalog.  Exit codes: 0 ready, 1 a stage is not qualified,
 2 configuration or manifest file error.
 
+A manifest that pins offline artifacts (``artifacts``) has them verified
+under ``MODEL_ARTIFACT_ROOT`` (SHA-256; missing or different = not ready).
+``--offline`` also evaluates deployment profile O (every stage local or
+explicitly unavailable, in-process models with verified artifacts) and makes
+any violation not ready.
+
 ``--egress-allowlist`` prints only the ``host:port`` lines the egress proxy
 needs (``infra/egress/allowlist.txt``), one per networked endpoint, with the
 stage, candidate and endpoint kind as a comment; readiness does not change
@@ -27,6 +33,7 @@ import sys
 from urllib.parse import urlsplit
 
 from backend.config import Settings, get_settings
+from backend.providers.artifacts import verify_artifacts
 from backend.providers.base import ProviderError
 from backend.providers.factory import ProviderBundle, create_provider_bundle
 from backend.providers.registry import (
@@ -39,8 +46,17 @@ from backend.providers.registry import (
 )
 
 
+def _artifact_root(settings: Settings) -> str | None:
+    value = getattr(settings, "model_artifact_root", "")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def run_preflight(
-    settings: Settings, *, providers: ProviderBundle | None = None
+    settings: Settings,
+    *,
+    providers: ProviderBundle | None = None,
+    offline: bool = False,
+    policy=None,
 ) -> tuple[int, dict[str, object]]:
     try:
         bundle = providers or create_provider_bundle(settings)
@@ -71,6 +87,17 @@ def run_preflight(
             "digest": resolved.digest,
             "status": resolved.manifest.status.value if resolved.manifest else "unregistered",
         }
+        if resolved.manifest is not None and resolved.manifest.artifacts:
+            root = _artifact_root(settings)
+            if root is None:
+                stages[stage].update(ready=False, error="artifact_root_unconfigured")
+                ready = False
+                continue
+            artifacts = verify_artifacts(resolved.manifest, root).document()
+            stages[stage]["artifacts"] = artifacts
+            if not artifacts["ok"]:
+                stages[stage].update(ready=False, error="artifacts_unverified")
+                ready = False
     fallbacks: dict[str, object] = {}
     for stage, adapters in (getattr(bundle, "fallbacks", None) or {}).items():
         entries = []
@@ -101,6 +128,21 @@ def run_preflight(
     if fallbacks:
         report["fallbacks"] = fallbacks
     report["egress"] = _egress_allowlist(bundle, registry, strict)
+    if offline:
+        from backend.providers.offline_profile import (
+            evaluate_offline_profile,
+            resolve_for_offline,
+        )
+        from backend.providers.policy import DEFAULT_POLICY
+
+        profile = evaluate_offline_profile(
+            resolve_for_offline(bundle, registry, strict=strict),
+            policy or DEFAULT_POLICY,
+            artifact_root=_artifact_root(settings),
+            require_artifacts=True,
+        )
+        report["offline_profile"] = profile.document()
+        ready = ready and profile.ok
     report["ready"] = ready
     return (0 if ready else 1), report
 
@@ -164,9 +206,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="with --egress-allowlist: exit 3 when a cloud endpoint is configured",
     )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="also require deployment profile O (local-only, verified artifacts)",
+    )
     args = parser.parse_args(argv)
     settings = get_settings()
-    code, report = run_preflight(settings)
+    code, report = run_preflight(settings, offline=args.offline)
     if args.egress_allowlist:
         if code == 2:
             print(json.dumps(report, ensure_ascii=False), file=sys.stderr)

@@ -8,6 +8,7 @@ from backend.celery_app import (
     PROCESS_MEETING_TASK,
     RETENTION_PURGE_TASK,
     USAGE_RECONCILIATION_TASK,
+    VOICE_RECOVERY_TASK,
     celery_app,
 )
 
@@ -45,6 +46,14 @@ def sweep_expired_leases_task():
     from backend.jobs.recovery import sweep_expired_leases
 
     return sweep_expired_leases()
+
+
+@celery_app.task(name=VOICE_RECOVERY_TASK, acks_late=False, ignore_result=True)
+def sweep_voice_recovery_task():
+    """Periodic voice recovery: lost media nodes and expired capacity slots."""
+    from backend.voice.recovery import sweep_voice_recovery
+
+    return sweep_voice_recovery()
 
 
 @celery_app.task(name=USAGE_RECONCILIATION_TASK, acks_late=False, ignore_result=True)

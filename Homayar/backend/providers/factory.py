@@ -15,12 +15,19 @@ from backend.providers.base import (
     IntelligenceProvider,
     MockProviderDisabledError,
     ProviderError,
+    TTSProvider,
 )
 from backend.providers.diarization import UnavailableDiarizationProvider
+from backend.providers.local_tts import (
+    LocalHTTPTTSProvider,
+    PiperCLITTSProvider,
+    UnavailableTTSProvider,
+)
 from backend.providers.mocks import (
     MockASRProvider,
     MockDiarizationProvider,
     MockIntelligenceProvider,
+    MockTTSProvider,
 )
 from backend.providers.openai_compatible import OpenAICompatibleIntelligenceProvider
 from backend.providers.whisper import LocalWhisperProvider
@@ -52,6 +59,9 @@ def create_asr_provider(settings: Settings) -> ASRProvider:
             model_name=settings.whisper_model,
             device=settings.whisper_device,
             compute_type=settings.whisper_compute_type,
+            # Offline runtime knobs; optional until the settings carry them.
+            local_files_only=bool(getattr(settings, "whisper_local_files_only", False)),
+            model_path=getattr(settings, "whisper_model_path", None) or None,
         )
     if name in {"mock", "mock_asr", "deterministic_mock"}:
         _require_mock_permission(settings)
@@ -141,6 +151,57 @@ def create_intelligence_fallbacks(
     )
 
 
+def _setting(settings: Settings, name: str, default: str = "") -> str:
+    value = getattr(settings, name, default)
+    return value.strip() if isinstance(value, str) else default
+
+
+def _voice_map(value: str) -> dict[str, str]:
+    """``voice_id=/path/model.onnx`` entries, comma separated."""
+    voices: dict[str, str] = {}
+    for entry in filter(None, (part.strip() for part in value.split(","))):
+        voice, _, path = entry.partition("=")
+        if not voice.strip() or not path.strip() or voice.strip() in voices:
+            raise ValueError(f"Invalid TTS voice entry {entry!r}")
+        voices[voice.strip()] = path.strip()
+    return voices
+
+
+def create_tts_provider(
+    settings: Settings, *, client: httpx.AsyncClient | None = None
+) -> TTSProvider:
+    """Speech synthesis adapter.  Defaults to the explicit unavailable adapter:
+    the settings fields (``tts_provider``, ``tts_piper_binary``,
+    ``tts_voices``, ``tts_default_voice``, ``tts_base_url``, ``tts_model``)
+    are optional until the configuration carries them."""
+    name = _provider_name(_setting(settings, "tts_provider", "unavailable") or "unavailable")
+    if name == "unavailable":
+        return UnavailableTTSProvider()
+    if name in {"mock", "mock_tts", "deterministic_mock"}:
+        _require_mock_permission(settings)
+        return MockTTSProvider(allow_mock=True)
+    try:
+        if name in {"piper", "piper_cli", "local_piper"}:
+            voices = _voice_map(_setting(settings, "tts_voices"))
+            return PiperCLITTSProvider(
+                binary=_setting(settings, "tts_piper_binary", "piper") or "piper",
+                voices=voices,
+                default_voice=_setting(settings, "tts_default_voice") or next(iter(voices), ""),
+            )
+        if name in {"openai_compatible_tts", "local_http"}:
+            return LocalHTTPTTSProvider(
+                base_url=_setting(settings, "tts_base_url"),
+                model=_setting(settings, "tts_model"),
+                default_voice=_setting(settings, "tts_default_voice"),
+                client=client,
+            )
+    except ValueError as exc:
+        raise ProviderError(
+            "tts_provider_unconfigured", f"Speech synthesis is misconfigured: {exc}"
+        ) from exc
+    raise _unsupported_provider("tts")
+
+
 @dataclass(frozen=True)
 class ProviderBundle:
     asr: ASRProvider
@@ -148,6 +209,8 @@ class ProviderBundle:
     intelligence: IntelligenceProvider
     # Same-policy fallback candidates per stage, in configured order.
     fallbacks: Mapping[str, tuple[object, ...]] = field(default_factory=dict)
+    # Speech synthesis (local runtime); not a processing stage (registry.STAGES).
+    tts: TTSProvider | None = None
 
 
 class ProviderFactory:
@@ -172,6 +235,9 @@ class ProviderFactory:
             client=self._intelligence_client,
         )
 
+    def create_tts(self) -> TTSProvider:
+        return create_tts_provider(self._settings)
+
     def create_all(self) -> ProviderBundle:
         fallbacks = create_intelligence_fallbacks(self._settings, client=self._intelligence_client)
         return ProviderBundle(
@@ -179,6 +245,7 @@ class ProviderFactory:
             diarization=self.create_diarization(),
             intelligence=self.create_intelligence(),
             fallbacks={"intelligence": fallbacks} if fallbacks else {},
+            tts=self.create_tts(),
         )
 
 

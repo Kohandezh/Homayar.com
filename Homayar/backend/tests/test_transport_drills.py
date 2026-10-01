@@ -25,6 +25,7 @@ needs ``TEST_REDIS_CONTAINER`` and the Docker CLI.
 
 from __future__ import annotations
 
+import re
 import shutil
 import time
 from datetime import UTC, datetime, timedelta
@@ -85,6 +86,22 @@ POOL_MAINTENANCE_SECONDS = 5.0
 # worker runs with a lease that outlasts the detection delay (renewed every
 # half lease; the other drills keep the shorter LEASE_SECONDS).
 KILL_CHILD_LEASE_SECONDS = 12
+# A copy that meets a live attempt is acknowledged without starting anything.
+# Its claim locks the job row with SKIP LOCKED, so it answers
+# ``already_running`` when the row is free and ``busy`` when it arrives while
+# the live attempt's heartbeat (or another protected write) holds the row for
+# its few milliseconds.  Both answers are inert.
+INERT_COPY_STATUSES = frozenset({"already_running", "busy"})
+# The redelivery drill holds its attempt for kombu's ~100 s restore cadence;
+# 2 s of renewal slack (the 4 s LEASE_SECONDS renewed every 2 s) does not
+# survive a slow runner's scheduling stalls over that long, so its workers run
+# with a lease that does (renewed every third of the lease).
+LIVE_ATTEMPT_LEASE_SECONDS = 30
+LIVE_ATTEMPT_RENEW_SECONDS = 10
+# Lines of each worker's log printed at teardown; pytest shows them only when
+# the drill failed, which is the only evidence a CI run keeps.
+LOG_TAIL_LINES = 40
+_RESULT_STATUS = re.compile(r"'status': '([a-z_]+)'")
 
 
 def _wait(predicate, *, timeout: float = DEADLINE, what: str) -> None:
@@ -139,6 +156,18 @@ def _received(process: TransportProcess) -> int:
 
 def _succeeded(process: TransportProcess, status: str | None = None) -> int:
     return process.count(TASK, and_also=SUCCEEDED if status is None else f"'status': '{status}'")
+
+
+def _statuses(*processes: TransportProcess) -> list[str]:
+    """The ``status`` of every task result the workers logged."""
+    return [
+        match.group(1)
+        for process in processes
+        for line in process.lines()
+        if TASK in line and SUCCEEDED in line
+        for match in [_RESULT_STATUS.search(line)]
+        if match
+    ]
 
 
 def _holding_asr(job_id: str) -> bool:
@@ -230,6 +259,8 @@ class Drill:
             log_path = self.tmp_path / f"{process.name}.log"
             log_path.write_text("\n".join(process.lines()) + "\n", encoding="utf-8")
             print(f"transport log: {log_path}")
+            print(f"--- {process.name}: last {LOG_TAIL_LINES} lines ---")
+            print(process.tail(LOG_TAIL_LINES))
 
 
 @pytest.fixture
@@ -355,24 +386,39 @@ def test_killed_worker_parks_the_delivery_and_recovery_needs_no_broker_help(dril
 
 def test_visibility_timeout_redelivery_during_a_live_attempt_is_inert(drill: Drill):
     job_id, workspace_id = drill.queued_job()
-    holder = drill.worker("holder", visibility_timeout=VISIBILITY_SECONDS)
-    other = drill.worker("other", visibility_timeout=VISIBILITY_SECONDS)
+    live_lease = {
+        "JOB_LEASE_SECONDS": str(LIVE_ATTEMPT_LEASE_SECONDS),
+        "JOB_LEASE_RENEW_INTERVAL_SECONDS": str(LIVE_ATTEMPT_RENEW_SECONDS),
+    }
+    holder = drill.worker("holder", visibility_timeout=VISIBILITY_SECONDS, extra_env=live_lease)
+    other = drill.worker("other", visibility_timeout=VISIBILITY_SECONDS, extra_env=live_lease)
     with use_broker(drill.redis_url):
         assert outbox.dispatch_job(job_id, drill.settings).state == "published"
         _wait(lambda: _holding_asr(job_id), what="attempt held at the ASR gate")
         # The attempt is held at the gate longer than the visibility timeout:
         # kombu makes the unacknowledged delivery visible again and the idle
-        # worker takes it.  The live lease (renewed every 2 s) rejects it.
+        # worker takes it.  The held attempt returns nothing before the gate
+        # opens, so the first result logged is the copy's; any answer counts
+        # here and is checked below, so a wrong one fails at once.
         _wait(
-            lambda: _succeeded(holder, "already_running") + _succeeded(other, "already_running")
-            >= 1,
+            lambda: _statuses(holder, other),
             timeout=RESTORE_DEADLINE,
-            what="redelivered copy rejected by the live lease",
+            what="redelivered copy answered",
         )
+        (copy_status,) = _statuses(holder, other)
+        assert copy_status in INERT_COPY_STATUSES, copy_status
         job = _job(job_id)
-        assert job.state == JobState.RUNNING and job.attempt_count == 1
+        assert job.state == JobState.RUNNING
+        assert (job.attempt_count, job.lease_generation) == (1, 1)
         drill.open_gate()
         _wait(lambda: _job(job_id).state == JobState.COMPLETED, what="held attempt completed")
+        # COMPLETED commits inside the task before it returns, and stop() signals
+        # the whole process group, pool child included: wait for the task's own
+        # result line so the child is not killed before it logs it.
+        _wait(
+            lambda: "completed" in _statuses(holder, other),
+            what="held attempt returned its result",
+        )
         _wait(
             lambda: drill.redis() == {"queued": 0, "unacked": 0}, what="all deliveries acknowledged"
         )
@@ -381,7 +427,8 @@ def test_visibility_timeout_redelivery_during_a_live_attempt_is_inert(drill: Dri
 
     _completed_once(job_id, workspace_id, drill.settings, attempts=1)
     assert _received(holder) + _received(other) == 2
-    assert _succeeded(holder, "completed") + _succeeded(other, "completed") == 1
+    # two results: the inert copy and the one attempt that completed
+    assert sorted(_statuses(holder, other)) == sorted([copy_status, "completed"])
 
 
 # --- broker interruption --------------------------------------------------------

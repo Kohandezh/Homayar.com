@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import wave
 
 from backend.providers.base import (
     ASRProvider,
@@ -10,8 +12,10 @@ from backend.providers.base import (
     EmailProvider,
     IntelligenceProvider,
     MockProviderDisabledError,
+    ProviderError,
     ProviderIdentity,
     SMSProvider,
+    TTSProvider,
     text_digest,
 )
 from backend.providers.schemas import (
@@ -29,6 +33,9 @@ from backend.providers.schemas import (
     ProviderIssue,
     SMSRequest,
     SMSResult,
+    TTSRequest,
+    TTSResult,
+    TTSUsageReport,
     UNKNOWN_SPEAKER_LABEL,
 )
 
@@ -134,6 +141,48 @@ class MockIntelligenceProvider(IntelligenceProvider):
             summary_source_turn_indexes=list(range(len(request.turns))),
             action_items=[],
             insights=[],
+            is_mock=True,
+        )
+
+
+class MockTTSProvider(TTSProvider):
+    """Deterministic silent WAV (10 ms per input character, capped at 30 s),
+    marked ``is_mock``: a stand-in for tests and demos, never speech."""
+
+    def __init__(self, *, allow_mock: bool = False, sample_rate: int = 16000) -> None:
+        _require_mock_permission(allow_mock)
+        if not 8000 <= sample_rate <= 48000:
+            raise ValueError("Mock sample rate must be between 8000 and 48000")
+        self._sample_rate = sample_rate
+
+    def identity(self) -> ProviderIdentity:
+        return ProviderIdentity(
+            provider="mock_tts",
+            model="deterministic-v1",
+            params={"sample_rate": self._sample_rate},
+        )
+
+    async def synthesize(self, request: TTSRequest) -> TTSResult:
+        if request.format != "wav":
+            raise ProviderError("tts_format_unsupported", "The mock synthesizer only emits WAV")
+        rate = request.sample_rate or self._sample_rate
+        frames = int(rate * min(len(request.text) * 0.01, 30.0))
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(rate)
+            writer.writeframes(b"\x00\x00" * frames)
+        duration = frames / float(rate)
+        return TTSResult(
+            provider="mock_tts",
+            model="deterministic-v1",
+            voice_id=request.voice_id,
+            format="wav",
+            audio_bytes=buffer.getvalue(),
+            sample_rate=rate,
+            duration_seconds=duration,
+            usage=TTSUsageReport(input_characters=len(request.text), audio_seconds=duration),
             is_mock=True,
         )
 

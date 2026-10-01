@@ -305,3 +305,59 @@ class EmailResult(ProviderSchema):
         if self.status != DeliveryStatus.ACCEPTED and self.issue is None:
             raise ValueError("Rejected or failed email results require an issue")
         return self
+
+
+# --- Text-to-speech (AppVision F20/F74, local AI runtime) -------------------
+
+TTS_AUDIO_FORMATS = ("wav", "mp3", "ogg", "flac", "pcm")
+
+
+class TTSRequest(ProviderSchema):
+    text: str = Field(min_length=1, max_length=5000)
+    language: Optional[str] = Field(default=None, min_length=2, max_length=32)
+    # Adapter-specific voice name (a Piper voice key, a server voice id).
+    # ``None`` selects the adapter's configured default voice.
+    voice_id: Optional[str] = Field(
+        default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
+    )
+    # Requested output rate; ``None`` = the voice's native rate.  An adapter
+    # that cannot honour an explicit rate refuses instead of mislabelling.
+    sample_rate: Optional[int] = Field(default=None, ge=8000, le=48000)
+    format: Literal["wav", "mp3", "ogg", "flac", "pcm"] = "wav"
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("TTS text must not be blank")
+        return value
+
+
+class TTSUsageReport(ProviderSchema):
+    """What the synthesis consumed; ``None`` = not reported, never zero."""
+
+    input_characters: Optional[int] = Field(default=None, ge=0)
+    audio_seconds: Optional[float] = Field(default=None, ge=0)
+
+
+class TTSResult(ProviderSchema):
+    provider: str = Field(min_length=1, max_length=128)
+    model: str = Field(min_length=1, max_length=256)
+    voice_id: Optional[str] = Field(default=None, max_length=128)
+    format: Literal["wav", "mp3", "ogg", "flac", "pcm"]
+    # Exactly one of the two carries the audio.
+    audio_bytes: Optional[bytes] = Field(default=None, repr=False)
+    audio_path: Optional[str] = Field(default=None, min_length=1, max_length=4096)
+    sample_rate: Optional[int] = Field(default=None, ge=1)
+    # Measured from the audio when the container says so; ``None`` otherwise.
+    duration_seconds: Optional[float] = Field(default=None, ge=0)
+    usage: Optional[TTSUsageReport] = None
+    is_mock: bool = False
+
+    @model_validator(mode="after")
+    def validate_audio(self) -> "TTSResult":
+        if (self.audio_bytes is None) == (self.audio_path is None):
+            raise ValueError("A TTS result carries exactly one of audio_bytes or audio_path")
+        if self.audio_bytes is not None and not self.audio_bytes:
+            raise ValueError("TTS audio must not be empty")
+        return self
