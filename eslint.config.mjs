@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Product source (ADR 0033); it carries its own lint configuration and
     // is linted by the console CI job.
     "Homayar/**",
+    // Marketing website; it carries its own lint configuration.
+    "website/**",
   ]),
 ]);
 
