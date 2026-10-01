@@ -1,8 +1,8 @@
 # Gitleaks configuration for the CI secret scan (`gitleaks git` reads this file
 # from the repository root). The default rules stay in force; each allowlist
 # below is limited to specific paths and to one value shape (content digests,
-# test fixture keys, environment-variable names, Alembic revision ids), never a
-# secret-shaped value.
+# test fixture keys and placeholder values, dialect labels, environment-variable
+# names, Alembic revision ids), never a secret-shaped value.
 
 [extend]
 useDefault = true
@@ -47,4 +47,45 @@ paths = [
 regexTarget = "secret"
 regexes = [
   '''^[0-9a-f]{12}$''',
+]
+
+[[allowlists]]
+description = """Handoff test oracle (n11): fake legacy environment values written as \
+short lowercase words and digits joined by hyphens (legacy-voip-secret-n11-4d1f). Each \
+part is at most 12 characters, so a long random key such as sk-<hex> is still reported."""
+condition = "AND"
+paths = [
+  '''^docs/handoff/session-reset/backend-mode-100-linear/20260929-backend-mode-100/n11-t1/test_oracle_n11\.py$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^[a-z]{2,12}(?:-[a-z0-9]{1,12}){2,}$''',
+]
+
+[[allowlists]]
+description = """Speech benchmark test: slice keys name a dialect with a language tag \
+(slice_key="dialect=fa-AF"). The generic-api-key rule reads the label as a key."""
+condition = "AND"
+paths = [
+  '''^Homayar/backend/tests/test_speech_benchmark\.py$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^dialect=[a-z]{2,3}(?:-[A-Z]{2})?$''',
+]
+
+[[allowlists]]
+description = """Saved WIP handoff (wp22t02): the maker patch and the test oracle pin \
+source code to SHA-256 digests. Each line maps a line-range name (_AUTH_616_618) or a \
+file path (backend/schemas/auth.py) to 64 lowercase hex characters, or a function name \
+to a 24-character digest prefix. The whole line must have this shape, so a key assigned \
+on any other line is still reported."""
+condition = "AND"
+paths = [
+  '''^docs/handoff/session-reset/backend-mode-100-linear/20260929-backend-mode-100/wip/wp22t02-t1/(maker-wip\.patch|test_oracle_wp22t02\.py)$''',
+]
+regexTarget = "line"
+regexes = [
+  '''^\s*\+?\s*"(_[A-Z]+_[0-9]+_[0-9]+|[A-Za-z0-9_./-]+\.py)":\s*"[0-9a-f]{64}",?\s*$''',
+  '''^\s*\("[a-z_]+",\s*"[0-9a-f]{24}"\),?\s*$''',
 ]
