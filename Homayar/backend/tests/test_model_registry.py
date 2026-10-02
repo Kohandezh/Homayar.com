@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
-from backend.config import Settings
+from backend.config import REVEAL_SECRETS_CONTEXT, Settings
 from backend.database.saas_models import (
     AnalysisRun,
     ManifestImmutableError,
@@ -263,7 +263,7 @@ def test_pins_and_strictness_settings_are_validated(settings):
     for bad in ("asr=a.b", "tts=a.b@1", "asr=a.b@1,asr=a.b@2"):
         with pytest.raises(ValueError):
             parse_pins(bad)
-    data = settings.model_dump()
+    data = settings.model_dump(context={REVEAL_SECRETS_CONTEXT: True})
     data.update(model_manifest_pins="asr=x", _env_file=None)
     with pytest.raises(ValueError):
         Settings(**data)

@@ -18,7 +18,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from backend.config import Settings
+from backend.config import REVEAL_SECRETS_CONTEXT, Settings
 from backend.database.relational import get_session_factory
 from backend.database.saas_models import (
     AuditEvent,
@@ -518,4 +518,10 @@ def test_reconciliation_settings_are_validated(settings):
         {"usage_reconciliation_batch_size": 0},
     ):
         with pytest.raises(ValueError):
-            Settings(**{**settings.model_dump(), **overrides, "_env_file": None})
+            Settings(
+                **{
+                    **settings.model_dump(context={REVEAL_SECRETS_CONTEXT: True}),
+                    **overrides,
+                    "_env_file": None,
+                }
+            )

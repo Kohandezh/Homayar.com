@@ -76,6 +76,7 @@ from backend.services.rate_limit_service import (
     RateLimitUnavailable,
 )
 from backend.services.tenancy_service import list_user_workspaces
+from backend.speech.text_normalize import normalize_digits
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -613,9 +614,7 @@ def otp_verify(
         user = verify_otp(
             db,
             challenge_id=payload.challenge_id,
-            code=payload.code.translate(
-                str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
-            ),
+            code=normalize_digits(payload.code),
             settings=settings,
         )
         tokens = create_login_session(

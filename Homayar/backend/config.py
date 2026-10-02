@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, PlainSerializer, SerializationInfo, ValidationError, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticCustomError
 from pydantic_settings import (
@@ -43,8 +43,27 @@ SECRET_FIELDS: tuple[str, ...] = (
     "sentry_dsn",
 )
 
-# A secret-bearing setting: a plain `str` for every consumer, left out of repr/str.
-SecretSetting = Annotated[str, Field(repr=False)]
+# Serialized form of a non-empty secret setting (HOM-160).
+SECRET_REDACTED = "**********"  # noqa: S105 - redaction marker, not a credential
+# model_dump/model_dump_json context key that returns secret settings in clear, for code
+# that must rebuild Settings from a dump (tests); nothing else should pass it.
+REVEAL_SECRETS_CONTEXT = "reveal_secrets"
+
+
+def _serialize_secret(value: str, info: SerializationInfo) -> str:
+    context = info.context or {}
+    if context.get(REVEAL_SECRETS_CONTEXT) is True or not value:
+        return value
+    return SECRET_REDACTED
+
+
+# A secret-bearing setting: a plain `str` for every consumer, left out of repr/str, and
+# redacted by model_dump()/model_dump_json() unless REVEAL_SECRETS_CONTEXT is passed.
+SecretSetting = Annotated[
+    str,
+    Field(repr=False),
+    PlainSerializer(_serialize_secret, return_type=str, when_used="always"),
+]
 
 # O_NONBLOCK: a path swapped for a FIFO after the pre-open check cannot block the open.
 _SECRET_FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
@@ -235,6 +254,39 @@ def _is_https_url(url: str) -> bool:
         return bool(urlsplit(url).hostname)
     except ValueError:  # e.g. an unterminated IPv6 literal
         return False
+
+
+def _ambient_s3_endpoints() -> list[tuple[str, str]]:
+    """Where botocore would take an S3 endpoint from outside Homayar's settings.
+
+    Returns (source name, value) pairs: the ``AWS_ENDPOINT_URL_S3`` and
+    ``AWS_ENDPOINT_URL`` variables and the active shared-config profile's
+    ``endpoint_url`` (directly or in its ``services`` section). The S3 client
+    ignores all of them (``ignore_configured_endpoint_urls``); production still
+    refuses a non-https one so a deployment never relies on that alone. A
+    shared config that cannot be read is reported with an empty value.
+    """
+    found = [
+        (name, os.environ[name])
+        for name in ("AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL")
+        if os.environ.get(name)
+    ]
+    try:
+        import botocore.session
+
+        session = botocore.session.Session()
+        profile = session.get_scoped_config()
+        services = session.full_config.get("services", {})
+    except Exception:  # unreadable file or unknown profile: botocore would fail too
+        return [*found, ("the shared AWS config (endpoint_url unreadable)", "")]
+    if profile.get("endpoint_url"):
+        found.append(("endpoint_url in the shared AWS config profile", profile["endpoint_url"]))
+    service = services.get(profile.get("services", ""), {}).get("s3", {})
+    if isinstance(service, dict) and service.get("endpoint_url"):
+        found.append(
+            ("s3 endpoint_url in the shared AWS config services section", service["endpoint_url"])
+        )
+    return found
 
 
 class Settings(BaseSettings):
@@ -667,6 +719,16 @@ class Settings(BaseSettings):
                     "(DEPLOYMENT_MODE=onprem) may allow another endpoint with "
                     "STORAGE_ALLOW_INSECURE_ENDPOINT=true"
                 )
+            if self.storage_backend == "s3":
+                insecure = [
+                    name for name, value in _ambient_s3_endpoints() if not _is_https_url(value)
+                ]
+                if insecure:
+                    raise ValueError(
+                        "Ambient S3 endpoint overrides must be https:// URLs in production "
+                        f"(found: {'; '.join(insecure)}). Homayar uses only "
+                        "STORAGE_ENDPOINT_URL; unset the override or make it https://"
+                    )
         if self.enable_google_auth and not (self.google_client_id and self.google_client_secret):
             raise ValueError("Google authentication is enabled but credentials are missing")
         if self.enable_phone_auth and not (self.asanak_api_key and self.asanak_sender):

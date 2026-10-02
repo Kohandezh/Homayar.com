@@ -7,9 +7,14 @@ common spelling, international ``+``/``00`` numbers), Iranian national IDs
 Iranian postal codes (only next to a postal-code keyword: ten digits without a
 check digit are otherwise indistinguishable from other numbers).
 
-Persian (``۰``–``۹``) and Arabic-Indic (``٠``–``٩``) digits, spaces, hyphens and
+Persian (``۰``–``۹``), Arabic-Indic (``٠``–``٩``) and fullwidth (``０``–``９``)
+digits are folded to ASCII, and stored values are ASCII.  Devanagari and other
+digit scripts are deliberately not folded and never count as digits.  Spaces, hyphens and
 dashes inside a number, ``+98``/``0098``/``98``/``0`` prefixes and parenthesised
-area codes are normalised; offsets always refer to the original text.
+area codes are normalised; offsets always refer to the original text.  The
+postal-code keyword is matched after the owner's one-to-one Arabic-to-Persian
+letter folding (``كد پستي``) and accepts a ZWNJ between its words
+(``کد‌پستی``); folding never changes the length, so offsets are unaffected.
 
 NOT detected (disclosed residual risk): person and company names, street
 addresses, dates of birth, licence plates, passport and account numbers
@@ -26,7 +31,14 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-DETECTOR_VERSION = "text-pii/1"
+from backend.speech.text_normalize import (
+    normalize_digits as normalize_digits,  # public name kept for its consumers
+)
+from backend.speech.text_normalize import normalize_digits_extended, unify_arabic_letters
+
+# text-pii/2 (HOM-164): Arabic-letter and ZWNJ spellings of the postal keyword.
+# text-pii/3 (HOM-165): fullwidth digits fold to ASCII; only ASCII counts as a digit.
+DETECTOR_VERSION = "text-pii/3"
 
 
 class PiiClass(str, enum.Enum):
@@ -50,21 +62,15 @@ _PRIORITY = {
     PiiClass.IR_POSTAL_CODE: 1,
 }
 
-_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 # One optional separator between digits: space, NBSP, hyphen and dashes.
 _SEP = r"[  \-‐‑‒–]?"
 _NOT_ALNUM_BEFORE = r"(?<![0-9A-Za-z])"
 _NOT_ALNUM_AFTER = r"(?![0-9A-Za-z])"
 
 
-def normalize_digits(text: str) -> str:
-    """Persian/Arabic-Indic digits to ASCII; one character each, offsets kept."""
-    return text.translate(_DIGITS)
-
-
 def _digits(n_min: int, n_max: int | None = None) -> str:
     n_max = n_max or n_min
-    return rf"\d(?:{_SEP}\d){{{n_min - 1},{n_max - 1}}}"
+    return rf"[0-9](?:{_SEP}[0-9]){{{n_min - 1},{n_max - 1}}}"
 
 
 _EMAIL_RE = re.compile(
@@ -82,7 +88,7 @@ _IR_MOBILE_RE = re.compile(
 # Iranian landline: 0 + two-digit area code + 8 digits, area code may be in brackets.
 _IR_LANDLINE_RE = re.compile(
     _NOT_ALNUM_BEFORE
-    + rf"(?:\(\s?0{_SEP}[1-8]\d\s?\)|0{_SEP}[1-8]{_SEP}\d){_SEP}"
+    + rf"(?:\(\s?0{_SEP}[1-8][0-9]\s?\)|0{_SEP}[1-8]{_SEP}[0-9]){_SEP}"
     + _digits(8)
     + _NOT_ALNUM_AFTER
 )
@@ -92,7 +98,7 @@ _INTL_PHONE_RE = re.compile(
     + _SEP
     + r"[1-9](?:"
     + _SEP
-    + r"\(?\d\)?){7,14}"
+    + r"\(?[0-9]\)?){7,14}"
     + _NOT_ALNUM_AFTER
 )
 _TEN_DIGITS_RE = re.compile(_NOT_ALNUM_BEFORE + _digits(10) + _NOT_ALNUM_AFTER)
@@ -100,14 +106,16 @@ _CARD_RE = re.compile(_NOT_ALNUM_BEFORE + _digits(13, 19) + _NOT_ALNUM_AFTER)
 _IBAN_RE = re.compile(
     r"(?<![0-9A-Za-z])[A-Za-z]{2}"
     + _SEP
-    + r"\d{2}(?:"
+    + r"[0-9]{2}(?:"
     + _SEP
     + r"[A-Za-z0-9]){11,30}(?![0-9A-Za-z])"
 )
 # The keyword, optionally followed by up to two short words ("کد پستی منزل",
-# "postal code of office"), then only separators up to the number.
+# "postal code of office"), then only separators up to the number.  Matched
+# on letter-folded text, so Arabic kaf/yeh spellings are covered; a ZWNJ may
+# stand where a space would.
 _POSTAL_KEYWORD_RE = re.compile(
-    r"(?:کد\s?پستی|کدپستی|postal\s+code|post\s?code|zip(?:\s+code)?)"
+    r"(?:کد[\s\u200c]?پستی|postal\s+code|post\s?code|zip(?:\s+code)?)"
     r"(?:\s+[^\s\d]{1,12}){0,2}[\s:：\-]*$",
     re.IGNORECASE,
 )
@@ -123,7 +131,7 @@ class PiiSpan:
 
 
 def _only_digits(value: str) -> str:
-    return re.sub(r"\D", "", value)
+    return re.sub(r"[^0-9]", "", value)
 
 
 def valid_national_id(digits: str) -> bool:
@@ -178,7 +186,9 @@ def _canonical_phone(raw: str) -> str | None:
 def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[PiiSpan]:
     """Non-overlapping spans of the requested classes, in text order."""
     wanted = frozenset(classes)
-    norm = normalize_digits(text)
+    norm = normalize_digits_extended(text)
+    # One-to-one letter folding: same length as ``norm``, so offsets carry over.
+    folded = unify_arabic_letters(norm)
     candidates: list[PiiSpan] = []
 
     def add(start: int, end: int, pii_class: PiiClass, value: str) -> None:
@@ -202,7 +212,8 @@ def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[P
             add(match.start(), match.end(), PiiClass.BANK_CARD, digits)
     for match in _TEN_DIGITS_RE.finditer(norm):
         digits = _only_digits(match.group())
-        if _POSTAL_KEYWORD_RE.search(norm[max(0, match.start() - _POSTAL_WINDOW) : match.start()]):
+        window = folded[max(0, match.start() - _POSTAL_WINDOW) : match.start()]
+        if _POSTAL_KEYWORD_RE.search(window):
             # A keyword names the number: a postal code, even when the digits
             # happen to satisfy the national-ID check digit.
             add(match.start(), match.end(), PiiClass.IR_POSTAL_CODE, digits)

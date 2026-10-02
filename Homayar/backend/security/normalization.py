@@ -5,8 +5,7 @@ import unicodedata
 
 from email_validator import EmailNotValidError, validate_email
 
-_PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
-_ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+from backend.speech.text_normalize import normalize_digits
 
 
 def normalize_email(value: str) -> str:
@@ -18,7 +17,7 @@ def normalize_email(value: str) -> str:
 
 
 def normalize_iranian_mobile(value: str) -> str:
-    raw = unicodedata.normalize("NFKC", value).translate(_PERSIAN_DIGITS).translate(_ARABIC_DIGITS)
+    raw = normalize_digits(unicodedata.normalize("NFKC", value))
     digits = re.sub(r"[^0-9+]", "", raw)
     if digits.startswith("0098"):
         digits = "+" + digits[2:]

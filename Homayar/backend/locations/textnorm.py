@@ -1,38 +1,42 @@
-"""Minimal local Persian/English normalizer with an offset map.
+"""Persian/English character-stream normalizer with an offset map (locations profile).
 
-TODO(consolidate): a concurrent package (``backend/speech``) is building a
-full Persian normalizer.  This module is intentionally small and local so the
-locations package has no dependency on it; fold it into the shared normalizer
-once that lands, keeping the offset-map contract (normalized index -> original
-index) that span reporting relies on.
+The tables come from the single normalization owner,
+:mod:`backend.speech.text_normalize`; this module only keeps the locations
+profile's own per-character step order and the offset-map contract
+(normalized index -> original index) that span reporting relies on.  The
+profile deliberately differs from the speech and voicemail ones (no Unicode
+normalization, no ``ۀ``/``ؤ``/``ٲ`` folding) because its output is persisted in
+service location address fields; see the owner's documentation.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.privacy.text_pii import normalize_digits
+from backend.speech.text_normalize import (
+    ARABIC_NUMBER_PUNCTUATION,
+    HARAKAT,
+    LETTER_VARIANTS_BASIC,
+    LRM,
+    RLM,
+    TATWEEL,
+    ZWJ,
+    ZWNJ,
+    normalize_digits,
+)
 
 _CHAR_MAP = {
-    "ي": "ی",  # Arabic yeh -> Persian yeh
-    "ى": "ی",  # alef maksura -> Persian yeh
-    "ك": "ک",  # Arabic kaf -> Persian keheh
-    "ة": "ه",  # teh marbuta -> heh
-    "أ": "ا",
-    "إ": "ا",
-    "ٱ": "ا",
-    "‌": " ",  # ZWNJ -> space
-    "‍": "",
-    "‏": "",
-    "‎": "",
-    "ـ": "",  # tatweel
-    "٫": ".",  # Arabic decimal separator
-    "٬": ",",
-    "،": ",",  # Arabic comma
-    " ": " ",
+    **LETTER_VARIANTS_BASIC,
+    ZWNJ: " ",
+    ZWJ: "",
+    RLM: "",
+    LRM: "",
+    TATWEEL: "",
+    **ARABIC_NUMBER_PUNCTUATION,
+    "\xa0": " ",
 }
-# Harakat / tanwin / shadda / sukun: dropped.
-_DROP = {chr(c) for c in range(0x064B, 0x0660)} | {"ٰ"}
+# Harakat / tanwin / shadda / sukun / superscript alef: dropped.
+_DROP = HARAKAT
 
 
 @dataclass(frozen=True)

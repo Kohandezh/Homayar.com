@@ -1,8 +1,9 @@
 """Deterministic, versioned voicemail classification and prioritisation.
 
 ``RuleClassifier`` matches Persian and English keyword/phrase rules over the
-transcript text after a small local normalisation (Arabic letter variants,
-ZWNJ, diacritics, tatweel, Persian/Arabic digits, case).  It never invents
+transcript text after the voicemail keyword normalisation profile (Arabic letter
+variants, ZWNJ, diacritics, tatweel, Persian/Arabic digits, case), built from
+the tables of :mod:`backend.speech.text_normalize`.  It never invents
 content: an empty or speechless transcript is reported as ``empty`` with
 ``needs_review`` and no intent, topics or follow-up.
 
@@ -21,33 +22,36 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from backend.speech.text_normalize import (
+    DIGITS,
+    HARAKAT_CLASS,
+    LETTER_VARIANTS_EXTENDED,
+    LRM,
+    QURANIC_MARKS_CLASS,
+    RLM,
+    TATWEEL,
+    ZWJ,
+    ZWNJ,
+    translation_table,
+)
 from backend.voicemail.models import VoicemailCategory, VoicemailPriority
 
 RULES_VERSION = "vm-rules-2026.09.1"
 
 # --- normalisation -------------------------------------------------------------
 
-_CHAR_MAP = str.maketrans(
+_CHAR_MAP = translation_table(
     {
-        "ي": "ی",  # Arabic yeh -> Persian yeh
-        "ى": "ی",  # alef maksura -> Persian yeh
-        "ك": "ک",  # Arabic kaf -> Persian keheh
-        "ة": "ه",  # teh marbuta -> heh
-        "ۀ": "ه",  # heh with yeh above -> heh
-        "أ": "ا",  # alef with hamza above -> alef
-        "إ": "ا",  # alef with hamza below -> alef
-        "ٱ": "ا",  # alef wasla -> alef
-        "ؤ": "و",  # waw with hamza -> waw
-        "‌": " ",  # ZWNJ -> space
-        "‍": "",  # ZWJ
-        "‏": "",  # RLM
-        "‎": "",  # LRM
-        "ـ": "",  # tatweel
-        **{chr(0x06F0 + i): str(i) for i in range(10)},  # Persian digits
-        **{chr(0x0660 + i): str(i) for i in range(10)},  # Arabic-Indic digits
+        **LETTER_VARIANTS_EXTENDED,
+        ZWNJ: " ",
+        ZWJ: "",
+        RLM: "",
+        LRM: "",
+        TATWEEL: "",
+        **DIGITS,
     }
 )
-_DIACRITICS = re.compile(r"[ً-ٰٟۖ-ۭ]")
+_DIACRITICS = re.compile(f"[{HARAKAT_CLASS}{QURANIC_MARKS_CLASS}]")
 _SPACE = re.compile(r"\s+")
 _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
 

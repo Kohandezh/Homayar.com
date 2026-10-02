@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -489,56 +489,101 @@ class VoiceControlPlane:
         return self._retrying(db, work)
 
     def recover(self, db: Session) -> dict[str, Any]:
-        """Declare lapsed nodes lost and reclaim expired slots (idempotent)."""
+        """Declare lapsed nodes lost and reclaim expired slots (idempotent).
+
+        Locks follow the module order (admission lock -> call session -> node
+        -> slots), the order ``transition`` uses, so a sweep racing media-side
+        end transitions cannot deadlock with them. Candidate nodes and expired
+        slots are read first without locks; the live calls they cover are then
+        locked FOR UPDATE, which on PostgreSQL waits for a concurrent
+        transition and re-checks the live-state filter, so a call that was
+        just ended is neither overwritten nor counted by the sweep.
+        """
 
         def work() -> dict[str, Any]:
             bind_service_scope(db, SERVICE_SCOPE_VOICE_RECOVERY)
             self._take_admission_lock(db)
             now = self.now()
             cutoff = self._healthy_cutoff(now)
-            lost_nodes: list[str] = []
-            failed: dict[str, list[str]] = {END_NODE_LOST: [], END_LEASE_EXPIRED: []}
-            candidates = (
+            lapsed = list(
                 db.execute(
-                    select(VoiceMediaNode)
-                    .where(VoiceMediaNode.lost_at.is_(None), VoiceMediaNode.heartbeat_at < cutoff)
-                    .with_for_update()
-                )
-                .scalars()
-                .all()
-            )
-            for node in candidates:
-                node.generation += 1
-                node.lost_at = now
-                lost_nodes.append(node.id)
-            if lost_nodes:
-                ids = (
-                    db.execute(
-                        select(VoiceCallSession.id).where(
-                            VoiceCallSession.node_id.in_(lost_nodes),
-                            VoiceCallSession.state.in_(list(LIVE_STATES)),
-                        )
+                    select(VoiceMediaNode.id).where(
+                        VoiceMediaNode.lost_at.is_(None), VoiceMediaNode.heartbeat_at < cutoff
                     )
-                    .scalars()
-                    .all()
-                )
-                failed[END_NODE_LOST] = self._fail_calls(db, list(ids), now, END_NODE_LOST)
-                self._release_slots_for_nodes(db, lost_nodes, now)
-            expired = (
+                ).scalars()
+            )
+            expired = list(
                 db.execute(
                     select(VoiceCapacitySlot.session_id).where(
                         VoiceCapacitySlot.released_at.is_(None),
                         VoiceCapacitySlot.lease_expires_at < now,
                     )
-                )
-                .scalars()
-                .all()
+                ).scalars()
             )
+            failed: dict[str, list[str]] = {END_NODE_LOST: [], END_LEASE_EXPIRED: []}
+            if not lapsed and not expired:
+                return {"lost_nodes": [], "failed_calls": failed}
+            covered = []
+            if lapsed:
+                covered.append(VoiceCallSession.node_id.in_(lapsed))
             if expired:
-                failed[END_LEASE_EXPIRED] = self._fail_calls(
-                    db, list(expired), now, END_LEASE_EXPIRED
+                covered.append(VoiceCallSession.id.in_(expired))
+            live_calls = list(
+                db.execute(
+                    select(VoiceCallSession)
+                    .where(VoiceCallSession.state.in_(list(LIVE_STATES)), or_(*covered))
+                    .order_by(VoiceCallSession.id)
+                    .with_for_update()
+                ).scalars()
+            )
+            lost_nodes: list[str] = []
+            if lapsed:
+                nodes = (
+                    db.execute(
+                        select(VoiceMediaNode)
+                        .where(
+                            VoiceMediaNode.id.in_(lapsed),
+                            VoiceMediaNode.lost_at.is_(None),
+                            VoiceMediaNode.heartbeat_at < cutoff,
+                        )
+                        .order_by(VoiceMediaNode.id)
+                        .with_for_update()
+                    )
+                    .scalars()
+                    .all()
                 )
-                self._release_slots(db, list(expired), now=now, reason=END_LEASE_EXPIRED)
+                for node in nodes:
+                    node.generation += 1
+                    node.lost_at = now
+                    lost_nodes.append(node.id)
+            lost = set(lost_nodes)
+            on_lost = [call for call in live_calls if call.node_id in lost]
+            failed[END_NODE_LOST] = self._fail_calls(on_lost, now, END_NODE_LOST)
+            if lost_nodes:
+                self._release_slots_for_nodes(db, lost_nodes, now)
+            still_expired: list[str] = []
+            if expired:
+                # Slots are locked last (module order) and the lease is judged
+                # again: a heartbeat may have renewed it while the sweep waited
+                # for a call lock.
+                still_expired = list(
+                    db.execute(
+                        select(VoiceCapacitySlot.session_id)
+                        .where(
+                            VoiceCapacitySlot.session_id.in_(expired),
+                            VoiceCapacitySlot.released_at.is_(None),
+                            VoiceCapacitySlot.lease_expires_at < now,
+                        )
+                        .order_by(VoiceCapacitySlot.session_id)
+                        .with_for_update()
+                    ).scalars()
+                )
+            lapsed_set = set(still_expired)
+            lapsed_leases = [
+                call for call in live_calls if call.id in lapsed_set and call.node_id not in lost
+            ]
+            failed[END_LEASE_EXPIRED] = self._fail_calls(lapsed_leases, now, END_LEASE_EXPIRED)
+            self._release_slots(db, still_expired, now=now, reason=END_LEASE_EXPIRED)
             db.flush()
             return {"lost_nodes": lost_nodes, "failed_calls": failed}
 
@@ -549,18 +594,8 @@ class VoiceControlPlane:
         return report
 
     @staticmethod
-    def _fail_calls(db: Session, ids: list[str], now: datetime, reason: str) -> list[str]:
-        if not ids:
-            return []
-        calls = (
-            db.execute(
-                select(VoiceCallSession).where(
-                    VoiceCallSession.id.in_(ids), VoiceCallSession.state.in_(list(LIVE_STATES))
-                )
-            )
-            .scalars()
-            .all()
-        )
+    def _fail_calls(calls: list[VoiceCallSession], now: datetime, reason: str) -> list[str]:
+        """Fail calls the caller locked FOR UPDATE while still live."""
         for call in calls:
             call.state = CallState.FAILED
             call.end_reason = reason

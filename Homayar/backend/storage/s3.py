@@ -139,6 +139,10 @@ class S3ObjectStorage(ObjectStorage):
             "config": Config(
                 signature_version="s3v4",
                 s3={"addressing_style": "path" if force_path_style else "auto"},
+                # Homayar alone chooses the endpoint (HOM-159): AWS_ENDPOINT_URL*,
+                # the shared config's endpoint_url and its services section are
+                # ignored, so they cannot redirect object traffic.
+                ignore_configured_endpoint_urls=True,
             )
         }
         if endpoint_url:
