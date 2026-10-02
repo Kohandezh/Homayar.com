@@ -157,6 +157,13 @@ unchanged):
     recordings and credentials, is plaintext on that internal network. Keep MinIO off
     published ports and shared networks. Serving the bundled MinIO over TLS, which retires
     the flag, is a planned follow-up.
+  - Ambient endpoint overrides never reach the S3 client: it is built with
+    `ignore_configured_endpoint_urls`, so `AWS_ENDPOINT_URL`, `AWS_ENDPOINT_URL_S3` and an
+    `endpoint_url` in the shared AWS config (profile or `services` section) are ignored and
+    only `STORAGE_ENDPOINT_URL` (or the provider default) is used. Production with
+    `STORAGE_BACKEND=s3` still refuses to start while any of them is set to something other
+    than an `https://` URL, or when the shared AWS config cannot be read; the error names the
+    source, never its value. `STORAGE_ALLOW_INSECURE_ENDPOINT` does not cover these overrides.
 
 ### Optional runtime settings (defaults keep them off)
 

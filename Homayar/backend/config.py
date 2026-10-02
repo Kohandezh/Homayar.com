@@ -237,6 +237,39 @@ def _is_https_url(url: str) -> bool:
         return False
 
 
+def _ambient_s3_endpoints() -> list[tuple[str, str]]:
+    """Where botocore would take an S3 endpoint from outside Homayar's settings.
+
+    Returns (source name, value) pairs: the ``AWS_ENDPOINT_URL_S3`` and
+    ``AWS_ENDPOINT_URL`` variables and the active shared-config profile's
+    ``endpoint_url`` (directly or in its ``services`` section). The S3 client
+    ignores all of them (``ignore_configured_endpoint_urls``); production still
+    refuses a non-https one so a deployment never relies on that alone. A
+    shared config that cannot be read is reported with an empty value.
+    """
+    found = [
+        (name, os.environ[name])
+        for name in ("AWS_ENDPOINT_URL_S3", "AWS_ENDPOINT_URL")
+        if os.environ.get(name)
+    ]
+    try:
+        import botocore.session
+
+        session = botocore.session.Session()
+        profile = session.get_scoped_config()
+        services = session.full_config.get("services", {})
+    except Exception:  # unreadable file or unknown profile: botocore would fail too
+        return [*found, ("the shared AWS config (endpoint_url unreadable)", "")]
+    if profile.get("endpoint_url"):
+        found.append(("endpoint_url in the shared AWS config profile", profile["endpoint_url"]))
+    service = services.get(profile.get("services", ""), {}).get("s3", {})
+    if isinstance(service, dict) and service.get("endpoint_url"):
+        found.append(
+            ("s3 endpoint_url in the shared AWS config services section", service["endpoint_url"])
+        )
+    return found
+
+
 class Settings(BaseSettings):
     """Validated runtime configuration for cloud and on-premise deployments."""
 
@@ -667,6 +700,16 @@ class Settings(BaseSettings):
                     "(DEPLOYMENT_MODE=onprem) may allow another endpoint with "
                     "STORAGE_ALLOW_INSECURE_ENDPOINT=true"
                 )
+            if self.storage_backend == "s3":
+                insecure = [
+                    name for name, value in _ambient_s3_endpoints() if not _is_https_url(value)
+                ]
+                if insecure:
+                    raise ValueError(
+                        "Ambient S3 endpoint overrides must be https:// URLs in production "
+                        f"(found: {'; '.join(insecure)}). Homayar uses only "
+                        "STORAGE_ENDPOINT_URL; unset the override or make it https://"
+                    )
         if self.enable_google_auth and not (self.google_client_id and self.google_client_secret):
             raise ValueError("Google authentication is enabled but credentials are missing")
         if self.enable_phone_auth and not (self.asanak_api_key and self.asanak_sender):
