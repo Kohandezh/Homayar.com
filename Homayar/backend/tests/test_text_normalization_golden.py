@@ -26,6 +26,7 @@ base checkout (Foreman gate G-base) and on the migrated head.
 from __future__ import annotations
 
 import functools
+import gc
 import multiprocessing
 import os
 import threading
@@ -92,16 +93,50 @@ def _outcome(func: Callable[[str], object], text: str) -> tuple[str, object]:
         return ("raises", f"{type(exc).__name__}: {exc}")
 
 
+_SPAN_GRIDS: dict[int, tuple[tuple[int, ...], tuple[int, ...]]] = {}
+
+
+def _span_grid(size: int) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """``(starts, ends)`` of every 0 <= i <= j <= size, in ``(i, j)`` order (cached per size)."""
+    grid = _SPAN_GRIDS.get(size)
+    if grid is None:
+        pairs = [(i, j) for i in range(size + 1) for j in range(i, size + 1)]
+        grid = _SPAN_GRIDS[size] = (tuple(i for i, _ in pairs), tuple(j for _, j in pairs))
+    return grid
+
+
 def _stream_view(result) -> tuple[object, ...]:
     """``normalize_char_stream`` result plus ``span(i, j)`` for every 0 <= i <= j <= len."""
-    size = len(result.text)
-    span = result.span
-    spans = [span(i, j) for i in range(size + 1) for j in range(i, size + 1)]
+    starts, ends = _span_grid(len(result.text))
+    spans = list(map(result.span, starts, ends))
     return (result.text, result.offsets, result.original, spans)
 
 
 def _raising(func: Callable[[str], object]) -> Callable[[str], object]:
     return functools.partial(_outcome, func)
+
+
+# functools.partial with a keyword copies its keyword dict on every call; these closures pass
+# the same keyword argument to the same function without that per-call dict.
+def _with_colloquial(func: Callable[..., str], table: object) -> Callable[[str], str]:
+    def call(text: str) -> str:
+        return func(text, colloquial=table)
+
+    return call
+
+
+def _with_punctuation(func: Callable[..., str], punctuation: bool) -> Callable[[str], str]:
+    def call(text: str) -> str:
+        return func(text, punctuation=punctuation)
+
+    return call
+
+
+def _with_language(func: Callable[..., str], language: str) -> Callable[[str], str]:
+    def call(text: str) -> str:
+        return func(text, language=language)
+
+    return call
 
 
 def _viewed(func: Callable[[str], object]) -> Callable[[str], object]:
@@ -142,26 +177,26 @@ SWEEP: dict[str, tuple[Callable[[str], object], Callable[[str], object]]] = {
     ),
     "speech.normalize_fa": (prod_speech.normalize_fa, ref_speech.normalize_fa),
     "speech.normalize_fa(colloquial=DEFAULT_COLLOQUIAL_FA)": (
-        functools.partial(prod_speech.normalize_fa, colloquial=prod_speech.DEFAULT_COLLOQUIAL_FA),
-        functools.partial(ref_speech.normalize_fa, colloquial=ref_speech.DEFAULT_COLLOQUIAL_FA),
+        _with_colloquial(prod_speech.normalize_fa, prod_speech.DEFAULT_COLLOQUIAL_FA),
+        _with_colloquial(ref_speech.normalize_fa, ref_speech.DEFAULT_COLLOQUIAL_FA),
     ),
     "speech.normalize_fa(punctuation=False)": (
-        functools.partial(prod_speech.normalize_fa, punctuation=False),
-        functools.partial(ref_speech.normalize_fa, punctuation=False),
+        _with_punctuation(prod_speech.normalize_fa, False),
+        _with_punctuation(ref_speech.normalize_fa, False),
     ),
     "speech.normalize_en": (prod_speech.normalize_en, ref_speech.normalize_en),
     "speech.normalize_az": (prod_speech.normalize_az, ref_speech.normalize_az),
     "speech.normalize_for_matching(fa)": (
-        functools.partial(prod_speech.normalize_for_matching, language="fa"),
-        functools.partial(ref_speech.normalize_for_matching, language="fa"),
+        _with_language(prod_speech.normalize_for_matching, "fa"),
+        _with_language(ref_speech.normalize_for_matching, "fa"),
     ),
     "speech.normalize_for_matching(en)": (
-        functools.partial(prod_speech.normalize_for_matching, language="en"),
-        functools.partial(ref_speech.normalize_for_matching, language="en"),
+        _with_language(prod_speech.normalize_for_matching, "en"),
+        _with_language(ref_speech.normalize_for_matching, "en"),
     ),
     "speech.normalize_for_matching(az)": (
-        functools.partial(prod_speech.normalize_for_matching, language="az"),
-        functools.partial(ref_speech.normalize_for_matching, language="az"),
+        _with_language(prod_speech.normalize_for_matching, "az"),
+        _with_language(ref_speech.normalize_for_matching, "az"),
     ),
     "locations.normalize_char_stream (text, offsets, original, every span)": (
         _viewed(prod_locations.normalize_char_stream),
@@ -201,15 +236,43 @@ def _describe(text: str, produced: object, expected: object) -> str:
     )
 
 
+def _without_cyclic_gc(job_function: Callable[[tuple[int, int, int]], dict[str, object]]):
+    """Run a sweep job with the cyclic garbage collector paused (results are unaffected).
+
+    A job makes no reference cycles, so reference counting frees everything; the collector
+    would only re-scan the containers each job allocates (and, in a forked worker, the whole
+    inherited pytest heap).  The previous state is restored, also in the one-process path.
+    """
+
+    @functools.wraps(job_function)
+    def run(job: tuple[int, int, int]) -> dict[str, object]:
+        collecting = gc.isenabled()
+        gc.disable()
+        try:
+            return job_function(job)
+        finally:
+            if collecting:
+                gc.enable()
+
+    return run
+
+
+@_without_cyclic_gc
 def _sweep_job(job: tuple[int, int, int]) -> dict[str, object]:
     """One template x one slice of code points through every function (worker entry point)."""
     template, start, stop = job
     inputs = _sweep_inputs(template, start, stop)
     checked: dict[str, int] = {}
     mismatches: dict[str, list[str]] = {}
+    # (production callable, its outputs on ``inputs``): a callable that is shared by several
+    # SWEEP entries or by LENGTH_PRESERVING is applied once per job (all are pure functions).
+    returned: list[tuple[Callable[[str], object], list[object]]] = []
     for name, (production, reference) in SWEEP.items():
         try:
-            produced = list(map(production, inputs))
+            produced = next((out for func, out in returned if func is production), None)
+            if produced is None:
+                produced = list(map(production, inputs))
+                returned.append((production, produced))
             expected = list(map(reference, inputs))
             fast = produced == expected
         except Exception:  # compare input by input below, exceptions included
@@ -224,8 +287,15 @@ def _sweep_job(job: tuple[int, int, int]) -> dict[str, object]:
                 ] + ([f"... {len(bad)} mismatching inputs in this job"] if len(bad) > 1 else [])
         checked[name] = len(inputs)
     length_violations: dict[str, list[str]] = {}
+    lengths = list(map(len, inputs))
     for name, func in LENGTH_PRESERVING.items():
-        wrong = [text for text in inputs if len(func(text)) != len(text)]
+        outputs = next((out for returner, out in returned if returner is func), None)
+        if outputs is None:
+            wrong = [text for text in inputs if len(func(text)) != len(text)]
+        elif list(map(len, outputs)) == lengths:
+            wrong = []
+        else:
+            wrong = [t for t, out in zip(inputs, outputs, strict=True) if len(out) != len(t)]
         if wrong:
             length_violations[name] = [repr(text) for text in wrong[:_MAX_REPORTED]]
     return {
@@ -242,6 +312,11 @@ def _jobs() -> list[tuple[int, int, int]]:
         for template in range(len(TEMPLATES))
         for start in range(0, len(CODE_POINTS), _CHUNK)
     ]
+
+
+def _longest_first(jobs: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
+    """Submission order: longer templates (dearer strings) first, so cheap jobs fill the tail."""
+    return sorted(jobs, key=lambda job: -sum(map(len, TEMPLATES[job[0]][1:])))
 
 
 def _worker_count() -> int:
@@ -269,7 +344,9 @@ def sweep() -> dict[str, object]:
         # fork is cheap and safe while this process has one thread; otherwise spawn.
         context = multiprocessing.get_context("fork" if _single_threaded() else "spawn")
         with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
-            results = list(pool.map(_sweep_job, jobs))
+            # Dearest jobs first, so cheap ones fill the tail; results are read in _jobs() order.
+            futures = {job: pool.submit(_sweep_job, job) for job in _longest_first(jobs)}
+            results = [futures[job].result() for job in jobs]
     checked: dict[str, int] = {}
     mismatches: dict[str, list[str]] = {}
     length_violations: dict[str, list[str]] = {}

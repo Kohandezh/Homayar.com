@@ -255,24 +255,56 @@ def strip_diacritics(text: str) -> str:
     return _DIACRITICS_RE.sub("", text)
 
 
+# _SPACE_RE plus CR and LF.  Every maximal run of these characters becomes one space,
+# exactly as the three passes of the original normalize_whitespace did.
+_WHITESPACE_CLASS = r"[ \t\r\n\u00a0\u2000-\u200b\u202f\u205f\u3000]"
+_WHITESPACE_RE = re.compile(f"{_WHITESPACE_CLASS}+")
+# normalize_for_matching separators: punctuation (neither word nor whitespace) or
+# _WHITESPACE_CLASS; one run of them becomes one space.
+_MATCH_SEPARATOR_RE = re.compile(rf"(?:[^\w\s]|{_WHITESPACE_CLASS})+")
+# A ZWNJ run at a word boundary (start, end or next to a space).
+_ZWNJ_AT_BOUNDARY_RE = re.compile(f"(^|[ ]){ZWNJ}+|{ZWNJ}+($|[ ])")
+# The keys of _PUNCT, so its translate can be skipped when none is present.
+_PUNCT_KEYS_RE = re.compile(f"[{re.escape(''.join(map(chr, _PUNCT)))}]")
+# LETTER_VARIANTS_SPEECH, HARAKAT and TATWEEL dropped, and DIGITS in one translate: the
+# three are per-character maps with disjoint keys whose values are no other map's keys,
+# so their union equals their composition.
+_SPEECH_FOLD: dict[int, str | None] = {
+    **_ARABIC_TO_PERSIAN,
+    **dict.fromkeys(map(ord, HARAKAT | {TATWEEL})),
+    **_DIGIT_TABLE,
+}
+
+
 def normalize_whitespace(text: str) -> str:
-    text = _SPACE_RE.sub(" ", text.replace("​", " "))
-    text = re.sub(r"[\r\n]+", " ", text)
-    return re.sub(" {2,}", " ", text).strip()
+    return _WHITESPACE_RE.sub(" ", text.replace("​", " ")).strip()
+
+
+def _repair_zwnj(text: str) -> str:
+    """:func:`normalize_zwnj` for a ``str``; each pass runs only when the text holds a
+    substring its pattern cannot match without ("\u0645\u06cc " for the verb prefix,
+    " \u0647\u0627" for the plural suffix, ZWNJ or ZWJ for the rest)."""
+    if ZWNJ in text or ZWJ in text:
+        text = _ZW_RUN_RE.sub(ZWNJ, text)
+        text = _SPACE_AROUND_ZWNJ_RE.sub(ZWNJ, text)
+    if "\u0645\u06cc " in text:
+        text = _MI_PREFIX_RE.sub(lambda m: m.group(1) + ZWNJ, text)
+    if " \u0647\u0627" in text:
+        text = _HA_SUFFIX_RE.sub(lambda m: ZWNJ + m.group(1), text)
+    # A ZWNJ at a word boundary carries no meaning.
+    if ZWNJ in text:
+        text = _ZWNJ_AT_BOUNDARY_RE.sub(r"\1\2", text)
+    return text
 
 
 def normalize_zwnj(text: str) -> str:
-    text = _ZW_RUN_RE.sub(ZWNJ, text)
-    text = _SPACE_AROUND_ZWNJ_RE.sub(ZWNJ, text)
-    text = _MI_PREFIX_RE.sub(lambda m: m.group(1) + ZWNJ, text)
-    text = _HA_SUFFIX_RE.sub(lambda m: ZWNJ + m.group(1), text)
-    # A ZWNJ at a word boundary carries no meaning.
-    text = re.sub(f"(^|[ ]){ZWNJ}+|{ZWNJ}+($|[ ])", r"\1\2", text)
-    return text
+    return _repair_zwnj(_ZW_RUN_RE.sub(ZWNJ, text))
 
 
 def normalize_punctuation_fa(text: str) -> str:
     text = text.translate(_PUNCT)
+    if " " not in text:
+        return text
     return _SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
 
 
@@ -280,7 +312,7 @@ def apply_token_map(text: str, table: Mapping[str, str]) -> str:
     """Whole-token replacement (tokens are split on single spaces)."""
     if not table:
         return text
-    return " ".join(table.get(tok, tok) for tok in text.split(" "))
+    return " ".join([table.get(tok, tok) for tok in text.split(" ")])
 
 
 def normalize_fa(
@@ -291,39 +323,40 @@ def normalize_fa(
 ) -> str:
     """Full Persian normalisation.  ``colloquial=None`` disables rewriting;
     pass :data:`DEFAULT_COLLOQUIAL_FA` (or your own table) to enable it."""
-    text = unicodedata.normalize("NFC", text)
-    text = unify_arabic_letters(text)
-    text = strip_diacritics(text)
-    text = normalize_digits(text)
-    text = normalize_whitespace(text)
+    text = unicodedata.normalize("NFC", text).translate(_SPEECH_FOLD)
+    text = _WHITESPACE_RE.sub(" ", text).strip()
     if colloquial:
         # Match both the ZWNJ and non-ZWNJ spellings before ZWNJ repair.
         text = apply_token_map(text, colloquial)
-    text = normalize_zwnj(text)
+    text = _repair_zwnj(text)
     if punctuation:
-        text = normalize_punctuation_fa(text)
+        if _PUNCT_KEYS_RE.search(text):
+            text = text.translate(_PUNCT)
+        if " " in text:
+            text = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
     return text
 
 
+# DIGITS and the two curly single quotes in one translate (disjoint per-character maps).
+_EN_FOLD: dict[int, str] = {**_DIGIT_TABLE, **str.maketrans({"’": "'", "‘": "'"})}
+
+
 def normalize_en(text: str, **_: object) -> str:
-    text = unicodedata.normalize("NFKC", text)
-    text = normalize_digits(text)
-    text = text.replace("’", "'").replace("‘", "'")
-    return normalize_whitespace(text)
+    text = unicodedata.normalize("NFKC", text).translate(_EN_FOLD)
+    return _WHITESPACE_RE.sub(" ", text).strip()
 
 
 _AZ_LATIN = str.maketrans({"ä": "ə", "Ä": "Ə", "ǝ": "ə", "Ǝ": "Ə"})
+# _AZ_LATIN, then the speech folds of _SPEECH_FOLD, in one translate.
+_AZ_FOLD: dict[int, str | None] = {**_SPEECH_FOLD, **_AZ_LATIN}
 
 
 def normalize_az(text: str, **_: object) -> str:
     """Azerbaijani basics: NFC, schwa variants unified (Latin script),
     Arabic-script letters unified with Persian conventions (Iranian
     Azerbaijani), digits, whitespace.  No orthography conversion."""
-    text = unicodedata.normalize("NFC", text).translate(_AZ_LATIN)
-    text = unify_arabic_letters(text)
-    text = strip_diacritics(text)
-    text = normalize_digits(text)
-    return normalize_zwnj(normalize_whitespace(text))
+    text = unicodedata.normalize("NFC", text).translate(_AZ_FOLD)
+    return _repair_zwnj(_WHITESPACE_RE.sub(" ", text).strip())
 
 
 def normalize_for_matching(text: str, language: str = "fa") -> str:
@@ -331,8 +364,7 @@ def normalize_for_matching(text: str, language: str = "fa") -> str:
     punctuation removed, ZWNJ treated as a word-internal join (removed)."""
     text = get_normalizer(language)(text)
     text = text.replace(ZWNJ, "")
-    text = re.sub(r"[^\w\s]", " ", text.casefold())
-    return normalize_whitespace(text)
+    return _MATCH_SEPARATOR_RE.sub(" ", text.casefold()).strip()
 
 
 @dataclass(frozen=True)
