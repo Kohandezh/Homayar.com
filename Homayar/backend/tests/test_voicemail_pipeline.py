@@ -174,3 +174,40 @@ def test_non_voicemail_meeting_and_failure(vm_client, email_outbox) -> None:  # 
         assert on_processing_failed(db, vm["meeting_id"]) is None
         db.commit()
     assert _voicemail(vm["id"]).review_reason == "asr_failed"
+
+
+def test_fullwidth_landline_matches_its_ascii_repeat_caller(vm_client, email_outbox) -> None:  # noqa: F811
+    # HOM-165: fullwidth digits are stored as ASCII, so the two calls match.
+    from backend.voicemail.ingest import normalize_caller_number
+
+    fullwidth = "".join(chr(0xFF10 + int(d)) for d in "02188776655")
+    assert normalize_caller_number(fullwidth) == ("02188776655", False)
+    assert normalize_caller_number("+" + fullwidth[1:]) == ("+2188776655", False)
+    devanagari = "".join(chr(0x0966 + int(d)) for d in "02188776655")
+    assert normalize_caller_number(devanagari) == (devanagari, False)  # not folded
+
+    _, workspace_id = _authenticated_workspace(vm_client, email_outbox)
+    _widen_concurrency(workspace_id)
+    now = datetime.now(UTC)
+    first = import_vm(
+        vm_client,
+        workspace_id,
+        external_id="fw-1",
+        audio=b"one",
+        caller="021-8877-6655",
+        received_at=now - timedelta(hours=5),
+    ).json()["voicemail"]
+    second = import_vm(
+        vm_client,
+        workspace_id,
+        external_id="fw-2",
+        audio=b"two",
+        caller=fullwidth,
+        received_at=now,
+    ).json()["voicemail"]
+    for vm in (first, second):
+        add_transcript(vm["meeting_id"], ["Please call me back"])
+        run_pipeline(vm["meeting_id"])
+    a, b = _voicemail(first["id"]), _voicemail(second["id"])
+    assert a.caller_number == b.caller_number == "02188776655"
+    assert "repeat_caller" in [r["code"] for r in b.priority_reasons]

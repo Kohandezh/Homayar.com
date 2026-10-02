@@ -636,3 +636,54 @@ def test_a_stored_v1_version_is_kept_and_a_new_version_is_derived(
             )
         ).all()
         assert sorted(versions) == ["text-pii/1", DETECTOR_VERSION]
+
+
+# --- HOM-165: fullwidth digits are canonical, Devanagari is not ----------------
+
+FW = str.maketrans("0123456789", "".join(chr(0xFF10 + i) for i in range(10)))
+DEVANAGARI = str.maketrans("0123456789", "".join(chr(0x0966 + i) for i in range(10)))
+
+
+@pytest.mark.parametrize(
+    ("sample", "pii_class", "value"),
+    [
+        ("کد ملی " + NID.translate(FW), PiiClass.IR_NATIONAL_ID, NID),
+        ("موبایل " + "09123456789".translate(FW), PiiClass.PHONE, "09123456789"),
+        ("موبایل " + "0912 345 6789".translate(FW), PiiClass.PHONE, "09123456789"),
+        ("mobile +" + "989123456789".translate(FW), PiiClass.PHONE, "09123456789"),
+        ("تلفن " + "021-88776655".translate(FW), PiiClass.PHONE, "02188776655"),
+        ("card " + CARD.translate(FW), PiiClass.BANK_CARD, CARD),
+        ("شبا IR" + IBAN[2:].translate(FW), PiiClass.IBAN, IBAN),
+        ("کد پستی " + "1435678912".translate(FW), PiiClass.IR_POSTAL_CODE, "1435678912"),
+    ],
+)
+def test_fullwidth_digits_are_detected_and_stored_as_ascii(sample, pii_class, value):
+    spans = detect(sample)
+    assert [(s.pii_class, s.value) for s in spans] == [(pii_class, value)]
+    redacted, replacements = redact(sample)
+    assert [sample[r.start : r.end] for r in replacements] == [replacements[0].value]
+    assert replacements[0].value != value  # the original keeps its spelling
+    assert redacted.endswith("]")
+
+
+@pytest.mark.parametrize(
+    "sample",
+    [
+        "کد ملی " + NID.translate(DEVANAGARI),
+        "موبایل " + "09123456789".translate(DEVANAGARI),
+        "card " + CARD.translate(DEVANAGARI),
+        "کد پستی " + "1435678912".translate(DEVANAGARI),
+        "mobile +" + "989123456789".translate(DEVANAGARI),
+    ],
+)
+def test_devanagari_digits_are_not_folded_or_detected(sample):
+    assert detect(sample) == []
+
+
+def test_mixed_scripts_fold_to_one_value():
+    mixed = "۰۹۱۲" + "345".translate(FW) + "٦٧٨٩"
+    assert [s.value for s in detect("موبایل " + mixed)] == ["09123456789"]
+
+
+def test_detector_version_covers_the_digit_change():
+    assert DETECTOR_VERSION not in {"text-pii/1", "text-pii/2"}

@@ -111,6 +111,14 @@ def _viewed(func: Callable[[str], object]) -> Callable[[str], object]:
     return call
 
 
+_FULLWIDTH_TO_ASCII = {0xFF10 + i: str(i) for i in range(10)}
+
+
+def _ref_caller_number_with_fullwidth(value: str):
+    """HOM-165: the frozen base, after folding the fullwidth digits it now accepts."""
+    return ref_ingest.normalize_caller_number(value.translate(_FULLWIDTH_TO_ASCII))
+
+
 # name -> (production, frozen base reference).  Production names all exist at BASE_SHA.
 SWEEP: dict[str, tuple[Callable[[str], object], Callable[[str], object]]] = {
     "text_pii.normalize_digits": (prod_text_pii.normalize_digits, ref_text_pii.normalize_digits),
@@ -172,7 +180,7 @@ SWEEP: dict[str, tuple[Callable[[str], object], Callable[[str], object]]] = {
     ),
     "voicemail.ingest.normalize_caller_number": (
         prod_ingest.normalize_caller_number,
-        ref_ingest.normalize_caller_number,
+        _ref_caller_number_with_fullwidth,
     ),
 }
 # One-to-one maps whose output length must equal the input length (offsets depend on it).
@@ -316,9 +324,10 @@ BASE_POLICY_DIGEST_ALL = "959fd446dfa18828da8543a05eefb4e4be20bb0cbbcbf84b92f45b
 BASE_POLICY_DIGEST_EMAIL = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058cdd1d8"
 # Intended changes after the base (each bumps the detector version):
 # HOM-164 text-pii/2 matches the postal keyword in Arabic letters and with ZWNJ.
-CURRENT_DETECTOR_VERSION = "text-pii/2"
-CURRENT_POLICY_DIGEST_ALL = "d6c08e43a1192d280dd2cfc8635f6c8f48ff493fc53ec66c6e2290a321e9f345"
-CURRENT_POLICY_DIGEST_EMAIL = "a5ec70cce914dfffc58e1d77e53e6c548c5fa4c385a511a0344e61bff0930efb"
+# HOM-165 text-pii/3 folds fullwidth digits to ASCII (values stored as ASCII).
+CURRENT_DETECTOR_VERSION = "text-pii/3"
+CURRENT_POLICY_DIGEST_ALL = "6af861dce4c1d53f1436c59aa720d5227f659829e578d65db0c843a48ab2b967"
+CURRENT_POLICY_DIGEST_EMAIL = "2620e3be0957f7ef351869a4b9e87fff21333d61524a2bc4918e1e99eb9214f5"
 # (input, speech.normalize_fa, locations stream text, stream offsets,
 #  locations.normalize_text, voicemail.normalize_text)
 PROFILE_TABLE = [
@@ -372,7 +381,7 @@ NORMALIZE_CALLER_NUMBER = [
     ("ext ۱۲۳", ("123", False)),
     ("", (None, False)),
     (None, (None, False)),
-    ("\uff10\uff12\uff11\uff18\uff18\uff17\uff17\uff16\uff16\uff15\uff15", ("\uff10\uff12\uff11\uff18\uff18\uff17\uff17\uff16\uff16\uff15\uff15", False)),
+    ("\uff10\uff12\uff11\uff18\uff18\uff17\uff17\uff16\uff16\uff15\uff15", ("02188776655", False)),  # HOM-165: fullwidth folds
     ("   ", (None, False)),
     ("+٤٤ (٢٠) ٧٩٤٦-٠٠٠٠", ("+442079460000", False)),
     ("۰۹۱۲ ۳۴۵ ۶۷۸۹", ("+989123456789", True)),
@@ -523,12 +532,12 @@ PII_CASES = [
     ("\u0643د پست\u064a ١٤٣٥٦٧٨٩١٢ است", [(8, 18, "ir_postal_code", "1435678912")], ("\u0643د پست\u064a [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "١٤٣٥٦٧٨٩١٢")])),
     ("\u0643د\u200cپست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [(8, 18, "ir_postal_code", "1435678912")], ("\u0643د\u200cپست\u064a [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۱۴۳۵۶۷۸۹۱۲")])),
     ("کد\u200cپستی ١٤٣٥٦٧٨٩١٢ است", [(8, 18, "ir_postal_code", "1435678912")], ("کد\u200cپستی [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "١٤٣٥٦٧٨٩١٢")])),
-    ("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
-    ("موبا\u064aل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبا\u064aل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
-    ("موبایل\u200c\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبایل\u200c\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
-    ("کد \uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")], ("کد [IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
-    ("\u0643د \uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")], ("\u0643د [IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
-    ("کد\u200c\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")], ("کد\u200c[IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
+    ("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [(7, 18, "phone", "09123456789")], ("موبایل [PHONE_1]", [(7, 18, "phone", "[PHONE_1]", "\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19")])),
+    ("موبا\u064aل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [(7, 18, "phone", "09123456789")], ("موبا\u064aل [PHONE_1]", [(7, 18, "phone", "[PHONE_1]", "\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19")])),
+    ("موبایل\u200c\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [(7, 18, "phone", "09123456789")], ("موبایل\u200c[PHONE_1]", [(7, 18, "phone", "[PHONE_1]", "\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19")])),
+    ("کد \uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "1000000001")], ("کد [IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
+    ("\u0643د \uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "1000000001")], ("\u0643د [IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
+    ("کد\u200c\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11 تمام", [(3, 13, "ir_national_id", "1000000001")], ("کد\u200c[IR_NATIONAL_ID_1] تمام", [(3, 13, "ir_national_id", "[IR_NATIONAL_ID_1]", "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11")])),
     ("شماره ۰۹۱۲۳۴۵۶۷۸۹ و 09123456789 و 09351234567", [(6, 17, "phone", "09123456789"), (20, 31, "phone", "09123456789"), (34, 45, "phone", "09351234567")], ("شماره [PHONE_1] و [PHONE_1] و [PHONE_2]", [(6, 17, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹"), (20, 31, "phone", "[PHONE_1]", "09123456789"), (34, 45, "phone", "[PHONE_2]", "09351234567")])),
     ("شماره ۰۹۱۲۳۴۵۶۷۸۹ و ۰۹۱۲۳۴۵۶۷۸۹ و ۰۹۳۵۱۲۳۴۵۶۷", [(6, 17, "phone", "09123456789"), (20, 31, "phone", "09123456789"), (34, 45, "phone", "09351234567")], ("شماره [PHONE_1] و [PHONE_1] و [PHONE_2]", [(6, 17, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹"), (20, 31, "phone", "[PHONE_1]", "۰۹۱۲۳۴۵۶۷۸۹"), (34, 45, "phone", "[PHONE_2]", "۰۹۳۵۱۲۳۴۵۶۷")])),
     ("شماره ٠٩١٢٣٤٥٦٧٨٩ و ٠٩١٢٣٤٥٦٧٨٩ و ٠٩٣٥١٢٣٤٥٦٧", [(6, 17, "phone", "09123456789"), (20, 31, "phone", "09123456789"), (34, 45, "phone", "09351234567")], ("شماره [PHONE_1] و [PHONE_1] و [PHONE_2]", [(6, 17, "phone", "[PHONE_1]", "٠٩١٢٣٤٥٦٧٨٩"), (20, 31, "phone", "[PHONE_1]", "٠٩١٢٣٤٥٦٧٨٩"), (34, 45, "phone", "[PHONE_2]", "٠٩٣٥١٢٣٤٥٦٧")])),
@@ -825,12 +834,18 @@ def test_spec_detector_probes() -> None:
         assert [(s.start, s.end, s.pii_class.value, s.value) for s in found] == [
             (8, 18, "ir_postal_code", "1435678912")
         ]
-    assert detect("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19") == []
+    # HOM-165: fullwidth digits are detected and their values are ASCII.
+    fullwidth_mobile = "موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19"
+    assert [(s.start, s.end, s.pii_class.value, s.value) for s in detect(fullwidth_mobile)] == [
+        (7, 18, "phone", "09123456789")
+    ]
     fullwidth_id = "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11"
     spans = detect("کد " + fullwidth_id + " تمام")
     assert [(s.start, s.end, s.pii_class.value, s.value) for s in spans] == [
-        (3, 13, "ir_national_id", fullwidth_id)
+        (3, 13, "ir_national_id", "1000000001")
     ]
+    devanagari_id = fullwidth_id.translate({0xFF10 + i: 0x0966 + i for i in range(10)})
+    assert detect("کد " + devanagari_id + " تمام") == []  # Devanagari is not folded
 
 
 @pytest.mark.parametrize(

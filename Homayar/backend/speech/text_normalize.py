@@ -27,6 +27,11 @@ Exported tables (all immutable: ``str``, ``frozenset`` or ``MappingProxyType``)
 - ``DIGITS``: those 20 code points to ASCII ``0``-``9``.  Nothing else (no
   fullwidth, no Devanagari).  :func:`normalize_digits` applies it one
   character for one character, so offsets are kept.
+- ``FULLWIDTH_DIGITS`` (U+FF10-FF19) and ``DIGITS_EXTENDED``: ``DIGITS`` plus
+  the fullwidth run, the canonical digit set (HOM-165: ASCII, Persian,
+  Arabic-Indic, fullwidth).  :func:`normalize_digits_extended` applies it one
+  to one.  Devanagari (U+0966-096F) and every other digit script are
+  deliberately not folded.
 - ``LETTER_VARIANTS_BASIC``: ``ي ى``→``ی``, ``ك``→``ک``, ``ة``→``ه``,
   ``أ إ ٱ``→``ا`` (7 entries).
 - ``LETTER_VARIANTS_EXTENDED``: ``LETTER_VARIANTS_BASIC`` plus ``ۀ``→``ه`` and
@@ -59,12 +64,17 @@ Consumer profiles (each keeps its own step order)
   ``LETTER_VARIANTS_EXTENDED``, ZWNJ to space, ZWJ/LRM/RLM/``TATWEEL``
   dropped, ``DIGITS`` → strip ``HARAKAT_CLASS`` and ``QURANIC_MARKS_CLASS`` →
   casefold → punctuation to space → whitespace collapsed.
-- PII digits (``backend.privacy.text_pii``): ``DIGITS`` only
-  (:func:`normalize_digits`, re-exported there); offsets refer to the original.
+- PII digits (``backend.privacy.text_pii``): ``DIGITS_EXTENDED``
+  (:func:`normalize_digits_extended`; ``normalize_digits`` is still
+  re-exported there) and the postal keyword window letter-folded with
+  :func:`unify_arabic_letters`; offsets refer to the original.  Only ASCII
+  counts as a digit after folding, so Devanagari numbers are not detected.
 - Mobile/OTP digits (``backend.security.normalization``,
   ``backend.routers.v1.auth``, ``backend.voicemail.ingest``): mobile numbers
-  are NFKC then ``DIGITS``; OTP codes and non-mobile caller numbers are
-  ``DIGITS`` only.
+  are NFKC then ``DIGITS``; OTP codes are ``DIGITS`` only; non-mobile caller
+  numbers are ``DIGITS_EXTENDED`` (HOM-165).  Caller numbers stored before
+  HOM-165 with fullwidth digits are left as they are (no data fix); repeat
+  caller matching works for rows written since.
 
 Preserved divergences between profiles (intentional, not yet unified; changing
 any of them is a behaviour change that needs a detector/rules version bump and,
@@ -73,7 +83,8 @@ for locations, a data migration):
   only in speech.
 - Unicode normalisation: speech NFC (``ئ`` stays ``ئ``, ``آ`` stays), voicemail
   NFKC (presentation forms and fullwidth digits fold), locations none (``آ``
-  loses its maddah, decomposed ``ئ`` becomes ``ی``).  PII has none.
+  loses its maddah, decomposed ``ئ`` becomes ``ی``).  PII has none (it folds
+  fullwidth digits through ``DIGITS_EXTENDED`` only).
 - ZWNJ: kept by speech, a space in locations and voicemail; LRM/RLM kept by
   speech, dropped by locations and voicemail.
 - Quranic marks (U+06D6-06ED) are stripped only by voicemail; tatweel is
@@ -96,6 +107,14 @@ PERSIAN_DIGITS = "".join(chr(0x06F0 + i) for i in range(10))
 ARABIC_INDIC_DIGITS = "".join(chr(0x0660 + i) for i in range(10))
 DIGITS: Mapping[str, str] = MappingProxyType(
     {native: str(value % 10) for value, native in enumerate(PERSIAN_DIGITS + ARABIC_INDIC_DIGITS)}
+)
+
+# Canonical digit set (HOM-165): ASCII, Persian, Arabic-Indic and fullwidth.
+# Devanagari (U+0966-096F) and every other script are deliberately NOT folded:
+# callers that need an ASCII number must treat them as non-digits.
+FULLWIDTH_DIGITS = "".join(chr(0xFF10 + i) for i in range(10))
+DIGITS_EXTENDED: Mapping[str, str] = MappingProxyType(
+    {**DIGITS, **{native: str(value) for value, native in enumerate(FULLWIDTH_DIGITS)}}
 )
 
 ZWNJ = "\u200c"
@@ -143,6 +162,7 @@ ARABIC_NUMBER_PUNCTUATION: Mapping[str, str] = MappingProxyType(
 )
 
 _DIGIT_TABLE = str.maketrans(dict(DIGITS))
+_DIGIT_TABLE_EXTENDED = str.maketrans(dict(DIGITS_EXTENDED))
 _ARABIC_TO_PERSIAN = str.maketrans(dict(LETTER_VARIANTS_SPEECH))
 
 
@@ -157,6 +177,16 @@ def translation_table(*mappings: Mapping[str, str]) -> dict[int, str]:
 def normalize_digits(text: str) -> str:
     """Persian/Arabic-Indic digits to ASCII; one character each, offsets kept."""
     return text.translate(_DIGIT_TABLE)
+
+
+def normalize_digits_extended(text: str) -> str:
+    """The canonical digit set (Persian, Arabic-Indic, fullwidth) to ASCII.
+
+    One character each, so offsets are kept.  Devanagari and other scripts are
+    left as they are; :func:`normalize_digits` keeps its narrower behaviour
+    for the consumers that pin it.
+    """
+    return text.translate(_DIGIT_TABLE_EXTENDED)
 
 
 # --- speech profile --------------------------------------------------------------

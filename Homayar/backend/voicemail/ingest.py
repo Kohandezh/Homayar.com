@@ -47,7 +47,7 @@ from backend.services.ingestion_service import (
 from backend.services.logging_service import logger
 from backend.services.meeting_service import UploadIdempotencyConflict, create_upload_job
 from backend.services.upload_service import StagedUpload
-from backend.speech.text_normalize import normalize_digits
+from backend.speech.text_normalize import normalize_digits_extended
 from backend.storage import create_object_storage
 from backend.voicemail.models import (
     VOICEMAIL_MEETING_SOURCE,
@@ -98,7 +98,7 @@ def normalize_caller_number(value: str | None) -> tuple[str | None, bool]:
     except ValueError:
         # Landlines, international and extensions: keep a comparable,
         # digits-only form (leading "+" kept) so repeat-caller detection works.
-        raw = normalize_digits(value.strip())
+        raw = normalize_digits_extended(value.strip())
         digits = "".join(ch for ch in raw if ch.isdigit())
         if not digits:
             return None, False

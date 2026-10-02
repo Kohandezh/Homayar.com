@@ -321,8 +321,13 @@ def _ref_normalize_caller_number(value):
     try:
         return _ref_normalize_iranian_mobile(value), True
     except ValueError:
+        # HOM-165: fullwidth digits joined the canonical set (base had only two runs).
         raw = value.strip().translate(
-            {**{0x06F0 + i: str(i) for i in range(10)}, **{0x0660 + i: str(i) for i in range(10)}}
+            {
+                **{0x06F0 + i: str(i) for i in range(10)},
+                **{0x0660 + i: str(i) for i in range(10)},
+                **{0xFF10 + i: str(i) for i in range(10)},
+            }
         )
         digits = "".join(ch for ch in raw if ch.isdigit())
         if not digits:
@@ -987,38 +992,40 @@ SWEEP_DIGESTS: dict[tuple[str, int], str] = {
         "security.normalize_iranian_mobile",
         7,
     ): "bf18f349e2d8737de5789bcffee773e25175137d4dca454ddb6e0b67901c2f24",
+    # HOM-165: caller-number digests re-captured after fullwidth digits joined the
+    # canonical set; the reference above folds them too.
     (
         "ingest.normalize_caller_number",
         0,
-    ): "01ccc755d087dcbb319a9c2194314a95b1ce1d305a63b0428bbef26bf279d23d",
+    ): "5474580c03ae994ce0f888cfb096151d32b2f4b4cacaeeb5bc7c703992585e5d",
     (
         "ingest.normalize_caller_number",
         1,
-    ): "01ccc755d087dcbb319a9c2194314a95b1ce1d305a63b0428bbef26bf279d23d",
+    ): "5474580c03ae994ce0f888cfb096151d32b2f4b4cacaeeb5bc7c703992585e5d",
     (
         "ingest.normalize_caller_number",
         2,
-    ): "aafa350b06cf7d6d82025710559363837500c4a5cce5b19b61aabcc75c01c0ae",
+    ): "437e50e22d0305db48ce7f371c4b8cf43775da3729fc41991f6acb70aa18a54b",
     (
         "ingest.normalize_caller_number",
         3,
-    ): "01ccc755d087dcbb319a9c2194314a95b1ce1d305a63b0428bbef26bf279d23d",
+    ): "5474580c03ae994ce0f888cfb096151d32b2f4b4cacaeeb5bc7c703992585e5d",
     (
         "ingest.normalize_caller_number",
         4,
-    ): "01ccc755d087dcbb319a9c2194314a95b1ce1d305a63b0428bbef26bf279d23d",
+    ): "5474580c03ae994ce0f888cfb096151d32b2f4b4cacaeeb5bc7c703992585e5d",
     (
         "ingest.normalize_caller_number",
         5,
-    ): "01ccc755d087dcbb319a9c2194314a95b1ce1d305a63b0428bbef26bf279d23d",
+    ): "5474580c03ae994ce0f888cfb096151d32b2f4b4cacaeeb5bc7c703992585e5d",
     (
         "ingest.normalize_caller_number",
         6,
-    ): "01ccc755d087dcbb319a9c2194314a95b1ce1d305a63b0428bbef26bf279d23d",
+    ): "5474580c03ae994ce0f888cfb096151d32b2f4b4cacaeeb5bc7c703992585e5d",
     (
         "ingest.normalize_caller_number",
         7,
-    ): "01ccc755d087dcbb319a9c2194314a95b1ce1d305a63b0428bbef26bf279d23d",
+    ): "5474580c03ae994ce0f888cfb096151d32b2f4b4cacaeeb5bc7c703992585e5d",
 }
 
 
@@ -1955,15 +1962,7 @@ PII_EXPECTED: dict = {
     ("arabic_indic_digits", 60): None,
     ("arabic_indic_digits", 61): None,
     ("fullwidth_digits", 0): (
-        (
-            (
-                7,
-                17,
-                "ir_national_id",
-                "\uff10\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff19",
-                "[IR_NATIONAL_ID_1]",
-            ),
-        ),
+        ((7, 17, "ir_national_id", "0012345679", "[IR_NATIONAL_ID_1]"),),
         "کد ملی [IR_NATIONAL_ID_1]",
     ),
     ("fullwidth_digits", 1): (
@@ -1975,48 +1974,49 @@ PII_EXPECTED: dict = {
         "کد ملی [IR_NATIONAL_ID_1]",
     ),
     ("fullwidth_digits", 3): (
-        (
-            (
-                7,
-                19,
-                "ir_national_id",
-                "\uff10\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff19",
-                "[IR_NATIONAL_ID_1]",
-            ),
-        ),
+        ((7, 19, "ir_national_id", "0012345679", "[IR_NATIONAL_ID_1]"),),
         "کد ملی [IR_NATIONAL_ID_1]",
     ),
     ("fullwidth_digits", 4): (((7, 18, "phone", "09123456789", "[PHONE_1]"),), "موبایل [PHONE_1]"),
     ("fullwidth_digits", 5): (((7, 20, "phone", "09123456789", "[PHONE_1]"),), "موبایل [PHONE_1]"),
-    ("fullwidth_digits", 6): None,
-    ("fullwidth_digits", 7): None,
-    ("fullwidth_digits", 8): None,
+    ("fullwidth_digits", 6): (
+        ((7, 23, "phone", "09123456789", "[PHONE_1]"),),
+        "mobile [PHONE_1].",
+    ),
+    ("fullwidth_digits", 7): (
+        ((7, 20, "phone", "09123456789", "[PHONE_1]"),),
+        "mobile [PHONE_1]",
+    ),
+    ("fullwidth_digits", 8): (
+        ((7, 24, "phone", "09123456789", "[PHONE_1]"),),
+        "mobile [PHONE_1]",
+    ),
     ("fullwidth_digits", 9): (((5, 17, "phone", "02188776655", "[PHONE_1]"),), "تلفن [PHONE_1]"),
     ("fullwidth_digits", 10): (((5, 20, "phone", "02188776655", "[PHONE_1]"),), "تلفن [PHONE_1]"),
-    ("fullwidth_digits", 11): None,
+    ("fullwidth_digits", 11): (
+        ((5, 20, "phone", "0012025550143", "[PHONE_1]"),),
+        "call [PHONE_1] today",
+    ),
     ("fullwidth_digits", 12): (
-        (
-            (
-                5,
-                21,
-                "bank_card",
-                (
-                    "\uff16\uff10\uff13\uff17\uff19\uff19\uff11"
-                    "\uff11\uff12\uff13\uff14\uff15\uff16\uff17"
-                    "\uff18\uff16"
-                ),
-                "[BANK_CARD_1]",
-            ),
-        ),
+        ((5, 21, "bank_card", "6037991123456786", "[BANK_CARD_1]"),),
         "card [BANK_CARD_1]",
     ),
     ("fullwidth_digits", 13): (
         ((5, 24, "bank_card", "6037991123456786", "[BANK_CARD_1]"),),
         "کارت [BANK_CARD_1]",
     ),
-    ("fullwidth_digits", 14): None,
-    ("fullwidth_digits", 15): None,
-    ("fullwidth_digits", 16): None,
+    ("fullwidth_digits", 14): (
+        ((4, 30, "iban", "IR630190000000101234567890", "[IBAN_1]"),),
+        "شبا [IBAN_1]",
+    ),
+    ("fullwidth_digits", 15): (
+        ((4, 36, "iban", "IR630190000000101234567890", "[IBAN_1]"),),
+        "شبا [IBAN_1]",
+    ),
+    ("fullwidth_digits", 16): (
+        ((5, 31, "iban", "IR630190000000101234567890", "[IBAN_1]"),),
+        "iban [IBAN_1]",
+    ),
     ("fullwidth_digits", 17): (
         ((5, 33, "email", "ali.rezaei+crm@example.co.ir", "[EMAIL_1]"),),
         "mail [EMAIL_1] now",
@@ -2030,27 +2030,11 @@ PII_EXPECTED: dict = {
         "کد پستی [IR_POSTAL_CODE_1] است",
     ),
     ("fullwidth_digits", 20): (
-        (
-            (
-                13,
-                24,
-                "ir_postal_code",
-                "\uff11\uff14\uff13\uff15\uff16\uff17\uff18\uff19\uff11\uff12",
-                "[IR_POSTAL_CODE_1]",
-            ),
-        ),
+        ((13, 24, "ir_postal_code", "1435678912", "[IR_POSTAL_CODE_1]"),),
         "postal code: [IR_POSTAL_CODE_1]",
     ),
     ("fullwidth_digits", 21): (
-        (
-            (
-                7,
-                17,
-                "ir_postal_code",
-                "\uff10\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff19",
-                "[IR_POSTAL_CODE_1]",
-            ),
-        ),
+        ((7, 17, "ir_postal_code", "0012345679", "[IR_POSTAL_CODE_1]"),),
         "کدپستی [IR_POSTAL_CODE_1]",
     ),
     ("fullwidth_digits", 22): None,
@@ -2081,40 +2065,24 @@ PII_EXPECTED: dict = {
         ),
     ),
     ("fullwidth_digits", 37): (
-        ((6, 17, "phone", "09123456789", "[PHONE_1]"),),
         (
-            "شماره [PHONE_1] و \uff10\uff19\uff11\uff12"
-            "\uff13\uff14\uff15\uff16\uff17\uff18\uff19 و"
-            " \uff10\uff19\uff13\uff15\uff11\uff12\uff13"
-            "\uff14\uff15\uff16\uff17"
+            (6, 17, "phone", "09123456789", "[PHONE_1]"),
+            (20, 31, "phone", "09123456789", "[PHONE_1]"),
+            (34, 45, "phone", "09351234567", "[PHONE_2]"),
         ),
+        "شماره [PHONE_1] و [PHONE_1] و [PHONE_2]",
     ),
     ("fullwidth_digits", 38): (
         (
-            (
-                21,
-                31,
-                "ir_national_id",
-                "\uff10\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff19",
-                "[IR_NATIONAL_ID_1]",
-            ),
+            (7, 18, "phone", "09351234567", "[PHONE_1]"),
+            (21, 31, "ir_national_id", "0012345679", "[IR_NATIONAL_ID_1]"),
         ),
-        (
-            "باز هم \uff10\uff19\uff13\uff15\uff11\uff12"
-            "\uff13\uff14\uff15\uff16\uff17 و [IR_NATIONA"
-            "L_ID_1]"
-        ),
+        "باز هم [PHONE_1] و [IR_NATIONAL_ID_1]",
     ),
     ("fullwidth_digits", 39): (
         (
             (6, 12, "email", "a@b.io", "[EMAIL_1]"),
-            (
-                29,
-                39,
-                "ir_national_id",
-                "\uff10\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff19",
-                "[IR_NATIONAL_ID_1]",
-            ),
+            (29, 39, "ir_national_id", "0012345679", "[IR_NATIONAL_ID_1]"),
         ),
         "email [EMAIL_1] and national id [IR_NATIONAL_ID_1]",
     ),
@@ -2123,27 +2091,11 @@ PII_EXPECTED: dict = {
         "سلام\u060c کد ملی من [IR_NATIONAL_ID_1] هست",
     ),
     ("fullwidth_digits", 41): (
-        (
-            (
-                8,
-                18,
-                "ir_national_id",
-                "\uff12\uff17\uff14\uff16\uff15\uff19\uff13\uff18\uff11\uff15",
-                "[IR_NATIONAL_ID_1]",
-            ),
-        ),
-        "کد ملیم [IR_NATIONAL_ID_1] \u0640ه",
+        ((8, 18, "ir_national_id", "2746593815", "[IR_NATIONAL_ID_1]"),),
+        "کد ملیم [IR_NATIONAL_ID_1] ـه",
     ),
     ("fullwidth_digits", 42): (
-        (
-            (
-                18,
-                28,
-                "ir_national_id",
-                "\uff12\uff17\uff14\uff16\uff15\uff19\uff13\uff18\uff11\uff15",
-                "[IR_NATIONAL_ID_1]",
-            ),
-        ),
+        ((18, 28, "ir_national_id", "2746593815", "[IR_NATIONAL_ID_1]"),),
         "my national id is [IR_NATIONAL_ID_1]",
     ),
     ("fullwidth_digits", 43): (
@@ -2155,33 +2107,30 @@ PII_EXPECTED: dict = {
         "شماره همراه [PHONE_1]",
     ),
     ("fullwidth_digits", 45): (((7, 20, "phone", "09198765432", "[PHONE_1]"),), "واتساپ [PHONE_1]"),
-    ("fullwidth_digits", 46): None,
+    ("fullwidth_digits", 46): (
+        ((12, 25, "phone", "02122334455", "[PHONE_1]"),),
+        "office line [PHONE_1]",
+    ),
     ("fullwidth_digits", 47): (
         ((17, 28, "phone", "03136654432", "[PHONE_1]"),),
         "تلفن شعبه اصفهان [PHONE_1]",
     ),
-    ("fullwidth_digits", 48): None,
+    ("fullwidth_digits", 48): (
+        ((12, 28, "phone", "00442079460958", "[PHONE_1]"),),
+        "reach me on [PHONE_1]",
+    ),
     ("fullwidth_digits", 49): (
         ((11, 27, "bank_card", "6037991123456786", "[BANK_CARD_1]"),),
         "شماره کارت [BANK_CARD_1] رو یادداشت کن",
     ),
     ("fullwidth_digits", 50): (
-        (
-            (
-                12,
-                31,
-                "bank_card",
-                (
-                    "\uff16\uff12\uff17\uff14\uff11\uff12\uff13"
-                    "\uff14\uff15\uff16\uff17\uff18\uff19\uff10"
-                    "\uff11\uff11"
-                ),
-                "[BANK_CARD_1]",
-            ),
-        ),
+        ((12, 31, "bank_card", "6274123456789011", "[BANK_CARD_1]"),),
         "card number [BANK_CARD_1]",
     ),
-    ("fullwidth_digits", 51): None,
+    ("fullwidth_digits", 51): (
+        ((10, 36, "iban", "IR630190000000101234567890", "[IBAN_1]"),),
+        "شبای حساب [IBAN_1] است",
+    ),
     ("fullwidth_digits", 52): (
         ((9, 27, "email", "reza.m@example.org", "[EMAIL_1]"),),
         "ایمیل من [EMAIL_1] است",
@@ -2198,13 +2147,7 @@ PII_EXPECTED: dict = {
         (
             (16, 27, "phone", "09123334455", "[PHONE_1]"),
             (34, 43, "email", "n.a@x.com", "[EMAIL_1]"),
-            (
-                51,
-                61,
-                "ir_national_id",
-                "\uff10\uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff19",
-                "[IR_NATIONAL_ID_1]",
-            ),
+            (51, 61, "ir_national_id", "0012345679", "[IR_NATIONAL_ID_1]"),
         ),
         "اطلاعات: موبایل [PHONE_1] ایمیل [EMAIL_1] کد ملی [IR_NATIONAL_ID_1]",
     ),
@@ -4008,18 +3951,22 @@ CALLER_NUMBERS = (
     ("   ", (None, False)),
     ("no digits", (None, False)),
     ("\u0660\u0662\u0661-\u0668\u0668\u0667\u0667\u0666\u0666\u0665\u0665", ("02188776655", False)),
+    # HOM-165: fullwidth landlines are stored as ASCII (base kept them fullwidth).
+    ("\uff10\uff12\uff11\uff18\uff18\uff17\uff17\uff16\uff16\uff15\uff15", ("02188776655", False)),
+    # Devanagari is not part of the canonical set and stays as it is.
     (
-        "\uff10\uff12\uff11\uff18\uff18\uff17\uff17\uff16\uff16\uff15\uff15",
-        ("\uff10\uff12\uff11\uff18\uff18\uff17\uff17\uff16\uff16\uff15\uff15", False),
+        "\u0966\u0968\u0967\u096e\u096e\u096d\u096d\u096c\u096c\u096b\u096b",
+        ("\u0966\u0968\u0967\u096e\u096e\u096d\u096d\u096c\u096c\u096b\u096b", False),
     ),
 )
 ALL_CLASSES_DIGEST = "959fd446dfa18828da8543a05eefb4e4be20bb0cbbcbf84b92f45b58b3ed35ad"
 EMAIL_ONLY_DIGEST = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058cdd1d8"
 # HOM-164 bumped the detector to text-pii/2; the base digests above stay the
 # text-pii/1 values (stored versions keep them), these are the current ones.
-CURRENT_DETECTOR_VERSION = "text-pii/2"
-CURRENT_ALL_CLASSES_DIGEST = "d6c08e43a1192d280dd2cfc8635f6c8f48ff493fc53ec66c6e2290a321e9f345"
-CURRENT_EMAIL_ONLY_DIGEST = "a5ec70cce914dfffc58e1d77e53e6c548c5fa4c385a511a0344e61bff0930efb"
+# HOM-165 bumped it again to text-pii/3 (fullwidth digits fold to ASCII).
+CURRENT_DETECTOR_VERSION = "text-pii/3"
+CURRENT_ALL_CLASSES_DIGEST = "6af861dce4c1d53f1436c59aa720d5227f659829e578d65db0c843a48ab2b967"
+CURRENT_EMAIL_ONLY_DIGEST = "2620e3be0957f7ef351869a4b9e87fff21333d61524a2bc4918e1e99eb9214f5"
 
 
 class TestGoldenDivergenceTable:
@@ -4100,11 +4047,12 @@ class TestGoldenValues:
             (8, 18, PiiClass.IR_POSTAL_CODE, "1435678912")
         ]
 
-    @pytest.mark.parametrize("text", [FULLWIDTH_MOBILE_TEXT])
-    def test_base_blind_spots_stay_undetected(self, text):
+    def test_devanagari_digits_stay_undetected(self):
+        # HOM-165: Devanagari is outside the canonical digit set.
         from backend.privacy.text_pii import detect
 
-        assert detect(text) == []
+        devanagari = FULLWIDTH_MOBILE_TEXT.translate({0xFF10 + i: 0x0966 + i for i in range(10)})
+        assert detect(devanagari) == []
 
     @pytest.mark.parametrize("text", [ARABIC_POSTAL_TEXT, ZWNJ_POSTAL_TEXT])
     def test_postal_keyword_blind_spots_are_closed(self, text):
@@ -4116,12 +4064,17 @@ class TestGoldenValues:
             (8, 18, PiiClass.IR_POSTAL_CODE, "1435678912")
         ]
 
-    def test_fullwidth_national_id_keeps_its_fullwidth_value(self):
+    def test_fullwidth_digits_are_detected_with_ascii_values(self):
+        # HOM-165: base kept the fullwidth value and missed the fullwidth mobile.
         from backend.privacy.text_pii import PiiClass, detect
 
         spans = detect("کد " + FULLWIDTH_NID + " تمام")
         assert [(s.start, s.end, s.pii_class, s.value) for s in spans] == [
-            (3, 13, PiiClass.IR_NATIONAL_ID, FULLWIDTH_NID)
+            (3, 13, PiiClass.IR_NATIONAL_ID, "1000000001")
+        ]
+        spans = detect(FULLWIDTH_MOBILE_TEXT)
+        assert [(s.start, s.end, s.pii_class, s.value) for s in spans] == [
+            (7, 18, PiiClass.PHONE, "09123456789")
         ]
 
     def test_versions_and_policy_digests_are_unchanged(self):
@@ -4179,15 +4132,16 @@ class TestGoldenDenyAllow:
         assert folded.address.city == "کاشان"
         assert folded.address.city_key == "kashan"
 
-    def test_detector_gains_only_postal_keyword_letter_and_zwnj_handling(self):
+    def test_detector_gains_only_postal_keyword_and_fullwidth_handling(self):
         from backend.privacy.text_pii import detect
 
         # HOM-164: the postal keyword is matched letter-folded and ZWNJ-tolerant.
         assert [(s.start, s.end) for s in detect(ARABIC_POSTAL_TEXT)] == [(8, 18)]
         assert [(s.start, s.end) for s in detect(ZWNJ_POSTAL_TEXT)] == [(8, 18)]
-        assert detect(FULLWIDTH_MOBILE_TEXT) == []
+        # HOM-165: fullwidth digits fold to ASCII.
+        assert [s.value for s in detect(FULLWIDTH_MOBILE_TEXT)] == ["09123456789"]
         spans = detect("کد " + FULLWIDTH_NID + " تمام")
-        assert [s.value for s in spans] == [FULLWIDTH_NID]
+        assert [s.value for s in spans] == ["1000000001"]
 
     def test_detector_still_finds_persian_spellings_in_original_offsets(self):
         from backend.privacy.text_pii import detect
@@ -4618,31 +4572,31 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "01bd15a2c1595aa7010c1a04"),  # HOM-164 docstring
-        ("DETECTOR_VERSION", "a6ebd3d247a4655c30dde9ef"),  # HOM-164 text-pii/2
+        ("Expr", "9fa43d25c4fbaed236304c90"),  # HOM-164/165 docstring
+        ("DETECTOR_VERSION", "d3aac593bcb04aecd6309523"),  # HOM-165 text-pii/3
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
         ("_PRIORITY", "3266f57d52c974fe017bac21"),
         ("_SEP", "1c5926f4301140eb5200e211"),
         ("_NOT_ALNUM_BEFORE", "154ed5030fd1756288b6016b"),
         ("_NOT_ALNUM_AFTER", "20ed2907dd84cc34cdd5852b"),
-        ("_digits", "13a8b306fc25572336ceab0b"),
+        ("_digits", "852e2c9778b7439134f34787"),  # HOM-165 ASCII digits only
         ("_EMAIL_RE", "a29670cfebee09bc74e67aee"),
         ("_IR_MOBILE_RE", "653f8777c50f54cf2bf3b463"),
-        ("_IR_LANDLINE_RE", "622bcd9ec0922e56581cec98"),
-        ("_INTL_PHONE_RE", "930a7d23887ba5a203729e0a"),
+        ("_IR_LANDLINE_RE", "93c36ac31a1ad77f625031ac"),  # HOM-165
+        ("_INTL_PHONE_RE", "c443fa695f2605ce94871c1f"),  # HOM-165
         ("_TEN_DIGITS_RE", "f12c90097867adca76912b90"),
         ("_CARD_RE", "504886bc0ce5dcc69329dbd7"),
-        ("_IBAN_RE", "3ab8b13166a951688caf8418"),
+        ("_IBAN_RE", "a948ca753b466b8dbef81dd7"),  # HOM-165
         ("_POSTAL_KEYWORD_RE", "3d3fd7541a6fe30549048ec8"),  # HOM-164
         ("_POSTAL_WINDOW", "74a038fb8d85fb4f9693c87a"),
         ("PiiSpan", "8687935185aa5ebaa3e16763"),
-        ("_only_digits", "dc6003034a31f7c000c03880"),
+        ("_only_digits", "d8d3ac4b39284bb71083c7de"),  # HOM-165
         ("valid_national_id", "a2a44ce0ff124921f63547b1"),
         ("valid_luhn", "8b40e7530c9816227f216679"),
         ("valid_iban", "96143c494e81f9c5b0b851ef"),
         ("_canonical_phone", "406be280c94ea1e049f0f165"),
-        ("detect", "c2f7f54944bfbc30e5eac09d"),  # HOM-164 folded keyword window
+        ("detect", "50d0da6041d4c1ae23aeace5"),  # HOM-164 keyword, HOM-165 digits
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),
@@ -6494,4 +6448,5 @@ class TestDeliverables:
 
         owner = importlib.import_module("backend.speech.text_normalize")
         namespace = vars(importlib.import_module(module)).values()
-        assert any(value is owner.normalize_digits or value is owner for value in namespace)
+        folds = (owner.normalize_digits, owner.normalize_digits_extended)
+        assert any(value in folds or value is owner for value in namespace)
