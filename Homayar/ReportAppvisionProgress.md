@@ -10,7 +10,7 @@ VALIDATED requires passing evidence on the recorded SHA. Historical WP statuses 
 
 | Field | Value |
 | --- | --- |
-| Updated (UTC) | 2026-09-30 (backend mission 20260929-backend-mode-100; see §I) |
+| Updated (UTC) | 2026-10-02 (Phase 1 checkpoint on `backend/infra-freeze`; see §J) |
 | Repository | github.com/Kohandezh/Homayar.com (monorepo; product in `Homayar/`, ADR 0033) |
 | Working branch | `feat/backend-p0-wave` from main `88073c8` (merge of PR #6) |
 | Migration head | `a1c3e5f7b9d2` (P0 wave; 31 linear migrations; main before merge: `f5b1d7c3a9e2`) |
@@ -137,3 +137,45 @@ HOM-161 (plaintext internal transports), HOM-164 (postal-code redaction leak), H
 gaps), HOM-168 (retention gap, unverified), HOM-169 (voice recover/transition race).
 Continuation point: `docs/handoff/session-reset/backend-mode-100-linear/20260929-backend-mode-100/NEXT_SESSION_MASTER_PROMPT.md`.
 
+
+## J. Phase 1 infrastructure checkpoint (branch `backend/infra-freeze`, 2026-10-02)
+
+```
+PHASE 1 IMPLEMENTATION: COMPLETE
+PHASE 1 REVIEW: COMPLETE
+MIGRATIONS / DRIFT: PASS
+FUNCTIONAL TESTS: PASS
+FULL SUITE: 2344 passed / 1 performance-gate failure / 46 skipped
+OPEN P0: HOM-172
+CORE BASELINE FROZEN: NO
+FREEZE BLOCKER: HOM-120 30-second normalization performance gate requires controlled-load validation
+```
+
+Validated SHA: `742efda2f4c27fe3fcbb0aff84c87f6a713d6730` (base `e67ffaf` = main). Not CI-validated (GitHub
+Actions billing limit); not production-ready. A checkpoint merge of this branch is not a Core Baseline Freeze.
+
+Environment: local macOS (i9, 12 threads, heavily shared host, load 5-89 during the run), Python 3.12 venv,
+native PostgreSQL 16 (fsync off, test-only), Redis 7.4 (docker), ffmpeg, `ci.yml` env values. Alembic single head
+`a1c3e5f7b9d2` (31 revisions), upgrade/downgrade and model drift check PASS.
+
+| Linear | Item | Commit | Review |
+| --- | --- | --- | --- |
+| HOM-170 | media decode tests: stand-in decoder pid recorded before Python starts (the 2 baseline failures) | bf979d0 | approved |
+| HOM-169 | voice recovery: lock calls before nodes/slots, re-judge leases, never overwrite an ended call | e9c3ce9 | major finding fixed, approved |
+| HOM-159 | object store ignores ambient AWS endpoint overrides; production refuses insecure ones | 7e259d5 | approved |
+| HOM-160 | settings `model_dump`/`model_dump_json` redact secrets (explicit reveal context only) | e301dbb | approved |
+| HOM-168 | delete-after-processing request committed with COMPLETED (kill-safe) | 10f3967 | approved, minors applied |
+| HOM-120 | `speech/text_normalize` single normalization owner (490-case golden + oracle) | 77b9daa | approved |
+| HOM-164 | postal-code redaction with Arabic letters / ZWNJ (`text-pii/2`) | 56d3787 | approved |
+| HOM-165 | fullwidth digits folded in PII and caller numbers (`text-pii/3`) | 742efda | approved; minors -> HOM-171 (non-P0) |
+
+Skips (46): 37 live-S3 opt-in tests, 3 Padyar AI Gateway contract tests (contract not supplied), 1 SQLite file drill,
+1 `TEST_REDIS_CONTAINER` drill, remainder environment opt-ins; none hides a failing test.
+
+Only failure: `test_text_normalization_owner.py::TestDeliverables::test_golden_module_is_green_fast_and_independent_of_the_registry`.
+All 490 normalization cases pass; only the 30 s wall-clock budget fails. Evidence: quiet host ~28 s PASS; one
+load-gated rerun (1-min load 1.96) PASS, two further reruns as load returned FAIL (63 s, 115 s); same host at load 5-89: 48-140 s FAIL. The 30 s limit was NOT changed.
+Filed HOM-172 (P0, owner decision on controlled-load validation). Phase 2 (local/on-prem) has NOT started and stays
+blocked until HOM-172 passes the existing gate under controlled load or CI and the freeze is recorded.
+Secret scan: gitleaks over origin/main..HEAD reports 4 generic-api-key hits, all false positives (test fixture name, SHA-256 digests of reference functions, a function signature).
+External blockers unchanged: CI billing, live S3, Padyar contract, Persian corpus, GPU/models, SIP.
