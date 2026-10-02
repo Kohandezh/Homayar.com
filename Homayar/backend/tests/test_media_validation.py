@@ -447,15 +447,26 @@ POSIX_SCRIPTS = pytest.mark.skipif(
 
 
 def _fake_decoder(tmp_path: Path, body: str, name: str = "fake-ffmpeg") -> Path:
-    """An executable standing in for ffmpeg; it records its pid first."""
+    """An executable standing in for ffmpeg; it records its pid first.
+
+    The pid is written by a POSIX shell prologue before the Python body starts:
+    ``exec`` keeps the same pid, and the shell starts in milliseconds, so a
+    decoder that validation kills during a slow interpreter start-up (a loaded
+    host) is still identifiable. Writing it from Python raced the kill deadline.
+    """
     script = tmp_path / name
-    script.write_text(
-        f"#!{sys.executable}\n"
-        "import json, os, sys, time\n"
-        "with open(sys.argv[0] + '.pid', 'w') as handle:\n"
-        "    handle.write(str(os.getpid()))\n" + textwrap.dedent(body),
+    body_path = tmp_path / f"{name}-body.py"
+    body_path.write_text(
+        # argv[0] is the decoder path again, as ffmpeg would see it.
+        "import json, os, sys, time\nsys.argv = sys.argv[1:]\n" + textwrap.dedent(body),
         encoding="utf-8",
     )
+    prologue = (
+        "#!/bin/sh",
+        'printf %s "$$" > "$0.pid"',
+        f'exec "{sys.executable}" "{body_path}" "$0" "$@"',
+    )
+    script.write_text("\n".join(prologue) + "\n", encoding="utf-8")
     script.chmod(0o755)
     return script
 
