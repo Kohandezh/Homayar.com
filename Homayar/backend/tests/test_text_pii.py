@@ -531,3 +531,108 @@ def test_rls_binds_redactions_and_mappings_to_the_tenant(
             connection.rollback()
     finally:
         engine.dispose()
+
+
+# --- HOM-164: postal-code keyword in Arabic letters or with ZWNJ ---------------
+
+POSTAL_DIGITS = "۱۴۳۵۶۷۸۹۱۲"
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    [
+        "کد پستی",
+        "كد پستي",  # Arabic kaf and yeh
+        "كد پستی",  # Arabic kaf only
+        "کد پستي",  # Arabic yeh only
+        "کد‌پستی",  # ZWNJ instead of a space
+        "كد‌پستي",  # both
+        "کدپستی",
+        "كدپستي",
+    ],
+)
+def test_postal_keyword_spellings_are_detected_in_original_offsets(keyword):
+    sample = f"{keyword} {POSTAL_DIGITS} است"
+    spans = detect(sample)
+    start = len(keyword) + 1
+    assert [(s.start, s.end, s.pii_class, s.value) for s in spans] == [
+        (start, start + 10, PiiClass.IR_POSTAL_CODE, "1435678912")
+    ]
+    redacted, replacements = redact(sample)
+    assert redacted == f"{keyword} [IR_POSTAL_CODE_1] است"
+    assert [sample[r.start : r.end] for r in replacements] == [POSTAL_DIGITS]
+
+
+@pytest.mark.parametrize(
+    "sample",
+    [
+        # Deny: no keyword, or the variant letters spell a different word.
+        f"كد {POSTAL_DIGITS}",
+        f"پستي {POSTAL_DIGITS}",
+        f"كد‌‌ملی {POSTAL_DIGITS}",
+        f"كد پستي را بعدا می‌گویم؛ فعلا مبلغ {POSTAL_DIGITS} ریال",
+    ],
+)
+def test_postal_keyword_variants_do_not_widen_the_window(sample):
+    assert [s for s in detect(sample) if s.pii_class is PiiClass.IR_POSTAL_CODE] == []
+
+
+def test_detector_version_covers_the_postal_keyword_change():
+    assert DETECTOR_VERSION != "text-pii/1"
+
+
+def test_a_stored_v1_version_is_kept_and_a_new_version_is_derived(
+    client, email_outbox, monkeypatch, keyed_settings
+):
+    from backend.privacy import redaction_service
+
+    tenant, meeting_id = _processed_with_pii(
+        client, email_outbox, monkeypatch, keyed_settings, "pii-v1-v2"
+    )
+    workspace_id = tenant["workspace_id"]
+    v1_digest = redaction_service.policy_digest(list(PiiClass), detector_version="text-pii/1")
+    assert v1_digest != redaction_service.policy_digest(list(PiiClass))
+    with inspection_session_factory()() as db:
+        revision = current_revision(db, workspace_id=workspace_id, meeting_id=meeting_id)
+        # A version written by the previous detector release.
+        with monkeypatch.context() as old:
+            old.setattr(redaction_service, "DETECTOR_VERSION", "text-pii/1")
+            old.setattr(
+                redaction_service,
+                "policy_digest",
+                lambda classes: v1_digest,
+            )
+            v1 = redact_revision(
+                db,
+                revision=revision,
+                classes=list(PiiClass),
+                settings=keyed_settings,
+                now=datetime.now(UTC),
+            )
+            db.commit()
+        v1_id = v1.id
+        v1_texts = [row.text for row in redacted_segments(db, redaction=v1)]
+        assert (v1.detector_version, v1.policy_digest) == ("text-pii/1", v1_digest)
+
+        v2 = redact_revision(
+            db,
+            revision=revision,
+            classes=list(PiiClass),
+            settings=keyed_settings,
+            now=datetime.now(UTC),
+        )
+        db.commit()
+        assert v2.id != v1_id
+        assert v2.detector_version == DETECTOR_VERSION
+        assert v2.policy_digest == redaction_service.policy_digest(list(PiiClass))
+
+    with inspection_session_factory()() as db:
+        stored = db.get(TranscriptRedaction, v1_id)
+        assert (stored.detector_version, stored.policy_digest) == ("text-pii/1", v1_digest)
+        assert [row.text for row in redacted_segments(db, redaction=stored)] == v1_texts
+        versions = db.scalars(
+            select(TranscriptRedaction.detector_version).where(
+                TranscriptRedaction.meeting_id == meeting_id
+            )
+        ).all()
+        assert sorted(versions) == ["text-pii/1", DETECTOR_VERSION]

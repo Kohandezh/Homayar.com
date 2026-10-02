@@ -314,6 +314,11 @@ BASE_DETECTOR_VERSION = "text-pii/1"
 BASE_RULES_VERSION = "vm-rules-2026.09.1"
 BASE_POLICY_DIGEST_ALL = "959fd446dfa18828da8543a05eefb4e4be20bb0cbbcbf84b92f45b58b3ed35ad"
 BASE_POLICY_DIGEST_EMAIL = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058cdd1d8"
+# Intended changes after the base (each bumps the detector version):
+# HOM-164 text-pii/2 matches the postal keyword in Arabic letters and with ZWNJ.
+CURRENT_DETECTOR_VERSION = "text-pii/2"
+CURRENT_POLICY_DIGEST_ALL = "d6c08e43a1192d280dd2cfc8635f6c8f48ff493fc53ec66c6e2290a321e9f345"
+CURRENT_POLICY_DIGEST_EMAIL = "a5ec70cce914dfffc58e1d77e53e6c548c5fa4c385a511a0344e61bff0930efb"
 # (input, speech.normalize_fa, locations stream text, stream offsets,
 #  locations.normalize_text, voicemail.normalize_text)
 PROFILE_TABLE = [
@@ -448,8 +453,8 @@ PII_CASES = [
     ("ایمیل:\u200csara_k@mail.example.com", [(7, 30, "email", "sara_k@mail.example.com")], ("ایمیل:\u200c[EMAIL_1]", [(7, 30, "email", "[EMAIL_1]", "sara_k@mail.example.com")])),
     ("کد پستی ۱۴۳۵۶۷۸۹۱۲ است", [(8, 18, "ir_postal_code", "1435678912")], ("کد پستی [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۱۴۳۵۶۷۸۹۱۲")])),
     ("کد پستی ١٤٣٥٦٧٨٩١٢ است", [(8, 18, "ir_postal_code", "1435678912")], ("کد پستی [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "١٤٣٥٦٧٨٩١٢")])),
-    ("\u0643د پست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [], ("\u0643د پست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [])),
-    ("کد\u200cپستی ۱۴۳۵۶۷۸۹۱۲ است", [], ("کد\u200cپستی ۱۴۳۵۶۷۸۹۱۲ است", [])),
+    ("\u0643د پست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [(8, 18, "ir_postal_code", "1435678912")], ("\u0643د پست\u064a [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۱۴۳۵۶۷۸۹۱۲")])),
+    ("کد\u200cپستی ۱۴۳۵۶۷۸۹۱۲ است", [(8, 18, "ir_postal_code", "1435678912")], ("کد\u200cپستی [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۱۴۳۵۶۷۸۹۱۲")])),
     ("postal code: 14356-78912", [(13, 24, "ir_postal_code", "1435678912")], ("postal code: [IR_POSTAL_CODE_1]", [(13, 24, "ir_postal_code", "[IR_POSTAL_CODE_1]", "14356-78912")])),
     ("postal code: ۱۴۳۵۶-۷۸۹۱۲", [(13, 24, "ir_postal_code", "1435678912")], ("postal code: [IR_POSTAL_CODE_1]", [(13, 24, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۱۴۳۵۶-۷۸۹۱۲")])),
     ("postal code: ١٤٣٥٦-٧٨٩١٢", [(13, 24, "ir_postal_code", "1435678912")], ("postal code: [IR_POSTAL_CODE_1]", [(13, 24, "ir_postal_code", "[IR_POSTAL_CODE_1]", "١٤٣٥٦-٧٨٩١٢")])),
@@ -457,7 +462,7 @@ PII_CASES = [
     ("کدپستی 0012345679", [(7, 17, "ir_postal_code", "0012345679")], ("کدپستی [IR_POSTAL_CODE_1]", [(7, 17, "ir_postal_code", "[IR_POSTAL_CODE_1]", "0012345679")])),
     ("کدپستی ۰۰۱۲۳۴۵۶۷۹", [(7, 17, "ir_postal_code", "0012345679")], ("کدپستی [IR_POSTAL_CODE_1]", [(7, 17, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۰۰۱۲۳۴۵۶۷۹")])),
     ("کدپستی ٠٠١٢٣٤٥٦٧٩", [(7, 17, "ir_postal_code", "0012345679")], ("کدپستی [IR_POSTAL_CODE_1]", [(7, 17, "ir_postal_code", "[IR_POSTAL_CODE_1]", "٠٠١٢٣٤٥٦٧٩")])),
-    ("\u0643دپست\u064a 0012345679", [(7, 17, "ir_national_id", "0012345679")], ("\u0643دپست\u064a [IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "0012345679")])),
+    ("\u0643دپست\u064a 0012345679", [(7, 17, "ir_postal_code", "0012345679")], ("\u0643دپست\u064a [IR_POSTAL_CODE_1]", [(7, 17, "ir_postal_code", "[IR_POSTAL_CODE_1]", "0012345679")])),
     ("کدپستی\u200c0012345679", [(7, 17, "ir_national_id", "0012345679")], ("کدپستی\u200c[IR_NATIONAL_ID_1]", [(7, 17, "ir_national_id", "[IR_NATIONAL_ID_1]", "0012345679")])),
     ("مبلغ ۱۲۳۴۵۶۷۸۹۰ ریال پرداخت شد", [], ("مبلغ ۱۲۳۴۵۶۷۸۹۰ ریال پرداخت شد", [])),
     ("مبلغ ١٢٣٤٥٦٧٨٩٠ ریال پرداخت شد", [], ("مبلغ ١٢٣٤٥٦٧٨٩٠ ریال پرداخت شد", [])),
@@ -515,9 +520,9 @@ PII_CASES = [
     ("شماره من ۰۹۱۲ ۳۴۵ ۶۷۸۹ است", [(9, 22, "phone", "09123456789")], ("شماره من [PHONE_1] است", [(9, 22, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹")])),
     ("شماره من ٠٩١٢ ٣٤٥ ٦٧٨٩ است", [(9, 22, "phone", "09123456789")], ("شماره من [PHONE_1] است", [(9, 22, "phone", "[PHONE_1]", "٠٩١٢ ٣٤٥ ٦٧٨٩")])),
     ("شماره\u200cمن ۰۹۱۲ ۳۴۵ ۶۷۸۹ است", [(9, 22, "phone", "09123456789")], ("شماره\u200cمن [PHONE_1] است", [(9, 22, "phone", "[PHONE_1]", "۰۹۱۲ ۳۴۵ ۶۷۸۹")])),
-    ("\u0643د پست\u064a ١٤٣٥٦٧٨٩١٢ است", [], ("\u0643د پست\u064a ١٤٣٥٦٧٨٩١٢ است", [])),
-    ("\u0643د\u200cپست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [], ("\u0643د\u200cپست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [])),
-    ("کد\u200cپستی ١٤٣٥٦٧٨٩١٢ است", [], ("کد\u200cپستی ١٤٣٥٦٧٨٩١٢ است", [])),
+    ("\u0643د پست\u064a ١٤٣٥٦٧٨٩١٢ است", [(8, 18, "ir_postal_code", "1435678912")], ("\u0643د پست\u064a [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "١٤٣٥٦٧٨٩١٢")])),
+    ("\u0643د\u200cپست\u064a ۱۴۳۵۶۷۸۹۱۲ است", [(8, 18, "ir_postal_code", "1435678912")], ("\u0643د\u200cپست\u064a [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "۱۴۳۵۶۷۸۹۱۲")])),
+    ("کد\u200cپستی ١٤٣٥٦٧٨٩١٢ است", [(8, 18, "ir_postal_code", "1435678912")], ("کد\u200cپستی [IR_POSTAL_CODE_1] است", [(8, 18, "ir_postal_code", "[IR_POSTAL_CODE_1]", "١٤٣٥٦٧٨٩١٢")])),
     ("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
     ("موبا\u064aل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبا\u064aل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
     ("موبایل\u200c\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [], ("موبایل\u200c\uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19", [])),
@@ -719,10 +724,14 @@ def _ids(prefix: str, cases: list) -> list[str]:
 
 
 def test_versions_and_policy_digests_are_the_base_values() -> None:
-    assert prod_text_pii.DETECTOR_VERSION == BASE_DETECTOR_VERSION == "text-pii/1"
+    assert BASE_DETECTOR_VERSION == "text-pii/1"
+    assert prod_text_pii.DETECTOR_VERSION == CURRENT_DETECTOR_VERSION
     assert prod_voicemail.RULES_VERSION == BASE_RULES_VERSION == "vm-rules-2026.09.1"
-    assert policy_digest(list(prod_text_pii.PiiClass)) == BASE_POLICY_DIGEST_ALL
-    assert policy_digest([prod_text_pii.PiiClass.EMAIL]) == BASE_POLICY_DIGEST_EMAIL
+    base = {"detector_version": BASE_DETECTOR_VERSION}
+    assert policy_digest(list(prod_text_pii.PiiClass), **base) == BASE_POLICY_DIGEST_ALL
+    assert policy_digest([prod_text_pii.PiiClass.EMAIL], **base) == BASE_POLICY_DIGEST_EMAIL
+    assert policy_digest(list(prod_text_pii.PiiClass)) == CURRENT_POLICY_DIGEST_ALL
+    assert policy_digest([prod_text_pii.PiiClass.EMAIL]) == CURRENT_POLICY_DIGEST_EMAIL
     assert BASE_POLICY_DIGEST_ALL == (
         "959fd446dfa18828da8543a05eefb4e4be20bb0cbbcbf84b92f45b58b3ed35ad"
     )
@@ -810,8 +819,12 @@ def test_spec_detector_probes() -> None:
     assert [(s.start, s.end, s.pii_class.value, s.value) for s in postal] == [
         (8, 18, "ir_postal_code", "1435678912")
     ]
-    assert detect("\u0643د پست\u064a ۱۴۳۵۶۷۸۹۱۲ است") == []  # Arabic kaf and yeh
-    assert detect("کد\u200cپستی ۱۴۳۵۶۷۸۹۱۲ است") == []
+    # HOM-164: Arabic kaf/yeh and ZWNJ spellings of the keyword are detected.
+    for keyword in ("\u0643د پست\u064a", "کد\u200cپستی"):
+        found = detect(keyword + " ۱۴۳۵۶۷۸۹۱۲ است")
+        assert [(s.start, s.end, s.pii_class.value, s.value) for s in found] == [
+            (8, 18, "ir_postal_code", "1435678912")
+        ]
     assert detect("موبایل \uff10\uff19\uff11\uff12\uff13\uff14\uff15\uff16\uff17\uff18\uff19") == []
     fullwidth_id = "\uff11\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff10\uff11"
     spans = detect("کد " + fullwidth_id + " تمام")

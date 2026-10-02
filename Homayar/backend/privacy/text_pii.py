@@ -9,7 +9,10 @@ check digit are otherwise indistinguishable from other numbers).
 
 Persian (``۰``–``۹``) and Arabic-Indic (``٠``–``٩``) digits, spaces, hyphens and
 dashes inside a number, ``+98``/``0098``/``98``/``0`` prefixes and parenthesised
-area codes are normalised; offsets always refer to the original text.
+area codes are normalised; offsets always refer to the original text.  The
+postal-code keyword is matched after the owner's one-to-one Arabic-to-Persian
+letter folding (``كد پستي``) and accepts a ZWNJ between its words
+(``کد‌پستی``); folding never changes the length, so offsets are unaffected.
 
 NOT detected (disclosed residual risk): person and company names, street
 addresses, dates of birth, licence plates, passport and account numbers
@@ -26,9 +29,10 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from backend.speech.text_normalize import normalize_digits
+from backend.speech.text_normalize import normalize_digits, unify_arabic_letters
 
-DETECTOR_VERSION = "text-pii/1"
+# text-pii/2 (HOM-164): Arabic-letter and ZWNJ spellings of the postal keyword.
+DETECTOR_VERSION = "text-pii/2"
 
 
 class PiiClass(str, enum.Enum):
@@ -101,9 +105,11 @@ _IBAN_RE = re.compile(
     + r"[A-Za-z0-9]){11,30}(?![0-9A-Za-z])"
 )
 # The keyword, optionally followed by up to two short words ("کد پستی منزل",
-# "postal code of office"), then only separators up to the number.
+# "postal code of office"), then only separators up to the number.  Matched
+# on letter-folded text, so Arabic kaf/yeh spellings are covered; a ZWNJ may
+# stand where a space would.
 _POSTAL_KEYWORD_RE = re.compile(
-    r"(?:کد\s?پستی|کدپستی|postal\s+code|post\s?code|zip(?:\s+code)?)"
+    r"(?:کد[\s\u200c]?پستی|postal\s+code|post\s?code|zip(?:\s+code)?)"
     r"(?:\s+[^\s\d]{1,12}){0,2}[\s:：\-]*$",
     re.IGNORECASE,
 )
@@ -175,6 +181,8 @@ def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[P
     """Non-overlapping spans of the requested classes, in text order."""
     wanted = frozenset(classes)
     norm = normalize_digits(text)
+    # One-to-one letter folding: same length as ``norm``, so offsets carry over.
+    folded = unify_arabic_letters(norm)
     candidates: list[PiiSpan] = []
 
     def add(start: int, end: int, pii_class: PiiClass, value: str) -> None:
@@ -198,7 +206,8 @@ def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[P
             add(match.start(), match.end(), PiiClass.BANK_CARD, digits)
     for match in _TEN_DIGITS_RE.finditer(norm):
         digits = _only_digits(match.group())
-        if _POSTAL_KEYWORD_RE.search(norm[max(0, match.start() - _POSTAL_WINDOW) : match.start()]):
+        window = folded[max(0, match.start() - _POSTAL_WINDOW) : match.start()]
+        if _POSTAL_KEYWORD_RE.search(window):
             # A keyword names the number: a postal code, even when the digits
             # happen to satisfy the national-ID check digit.
             add(match.start(), match.end(), PiiClass.IR_POSTAL_CODE, digits)

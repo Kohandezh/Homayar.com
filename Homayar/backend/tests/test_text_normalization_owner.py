@@ -2275,14 +2275,18 @@ PII_EXPECTED: dict = {
         ((7, 30, "email", "sara_k@mail.example.com", "[EMAIL_1]"),),
         "ا\u064aم\u064aل: [EMAIL_1]",
     ),
-    ("arabic_letters", 19): None,
+    # HOM-164 (text-pii/2): the Arabic-letter postal keyword now names the number.
+    ("arabic_letters", 19): (
+        ((8, 18, "ir_postal_code", "1435678912", "[IR_POSTAL_CODE_1]"),),
+        "\u0643د پست\u064a [IR_POSTAL_CODE_1] است",
+    ),
     ("arabic_letters", 20): (
         ((13, 24, "ir_postal_code", "1435678912", "[IR_POSTAL_CODE_1]"),),
         "postal code: [IR_POSTAL_CODE_1]",
     ),
     ("arabic_letters", 21): (
-        ((7, 17, "ir_national_id", "0012345679", "[IR_NATIONAL_ID_1]"),),
-        "\u0643دپست\u064a [IR_NATIONAL_ID_1]",
+        ((7, 17, "ir_postal_code", "0012345679", "[IR_POSTAL_CODE_1]"),),
+        "\u0643دپست\u064a [IR_POSTAL_CODE_1]",
     ),
     ("arabic_letters", 22): None,
     ("arabic_letters", 23): None,
@@ -2388,7 +2392,10 @@ PII_EXPECTED: dict = {
         ((11, 34, "email", "billing@shop.example.ir", "[EMAIL_1]"),),
         "send it to [EMAIL_1] please",
     ),
-    ("arabic_letters", 54): None,
+    ("arabic_letters", 54): (
+        ((13, 23, "ir_postal_code", "8134567890", "[IR_POSTAL_CODE_1]"),),
+        "\u0643د پست\u064a منزل [IR_POSTAL_CODE_1] هست",
+    ),
     ("arabic_letters", 55): (
         (
             (16, 27, "phone", "09123334455", "[PHONE_1]"),
@@ -4008,6 +4015,11 @@ CALLER_NUMBERS = (
 )
 ALL_CLASSES_DIGEST = "959fd446dfa18828da8543a05eefb4e4be20bb0cbbcbf84b92f45b58b3ed35ad"
 EMAIL_ONLY_DIGEST = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058cdd1d8"
+# HOM-164 bumped the detector to text-pii/2; the base digests above stay the
+# text-pii/1 values (stored versions keep them), these are the current ones.
+CURRENT_DETECTOR_VERSION = "text-pii/2"
+CURRENT_ALL_CLASSES_DIGEST = "d6c08e43a1192d280dd2cfc8635f6c8f48ff493fc53ec66c6e2290a321e9f345"
+CURRENT_EMAIL_ONLY_DIGEST = "a5ec70cce914dfffc58e1d77e53e6c548c5fa4c385a511a0344e61bff0930efb"
 
 
 class TestGoldenDivergenceTable:
@@ -4088,11 +4100,21 @@ class TestGoldenValues:
             (8, 18, PiiClass.IR_POSTAL_CODE, "1435678912")
         ]
 
-    @pytest.mark.parametrize("text", [ARABIC_POSTAL_TEXT, ZWNJ_POSTAL_TEXT, FULLWIDTH_MOBILE_TEXT])
+    @pytest.mark.parametrize("text", [FULLWIDTH_MOBILE_TEXT])
     def test_base_blind_spots_stay_undetected(self, text):
         from backend.privacy.text_pii import detect
 
         assert detect(text) == []
+
+    @pytest.mark.parametrize("text", [ARABIC_POSTAL_TEXT, ZWNJ_POSTAL_TEXT])
+    def test_postal_keyword_blind_spots_are_closed(self, text):
+        # HOM-164: these were base blind spots; text-pii/2 detects them.
+        from backend.privacy.text_pii import PiiClass, detect
+
+        spans = detect(text)
+        assert [(s.start, s.end, s.pii_class, s.value) for s in spans] == [
+            (8, 18, PiiClass.IR_POSTAL_CODE, "1435678912")
+        ]
 
     def test_fullwidth_national_id_keeps_its_fullwidth_value(self):
         from backend.privacy.text_pii import PiiClass, detect
@@ -4107,11 +4129,14 @@ class TestGoldenValues:
         from backend.privacy.text_pii import DETECTOR_VERSION, PiiClass
         from backend.voicemail.classify import RULES_VERSION, RuleClassifier
 
-        assert DETECTOR_VERSION == "text-pii/1"
+        assert DETECTOR_VERSION == CURRENT_DETECTOR_VERSION
         assert RULES_VERSION == "vm-rules-2026.09.1"
         assert RuleClassifier().version == RULES_VERSION
-        assert policy_digest(list(PiiClass)) == ALL_CLASSES_DIGEST
-        assert policy_digest([PiiClass.EMAIL]) == EMAIL_ONLY_DIGEST
+        base = {"detector_version": "text-pii/1"}
+        assert policy_digest(list(PiiClass), **base) == ALL_CLASSES_DIGEST
+        assert policy_digest([PiiClass.EMAIL], **base) == EMAIL_ONLY_DIGEST
+        assert policy_digest(list(PiiClass)) == CURRENT_ALL_CLASSES_DIGEST
+        assert policy_digest([PiiClass.EMAIL]) == CURRENT_EMAIL_ONLY_DIGEST
 
     def test_voicemail_normalizer_accepts_none(self):
         from backend.voicemail.classify import normalize_text
@@ -4154,11 +4179,12 @@ class TestGoldenDenyAllow:
         assert folded.address.city == "کاشان"
         assert folded.address.city_key == "kashan"
 
-    def test_detector_does_not_gain_letter_zwnj_or_fullwidth_handling(self):
+    def test_detector_gains_only_postal_keyword_letter_and_zwnj_handling(self):
         from backend.privacy.text_pii import detect
 
-        assert detect(ARABIC_POSTAL_TEXT) == []
-        assert detect(ZWNJ_POSTAL_TEXT) == []
+        # HOM-164: the postal keyword is matched letter-folded and ZWNJ-tolerant.
+        assert [(s.start, s.end) for s in detect(ARABIC_POSTAL_TEXT)] == [(8, 18)]
+        assert [(s.start, s.end) for s in detect(ZWNJ_POSTAL_TEXT)] == [(8, 18)]
         assert detect(FULLWIDTH_MOBILE_TEXT) == []
         spans = detect("کد " + FULLWIDTH_NID + " تمام")
         assert [s.value for s in spans] == [FULLWIDTH_NID]
@@ -4592,8 +4618,8 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "5f63a9e607513557043e0e79"),
-        ("DETECTOR_VERSION", "8ad32bfc72dad1dfe8b3722d"),
+        ("Expr", "01bd15a2c1595aa7010c1a04"),  # HOM-164 docstring
+        ("DETECTOR_VERSION", "a6ebd3d247a4655c30dde9ef"),  # HOM-164 text-pii/2
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
         ("_PRIORITY", "3266f57d52c974fe017bac21"),
@@ -4608,7 +4634,7 @@ BASE_FINGERPRINTS: dict = {
         ("_TEN_DIGITS_RE", "f12c90097867adca76912b90"),
         ("_CARD_RE", "504886bc0ce5dcc69329dbd7"),
         ("_IBAN_RE", "3ab8b13166a951688caf8418"),
-        ("_POSTAL_KEYWORD_RE", "ddcfca55799e4be0dc03ae03"),
+        ("_POSTAL_KEYWORD_RE", "3d3fd7541a6fe30549048ec8"),  # HOM-164
         ("_POSTAL_WINDOW", "74a038fb8d85fb4f9693c87a"),
         ("PiiSpan", "8687935185aa5ebaa3e16763"),
         ("_only_digits", "dc6003034a31f7c000c03880"),
@@ -4616,7 +4642,7 @@ BASE_FINGERPRINTS: dict = {
         ("valid_luhn", "8b40e7530c9816227f216679"),
         ("valid_iban", "96143c494e81f9c5b0b851ef"),
         ("_canonical_phone", "406be280c94ea1e049f0f165"),
-        ("detect", "db637ae34546c14a8e95c8c3"),
+        ("detect", "c2f7f54944bfbc30e5eac09d"),  # HOM-164 folded keyword window
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),
@@ -5889,7 +5915,7 @@ class TestGoldenPublicApi:
         assert text_normalize.get_normalizer("fa-IR") is text_normalize.normalize_fa
         assert text_normalize.get_normalizer("AZ_Latn") is text_normalize.normalize_az
         assert text_normalize.get_normalizer("en") is text_normalize.normalize_en
-        assert text_pii.DETECTOR_VERSION == "text-pii/1"
+        assert text_pii.DETECTOR_VERSION == CURRENT_DETECTOR_VERSION
         pseudonymizer = text_pii.Pseudonymizer()
         assert pseudonymizer.token(text_pii.PiiClass.PHONE, "1") == "[PHONE_1]"
         assert (pseudonymizer.tokens, pseudonymizer.counters) == (
