@@ -249,6 +249,36 @@ class TestPhoneAuthentication:
         )
         assert replay.status_code == 400
 
+    @pytest.mark.parametrize(
+        ("phone", "native"),
+        [
+            ("09120000311", "۰۱۲۳۴۵۶۷۸۹"),
+            ("09120000312", "٠١٢٣٤٥٦٧٨٩"),
+        ],
+        ids=["persian", "arabic_indic"],
+    )
+    def test_otp_code_typed_in_native_digits_signs_in(
+        self, client: TestClient, sms_outbox: list[dict[str, str]], phone: str, native: str
+    ):
+        to_native = str.maketrans("0123456789", native)
+        requested = client.post("/api/v1/auth/otp/request", json={"phone": phone})
+        assert requested.status_code == 202
+        challenge_id = requested.json()["challenge_id"]
+        code = sms_outbox[-1]["code"]
+        wrong = f"{(int(code) + 1) % 1_000_000:06d}".translate(to_native)
+        refused = client.post(
+            "/api/v1/auth/otp/verify", json={"challenge_id": challenge_id, "code": wrong}
+        )
+        assert refused.status_code == 400
+        assert refused.json()["error"]["code"] == "invalid_otp"
+        verified = client.post(
+            "/api/v1/auth/otp/verify",
+            json={"challenge_id": challenge_id, "code": code.translate(to_native)},
+        )
+        assert verified.status_code == 200, verified.text
+        assert verified.json()["user"]["phone_e164"] == "+98" + phone[1:]
+        assert client.get("/api/v1/auth/me").status_code == 200
+
     def test_otp_resend_cooldown(
         self, client: TestClient, sms_outbox: list[dict[str, str]]
     ):

@@ -1,11 +1,16 @@
 """Deterministic text normalisation for ASR output and NLU (Persian first).
 
+This module is the single owner of Persian/Arabic text normalisation in the
+backend: the digit tables, the Arabic letter-variant tables, the diacritic
+classes and the invisible-character set are defined here and nowhere else.  It
+is a leaf module (no ``backend.*`` import), so every other package can depend
+on it without a cycle.
+
 Persian (``fa``): Arabic letter variants to Persian (``ي``→``ی``, ``ك``→``ک``,
 ``ة``→``ه``, ``أ``/``إ``/``ٱ``→``ا``, ``ؤ``→``و``), diacritics and tatweel
-removed, Persian/Arabic-Indic digits to ASCII (reusing
-:func:`backend.privacy.text_pii.normalize_digits`), ZWNJ repaired for the
-``می``/``نمی`` verb prefixes and the ``ها``/``های`` plural suffix, Persian
-punctuation mapped to one canonical form, whitespace collapsed.
+removed, Persian/Arabic-Indic digits to ASCII (:func:`normalize_digits`), ZWNJ
+repaired for the ``می``/``نمی`` verb prefixes and the ``ها``/``های`` plural
+suffix, Persian punctuation mapped to one canonical form, whitespace collapsed.
 
 Colloquial → formal rewriting is an explicit, *configurable* token table
 (:data:`DEFAULT_COLLOQUIAL_FA`).  It is a hook with a handful of common spoken
@@ -14,6 +19,67 @@ forms, not a complete colloquial grammar; callers pass their own table.
 A small registry maps language tags (``fa``, ``en``, ``az``) to normalisers.
 Azerbaijani support is basic: Unicode NFC, Latin ``ə`` variants, Arabic-script
 letter unification shared with Persian.  No accuracy is claimed.
+
+Exported tables (all immutable: ``str``, ``frozenset`` or ``MappingProxyType``)
+-------------------------------------------------------------------------------
+- ``PERSIAN_DIGITS`` (U+06F0-06F9) and ``ARABIC_INDIC_DIGITS`` (U+0660-0669):
+  the two native digit runs, in value order.
+- ``DIGITS``: those 20 code points to ASCII ``0``-``9``.  Nothing else (no
+  fullwidth, no Devanagari).  :func:`normalize_digits` applies it one
+  character for one character, so offsets are kept.
+- ``LETTER_VARIANTS_BASIC``: ``ي ى``→``ی``, ``ك``→``ک``, ``ة``→``ه``,
+  ``أ إ ٱ``→``ا`` (7 entries).
+- ``LETTER_VARIANTS_EXTENDED``: ``LETTER_VARIANTS_BASIC`` plus ``ۀ``→``ه`` and
+  ``ؤ``→``و`` (9 entries).
+- ``LETTER_VARIANTS_SPEECH``: ``LETTER_VARIANTS_EXTENDED`` plus ``ٲ``→``ا``
+  (10 entries); :func:`unify_arabic_letters` applies it, one to one.
+- ``ZWNJ``, ``ZWJ``, ``LRM``, ``RLM``: the joiner and directional format
+  characters; ``TATWEEL`` (U+0640).
+- ``HARAKAT``: the set U+064B-065F plus U+0670 (harakat, tanwin, shadda,
+  sukun, superscript alef); ``HARAKAT_CLASS`` is the same set as a regex
+  character-class body.
+- ``QURANIC_MARKS_CLASS``: U+06D6-06ED as a regex character-class body.
+- ``ARABIC_NUMBER_PUNCTUATION``: ``٫``→``.``, ``٬``→``,``, ``،``→``,``.
+
+Consumer profiles (each keeps its own step order)
+-------------------------------------------------
+- Speech ``fa``/``az`` (:func:`normalize_fa`, :func:`normalize_az`): NFC →
+  ``LETTER_VARIANTS_SPEECH`` → strip ``HARAKAT`` and ``TATWEEL`` → ``DIGITS`` →
+  whitespace → [colloquial] → ZWNJ repair → [punctuation].  ZWNJ is kept as a
+  joiner; LRM/RLM are kept.  ``en``: NFKC → ``DIGITS`` → quotes → whitespace.
+- Speech matching (:func:`normalize_for_matching`): the language normaliser,
+  then ZWNJ removed, casefold, punctuation to space, whitespace.
+- Locations stream (``backend.locations.textnorm``): ``DIGITS``, then per
+  character: drop ``HARAKAT``; ``LETTER_VARIANTS_BASIC``; ZWNJ and NBSP to
+  space; ZWJ, LRM, RLM and ``TATWEEL`` dropped; ``ARABIC_NUMBER_PUNCTUATION``;
+  ASCII letters lowercased; whitespace collapsed.  No Unicode normalisation,
+  and an offset map back to the original text.  Its output is persisted
+  (service location address fields), so it must not change silently.
+- Voicemail keywords (``backend.voicemail.classify``): NFKC →
+  ``LETTER_VARIANTS_EXTENDED``, ZWNJ to space, ZWJ/LRM/RLM/``TATWEEL``
+  dropped, ``DIGITS`` → strip ``HARAKAT_CLASS`` and ``QURANIC_MARKS_CLASS`` →
+  casefold → punctuation to space → whitespace collapsed.
+- PII digits (``backend.privacy.text_pii``): ``DIGITS`` only
+  (:func:`normalize_digits`, re-exported there); offsets refer to the original.
+- Mobile/OTP digits (``backend.security.normalization``,
+  ``backend.routers.v1.auth``, ``backend.voicemail.ingest``): mobile numbers
+  are NFKC then ``DIGITS``; OTP codes and non-mobile caller numbers are
+  ``DIGITS`` only.
+
+Preserved divergences between profiles (intentional, not yet unified; changing
+any of them is a behaviour change that needs a detector/rules version bump and,
+for locations, a data migration):
+- ``ۀ`` and ``ؤ`` fold in speech and voicemail, not in locations; ``ٲ`` folds
+  only in speech.
+- Unicode normalisation: speech NFC (``ئ`` stays ``ئ``, ``آ`` stays), voicemail
+  NFKC (presentation forms and fullwidth digits fold), locations none (``آ``
+  loses its maddah, decomposed ``ئ`` becomes ``ی``).  PII has none.
+- ZWNJ: kept by speech, a space in locations and voicemail; LRM/RLM kept by
+  speech, dropped by locations and voicemail.
+- Quranic marks (U+06D6-06ED) are stripped only by voicemail; tatweel is
+  stripped by speech, locations and voicemail but not by PII.
+- Arabic number punctuation is mapped only by locations; voicemail turns it
+  into spaces; speech keeps it.
 """
 
 from __future__ import annotations
@@ -22,28 +88,81 @@ import re
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
-from backend.privacy.text_pii import normalize_digits
+# --- shared tables (single definition site) ------------------------------------
 
-ZWNJ = "‌"
+PERSIAN_DIGITS = "".join(chr(0x06F0 + i) for i in range(10))
+ARABIC_INDIC_DIGITS = "".join(chr(0x0660 + i) for i in range(10))
+DIGITS: Mapping[str, str] = MappingProxyType(
+    {native: str(value % 10) for value, native in enumerate(PERSIAN_DIGITS + ARABIC_INDIC_DIGITS)}
+)
 
-_ARABIC_TO_PERSIAN = str.maketrans(
+ZWNJ = "\u200c"
+ZWJ = "\u200d"
+LRM = "\u200e"
+RLM = "\u200f"
+TATWEEL = "\u0640"
+
+LETTER_VARIANTS_BASIC: Mapping[str, str] = MappingProxyType(
     {
-        "ي": "ی",
-        "ى": "ی",
-        "ك": "ک",
-        "ة": "ه",
-        "ۀ": "ه",
-        "أ": "ا",
-        "إ": "ا",
-        "ٱ": "ا",
-        "ؤ": "و",
-        "ٲ": "ا",
+        "\u064a": "\u06cc",  # Arabic yeh -> Persian yeh
+        "\u0649": "\u06cc",  # alef maksura -> Persian yeh
+        "\u0643": "\u06a9",  # Arabic kaf -> Persian keheh
+        "\u0629": "\u0647",  # teh marbuta -> heh
+        "\u0623": "\u0627",  # alef with hamza above -> alef
+        "\u0625": "\u0627",  # alef with hamza below -> alef
+        "\u0671": "\u0627",  # alef wasla -> alef
+    }
+)
+LETTER_VARIANTS_EXTENDED: Mapping[str, str] = MappingProxyType(
+    {
+        **LETTER_VARIANTS_BASIC,
+        "\u06c0": "\u0647",  # heh with yeh above -> heh
+        "\u0624": "\u0648",  # waw with hamza -> waw
+    }
+)
+LETTER_VARIANTS_SPEECH: Mapping[str, str] = MappingProxyType(
+    {
+        **LETTER_VARIANTS_EXTENDED,
+        "\u0672": "\u0627",  # alef with wavy hamza above -> alef
     }
 )
 
+# Harakat, tanwin, shadda, sukun and superscript alef.
+HARAKAT: frozenset[str] = frozenset(chr(c) for c in range(0x064B, 0x0660)) | {"\u0670"}
+HARAKAT_CLASS = "\u064b-\u065f\u0670"
+QURANIC_MARKS_CLASS = "\u06d6-\u06ed"
+
+ARABIC_NUMBER_PUNCTUATION: Mapping[str, str] = MappingProxyType(
+    {
+        "\u066b": ".",  # Arabic decimal separator
+        "\u066c": ",",  # Arabic thousands separator
+        "\u060c": ",",  # Arabic comma
+    }
+)
+
+_DIGIT_TABLE = str.maketrans(dict(DIGITS))
+_ARABIC_TO_PERSIAN = str.maketrans(dict(LETTER_VARIANTS_SPEECH))
+
+
+def translation_table(*mappings: Mapping[str, str]) -> dict[int, str]:
+    """A fresh :meth:`str.translate` table merging ``mappings`` (later wins)."""
+    merged: dict[str, str] = {}
+    for mapping in mappings:
+        merged.update(mapping)
+    return str.maketrans(merged)
+
+
+def normalize_digits(text: str) -> str:
+    """Persian/Arabic-Indic digits to ASCII; one character each, offsets kept."""
+    return text.translate(_DIGIT_TABLE)
+
+
+# --- speech profile --------------------------------------------------------------
+
 # Harakat, tanwin, shadda, sukun, superscript alef, and tatweel.
-_DIACRITICS_RE = re.compile("[ً-ٰٟـ]")
+_DIACRITICS_RE = re.compile(f"[{HARAKAT_CLASS}{TATWEEL}]")
 _PUNCT = str.maketrans({"?": "؟", ";": "؛", ",": "،", "«": '"', "»": '"'})
 _SPACE_RE = re.compile(r"[ \t  -​  　]+")
 _ZW_RUN_RE = re.compile(f"[{ZWNJ}‍]+")

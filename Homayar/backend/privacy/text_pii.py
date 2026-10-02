@@ -26,6 +26,8 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from backend.speech.text_normalize import normalize_digits
+
 DETECTOR_VERSION = "text-pii/1"
 
 
@@ -50,16 +52,10 @@ _PRIORITY = {
     PiiClass.IR_POSTAL_CODE: 1,
 }
 
-_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 # One optional separator between digits: space, NBSP, hyphen and dashes.
 _SEP = r"[  \-‐‑‒–]?"
 _NOT_ALNUM_BEFORE = r"(?<![0-9A-Za-z])"
 _NOT_ALNUM_AFTER = r"(?![0-9A-Za-z])"
-
-
-def normalize_digits(text: str) -> str:
-    """Persian/Arabic-Indic digits to ASCII; one character each, offsets kept."""
-    return text.translate(_DIGITS)
 
 
 def _digits(n_min: int, n_max: int | None = None) -> str:
