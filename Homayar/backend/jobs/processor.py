@@ -1208,6 +1208,24 @@ def _persist_success(
         release_lease(job)
         meeting.status = outcome
         persist_stage_runs(db, job, records)
+        if claim.delete_audio_after_processing:
+            # Durable half of delete-after-processing (HOM-168): the request is
+            # committed with COMPLETED, so a worker killed before the removal
+            # below leaves a DELETION_PENDING row that the media reconciliation
+            # sweep closes (a held row only records it). The post-success step
+            # remains the fast path and is idempotent on this request.
+            media = original_for_meeting(
+                db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id
+            )
+            if media is not None:
+                request_deletion(
+                    db,
+                    media=media,
+                    reason="processed",
+                    actor_user_id=None,
+                    now=now,
+                    settings=settings,
+                )
         record_audit_event(
             db,
             event_type="meeting.processing.completed",
