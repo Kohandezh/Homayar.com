@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import create_engine, func, select, text
 
-from backend.config import Settings
+from backend.config import REVEAL_SECRETS_CONTEXT, Settings
 from backend.database.saas_models import (
     AuditEvent,
     PiiMapping,
@@ -267,7 +267,7 @@ def test_malformed_keyrings_are_refused(keys):
 
 
 def test_settings_require_the_active_key_to_exist(settings):
-    data = settings.model_dump()
+    data = settings.model_dump(context={REVEAL_SECRETS_CONTEXT: True})
     data.update(pii_mapping_keys=f"k1:{_key()}", pii_mapping_active_key_id="k2", _env_file=None)
     with pytest.raises(ValueError, match="PII_MAPPING_ACTIVE_KEY_ID"):
         Settings(**data)

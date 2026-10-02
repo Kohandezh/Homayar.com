@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, PlainSerializer, SerializationInfo, ValidationError, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticCustomError
 from pydantic_settings import (
@@ -43,8 +43,27 @@ SECRET_FIELDS: tuple[str, ...] = (
     "sentry_dsn",
 )
 
-# A secret-bearing setting: a plain `str` for every consumer, left out of repr/str.
-SecretSetting = Annotated[str, Field(repr=False)]
+# Serialized form of a non-empty secret setting (HOM-160).
+SECRET_REDACTED = "**********"  # noqa: S105 - redaction marker, not a credential
+# model_dump/model_dump_json context key that returns secret settings in clear, for code
+# that must rebuild Settings from a dump (tests); nothing else should pass it.
+REVEAL_SECRETS_CONTEXT = "reveal_secrets"
+
+
+def _serialize_secret(value: str, info: SerializationInfo) -> str:
+    context = info.context or {}
+    if context.get(REVEAL_SECRETS_CONTEXT) is True or not value:
+        return value
+    return SECRET_REDACTED
+
+
+# A secret-bearing setting: a plain `str` for every consumer, left out of repr/str, and
+# redacted by model_dump()/model_dump_json() unless REVEAL_SECRETS_CONTEXT is passed.
+SecretSetting = Annotated[
+    str,
+    Field(repr=False),
+    PlainSerializer(_serialize_secret, return_type=str, when_used="always"),
+]
 
 # O_NONBLOCK: a path swapped for a FIFO after the pre-open check cannot block the open.
 _SECRET_FILE_FLAGS = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)

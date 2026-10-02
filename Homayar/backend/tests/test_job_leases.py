@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
-from backend.config import Settings
+from backend.config import REVEAL_SECRETS_CONTEXT, Settings
 from backend.database.saas_models import (
     AuditEvent,
     DispatchState,
@@ -687,7 +687,7 @@ def test_lease_settings_are_validated(settings):
     with pytest.raises(ValueError):
         Settings(
             **{
-                **settings.model_dump(),
+                **settings.model_dump(context={REVEAL_SECRETS_CONTEXT: True}),
                 "job_lease_seconds": 10,
                 "job_lease_renew_interval_seconds": 6,
                 "_env_file": None,
@@ -696,7 +696,7 @@ def test_lease_settings_are_validated(settings):
     with pytest.raises(ValueError):
         Settings(
             **{
-                **settings.model_dump(),
+                **settings.model_dump(context={REVEAL_SECRETS_CONTEXT: True}),
                 "job_stage_timeout_seconds": 100,
                 "job_attempt_timeout_seconds": 50,
                 "_env_file": None,

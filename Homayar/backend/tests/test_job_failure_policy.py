@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from backend.config import Settings
+from backend.config import REVEAL_SECRETS_CONTEXT, Settings
 from backend.database.saas_models import (
     AuditEvent,
     DispatchState,
@@ -636,7 +636,13 @@ def test_failure_policy_settings_are_validated(settings):
         {"job_attempt_timeout_seconds": 7200, "job_deadline_seconds": 3600},
     ):
         with pytest.raises(ValueError):
-            Settings(**{**settings.model_dump(), **overrides, "_env_file": None})
+            Settings(
+                **{
+                    **settings.model_dump(context={REVEAL_SECRETS_CONTEXT: True}),
+                    **overrides,
+                    "_env_file": None,
+                }
+            )
     policy = RetryPolicy.from_settings(
         settings.model_copy(
             update={"job_retry_delay_seconds": 30, "job_retry_max_delay_seconds": 100}
