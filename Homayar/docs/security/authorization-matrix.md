@@ -187,6 +187,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/admin/audit-events | audit:read |
 | GET | /api/v1/admin/workspace-settings | workspace:manage |
 | PATCH | /api/v1/admin/workspace-settings | workspace:manage +csrf |
+| GET | /api/v1/admin/jobs | workspace:manage |
+| GET | /api/v1/admin/jobs/summary | workspace:manage |
 | POST | /api/v1/admin/jobs/{job_id}/replay | workspace:manage +csrf |
 | GET | /api/v1/admin/ai-policy | workspace:manage |
 | PUT | /api/v1/admin/ai-policy | ai_policy:manage +csrf |

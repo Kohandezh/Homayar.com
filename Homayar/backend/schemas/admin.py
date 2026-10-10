@@ -5,7 +5,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from backend.database.saas_models import DuplicateMediaPolicy, RecordScope, RetentionMode
+from backend.database.saas_models import (
+    DuplicateMediaPolicy,
+    JobState,
+    RecordScope,
+    RetentionMode,
+)
 from backend.schemas.meetings import JobResponse
 
 
@@ -33,6 +38,48 @@ class JobReplayResponse(BaseModel):
     replay: int
     max_replays: int
     dispatch: str  # publisher outcome: published | deferred | failed | busy | ...
+
+
+class AdminJobResponse(BaseModel):
+    """One processing job in the administrator's list (HOM-183).
+
+    Metadata only: no transcript, recording, lease or reservation data.
+    """
+
+    id: str
+    meeting_id: str
+    meeting_title: str
+    state: JobState
+    stage: str
+    attempt_count: int
+    max_attempts: int
+    failure_code: str | None
+    failure_class: str | None
+    failure_message: str | None  # audit string rule: secrets redacted, cut to 500
+    replay_count: int
+    max_replays: int
+    replayable: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminJobListResponse(BaseModel):
+    items: list[AdminJobResponse]
+    next_cursor: str | None = None
+
+
+class AdminJobStateCounts(BaseModel):
+    queued: int
+    running: int
+    completed: int
+    failed: int
+    cancelled: int
+    dead_letter: int
+
+
+class AdminJobSummaryResponse(BaseModel):
+    counts: AdminJobStateCounts
+    total: int
 
 
 class WorkspaceSettingsResponse(BaseModel):
