@@ -40,6 +40,22 @@ it. Locally, without the variable, the suite still skips the marker when the bin
 The pytest summary (`-rs`) lists every remaining skip with its reason: the opt-in `live_s3` tests
 without a bucket, the Padyar AI Gateway tests without a contract, and SQLite-only tests.
 
+The backend job may run for 40 minutes. The test step alone took about 22 minutes on `2f5f666`,
+which left too little room under the earlier 25-minute limit.
+
+The golden text-normalization module (`test_text_normalization_golden.py`, HOM-120/HOM-172) has a
+wall-clock budget, enforced by
+`test_text_normalization_owner.py::TestDeliverables::test_golden_module_is_green_fast_and_independent_of_the_registry`.
+The SPEC budget of 30 s is the default everywhere, including the owner's host. Owner decision of
+2026-10-10: on GitHub CI only, the backend job sets `HOMAYAR_GOLDEN_BUDGET_SECONDS=120`, because
+shared runners took 37 to 77 s for the same module (51.14 s on `ecd77cc`, 38.12 s on `2ae3314`,
+37.35 s and 76.51 s on PR #18). 120 s is about 1.6 times the slowest run measured, so runner
+variance does not fail the job, but the gate still catches a module that gets several times
+slower. The test honours the variable only together with `CI=true`. A value that is not a number
+of seconds from 30 to 300 fails the gate loudly (after 300 s the test stops waiting for the timed
+run). Changing the CI value needs new runner measurements and an owner decision recorded on
+HOM-172. Never change the 30 s default.
+
 The transport drills (`test_transport_drills.py`) run real Celery prefork workers against the Redis
 service and are timing-sensitive by nature. When one fails, its report includes the last 40 lines
 of each worker log (the task results and lease events); read them before re-running the job — a
