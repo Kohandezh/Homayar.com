@@ -1,4 +1,4 @@
-.PHONY: help neo4j-up neo4j-down seed backend frontend celery worker up down status repo-update repo-status repo-push
+.PHONY: help neo4j-up neo4j-down seed demo-seed backend frontend celery worker up down status repo-update repo-status repo-push
 
 help: ## Show all commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -12,6 +12,9 @@ neo4j-down: ## Stop Neo4j
 
 seed: ## Seed database with dev data
 	.venv/bin/python -m backend.database.seed
+
+demo-seed: ## Seed a demo SaaS workspace for the product console (development/test only)
+	.venv/bin/python -m backend.database.demo_seed
 
 backend: ## Start FastAPI server (port 8001)
 	.venv/bin/uvicorn backend.main:app --reload --port 8001 --host 0.0.0.0
