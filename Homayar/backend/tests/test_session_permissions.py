@@ -150,6 +150,26 @@ def test_role_and_system_role_changes_show_on_the_next_me(client, email_outbox):
     assert _me(client)["user"]["system_role"] == "user"
 
 
+def test_permissions_follow_the_authorization_map_at_request_time(
+    client, email_outbox, monkeypatch
+):
+    credentials = register_user(client, email_outbox, email="hom184-map@example.com")
+    workspace_id = login_user(client, credentials)["workspaces"][0]["id"]
+    assert _workspace(_me(client), workspace_id)["permissions"] == sorted(ALL_PERMISSION_VALUES)
+
+    with monkeypatch.context() as patch:
+        patch.setitem(
+            ROLE_PERMISSIONS,
+            WorkspaceRole.OWNER,
+            frozenset({Permission.TEAM_READ, Permission.AUDIT_READ}),
+        )
+        workspace = _workspace(_me(client), workspace_id)
+        assert workspace["role"] == "owner"
+        assert workspace["permissions"] == ["audit:read", "team:read"]
+
+    assert _workspace(_me(client), workspace_id)["permissions"] == sorted(ALL_PERMISSION_VALUES)
+
+
 def test_otp_session_carries_system_role_and_permissions(client, sms_outbox):
     requested = client.post("/api/v1/auth/otp/request", json={"phone": "09121840184"})
     assert requested.status_code == 202, requested.text
