@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDictionary } from "@/i18n";
 import { isLocale } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
-import { PageHero, Section } from "@/components/ui/Section";
-import { Notice } from "@/components/ui/Cards";
+import { PageHero } from "@/components/ui/Section";
+import { PlanLift } from "@/components/story/PlanLift";
 import { Icon } from "@/components/ui/Icon";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/pricing">): Promise<Metadata> {
@@ -22,38 +21,31 @@ export default async function PricingPage({ params }: PageProps<"/[locale]/prici
   const p = dict.pricing;
 
   return (
-    <>
-      <PageHero eyebrow={p.hero.eyebrow} title={p.hero.title} text={p.hero.text}>
-        <Notice title={dict.common.inProgress}>{p.notice}</Notice>
-      </PageHero>
-
-      <Section>
-        <div className="mb-6 flex flex-wrap gap-3" data-reveal-group>
-          {p.deployments.map((d, i) => (
-            <div key={d.name} className="flex items-center gap-3 rounded-full border border-border-2 bg-surface py-2 pe-4 ps-2">
-              <span className="inline-grid size-8 place-items-center rounded-full bg-surface-2 text-accent-text">
-                <Icon name={i === 0 ? "cloud" : "server"} size={16} />
+    // A lift straight up. One plan waits on each floor (design-system/SCENE-RULES.md).
+    <div className="relative" data-scene="lift" data-testid="lift">
+      <div className="naked">
+        <PageHero eyebrow={p.hero.eyebrow} title={p.hero.title} text={p.hero.text} align="center">
+          <div className="mx-auto flex max-w-2xl flex-col items-center gap-5">
+            <p className="flex items-start gap-3 border-s-2 border-accent ps-4 text-start text-sm text-ink-2">
+              <Icon name="clock" size={18} className="mt-0.5 shrink-0 text-accent-text" />
+              <span>
+                <span className="font-semibold text-ink">{dict.common.inProgress}. </span>
+                {p.notice}
               </span>
-              <span className="font-semibold">{d.name}</span>
-              <span className="text-sm text-ink-2">{d.text}</span>
-            </div>
-          ))}
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {p.plans.map((plan, i) => (
-            <div key={plan.name} className={`panel flex flex-col p-6 md:p-8 ${i === 2 ? "panel-glow" : ""}`} data-reveal={String(i * 0.08)}>
-              <h2 className="text-2xl font-bold">{plan.name}</h2>
-              <p className="mt-1 text-ink-2">{plan.text}</p>
-              <div className="mt-8">
-                <span className={`chip chip-wrap ${i === 2 ? "chip-accent" : ""}`}>{plan.amount}</span>
-              </div>
-              <Link href={`/${locale}/contact`} className={`btn mt-8 ${i === 2 ? "btn-primary" : "btn-ghost"}`}>
-                {p.cta}
-              </Link>
-            </div>
-          ))}
-        </div>
-      </Section>
-    </>
+            </p>
+            <ul className="flex flex-wrap justify-center gap-x-8 gap-y-2">
+              {p.deployments.map((d, i) => (
+                <li key={d.name} className="flex items-center gap-2 text-sm">
+                  <Icon name={i === 0 ? "cloud" : "server"} size={16} className="text-accent-text" />
+                  <span className="font-semibold">{d.name}</span>
+                  <span className="text-ink-2">{d.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </PageHero>
+      </div>
+      <PlanLift dict={dict} locale={locale} />
+    </div>
   );
 }

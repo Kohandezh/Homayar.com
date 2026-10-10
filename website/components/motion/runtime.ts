@@ -1,7 +1,7 @@
 import { DESKTOP, FINE_POINTER, MOTION_OK, ScrollTrigger, SplitText, gsap } from "@/lib/gsap";
 import { localizeDigits, type Locale } from "@/lib/i18n";
 import { sceneBus } from "@/components/scene/bus";
-import { BRAIN_LINES, ENTER_END, lineAt, REPORT_IN, REPORT_OUT, REPORT_PEAK } from "@/components/scene/timing";
+import { BRAIN_LINES, BRAIN_PASS, ENTER_END, lineAt, REPORT_IN, REPORT_PEAK } from "@/components/scene/timing";
 import { setupScenarios } from "./scenarios";
 
 type Cleanup = () => void;
@@ -28,20 +28,14 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
     }
 
     for (const section of q<HTMLElement>(root, "[data-particles]")) {
-      const hint = section.querySelector<HTMLElement>(".particles-hint");
-      const tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: section,
-          start: "top top",
-          end: "+=200%",
-          pin: true,
-          scrub: 0.5,
-          anticipatePin: 1,
-          onUpdate: (self) => sceneBus.set(section, self.progress),
-        },
+      ScrollTrigger.create({
+        trigger: section,
+        start: "top top",
+        end: "+=450%",
+        pin: true,
+        anticipatePin: 1,
+        onUpdate: (self) => sceneBus.set(section, self.progress),
       });
-      tl.to({}, { duration: 1 }, 0);
-      if (hint) tl.to(hint, { autoAlpha: 0, y: 10, duration: 0.12, ease: "none" }, 0.04);
     }
 
     for (const section of q<HTMLElement>(root, "[data-flight]")) {
@@ -77,22 +71,16 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
 
     for (const section of q<HTMLElement>(root, "[data-warp]")) {
       const text = section.querySelector<HTMLElement>("[data-warp-text]");
-      const flash = section.querySelector<HTMLElement>("[data-warp-flash]");
       const tl = gsap.timeline({ scrollTrigger: { trigger: section, start: "top bottom", end: "bottom top", scrub: 0.4 } });
       tl.to({}, { duration: 1 }, 0);
       if (text) {
         tl.fromTo(text, { autoAlpha: 0, scale: 0.9 }, { autoAlpha: 1, scale: 1, duration: 0.18, ease: "none" }, 0.18);
         tl.to(text, { autoAlpha: 0, scale: 1.12, filter: "blur(6px)", duration: 0.16, ease: "none" }, 0.62);
       }
-      if (flash) {
-        tl.fromTo(flash, { opacity: 0 }, { opacity: 1, duration: 0.14, ease: "none" }, 0.74);
-        tl.to(flash, { opacity: 0, duration: 0.12, ease: "none" }, 0.88);
-      }
     }
 
     for (const section of q<HTMLElement>(root, "[data-brain]")) {
       const lines = q<HTMLElement>(section, "[data-line]").slice(0, BRAIN_LINES);
-      const core = section.querySelector<HTMLElement>("[data-brain-core]");
       const intro = section.querySelector<HTMLElement>("[data-brain-intro]");
       const report = section.querySelector<HTMLElement>("[data-brain-report]");
       const statusOn = section.querySelector<HTMLElement>("[data-brain-analyzing]");
@@ -102,7 +90,7 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
         scrollTrigger: {
           trigger: section,
           start: "top top",
-          end: phone ? "+=380%" : "+=520%",
+          end: phone ? "+=440%" : "+=600%",
           pin: true,
           scrub: 0.5,
           anticipatePin: 1,
@@ -117,17 +105,14 @@ export function setupPage(root: HTMLElement, locale: Locale): Cleanup {
         const side = el.classList.contains("brain-line-customer") ? -1 : 1;
         const dir = rtl ? -side : side;
         tl.fromTo(el, { autoAlpha: 0, x: dir * 48, scale: 0.94 }, { autoAlpha: 1, x: 0, scale: 1, duration: 0.05, ease: "none" }, at);
-        if (core) tl.fromTo(core, { scale: 1 }, { scale: 1.28, duration: 0.025, yoyo: true, repeat: 1, ease: "none" }, at);
       });
-      if (lines.length) tl.to(lines, { autoAlpha: 0.15, scale: 0.9, duration: 0.05, ease: "none" }, REPORT_IN - 0.05);
+      // The sentences clear fully, the camera flies through the brain, then the report comes in and stays.
+      if (lines.length) tl.to(lines, { autoAlpha: 0, y: -24, filter: "blur(6px)", duration: 0.05, ease: "none" }, REPORT_IN - 0.05);
       if (statusOn) tl.to(statusOn, { autoAlpha: 0, duration: 0.02, ease: "none" }, REPORT_IN - 0.02);
-      if (statusDone) tl.fromTo(statusDone, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.03, ease: "none" }, REPORT_IN);
-      if (core) tl.to(core, { scale: 0.4, autoAlpha: 0, duration: REPORT_PEAK - REPORT_IN, ease: "none" }, REPORT_IN);
+      if (statusDone) tl.fromTo(statusDone, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.03, ease: "none" }, BRAIN_PASS + 0.01);
       if (report) {
-        tl.fromTo(report, { autoAlpha: 0, scale: 0.5, y: 80 }, { autoAlpha: 1, scale: 1, y: 0, duration: REPORT_PEAK - REPORT_IN, ease: "none" }, REPORT_IN);
-        tl.to(report, { scale: 1.5, autoAlpha: 0, filter: "blur(10px)", duration: REPORT_OUT - REPORT_PEAK, ease: "none" }, REPORT_PEAK);
+        tl.fromTo(report, { autoAlpha: 0, scale: 0.8, y: 40, filter: "blur(8px)" }, { autoAlpha: 1, scale: 1, y: 0, filter: "blur(0px)", duration: REPORT_PEAK - BRAIN_PASS - 0.01, ease: "none" }, BRAIN_PASS + 0.01);
       }
-      if (statusDone) tl.to(statusDone, { autoAlpha: 0, duration: 0.04, ease: "none" }, REPORT_OUT - 0.04);
     }
 
     for (const section of q<HTMLElement>(root, "[data-journey]")) {

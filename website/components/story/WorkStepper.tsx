@@ -11,10 +11,10 @@ export function WorkStepper({ dict, locale }: { dict: Dictionary; locale: Locale
   return (
     <section className="stepper relative" data-stepper data-testid="stepper">
       <div className="stepper-pin">
-        <div className="container-x stepper-grid">
+        <div className="container-x stepper-grid naked">
           <div>
             <h2 className="display-2">{a.howWeWork.title}</h2>
-            <p className="chip mt-4 stepper-hint">
+            <p className="stepper-hint label mt-4 flex items-center gap-2 text-xs text-ink-3">
               <Icon name="scan" size={13} />
               {st.hint}
             </p>
@@ -29,7 +29,7 @@ export function WorkStepper({ dict, locale }: { dict: Dictionary; locale: Locale
           </div>
           <ol className="stepper-stage">
             {steps.map((s, i) => (
-              <li key={s.title} className={`stepper-step panel ${i === 0 ? "is-active" : ""}`} data-stepper-step data-testid="stepper-step">
+              <li key={s.title} className={`stepper-step ${i === 0 ? "is-active" : ""}`} data-stepper-step data-testid="stepper-step">
                 <span className="label text-xs text-accent-text">
                   {st.step} {localizeDigits(i + 1, locale)} {st.of} {localizeDigits(steps.length, locale)}
                 </span>

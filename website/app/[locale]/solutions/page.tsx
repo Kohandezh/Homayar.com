@@ -5,7 +5,7 @@ import { isLocale } from "@/lib/i18n";
 import { pageMetadata } from "@/lib/metadata";
 import { PageHero } from "@/components/ui/Section";
 import { CommandCta } from "@/components/site/CommandCta";
-import { RoleRing } from "@/components/story/RoleRing";
+import { RoleOrbit } from "@/components/story/RoleOrbit";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/solutions">): Promise<Metadata> {
   const { locale } = await params;
@@ -21,10 +21,13 @@ export default async function SolutionsPage({ params }: PageProps<"/[locale]/sol
   const s = dict.solutions;
 
   return (
-    <>
-      <PageHero eyebrow={s.hero.eyebrow} title={s.hero.title} text={s.hero.text} />
-      <RoleRing dict={dict} locale={locale} />
-      <CommandCta locale={locale} dict={dict} />
-    </>
+    // The roles stand in a ring around a glowing core. Scrolling turns the ring (design-system/SCENE-RULES.md).
+    <div className="relative" data-scene="orbit" data-testid="orbit">
+      <div className="naked">
+        <PageHero eyebrow={s.hero.eyebrow} title={s.hero.title} text={s.hero.text} align="center" />
+      </div>
+      <RoleOrbit dict={dict} locale={locale} />
+      <CommandCta locale={locale} dict={dict} naked />
+    </div>
   );
 }

@@ -1,8 +1,7 @@
 import type { Dictionary } from "@/i18n/en";
 import type { Locale } from "@/lib/i18n";
 import { SceneBackdrop } from "@/components/scene/SceneBackdrop";
-import { RootCauses, ScoreBars } from "@/components/mockups/parts";
-import { Icon } from "@/components/ui/Icon";
+import { NakedCauses, NakedScores } from "@/components/story/Naked";
 
 const tops = ["16%", "29%", "42%", "55%", "68%"];
 
@@ -15,27 +14,20 @@ export function BrainScene({ dict, locale }: { dict: Dictionary; locale: Locale 
     <section className="relative isolate overflow-hidden" data-scene="brain" data-pin data-brain data-testid="brain-scene">
       <SceneBackdrop kind="brain" />
       <div className="brain-stage container-x py-16 md:py-24">
-        <div className="brain-intro mx-auto max-w-2xl text-center" data-brain-intro>
+        <div className="brain-intro naked mx-auto max-w-2xl text-center" data-brain-intro>
           <p className="eyebrow justify-center">{s.eyebrow}</p>
           <h2 className="display-2 mt-4" data-testid="brain-title">{s.title}</h2>
           <p className="mt-4 text-lg text-ink-2">{s.text}</p>
-          <p className="chip mt-5">
-            <Icon name="scan" size={13} />
-            {s.sample}
-          </p>
+          <p className="label mt-4 text-xs text-ink-3">{s.sample}</p>
         </div>
 
-        <div className="brain-core-wrap" aria-hidden="true">
-          <div className="brain-core" data-brain-core />
-        </div>
-
-        <div className="brain-status mt-10 flex flex-wrap justify-center gap-2">
-          <span className="chip chip-accent brain-status-on" data-brain-analyzing>
-            <span className="dot dot-live" aria-hidden="true" />
+        <div className="brain-status naked mt-10 flex flex-wrap justify-center gap-6 text-sm font-semibold">
+          <span className="brain-status-on flex items-center gap-2 text-accent-text" data-brain-analyzing>
+            <span className="glow-dot" aria-hidden="true" />
             {s.analyzing}
           </span>
-          <span className="chip chip-strong brain-status-done" data-brain-ready>
-            <Icon name="check" size={12} strokeWidth={3} />
+          <span className="brain-status-done flex items-center gap-2 text-ink" data-brain-ready>
+            <span className="glow-dot glow-dot-strong" aria-hidden="true" />
             {s.ready}
           </span>
         </div>
@@ -49,35 +41,30 @@ export function BrainScene({ dict, locale }: { dict: Dictionary; locale: Locale 
               data-who={l.who}
               style={{ "--line-top": tops[i] } as React.CSSProperties}
             >
-              <span className="label mb-1 block text-[11px] text-ink-3">{d.speakers[l.who as "customer" | "agent"]}</span>
-              <p className="panel-glass px-4 py-3 text-base leading-relaxed md:text-lg">{l.text}</p>
+              <span className="label mb-1 block text-[11px] font-semibold text-accent-text">{d.speakers[l.who as "customer" | "agent"]}</span>
+              <p className="naked text-base leading-relaxed text-ink md:text-lg">{l.text}</p>
             </li>
           ))}
         </ol>
 
-        <div className="brain-report panel panel-glow mx-auto mt-10 max-w-2xl overflow-hidden" data-brain-report data-testid="brain-report">
-          <div className="panel-head">
-            <span className="window-dots" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-            <span className="text-sm font-semibold">{d.report}</span>
-            <span className="chip ms-auto !min-h-0 !px-2 !py-0.5 !text-[10px]">{d.sample}</span>
+        <div className="brain-report naked mx-auto mt-10 max-w-2xl" data-brain-report data-testid="brain-report">
+          <div className="flex items-baseline justify-between gap-4">
+            <p className="text-xl font-bold">{d.report}</p>
+            <p className="label text-xs text-ink-3">{d.sample}</p>
           </div>
-          <div className="grid gap-4 p-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-border-2 bg-bg-deep p-3">
-              <p className="mb-2 text-[11px] font-semibold text-ink-3">{m.qc}</p>
-              <ScoreBars mock={m} locale={locale} limit={4} />
+          <div className="mt-6 grid gap-8 sm:grid-cols-2">
+            <div>
+              <p className="mb-3 text-xs font-semibold text-ink-3">{m.qc}</p>
+              <NakedScores mock={m} locale={locale} limit={4} />
             </div>
-            <div className="flex flex-col gap-3">
-              <div className="rounded-xl border border-border-2 bg-bg-deep p-3">
-                <p className="mb-2 text-[11px] font-semibold text-ink-3">{m.problems}</p>
-                <RootCauses mock={m} />
+            <div className="flex flex-col gap-6">
+              <div>
+                <p className="mb-3 text-xs font-semibold text-ink-3">{m.problems}</p>
+                <NakedCauses mock={m} />
               </div>
-              <div className="rounded-xl border border-border-2 bg-bg-deep p-3">
-                <p className="mb-1 text-[11px] font-semibold text-ink-3">{d.agents.teacher.name}</p>
-                <p className="text-[12px] text-ink-2">{d.agents.teacher.items[1]}</p>
+              <div>
+                <p className="mb-2 text-xs font-semibold text-ink-3">{d.agents.teacher.name}</p>
+                <p className="text-sm text-ink-2">{d.agents.teacher.items[1]}</p>
               </div>
             </div>
           </div>

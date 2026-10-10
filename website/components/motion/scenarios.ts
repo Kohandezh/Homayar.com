@@ -1,5 +1,6 @@
 import { DESKTOP, ScrollTrigger, gsap } from "@/lib/gsap";
 import type { Locale } from "@/lib/i18n";
+import { sceneBus } from "@/components/scene/bus";
 
 type MM = ReturnType<typeof gsap.matchMedia>;
 
@@ -10,6 +11,29 @@ function q<T extends Element>(root: ParentNode, selector: string): T[] {
 export function setupScenarios(root: HTMLElement, locale: Locale, mm: MM) {
   const rtl = locale === "fa";
   const dir = rtl ? -1 : 1;
+
+  // Product gallery: the section is a scroll track. Each painting gets an equal part of it.
+  // The engine reads this progress to walk the camera and hang the exhibits in the hall.
+  for (const section of q<HTMLElement>(root, "[data-exhibits]")) {
+    const fit = section.querySelector<HTMLElement>("[data-exhibit-fit]");
+    const inner = section.querySelector<HTMLElement>("[data-exhibit-fit-inner]");
+    // The live demo is larger than the painting, so it is scaled down to fit inside it.
+    const scaleDemo = () => {
+      if (!fit || !inner || !fit.clientWidth) return;
+      const k = Math.min(1, fit.clientWidth / inner.offsetWidth, fit.clientHeight / Math.max(1, inner.offsetHeight));
+      inner.style.transform = `translateX(-50%) scale(${k})`;
+    };
+    ScrollTrigger.create({ trigger: section, start: "top top", end: "bottom bottom", onUpdate: (self) => sceneBus.set(section, self.progress), onRefresh: scaleDemo });
+    const ro = new ResizeObserver(scaleDemo);
+    if (fit) ro.observe(fit);
+    if (inner) ro.observe(inner);
+    mm.add("all", () => () => ro.disconnect());
+  }
+
+  // Solutions ring and pricing lift: the section is a scroll track; the engine reads its progress.
+  for (const section of q<HTMLElement>(root, "[data-roles], [data-floors], [data-stars]")) {
+    ScrollTrigger.create({ trigger: section, start: "top top", end: "bottom bottom", onUpdate: (self) => sceneBus.set(section, self.progress) });
+  }
 
   for (const section of q<HTMLElement>(root, "[data-snake]")) {
     const path = section.querySelector<SVGPathElement>("[data-snake-line]");

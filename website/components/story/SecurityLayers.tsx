@@ -9,22 +9,22 @@ export function SecurityLayers({ dict, locale }: { dict: Dictionary; locale: Loc
   return (
     <section className="layers relative" data-layers data-testid="layers">
       <div className="layers-pin">
-        <div className="container-x layers-head">
+        <div className="container-x layers-head naked text-center">
           <p className="eyebrow">{l.eyebrow}</p>
-          <h2 className="display-2 mt-3 max-w-3xl">{l.title}</h2>
-          <p className="chip mt-4 layers-hint">
+          <h2 className="display-2 mx-auto mt-3 max-w-3xl">{l.title}</h2>
+          <p className="layers-hint label mt-4 flex items-center justify-center gap-2 text-xs text-ink-3">
             <Icon name="scan" size={13} />
             {l.hint}
           </p>
         </div>
         <ol className="layers-stage container-x" aria-label={l.eyebrow}>
           {l.items.map((item, i) => (
-            <li key={item.title} className="layer panel-glass" data-layer style={{ ["--k" as string]: i }} data-testid="layer">
-              <div className="flex items-center justify-between">
-                <span className="label text-xs text-accent-text">{localizeDigits(String(i + 1).padStart(2, "0"), locale)}</span>
-                <span className="inline-grid size-11 place-items-center rounded-full border border-accent/40 bg-accent/10 text-accent-text">
-                  <Icon name={item.icon} size={20} />
+            <li key={item.title} className="layer naked text-center" data-layer style={{ ["--k" as string]: i }} data-testid="layer">
+              <div className="flex flex-col items-center gap-3">
+                <span className="outline-num" aria-hidden="true">
+                  {localizeDigits(String(i + 1).padStart(2, "0"), locale)}
                 </span>
+                <Icon name={item.icon} size={24} className="text-accent-text" />
               </div>
               <h3 className="mt-5 text-2xl font-bold md:text-3xl">{item.title}</h3>
               <p className="mt-3 text-ink-2 md:text-lg">{bidi(item.text, locale)}</p>
@@ -48,20 +48,18 @@ export function MaskScrub({ dict, locale }: { dict: Dictionary; locale: Locale }
   const [, placeholder] = splitAround(md.after, /\[[A-Z_0-9]+\]/);
   const chars = Array.from(number);
   return (
-    <div className="mask panel panel-glow p-5 md:p-7" data-mask data-testid="mask">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="eyebrow !text-[11px]">{md.eyebrow}</p>
-        <span className="mask-badge chip chip-accent !text-[11px]">
-          <Icon name="shieldCheck" size={12} />
-          {md.badge}
-        </span>
-      </div>
-      <h2 className="mt-3 text-xl font-semibold md:text-2xl">{md.title}</h2>
-      <p className="chip mt-3 mask-hint">
+    <div className="mask naked text-center" data-mask data-testid="mask">
+      <p className="eyebrow justify-center">{md.eyebrow}</p>
+      <h2 className="display-2 mt-3">{md.title}</h2>
+      <p className="mask-badge mt-4 flex items-center justify-center gap-2 text-sm font-semibold text-accent-text">
+        <Icon name="shieldCheck" size={16} />
+        {md.badge}
+      </p>
+      <p className="mask-hint label mt-3 flex items-center justify-center gap-2 text-xs text-ink-3">
         <Icon name="scan" size={13} />
         {md.hint}
       </p>
-      <div className="mask-line mt-5 rounded-xl border border-accent/40 bg-bg-2 p-4 text-base md:text-lg">
+      <div className="mask-line mx-auto mt-10 max-w-2xl text-lg md:text-2xl">
         <span className="label mb-1 block text-[10px] font-semibold text-accent-text">{md.who}</span>
         <p className="text-ink">
           {pre}
@@ -80,7 +78,7 @@ export function MaskScrub({ dict, locale }: { dict: Dictionary; locale: Locale }
           {bidi(post, locale)}
         </p>
       </div>
-      <div className="label mt-3 flex justify-between text-[10px] text-ink-3">
+      <div className="label mx-auto mt-6 flex max-w-2xl justify-between border-t border-border-2 pt-3 text-xs text-ink-3">
         <span>{md.original}</span>
         <span>{md.masked}</span>
       </div>

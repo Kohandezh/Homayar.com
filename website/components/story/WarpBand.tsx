@@ -11,7 +11,6 @@ export function WarpBand({ eyebrow, title, text, compact = false }: { eyebrow: s
           {text ? <p className="mt-4 text-lg text-ink-2">{text}</p> : null}
         </div>
       </div>
-      <div className="warp-flash" data-warp-flash aria-hidden="true" />
     </section>
   );
 }

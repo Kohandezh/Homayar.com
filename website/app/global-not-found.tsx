@@ -44,7 +44,6 @@ export default async function GlobalNotFound() {
           <main id="main" tabIndex={-1} className="outline-none">
             <section className="relative isolate overflow-hidden" data-scene="warp">
               <SceneBackdrop kind="warp" priority />
-              <div className="scene-fade-bottom" aria-hidden="true" />
               <div className="container-x flex min-h-[70svh] items-center py-20">
                 <div className="mx-auto flex max-w-xl flex-col items-center text-center">
                   <p className="chip chip-accent">404</p>

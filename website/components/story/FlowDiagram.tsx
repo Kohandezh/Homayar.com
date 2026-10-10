@@ -3,7 +3,16 @@ import { Icon } from "@/components/ui/Icon";
 
 type Flow = Dictionary["deployment"]["flow"];
 
-function Node({ label, icon, tone = "default", compact = false }: { label: string; icon: string; tone?: "default" | "accent" | "muted"; compact?: boolean }) {
+function Node({ label, icon, tone = "default", compact = false, naked = false }: { label: string; icon: string; tone?: "default" | "accent" | "muted"; compact?: boolean; naked?: boolean }) {
+  // Naked: no box, only the icon and the label on the scene (design-system/SCENE-RULES.md).
+  if (naked) {
+    return (
+      <div className={`flex items-center justify-center gap-2 py-1 text-center text-sm font-semibold ${tone === "accent" ? "text-accent-text" : tone === "muted" ? "text-ink-3" : "text-ink"}`}>
+        <Icon name={icon} size={16} className={tone === "muted" ? "text-ink-3" : "text-accent-text"} />
+        {label}
+      </div>
+    );
+  }
   const cls =
     tone === "accent"
       ? "border-accent/50 bg-accent/10 text-ink shadow-[0_0_40px_-10px_rgb(var(--t-glow)/0.6)]"
@@ -40,14 +49,14 @@ function Connector({ blocked = false, label, vertical = false }: { blocked?: boo
   );
 }
 
-export function FlowDiagram({ flow, mode, compact = false }: { flow: Flow; mode: "saas" | "self-hosted" | "hybrid"; compact?: boolean }) {
+export function FlowDiagram({ flow, mode, compact = false, naked = false }: { flow: Flow; mode: "saas" | "self-hosted" | "hybrid"; compact?: boolean; naked?: boolean }) {
   const third =
     mode === "saas" ? (
-      <Node label={flow.models} icon="server" compact={compact} />
+      <Node label={flow.models} icon="server" compact={compact} naked={naked} />
     ) : mode === "self-hosted" ? (
-      <Node label={flow.internet} icon="globe" tone="muted" compact={compact} />
+      <Node label={flow.internet} icon="globe" tone="muted" compact={compact} naked={naked} />
     ) : (
-      <Node label={flow.cloud} icon="cloud" compact={compact} />
+      <Node label={flow.cloud} icon="cloud" compact={compact} naked={naked} />
     );
   const connectorLabel = mode === "saas" ? flow.region : mode === "self-hosted" ? flow.blocked : flow.optIn;
   const blocked = mode === "self-hosted";
@@ -55,9 +64,9 @@ export function FlowDiagram({ flow, mode, compact = false }: { flow: Flow; mode:
   if (compact) {
     return (
       <div className="flex flex-col" aria-hidden="true">
-        <Node label={flow.source} icon="phone" compact />
+        <Node label={flow.source} icon="phone" compact naked={naked} />
         <Connector vertical />
-        <Node label={flow.app} icon="activity" tone="accent" compact />
+        <Node label={flow.app} icon="activity" tone="accent" compact naked={naked} />
         <Connector vertical blocked={blocked} label={connectorLabel} />
         {third}
         {blocked ? <p className="label mt-2 text-center text-[10px] text-ink-3">{flow.allowlist}</p> : null}
