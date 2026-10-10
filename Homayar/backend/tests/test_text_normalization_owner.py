@@ -4648,8 +4648,8 @@ BASE_FINGERPRINTS: dict = {
         ("_rate_limit", "10b23026482e1e78e639ff83"),
         ("_set_session_cookies", "b03346792fcaafba45db6581"),
         ("_clear_session_cookies", "b5383f371c1f680296c08887"),
-        ("_user_response", "de4ab8627f834f8aecc63945"),
-        ("_session_response", "3b5ee3428b560e05a58503d5"),
+        ("_user_response", "97731dfb70b5c932c1947fde"),
+        ("_session_response", "9e0b2633c73819196522c1a6"),
         ("EmailDeliveryError", "51a915476ca1c54bee35bf00"),
         ("_send_verification_message", "04f23206f6e498a157b3c102"),
         ("_send_reset_message", "82b22e5b5657ab6553344988"),
@@ -4764,7 +4764,7 @@ FROZEN_FILES: dict[str, str] = {
     "backend/privacy/mapping_crypto.py": (
         "f3bea7cd866f961b03c1e342c540c2a38ccd1402cdba76fea1f4780075e9efa3"
     ),
-    "backend/schemas/auth.py": "6910cc0d45b47b973713d9fbcafe67ab8c1e17ee1808d240b254bcd9f4832407",
+    "backend/schemas/auth.py": "d6ec760646b22f89bd112b0df07f4d51cee6c9ac51d10d9daa67ae95b450050d",
     "backend/services/otp_service.py": (
         "0bc30e19ec5449d3729d65033812fbf00c0dd786a915b97c9bc89251a1112214"
     ),

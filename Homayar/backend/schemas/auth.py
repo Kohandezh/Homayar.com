@@ -65,6 +65,7 @@ class UserResponse(BaseModel):
     email_verified: bool
     phone_verified: bool
     is_active: bool
+    system_role: Literal["user", "operator"]
 
 
 class WorkspaceResponse(BaseModel):
@@ -72,6 +73,9 @@ class WorkspaceResponse(BaseModel):
     organization_id: str
     name: str
     role: str
+    # ``ROLE_PERMISSIONS[role]`` as sorted strings.  It only drives what the
+    # console shows; every route still enforces its own permission.
+    permissions: list[str]
 
 
 class SessionResponse(BaseModel):

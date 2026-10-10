@@ -11,13 +11,15 @@ an explicit policy. Edit the code and this file together.
 
 | Scope | Carrier | Effective today |
 | --- | --- | --- |
-| Platform administration | `User.system_role = operator` | **Deny by default.** No route grants anything on this basis; the column is reserved for delegated, time-bounded operator access (blueprint §11). |
+| Platform administration | `User.system_role = operator` | **Deny by default.** It grants nothing alone. The voice node routes (`POST /api/v1/voice/nodes`, `/nodes/{node_id}/heartbeat`, `/nodes/{node_id}/drain`, `POST /api/v1/voice/recover`) require it together with `workspace:manage`, from a signed-in session and never an API key (`+operator`, §6). `GET /api/v1/voice/capacity` adds deployment data for such a caller. Every other route ignores it. |
 | Organization administration | `OrganizationMembership` (active, unrevoked, `valid_from ≤ now < valid_until`) | Role → fixed set of *organization* permissions (§3a): membership and workspace administration, delegated installation of workspace roles, scoped aggregates/metadata. Resolved on **every** request from the path organization and server-side state; **never** confers workspace content access (§1a). |
 | Workspace membership | `Membership` (active, `valid_from ≤ now < valid_until`) | Role → fixed permission set (§3). Resolved on **every request** from the database; a still-valid session loses access on the next request after removal, deactivation or window expiry. |
 | Record ownership / team scope | `Workspace.record_scope`, `Meeting.team_id`, `Meeting.agent_user_id`, `Meeting.created_by_user_id`, effective `TeamAssignment` rows | Applies to **member** and **viewer** when `record_scope = team` (§5). Owner/admin are never record-scoped. |
 | Service / background worker | `ProcessingJob.workspace_id` | Workers act on a persisted job id, never on a user context; every write is keyed by the job's workspace (`backend/jobs/processor.py`, pinned by `test_tenant_scope.py`). Under row-level security the worker binds `homayar.job_id` to read exactly one job, then that job's workspace; it cannot write before the tenant is bound (`test_row_level_security.py`). |
 
 `X-Workspace-ID` selects among workspaces the caller already belongs to; it never confers access. Tenant identifiers are never accepted in request bodies (`extra="forbid"` on every write schema; pinned by tests).
+
+The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/verify`) exposes `user.system_role` and, for each listed workspace, `permissions`: the sorted values of `ROLE_PERMISSIONS` for that membership role (§3). Both are read from the database on every call. They only drive what the console shows; every route still enforces its own policy.
 
 ### 1a. Organization scope (WP03-T03, ADR 0012)
 
@@ -26,7 +28,7 @@ an explicit policy. Edit the code and this file together.
 - **Delegated administration** installs an organization member (the caller included) in a workspace of the organization with a workspace role from §4a (never `owner`). The result is an ordinary `Membership` row: the workspace routes, §5 record scope and row-level security govern it afterwards; the workspace owner sees it in the member list; the organization route can withdraw it again. Users without an effective organization membership cannot be installed this way.
 - **Scope grants** authorize an `analyst` or `executive` for one workspace, optionally narrowed to one active team. Executives read aggregates only (`organization:analytics:read`); analysts additionally read meeting metadata (`organization:records:read`) — never transcript text, summaries, recordings or exports. Owners/admins see aggregates and metadata of every workspace of the organization. Grants to owners/admins, foreign workspaces and foreign teams are refused; revoking the membership revokes its grants.
 - Workspaces created inside an organization (`organization:workspace:create`) carry no trial subscription or entitlement; the creator becomes the workspace owner.
-- Platform administration stays separate (`User.system_role`, deny by default).
+- Platform administration stays separate (`User.system_role`). No organization role confers it. Only the `+operator` voice routes and the deployment data of `GET /api/v1/voice/capacity` use it (§1); everything else denies by default.
 
 ## 2. Roles
 
