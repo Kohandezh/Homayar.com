@@ -55,6 +55,7 @@ from backend.speech.text_view import (
     REASON_NORMALIZATION_FAILED,
     REASON_NORMALIZER_UNAVAILABLE,
     REASON_PERSIST_FAILED,
+    REASON_SOURCE_UNAVAILABLE,
     SourceSegment,
     derive,
     derive_text_view,
@@ -90,7 +91,8 @@ ENGLISH = (
     "Hello, my name is Sara. Call +44 20 7946 0000 or email sara@example.com, "
     "total 120 thousand toman."
 )
-PII_DIGITS = ("0912", "۰۹۱۲", "345", "۳۴۵", "6789", "٦٧٨٩")
+# Pieces of the phone number only ("345" also occurs in the reference AB-12345).
+PII_DIGITS = ("0912", "۰۹۱۲", "۳۴۵", "6789", "٦٧٨٩")
 
 
 class SegmentedASR(MockASRProvider):
@@ -514,6 +516,42 @@ def test_a_storage_fault_is_recorded_as_failed_and_the_transcript_completes(
     assert view.segment_count == view.entity_count == 0
     assert _rows(TextViewSegment, meeting_id) == [] and _rows(TextViewEntity, meeting_id) == []
     assert len(_rows(TranscriptSegment, meeting_id)) == 1
+
+
+def test_an_unreadable_redacted_source_is_recorded_as_failed(
+    client, email_outbox, monkeypatch, settings
+):
+    monkeypatch.setattr(text_view, "redacted_segments", lambda *_a, **_k: [])
+    _tenant_info, meeting_id, job_id, result = _process(
+        client, email_outbox, monkeypatch, settings, "text-view-source", PERSIAN, enforce=True
+    )
+    assert result == {"job_id": job_id, "status": "completed"}
+    (view,) = _views(meeting_id)
+    assert (view.state, view.reason_code) == (StageState.FAILED, REASON_SOURCE_UNAVAILABLE)
+    assert view.input_view == "redacted" and view.redaction_id is not None
+    assert _rows(TextViewSegment, meeting_id) == []
+
+
+def test_even_an_unrecordable_failure_never_fails_the_transcript(
+    client, email_outbox, monkeypatch, settings
+):
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("simulated storage fault")
+
+    monkeypatch.setattr(text_view, "_persist", broken)
+    monkeypatch.setattr(text_view._Identity, "header", broken)
+    _tenant_info, meeting_id, job_id, result = _process(
+        client, email_outbox, monkeypatch, settings, "text-view-unrecorded", PERSIAN
+    )
+    assert result == {"job_id": job_id, "status": "completed"}
+    assert _views(meeting_id) == []
+    assert [s.text for s in _rows(TranscriptSegment, meeting_id)] == [PERSIAN]
+    details = _completed_audit(meeting_id).details
+    assert details["text_view_id"] is None
+    assert (details["text_view_state"], details["text_view_reason"]) == (
+        "failed",
+        REASON_PERSIST_FAILED,
+    )
 
 
 def test_an_empty_transcript_records_a_skipped_view(client, email_outbox, monkeypatch, settings):

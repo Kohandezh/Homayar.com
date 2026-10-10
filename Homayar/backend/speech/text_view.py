@@ -385,18 +385,18 @@ def _record_failure(
     Best effort in its own savepoint: if even this fails, the caller's
     transaction goes on and the outcome (audited) still says ``failed``.
     """
-    redaction = (
-        find_redaction(
-            db,
-            workspace_id=identity.revision.workspace_id,
-            revision_id=identity.revision.id,
-            digest=identity.input_policy_digest,
-        )
-        if identity.input_policy_digest is not None
-        else None
-    )
     savepoint = db.begin_nested()
     try:
+        redaction = (
+            find_redaction(
+                db,
+                workspace_id=identity.revision.workspace_id,
+                revision_id=identity.revision.id,
+                digest=identity.input_policy_digest,
+            )
+            if identity.input_policy_digest is not None
+            else None
+        )
         view = identity.header(
             state=StageState.FAILED,
             reason_code=reason,
