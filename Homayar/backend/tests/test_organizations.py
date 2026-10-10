@@ -57,7 +57,7 @@ from backend.tests._database import (
     inspection_session_factory,
     is_postgres_url,
 )
-from backend.tests.conftest import login_user, register_user
+from backend.tests.conftest import grant_admin_seats, login_user, register_user
 
 
 class Persona:
@@ -462,6 +462,16 @@ def test_delegated_installation_needs_a_free_admin_seat(client, email_outbox):
     # Allow-control: a member role needs no seat.
     installed = admin.post(path, json={"user_id": admin.user_id, "role": "member"})
     assert installed.status_code == 201, installed.text
+
+    # With one free seat the installation succeeds, and the next one is refused.
+    second = _persona(client, email_outbox, email="seat-second@example.com", name="Second")
+    _grant(owner, org, second, "admin")
+    grant_admin_seats(owner.personal_workspace_id, seats=2)
+    promoted = admin.post(path, json={"user_id": admin.user_id, "role": "admin"})
+    assert promoted.status_code == 201, promoted.text
+    full = admin.post(path, json={"user_id": second.user_id, "role": "admin"})
+    assert full.status_code == 409, full.text
+    assert full.json()["error"]["code"] == "seat_limit_reached"
 
 
 def test_analysts_and_executives_see_granted_scopes_only_and_never_content(client, email_outbox):

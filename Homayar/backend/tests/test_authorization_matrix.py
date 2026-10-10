@@ -144,7 +144,8 @@ def _workspace_with_roles(
     owner_session = login_user(client, owner_credentials)
     owner_cookies = _cookies(client)
     workspace_id = owner_session["workspaces"][0]["id"]
-    grant_admin_seats(workspace_id)  # the personas include an admin
+    if "admin" in roles.values():
+        grant_admin_seats(workspace_id)  # the demo's one seat is the owner's
     owner = _Persona(client, workspace_id, owner_session, owner_cookies)
 
     personas: dict[str, _Persona] = {}

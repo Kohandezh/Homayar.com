@@ -217,23 +217,18 @@ def login_user(client: TestClient, credentials: dict[str, str]) -> dict:
     return response.json()
 
 
-TEAM_PLAN_KEY = "negotiated_team"
+def pin_negotiated_plan(workspace_id: str, key: str, terms: object) -> None:
+    """An operator pins one workspace's subscription to a private plan ``key``.
 
-
-def grant_admin_seats(workspace_id: str) -> None:
-    """Pin one workspace to a negotiated plan with room for admins (HOM-167 F1).
-
-    The free demo has one admin seat, which the owner holds.  Tests that add
-    admins to a demo workspace move it to a private 50-seat plan, as an
-    operator would for a negotiated exception; other workspaces keep the demo.
+    The plan (version 1 holding ``terms``) is created on first use; other
+    workspaces keep their pins.
     """
-    terms = {"seats": 50}
     with inspection_session_factory()() as db:
-        if db.get(Plan, TEAM_PLAN_KEY) is None:
+        if db.get(Plan, key) is None:
             db.add(
                 Plan(
-                    key=TEAM_PLAN_KEY,
-                    name="Negotiated Team",
+                    key=key,
+                    name=key,
                     is_public=False,
                     is_active=True,
                     entitlements_json=terms,
@@ -244,9 +239,9 @@ def grant_admin_seats(workspace_id: str) -> None:
             db.flush()
             db.add(
                 PlanVersion(
-                    plan_key=TEAM_PLAN_KEY,
+                    plan_key=key,
                     version=1,
-                    name="Negotiated Team",
+                    name=key,
                     is_public=False,
                     entitlements_json=terms,
                     source="operator",
@@ -256,6 +251,15 @@ def grant_admin_seats(workspace_id: str) -> None:
         db.execute(
             update(Subscription)
             .where(Subscription.workspace_id == workspace_id)
-            .values(plan_key=TEAM_PLAN_KEY, plan_version=1)
+            .values(plan_key=key, plan_version=1)
         )
         db.commit()
+
+
+def grant_admin_seats(workspace_id: str, seats: int = 50) -> None:
+    """Give one workspace room for admins (HOM-167 F1).
+
+    The free demo has one admin seat, which the owner holds.  Tests that add
+    admins to a demo workspace pin it to a negotiated plan with ``seats`` seats.
+    """
+    pin_negotiated_plan(workspace_id, f"negotiated_seats_{seats}", {"seats": seats})
