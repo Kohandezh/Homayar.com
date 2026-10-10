@@ -1455,3 +1455,40 @@ def test_the_catalog_hides_the_demo_while_the_free_demo_is_off(
     with _running_app(settings.model_copy(update={"enable_free_demo": False})) as api:
         assert listed(api) == {"professional", "business"}
     assert _catalog_state() == state  # a listing rule, not a catalog change
+
+
+def test_the_subscription_shows_the_terms_it_was_granted_under(
+    client: TestClient, email_outbox: list[dict[str, str]]
+) -> None:
+    # F4: a later publish changes the catalog, not what a tenant was granted.
+    _publish(
+        "demo",
+        entitlements={"audio_seconds": 1800, "concurrent_jobs": 2, "seats": 1},
+        name="Free Demo v2",
+    )
+    tenant = _signup(client, email_outbox, "granted-terms@example.com")
+    assert _grant(tenant["workspace_id"])[0] == [("demo", 2)]
+    _publish(
+        "demo",
+        entitlements={"audio_seconds": 1800, "concurrent_jobs": 3, "seats": 1},
+        name="Free Demo v3",
+    )
+    request = {"cookies": tenant["cookies"], "headers": {"X-Workspace-ID": tenant["workspace_id"]}}
+
+    subscription = client.get("/api/v1/billing/subscription", **request)
+    assert subscription.status_code == 200, subscription.text
+    body = subscription.json()
+    assert (body["subscription"]["plan_key"], body["subscription"]["plan_version"]) == ("demo", 2)
+    assert body["plan"] == {
+        "key": "demo",
+        "name": "Free Demo v2",
+        "is_public": True,
+        "entitlements": {"audio_seconds": 1800, "concurrent_jobs": 2, "seats": 1},
+        "price_published": False,
+        "pricing_mode": "manual_quote",
+    }
+
+    catalog = client.get("/api/v1/billing/plans", **request)
+    assert catalog.status_code == 200, catalog.text
+    demo = next(item for item in catalog.json()["items"] if item["key"] == "demo")
+    assert (demo["name"], demo["entitlements"]["concurrent_jobs"]) == ("Free Demo v3", 3)

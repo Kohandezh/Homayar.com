@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
-from backend.database.saas_models import Entitlement, Plan
+from backend.database.saas_models import Entitlement, Plan, PlanVersion
 from backend.schemas.billing import (
     BillingManagementResponse,
     CurrentSubscriptionResponse,
@@ -37,6 +37,16 @@ def _plan_response(plan: Plan) -> PlanResponse:
         name=plan.name,
         is_public=plan.is_public,
         entitlements=dict(plan.entitlements_json or {}),
+    )
+
+
+def _granted_plan_response(version: PlanVersion) -> PlanResponse:
+    """The plan version a subscription was granted under, not the plan's current terms."""
+    return PlanResponse(
+        key=version.plan_key,
+        name=version.name,
+        is_public=version.is_public,
+        entitlements=dict(version.entitlements_json or {}),
     )
 
 
@@ -89,7 +99,7 @@ def get_subscription(
         ) from exc
     return CurrentSubscriptionResponse(
         workspace_id=context.workspace.id,
-        plan=_plan_response(current.plan) if current.plan is not None else None,
+        plan=_granted_plan_response(current.version) if current.version is not None else None,
         subscription=(
             SubscriptionResponse.model_validate(current.subscription)
             if current.subscription is not None
