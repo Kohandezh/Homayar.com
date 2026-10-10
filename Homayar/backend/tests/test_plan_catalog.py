@@ -1433,3 +1433,25 @@ def test_a_demo_without_its_current_version_row_is_not_granted(
     assert _demo_grant_skips(plan_logs) == [
         ("homayar", logging.WARNING, "DEMO_GRANT_SKIPPED plan=demo reason=no_current_version")
     ]
+
+
+def test_the_catalog_hides_the_demo_while_the_free_demo_is_off(
+    client: TestClient, email_outbox: list[dict[str, str]], settings: Settings
+) -> None:
+    # F2: with ENABLE_FREE_DEMO off, sign-up grants no demo, so the catalog offers none.
+    owner = _signup(client, email_outbox, "catalog-demo-owner@example.com")
+
+    def listed(api: TestClient) -> set[str]:
+        response = api.get(
+            "/api/v1/billing/plans",
+            cookies=owner["cookies"],
+            headers={"X-Workspace-ID": owner["workspace_id"]},
+        )
+        assert response.status_code == 200, response.text
+        return {item["key"] for item in response.json()["items"]}
+
+    assert listed(client) == {"demo", "professional", "business"}
+    state = _catalog_state()
+    with _running_app(settings.model_copy(update={"enable_free_demo": False})) as api:
+        assert listed(api) == {"professional", "business"}
+    assert _catalog_state() == state  # a listing rule, not a catalog change

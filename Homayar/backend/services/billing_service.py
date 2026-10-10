@@ -13,6 +13,7 @@ from backend.database.saas_models import (
     SubscriptionStatus,
     UsageEvent,
 )
+from backend.services.tenancy_service import DEMO_PLAN_KEY
 
 CURRENT_SUBSCRIPTION_STATUSES = (
     SubscriptionStatus.ACTIVE,
@@ -75,14 +76,12 @@ def get_current_billing(
     return CurrentBilling(subscription=None, plan=None)
 
 
-def list_public_plans(db: Session) -> list[Plan]:
-    return list(
-        db.scalars(
-            select(Plan)
-            .where(Plan.is_public.is_(True), Plan.is_active.is_(True))
-            .order_by(Plan.created_at.asc(), Plan.key.asc())
-        )
-    )
+def list_public_plans(db: Session, *, free_demo_enabled: bool) -> list[Plan]:
+    """Public, active plans; the demo plan only while ENABLE_FREE_DEMO is on."""
+    query = select(Plan).where(Plan.is_public.is_(True), Plan.is_active.is_(True))
+    if not free_demo_enabled:
+        query = query.where(Plan.key != DEMO_PLAN_KEY)
+    return list(db.scalars(query.order_by(Plan.created_at.asc(), Plan.key.asc())))
 
 
 def list_usage_snapshots(db: Session, *, workspace_id: str) -> list[Entitlement]:

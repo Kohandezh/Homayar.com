@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from backend.config import Settings, get_settings
 from backend.database.relational import get_db
 from backend.database.saas_models import Entitlement, Plan
 from backend.schemas.billing import (
@@ -65,8 +66,10 @@ def _usage_response(entitlement: Entitlement) -> UsageSnapshotResponse:
 def get_plan_catalog(
     _context: WorkspaceContext = Depends(require_permission(Permission.BILLING_READ)),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> PlanCatalogResponse:
-    return PlanCatalogResponse(items=[_plan_response(plan) for plan in list_public_plans(db)])
+    plans = list_public_plans(db, free_demo_enabled=settings.enable_free_demo)
+    return PlanCatalogResponse(items=[_plan_response(plan) for plan in plans])
 
 
 @router.get("/subscription", response_model=CurrentSubscriptionResponse)
