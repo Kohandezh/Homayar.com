@@ -189,8 +189,11 @@ jobs:
       run:
         working-directory: Homayar
     steps:
-      - name: Check out repository
+      - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The HOM-172 owner tests read source files at the base commit (`git show`).
+          fetch-depth: 0
 
       - name: Verify backend source is present
         working-directory: .
