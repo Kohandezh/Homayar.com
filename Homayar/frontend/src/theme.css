@@ -1,0 +1,114 @@
+/*
+ * Homayar brand values for HeroUI's theme variables. These rules are not in a
+ * CSS layer, so they win over HeroUI's layered defaults. Set every variable in
+ * both blocks: an unlayered light value would otherwise win in dark mode too.
+ */
+
+/* Live pages still hard-code light colors, so dark must never follow the
+   system setting. HeroUI's own `dark` variant falls back to
+   `prefers-color-scheme: dark`; this replaces it. */
+@custom-variant dark (&:is(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* The console's existing radius steps, so live pages keep their corners. */
+@theme inline {
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+:root {
+  --radius: 0.625rem;
+}
+
+/* Geist has no Persian glyphs. `<html lang>` comes from src/lib/i18n.tsx. */
+:root:lang(fa) {
+  --font-sans: "Vazirmatn Variable", "Geist Variable", system-ui, sans-serif;
+}
+
+:root,
+.light,
+[data-theme="light"] {
+  --background: oklch(0.9706 0.0034 174.48);
+  --foreground: oklch(0.2433 0.0185 172.13);
+
+  --surface: oklch(1 0 0);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.9568 0.0059 170.45);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: oklch(0.9463 0.0079 177.32);
+  --surface-tertiary-foreground: var(--foreground);
+
+  --overlay: oklch(1 0 0);
+  --overlay-foreground: var(--foreground);
+
+  --muted: oklch(0.4874 0.0222 175.64);
+
+  --default: oklch(0.9463 0.0079 177.32);
+  --default-foreground: var(--foreground);
+
+  --accent: oklch(0.5311 0.091 180.97);
+  --accent-foreground: oklch(1 0 0);
+
+  --success: oklch(0.5385 0.1103 157.24);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.5987 0.1306 61.87);
+  --warning-foreground: oklch(1 0 0);
+  --danger: oklch(0.545 0.1644 24.4);
+  --danger-foreground: oklch(1 0 0);
+
+  --field-background: oklch(1 0 0);
+  --field-foreground: var(--foreground);
+
+  --segment: oklch(1 0 0);
+  --segment-foreground: var(--foreground);
+
+  --border: oklch(0.899 0.0105 174.24);
+  --separator: oklch(0.9463 0.0079 177.32);
+  --focus: var(--accent);
+  --link: var(--accent);
+}
+
+.dark,
+[data-theme="dark"] {
+  --background: oklch(0.2096 0.0181 177.08);
+  --foreground: oklch(0.982 0.0084 168.76);
+
+  --surface: oklch(0.2491 0.0224 181.31);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.2767 0.0238 178.1);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: oklch(0.3047 0.0235 178.42);
+  --surface-tertiary-foreground: var(--foreground);
+
+  --overlay: oklch(0.2767 0.0238 178.1);
+  --overlay-foreground: var(--foreground);
+
+  --muted: oklch(0.7496 0.0237 175.71);
+
+  --default: oklch(0.3047 0.0235 178.42);
+  --default-foreground: var(--foreground);
+
+  /* Lighter brand teal: 8.6:1 on the dark background. */
+  --accent: oklch(0.7587 0.1182 179.68);
+  --accent-foreground: oklch(0.2096 0.0181 177.08);
+
+  --success: oklch(0.7033 0.1249 159.83);
+  --success-foreground: oklch(0.2096 0.0181 177.08);
+  --warning: oklch(0.7534 0.1269 72.38);
+  --warning-foreground: oklch(0.2096 0.0181 177.08);
+  --danger: oklch(0.6875 0.142 21.46);
+  --danger-foreground: oklch(0.2096 0.0181 177.08);
+
+  --field-background: oklch(0.2491 0.0224 181.31);
+  --field-foreground: var(--foreground);
+
+  --segment: oklch(0.3423 0.0254 180.24);
+  --segment-foreground: var(--foreground);
+
+  --border: oklch(0.3423 0.0254 180.24);
+  --separator: oklch(0.3047 0.0235 178.42);
+  --focus: var(--accent);
+  --link: var(--accent);
+}

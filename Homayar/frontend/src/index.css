@@ -1,8 +1,14 @@
 @import "tailwindcss";
-@import "tw-animate-css";
+@import "@heroui/styles";
+@import "./theme.css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/*
+ * HeroUI owns the shared theme names (--background, --foreground, --accent,
+ * --muted, --border, --radius, --success, --warning and their Tailwind
+ * colors). Their values live in theme.css. The blocks below keep only the
+ * names HeroUI does not use. `@heroui/styles` already loads tw-animate-css.
+ */
 
 @theme {
   --color-bg-primary: #f3f6f5;
@@ -14,11 +20,8 @@
   --color-text-primary: #17231f;
   --color-text-secondary: #53645f;
   --color-text-muted: #7a8b86;
-  --color-accent: #147d6f;
   --color-accent-secondary: #d75f45;
   --color-accent-glow: rgba(20, 125, 111, 0.16);
-  --color-success: #278154;
-  --color-warning: #b66b16;
   --color-error: #bd3d3d;
   --color-info: #276ea7;
   --font-sans: "Geist Variable", system-ui, sans-serif;
@@ -42,12 +45,8 @@
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
-  --color-border: var(--border);
   --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
@@ -56,18 +55,9 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --color-foreground: var(--foreground);
-  --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
 }
 
 :root {
-  --background: #f3f6f5;
-  --foreground: #17231f;
   --card: #ffffff;
   --card-foreground: #17231f;
   --popover: #ffffff;
@@ -76,12 +66,8 @@
   --primary-foreground: #FFFFFF;
   --secondary: #e8efed;
   --secondary-foreground: #17231f;
-  --muted: #e8efed;
   --muted-foreground: #53645f;
-  --accent: #147d6f;
-  --accent-foreground: #FFFFFF;
   --destructive: #bd3d3d;
-  --border: #d7e0dd;
   --input: #b7c8c3;
   --ring: #147d6f;
   --chart-1: #147d6f;
@@ -89,7 +75,6 @@
   --chart-3: #276ea7;
   --chart-4: #b66b16;
   --chart-5: #7b5b9b;
-  --radius: 0.625rem;
   --sidebar: #17332f;
   --sidebar-foreground: #f4fbf8;
   --sidebar-primary: #45c9b3;
@@ -109,7 +94,7 @@
     min-width: 320px;
     min-height: 100vh;
     margin: 0;
-    font-family: "Geist Variable", system-ui, sans-serif;
+    font-family: var(--font-sans);
   }
 
   button,
@@ -1264,6 +1249,12 @@
 
 .platform-empty-state { border: 1px dashed #cbd8d4; border-radius: 8px; background: #f8faf9; }
 .platform-error-state { min-height: 82px; color: #a83636; border: 1px solid #ebc4be; border-radius: 8px; background: #fff8f7; }
+/* ErrorState is a HeroUI Alert: drop its shadow, padding and muted text so it keeps the look above. */
+.platform-error-state.alert { padding: 0; box-shadow: none; }
+.platform-error-state .alert__content { flex-grow: 0; }
+.platform-error-state .alert__indicator { padding: 0; color: inherit; }
+.platform-error-state .alert__indicator [data-slot="alert-default-icon"] { width: 20px; height: 20px; }
+.platform-error-state .alert__description { color: inherit; font-size: inherit; line-height: inherit; }
 
 .platform-status {
   min-width: 70px;
