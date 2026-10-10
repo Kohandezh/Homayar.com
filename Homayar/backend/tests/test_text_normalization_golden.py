@@ -402,9 +402,11 @@ BASE_POLICY_DIGEST_EMAIL = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d
 # Intended changes after the base (each bumps the detector version):
 # HOM-164 text-pii/2 matches the postal keyword in Arabic letters and with ZWNJ.
 # HOM-165 text-pii/3 folds fullwidth digits to ASCII (values stored as ASCII).
-CURRENT_DETECTOR_VERSION = "text-pii/3"
-CURRENT_POLICY_DIGEST_ALL = "6af861dce4c1d53f1436c59aa720d5227f659829e578d65db0c843a48ab2b967"
-CURRENT_POLICY_DIGEST_EMAIL = "2620e3be0957f7ef351869a4b9e87fff21333d61524a2bc4918e1e99eb9214f5"
+# HOM-171 text-pii/4 ignores harakat and tatweel in the postal keyword (owner-approved
+# re-baseline 2026-10-10: only this version and the two digests change).
+CURRENT_DETECTOR_VERSION = "text-pii/4"
+CURRENT_POLICY_DIGEST_ALL = "e07352c17058c7ca0e60a31590a9daf9d68e16ac789cb94bd6dd3cbbcd95c66c"
+CURRENT_POLICY_DIGEST_EMAIL = "9d691ba3431f10161dcbba86334f9a534de30b2e78db1c7f686546ce708d2d2a"
 # (input, speech.normalize_fa, locations stream text, stream offsets,
 #  locations.normalize_text, voicemail.normalize_text)
 PROFILE_TABLE = [

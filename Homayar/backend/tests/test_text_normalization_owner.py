@@ -3964,9 +3964,11 @@ EMAIL_ONLY_DIGEST = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058c
 # HOM-164 bumped the detector to text-pii/2; the base digests above stay the
 # text-pii/1 values (stored versions keep them), these are the current ones.
 # HOM-165 bumped it again to text-pii/3 (fullwidth digits fold to ASCII).
-CURRENT_DETECTOR_VERSION = "text-pii/3"
-CURRENT_ALL_CLASSES_DIGEST = "6af861dce4c1d53f1436c59aa720d5227f659829e578d65db0c843a48ab2b967"
-CURRENT_EMAIL_ONLY_DIGEST = "2620e3be0957f7ef351869a4b9e87fff21333d61524a2bc4918e1e99eb9214f5"
+# HOM-171 bumped it to text-pii/4 (harakat and tatweel ignored in the postal
+# keyword); owner-approved re-baseline of 2026-10-10.
+CURRENT_DETECTOR_VERSION = "text-pii/4"
+CURRENT_ALL_CLASSES_DIGEST = "e07352c17058c7ca0e60a31590a9daf9d68e16ac789cb94bd6dd3cbbcd95c66c"
+CURRENT_EMAIL_ONLY_DIGEST = "9d691ba3431f10161dcbba86334f9a534de30b2e78db1c7f686546ce708d2d2a"
 
 
 class TestGoldenDivergenceTable:
@@ -4572,8 +4574,8 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "9fa43d25c4fbaed236304c90"),  # HOM-164/165 docstring
-        ("DETECTOR_VERSION", "d3aac593bcb04aecd6309523"),  # HOM-165 text-pii/3
+        ("Expr", "32a26634d15dffaedeea5fa3"),  # HOM-164/165/171 docstring
+        ("DETECTOR_VERSION", "9657ab596efa48f712402232"),  # HOM-171 text-pii/4
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
         ("_PRIORITY", "3266f57d52c974fe017bac21"),
@@ -4596,7 +4598,7 @@ BASE_FINGERPRINTS: dict = {
         ("valid_luhn", "8b40e7530c9816227f216679"),
         ("valid_iban", "96143c494e81f9c5b0b851ef"),
         ("_canonical_phone", "406be280c94ea1e049f0f165"),
-        ("detect", "50d0da6041d4c1ae23aeace5"),  # HOM-164 keyword, HOM-165 digits
+        ("detect", "ca2130c4a3da043b1748f2bf"),  # HOM-164/171 keyword, HOM-165 digits
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),
