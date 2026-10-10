@@ -10,10 +10,10 @@ VALIDATED requires passing evidence on the recorded SHA. Historical WP statuses 
 
 | Field | Value |
 | --- | --- |
-| Updated (UTC) | 2026-10-09 (Core Baseline Freeze at main `ecd77cc`; see §K) |
+| Updated (UTC) | 2026-10-10 (WP18 plans and entitlements, PR #18; see §L; freeze at main `ecd77cc` in §K) |
 | Repository | github.com/Kohandezh/Homayar.com (monorepo; product in `Homayar/`, ADR 0033) |
-| Working branch | `feat/backend-p0-wave` from main `88073c8` (merge of PR #6) |
-| Migration head | `a1c3e5f7b9d2` (P0 wave; 31 linear migrations; main before merge: `f5b1d7c3a9e2`) |
+| Working branch | `backend/core-freeze-wp18` from main `ecd77cc` (PR #18) |
+| Migration head | `c5e7a9b1d3f6` on the working branch (versioned plans; 32 linear migrations; main: `a1c3e5f7b9d2`) |
 | Runtime | Python 3.12, FastAPI, SQLAlchemy 2, Alembic, Celery 5 + Redis |
 | CI services | PostgreSQL 17, Redis 7.4, ffmpeg 6.1.1 (Ubuntu 24.04) |
 | Last validated main | `ecd77cc` locally (§K): 2346 passed, 45 skipped; last CI-validated: `fd2d298`/PR #6 run 36294427694 (716 passed, 46 skipped) |
@@ -34,7 +34,7 @@ VALIDATED requires passing evidence on the recorded SHA. Historical WP statuses 
 | Models/providers | `providers/{base,schemas,factory,registry,routing,policy,resilience,egress,whisper,openai_compatible,padyar}.py` | model_manifests, provider_health, ai_policy_versions, run_policy_snapshots | `/admin/ai-policy*` | model_preflight | test_provider_*, test_model_registry, test_ai_policy, test_egress_denial | PARTIAL (WP08; Gateway contract external) |
 | Privacy | `privacy/*` | transcript_redactions, redacted_segments, pii_mappings | `/privacy/subject-exports` | — | test_text_pii | VALIDATED (WP07 local) |
 | Retention | `services/retention_policy.py`, `conversation_purge_service.py`, `tombstone_journal.py`, `jobs/retention_purge.py` | conversation_purges | legal-hold routes | run_retention_purge | test_retention_*, test_legal_hold, test_tombstone_reapply | VALIDATED (WP07 local) |
-| Usage/billing | `services/entitlement_service.py`, `jobs/usage_reconciliation.py`, `routers/v1/billing.py` | plans, subscriptions, entitlements, usage_reservations, usage_events, provider_usage | `/billing/*` | reconcile_usage | test_usage_ledger, test_entitlements, test_billing_api | PARTIAL (F18 foundation; F19 PLANNED) |
+| Usage/billing | `services/entitlement_service.py`, `jobs/usage_reconciliation.py`, `routers/v1/billing.py` | plans, plan_versions, subscriptions, entitlements, usage_reservations, usage_events, provider_usage | `/billing/*` | reconcile_usage | test_usage_ledger, test_entitlements, test_billing_api, test_plan_catalog, test_admin_seats | PARTIAL (F18 foundation; F19 versioned plans, pinned grants and owner/admin seats (§L); plan change/rollover WP18-T04 and paid onboarding N01 open) |
 | Approvals/actions | `action_items` via insights router | action_items | `/meetings/{id}/actions` | — | test_insights_shares_api | PARTIAL (no approval workflow) |
 | Integrations/webhooks | models only | webhook_endpoints, webhook_deliveries, api_keys | `/api-keys` | — | test_api_keys | PARTIAL (WP16-T02) |
 | Odoo | none | — | — | — | — | PLANNED |
@@ -74,7 +74,7 @@ All ORM models share `database/saas_models.Base`. Tenant key is `workspace_id` (
 ### D2. Remaining F-rows (from PROJECT_STATE WP status; NEEDS_RECONCILIATION per row until re-verified)
 
 F01–F03 WP01/02 PARTIAL; F04–F06 VALIDATED (WP03); F12–F14 VALIDATED (WP05, live S3 external);
-F15–F16 PARTIAL (WP07); F17 VALIDATED (WP06); F18 PARTIAL; F19 PLANNED; F20–F22 PARTIAL (WP08);
+F15–F16 PARTIAL (WP07); F17 VALIDATED (WP06); F18 PARTIAL; F19 PARTIAL (HOM-101, HOM-167, §L); F20–F22 PARTIAL (WP08);
 F23–F24 VALIDATED (WP04); F25–F28, F30–F31, F33–F38, F41–F47, F49, F57–F61, F63–F64, F68–F70,
 F72, F75, F78–F79, F86, F92 PLANNED; F80–F81 BLOCKED_EXTERNAL/PARTIAL (WP13); P2/P3 expansion rows
 DEFERRED by AppVision §11.2 ("not authorized by initial coding kickoff").
@@ -218,3 +218,32 @@ Skips (45): 41 live-S3 opt-in (BLOCKED_EXTERNAL), 3 Padyar AI Gateway contract t
 Run hygiene: the working tree held 18 untracked paths byte-identical to the legacy files HOM-152 (`d5bbe5d`)
 removed; they were moved out of the tree before the run (on disk they make `test_truthful_outputs` fail).
 External blockers unchanged (§G): CI billing, live S3, Padyar contract, Persian corpus, GPU/models, SIP.
+
+## L. WP18 plans and entitlements (branch `backend/core-freeze-wp18`, PR #18, 2026-10-10)
+
+| Linear | Item | Commit | Review |
+| --- | --- | --- | --- |
+| HOM-101 | versioned plan terms; startup and sign-up never overwrite the catalog (D-12); migration `c5e7a9b1d3f6` | 728c7a3 | five lenses + adversarial verification; upheld findings fixed; blind oracle 125/126 (remaining case pins the mission-base hash of `config.py`, edited on purpose) |
+| HOM-167 F3 | a retired demo plan is not granted at sign-up | 38ae948 | three lenses (F2-F4) |
+| HOM-167 F2 | the catalog hides the demo while `ENABLE_FREE_DEMO` is off | 48b55b5 | as above |
+| HOM-167 F4 | `GET /billing/subscription` shows the pinned version; `subscription.plan_version` | e477ca3 | as above |
+| HOM-167 F1 | owner/admin memberships consume the plan's `seats` (owner decision 2026-10-10); 409 `seat_limit_reached` | 5cb4aa3, b935487 | four lenses; one critical finding (stale clock reading could exceed the limit) fixed in b935487 with regressions that fail on 5cb4aa3 |
+| CI (pre-existing on main) | the backend job checks out the full history; HOM-172 digest lines are allowlisted in the secret scan | 2f5f666 | actionlint clean; gitleaks verified locally with the CI image (no leaks; probe 3 of 3 still reported) |
+
+Evidence (local, PostgreSQL 16, `ci.yml` env; not CI-validated):
+
+- full suite on 728c7a3: 2377 passed / 0 failed / 45 skipped;
+- full suite on 5cb4aa3: 2380 passed / 1 failed / 50 skipped. The failure was the HOM-172 wall-clock gate (70 s) while a review workflow loaded the host. The 5 extra skips are Redis drills, because Docker was down after a host reboot;
+- final full suite on b935487: 2393 passed / 1 failed / 50 skipped. The failure was the HOM-172 wall-clock gate (46.4 s; 1-minute host load 48 from unrelated work); the 5 extra skips are the Redis drills (no Redis during the run). With a disposable Redis afterwards, 4 of the 5 drills passed and the broker-restart drill timed out at 60 s under host load 54-89; the branch changes no transport code;
+- GitHub Actions on b935487 (CI runs again since 2026-10-10): backend 2397 passed / 2 failed / 46 skipped, all Redis drills included. Both failures, and the 4 secret-scan findings, are identical on main since ecd77cc (runs 37031662707 and 38047281319), so they are not regressions of this branch:
+  - `test_golden_module_uses_pure_functions_and_base_names_only` reads files at the base commit 7112407, which the shallow checkout lacked: fixed in 2f5f666 (the backend job checks out the full history);
+  - the 4 gitleaks findings are SHA-256 digests and a fixture key in HOM-172 tests (commit 77b9daa): fixed in 2f5f666 with a whole-line allowlist that mirrors the wp22t02 entry. Locally: no leaks over the 175 commits of the GitHub branches, and a probe commit with three random secret-shaped lines in those files is still reported (3 of 3);
+  - the HOM-172 30 s gate takes 37.35 s on the GitHub runner (38.12 s on main 2ae3314, 51.14 s on ecd77cc). It is not changed here: the bound is an owner decision (raise it for the runner, a larger runner, or speed work);
+- GitHub Actions on 2f5f666: backend 2398 passed / 1 failed / 46 skipped (run 38077164530; pytest 22 min against the job's 25-minute timeout); the only failure is the HOM-172 30 s gate (76.51 s on that runner), unchanged from main; the secret scan and the other four checks pass;
+- migrations: single head `c5e7a9b1d3f6`; upgrade, `alembic check` and the downgrade/upgrade round trip are clean.
+
+Release notes:
+
+- Migration `c5e7a9b1d3f6` is not backward-compatible with the prior image: stop the API before migrating. To roll the app back, export `plan_versions` and downgrade first (runbook "Upgrade and Rollback").
+- Free demo workspaces have one seat, which their owner holds: they cannot add admins, only members and viewers.
+- The frontend contract changes are listed in the PR #18 description.
