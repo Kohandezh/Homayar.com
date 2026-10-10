@@ -195,8 +195,8 @@ Retire a plan with `is_active = false`. A direct SQL edit of a plan's terms pers
 is not a version: the demo grant at sign-up still follows the current version, and each
 start logs `PLAN_CATALOG_DRIFT plan=<key> fields=<names>`. One exception: the demo version
 a `DEMO_QUOTA_SECONDS` change appends carries the demo row's terms as they are, direct
-edits included. `ENABLE_FREE_DEMO`, not the demo plan's `is_active`, decides whether
-sign-up grants the demo.
+edits included. Sign-up grants the demo only while `ENABLE_FREE_DEMO` is on and the demo
+plan is active.
 
 The API refuses to start with Google or phone sign-in enabled but its credentials
 missing. The console no longer has `VITE_ENABLE_GOOGLE_AUTH` / `VITE_ENABLE_PHONE_AUTH`

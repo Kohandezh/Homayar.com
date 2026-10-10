@@ -365,18 +365,17 @@ def _append_version(
 def _grant_demo(db: Session, *, workspace_id: str, now: datetime) -> None:
     """The free demo: a subscription pinned to the demo plan's current version.
 
-    Entitlement rows come from that version's metered metrics.  JSON null is an
-    unlimited limit; a metric the version does not define gets no row, so its
-    use is refused (fail closed).
+    Granted only while the demo plan is active: retiring it (``is_active =
+    false``) stops the grant as well as the public listing.  Entitlement rows
+    come from that version's metered metrics.  JSON null is an unlimited limit;
+    a metric the version does not define gets no row, so its use is refused
+    (fail closed).
     """
-    version = db.scalars(
-        select(PlanVersion)
-        .join(
-            Plan,
-            and_(Plan.key == PlanVersion.plan_key, Plan.current_version == PlanVersion.version),
-        )
-        .where(Plan.key == DEMO_PLAN_KEY)
-    ).one_or_none()
+    plan = db.get(Plan, DEMO_PLAN_KEY)
+    if plan is not None and not plan.is_active:
+        logger.info("DEMO_GRANT_SKIPPED plan=%s reason=retired", DEMO_PLAN_KEY)
+        return
+    version = None if plan is None else db.get(PlanVersion, (plan.key, plan.current_version))
     if version is None:
         logger.warning("DEMO_GRANT_SKIPPED plan=%s reason=no_current_version", DEMO_PLAN_KEY)
         return

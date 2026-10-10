@@ -1370,3 +1370,66 @@ def test_the_sqlite_fallback_creates_the_schema_and_versions_plans(
             assert db.get(Plan, "professional").entitlements_json == {"seats": 5}
     finally:
         engine.dispose()
+
+
+# --- HOM-167 (WP18-F1): what the catalog offers and what sign-up grants agree ---------------
+
+
+def _demo_grant_skips(logs: pytest.LogCaptureFixture) -> list[tuple[str, int, str]]:
+    return [
+        (record.name, record.levelno, record.getMessage())
+        for record in logs.records
+        if record.getMessage().startswith("DEMO_GRANT_SKIPPED")
+    ]
+
+
+def test_a_retired_demo_plan_is_not_granted_at_sign_up(
+    client: TestClient,
+    email_outbox: list[dict[str, str]],
+    plan_logs: pytest.LogCaptureFixture,
+) -> None:
+    # F3: retiring the demo plan stops the grant, not only the listing.
+    with inspection_session_factory()() as db:
+        db.execute(update(Plan.__table__).where(Plan.key == "demo").values(is_active=False))
+        db.commit()
+    state = _catalog_state()
+    plan_logs.clear()
+
+    retired = _signup(client, email_outbox, "retired-demo@example.com")
+
+    assert _grant(retired["workspace_id"]) == ([], {})
+    assert _catalog_state() == state
+    assert _demo_grant_skips(plan_logs) == [
+        ("homayar", logging.INFO, "DEMO_GRANT_SKIPPED plan=demo reason=retired")
+    ]
+
+    # Allow-control: once the plan is active again, the next sign-up gets the demo.
+    with inspection_session_factory()() as db:
+        db.execute(update(Plan.__table__).where(Plan.key == "demo").values(is_active=True))
+        db.commit()
+    active = _signup(client, email_outbox, "active-demo@example.com")
+    assert _grant(active["workspace_id"]) == (
+        [("demo", 1)],
+        {"audio_seconds": (1800, "demo"), "concurrent_jobs": (1, "demo")},
+    )
+
+
+def test_a_demo_without_its_current_version_row_is_not_granted(
+    client: TestClient,
+    email_outbox: list[dict[str, str]],
+    plan_logs: pytest.LogCaptureFixture,
+) -> None:
+    # A DBA points the demo at a version that does not exist: fail closed.
+    with inspection_session_factory()() as db:
+        db.execute(update(Plan.__table__).where(Plan.key == "demo").values(current_version=99))
+        db.commit()
+    state = _catalog_state()
+    plan_logs.clear()
+
+    tenant = _signup(client, email_outbox, "missing-version@example.com")
+
+    assert _grant(tenant["workspace_id"]) == ([], {})
+    assert _catalog_state() == state
+    assert _demo_grant_skips(plan_logs) == [
+        ("homayar", logging.WARNING, "DEMO_GRANT_SKIPPED plan=demo reason=no_current_version")
+    ]
