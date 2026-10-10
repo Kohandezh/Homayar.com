@@ -70,6 +70,10 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "transcript_redactions",
     "redacted_segments",
     "pii_mappings",
+    # Derived text views and entities (ADR 0034): never through a share token.
+    "transcript_text_views",
+    "text_view_segments",
+    "text_view_entities",
     "webhook_endpoints",
     "webhook_deliveries",
     "provider_usage",
@@ -273,6 +277,7 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
         "oauth_challenges",
         "otp_challenges",
         "plans",
+        "plan_versions",
         "model_manifests",
         "provider_health",
         "alembic_version",
@@ -292,6 +297,7 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "model_manifests",
     "ai_policy_versions",
     "run_policy_snapshots",
+    "plan_versions",
 )
 
 

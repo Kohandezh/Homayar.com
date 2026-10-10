@@ -22,10 +22,10 @@ regexes = [
 
 [[allowlists]]
 description = """Product test fixtures (ADR 0033 import): idempotency and fixture keys \
-written as lowercase words and digits joined by hyphens (key="purge-exhaust-0001"), the \
-keyword text itself when a call continues with another argument (idempotency_key=), and \
-environment-variable names (HOMAYAR_LIVE_S3_SECRET_KEY). The generic-api-key rule reads \
-them as values."""
+written as lowercase words and digits joined by hyphens (key="purge-exhaust-0001"), keys \
+named after a Linear issue ("hom120-evidence"), the keyword text itself when a call \
+continues with another argument (idempotency_key=), and environment-variable names \
+(HOMAYAR_LIVE_S3_SECRET_KEY). The generic-api-key rule reads them as values."""
 condition = "AND"
 paths = [
   '''^Homayar/backend/tests/[^/]+\.py$''',
@@ -33,8 +33,25 @@ paths = [
 regexTarget = "secret"
 regexes = [
   '''^[a-z]+(?:-[a-z0-9]+)+$''',
+  '''^hom[0-9]{1,4}(?:-[a-z]+)+$''',
   '''^[a-z_]+=$''',
   '''^HOMAYAR_[A-Z0-9_]+$''',
+]
+
+[[allowlists]]
+description = """Text-normalization owner tests (HOM-172) pin base source code to SHA-256 \
+digests, as in the saved wp22t02 handoff: each line maps a line-range name (_AUTH_616_618) \
+or a file path (backend/schemas/auth.py) to 64 lowercase hex characters, or a function \
+name to a 24-character digest prefix. The whole line must have this shape, so a key \
+assigned on any other line is still reported."""
+condition = "AND"
+paths = [
+  '''^Homayar/backend/tests/(_text_normalization_reference|test_text_normalization_owner)\.py$''',
+]
+regexTarget = "line"
+regexes = [
+  '''^\s*"(_[A-Z]+_[0-9]+_[0-9]+|[A-Za-z0-9_./-]+\.py)":\s*"[0-9a-f]{64}",?\s*$''',
+  '''^\s*\("[a-z_]+",\s*"[0-9a-f]{24}"\),?\s*$''',
 ]
 
 [[allowlists]]

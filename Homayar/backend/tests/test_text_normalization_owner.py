@@ -6360,6 +6360,36 @@ def _base_names(module: str) -> set[str] | None:
     return None
 
 
+GOLDEN_BUDGET_SECONDS = 30.0
+GOLDEN_BUDGET_VARIABLE = "HOMAYAR_GOLDEN_BUDGET_SECONDS"
+# ``_run`` stops waiting for the timed run after 300 s, so a larger bound could never apply.
+GOLDEN_BUDGET_CEILING_SECONDS = 300.0
+
+
+def _golden_budget_seconds(environ) -> float:
+    """The golden module's wall-clock budget (HOM-172).
+
+    The SPEC budget is 30 s and stays the default everywhere, the owner's host included.
+    Owner decision of 2026-10-10: on GitHub CI only, ``HOMAYAR_GOLDEN_BUDGET_SECONDS``
+    (set by the backend job in ``.github/workflows/ci.yml``, see ``docs/operations/ci.md``)
+    replaces it, because shared runners took 37-77 s for the same module.  The variable
+    counts only with ``CI=true``; any value that is not a number of seconds from 30 to 300
+    fails the gate instead of being ignored.
+    """
+    raw = environ.get(GOLDEN_BUDGET_VARIABLE)
+    if raw is None:
+        return GOLDEN_BUDGET_SECONDS
+    if environ.get("CI") != "true":
+        pytest.fail(f"{GOLDEN_BUDGET_VARIABLE} is a CI-only bound (HOM-172); unset it outside CI")
+    try:
+        budget = float(raw)
+    except ValueError:
+        budget = None
+    if budget is None or not GOLDEN_BUDGET_SECONDS <= budget <= GOLDEN_BUDGET_CEILING_SECONDS:
+        pytest.fail(f"{GOLDEN_BUDGET_VARIABLE}={raw!r} must be from 30 to 300 seconds (HOM-172)")
+    return budget
+
+
 class TestDeliverables:
     def test_golden_module_uses_pure_functions_and_base_names_only(self):
         assert GOLDEN_MODULE.exists()
@@ -6406,7 +6436,15 @@ class TestDeliverables:
         assert re.search(r"\.py:\d+", text)
 
     def test_golden_module_is_green_fast_and_independent_of_the_registry(self):
+        """The module passes alone within its budget, and again after the registry tests.
+
+        The budget is the SPEC's 30 s; only GitHub CI may raise it, through the documented
+        ``HOMAYAR_GOLDEN_BUDGET_SECONDS`` bound (HOM-172, see ``_golden_budget_seconds``).
+        """
+        import os
+
         assert GOLDEN_MODULE.exists()
+        budget = _golden_budget_seconds(os.environ)
         golden = f"backend/tests/{GOLDEN_MODULE.name}"
         started = time.monotonic()
         alone = _run([sys.executable, "-m", "pytest", golden, "-q", "-p", "no:cacheprovider"])
@@ -6415,7 +6453,8 @@ class TestDeliverables:
         summary = alone.stdout.strip().splitlines()[-1]
         assert " passed" in summary and "skipped" not in summary and "failed" not in summary
         reported = re.search(r" in ([0-9.]+)s", summary)
-        assert (float(reported.group(1)) if reported else wall) < 30
+        elapsed = float(reported.group(1)) if reported else wall
+        assert elapsed < budget, f"golden module took {elapsed:.2f} s; budget {budget:g} s"
         polluted = _run(
             [
                 sys.executable,
@@ -6429,6 +6468,37 @@ class TestDeliverables:
             ]
         )
         assert polluted.returncode == 0, polluted.stdout[-3000:]
+
+    @pytest.mark.parametrize(
+        ("environ", "expected"),
+        [
+            ({}, 30.0),
+            ({"CI": "true"}, 30.0),
+            ({"CI": "true", GOLDEN_BUDGET_VARIABLE: "30"}, 30.0),
+            ({"CI": "true", GOLDEN_BUDGET_VARIABLE: "120"}, 120.0),
+            ({"CI": "true", GOLDEN_BUDGET_VARIABLE: "300"}, 300.0),
+        ],
+    )
+    def test_golden_budget_is_30_s_unless_ci_sets_a_documented_bound(self, environ, expected):
+        assert _golden_budget_seconds(environ) == expected
+
+    @pytest.mark.parametrize(
+        "environ",
+        [
+            {GOLDEN_BUDGET_VARIABLE: "120"},
+            {"CI": "false", GOLDEN_BUDGET_VARIABLE: "120"},
+            {"CI": "true", GOLDEN_BUDGET_VARIABLE: ""},
+            {"CI": "true", GOLDEN_BUDGET_VARIABLE: "120s"},
+            {"CI": "true", GOLDEN_BUDGET_VARIABLE: "29.9"},
+            {"CI": "true", GOLDEN_BUDGET_VARIABLE: "-120"},
+            {"CI": "true", GOLDEN_BUDGET_VARIABLE: "300.5"},
+            {"CI": "true", GOLDEN_BUDGET_VARIABLE: "nan"},
+            {"CI": "true", GOLDEN_BUDGET_VARIABLE: "inf"},
+        ],
+    )
+    def test_golden_budget_refuses_a_bound_outside_ci_or_its_range(self, environ):
+        with pytest.raises(pytest.fail.Exception, match=GOLDEN_BUDGET_VARIABLE):
+            _golden_budget_seconds(environ)
 
     def test_raw_evidence_test_reuses_the_upload_pipeline(self):
         candidates = []

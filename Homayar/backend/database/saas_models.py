@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     LargeBinary,
@@ -738,6 +739,41 @@ class Plan(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     entitlements_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     display_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    # The plan_versions row whose terms (name, is_public, entitlements_json) this
+    # row carries (WP18-T03); moved only by publishing a new version.
+    current_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (CheckConstraint("current_version >= 1", name="ck_plan_current_version"),)
+
+
+class PlanVersion(Base):
+    """One immutable version of a plan's commercial terms (WP18-T03).
+
+    A global catalog, not tenant data: append-only (ORM guard below and no
+    UPDATE/DELETE grant for the application role).  A subscription is pinned
+    to the version it was granted under, so a later publish never changes what
+    an existing tenant was given.
+    """
+
+    __tablename__ = "plan_versions"
+
+    plan_key: Mapped[str] = mapped_column(ForeignKey("plans.key"), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    entitlements_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="ck_plan_version_version"),
+        CheckConstraint(
+            "source IN ('catalog_seed', 'legacy_snapshot', 'operator', 'config')",
+            name="ck_plan_version_source",
+        ),
+    )
 
 
 class ModelManifestRecord(Base):
@@ -878,6 +914,8 @@ class Subscription(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     plan_key: Mapped[str] = mapped_column(ForeignKey("plans.key"), nullable=False)
+    # The plan version the subscription was granted under (WP18-T03).
+    plan_version: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[SubscriptionStatus] = mapped_column(
         Enum(SubscriptionStatus, native_enum=False, length=20), nullable=False
     )
@@ -888,7 +926,14 @@ class Subscription(Base, TimestampMixin):
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (Index("ix_subscription_workspace_status", "workspace_id", "status"),)
+    __table_args__ = (
+        Index("ix_subscription_workspace_status", "workspace_id", "status"),
+        ForeignKeyConstraint(
+            ["plan_key", "plan_version"],
+            ["plan_versions.plan_key", "plan_versions.version"],
+            name="fk_subscription_plan_version",
+        ),
+    )
 
 
 class Entitlement(Base, TimestampMixin):
@@ -1272,6 +1317,161 @@ class PiiMapping(Base):
         ),
         CheckConstraint("end_offset > start_offset AND start_offset >= 0", name="ck_pii_offsets"),
         Index("ix_pii_mapping_redaction_placeholder", "redaction_id", "placeholder"),
+    )
+
+
+# Outcomes a derived text view can record (ADR 0034): stored as member NAMES.
+TEXT_VIEW_STATE_CHECK = "state IN ('COMPLETED', 'PARTIAL', 'FAILED', 'SKIPPED')"
+
+
+class TranscriptTextView(Base):
+    """A derived, normalised view of one transcript revision with the entities
+    found in it (WP22/F36, ADR 0034).
+
+    Written by the post-call processor in the transaction that creates the
+    revision; the raw segments are never changed.  The source is the text a
+    reader gets by default: the persisted redacted version under an enforced
+    workspace policy (``redaction_id``), the original segments otherwise.
+    Identity is (revision, ``view_digest``): the digest covers the normaliser,
+    extractor and PII detector versions, the source view and the reference
+    time, so a version change yields a new view and an old one is never
+    rewritten.  ``state`` is the honest outcome (a failed derivation is
+    recorded, never substituted, and never fails the transcript).
+    """
+
+    __tablename__ = "transcript_text_views"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    revision_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_revisions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    redaction_id: Mapped[str | None] = mapped_column(
+        ForeignKey("transcript_redactions.id", ondelete="CASCADE"), index=True
+    )
+    input_view: Mapped[str] = mapped_column(String(16), nullable=False)
+    input_policy_digest: Mapped[str | None] = mapped_column(String(64))
+    language: Mapped[str] = mapped_column(String(12), nullable=False)
+    normalizer_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    extractor_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    detector_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    view_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    # "Today" for relative dates (the conversation's creation time) and the
+    # timezone its local date is taken in.
+    reference_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(40), nullable=False)
+    state: Mapped[StageState] = mapped_column(
+        Enum(StageState, native_enum=False, length=24), nullable=False
+    )
+    reason_code: Mapped[str | None] = mapped_column(String(80))
+    segment_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    job_id: Mapped[str | None] = mapped_column(
+        ForeignKey("processing_jobs.id", ondelete="SET NULL")
+    )
+    attempt: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("revision_id", "view_digest", name="uq_text_view_revision_digest"),
+        CheckConstraint(TEXT_VIEW_STATE_CHECK, name="ck_text_view_state"),
+        CheckConstraint(
+            "(input_view = 'original' AND input_policy_digest IS NULL "
+            "AND redaction_id IS NULL) OR "
+            "(input_view = 'redacted' AND input_policy_digest IS NOT NULL)",
+            name="ck_text_view_input",
+        ),
+        # Output derived from a redacted text names the version it came from.
+        CheckConstraint(
+            "input_view = 'original' OR redaction_id IS NOT NULL OR state IN ('FAILED', 'SKIPPED')",
+            name="ck_text_view_source",
+        ),
+        CheckConstraint("segment_count >= 0 AND entity_count >= 0", name="ck_text_view_counts"),
+        CheckConstraint("attempt IS NULL OR attempt >= 0", name="ck_text_view_attempt"),
+        Index("ix_text_view_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class TextViewSegment(Base):
+    """The normalised text of one transcript segment under one text view."""
+
+    __tablename__ = "text_view_segments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    view_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_text_views.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    segment_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_segments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("view_id", "segment_id", name="uq_text_view_segment"),
+        CheckConstraint("entity_count >= 0", name="ck_text_view_segment_entities"),
+    )
+
+
+class TextViewEntity(Base):
+    """One entity found in the source text of one segment (ADR 0034).
+
+    Offsets are character positions in the view's *source* text of that
+    segment (the original segment, or its redacted version), never in the
+    normalised text.  ``value`` is the extractor's normalised value (``null``
+    for a person-name slot and for an ambiguous date or time, whose
+    ``candidates`` list every reading); ``confidence`` is a rule prior, not a
+    measured precision.
+    """
+
+    __tablename__ = "text_view_entities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    view_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_text_views.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    segment_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_segments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    start_offset: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_offset: Mapped[int] = mapped_column(Integer, nullable=False)
+    value: Mapped[Any | None] = mapped_column(JSON)
+    candidates: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    ambiguous: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("view_id", "position", name="uq_text_view_entity_position"),
+        CheckConstraint(
+            "start_offset >= 0 AND end_offset >= start_offset", name="ck_text_view_entity_offsets"
+        ),
+        CheckConstraint(
+            "confidence >= 0 AND confidence <= 1", name="ck_text_view_entity_confidence"
+        ),
+        Index("ix_text_view_entity_workspace_type", "workspace_id", "entity_type"),
     )
 
 
@@ -2302,6 +2502,9 @@ def _changed_columns(target: object) -> set[str]:
 @event.listens_for(TranscriptRedaction, "before_update")
 @event.listens_for(RedactedSegment, "before_update")
 @event.listens_for(PiiMapping, "before_update")
+@event.listens_for(TranscriptTextView, "before_update")
+@event.listens_for(TextViewSegment, "before_update")
+@event.listens_for(TextViewEntity, "before_update")
 def _refuse_segment_update(_mapper, _connection, target: object) -> None:
     changed = _changed_columns(target)
     if changed:
@@ -2334,6 +2537,25 @@ def _refuse_manifest_update(_mapper, _connection, target: object) -> None:
             "Model manifests are immutable; register a new version instead "
             f"(attempted: {', '.join(sorted(changed))})"
         )
+
+
+class PlanVersionImmutableError(RuntimeError):
+    """An ORM update or delete tried to change a published plan version."""
+
+
+@event.listens_for(PlanVersion, "before_update")
+def _refuse_plan_version_update(_mapper, _connection, target: object) -> None:
+    changed = _changed_columns(target)
+    if changed:
+        raise PlanVersionImmutableError(
+            "Plan versions are append-only; publish a new version instead "
+            f"(attempted: {', '.join(sorted(changed))})"
+        )
+
+
+@event.listens_for(PlanVersion, "before_delete")
+def _refuse_plan_version_delete(_mapper, _connection, target: object) -> None:
+    raise PlanVersionImmutableError("Plan versions are append-only")
 
 
 class PolicyRecordImmutableError(RuntimeError):

@@ -24,6 +24,7 @@ class SubscriptionResponse(BaseModel):
 
     id: str
     plan_key: str
+    plan_version: int  # the version of the plan this subscription was granted under
     status: str
     provider: str
     starts_at: datetime

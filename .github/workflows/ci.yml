@@ -138,7 +138,8 @@ jobs:
   backend:
     name: Backend tests and migrations
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # pytest alone took about 22 minutes on 2f5f666; 40 leaves room for runner variance.
+    timeout-minutes: 40
     needs: source-contract
     services:
       postgres:
@@ -185,12 +186,19 @@ jobs:
       NEO4J_URI: bolt://127.0.0.1:1
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ci-only-neo4j
+      # HOM-172 owner decision (2026-10-10): the golden normalization module keeps its
+      # 30 s budget everywhere except here; shared runners took 37-77 s. The owner test
+      # accepts 30 to 300 s and only with CI=true (docs/operations/ci.md).
+      HOMAYAR_GOLDEN_BUDGET_SECONDS: "120"
     defaults:
       run:
         working-directory: Homayar
     steps:
-      - name: Check out repository
+      - name: Check out full history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The HOM-172 owner tests read source files at the base commit (`git show`).
+          fetch-depth: 0
 
       - name: Verify backend source is present
         working-directory: .

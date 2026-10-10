@@ -35,8 +35,11 @@ from backend.database.saas_models import (
     RetentionMode,
     ShareLink,
     StageCheckpoint,
+    TextViewEntity,
+    TextViewSegment,
     TranscriptRevision,
     TranscriptSegment,
+    TranscriptTextView,
     UsageEvent,
     UsageReservation,
     Workspace,
@@ -82,6 +85,10 @@ CONTENT_TABLES = (
     MeetingSummary,
     ActionItem,
     MeetingSpeaker,
+    # Derived text views and entities (ADR 0034).
+    TranscriptTextView,
+    TextViewSegment,
+    TextViewEntity,
 )
 
 

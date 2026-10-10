@@ -5,8 +5,9 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from backend.config import Settings, get_settings
 from backend.database.relational import get_db
-from backend.database.saas_models import Entitlement, Plan
+from backend.database.saas_models import Entitlement, Plan, PlanVersion
 from backend.schemas.billing import (
     BillingManagementResponse,
     CurrentSubscriptionResponse,
@@ -39,6 +40,16 @@ def _plan_response(plan: Plan) -> PlanResponse:
     )
 
 
+def _granted_plan_response(version: PlanVersion) -> PlanResponse:
+    """The plan version a subscription was granted under, not the plan's current terms."""
+    return PlanResponse(
+        key=version.plan_key,
+        name=version.name,
+        is_public=version.is_public,
+        entitlements=dict(version.entitlements_json or {}),
+    )
+
+
 def _usage_response(entitlement: Entitlement) -> UsageSnapshotResponse:
     remaining = (
         None
@@ -65,8 +76,10 @@ def _usage_response(entitlement: Entitlement) -> UsageSnapshotResponse:
 def get_plan_catalog(
     _context: WorkspaceContext = Depends(require_permission(Permission.BILLING_READ)),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> PlanCatalogResponse:
-    return PlanCatalogResponse(items=[_plan_response(plan) for plan in list_public_plans(db)])
+    plans = list_public_plans(db, free_demo_enabled=settings.enable_free_demo)
+    return PlanCatalogResponse(items=[_plan_response(plan) for plan in plans])
 
 
 @router.get("/subscription", response_model=CurrentSubscriptionResponse)
@@ -86,7 +99,7 @@ def get_subscription(
         ) from exc
     return CurrentSubscriptionResponse(
         workspace_id=context.workspace.id,
-        plan=_plan_response(current.plan) if current.plan is not None else None,
+        plan=_granted_plan_response(current.version) if current.version is not None else None,
         subscription=(
             SubscriptionResponse.model_validate(current.subscription)
             if current.subscription is not None

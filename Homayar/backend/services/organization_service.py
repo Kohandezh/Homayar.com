@@ -110,6 +110,12 @@ class DelegationDeniedError(OrganizationServiceError):
     public_message = "You may not install this workspace role"
 
 
+class SeatLimitReachedError(OrganizationServiceError):
+    status_code = 409
+    code = "seat_limit_reached"
+    public_message = "The workspace plan has no free admin seat"
+
+
 class ScopeGrantConflictError(OrganizationServiceError):
     status_code = 409
     code = "scope_grant_exists"
@@ -527,14 +533,23 @@ def install_workspace_member(
     ):
         raise OrganizationMemberNotFoundError()
     bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
+    # Imported here: seat_service -> billing_service -> tenancy_service imports this module.
+    from backend.services.seat_service import consumes_seat, lock_seats, seat_available
+
+    if consumes_seat(role):
+        lock_seats(db, workspace_id=workspace.id)
     existing = db.scalar(
         select(Membership).where(
             Membership.workspace_id == workspace.id, Membership.user_id == user_id
         )
     )
+    if existing is not None and existing.role == WorkspaceRole.OWNER:
+        raise DelegationDeniedError("The workspace owner cannot be changed this way")
+    if consumes_seat(role, existing, now=now) and not seat_available(
+        db, workspace_id=workspace.id, include_pending_invitations=True, now=now
+    ):
+        raise SeatLimitReachedError()
     if existing is not None:
-        if existing.role == WorkspaceRole.OWNER:
-            raise DelegationDeniedError("The workspace owner cannot be changed this way")
         existing.role = role
         existing.is_active = True
         existing.valid_from = now
