@@ -186,6 +186,18 @@ product default. Secrets among them come from the secret manager, never from bui
 | `ENABLE_FREE_DEMO`, `DEMO_QUOTA_SECONDS` | `true`, `1800` | Demo allowance of new workspaces |
 | `EGRESS_PROXY_URL` | empty | `http://egress-proxy:3128` when the egress profile runs (see "Network egress") |
 
+Plan catalog: the API start creates missing catalog plans and never rewrites an existing
+one. A plan's terms (name, `is_public`, entitlements) change only by appending a plan
+version, and each subscription stays on the version it was granted. The one version a
+start appends is the demo allowance, which `DEMO_QUOTA_SECONDS` owns: after a change, the
+next start appends a demo version with the new value, and only later sign-ups get it.
+Retire a plan with `is_active = false`. A direct SQL edit of a plan's terms persists but
+is not a version: the demo grant at sign-up still follows the current version, and each
+start logs `PLAN_CATALOG_DRIFT plan=<key> fields=<names>`. One exception: the demo version
+a `DEMO_QUOTA_SECONDS` change appends carries the demo row's terms as they are, direct
+edits included. `ENABLE_FREE_DEMO`, not the demo plan's `is_active`, decides whether
+sign-up grants the demo.
+
 The API refuses to start with Google or phone sign-in enabled but its credentials
 missing. The console no longer has `VITE_ENABLE_GOOGLE_AUTH` / `VITE_ENABLE_PHONE_AUTH`
 build flags: it asks `GET /api/v1/auth/methods`, which reports a method only when it is
@@ -425,3 +437,11 @@ Application rollback uses the previously recorded image digests. Do not automati
 downgrade the database. Every release migration must be backward-compatible with the prior
 application during the rollback window, or the release plan must include an independently
 tested restore procedure and accepted data-loss boundary.
+
+Migration `c5e7a9b1d3f6` (versioned plans, WP18-T03) is not backward-compatible:
+`subscriptions.plan_version` and `plans.current_version` are NOT NULL without a default,
+so the prior image fails every demo sign-up. For that release, stop the API as well as the
+workers before step 4. To roll the application back past it, export `plan_versions`, run
+`alembic downgrade a1c3e5f7b9d2` (it drops the version history and the subscription pins),
+then deploy the prior images. Their start rewrites every catalog plan row to its code
+defaults, so restore published terms from that export or the step 1 backup.

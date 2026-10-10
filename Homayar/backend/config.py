@@ -594,6 +594,10 @@ class Settings(BaseSettings):
             raise ValueError("Upload inspection and rate limits must be positive")
         if not 0 < self.ffmpeg_timeout_seconds <= 60:
             raise ValueError("FFMPEG_TIMEOUT_SECONDS must be between 0 and 60")
+        # The demo allowance becomes an append-only plan version and an
+        # entitlement limit (32-bit INTEGER): refuse it before anything is written.
+        if not 0 <= self.demo_quota_seconds <= 2_147_483_647:
+            raise ValueError("DEMO_QUOTA_SECONDS must be between 0 and 2147483647")
         if not 0 <= self.media_decode_probe_seconds <= 600 or self.media_min_bytes_per_second < 0:
             raise ValueError("Media decode probe and plausibility limits are out of range")
         if (

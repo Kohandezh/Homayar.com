@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     LargeBinary,
@@ -738,6 +739,41 @@ class Plan(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     entitlements_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     display_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    # The plan_versions row whose terms (name, is_public, entitlements_json) this
+    # row carries (WP18-T03); moved only by publishing a new version.
+    current_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (CheckConstraint("current_version >= 1", name="ck_plan_current_version"),)
+
+
+class PlanVersion(Base):
+    """One immutable version of a plan's commercial terms (WP18-T03).
+
+    A global catalog, not tenant data: append-only (ORM guard below and no
+    UPDATE/DELETE grant for the application role).  A subscription is pinned
+    to the version it was granted under, so a later publish never changes what
+    an existing tenant was given.
+    """
+
+    __tablename__ = "plan_versions"
+
+    plan_key: Mapped[str] = mapped_column(ForeignKey("plans.key"), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    entitlements_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="ck_plan_version_version"),
+        CheckConstraint(
+            "source IN ('catalog_seed', 'legacy_snapshot', 'operator', 'config')",
+            name="ck_plan_version_source",
+        ),
+    )
 
 
 class ModelManifestRecord(Base):
@@ -878,6 +914,8 @@ class Subscription(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     plan_key: Mapped[str] = mapped_column(ForeignKey("plans.key"), nullable=False)
+    # The plan version the subscription was granted under (WP18-T03).
+    plan_version: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[SubscriptionStatus] = mapped_column(
         Enum(SubscriptionStatus, native_enum=False, length=20), nullable=False
     )
@@ -888,7 +926,14 @@ class Subscription(Base, TimestampMixin):
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (Index("ix_subscription_workspace_status", "workspace_id", "status"),)
+    __table_args__ = (
+        Index("ix_subscription_workspace_status", "workspace_id", "status"),
+        ForeignKeyConstraint(
+            ["plan_key", "plan_version"],
+            ["plan_versions.plan_key", "plan_versions.version"],
+            name="fk_subscription_plan_version",
+        ),
+    )
 
 
 class Entitlement(Base, TimestampMixin):
@@ -2334,6 +2379,25 @@ def _refuse_manifest_update(_mapper, _connection, target: object) -> None:
             "Model manifests are immutable; register a new version instead "
             f"(attempted: {', '.join(sorted(changed))})"
         )
+
+
+class PlanVersionImmutableError(RuntimeError):
+    """An ORM update or delete tried to change a published plan version."""
+
+
+@event.listens_for(PlanVersion, "before_update")
+def _refuse_plan_version_update(_mapper, _connection, target: object) -> None:
+    changed = _changed_columns(target)
+    if changed:
+        raise PlanVersionImmutableError(
+            "Plan versions are append-only; publish a new version instead "
+            f"(attempted: {', '.join(sorted(changed))})"
+        )
+
+
+@event.listens_for(PlanVersion, "before_delete")
+def _refuse_plan_version_delete(_mapper, _connection, target: object) -> None:
+    raise PlanVersionImmutableError("Plan versions are append-only")
 
 
 class PolicyRecordImmutableError(RuntimeError):
