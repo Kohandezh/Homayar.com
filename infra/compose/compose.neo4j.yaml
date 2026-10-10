@@ -3,6 +3,9 @@ services:
     environment:
       ENABLE_NEO4J_PROJECTION: "true"
       NEO4J_URI: bolt://neo4j:7687
+      # Plaintext bolt to the bundled Neo4j (HOM-161): accepted on-premise for this
+      # same-host service and logged at startup; cloud production refuses it.
+      NEO4J_ALLOW_INSECURE_TRANSPORT: "true"
       NEO4J_USER: "${NEO4J_USER:-neo4j}"
       NEO4J_PASSWORD: "${NEO4J_PASSWORD:?Set a random Neo4j password}"
       NEO4J_DATABASE: "${NEO4J_DATABASE:-neo4j}"
@@ -15,6 +18,9 @@ services:
     environment:
       ENABLE_NEO4J_PROJECTION: "true"
       NEO4J_URI: bolt://neo4j:7687
+      # Plaintext bolt to the bundled Neo4j (HOM-161): accepted on-premise for this
+      # same-host service and logged at startup; cloud production refuses it.
+      NEO4J_ALLOW_INSECURE_TRANSPORT: "true"
       NEO4J_USER: "${NEO4J_USER:-neo4j}"
       NEO4J_PASSWORD: "${NEO4J_PASSWORD:?Set a random Neo4j password}"
       NEO4J_DATABASE: "${NEO4J_DATABASE:-neo4j}"

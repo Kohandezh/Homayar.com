@@ -43,7 +43,10 @@ SECRET_FIELDS = (
 MARK = "Qz7fake"
 FAKE_PII_KEY = base64.b64encode(b"fake-pii-mapping-key-32-bytes-Qz").decode()
 FAKE_SECRETS: dict[str, str] = {
-    "database_url": f"postgresql+psycopg://homayar:fake-db-password-{MARK}@db.example.invalid/homayar",
+    "database_url": (
+        f"postgresql+psycopg://homayar:fake-db-password-{MARK}@db.example.invalid/homayar"
+        "?sslmode=verify-full"
+    ),
     "redis_url": f"rediss://:fake-redis-password-{MARK}@redis.example.invalid:6380/0",
     "jwt_secret": f"fake-jwt-secret-{MARK}-0123456789abcdef",
     "token_pepper": f"fake-token-pepper-{MARK}-0123456789abcdef",
@@ -99,6 +102,7 @@ def production_kwargs(**overrides: object) -> dict[str, object]:
     kwargs: dict[str, object] = {
         "environment": "production",
         "database_url": FAKE_SECRETS["database_url"],
+        "redis_url": FAKE_SECRETS["redis_url"],
         "jwt_secret": FAKE_SECRETS["jwt_secret"],
         "token_pepper": FAKE_SECRETS["token_pepper"],
         "secure_cookies": True,

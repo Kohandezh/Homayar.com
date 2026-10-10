@@ -87,7 +87,11 @@ def isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 def production_kwargs(**overrides: object) -> dict[str, object]:
     kwargs: dict[str, object] = {
         "environment": "production",
-        "database_url": f"postgresql+psycopg://homayar:fake-db-{MARK}@db.example.invalid/homayar",
+        "database_url": (
+            f"postgresql+psycopg://homayar:fake-db-{MARK}@db.example.invalid/homayar"
+            "?sslmode=verify-full"
+        ),
+        "redis_url": f"rediss://:fake-redis-{MARK}@redis.example.invalid:6380/0",
         "jwt_secret": f"fake-jwt-secret-{MARK}-0123456789abcdef",
         "token_pepper": f"fake-token-pepper-{MARK}-0123456789abcdef",
         "secure_cookies": True,
