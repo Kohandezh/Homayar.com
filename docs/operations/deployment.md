@@ -198,6 +198,14 @@ a `DEMO_QUOTA_SECONDS` change appends carries the demo row's terms as they are, 
 edits included. Sign-up grants the demo, and the plan catalog lists it, only while
 `ENABLE_FREE_DEMO` is on and the demo plan is active.
 
+Seats: the `seats` term of the plan version a workspace's subscription was granted under
+limits its owner and admin memberships; members and viewers are free. The demo has one
+seat, which its owner holds. A pending admin invitation reserves a seat; inviting,
+accepting, promoting or a delegated installation beyond the limit answers 409
+`seat_limit_reached`. A version without `seats`, or a workspace without a current
+subscription, has no seat limit. Lowering a limit keeps the current admins and refuses
+new ones. To give one tenant more seats, pin its subscription to a plan version that has them.
+
 The API refuses to start with Google or phone sign-in enabled but its credentials
 missing. The console no longer has `VITE_ENABLE_GOOGLE_AUTH` / `VITE_ENABLE_PHONE_AUTH`
 build flags: it asks `GET /api/v1/auth/methods`, which reports a method only when it is
