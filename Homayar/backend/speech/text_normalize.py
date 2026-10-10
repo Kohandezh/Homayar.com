@@ -67,8 +67,10 @@ Consumer profiles (each keeps its own step order)
 - PII digits (``backend.privacy.text_pii``): ``DIGITS_EXTENDED``
   (:func:`normalize_digits_extended`; ``normalize_digits`` is still
   re-exported there) and the postal keyword window letter-folded with
-  :func:`unify_arabic_letters`; offsets refer to the original.  Only ASCII
-  counts as a digit after folding, so Devanagari numbers are not detected.
+  :func:`unify_arabic_letters` and stripped by :func:`strip_diacritics`
+  (HOM-171); offsets refer to the original.  Only ASCII counts as a digit
+  after folding, so numbers in every non-canonical script (Devanagari,
+  Bengali, mathematical digits) are not detected.
 - Mobile/OTP digits (``backend.security.normalization``,
   ``backend.routers.v1.auth``, ``backend.voicemail.ingest``): mobile numbers
   are NFKC then ``DIGITS``; OTP codes are ``DIGITS`` only; non-mobile caller
@@ -88,7 +90,8 @@ for locations, a data migration):
 - ZWNJ: kept by speech, a space in locations and voicemail; LRM/RLM kept by
   speech, dropped by locations and voicemail.
 - Quranic marks (U+06D6-06ED) are stripped only by voicemail; tatweel is
-  stripped by speech, locations and voicemail but not by PII.
+  stripped by speech, locations and voicemail, and by PII only inside the
+  postal keyword window.
 - Arabic number punctuation is mapped only by locations; voicemail turns it
   into spaces; speech keeps it.
 """

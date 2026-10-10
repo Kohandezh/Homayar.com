@@ -687,3 +687,54 @@ def test_mixed_scripts_fold_to_one_value():
 
 def test_detector_version_covers_the_digit_change():
     assert DETECTOR_VERSION not in {"text-pii/1", "text-pii/2"}
+
+
+# --- HOM-171: harakat and tatweel in the postal keyword; non-canonical scripts --
+
+BENGALI = str.maketrans("0123456789", "".join(chr(0x09E6 + i) for i in range(10)))
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    [
+        "کدّ پستی",  # shadda
+        "کدِ پستی",  # kasra of the ezafe
+        "کد پُستی",  # damma
+        "کـد پستی",  # tatweel
+        "کد پســتی",  # tatweel run
+        "كدّ پستي",  # Arabic kaf/yeh and shadda
+        "کدِ‌پستی",  # kasra and ZWNJ
+    ],
+)
+def test_postal_keyword_with_harakat_or_tatweel_is_detected_in_original_offsets(keyword):
+    # 1435678912 fails the national-ID check digit: before text-pii/4 these
+    # spellings left it in the redacted output.
+    sample = f"{keyword} {POSTAL_DIGITS} است"
+    start = len(keyword) + 1
+    assert [(s.start, s.end, s.pii_class, s.value) for s in detect(sample)] == [
+        (start, start + 10, PiiClass.IR_POSTAL_CODE, "1435678912")
+    ]
+    redacted, replacements = redact(sample)
+    assert redacted == f"{keyword} [IR_POSTAL_CODE_1] است"
+    assert [sample[r.start : r.end] for r in replacements] == [POSTAL_DIGITS]
+
+
+def test_marks_never_turn_another_word_into_the_postal_keyword():
+    assert detect(f"کدّ {POSTAL_DIGITS}") == []
+    assert detect(f"پُستی {POSTAL_DIGITS}") == []
+
+
+@pytest.mark.parametrize(
+    "sample",
+    [
+        "کد ملی " + NID.translate(BENGALI),
+        "موبایل " + "09123456789".translate(BENGALI),
+        "کد پستی " + "1435678912".translate(BENGALI),
+    ],
+)
+def test_a_non_devanagari_script_is_not_folded_or_detected_either(sample):
+    assert detect(sample) == []
+
+
+def test_detector_version_covers_the_keyword_marks():
+    assert DETECTOR_VERSION == "text-pii/4"
