@@ -33,13 +33,13 @@ export function DeployZones({ dict, locale }: { dict: Dictionary; locale: Locale
     <section className="zones relative" data-zones data-testid="zones">
       <div className="zones-pin">
         <div className="container-x">
-          <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="naked flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="eyebrow">{z.eyebrow}</p>
               <h2 className="display-2 mt-3">{z.title}</h2>
               <p className="mt-3 max-w-2xl text-ink-2">{z.text}</p>
             </div>
-            <p className="chip zones-hint">
+            <p className="zones-hint label flex items-center gap-2 text-xs text-ink-3">
               <Icon name="scan" size={13} />
               {z.hint}
             </p>

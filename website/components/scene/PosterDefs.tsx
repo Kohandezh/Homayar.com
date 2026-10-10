@@ -123,8 +123,6 @@ export function PosterDefs() {
           <g mask="url(#poster-fog-mask)" fill="none" stroke="currentColor" strokeWidth="2">
             <path d={corridor(24, true)} opacity="0.7" />
           </g>
-          <rect x={CX - 90} y={CY - 90} width="180" height="180" fill="url(#poster-glow)" />
-          <rect x={CX - 60} y={CY - 60} width="120" height="120" fill="none" stroke="currentColor" strokeWidth="4" opacity="0.95" />
         </symbol>
         <symbol id="poster-brain" viewBox={`0 0 ${W} ${H}`}>
           <path d={br.links} fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.45" />

@@ -65,6 +65,7 @@ export function PageHero({
   scene,
   back,
   className = "",
+  align = "start",
 }: {
   eyebrow?: string;
   title: string;
@@ -74,16 +75,16 @@ export function PageHero({
   scene?: SceneKind;
   back?: ReactNode;
   className?: string;
+  align?: "start" | "center";
 }) {
   return (
     <section className={`relative isolate overflow-hidden ${scene ? "border-b border-border" : ""} ${className}`} data-scene={scene} data-hero-scene={scene ? "" : undefined}>
       {scene ? <SceneBackdrop kind={scene} priority /> : null}
-      {scene ? <div className="scene-fade-bottom" aria-hidden="true" /> : null}
       <div className={`container-x flex ${scene ? "min-h-[68svh]" : "min-h-[44svh]"} flex-col justify-center pb-12 pt-14 md:pb-16 md:pt-20 ${aside ? "lg:grid lg:grid-cols-[1.1fr_1fr] lg:items-center lg:gap-10" : ""}`} data-hero-content={scene ? "" : undefined}>
         <div>
           {back}
-          <SectionHeading eyebrow={eyebrow} title={title} text={text} as="h1" split />
-          {children ? <div className="mt-8" data-reveal>{children}</div> : null}
+          <SectionHeading eyebrow={eyebrow} title={title} text={text} as="h1" align={align} split />
+          {children ? <div className={`mt-8 ${align === "center" ? "text-center" : ""}`} data-reveal>{children}</div> : null}
         </div>
         {aside ? <div className="mt-10 lg:mt-0" data-depth="260">{aside}</div> : null}
       </div>

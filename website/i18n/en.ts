@@ -73,12 +73,9 @@ const en = {
     particles: {
       brand: "Homayar",
       slogan: "Every call, an insight.",
-      hint: "Scroll: the points spell it out",
     },
     hero: {
-      eyebrow: "Post-call analysis for contact centers",
       title: "Turn call recordings into quality reviews you can trust.",
-      text: "Homayar transcribes authorized call recordings, runs four analysis agents and gives supervisors a scored report, detected problems and coaching points. Persian and English. In the cloud or fully on your own servers.",
       headlines: [
         "Turning call recordings",
         "into review reports",
@@ -87,10 +84,7 @@ const en = {
         "with artificial intelligence.",
         "Multilingual support.",
       ],
-      primary: "Request a demo",
-      secondary: "See the product",
       hint: "Scroll: a call becomes a report",
-      facts: ["4 analysis agents", "Persian and English", "Self-hosted option", "Personal-data masking"],
     },
     outputs: {
       eyebrow: "What you get for every call",
@@ -1058,7 +1052,6 @@ const en = {
   loader: { loading: "Loading" },
 
   scene: {
-    flight: { hint: "Scroll to fly in" },
     warp: {
       eyebrow: "Space to space",
       title: "The call ends. The analysis space opens.",
@@ -1073,8 +1066,6 @@ const en = {
       ready: "Report ready",
       sample: "Sample data, invented names and numbers",
     },
-    journey: { hint: "Scroll to travel", step: "Agent" },
-    depth: { hint: "Scroll: each surface comes to you" },
   },
 
   mock: {

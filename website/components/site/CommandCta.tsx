@@ -5,8 +5,39 @@ import { Icon } from "@/components/ui/Icon";
 
 const icons = ["mail", "activity", "shieldCheck", "server"];
 
-export function CommandCta({ locale, dict }: { locale: Locale; dict: Dictionary }) {
+export function CommandCta({ locale, dict, naked = false, scene }: { locale: Locale; dict: Dictionary; naked?: boolean; scene?: "field" }) {
   const p = dict.palette;
+  if (naked) {
+    // The last stop of the flight: the camera lands on the runway here (design-system/SCENE-RULES.md).
+    return (
+      <section className="relative py-28 md:py-40" data-scene={scene}>
+        <div className="container-x naked">
+          <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
+            <p className="eyebrow" data-reveal>
+              {p.eyebrow}
+            </p>
+            <h2 className="display-2 mt-4" data-split>
+              {p.title}
+            </h2>
+          </div>
+          <ul className="mx-auto mt-12 max-w-2xl divide-y divide-border-2" data-reveal-group>
+            {p.actions.map((a, i) => (
+              <li key={a.path}>
+                <Link href={`/${locale}${a.path}`} className="group flex items-center gap-4 py-5" data-magnetic={i === 0 ? "" : undefined}>
+                  <span className={`glow-dot ${i === 0 ? "glow-dot-strong" : ""}`} aria-hidden="true" />
+                  <span className="flex min-w-0 flex-1 flex-col text-start">
+                    <span className={`text-lg font-semibold ${i === 0 ? "text-accent-text" : ""}`}>{a.label}</span>
+                    <span className="text-sm text-ink-2">{a.meta}</span>
+                  </span>
+                  <Icon name={locale === "fa" ? "arrowLeft" : "arrowRight"} size={18} className="text-ink-3 transition-transform group-hover:translate-x-1 rtl:group-hover:-translate-x-1" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="relative isolate overflow-hidden py-20 md:py-28">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
