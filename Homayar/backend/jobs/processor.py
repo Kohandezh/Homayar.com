@@ -154,6 +154,7 @@ from backend.services.transcript_service import (
     ensure_speakers,
     record_analysis_run,
 )
+from backend.speech.text_view import derive_text_view
 from backend.storage import ObjectStorage, StorageError, create_object_storage
 
 # Stage pointer written by ``_set_stage`` -> stage that was in flight.
@@ -218,6 +219,11 @@ class ClaimedJob:
     policy_fingerprint: str = ""
     # Overall job deadline (WP06-T05): bounds every provider call (WP08-T05).
     deadline_at: datetime | None = None
+    # The workspace's enforced reader view at claim (ADR 0024): what readers
+    # get by default and what the derived text view is computed from (ADR
+    # 0034).  Unlike ``pii_classes`` it never takes an analysis endpoint's
+    # stricter classes.
+    view_classes: tuple[str, ...] = ()
 
     @property
     def privacy_classes(self) -> list[PiiClass]:
@@ -340,6 +346,7 @@ def _claim_job(
                 ai_policy=ai_policy,
                 policy_fingerprint=_policy_fingerprint(ai_policy.digest, pii_classes),
                 deadline_at=job.deadline_at,
+                view_classes=pii_classes,
             ),
             "claimed",
         )
@@ -949,6 +956,19 @@ def _persist_success(
                 settings=settings,
                 now=now,
             )
+        # Derived normalised view and entities (ADR 0034): new rows next to the
+        # revision, never a change to it; a fault is recorded, not raised.
+        text_view = derive_text_view(
+            db,
+            revision=revision,
+            segments=persisted_segments,
+            view_classes=parse_classes(claim.view_classes),
+            reference_at=meeting.created_at,
+            settings=settings,
+            now=now,
+            job_id=job.id,
+            attempt=job.attempt_count,
+        )
         speaker_labels = {turn.speaker_label for turn in turns}
         ensure_speakers(
             db,
@@ -1232,7 +1252,7 @@ def _persist_success(
             workspace_id=claim.workspace_id,
             target_type="meeting",
             target_id=claim.meeting_id,
-            details=provider_metadata,
+            details={**provider_metadata, **text_view.audit_details()},
             settings=settings,
         )
         db.commit()

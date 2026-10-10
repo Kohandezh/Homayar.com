@@ -13,8 +13,9 @@ Two steps, never merged:
    lock).  A presigned URL issued earlier stays valid until its own expiry
    (``STORAGE_PRESIGN_TTL_SECONDS``); nothing here revokes it instantly.
 2. **Purge** (:func:`run_purge_attempt`, bounded, retried): removes the
-   derived content rows (transcripts, segments, analysis, evidence,
-   summaries, action items, speakers, share recipients), scrubs the free-text
+   derived content rows (transcripts, segments, redacted versions, derived
+   text views and entities, analysis, evidence, summaries, action items,
+   speakers, share recipients), scrubs the free-text
    title and filename of the meeting/recording, removes object bytes
    state-first/bytes-second behind the media row lock and closes the purge
    when every store is clean.  Ledger history (usage, provider usage, stage
@@ -56,9 +57,12 @@ from backend.database.saas_models import (
     ShareLink,
     ShareRecipient,
     StageCheckpoint,
+    TextViewEntity,
+    TextViewSegment,
     TranscriptRedaction,
     TranscriptRevision,
     TranscriptSegment,
+    TranscriptTextView,
 )
 from backend.jobs import checkpoints
 from backend.services.audit_service import record_audit_event
@@ -208,8 +212,16 @@ def _remove_content(db: Session, *, workspace_id: str, meeting: Meeting) -> int:
         ).rowcount
         or 0
     )
-    # Redacted versions and their restricted mappings (WP07-T05) first.
-    for model in (PiiMapping, RedactedSegment, TranscriptRedaction):
+    # Derived text views and entities (ADR 0034), then redacted versions and
+    # their restricted mappings (WP07-T05): a view may point at a redaction.
+    for model in (
+        TextViewEntity,
+        TextViewSegment,
+        TranscriptTextView,
+        PiiMapping,
+        RedactedSegment,
+        TranscriptRedaction,
+    ):
         removed += (
             db.execute(
                 delete(model).where(

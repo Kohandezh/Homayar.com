@@ -70,6 +70,10 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "transcript_redactions",
     "redacted_segments",
     "pii_mappings",
+    # Derived text views and entities (ADR 0034): never through a share token.
+    "transcript_text_views",
+    "text_view_segments",
+    "text_view_entities",
     "webhook_endpoints",
     "webhook_deliveries",
     "provider_usage",
