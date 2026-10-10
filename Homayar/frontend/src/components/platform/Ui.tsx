@@ -1,8 +1,34 @@
 import type { ReactNode } from "react";
-import { AlertCircle, Inbox, LoaderCircle } from "lucide-react";
+import { Alert, Chip, Spinner } from "@heroui/react";
+import { Inbox } from "lucide-react";
 import { describeApiError, type ErrorCodeMessages } from "@/lib/error-messages";
 import { useI18n } from "@/lib/i18n-context";
 import { statusLabel } from "@/lib/status-labels";
+
+type ChipColor = "default" | "accent" | "success" | "warning" | "danger";
+
+// Same groups as the `.platform-status-*` colors in index.css.
+const STATUS_COLORS: Record<string, ChipColor> = {
+  completed: "success",
+  active: "success",
+  accepted: "success",
+  success: "success",
+  done: "success",
+  failed: "danger",
+  failure: "danger",
+  "dead-letter": "danger",
+  cancelled: "danger",
+  queued: "warning",
+  uploading: "warning",
+  trialing: "warning",
+  pending: "warning",
+  partial: "warning",
+  "insufficient-evidence": "warning",
+  processing: "accent",
+  transcribing: "accent",
+  diarizing: "accent",
+  analyzing: "accent",
+};
 
 export function PageHeader({
   title,
@@ -27,7 +53,8 @@ export function PageHeader({
 export function LoadingState({ label = "Loading" }: { label?: string }) {
   return (
     <div className="platform-state" role="status">
-      <LoaderCircle size={20} className="animate-spin" />
+      {/* HeroUI's Spinner has its own role="status" and English label; the wrapper must stay the only one. */}
+      <Spinner size="sm" color="current" role={undefined} aria-label={undefined} aria-hidden="true" />
       <span>{label}</span>
     </div>
   );
@@ -58,15 +85,27 @@ export function ErrorState({
 }) {
   const { lang } = useI18n();
   return (
-    <div className="platform-state platform-error-state" role="alert">
-      <AlertCircle size={20} aria-hidden="true" />
-      <span>{describeApiError(error, { lang, fallback, codes }).text}</span>
-    </div>
+    <Alert status="danger" className="platform-state platform-error-state" role="alert">
+      <Alert.Indicator aria-hidden="true" />
+      <Alert.Content>
+        <Alert.Description>{describeApiError(error, { lang, fallback, codes }).text}</Alert.Description>
+      </Alert.Content>
+    </Alert>
   );
 }
 
 export function StatusBadge({ status, label }: { status: string; label?: string }) {
   const { lang } = useI18n();
   const normalized = status.toLowerCase().replaceAll("_", "-");
-  return <span className={`platform-status platform-status-${normalized}`}>{label ?? statusLabel(status, lang)}</span>;
+  // The label holds the text, so it needs the status class too (`getByText` finds the label).
+  return (
+    <Chip
+      color={STATUS_COLORS[normalized] ?? "default"}
+      variant="soft"
+      size="sm"
+      className={`platform-status platform-status-${normalized}`}
+    >
+      <Chip.Label className={`platform-status-${normalized}`}>{label ?? statusLabel(status, lang)}</Chip.Label>
+    </Chip>
+  );
 }

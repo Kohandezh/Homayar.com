@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# HeroUI docs (downloaded, refresh locally)
+.heroui-docs/
