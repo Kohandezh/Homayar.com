@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 from backend.database.saas_models import (
     Entitlement,
     Plan,
+    PlanVersion,
     Subscription,
     SubscriptionStatus,
     UsageEvent,
 )
+from backend.services.tenancy_service import DEMO_PLAN_KEY
 
 CURRENT_SUBSCRIPTION_STATUSES = (
     SubscriptionStatus.ACTIVE,
@@ -29,6 +31,9 @@ class BillingConfigurationError(RuntimeError):
 class CurrentBilling:
     subscription: Subscription | None
     plan: Plan | None
+    # The terms the subscription was granted under (its pinned plan version),
+    # which a later publish on the plan does not change.
+    version: PlanVersion | None
 
 
 @dataclass(frozen=True)
@@ -69,20 +74,21 @@ def get_current_billing(
         if starts_at > effective_at or (ends_at is not None and ends_at <= effective_at):
             continue
         plan = db.get(Plan, subscription.plan_key)
-        if plan is None:
-            raise BillingConfigurationError("Current subscription references an unknown plan")
-        return CurrentBilling(subscription=subscription, plan=plan)
-    return CurrentBilling(subscription=None, plan=None)
+        version = db.get(PlanVersion, (subscription.plan_key, subscription.plan_version))
+        if plan is None or version is None:
+            raise BillingConfigurationError(
+                "Current subscription references an unknown plan or plan version"
+            )
+        return CurrentBilling(subscription=subscription, plan=plan, version=version)
+    return CurrentBilling(subscription=None, plan=None, version=None)
 
 
-def list_public_plans(db: Session) -> list[Plan]:
-    return list(
-        db.scalars(
-            select(Plan)
-            .where(Plan.is_public.is_(True), Plan.is_active.is_(True))
-            .order_by(Plan.created_at.asc(), Plan.key.asc())
-        )
-    )
+def list_public_plans(db: Session, *, free_demo_enabled: bool) -> list[Plan]:
+    """Public, active plans; the demo plan only while ENABLE_FREE_DEMO is on."""
+    query = select(Plan).where(Plan.is_public.is_(True), Plan.is_active.is_(True))
+    if not free_demo_enabled:
+        query = query.where(Plan.key != DEMO_PLAN_KEY)
+    return list(db.scalars(query.order_by(Plan.created_at.asc(), Plan.key.asc())))
 
 
 def list_usage_snapshots(db: Session, *, workspace_id: str) -> list[Entitlement]:

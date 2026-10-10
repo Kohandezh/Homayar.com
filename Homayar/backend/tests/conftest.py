@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 
 from backend.config import Settings
 from backend.database.relational import reset_database_state
+from backend.database.saas_models import Plan, PlanVersion, Subscription
 from backend.main import create_app
 from backend.services.rate_limit_service import RateLimiter
 from backend.tests._database import (
@@ -18,6 +20,7 @@ from backend.tests._database import (
     TEST_DATABASE_ENV,
     configured_database_url,
     describe_database_url,
+    inspection_session_factory,
     is_postgres_url,
     postgres_required,
     test_database_url,
@@ -212,3 +215,51 @@ def login_user(client: TestClient, credentials: dict[str, str]) -> dict:
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def pin_negotiated_plan(workspace_id: str, key: str, terms: object) -> None:
+    """An operator pins one workspace's subscription to a private plan ``key``.
+
+    The plan (version 1 holding ``terms``) is created on first use; other
+    workspaces keep their pins.
+    """
+    with inspection_session_factory()() as db:
+        if db.get(Plan, key) is None:
+            db.add(
+                Plan(
+                    key=key,
+                    name=key,
+                    is_public=False,
+                    is_active=True,
+                    entitlements_json=terms,
+                    display_json={},
+                    current_version=1,
+                )
+            )
+            db.flush()
+            db.add(
+                PlanVersion(
+                    plan_key=key,
+                    version=1,
+                    name=key,
+                    is_public=False,
+                    entitlements_json=terms,
+                    source="operator",
+                )
+            )
+            db.flush()
+        db.execute(
+            update(Subscription)
+            .where(Subscription.workspace_id == workspace_id)
+            .values(plan_key=key, plan_version=1)
+        )
+        db.commit()
+
+
+def grant_admin_seats(workspace_id: str, seats: int = 50) -> None:
+    """Give one workspace room for admins (HOM-167 F1).
+
+    The free demo has one admin seat, which the owner holds.  Tests that add
+    admins to a demo workspace pin it to a negotiated plan with ``seats`` seats.
+    """
+    pin_negotiated_plan(workspace_id, f"negotiated_seats_{seats}", {"seats": seats})

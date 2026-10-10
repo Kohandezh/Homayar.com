@@ -273,6 +273,7 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
         "oauth_challenges",
         "otp_challenges",
         "plans",
+        "plan_versions",
         "model_manifests",
         "provider_health",
         "alembic_version",
@@ -292,6 +293,7 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "model_manifests",
     "ai_policy_versions",
     "run_policy_snapshots",
+    "plan_versions",
 )
 
 

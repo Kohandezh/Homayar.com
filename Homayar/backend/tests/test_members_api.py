@@ -28,6 +28,7 @@ from backend.tests._database import (
     test_database_url,
 )
 from backend.tests._transport import APP_REDIS_URL
+from backend.tests.conftest import grant_admin_seats
 
 
 @pytest.fixture
@@ -296,6 +297,7 @@ def test_member_roles_removal_csrf_and_hierarchy(
         name="Role Member",
     )
     owner_workspace_id = owner_session["workspaces"][0]["id"]
+    grant_admin_seats(owner_workspace_id)  # the test promotes a member to admin
     member_workspace_id = member_session["workspaces"][0]["id"]
     delivered: dict[str, str] = {}
 

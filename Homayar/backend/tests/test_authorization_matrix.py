@@ -31,7 +31,7 @@ from backend.security import context as ctx
 from backend.security.authorization import GRANTABLE_ROLES, ROLE_PERMISSIONS, Permission
 from backend.security.context import ACCESS_COOKIE, CSRF_COOKIE, REFRESH_COOKIE
 from backend.tests._database import inspection_session_factory
-from backend.tests.conftest import login_user, register_user
+from backend.tests.conftest import grant_admin_seats, login_user, register_user
 
 MATRIX_DOC = Path(__file__).resolve().parents[2] / "docs" / "security" / "authorization-matrix.md"
 ROLE_COLUMNS = (
@@ -144,6 +144,8 @@ def _workspace_with_roles(
     owner_session = login_user(client, owner_credentials)
     owner_cookies = _cookies(client)
     workspace_id = owner_session["workspaces"][0]["id"]
+    if "admin" in roles.values():
+        grant_admin_seats(workspace_id)  # the demo's one seat is the owner's
     owner = _Persona(client, workspace_id, owner_session, owner_cookies)
 
     personas: dict[str, _Persona] = {}

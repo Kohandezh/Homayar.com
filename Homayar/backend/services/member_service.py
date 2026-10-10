@@ -23,6 +23,7 @@ from backend.database.tenant_context import (
 from backend.security.authorization import can_grant, can_manage_member
 from backend.security.normalization import normalize_email
 from backend.security.tokens import random_token, token_digest
+from backend.services.seat_service import consumes_seat, lock_seats, seat_available
 
 
 class MemberServiceError(Exception):
@@ -73,6 +74,11 @@ class InvitationRevokedError(MemberServiceError):
 class InvitationAcceptedError(MemberServiceError):
     code = "invitation_already_accepted"
     public_message = "The invitation has already been accepted"
+
+
+class SeatLimitReachedError(MemberServiceError):
+    code = "seat_limit_reached"
+    public_message = "The workspace plan has no free admin seat"
 
 
 @dataclass(frozen=True)
@@ -188,6 +194,10 @@ def create_invitation(
     )
     if pending is not None:
         raise PendingInvitationError
+    if consumes_seat(role) and not seat_available(
+        db, workspace_id=workspace_id, include_pending_invitations=True, now=now
+    ):
+        raise SeatLimitReachedError
 
     raw_token = random_token(32)
     invitation = WorkspaceInvitation(
@@ -273,6 +283,8 @@ def change_member_role(
     # the target's *current* role; otherwise an admin could escalate a member.
     if not can_grant(actor_role, new_role):
         raise MemberOperationForbiddenError
+    if consumes_seat(new_role):
+        lock_seats(db, workspace_id=workspace_id)
     target = _get_member_for_update(
         db,
         workspace_id=workspace_id,
@@ -283,6 +295,10 @@ def change_member_role(
         actor_role=actor_role,
         target=target,
     )
+    if consumes_seat(new_role, target) and not seat_available(
+        db, workspace_id=workspace_id, include_pending_invitations=True
+    ):
+        raise SeatLimitReachedError
 
     previous_role = target.role
     target.role = new_role
@@ -385,6 +401,8 @@ def accept_invitation(
     )
     if workspace is None:
         raise InvitationNotFoundError
+    if consumes_seat(invitation.role):
+        lock_seats(db, workspace_id=invitation.workspace_id)
 
     membership = db.scalar(
         select(Membership)
@@ -394,6 +412,16 @@ def accept_invitation(
         )
         .with_for_update()
     )
+    # An owner membership is never changed below, so it takes no new seat.
+    owner_kept = membership is not None and membership.role == WorkspaceRole.OWNER
+    if (
+        not owner_kept
+        and consumes_seat(invitation.role, membership, now=now)
+        and not seat_available(
+            db, workspace_id=invitation.workspace_id, include_pending_invitations=False, now=now
+        )
+    ):
+        raise SeatLimitReachedError
     if membership is None:
         membership = Membership(
             workspace_id=invitation.workspace_id,
