@@ -10,13 +10,13 @@ VALIDATED requires passing evidence on the recorded SHA. Historical WP statuses 
 
 | Field | Value |
 | --- | --- |
-| Updated (UTC) | 2026-10-02 (Phase 1 checkpoint on `backend/infra-freeze`; see §J) |
+| Updated (UTC) | 2026-10-09 (Core Baseline Freeze at main `ecd77cc`; see §K) |
 | Repository | github.com/Kohandezh/Homayar.com (monorepo; product in `Homayar/`, ADR 0033) |
 | Working branch | `feat/backend-p0-wave` from main `88073c8` (merge of PR #6) |
 | Migration head | `a1c3e5f7b9d2` (P0 wave; 31 linear migrations; main before merge: `f5b1d7c3a9e2`) |
 | Runtime | Python 3.12, FastAPI, SQLAlchemy 2, Alembic, Celery 5 + Redis |
 | CI services | PostgreSQL 17, Redis 7.4, ffmpeg 6.1.1 (Ubuntu 24.04) |
-| Last validated main | `fd2d298`/PR #6 run 36294427694: 716 passed, 46 skipped |
+| Last validated main | `ecd77cc` locally (§K): 2346 passed, 45 skipped; last CI-validated: `fd2d298`/PR #6 run 36294427694 (716 passed, 46 skipped) |
 
 ## B. Authoritative repository map (backend = `Homayar/backend`)
 
@@ -90,7 +90,7 @@ Integrator-exclusive: migrations, `saas_models.py`, `rls.py`, `authorization.py`
 
 ## F. Frozen backend sections
 
-None. Wave P0-1 is PARTIAL: repository-controlled foundations landed; live qualification external.
+Core Baseline at main `ecd77cc` (§K), on local evidence only (not CI-validated). Wave P0-1 is PARTIAL: repository-controlled foundations landed; live qualification external.
 
 ## G. External blockers
 
@@ -179,3 +179,42 @@ Filed HOM-172 (P0, owner decision on controlled-load validation). Phase 2 (local
 blocked until HOM-172 passes the existing gate under controlled load or CI and the freeze is recorded.
 Secret scan: gitleaks over origin/main..HEAD reports 4 generic-api-key hits, all false positives (test fixture name, SHA-256 digests of reference functions, a function signature).
 External blockers unchanged: CI billing, live S3, Padyar contract, Persian corpus, GPU/models, SIP.
+
+## K. Core Baseline Freeze (main `ecd77cc`, 2026-10-09)
+
+```
+CORE BASELINE FROZEN: YES (local evidence; not CI-validated)
+FROZEN SHA: ecd77ccac3622368a0eaafcd77feb1f1a9515647 (main, merge of PR #16)
+HOM-172 GATE: PASS under controlled load (existing 30 s limit unchanged)
+FULL SUITE: 2346 passed / 0 failed / 45 skipped
+MIGRATIONS / DRIFT: PASS (single head a1c3e5f7b9d2; upgrade, alembic check, downgrade -1 / upgrade round trip)
+PHASE 2 (local/on-prem): UNBLOCKED by this record
+```
+
+This closes the §J freeze blocker: HOM-172 asked for the existing gate to pass under controlled load, and the
+freeze to be recorded. Not production-ready; GitHub Actions is still billing-blocked, so nothing here is CI-validated.
+
+Environment: local macOS (i9, 12 threads), Python 3.12.13 venv, native PostgreSQL 16.15 (fsync off, test-only),
+Redis 7.4 in docker (AOF always; `TEST_REDIS_CONTAINER` set, so the broker restart drill ran), ffmpeg on PATH,
+`ci.yml` backend env values. One pytest process over `backend/tests`, as in CI: 15 min 54 s, 1-min load 3.8-6.5.
+
+HOM-172 evidence (`test_text_normalization_owner.py::TestDeliverables::test_golden_module_is_green_fast_and_independent_of_the_registry`):
+
+| Run | 1-min load | Result |
+| --- | --- | --- |
+| golden module alone, run 1 | 2.0 -> 4.3 | 490 passed in 18.75 s |
+| golden module alone, run 2 | 4.3 -> 6.1 | 490 passed in 19.95 s |
+| golden module alone, run 3 | 6.1 -> 6.8 | 490 passed in 21.37 s |
+| gate test alone | 6.8 -> 7.5 | PASS |
+| gate test inside the full suite | 3.8-6.5 | PASS |
+
+Earlier runs the same day, while an unrelated docker workload drove the 1-min load to 79-154, are discarded as
+uncontrolled (gate: 2 PASS, 1 FAIL; golden alone 31-140 s). They confirm the gate is a wall-clock gate that
+depends on host load; CI or a quiet host remains the place to run it.
+
+Skips (45): 41 live-S3 opt-in (BLOCKED_EXTERNAL), 3 Padyar AI Gateway contract tests (contract not supplied),
+1 SQLite file-level backup drill (PostgreSQL uses the simulated restore). None hides a failing test.
+
+Run hygiene: the working tree held 18 untracked paths byte-identical to the legacy files HOM-152 (`d5bbe5d`)
+removed; they were moved out of the tree before the run (on disk they make `test_truthful_outputs` fail).
+External blockers unchanged (§G): CI billing, live S3, Padyar contract, Persian corpus, GPU/models, SIP.
