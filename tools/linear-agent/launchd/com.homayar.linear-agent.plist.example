@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Example launchd job for linear-agent on macOS.
+  1. Copy it to ~/Library/LaunchAgents/com.homayar.linear-agent.plist.
+  2. Replace /Users/YOU/projects/Homayar.com with the path of your main checkout,
+     and check the PATH line (node, npm, git, gh, uv and pnpm must be on it).
+  3. Load it:   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.homayar.linear-agent.plist
+  4. Stop it:   launchctl bootout gui/$(id -u)/com.homayar.linear-agent
+  Keys stay in tools/linear-agent/.env. Do not put them in this file.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.homayar.linear-agent</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/projects/Homayar.com/tools/linear-agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/npm</string>
+    <string>run</string>
+    <string>daemon</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart only after a crash, not after a clean stop. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <!-- Time between SIGTERM and SIGKILL. A ticket can take a long time, so give it room. -->
+  <key>ExitTimeOut</key>
+  <integer>1800</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/Library/Logs/linear-agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/linear-agent.log</string>
+</dict>
+</plist>

@@ -1,0 +1,5 @@
+node_modules/
+# Secrets live here; only .env.example is committed.
+.env
+# Default state dir when LINEAR_AGENT_STATE_DIR points inside this folder.
+.state/

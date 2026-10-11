@@ -17,6 +17,8 @@ const eslintConfig = defineConfig([
     "Homayar/**",
     // Marketing website; it carries its own lint configuration.
     "website/**",
+    // Standalone tools; each carries its own lint configuration and CI job.
+    "tools/**",
   ]),
 ]);
 
