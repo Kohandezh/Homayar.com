@@ -34,6 +34,8 @@ yarn-error.log*
 .env*
 # product environment templates are committed (ADR 0033)
 !Homayar/**/.env.example
+# the linear-agent key template is committed; its .env is not
+!tools/linear-agent/.env.example
 
 # vercel
 .vercel
