@@ -72,6 +72,53 @@ make backend
 make frontend
 ```
 
+### Demo seeding
+
+`make demo-seed` fills the product database with one believable demo workspace, so the
+product console (Overview, Meetings, Members, Usage, Settings and Audit) can be shown to
+companies without real uploads.
+
+```bash
+uv run alembic upgrade head    # the schema must exist first
+ENVIRONMENT=development make demo-seed
+```
+
+What it creates:
+
+- One organization and one workspace with a Persian name, on the `business` plan, with
+  audio and concurrent-job quotas for the current month.
+- One account per workspace role (owner, admin, member, viewer) on the reserved
+  `demo.example.com` domain. The admin, member and viewer join through the invitation flow.
+- Two teams (Sales, Support), each with a supervisor and an agent.
+- 30 short meetings in Persian and English. The real job processor runs them with scripted
+  in-process providers (marked as mock), so they have transcripts, summaries, action items,
+  evidence and quality data. Some meetings are completed, some partial, failed, processing
+  or queued, and one job is dead-lettered so the replay button shows.
+- Usage events, one API key, two share links, and audit history for all of the above.
+
+The recordings are a few seconds of generated silence. No real audio, no network calls.
+
+The command prints the console URL and the logins. All four accounts share one password:
+
+```text
+owner@demo.example.com   Homayar-Demo-1405
+admin@demo.example.com   Homayar-Demo-1405
+member@demo.example.com  Homayar-Demo-1405
+viewer@demo.example.com  Homayar-Demo-1405
+```
+
+Running it again changes nothing: every object is found by a fixed key and skipped.
+If a run is interrupted while it processes meetings, start again from a fresh database.
+
+It only runs when `ENVIRONMENT` is `development` or `test`. In `production` it prints a
+refusal and exits with a non-zero code before it opens a database connection, because demo
+accounts with a public password must never exist there. It also refuses `staging`: staging
+requires qualified model manifests, which the scripted demo providers do not have.
+
+The two `processing` meetings hold a worker lease. If a Celery worker runs against the same
+database, it may pick those jobs up after the lease expires, and the two `queued` jobs when
+their dispatch is swept, and process them with the configured providers.
+
 ### Access
 
 | Service | URL |
