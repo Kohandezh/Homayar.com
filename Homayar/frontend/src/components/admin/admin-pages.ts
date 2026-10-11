@@ -7,6 +7,7 @@ import type { AdminPath } from "@/lib/navigation";
  * guard and the sidebar all come from ADMIN_NAV and need no change.
  */
 export const ADMIN_PAGES: Partial<Record<AdminPath, LazyExoticComponent<ComponentType>>> = {
+  "/admin": lazy(() => import("@/components/admin/AdminOverviewPage")),
   "/admin/members": lazy(() => import("@/components/platform/MembersPage")),
   "/admin/usage": lazy(() => import("@/components/platform/UsagePage")),
   "/admin/settings": lazy(() => import("@/components/platform/SettingsPage")),

@@ -679,3 +679,12 @@ interface UpdateWorkspaceSettingsShape {
 }
 
 export type UpdateWorkspaceSettingsInput = AtLeastOne<UpdateWorkspaceSettingsShape>;
+
+/** One dependency check of GET /readyz (served at the server root, not under /api/v1). */
+export type ReadinessCheckState = "ready" | "unavailable";
+
+/** GET /readyz: 200 with `ready`, or 503 with `not_ready` and the same shape. */
+export interface ReadinessResponse {
+  status: "ready" | "not_ready";
+  checks: Record<string, ReadinessCheckState>;
+}

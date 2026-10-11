@@ -5,9 +5,9 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
-import type { AxiosResponse } from "axios";
+import { isAxiosError, type AxiosResponse } from "axios";
 
-import api from "@/lib/api";
+import api, { API_BASE_URL } from "@/lib/api";
 import { apiErrorInfo } from "@/lib/api-errors";
 import type {
   ActionItem,
@@ -35,6 +35,7 @@ import type {
   MemberListResponse,
   PiiRevealResponse,
   PlanCatalogResponse,
+  ReadinessResponse,
   ProcessingJob,
   SearchParams,
   SearchResponse,
@@ -164,6 +165,7 @@ export const platformQueryKeys = {
     ["platform", "admin", "audit-events", params] as const,
   auditEventsRoot: () => ["platform", "admin", "audit-events"] as const,
   workspaceSettings: () => ["platform", "admin", "workspace-settings"] as const,
+  readiness: () => ["platform", "readiness"] as const,
 };
 
 export async function listMeetings(
@@ -956,5 +958,46 @@ export function useUpdateWorkspaceSettings() {
     onSuccess: (settings) => {
       queryClient.setQueryData(platformQueryKeys.workspaceSettings(), settings);
     },
+  });
+}
+
+/** The server root for `/readyz`: the API base without its `/api/v1` suffix. */
+export function readinessBaseUrl(apiBaseUrl: string = API_BASE_URL): string {
+  return apiBaseUrl.replace(/\/api\/v1$/, "");
+}
+
+function isReadinessBody(value: unknown): value is ReadinessResponse {
+  if (!value || typeof value !== "object") return false;
+  const { status, checks } = value as { status?: unknown; checks?: unknown };
+  return (status === "ready" || status === "not_ready") && Boolean(checks) && typeof checks === "object";
+}
+
+/**
+ * GET /readyz at the server root. A 503 carries the same body with
+ * `status: "not_ready"`, so it is an answer, not a failure; it is not ready
+ * whatever its body says. A network error, any other status or a body
+ * without a known `status` stays an error.
+ */
+export async function getReadiness(signal?: AbortSignal): Promise<ReadinessResponse> {
+  const config = signal ? { baseURL: readinessBaseUrl(), signal } : { baseURL: readinessBaseUrl() };
+  let data: unknown;
+  try {
+    data = (await api.get<unknown>("/readyz", config)).data;
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 503 && isReadinessBody(error.response.data)) {
+      return { ...error.response.data, status: "not_ready" };
+    }
+    throw error;
+  }
+  if (!isReadinessBody(data)) throw new Error("Unexpected /readyz response body");
+  return data;
+}
+
+/** No retries: a failed check shows "status unknown" at once instead of after the retry delays. */
+export function useReadiness() {
+  return useQuery({
+    queryKey: platformQueryKeys.readiness(),
+    queryFn: ({ signal }) => getReadiness(signal),
+    retry: false,
   });
 }

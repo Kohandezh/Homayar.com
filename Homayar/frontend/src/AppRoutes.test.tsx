@@ -4,6 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { useLocation } from "react-router-dom";
 import api from "@/lib/api";
 import { AuthContext, useAuth } from "@/lib/auth-context";
+import { ADMIN_PAGES } from "@/components/admin/admin-pages";
 import { ADMIN_NAV } from "@/lib/navigation";
 import { AppRoutes } from "@/AppRoutes";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";
@@ -160,12 +161,9 @@ describe("admin pages", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Settings and audit" })).toBeInTheDocument();
   });
 
-  it("shows the shared coming-soon page for the other 8 paths, in both languages", async () => {
+  it("shows the shared coming-soon page for every admin path without a page, in both languages", async () => {
     pendingReads();
-    const placeholders = ADMIN_NAV.filter(
-      (entry) => !["/admin/members", "/admin/usage", "/admin/settings"].includes(entry.path),
-    );
-    expect(placeholders).toHaveLength(8);
+    const placeholders = ADMIN_NAV.filter((entry) => !(entry.path in ADMIN_PAGES));
     for (const entry of placeholders) {
       for (const lang of ["en", "fa"] as const) {
         const view = renderApp(entry.path, workspace("owner"), lang);
