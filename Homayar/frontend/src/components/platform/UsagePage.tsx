@@ -11,7 +11,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { formatAudioSeconds } from "@/lib/format";
-import { roleCan } from "@/lib/roles";
+import { useCan } from "@/lib/use-can";
 import AllowanceNotice from "@/components/platform/AllowanceNotice";
 import {
   useBillingUsage,
@@ -382,7 +382,7 @@ export default function UsagePage() {
   const { workspace } = useAuth();
   const { lang } = useI18n();
   const isFa = lang === "fa";
-  const canReadBilling = roleCan(workspace?.role).readBilling;
+  const canReadBilling = useCan().readBilling;
 
   return (
     <main className="platform-page platform-usage-page">

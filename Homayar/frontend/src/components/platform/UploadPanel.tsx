@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { formatAudioSeconds, formatBytes, formatClock } from "@/lib/format";
 import { useBillingUsage, useUploadMeeting } from "@/lib/platform-api";
-import { roleCan } from "@/lib/roles";
+import { useCan } from "@/lib/use-can";
 import { classifyUploadFailure, type UploadFailure } from "@/lib/upload-errors";
 import { ACCEPTED_EXTENSIONS, UPLOAD_COPY } from "@/components/platform/upload-copy";
 
@@ -40,7 +40,7 @@ export default function UploadPanel() {
   const { user } = useAuth();
   const { lang } = useI18n();
   const copy = UPLOAD_COPY[lang];
-  const can = roleCan(user?.role);
+  const can = useCan();
   const verified = Boolean(user?.email_verified || user?.phone_verified);
   const upload = useUploadMeeting();
   const usage = useBillingUsage(can.readBilling && can.createMeeting);

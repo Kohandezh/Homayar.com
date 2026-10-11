@@ -4,7 +4,7 @@ import type { AxiosRequestConfig } from "axios";
 import api from "@/lib/api";
 import { platformQueryKeys } from "@/lib/platform-api";
 import MeetingResults from "@/components/platform/MeetingResults";
-import { FIXTURE_USER, apiError, okResponse, renderConsole, testQueryClient } from "@/test/fixtures";
+import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole, testQueryClient } from "@/test/fixtures";
 import type { MeetingDetail, Transcript } from "@/types/platform";
 
 const T = "2026-09-24T12:00:00Z";
@@ -133,7 +133,7 @@ function renderResults(role: "owner" | "member" | "viewer" = "owner", queryClien
   return renderConsole(<MeetingResults meeting={MEETING} />, {
     lang: "en",
     queryClient,
-    auth: { status: "authenticated", user: { ...FIXTURE_USER, role } },
+    auth: { status: "authenticated", user: FIXTURE_USER, workspace: { ...FIXTURE_WORKSPACE, role } },
   });
 }
 

@@ -13,9 +13,8 @@ import {
   useMeetings,
 } from "@/lib/platform-api";
 import { useI18n } from "@/lib/i18n-context";
-import { useAuth } from "@/lib/auth-context";
 import { formatAudioSeconds, formatDuration } from "@/lib/format";
-import { roleCan } from "@/lib/roles";
+import { useCan } from "@/lib/use-can";
 import AllowanceNotice from "@/components/platform/AllowanceNotice";
 import type {
   BillingUsageSnapshot,
@@ -260,8 +259,7 @@ function MeetingRow({
 
 export default function OverviewPage() {
   const { lang } = useI18n();
-  const { user } = useAuth();
-  const can = roleCan(user?.role);
+  const can = useCan();
   const copy = COPY[lang];
   const meetingsQuery = useMeetings({ limit: 8 });
   const usageQuery = useBillingUsage(can.readBilling);

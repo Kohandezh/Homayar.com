@@ -7,7 +7,8 @@ export interface AuthUser {
   email_verified: boolean;
   phone_verified: boolean;
   is_active: boolean;
-  role?: WorkspaceRole;
+  /** Platform-level role (HOM-184), separate from the workspace role. */
+  system_role?: "user" | "operator";
 }
 
 export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
@@ -17,10 +18,15 @@ export interface AuthWorkspace {
   organization_id: string;
   name: string;
   role: WorkspaceRole;
+  /**
+   * Permission strings of this membership (HOM-184). When present, the only
+   * source of truth for the workspace; when absent, the role decides.
+   */
+  permissions?: string[];
 }
 
 export interface AuthSession {
-  user: Omit<AuthUser, "role">;
+  user: AuthUser;
   workspaces: AuthWorkspace[];
   access_expires_in: number;
   requires_verification: boolean;

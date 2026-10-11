@@ -23,14 +23,9 @@ interface ErrorPayload {
   message?: string;
 }
 
+/** The role lives on each workspace (AuthWorkspace.role), never on the user. */
 function userFromSession(session: AuthSession): AuthUser {
-  return { ...session.user, role: session.workspaces[0]?.role };
-}
-
-export function userForWorkspace(session: AuthSession, workspaceId?: string | null): AuthUser {
-  const workspace =
-    session.workspaces.find((candidate) => candidate.id === workspaceId) ?? session.workspaces[0];
-  return { ...session.user, role: workspace?.role };
+  return session.user;
 }
 
 export async function getCurrentSession() {

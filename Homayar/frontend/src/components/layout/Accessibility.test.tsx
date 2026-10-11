@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import api from "@/lib/api";
 import { formatDuration } from "@/lib/format";
@@ -18,7 +18,7 @@ describe("keyboard and RTL affordances", () => {
     expect(formatDuration(3723, "en")).toBe("1:02:03");
   });
 
-  it("closes the mobile navigation drawer with Escape", () => {
+  it("closes the mobile navigation drawer with Escape", async () => {
     renderConsole(
       <Routes>
         <Route element={<AppLayout />}>
@@ -31,10 +31,11 @@ describe("keyboard and RTL affordances", () => {
       },
     );
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-    const drawer = document.querySelector(".workspace-sidebar")!;
-    expect(drawer).toHaveClass("is-open");
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(drawer).not.toHaveClass("is-open");
+    // The HeroUI drawer is a modal dialog; React Aria listens for Escape on it.
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+    expect(drawer).toBeInTheDocument();
+    fireEvent.keyDown(drawer, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
   });
 
   it("moves focus into the audited-view confirmation", async () => {
@@ -55,7 +56,7 @@ describe("keyboard and RTL affordances", () => {
     const meeting = { id: "m-1", status: "completed", quality: null, latest_job: null } as unknown as MeetingDetail;
     renderConsole(<MeetingResults meeting={meeting} />, {
       lang: "en",
-      auth: { status: "authenticated", user: FIXTURE_USER },
+      auth: { status: "authenticated", user: FIXTURE_USER, workspace: FIXTURE_WORKSPACE },
     });
     expect(await screen.findByRole("region", { name: "Personal data masking" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show original transcript" }));

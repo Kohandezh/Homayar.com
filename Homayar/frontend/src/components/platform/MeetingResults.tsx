@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Clipboard, Eye, EyeOff, FileDown, Link2, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { apiErrorInfo } from "@/lib/api-errors";
-import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { formatDate, formatDuration, formatNumber } from "@/lib/format";
 import {
@@ -23,7 +22,7 @@ import {
   useTranscript,
   useUpdateAction,
 } from "@/lib/platform-api";
-import { roleCan } from "@/lib/roles";
+import { useCan } from "@/lib/use-can";
 import { statusLabel } from "@/lib/status-labels";
 import type {
   ActionPriority,
@@ -111,10 +110,9 @@ function segmentAt(segments: TranscriptSegment[], atMs: number): TranscriptSegme
 }
 
 export default function MeetingResults({ meeting, atMs = null }: { meeting: MeetingDetail; atMs?: number | null }) {
-  const { user } = useAuth();
   const { lang } = useI18n();
   const copy = RESULTS_COPY[lang];
-  const can = roleCan(user?.role);
+  const can = useCan();
   const queryClient = useQueryClient();
   const meetingId = meeting.id;
   const [tab, setTab] = useState<ResultsTab>("summary");
