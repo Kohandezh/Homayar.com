@@ -195,6 +195,12 @@ def isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
 
 
+@pytest.fixture(autouse=True)
+def audit_logger_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Earlier in-process Alembic runs (fileConfig) disable loggers that already exist."""
+    monkeypatch.setattr(logging.getLogger("backend.config"), "disabled", False)
+
+
 def production(**overrides: object) -> dict[str, object]:
     """A production configuration with TLS on all four hops (the Neo4j projection on)."""
     kwargs: dict[str, object] = {
