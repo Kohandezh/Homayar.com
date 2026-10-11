@@ -308,14 +308,16 @@ jobs:
 
       - name: Validate cloud Compose profile
         env:
-          DATABASE_URL: postgresql+psycopg://homayar:ci-only@db.example.invalid:5432/homayar
-          REDIS_URL: rediss://:ci-only@redis.example.invalid:6380/0
+          # Production cloud needs TLS on every hop (HOM-161, docs/security/transport-policy.md).
+          DATABASE_URL: postgresql+psycopg://homayar:ci-only@db.example.invalid:5432/homayar?sslmode=verify-full
+          REDIS_URL: rediss://:ci-only@redis.example.invalid:6380/0?ssl_cert_reqs=required
         run: docker compose --file infra/compose/compose.cloud.yaml --profile cloud config --quiet
 
       - name: Validate cloud Compose profile with Neo4j
         env:
-          DATABASE_URL: postgresql+psycopg://homayar:ci-only@db.example.invalid:5432/homayar
-          REDIS_URL: rediss://:ci-only@redis.example.invalid:6380/0
+          # Production cloud needs TLS on every hop (HOM-161, docs/security/transport-policy.md).
+          DATABASE_URL: postgresql+psycopg://homayar:ci-only@db.example.invalid:5432/homayar?sslmode=verify-full
+          REDIS_URL: rediss://:ci-only@redis.example.invalid:6380/0?ssl_cert_reqs=required
         run: >-
           docker compose
           --file infra/compose/compose.cloud.yaml

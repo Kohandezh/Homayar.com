@@ -232,7 +232,8 @@ def test_factory_rejects_unknown_provider(
 def test_factory_rejects_unconfigured_openai_compatible_provider() -> None:
     settings = _settings(
         environment="production",
-        database_url="postgresql+psycopg://homayar:unused@database.test/homayar",
+        database_url="postgresql+psycopg://homayar:unused@database.test/homayar?sslmode=require",
+        redis_url="rediss://redis.test:6380/0",
         jwt_secret="j" * 48,
         token_pepper="p" * 48,
         secure_cookies=True,

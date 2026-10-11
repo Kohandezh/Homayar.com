@@ -61,8 +61,8 @@ Common required values:
 | `PUBLIC_ORIGIN` | Canonical browser origin, with no trailing slash |
 | `CORS_ORIGINS` | Exact comma-separated allowed origins |
 | `TRUSTED_HOSTS` | Exact comma-separated HTTP hostnames |
-| `DATABASE_URL` | PostgreSQL SQLAlchemy DSN; URL-encode credentials |
-| `REDIS_URL` | Redis DSN; URL-encode credentials and use `rediss://` for managed TLS |
+| `DATABASE_URL` | PostgreSQL SQLAlchemy DSN; URL-encode credentials. Production needs `?sslmode=require`, `verify-ca` or `verify-full` (see below) |
+| `REDIS_URL` | Redis DSN; URL-encode credentials. Production needs `rediss://`, with the `ssl_cert_reqs` query parameter that Celery requires (for example `?ssl_cert_reqs=required`) |
 | `JWT_SECRET` | Random signing secret, at least 32 characters |
 | `TOKEN_PEPPER` | Independent random token pepper, at least 32 characters |
 | `STORAGE_ACCESS_KEY` | Dedicated application object-store identity |
@@ -134,8 +134,18 @@ For example, `JWT_SECRET_FILE=/run/secrets/jwt_secret` replaces `JWT_SECRET`.
 - **Redaction.** None of these values appears in `repr()` or `str()` of the settings object,
   and settings validation errors keep their messages but carry no input values.
 
-Production also refuses two insecure transports (development, test, and staging are
+Production also refuses insecure transports (development, test, and staging are
 unchanged):
+
+- **Internal hops (HOM-161).** PostgreSQL, Redis, Neo4j (with the projection enabled) and object
+  storage need TLS: an accepted `sslmode`, `rediss://`, `bolt+s://`/`neo4j+s://`, and `https://`.
+  Cloud mode has no opt-out. On-premise, an explicit per-hop opt-out
+  (`DATABASE_ALLOW_INSECURE_TRANSPORT`, `REDIS_ALLOW_INSECURE_TRANSPORT`,
+  `NEO4J_ALLOW_INSECURE_TRANSPORT`, `STORAGE_ALLOW_INSECURE_ENDPOINT`) allows plaintext, but only
+  to a server on the same host (loopback, a unix socket, or a single-label Compose service name).
+  Each opt-out in use is logged at startup as `TRANSPORT_TLS_OPT_OUT` with hop names only. The
+  matrix, the accepted forms and the residual risk are in
+  [transport-policy.md](../security/transport-policy.md).
 
 - **SMTP.** With `SMTP_HOST` set, plaintext mail is refused. The rule matches how mail is
   sent: port 465 uses implicit TLS, port 587 always issues STARTTLS (and fails if the server
@@ -148,15 +158,16 @@ unchanged):
   `https://` URL with a host. `http://` in any letter case, any other scheme, and a
   scheme-less `host:port` are refused. An empty endpoint (the provider's default) is
   accepted. The one exception is on-premise:
-  - `STORAGE_ALLOW_INSECURE_ENDPOINT=true` (default `false`) lets production use a non-https
-    endpoint, but only together with `DEPLOYMENT_MODE=onprem`. With `DEPLOYMENT_MODE=cloud`
-    the flag has no effect, and without the flag the endpoint is refused.
+  - `STORAGE_ALLOW_INSECURE_ENDPOINT=true` (default `false`) lets production use an `http://`
+    endpoint on the same host, but only together with `DEPLOYMENT_MODE=onprem`. With
+    `DEPLOYMENT_MODE=cloud` the flag has no effect. Without the flag, or for another host,
+    the endpoint is refused.
   - `compose.onprem.yaml` sets the flag because its bundled MinIO is reached at
     `http://minio:9000` on the internal compose network.
   - Residual risk: object traffic between the API or worker and MinIO, including
     recordings and credentials, is plaintext on that internal network. Keep MinIO off
     published ports and shared networks. Serving the bundled MinIO over TLS, which retires
-    the flag, is a planned follow-up.
+    the flag, needs the certificate decision in HOM-196.
   - Ambient endpoint overrides never reach the S3 client: it is built with
     `ignore_configured_endpoint_urls`, so `AWS_ENDPOINT_URL`, `AWS_ENDPOINT_URL_S3` and an
     `endpoint_url` in the shared AWS config (profile or `services` section) are ignored and
@@ -327,8 +338,9 @@ APOC is intentionally not downloaded at startup. Bake and scan any required plug
 derived Neo4j image so on-premise startup does not depend on outbound package downloads.
 
 The same overlay can be composed with `compose.cloud.yaml` for a single-host parity or
-development environment. A production cloud deployment should normally use a managed or
-separately operated Neo4j endpoint instead of coupling graph storage to an application host:
+development environment. Production cloud refuses the overlay's plaintext `bolt://neo4j:7687`
+(HOM-161): use a managed or separately operated Neo4j endpoint over `bolt+s://` or
+`neo4j+s://` instead of coupling graph storage to an application host:
 
 ```bash
 docker compose \
@@ -428,6 +440,23 @@ the transaction that follows), so behind a transaction-mode pooler use the direc
 role and leave `DATABASE_APP_ROLE` empty.
 
 ## Upgrade and Rollback
+
+**Mandatory internal TLS (HOM-161).** From this release, production refuses to start with
+a plaintext internal hop. Before upgrading:
+
+- Installs that use the bundled `compose.onprem.yaml` need no action. The profile sets the
+  per-hop opt-outs, and `DATABASE_URL`/`REDIS_URL` already name the `postgres` and `redis`
+  services. Check that they do.
+- Other on-premise installs either move each hop to TLS, or set its opt-out
+  (`DATABASE_ALLOW_INSECURE_TRANSPORT`, `REDIS_ALLOW_INSECURE_TRANSPORT`,
+  `NEO4J_ALLOW_INSECURE_TRANSPORT`, `STORAGE_ALLOW_INSECURE_ENDPOINT`) for a server on the same
+  host. An existing `STORAGE_ALLOW_INSECURE_ENDPOINT=true` with an `http://` endpoint on another
+  host is now refused: serve that endpoint over TLS.
+- Cloud installs need `DATABASE_URL` with `sslmode=require`, `verify-ca` or `verify-full`, a
+  `rediss://` `REDIS_URL` (with `ssl_cert_reqs`), and `bolt+s://`/`neo4j+s://` when the Neo4j
+  projection is enabled.
+- After the upgrade, check the API, worker and scheduler logs for `TRANSPORT_TLS_OPT_OUT`. It
+  lists every hop that still runs without TLS.
 
 1. Take PostgreSQL and object-store backups and verify their checksums.
 2. Record current image digests and migration revision.

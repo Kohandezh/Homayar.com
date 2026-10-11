@@ -61,7 +61,8 @@ def _settings(environment: str) -> Settings:
     overrides: dict = {"environment": environment, "_env_file": None}
     if environment == "production":
         overrides.update(
-            database_url="postgresql+psycopg://db.example.invalid/homayar",
+            database_url="postgresql+psycopg://db.example.invalid/homayar?sslmode=require",
+            redis_url="rediss://redis.example.invalid:6380/0",
             jwt_secret="j" * 48,
             token_pepper="p" * 48,
             secure_cookies=True,

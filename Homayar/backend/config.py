@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ipaddress
+import logging
 import os
 import re
 import stat
@@ -7,7 +9,7 @@ from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import Field, PlainSerializer, SerializationInfo, ValidationError, model_validator
 from pydantic.fields import FieldInfo
@@ -256,6 +258,126 @@ def _is_https_url(url: str) -> bool:
         return False
 
 
+# Internal-hop transport policy (HOM-161, docs/security/transport-policy.md).
+_POSTGRES_TLS_MODES = frozenset({"require", "verify-ca", "verify-full"})
+# A Compose service name: one DNS label starting with a letter, so that an all-digit or
+# hexadecimal label (which resolvers read as an IPv4 address) never counts as one.
+_SERVICE_NAME = re.compile(r"[A-Za-z](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9])?")
+
+
+def _is_same_host(host: str) -> bool:
+    """True for a server reached without crossing to another machine (HOM-161).
+
+    That is a loopback name or address, a unix socket path, or a single-label name such as
+    a Compose service (``postgres``, ``redis``, ``minio``, ``neo4j``) on this host's internal
+    network. A dotted name or any other address is treated as another machine.
+    """
+    if host.startswith("/"):
+        return True
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return bool(_SERVICE_NAME.fullmatch(host))
+
+
+def _query_hosts(values: list[str]) -> list[str]:
+    """Host names from libpq ``host``/``hostaddr`` query values (comma lists, ``host:port``)."""
+    hosts = []
+    for value in values:
+        for item in value.split(","):
+            item = item.strip()
+            if item.startswith("["):
+                item = item[1 : item.find("]")] if "]" in item else item
+            elif not item.startswith("/") and item.count(":") == 1:
+                item = item.split(":", 1)[0]
+            hosts.append(item)
+    return hosts
+
+
+# A hop's transport: "tls", "plaintext" (with the hosts it reaches) or "invalid".
+_Transport = tuple[Literal["tls", "plaintext", "invalid"], list[str]]
+
+
+def _postgres_transport(url: str) -> _Transport:
+    """TLS when every ``sslmode`` is require/verify-ca/verify-full (and at least one is set).
+
+    Parsed with SQLAlchemy's ``make_url``, the parser the engine uses, so this rule and the
+    connection never read the URL differently (``urlsplit`` disagrees on ``#`` and ``@``).
+    """
+    from sqlalchemy.engine import make_url
+
+    try:
+        parsed = make_url(url)
+    except Exception:  # any parse failure; its message may quote part of the URL
+        return "invalid", []
+    if parsed.database and ("=" in parsed.database or "://" in parsed.database):
+        # libpq can expand a database name that is itself a connection string.
+        return "invalid", []
+    query = {
+        key: (value,) if isinstance(value, str) else tuple(value)
+        for key, value in parsed.query.items()
+    }
+    modes = query.get("sslmode", ())
+    if modes and all(mode in _POSTGRES_TLS_MODES for mode in modes):
+        return "tls", []
+    hosts = [parsed.host] if parsed.host else []
+    hosts += _query_hosts([*query.get("host", ()), *query.get("hostaddr", ())])
+    if "service" in query:
+        hosts.append("")  # pg_service.conf names the server: it cannot be checked here
+    return "plaintext", hosts
+
+
+def _redis_transport(url: str) -> _Transport:
+    try:
+        parts = urlsplit(url)
+        hostname = parts.hostname
+    except ValueError:
+        return "invalid", []
+    scheme = parts.scheme.lower()
+    if scheme == "rediss":
+        return "tls", []
+    if scheme == "redis":
+        # Celery's Redis result backend lets query parameters override the URL's host.
+        overrides = [
+            value
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            if key in ("host", "hostname")
+        ]
+        return "plaintext", ([hostname] if hostname else []) + overrides
+    if scheme == "unix" and parts.path:
+        return "plaintext", [parts.path]
+    return "invalid", []
+
+
+def _neo4j_transport(uri: str) -> _Transport:
+    """``bolt+s``/``neo4j+s`` verify the server certificate; ``+ssc`` does not and is refused."""
+    try:
+        parts = urlsplit(uri)
+        hostname = parts.hostname
+    except ValueError:
+        return "invalid", []
+    scheme = parts.scheme.lower()
+    if scheme in ("bolt+s", "neo4j+s"):
+        return "tls", []
+    if scheme in ("bolt", "neo4j"):
+        return "plaintext", [hostname] if hostname else []
+    return "invalid", []
+
+
+def _storage_transport(endpoint: str) -> _Transport:
+    if not endpoint or _is_https_url(endpoint):
+        return "tls", []
+    if endpoint[:7].lower() != "http://":
+        return "invalid", []
+    try:
+        hostname = urlsplit(endpoint).hostname
+    except ValueError:
+        return "invalid", []
+    return "plaintext", [hostname] if hostname else []
+
+
 def _ambient_s3_endpoints() -> list[tuple[str, str]]:
     """Where botocore would take an S3 endpoint from outside Homayar's settings.
 
@@ -320,7 +442,13 @@ class Settings(BaseSettings):
     # non-superuser member of homayar_app; set to "homayar_app" when the login
     # role is the migration owner (single-role compose/dev/CI databases).
     database_app_role: str = ""
+    # Production requires TLS on every internal hop (HOM-161, docs/security/transport-policy.md).
+    # On-premise only, and only for a server on the same host (loopback, a unix socket or a
+    # single-label Compose service name), these per-hop opt-outs allow plaintext; every one
+    # in use is logged at startup by hop name. Cloud production cannot opt out.
+    database_allow_insecure_transport: bool = False
     redis_url: SecretSetting = "redis://localhost:6379/0"
+    redis_allow_insecure_transport: bool = False
 
     # AUTH / SECURITY
     jwt_secret: SecretSetting = ""
@@ -356,8 +484,8 @@ class Settings(BaseSettings):
     storage_local_root: str = str(PROJECT_ROOT / "data" / "objects")
     storage_bucket: str = "homayar-private"
     storage_endpoint_url: str = ""
-    # On-premise only: production may reach a non-https endpoint (the bundled
-    # MinIO on the internal compose network). Cloud production cannot opt out.
+    # On-premise only: production may reach an http:// endpoint on the same host (the
+    # bundled MinIO on the internal compose network, HOM-32/HOM-161). Cloud cannot opt out.
     storage_allow_insecure_endpoint: bool = False
     storage_region: str = "us-east-1"
     storage_access_key: SecretSetting = ""
@@ -531,6 +659,7 @@ class Settings(BaseSettings):
 
     # OPTIONAL ENTERPRISE / LEGACY INTEGRATIONS
     neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_allow_insecure_transport: bool = False
     neo4j_user: str = "neo4j"
     neo4j_password: SecretSetting = ""
     neo4j_database: str = "neo4j"
@@ -689,6 +818,7 @@ class Settings(BaseSettings):
             keyring = parse_keyring(self.pii_mapping_keys)  # raises ValueError
             if self.pii_mapping_active_key_id not in keyring:
                 raise ValueError("PII_MAPPING_ACTIVE_KEY_ID must name one of PII_MAPPING_KEYS")
+        plaintext_hops: list[str] = []
         if self.environment == "production":
             if len(self.jwt_secret) < 32 or len(self.token_pepper) < 32:
                 raise ValueError("JWT_SECRET and TOKEN_PEPPER must each be at least 32 characters")
@@ -711,17 +841,14 @@ class Settings(BaseSettings):
                     "SMTP_HOST is set, so production mail needs TLS: use SMTP_PORT 465 "
                     "(implicit TLS) or 587 (STARTTLS), or set SMTP_USE_TLS=true"
                 )
-            if (
-                self.storage_backend == "s3"
-                and self.storage_endpoint_url
-                and not _is_https_url(self.storage_endpoint_url)
-                and not (self.storage_allow_insecure_endpoint and self.deployment_mode == "onprem")
-            ):
-                raise ValueError(
-                    "STORAGE_ENDPOINT_URL must be an https:// URL in production (leave it "
-                    "empty for the provider's default endpoint); only an on-premise deployment "
-                    "(DEPLOYMENT_MODE=onprem) may allow another endpoint with "
-                    "STORAGE_ALLOW_INSECURE_ENDPOINT=true"
+            if self.storage_backend == "s3":
+                plaintext_hops += self._check_transport(
+                    "object_storage",
+                    "STORAGE_ENDPOINT_URL",
+                    "an https:// URL (leave it empty for the provider's default endpoint)",
+                    "STORAGE_ALLOW_INSECURE_ENDPOINT",
+                    self.storage_allow_insecure_endpoint,
+                    _storage_transport(self.storage_endpoint_url),
                 )
             if self.storage_backend == "s3":
                 insecure = [
@@ -733,6 +860,31 @@ class Settings(BaseSettings):
                         f"(found: {'; '.join(insecure)}). Homayar uses only "
                         "STORAGE_ENDPOINT_URL; unset the override or make it https://"
                     )
+            plaintext_hops += self._check_transport(
+                "postgresql",
+                "DATABASE_URL",
+                "sslmode=require, verify-ca or verify-full",
+                "DATABASE_ALLOW_INSECURE_TRANSPORT",
+                self.database_allow_insecure_transport,
+                _postgres_transport(self.database_url),
+            )
+            plaintext_hops += self._check_transport(
+                "redis",
+                "REDIS_URL",
+                "rediss://",
+                "REDIS_ALLOW_INSECURE_TRANSPORT",
+                self.redis_allow_insecure_transport,
+                _redis_transport(self.redis_url),
+            )
+            if self.enable_neo4j_projection:
+                plaintext_hops += self._check_transport(
+                    "neo4j",
+                    "NEO4J_URI",
+                    "bolt+s:// or neo4j+s://",
+                    "NEO4J_ALLOW_INSECURE_TRANSPORT",
+                    self.neo4j_allow_insecure_transport,
+                    _neo4j_transport(self.neo4j_uri),
+                )
         if self.enable_google_auth and not (self.google_client_id and self.google_client_secret):
             raise ValueError("Google authentication is enabled but credentials are missing")
         if self.enable_phone_auth and not (self.asanak_api_key and self.asanak_sender):
@@ -741,7 +893,52 @@ class Settings(BaseSettings):
             self.storage_bucket and self.storage_access_key and self.storage_secret_key
         ):
             raise ValueError("S3 storage requires bucket and credentials")
+        if plaintext_hops:
+            # The HOM-161 audit line names hops and variables only: the URLs carry
+            # credentials. The logger is created here, not at import, because Alembic's
+            # fileConfig disables every logger that exists before it runs (migrate job).
+            logging.getLogger(__name__).warning(
+                "TRANSPORT_TLS_OPT_OUT deployment_mode=%s hops=%s",
+                self.deployment_mode,
+                ",".join(plaintext_hops),
+            )
         return self
+
+    def _check_transport(
+        self,
+        hop: str,
+        variable: str,
+        tls_form: str,
+        opt_out_variable: str,
+        opt_out: bool,
+        transport: _Transport,
+    ) -> list[str]:
+        """Production rule for one internal hop (HOM-161); messages never carry the value.
+
+        Returns ``["hop(OPT_OUT_VARIABLE)"]`` when an on-premise opt-out lets the hop run in
+        plaintext, for the startup audit line.
+        """
+        kind, hosts = transport
+        if kind == "tls":
+            return []
+        refused = f"{variable} must use {tls_form} in production"
+        if self.deployment_mode == "cloud":
+            raise ValueError(
+                f"{refused}; DEPLOYMENT_MODE=cloud has no plaintext opt-out, so "
+                f"{opt_out_variable} does not apply (HOM-161)"
+            )
+        if kind == "invalid" or not opt_out:
+            raise ValueError(
+                f"{refused}; only an on-premise server on the same host may run without "
+                f"TLS, with {opt_out_variable}=true (HOM-161)"
+            )
+        if not hosts or not all(_is_same_host(host) for host in hosts):
+            raise ValueError(
+                f"{opt_out_variable} covers only a server on the same host (loopback, a unix "
+                f"socket or a single-label Compose service name); {variable} names another "
+                f"or no host, so it must use {tls_form} (HOM-161)"
+            )
+        return [f"{hop}({opt_out_variable})"]
 
 
 @lru_cache
