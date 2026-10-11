@@ -35,10 +35,10 @@ function session(workspaces: AuthWorkspace[]) {
 }
 
 function Probe() {
-  const { workspace, workspaceNotice, user } = useAuth();
+  const { workspace, workspaceNotice } = useAuth();
   return (
     <p>
-      {`workspace=${workspace?.id ?? "none"} role=${user?.role ?? "none"} notice=${workspaceNotice?.workspaceName ?? "none"}`}
+      {`workspace=${workspace?.id ?? "none"} role=${workspace?.role ?? "none"} notice=${workspaceNotice?.workspaceName ?? "none"}`}
     </p>
   );
 }

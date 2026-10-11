@@ -17,6 +17,7 @@ import {
   auditTargetLabel,
 } from "@/lib/audit-labels";
 import { useAuth } from "@/lib/auth-context";
+import { useCan } from "@/lib/use-can";
 import type { ErrorCodeMessages } from "@/lib/error-messages";
 import { formatDate, formatNumber, localizeDigits, parseWholeNumber } from "@/lib/format";
 import { useI18n } from "@/lib/i18n-context";
@@ -519,7 +520,7 @@ export default function SettingsPage() {
   const { workspace } = useAuth();
   const { lang } = useI18n();
   const isFa = lang === "fa";
-  const canAdminister = workspace?.role === "owner" || workspace?.role === "admin";
+  const canAdminister = useCan().manageWorkspace;
 
   return (
     <main className="platform-page platform-settings-page">

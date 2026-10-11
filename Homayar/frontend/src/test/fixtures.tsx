@@ -23,7 +23,6 @@ export const FIXTURE_USER: AuthUser = {
   email_verified: true,
   phone_verified: false,
   is_active: true,
-  role: "owner",
 };
 
 export const FIXTURE_WORKSPACE: AuthWorkspace = {

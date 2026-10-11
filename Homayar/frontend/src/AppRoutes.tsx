@@ -1,0 +1,122 @@
+import { lazy } from "react";
+import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuth } from "@/lib/auth-context";
+import { useI18n } from "@/lib/i18n-context";
+import { ADMIN_NAV } from "@/lib/navigation";
+import AppLayout from "@/components/layout/AppLayout";
+import AdminGuard from "@/components/layout/AdminGuard";
+import AuthLayout from "@/components/auth/AuthLayout";
+import ComingSoonPage from "@/components/admin/ComingSoonPage";
+import { ADMIN_PAGES } from "@/components/admin/admin-pages";
+
+const LoginPage = lazy(() => import("@/components/auth/LoginPage"));
+const RegisterPage = lazy(() => import("@/components/auth/RegisterPage"));
+const VerifyEmailPage = lazy(() => import("@/components/auth/VerifyEmailPage"));
+const ForgotPasswordPage = lazy(() => import("@/components/auth/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("@/components/auth/ResetPasswordPage"));
+const PhoneOtpRequestPage = lazy(() => import("@/components/auth/PhoneOtpRequestPage"));
+const PhoneOtpVerifyPage = lazy(() => import("@/components/auth/PhoneOtpVerifyPage"));
+
+const OverviewPage = lazy(() => import("@/components/platform/OverviewPage"));
+const MeetingsPage = lazy(() => import("@/components/platform/MeetingsPage"));
+const MeetingDetailPage = lazy(() => import("@/components/platform/MeetingDetailPage"));
+const SearchPage = lazy(() => import("@/components/platform/SearchPage"));
+const InvitationAcceptPage = lazy(() => import("@/components/platform/InvitationAcceptPage"));
+const SharedMeetingPage = lazy(() => import("@/components/platform/SharedMeetingPage"));
+
+function RequireAuth() {
+  const { status, retrySession } = useAuth();
+  const { lang } = useI18n();
+  const location = useLocation();
+
+  if (status === "loading") {
+    return (
+      <div className="session-loading" role="status">
+        <span className="session-loading-mark" aria-hidden="true">H</span>
+        <span>{lang === "fa" ? "در حال بررسی نشست" : "Checking session"}</span>
+      </div>
+    );
+  }
+
+  if (status === "unavailable") {
+    // The API did not answer: the session may still be valid, so this is
+    // neither a sign-in form nor a "session ended" message.
+    return (
+      <div className="session-loading" role="alert">
+        <span className="session-loading-mark" aria-hidden="true">H</span>
+        <span>
+          {lang === "fa"
+            ? "سرویس هُمیار الان پاسخ نمی‌دهد؛ نشست شما حفظ شده است."
+            : "Homayar is not responding right now; your session is kept."}
+        </span>
+        <button type="button" className="platform-button" onClick={retrySession}>
+          {lang === "fa" ? "تلاش دوباره" : "Try again"}
+        </button>
+      </div>
+    );
+  }
+
+  if (status === "anonymous") {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  return <Outlet />;
+}
+
+/** An old admin path: same query and fragment, new place. */
+function MovedTo({ pathname }: { pathname: string }) {
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname, search, hash }} replace />;
+}
+
+function AdminPage({ entry }: { entry: (typeof ADMIN_NAV)[number] }) {
+  const Page = ADMIN_PAGES[entry.path];
+  return Page ? <Page /> : <ComingSoonPage entry={entry} />;
+}
+
+/** Every console route. App.tsx supplies the router and the providers. */
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route element={<AuthLayout />}>
+        <Route path="login" element={<LoginPage />} />
+        <Route path="register" element={<RegisterPage />} />
+        <Route path="verify-email" element={<VerifyEmailPage />} />
+        <Route path="forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="reset-password" element={<ResetPasswordPage />} />
+        <Route path="phone" element={<PhoneOtpRequestPage />} />
+        <Route path="phone/verify" element={<PhoneOtpVerifyPage />} />
+      </Route>
+
+      <Route path="share/:shareToken" element={<SharedMeetingPage />} />
+
+      {/* The admin pages moved under /admin; the target still passes auth, the gate and the guard. */}
+      <Route path="members" element={<MovedTo pathname="/admin/members" />} />
+      <Route path="usage" element={<MovedTo pathname="/admin/usage" />} />
+      <Route path="settings" element={<MovedTo pathname="/admin/settings" />} />
+
+      <Route element={<RequireAuth />}>
+        <Route element={<AppLayout />}>
+          <Route index element={<OverviewPage />} />
+          <Route path="meetings" element={<MeetingsPage />} />
+          <Route path="meetings/:meetingId" element={<MeetingDetailPage />} />
+          <Route path="search" element={<SearchPage />} />
+          <Route path="invitations/accept" element={<InvitationAcceptPage />} />
+          {ADMIN_NAV.map((entry) => (
+            <Route
+              key={entry.path}
+              path={entry.path}
+              element={
+                <AdminGuard permission={entry.permission}>
+                  <AdminPage entry={entry} />
+                </AdminGuard>
+              }
+            />
+          ))}
+        </Route>
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}

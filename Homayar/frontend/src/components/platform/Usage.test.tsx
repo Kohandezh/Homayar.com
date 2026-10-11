@@ -81,13 +81,16 @@ describe("OverviewPage usage", () => {
     const get = mockMeetings();
     const { unmount } = renderConsole(<OverviewPage />, {
       lang: "en",
-      auth: { status: "authenticated", user: { ...FIXTURE_USER, role: "member" } },
+      auth: { status: "authenticated", user: FIXTURE_USER, workspace: { ...FIXTURE_WORKSPACE, role: "member" } },
     });
     expect(screen.getAllByText("Plan usage is visible to workspace owners and administrators.").length).toBeGreaterThan(0);
     expect(get.mock.calls.map(([url]) => url)).not.toContain("/billing/usage");
     expect(screen.getByRole("link", { name: "Upload meeting" })).toBeInTheDocument();
     unmount();
-    renderConsole(<OverviewPage />, { lang: "en", auth: { status: "authenticated", user: { ...FIXTURE_USER, role: "viewer" } } });
+    renderConsole(<OverviewPage />, {
+      lang: "en",
+      auth: { status: "authenticated", user: FIXTURE_USER, workspace: { ...FIXTURE_WORKSPACE, role: "viewer" } },
+    });
     expect(screen.queryByRole("link", { name: "Upload meeting" })).not.toBeInTheDocument();
   });
 });

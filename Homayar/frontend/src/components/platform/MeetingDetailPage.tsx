@@ -7,7 +7,7 @@ import { useI18n } from "@/lib/i18n-context";
 import { API_BASE_URL } from "@/lib/api";
 import { formatDate, formatDuration, languageName } from "@/lib/format";
 import { apiErrorInfo } from "@/lib/api-errors";
-import { roleCan } from "@/lib/roles";
+import { useCan } from "@/lib/use-can";
 import {
   forgetMeetingContent,
   saveDownload,
@@ -150,10 +150,10 @@ export default function MeetingDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { user, workspace } = useAuth();
+  const { workspace } = useAuth();
   const { lang } = useI18n();
   const copy = COPY[lang];
-  const can = roleCan(user?.role);
+  const can = useCan();
   const [searchParams] = useSearchParams();
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState("");

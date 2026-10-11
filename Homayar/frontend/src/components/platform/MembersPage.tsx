@@ -21,6 +21,7 @@ import {
   useRevokeInvitation,
 } from "@/lib/platform-api";
 import { roleLabel } from "@/lib/roles";
+import { useCan } from "@/lib/use-can";
 import type {
   AssignableWorkspaceRole,
   WorkspaceInvitation,
@@ -320,7 +321,7 @@ function MemberRow({
   );
 }
 
-function MemberDirectory({ actorRole }: { actorRole: WorkspaceRole }) {
+function MemberDirectory({ actorRole, canManage }: { actorRole: WorkspaceRole; canManage: boolean }) {
   const { user } = useAuth();
   const { lang } = useI18n();
   const isFa = lang === "fa";
@@ -457,7 +458,7 @@ function MemberDirectory({ actorRole }: { actorRole: WorkspaceRole }) {
                   member={member}
                   actorRole={actorRole}
                   isSelf={member.user_id === user?.id}
-                  manageable={canManageTarget(actorRole, user?.id, member)}
+                  manageable={canManage && canManageTarget(actorRole, user?.id, member)}
                   busy={busy}
                   isFa={isFa}
                   lang={lang}
@@ -533,7 +534,7 @@ function InvitationRow({
   );
 }
 
-function InvitationManagement({ actorRole }: { actorRole: "owner" | "admin" }) {
+function InvitationManagement({ actorRole }: { actorRole: WorkspaceRole }) {
   const { lang } = useI18n();
   const isFa = lang === "fa";
   const invitationsQuery = useInvitations();
@@ -709,8 +710,11 @@ export default function MembersPage() {
   const { workspace } = useAuth();
   const { lang } = useI18n();
   const isFa = lang === "fa";
-  const role = workspace?.role;
-  const canManage = role === "owner" || role === "admin";
+  const can = useCan();
+  const role = can.role;
+  // Invite, change role, remove and revoke need member:manage; the per-row
+  // owner/admin rules in canManageTarget still apply on top.
+  const canManage = can.has("member:manage");
 
   return (
     <main className="platform-page platform-members-page space-y-5">
@@ -732,7 +736,7 @@ export default function MembersPage() {
         />
       ) : (
         <div className={`platform-members-grid grid gap-5 ${canManage ? "2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]" : "grid-cols-1"}`}>
-          <MemberDirectory actorRole={role} />
+          <MemberDirectory actorRole={role} canManage={canManage} />
           {canManage && <InvitationManagement actorRole={role} />}
         </div>
       )}

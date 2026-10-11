@@ -5,7 +5,7 @@ import { Route, Routes } from "react-router-dom";
 import api from "@/lib/api";
 import { classifyUploadFailure } from "@/lib/upload-errors";
 import UploadPanel from "@/components/platform/UploadPanel";
-import { FIXTURE_USER, apiError, networkError, okResponse, renderConsole } from "@/test/fixtures";
+import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, networkError, okResponse, renderConsole } from "@/test/fixtures";
 import type { UploadAcceptedResponse } from "@/types/platform";
 
 describe("classifyUploadFailure", () => {
@@ -93,13 +93,13 @@ const ACCEPTED: UploadAcceptedResponse = {
   idempotent_replay: false,
 };
 
-function renderPanel(user = FIXTURE_USER) {
+function renderPanel(user = FIXTURE_USER, workspace = FIXTURE_WORKSPACE) {
   return renderConsole(
     <Routes>
       <Route path="meetings" element={<UploadPanel />} />
       <Route path="meetings/:id" element={<p>Meeting detail</p>} />
     </Routes>,
-    { route: "/meetings", lang: "en", auth: { status: "authenticated", user } },
+    { route: "/meetings", lang: "en", auth: { status: "authenticated", user, workspace } },
   );
 }
 
@@ -125,10 +125,10 @@ describe("UploadPanel", () => {
 
   it("gates viewers and unverified accounts without calling the API", () => {
     const post = vi.spyOn(api, "post");
-    const { unmount } = renderPanel({ ...FIXTURE_USER, role: "viewer" });
+    const { unmount } = renderPanel(FIXTURE_USER, { ...FIXTURE_WORKSPACE, role: "viewer" });
     expect(screen.getByRole("status")).toHaveTextContent("read-only");
     unmount();
-    renderPanel({ ...FIXTURE_USER, role: "member", email_verified: false });
+    renderPanel({ ...FIXTURE_USER, email_verified: false }, { ...FIXTURE_WORKSPACE, role: "member" });
     expect(screen.getByRole("status")).toHaveTextContent("Verify your email or phone number before uploading.");
     expect(post).not.toHaveBeenCalled();
   });
@@ -255,7 +255,7 @@ describe("UploadPanel", () => {
     expect(await screen.findByText("Processing allowance left: 11 min 50 s (1 min 30 s reserved by uploads in progress).")).toBeInTheDocument();
     unmount();
     get.mockClear();
-    renderPanel({ ...FIXTURE_USER, role: "member" });
+    renderPanel(FIXTURE_USER, { ...FIXTURE_WORKSPACE, role: "member" });
     expect(get).not.toHaveBeenCalled();
     expect(screen.queryByText(/Processing allowance left/)).not.toBeInTheDocument();
   });

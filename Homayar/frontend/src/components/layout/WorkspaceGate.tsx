@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Building2, ShieldAlert } from "lucide-react";
+import { Alert, Button, Link, Surface } from "@heroui/react";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { roleLabel } from "@/lib/roles";
@@ -45,42 +46,56 @@ export default function WorkspaceGate() {
   }, [workspaceNotice]);
 
   return (
-    <section className="platform-page workspace-gate" aria-labelledby="workspace-gate-title">
+    <section className="platform-page max-w-2xl" aria-labelledby="workspace-gate-title">
       <header className="platform-page-header">
         <div>
-          <h1 id="workspace-gate-title" ref={heading} tabIndex={-1}>
+          <h1
+            id="workspace-gate-title"
+            ref={heading}
+            tabIndex={-1}
+            className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-4"
+          >
             {usable.length ? copy.chooseTitle : copy.noneTitle}
           </h1>
         </div>
       </header>
 
       {workspaceNotice && (
-        <div className="workspace-gate-notice" role="alert">
-          <ShieldAlert size={16} aria-hidden="true" />
-          <span>{copy.lost(workspaceNotice.workspaceName)}</span>
-        </div>
+        <Alert status="danger" role="alert" className="mb-4">
+          <Alert.Indicator>
+            <ShieldAlert size={16} aria-hidden="true" />
+          </Alert.Indicator>
+          <Alert.Content>
+            <Alert.Description>{copy.lost(workspaceNotice.workspaceName)}</Alert.Description>
+          </Alert.Content>
+        </Alert>
       )}
 
       {usable.length ? (
         <>
-          <p className="workspace-gate-body">{copy.chooseBody}</p>
-          <ul className="workspace-gate-list">
+          <p className="mt-0 mb-4 text-sm leading-relaxed text-muted">{copy.chooseBody}</p>
+          <ul className="m-0 grid list-none gap-2 p-0">
             {usable.map((candidate) => (
               <li key={candidate.id}>
-                <button type="button" onClick={() => setWorkspace(candidate.id)}>
+                <Button
+                  variant="outline"
+                  fullWidth
+                  className="h-auto min-h-13 justify-start gap-3 py-3 text-start"
+                  onPress={() => setWorkspace(candidate.id)}
+                >
                   <Building2 size={18} aria-hidden="true" />
-                  <strong>{candidate.name}</strong>
-                  <span>{roleLabel(candidate.role, lang)}</span>
-                </button>
+                  <strong className="flex-1 font-semibold [overflow-wrap:anywhere]">{candidate.name}</strong>
+                  <span className="text-xs font-normal text-muted">{roleLabel(candidate.role, lang)}</span>
+                </Button>
               </li>
             ))}
           </ul>
         </>
       ) : (
-        <div className="platform-surface workspace-gate-empty">
-          <p>{copy.noneBody}</p>
-          <a href="/contact">{copy.contact}</a>
-        </div>
+        <Surface className="flex flex-col items-start gap-3 rounded-2xl p-5 text-sm leading-relaxed">
+          <p className="m-0">{copy.noneBody}</p>
+          <Link href="/contact">{copy.contact}</Link>
+        </Surface>
       )}
     </section>
   );

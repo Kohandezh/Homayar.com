@@ -1,35 +1,49 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import {
-  AudioLines,
-  Gauge,
-  LayoutDashboard,
-  LoaderCircle,
-  LogOut,
-  Search,
-  Settings,
-  Users,
-  X,
-} from "lucide-react";
+import { AudioLines, LogOut } from "lucide-react";
+import { Button, Separator, Spinner, buttonVariants } from "@heroui/react";
 import { useAuth } from "@/lib/auth-context";
 import { describeApiError } from "@/lib/error-messages";
-import { useI18n } from "@/lib/i18n-context";
+import { useI18n, type Lang } from "@/lib/i18n-context";
+import { ADMIN_NAV, MAIN_NAV, type MainNavEntry } from "@/lib/navigation";
+import { useCan } from "@/lib/use-can";
 
-const navItems = [
-  { to: ".", label: "Overview", labelFa: "نمای کلی", icon: LayoutDashboard },
-  { to: "meetings", label: "Meetings", labelFa: "جلسه‌ها", icon: AudioLines },
-  { to: "search", label: "Search", labelFa: "جست‌وجو", icon: Search },
-  { to: "members", label: "Members", labelFa: "اعضا", icon: Users },
-  { to: "usage", label: "Usage", labelFa: "مصرف", icon: Gauge, adminOnly: true },
-  { to: "settings", label: "Settings", labelFa: "تنظیمات", icon: Settings, adminOnly: true },
-];
+function NavItem({ entry, lang, onNavigate }: { entry: MainNavEntry; lang: Lang; onNavigate?: () => void }) {
+  return (
+    <NavLink
+      to={entry.path}
+      // "/" and "/admin" are parents of other entries; only an exact match marks them.
+      end={entry.path === "/" || entry.path === "/admin"}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        buttonVariants({
+          variant: isActive ? "secondary" : "ghost",
+          fullWidth: true,
+          className: "justify-start gap-3 font-normal",
+        })
+      }
+    >
+      <entry.icon size={16} aria-hidden="true" />
+      <span className="truncate">{entry.label[lang]}</span>
+    </NavLink>
+  );
+}
 
-export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * The console navigation: the desktop sidebar and the body of the mobile
+ * drawer. Admin entries appear only when the selected workspace has their
+ * permission, the same check the route guard makes.
+ */
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate();
-  const { signOut, user } = useAuth();
+  const { signOut } = useAuth();
   const { lang } = useI18n();
+  const can = useCan();
+  const adminHeadingId = useId();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const isFa = lang === "fa";
+  const adminEntries = ADMIN_NAV.filter((entry) => can.has(entry.permission));
 
   async function handleLogout() {
     setLogoutError("");
@@ -41,7 +55,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       setLogoutError(
         describeApiError(error, {
           lang,
-          fallback: lang === "fa" ? "خروج انجام نشد؛ دوباره تلاش کنید." : "Unable to sign out; try again.",
+          fallback: isFa ? "خروج انجام نشد؛ دوباره تلاش کنید." : "Unable to sign out; try again.",
         }).text,
       );
     } finally {
@@ -49,55 +63,58 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     }
   }
 
-  const canAdminister = user?.role === "owner" || user?.role === "admin";
-
   return (
-    <aside className={`workspace-sidebar ${open ? "is-open" : ""}`}>
-      <div className="workspace-brand">
-        <div className="workspace-brand-mark"><AudioLines size={18} /></div>
-        <div>
-          <strong>Homayar</strong>
-          <span>{lang === "fa" ? "هوشمندی مکالمه" : "Conversation intelligence"}</span>
-        </div>
-        <button
-          className="workspace-sidebar-close"
-          onClick={onClose}
-          aria-label={lang === "fa" ? "بستن منو" : "Close navigation"}
-        >
-          <X size={18} />
-        </button>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex items-center gap-3 px-2">
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground">
+          <AudioLines size={18} aria-hidden="true" />
+        </span>
+        <span className="flex min-w-0 flex-col">
+          <strong className="text-sm font-semibold text-foreground">Homayar</strong>
+          <span className="truncate text-xs text-muted">{isFa ? "هوشمندی مکالمه" : "Conversation intelligence"}</span>
+        </span>
       </div>
 
-      <nav className="workspace-navigation">
-        {navItems
-          .filter((item) => !item.adminOnly || canAdminister)
-          .map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "."}
-              onClick={onClose}
-              className={({ isActive }) =>
-                `workspace-navigation-link ${isActive ? "is-active" : ""}`
-              }
-            >
-              <item.icon size={16} />
-              <span>{lang === "fa" ? item.labelFa : item.label}</span>
-            </NavLink>
-          ))}
+      <nav aria-label={isFa ? "ناوبری اصلی" : "Main navigation"} className="-m-1 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1">
+        {MAIN_NAV.map((entry) => (
+          <NavItem key={entry.path} entry={entry} lang={lang} onNavigate={onNavigate} />
+        ))}
+
+        {adminEntries.length > 0 && (
+          <>
+            <Separator className="my-2" />
+            <div role="group" aria-labelledby={adminHeadingId} className="flex flex-col gap-1">
+              <span id={adminHeadingId} className="px-3 pb-1 text-xs font-medium text-muted">
+                {isFa ? "مدیریت" : "Administration"}
+              </span>
+              {adminEntries.map((entry) => (
+                <NavItem key={entry.path} entry={entry} lang={lang} onNavigate={onNavigate} />
+              ))}
+            </div>
+          </>
+        )}
       </nav>
 
-      <div className="workspace-sidebar-footer">
-        <button onClick={handleLogout} disabled={isLoggingOut} className="workspace-logout">
-          {isLoggingOut ? <LoaderCircle size={16} className="animate-spin" /> : <LogOut size={16} />}
+      <div className="flex flex-col gap-2 border-t border-separator pt-3">
+        <Button
+          variant="ghost"
+          fullWidth
+          className="justify-start gap-3 font-normal"
+          isPending={isLoggingOut}
+          onPress={() => void handleLogout()}
+        >
+          {/* The button text already says "Signing out"; the spinner stays out of the accessibility tree. */}
+          {isLoggingOut
+            ? <Spinner size="sm" color="current" role={undefined} aria-label={undefined} aria-hidden="true" />
+            : <LogOut size={16} aria-hidden="true" />}
           <span>
             {isLoggingOut
-              ? lang === "fa" ? "در حال خروج" : "Signing out"
-              : lang === "fa" ? "خروج" : "Sign out"}
+              ? isFa ? "در حال خروج" : "Signing out"
+              : isFa ? "خروج" : "Sign out"}
           </span>
-        </button>
-        {logoutError && <p className="workspace-sidebar-error" role="alert">{logoutError}</p>}
+        </Button>
+        {logoutError && <p className="m-0 px-3 text-xs text-danger" role="alert">{logoutError}</p>}
       </div>
-    </aside>
+    </div>
   );
 }

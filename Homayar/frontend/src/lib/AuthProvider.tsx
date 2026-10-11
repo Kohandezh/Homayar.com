@@ -69,7 +69,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     active.current = selected;
     setWorkspaces(session.workspaces);
     setActiveWorkspace(selected);
-    const currentUser: AuthUser = { ...session.user, role: selected?.role };
+    const currentUser: AuthUser = session.user;
     setUser(currentUser);
     setStatus("authenticated");
     setEndReason(null);
@@ -169,7 +169,6 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       active.current = selected;
       setActiveWorkspace(selected);
       setWorkspaceNotice(null);
-      setUser((current) => (current ? { ...current, role: selected.role } : current));
       queryClient.clear();
     },
     [queryClient, workspaces]
