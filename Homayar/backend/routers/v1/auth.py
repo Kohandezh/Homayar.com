@@ -27,6 +27,7 @@ from backend.schemas.auth import (
     VerifyEmailRequest,
     WorkspaceResponse,
 )
+from backend.security.authorization import role_permission_values
 from backend.security.context import (
     ACCESS_COOKIE,
     CSRF_COOKIE,
@@ -157,6 +158,7 @@ def _user_response(user: User) -> UserResponse:
         email_verified=user.email_verified_at is not None,
         phone_verified=user.phone_verified_at is not None,
         is_active=user.is_active,
+        system_role=user.system_role,
     )
 
 
@@ -172,6 +174,7 @@ def _session_response(
             organization_id=workspace.organization_id,
             name=workspace.name,
             role=membership.role.value,
+            permissions=role_permission_values(membership.role),
         )
         for workspace, membership in list_user_workspaces(db, user.id)
     ]

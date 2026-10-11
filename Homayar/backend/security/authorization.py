@@ -7,8 +7,12 @@ this module disagree or when a route is mounted without an explicit policy.
 
 Scopes, from widest to narrowest:
 
-* ``platform`` – ``User.system_role == "operator"``.  Reserved; no API route
-  grants anything on this basis today (deny by default).
+* ``platform`` – ``User.system_role == "operator"``.  It never grants anything
+  alone.  The voice node routes (register, heartbeat, drain, recover) require
+  it together with ``workspace:manage``, from a signed-in session and never an
+  API key (``require_platform_operator``).  ``GET /voice/capacity`` adds
+  deployment data for such a caller.  Every other route ignores it (deny by
+  default).
 * ``organization`` – an ``OrganizationMembership`` that is active, unrevoked
   and inside its validity window (WP03-T03, ADR 0012).  Its role maps to a
   fixed set of *organization* permissions (``ORGANIZATION_ROLE_PERMISSIONS``):
@@ -155,6 +159,11 @@ API_KEY_SCOPES: frozenset[Permission] = frozenset(
 
 def role_has(role: WorkspaceRole, permission: Permission) -> bool:
     return permission in ROLE_PERMISSIONS.get(role, frozenset())
+
+
+def role_permission_values(role: WorkspaceRole) -> list[str]:
+    """The permission strings of ``role``, sorted, as the session lists them (HOM-184)."""
+    return sorted(permission.value for permission in ROLE_PERMISSIONS.get(role, frozenset()))
 
 
 def can_grant(actor_role: WorkspaceRole, target_role: WorkspaceRole) -> bool:
