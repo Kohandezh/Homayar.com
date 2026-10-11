@@ -7,9 +7,14 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
+from backend.database.saas_models import JobState
 from backend.jobs.outbox import dispatch_job
 from backend.jobs.replay import ReplayRefused, replay_dead_letter_job
 from backend.schemas.admin import (
+    AdminJobListResponse,
+    AdminJobResponse,
+    AdminJobStateCounts,
+    AdminJobSummaryResponse,
     AuditEventListResponse,
     AuditEventResponse,
     JobReplayResponse,
@@ -22,6 +27,11 @@ from backend.security.context import (
     WorkspaceContext,
     require_permission,
     require_write_permission,
+)
+from backend.services.admin_jobs_service import (
+    InvalidJobCursor,
+    list_workspace_jobs,
+    summarize_workspace_jobs,
 )
 from backend.services.admin_service import (
     InvalidAuditCursor,
@@ -171,6 +181,80 @@ def patch_workspace_settings(
     db.commit()
     db.refresh(workspace)
     return WorkspaceSettingsResponse.model_validate(workspace)
+
+
+@router.get("/jobs", response_model=AdminJobListResponse)
+def list_jobs(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
+    state: list[JobState] | None = Query(default=None),
+    stage: str | None = Query(default=None, min_length=1, max_length=40),
+    context: WorkspaceContext = Depends(require_workspace_admin_context),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> AdminJobListResponse:
+    """The workspace's processing jobs, newest first (HOM-183).
+
+    ``state`` may repeat (``?state=failed&state=dead_letter``); filters combine
+    with AND. Jobs of soft-deleted meetings are left out. ``replayable`` is
+    true when ``POST /admin/jobs/{job_id}/replay`` passes its static checks:
+    dead-lettered, under the replay limit, meeting and recording still stored,
+    retention not ended. Quota is not part of the flag, so a replayable job
+    may still be refused with ``429`` when the workspace allowance is
+    exhausted.
+    """
+    try:
+        page = list_workspace_jobs(
+            db,
+            workspace_id=context.workspace.id,
+            limit=limit,
+            max_replays=settings.job_max_replays,
+            cursor=cursor,
+            states=state,
+            stage=stage,
+        )
+    except InvalidJobCursor as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_cursor", "message": str(exc)},
+        ) from exc
+
+    return AdminJobListResponse(
+        items=[
+            AdminJobResponse(
+                id=row.job.id,
+                meeting_id=row.job.meeting_id,
+                meeting_title=row.meeting_title,
+                state=row.job.state,
+                stage=row.job.stage,
+                attempt_count=row.job.attempt_count,
+                max_attempts=row.job.max_attempts,
+                failure_code=row.job.failure_code,
+                failure_class=row.job.failure_class,
+                failure_message=row.failure_message,
+                replay_count=row.job.replay_count,
+                max_replays=settings.job_max_replays,
+                replayable=row.replayable,
+                created_at=row.job.created_at,
+                updated_at=row.job.updated_at,
+            )
+            for row in page.rows
+        ],
+        next_cursor=page.next_cursor,
+    )
+
+
+@router.get("/jobs/summary", response_model=AdminJobSummaryResponse)
+def summarize_jobs(
+    context: WorkspaceContext = Depends(require_workspace_admin_context),
+    db: Session = Depends(get_db),
+) -> AdminJobSummaryResponse:
+    """Job count per state for the workspace, same scope as ``GET /admin/jobs``."""
+    counts = summarize_workspace_jobs(db, workspace_id=context.workspace.id)
+    return AdminJobSummaryResponse(
+        counts=AdminJobStateCounts(**{state.value: count for state, count in counts.items()}),
+        total=sum(counts.values()),
+    )
 
 
 @router.post("/jobs/{job_id}/replay", response_model=JobReplayResponse, status_code=202)
