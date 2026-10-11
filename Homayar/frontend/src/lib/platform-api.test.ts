@@ -1,4 +1,4 @@
-import { AxiosHeaders, type AxiosResponse } from "axios";
+import { AxiosError, AxiosHeaders, type AxiosResponse } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import api from "@/lib/api";
@@ -18,6 +18,7 @@ import {
   getMeetingJob,
   getMeetingSummary,
   getPlanCatalog,
+  getReadiness,
   getSharedMeeting,
   getTranscript,
   getWorkspaceSettings,
@@ -31,6 +32,7 @@ import {
   listShares,
   listUsageEvents,
   meetingRefetchInterval,
+  readinessBaseUrl,
   removeMember,
   renameSpeaker,
   revokeInvitation,
@@ -326,5 +328,76 @@ describe("billing, members, and admin API", () => {
     });
     expect(remove).toHaveBeenNthCalledWith(1, "/members/invitations/invitation-1");
     expect(remove).toHaveBeenNthCalledWith(2, "/members/membership-1");
+  });
+});
+
+describe("readiness API", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function failure(status: number, data: unknown): AxiosError {
+    const config = { headers: new AxiosHeaders() };
+    return new AxiosError(`Request failed with status code ${status}`, "ERR_BAD_RESPONSE", config, {}, {
+      data,
+      status,
+      statusText: String(status),
+      headers: new AxiosHeaders(),
+      config,
+    });
+  }
+
+  it("asks the server root, not the API prefix", () => {
+    expect(readinessBaseUrl("/api/v1")).toBe("");
+    expect(readinessBaseUrl("https://host.example/api/v1")).toBe("https://host.example");
+    expect(readinessBaseUrl("https://host.example/base/api/v1")).toBe("https://host.example/base");
+  });
+
+  it("returns a 200 ready body", async () => {
+    const body = { status: "ready", checks: { database: "ready", redis: "ready" } };
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse(body));
+    await expect(getReadiness()).resolves.toEqual(body);
+    expect(get).toHaveBeenCalledWith("/readyz", { baseURL: "" });
+  });
+
+  it("passes the abort signal through", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse({ status: "ready", checks: {} }));
+    const signal = new AbortController().signal;
+    await getReadiness(signal);
+    expect(get).toHaveBeenCalledWith("/readyz", { baseURL: "", signal });
+  });
+
+  it("returns the 503 body as a not-ready answer", async () => {
+    const body = { status: "not_ready", checks: { database: "ready", redis: "unavailable" } };
+    vi.spyOn(api, "get").mockRejectedValue(failure(503, body));
+    await expect(getReadiness()).resolves.toEqual(body);
+  });
+
+  it("treats any 503 readiness body as not ready, even one that says ready", async () => {
+    const checks = { database: "ready", redis: "unavailable" };
+    vi.spyOn(api, "get").mockRejectedValue(failure(503, { status: "ready", checks }));
+    await expect(getReadiness()).resolves.toEqual({ status: "not_ready", checks });
+  });
+
+  it("keeps network errors, other statuses and bad bodies as errors", async () => {
+    const get = vi.spyOn(api, "get");
+    const network = new AxiosError("Network Error", "ERR_NETWORK", { headers: new AxiosHeaders() }, {});
+    get.mockRejectedValueOnce(network);
+    await expect(getReadiness()).rejects.toBe(network);
+
+    const serverError = failure(500, { status: "not_ready", checks: {} });
+    get.mockRejectedValueOnce(serverError);
+    await expect(getReadiness()).rejects.toBe(serverError);
+
+    const badNotReady = failure(503, "<html>Service Unavailable</html>");
+    get.mockRejectedValueOnce(badNotReady);
+    await expect(getReadiness()).rejects.toBe(badNotReady);
+
+    get.mockResolvedValueOnce(axiosResponse({ checks: { database: "ready" } }));
+    await expect(getReadiness()).rejects.toThrow();
+    get.mockResolvedValueOnce(axiosResponse({ status: "starting", checks: {} }));
+    await expect(getReadiness()).rejects.toThrow();
+    get.mockResolvedValueOnce(axiosResponse({ status: "ready" }));
+    await expect(getReadiness()).rejects.toThrow();
   });
 });
