@@ -4,6 +4,8 @@
  * integration). Unknown types, keys and values are shown as sent, never
  * guessed; the raw code stays visible next to a label.
  */
+import type { JsonValue } from "@/types/platform";
+
 type Lang = "fa" | "en";
 type Labels = Record<string, { fa: string; en: string }>;
 
@@ -117,6 +119,53 @@ const ROLE_VALUES: Labels = {
   viewer: { fa: "بیننده", en: "Viewer" },
 };
 
+/** The first part of an event type (`member.role_changed` -> `member`). */
+const GROUP_LABELS: Labels = {
+  member: { fa: "اعضا", en: "Members" },
+  workspace: { fa: "فضای کاری", en: "Workspace" },
+  ai_policy: { fa: "سیاست هوش مصنوعی", en: "AI policy" },
+  meeting: { fa: "جلسه‌ها", en: "Meetings" },
+  transcript: { fa: "متن گفت‌وگو", en: "Transcripts" },
+  pii: { fa: "داده‌های شخصی", en: "Personal data" },
+  subject: { fa: "اشخاص", en: "Subjects" },
+  action_item: { fa: "اقدام‌ها", en: "Action items" },
+  api_key: { fa: "کلیدهای API", en: "API keys" },
+  media: { fa: "فایل‌های رسانه", en: "Media" },
+  ingestion: { fa: "دریافت فایل", en: "Ingestion" },
+  team: { fa: "تیم‌ها", en: "Teams" },
+  auth: { fa: "ورود و حساب", en: "Sign-in and account" },
+};
+
+export interface AuditEventGroup {
+  prefix: string;
+  types: string[];
+}
+
+/**
+ * The known event types grouped by their prefix (`member.*`, `meeting.*`), in
+ * catalog order, for the event-type filter. There is no catalog endpoint, so
+ * this list is the one in this file and has to match the backend names.
+ */
+export function auditEventTypeGroups(): AuditEventGroup[] {
+  const groups = new Map<string, string[]>();
+  for (const type of Object.keys(AUDIT_EVENT_LABELS)) {
+    const prefix = type.split(".")[0];
+    const types = groups.get(prefix);
+    if (types) types.push(type);
+    else groups.set(prefix, [type]);
+  }
+  return [...groups].map(([prefix, types]) => ({ prefix, types }));
+}
+
+export function auditEventGroupLabel(prefix: string, lang: Lang): string {
+  return GROUP_LABELS[prefix]?.[lang] ?? prefix;
+}
+
+/** The target types the console offers as a filter, in the order shown. */
+export function auditTargetTypes(): string[] {
+  return Object.keys(TARGET_LABELS);
+}
+
 export function auditEventLabel(type: string, lang: Lang): string | null {
   return AUDIT_EVENT_LABELS[type]?.[lang] ?? null;
 }
@@ -127,6 +176,14 @@ export function auditTargetLabel(type: string, lang: Lang): string {
 
 export function auditDetailKeyLabel(key: string, lang: Lang): string {
   return DETAIL_KEY_LABELS[key]?.[lang] ?? key.replaceAll("_", " ");
+}
+
+/** A detail value as text; objects and arrays stay readable as JSON. */
+export function formatAuditDetail(value: JsonValue): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
 }
 
 /** A detail value in words where its meaning is known; otherwise as sent. */

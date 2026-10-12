@@ -59,7 +59,7 @@ describe("admin route guard", () => {
     for (const role of ["owner", "admin"] as const) {
       const get = pendingReads();
       const view = renderApp("/admin/settings", workspace(role));
-      expect(await screen.findByRole("heading", { level: 1, name: "Settings and audit" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
       expect(requestedUrls(get)).toContain("/admin/workspace-settings");
       expect(location()).toBe("/admin/settings");
       view.unmount();
@@ -72,7 +72,7 @@ describe("admin route guard", () => {
       const get = pendingReads();
       const view = renderApp("/admin/settings", workspace(role));
       expect(await screen.findByRole("heading", { level: 1, name: "No access" })).toBeInTheDocument();
-      expect(screen.queryByRole("heading", { name: "Settings and audit" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Workspace settings" })).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Back to overview" })).toHaveAttribute("href", "/");
       // The layout is still there: navigation and header.
       expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe("admin route guard", () => {
     owner.unmount();
 
     renderApp("/admin/settings", workspace("viewer", ["workspace:manage"]));
-    expect(await screen.findByRole("heading", { level: 1, name: "Settings and audit" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
   });
 
   it("grants nothing for an empty permissions array, not even the member list", async () => {
@@ -109,7 +109,7 @@ describe("admin route guard", () => {
     unknownOnly.unmount();
 
     renderApp("/admin/settings", workspace("viewer", ["admin:*", "workspace:manage"]));
-    expect(await screen.findByRole("heading", { level: 1, name: "Settings and audit" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
   });
 
   it("never reads a role from the user object", async () => {
@@ -157,8 +157,11 @@ describe("admin pages", () => {
     const usage = renderApp("/admin/usage");
     expect(await screen.findByRole("heading", { level: 1, name: "Usage and subscription" })).toBeInTheDocument();
     usage.unmount();
-    renderApp("/admin/settings");
-    expect(await screen.findByRole("heading", { level: 1, name: "Settings and audit" })).toBeInTheDocument();
+    const settings = renderApp("/admin/settings");
+    expect(await screen.findByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
+    settings.unmount();
+    renderApp("/admin/audit");
+    expect(await screen.findByRole("heading", { level: 1, name: "Audit log" })).toBeInTheDocument();
   });
 
   it("shows the shared coming-soon page for every admin path without a page, in both languages", async () => {
@@ -301,7 +304,7 @@ describe("workspace switch", () => {
       lang: "en",
       auth: { status: "authenticated", user: FIXTURE_USER },
     });
-    expect(await screen.findByRole("heading", { level: 1, name: "Settings and audit" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     const requestsBefore = get.mock.calls.length;
 
