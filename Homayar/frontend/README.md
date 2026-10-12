@@ -7,6 +7,15 @@ Currently, two official plugins are available:
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
 - [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
+## Tests
+
+Two suites:
+
+- `npm test` - Vitest and jsdom, for components and hooks (`src/**/*.test.tsx`).
+- `npm run test:e2e` - Playwright in a real Chromium, for the admin flows
+  (`e2e/`). It needs the backend and the demo seed running. Read
+  [`e2e/README.md`](./e2e/README.md) before the first run.
+
 ## HeroUI
 
 The console uses HeroUI v3 (`@heroui/react` and `@heroui/styles`). HeroUI v3 needs no provider component. Its styles load in `src/index.css`, right after Tailwind.

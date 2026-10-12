@@ -20,20 +20,26 @@ Object.defineProperty(window, "matchMedia", {
   }),
 });
 
+// The component tests run in jsdom. `e2e/smtp-sink.test.ts` tests plain Node
+// code and runs in the `node` environment, where there is no DOM to prepare.
+const hasDom = typeof window !== "undefined";
+
 const storageValues = new Map<string, string>();
-Object.defineProperty(window, "localStorage", {
-  configurable: true,
-  value: {
-    getItem: (key: string) => storageValues.get(key) ?? null,
-    setItem: (key: string, value: string) => storageValues.set(key, String(value)),
-    removeItem: (key: string) => storageValues.delete(key),
-    clear: () => storageValues.clear(),
-    key: (index: number) => [...storageValues.keys()][index] ?? null,
-    get length() {
-      return storageValues.size;
-    },
-  } satisfies Storage,
-});
+if (hasDom) {
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => storageValues.get(key) ?? null,
+      setItem: (key: string, value: string) => storageValues.set(key, String(value)),
+      removeItem: (key: string) => storageValues.delete(key),
+      clear: () => storageValues.clear(),
+      key: (index: number) => [...storageValues.keys()][index] ?? null,
+      get length() {
+        return storageValues.size;
+      },
+    } satisfies Storage,
+  });
+}
 
 // jsdom measures nothing, so the observer never has a size to report.
 // HeroUI's toast region and table only need the constructor to exist.
@@ -46,6 +52,7 @@ window.ResizeObserver = NoopResizeObserver;
 globalThis.ResizeObserver = NoopResizeObserver;
 
 afterEach(() => {
+  if (!hasDom) return;
   cleanup();
   // The toast queue is a module singleton, so one test's toast would
   // otherwise still be on screen in the next one.

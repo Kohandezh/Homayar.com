@@ -8,6 +8,9 @@ Homayar/frontend/*
 !Homayar/frontend/index.html
 !Homayar/frontend/tsconfig*.json
 !Homayar/frontend/vite.config.ts
+!Homayar/frontend/playwright.config.ts
+!Homayar/frontend/e2e/
+!Homayar/frontend/e2e/**
 !Homayar/frontend/src/
 !Homayar/frontend/src/**
 !Homayar/frontend/public/
