@@ -864,7 +864,7 @@
 .platform-button[aria-disabled="true"],
 .platform-icon-button[aria-disabled="true"],
 .platform-select[aria-disabled="true"] { opacity: 0.55; cursor: default; }
-/* The members table scrolls inside its own positioned, focusable region. */
+/* The members table scrolls inside its own focusable region. */
 .platform-members-table-scroll:focus-visible {
   outline: 3px solid rgba(22, 136, 120, 0.35);
   outline-offset: -3px;

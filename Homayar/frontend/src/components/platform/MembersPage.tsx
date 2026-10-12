@@ -1,16 +1,27 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { CalendarClock, Mail, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
 import {
-  CalendarClock,
-  Mail,
-  ShieldCheck,
-  Trash2,
-  UserPlus,
-  Users,
-} from "lucide-react";
+  AlertDialog,
+  Avatar,
+  Button,
+  Card,
+  Description,
+  Input,
+  Label,
+  ListBox,
+  Modal,
+  NumberField,
+  SearchField,
+  Select,
+  Table,
+  Tabs,
+  TextField,
+  toast,
+} from "@heroui/react";
 
 import { useAuth } from "@/lib/auth-context";
 import type { ErrorCodeMessages } from "@/lib/error-messages";
-import { formatDate, formatNumber, parseWholeNumber } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 import { useI18n } from "@/lib/i18n-context";
 import {
   useChangeMemberRole,
@@ -21,23 +32,25 @@ import {
   useRevokeInvitation,
 } from "@/lib/platform-api";
 import { roleLabel } from "@/lib/roles";
+import { statusLabel } from "@/lib/status-labels";
 import { useCan } from "@/lib/use-can";
 import type {
   AssignableWorkspaceRole,
+  InvitationStatus,
   WorkspaceInvitation,
   WorkspaceMember,
   WorkspaceRole,
 } from "@/types/platform";
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-  PageHeader,
-  StatusBadge,
-} from "@/components/platform/Ui";
+import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from "@/components/platform/Ui";
 
 const ALL_ASSIGNABLE_ROLES: AssignableWorkspaceRole[] = ["admin", "member", "viewer"];
 const ADMIN_ASSIGNABLE_ROLES: AssignableWorkspaceRole[] = ["member", "viewer"];
+const FILTER_ROLES: WorkspaceRole[] = ["owner", "admin", "member", "viewer"];
+const INVITATION_TABS: InvitationStatus[] = ["pending", "accepted", "revoked", "expired"];
+
+const MIN_EXPIRY_DAYS = 1;
+const MAX_EXPIRY_DAYS = 30;
+const DEFAULT_EXPIRY_DAYS = 7;
 
 /** Error codes of backend/routers/v1/members.py and services/member_service.py. */
 const MEMBER_ERROR_CODES: ErrorCodeMessages = {
@@ -102,34 +115,93 @@ function memberName(member: WorkspaceMember, isFa: boolean): string {
   return member.display_name || member.email || member.phone_e164 || (isFa ? "این عضو" : "this member");
 }
 
-interface RowProps {
+function memberContact(member: WorkspaceMember, isFa: boolean): string {
+  return member.email ?? member.phone_e164 ?? (isFa ? "بدون اطلاعات تماس" : "No contact information");
+}
+
+function assignableRoles(actorRole: WorkspaceRole): AssignableWorkspaceRole[] {
+  return actorRole === "owner" ? ALL_ASSIGNABLE_ROLES : ADMIN_ASSIGNABLE_ROLES;
+}
+
+/**
+ * A single-choice HeroUI Select over a fixed list of options. With `showLabel`
+ * the text is a real `<Label>`: clicking it focuses the trigger. Without it the
+ * same text is only the accessible name, for the tight cells of the table.
+ */
+function OptionSelect({
+  label,
+  showLabel,
+  value,
+  options,
+  isDisabled,
+  describedBy,
+  onChange,
+}: {
+  label: string;
+  showLabel?: boolean;
+  value: string;
+  options: { id: string; text: string }[];
+  isDisabled?: boolean;
+  describedBy?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select
+      aria-label={showLabel ? undefined : label}
+      aria-describedby={describedBy}
+      value={value}
+      isDisabled={isDisabled}
+      onChange={(next) => {
+        if (typeof next === "string") onChange(next);
+      }}
+    >
+      {showLabel && <Label>{label}</Label>}
+      <Select.Trigger>
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox>
+          {options.map((option) => (
+            <ListBox.Item key={option.id} id={option.id} textValue={option.text}>
+              {option.text}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
+  );
+}
+
+interface RowActionsProps {
   member: WorkspaceMember;
   actorRole: WorkspaceRole;
   isSelf: boolean;
   manageable: boolean;
   busy: boolean;
+  removeError: Error | null;
   isFa: boolean;
   lang: "fa" | "en";
   onApplyRole: (member: WorkspaceMember, role: AssignableWorkspaceRole) => Promise<boolean>;
   onRemove: (member: WorkspaceMember) => Promise<boolean>;
-  onRemoveStarted: () => void;
+  onActionStarted: () => void;
 }
 
-function MemberRow({
+function MemberRowActions({
   member,
   actorRole,
   isSelf,
   manageable,
   busy,
+  removeError,
   isFa,
   lang,
   onApplyRole,
   onRemove,
-  onRemoveStarted,
-}: RowProps) {
+  onActionStarted,
+}: RowActionsProps) {
   const name = memberName(member, isFa);
-  const contact = member.email ?? member.phone_e164 ?? (isFa ? "بدون اطلاعات تماس" : "No contact information");
-  const assignableRoles = actorRole === "owner" ? ALL_ASSIGNABLE_ROLES : ADMIN_ASSIGNABLE_ROLES;
   // The select is a draft: nothing is sent until "Apply" (QA M-01). A server
   // role that changes underneath (refetch, another administrator) resets it.
   const [draftRole, setDraftRole] = useState<WorkspaceRole>(member.role);
@@ -140,24 +212,28 @@ function MemberRow({
   }
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [pending, setPending] = useState<"role" | "remove" | null>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
-  const trashRef = useRef<HTMLButtonElement>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  // Where focus goes after the next render: controls that unmount (the
-  // trash button, Apply) must not drop focus to the page (QA M-04).
-  const focusAfterRender = useRef<"select" | "trash" | "cancel" | null>(null);
-  const setFocusTarget = (target: "select" | "trash" | "cancel") => {
-    focusAfterRender.current = target;
-  };
+  const selectRef = useRef<HTMLDivElement>(null);
+  // Apply unmounts once the draft matches the server role, so focus has to be
+  // put back on the select by hand (QA M-04). Closing the remove dialog needs
+  // nothing: the table puts focus back on the cell the trash button sits in.
+  const focusAfterRender = useRef<"select" | null>(null);
 
   useEffect(() => {
-    const target = focusAfterRender.current;
-    if (!target) return;
+    if (!focusAfterRender.current) return;
     focusAfterRender.current = null;
-    ({ select: selectRef, trash: trashRef, cancel: cancelRef })[target].current?.focus();
+    selectRef.current?.querySelector<HTMLElement>("button")?.focus();
   });
 
+  if (!manageable) {
+    return (
+      <span className="block text-end text-xs text-muted">
+        {isSelf ? (isFa ? "حساب شما" : "Your account") : (isFa ? "فقط خواندنی" : "Read only")}
+      </span>
+    );
+  }
+
   const roleDirty = draftRole !== member.role;
+  const noteId = `member-role-note-${member.id}`;
 
   async function applyRole() {
     if (pending || !roleDirty || draftRole === "owner") return;
@@ -166,7 +242,7 @@ function MemberRow({
     setPending(null);
     // A refused change never shows the attempted role as current.
     if (!applied) setDraftRole(member.role);
-    setFocusTarget("select");
+    focusAfterRender.current = "select";
   }
 
   async function confirmRemove() {
@@ -174,150 +250,132 @@ function MemberRow({
     setPending("remove");
     const removed = await onRemove(member);
     setPending(null);
-    if (!removed) setFocusTarget("cancel");
+    if (removed) setConfirmingRemove(false);
   }
 
   return (
-    <tr className="border-b border-border-subtle last:border-b-0">
-      <th scope="row" className="px-4 py-3 text-start font-normal sm:px-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-bg-elevated text-xs font-bold text-accent" aria-hidden="true">
-            {name.slice(0, 1).toUpperCase()}
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <div ref={selectRef} className="w-36">
+        <OptionSelect
+          label={isFa ? `نقش ${name}` : `Role for ${name}`}
+          value={draftRole}
+          isDisabled={pending === "role"}
+          describedBy={roleDirty ? noteId : undefined}
+          options={assignableRoles(actorRole).map((role) => ({ id: role, text: roleLabel(role, lang) }))}
+          onChange={(next) => setDraftRole(next as AssignableWorkspaceRole)}
+        />
+      </div>
+
+      {roleDirty ? (
+        <>
+          <Button size="sm" variant="primary" isDisabled={pending === "role"} onPress={() => void applyRole()}>
+            {pending === "role" ? (isFa ? "در حال اعمال" : "Applying") : (isFa ? "اعمال" : "Apply")}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            isDisabled={pending === "role"}
+            onPress={() => {
+              setDraftRole(member.role);
+              focusAfterRender.current = "select";
+            }}
+          >
+            {isFa ? "انصراف" : "Cancel"}
+          </Button>
+          <span id={noteId} className="basis-full text-end text-xs text-muted">
+            {isFa
+              ? `نقش ${name} پس از «اعمال» به «${roleLabel(draftRole, lang)}» تغییر می‌کند.`
+              : `${name}'s role changes to ${roleLabel(draftRole, lang)} only after Apply.`}
+            {draftRole === "admin" && ` ${ADMIN_CONSEQUENCE[lang]}`}
           </span>
-          <span className="min-w-0">
-            <span className="block truncate font-semibold text-text-primary" dir="auto">
-              {member.display_name || contact}
-              {isSelf && (
-                <span className="ms-1 font-normal text-text-muted">
-                  {isFa ? "(شما)" : "(you)"}
-                </span>
-              )}
-            </span>
-            <span className="mt-0.5 block truncate text-xs text-text-secondary" dir="ltr">
-              {contact}
-            </span>
-          </span>
-        </div>
-      </th>
-      <td className="px-4 py-3">
-        <span className={`platform-status platform-status-${member.role}`}>
-          {roleLabel(member.role, lang)}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-xs text-text-secondary">
-        {formatDate(member.joined_at, lang)}
-      </td>
-      <td className="px-4 py-3 sm:px-5">
-        {manageable ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {confirmingRemove ? (
-              <div className="flex flex-wrap items-center gap-2" role="group" aria-label={isFa ? `حذف ${name}` : `Remove ${name}`}>
-                <span className="text-xs text-error" dir="auto">
-                  {isFa ? `دسترسی ${name} به این فضای کاری قطع شود؟` : `End ${name}'s access to this workspace?`}
-                </span>
-                <button
-                  ref={cancelRef}
-                  type="button"
-                  className="platform-button"
-                  aria-disabled={pending === "remove"}
-                  onClick={() => {
-                    if (pending) return;
-                    setConfirmingRemove(false);
-                    setFocusTarget("trash");
-                  }}
-                >
-                  {isFa ? "انصراف" : "Cancel"}
-                </button>
-                <button
-                  type="button"
-                  className="platform-button platform-button-danger"
-                  aria-disabled={pending === "remove"}
-                  onClick={() => void confirmRemove()}
-                >
-                  <Trash2 aria-hidden="true" size={14} />
-                  {pending === "remove" ? (isFa ? "در حال حذف" : "Removing") : (isFa ? "حذف عضو" : "Remove member")}
-                </button>
-              </div>
-            ) : (
-              <>
-                <label className="sr-only" htmlFor={`member-role-${member.id}`}>
-                  {isFa ? `نقش ${name}` : `Role for ${name}`}
-                </label>
-                <select
-                  ref={selectRef}
-                  id={`member-role-${member.id}`}
-                  className="platform-select w-32"
-                  value={draftRole}
-                  aria-disabled={pending === "role"}
-                  aria-describedby={roleDirty ? `member-role-note-${member.id}` : undefined}
-                  onChange={(event) => {
-                    if (pending) return;
-                    setDraftRole(event.currentTarget.value as AssignableWorkspaceRole);
-                  }}
-                >
-                  {assignableRoles.map((role) => (
-                    <option key={role} value={role}>
-                      {roleLabel(role, lang)}
-                    </option>
-                  ))}
-                </select>
-                {roleDirty ? (
-                  <>
-                    <button
-                      type="button"
-                      className="platform-button platform-button-primary"
-                      aria-disabled={pending === "role"}
-                      onClick={() => void applyRole()}
-                    >
-                      {pending === "role" ? (isFa ? "در حال اعمال" : "Applying") : (isFa ? "اعمال" : "Apply")}
-                    </button>
-                    <button
-                      type="button"
-                      className="platform-button"
-                      aria-disabled={pending === "role"}
-                      onClick={() => {
-                        if (pending) return;
-                        setDraftRole(member.role);
-                        setFocusTarget("select");
-                      }}
-                    >
-                      {isFa ? "انصراف" : "Cancel"}
-                    </button>
-                    <span id={`member-role-note-${member.id}`} className="basis-full text-end text-xs text-text-secondary">
-                      {isFa
-                        ? `نقش ${name} پس از «اعمال» به «${roleLabel(draftRole, lang)}» تغییر می‌کند.`
-                        : `${name}'s role changes to ${roleLabel(draftRole, lang)} only after Apply.`}
-                      {draftRole === "admin" && ` ${ADMIN_CONSEQUENCE[lang]}`}
-                    </span>
-                  </>
-                ) : (
-                  <button
-                    ref={trashRef}
-                    type="button"
-                    className="platform-icon-button platform-button-danger"
-                    aria-disabled={busy}
-                    onClick={() => {
-                      if (busy) return;
-                      onRemoveStarted();
-                      setConfirmingRemove(true);
-                      setFocusTarget("cancel");
-                    }}
-                    aria-label={isFa ? `حذف ${name}` : `Remove ${name}`}
-                    title={isFa ? "حذف عضو" : "Remove member"}
-                  >
-                    <Trash2 aria-hidden="true" size={15} />
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="flex justify-end text-xs text-text-muted">
-            {isSelf ? (isFa ? "حساب شما" : "Your account") : (isFa ? "فقط خواندنی" : "Read only")}
-          </div>
-        )}
-      </td>
-    </tr>
+        </>
+      ) : (
+        // The dialog closes back into the table, which owns focus inside the
+        // grid: focus lands on the cell that holds the trash button, and the
+        // button itself is one Tab away. That still answers QA M-08 (focus does
+        // not fall to the page), but by the cell, not by the button.
+        // AlertDialog.Trigger is skipped on purpose: it would wrap the button in
+        // a second role="button" element.
+        <AlertDialog
+          isOpen={confirmingRemove}
+          onOpenChange={(open) => {
+            if (!pending) setConfirmingRemove(open);
+          }}
+        >
+          <Button
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            className="text-danger"
+            // Its own removal must not disable it: the dialog closes back onto
+            // this button's cell, and a disabled button cannot take focus.
+            isDisabled={busy && pending !== "remove"}
+            aria-label={isFa ? `حذف ${name}` : `Remove ${name}`}
+            onPress={onActionStarted}
+          >
+            <Trash2 aria-hidden="true" size={15} />
+          </Button>
+          <AlertDialog.Backdrop>
+            <AlertDialog.Container>
+              <AlertDialog.Dialog>
+                <AlertDialog.Header>
+                  <AlertDialog.Icon status="danger" />
+                  <AlertDialog.Heading>{isFa ? `حذف ${name}` : `Remove ${name}`}</AlertDialog.Heading>
+                </AlertDialog.Header>
+                <AlertDialog.Body className="space-y-3">
+                  <p className="m-0 text-sm text-muted" dir="auto">
+                    {isFa
+                      ? `دسترسی ${name} به این فضای کاری قطع شود؟`
+                      : `End ${name}'s access to this workspace?`}
+                  </p>
+                  {/* A refused removal keeps the dialog open, so the reason has
+                      to be inside it: the page banner sits behind the backdrop. */}
+                  {removeError && (
+                    <ErrorState
+                      error={removeError}
+                      codes={MEMBER_ERROR_CODES}
+                      fallback={isFa ? "حذف عضو ناموفق بود." : "Removing the member failed."}
+                    />
+                  )}
+                </AlertDialog.Body>
+                <AlertDialog.Footer>
+                  <Button variant="ghost" isDisabled={pending === "remove"} onPress={() => setConfirmingRemove(false)}>
+                    {isFa ? "انصراف" : "Cancel"}
+                  </Button>
+                  <Button variant="danger" isDisabled={pending === "remove"} onPress={() => void confirmRemove()}>
+                    <Trash2 aria-hidden="true" size={14} />
+                    {pending === "remove" ? (isFa ? "در حال حذف" : "Removing") : (isFa ? "حذف عضو" : "Remove member")}
+                  </Button>
+                </AlertDialog.Footer>
+              </AlertDialog.Dialog>
+            </AlertDialog.Container>
+          </AlertDialog.Backdrop>
+        </AlertDialog>
+      )}
+    </div>
+  );
+}
+
+type SortColumn = "name" | "joined_at";
+
+interface SortState {
+  column: SortColumn;
+  direction: "ascending" | "descending";
+}
+
+function sortMembers(members: WorkspaceMember[], sort: SortState, lang: "fa" | "en") {
+  const sign = sort.direction === "descending" ? -1 : 1;
+  const collator = new Intl.Collator(lang === "fa" ? "fa-IR" : "en");
+  return [...members].sort((a, b) => {
+    if (sort.column === "joined_at") return sign * a.joined_at.localeCompare(b.joined_at);
+    return sign * collator.compare(memberName(a, lang === "fa"), memberName(b, lang === "fa"));
+  });
+}
+
+function matchesQuery(member: WorkspaceMember, needle: string) {
+  if (!needle) return true;
+  return [member.display_name, member.email, member.phone_e164].some((value) =>
+    value?.toLowerCase().includes(needle),
   );
 }
 
@@ -328,8 +386,20 @@ function MemberDirectory({ actorRole, canManage }: { actorRole: WorkspaceRole; c
   const membersQuery = useMembers();
   const roleMutation = useChangeMemberRole();
   const removeMutation = useRemoveMember();
-  const [announcement, setAnnouncement] = useState("");
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [sort, setSort] = useState<SortState>({ column: "name", direction: "ascending" });
   const headingRef = useRef<HTMLHeadingElement>(null);
+
+  const members = useMemo(() => membersQuery.data?.items ?? [], [membersQuery.data]);
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return sortMembers(
+      members.filter((member) => (roleFilter === "all" || member.role === roleFilter) && matchesQuery(member, needle)),
+      sort,
+      lang,
+    );
+  }, [members, query, roleFilter, sort, lang]);
 
   if (membersQuery.isLoading) {
     return <LoadingState label={isFa ? "در حال دریافت اعضا" : "Loading members"} />;
@@ -344,7 +414,6 @@ function MemberDirectory({ actorRole, canManage }: { actorRole: WorkspaceRole; c
     );
   }
 
-  const members = membersQuery.data?.items ?? [];
   const total = membersQuery.data?.total ?? members.length;
   const mutationError = roleMutation.error ?? removeMutation.error;
   const busy = roleMutation.isPending || removeMutation.isPending;
@@ -352,10 +421,9 @@ function MemberDirectory({ actorRole, canManage }: { actorRole: WorkspaceRole; c
   async function applyRole(member: WorkspaceMember, role: AssignableWorkspaceRole) {
     removeMutation.reset();
     roleMutation.reset();
-    setAnnouncement("");
     try {
       await roleMutation.mutateAsync({ membershipId: member.id, role });
-      setAnnouncement(
+      toast.success(
         isFa
           ? `نقش ${memberName(member, isFa)} به «${roleLabel(role, lang)}» تغییر کرد.`
           : `${memberName(member, isFa)} is now ${roleLabel(role, lang)}.`,
@@ -369,10 +437,9 @@ function MemberDirectory({ actorRole, canManage }: { actorRole: WorkspaceRole; c
   async function remove(member: WorkspaceMember) {
     roleMutation.reset();
     removeMutation.reset();
-    setAnnouncement("");
     try {
       await removeMutation.mutateAsync(member.id);
-      setAnnouncement(
+      toast.success(
         isFa
           ? `${memberName(member, isFa)} از فضای کاری حذف شد.`
           : `${memberName(member, isFa)} was removed from the workspace.`,
@@ -384,97 +451,306 @@ function MemberDirectory({ actorRole, canManage }: { actorRole: WorkspaceRole; c
     }
   }
 
+  const tableLabel = isFa ? "اعضای فضای کاری" : "Workspace members";
+
   return (
-    <section className="platform-members-directory platform-surface overflow-hidden" aria-labelledby="members-heading">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-4 py-4 sm:px-5">
+    <Card<"section"> render={(props) => <section {...props} />} aria-labelledby="members-heading" className="min-w-0">
+      <Card.Header className="flex-wrap gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Users aria-hidden="true" className="shrink-0 text-accent" size={20} />
           <div className="min-w-0">
-            <h2 id="members-heading" ref={headingRef} tabIndex={-1} className="m-0 text-sm font-semibold text-text-primary">
-              {isFa ? "اعضای فضای کاری" : "Workspace members"}
-            </h2>
-            <p className="mt-1 mb-0 text-xs text-text-secondary">
+            <Card.Title<"h2"> render={(props) => <h2 {...props} />} id="members-heading" ref={headingRef} tabIndex={-1}>
+              {tableLabel}
+            </Card.Title>
+            <Card.Description>
               {isFa ? `${formatNumber(total, lang)} عضو` : `${formatNumber(total, lang)} member${total === 1 ? "" : "s"}`}
-            </p>
+            </Card.Description>
           </div>
         </div>
-      </div>
+      </Card.Header>
 
-      <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
-      {announcement && (
-        <p className="m-0 border-b border-border-subtle px-4 py-3 text-xs text-success sm:px-5" aria-hidden="true">
-          {announcement}
-        </p>
-      )}
+      <Card.Content className="min-w-0 space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1 basis-56">
+            <SearchField
+              aria-label={isFa ? "جست‌وجو در اعضا" : "Search members"}
+              value={query}
+              onChange={setQuery}
+              fullWidth
+            >
+              <SearchField.Group>
+                <SearchField.SearchIcon />
+                <SearchField.Input placeholder={isFa ? "نام یا ایمیل" : "Name or email"} />
+                <SearchField.ClearButton aria-label={isFa ? "پاک کردن جست‌وجو" : "Clear search"} />
+              </SearchField.Group>
+            </SearchField>
+          </div>
+          <div className="w-40">
+            <OptionSelect
+              label={isFa ? "پالایش بر پایهٔ نقش" : "Filter by role"}
+              value={roleFilter}
+              onChange={setRoleFilter}
+              options={[
+                { id: "all", text: isFa ? "همهٔ نقش‌ها" : "All roles" },
+                ...FILTER_ROLES.map((role) => ({ id: role, text: roleLabel(role, lang) })),
+              ]}
+            />
+          </div>
+        </div>
 
-      {mutationError && (
-        <div className="p-4 pb-0">
+        {mutationError && (
           <ErrorState
             error={mutationError}
             codes={MEMBER_ERROR_CODES}
             fallback={isFa ? "به‌روزرسانی عضو ناموفق بود." : "Member update failed."}
           />
-        </div>
-      )}
+        )}
 
-      {members.length === 0 ? (
-        <div className="p-4">
-          <EmptyState label={isFa ? "عضوی در این فضای کاری نیست" : "No workspace members"} />
-        </div>
-      ) : (
-        // A positioned, keyboard-reachable scroll container: the visually
-        // hidden labels inside it cannot widen the page (QA M-02) and the
-        // off-screen columns are reachable by keyboard (QA M-05).
-        <div
-          className="platform-members-table-scroll relative overflow-x-auto"
-          tabIndex={0}
-          role="region"
-          aria-label={isFa ? "فهرست اعضا، قابل پیمایش افقی" : "Member list, scrolls horizontally"}
-        >
-          <table className="platform-members-table w-full min-w-[720px] border-collapse text-sm">
-            <caption className="sr-only">
-              {isFa ? "فهرست اعضا و نقش‌های فضای کاری" : "Workspace members and roles"}
-            </caption>
-            <thead>
-              <tr className="border-b border-border-subtle bg-bg-primary text-xs text-text-secondary">
-                <th scope="col" className="px-4 py-3 text-start font-semibold sm:px-5">
-                  {isFa ? "عضو" : "Member"}
-                </th>
-                <th scope="col" className="px-4 py-3 text-start font-semibold">
-                  {isFa ? "نقش" : "Role"}
-                </th>
-                <th scope="col" className="px-4 py-3 text-start font-semibold">
-                  {isFa ? "تاریخ عضویت" : "Joined"}
-                </th>
-                <th scope="col" className="px-4 py-3 text-end font-semibold sm:px-5">
-                  {isFa ? "مدیریت" : "Management"}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((member) => (
-                <MemberRow
-                  key={member.id}
-                  member={member}
-                  actorRole={actorRole}
-                  isSelf={member.user_id === user?.id}
-                  manageable={canManage && canManageTarget(actorRole, user?.id, member)}
-                  busy={busy}
-                  isFa={isFa}
-                  lang={lang}
-                  onApplyRole={applyRole}
-                  onRemove={remove}
-                  onRemoveStarted={() => {
-                    roleMutation.reset();
-                    removeMutation.reset();
-                  }}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
+        <Table className="min-w-0">
+          {/* The table scrolls sideways on a narrow screen. A keyboard user has
+              to be able to scroll it too, so the region takes focus (QA M-02, M-05). */}
+          <Table.ScrollContainer
+            role="region"
+            tabIndex={0}
+            aria-label={isFa ? "فهرست اعضا، با پیمایش افقی" : "Member list, scrolls horizontally"}
+            className="platform-members-table-scroll"
+          >
+            <Table.Content
+              aria-label={tableLabel}
+              sortDescriptor={sort}
+              onSortChange={(descriptor) =>
+                setSort({
+                  column: descriptor.column === "joined_at" ? "joined_at" : "name",
+                  direction: descriptor.direction,
+                })
+              }
+            >
+              <Table.Header>
+                <Table.Column id="name" isRowHeader allowsSorting>
+                  {({ sortDirection }) => (
+                    <Table.SortableColumnHeader sortDirection={sortDirection}>
+                      {isFa ? "عضو" : "Member"}
+                    </Table.SortableColumnHeader>
+                  )}
+                </Table.Column>
+                <Table.Column id="role">{isFa ? "نقش" : "Role"}</Table.Column>
+                <Table.Column id="joined_at" allowsSorting>
+                  {({ sortDirection }) => (
+                    <Table.SortableColumnHeader sortDirection={sortDirection}>
+                      {isFa ? "تاریخ عضویت" : "Joined"}
+                    </Table.SortableColumnHeader>
+                  )}
+                </Table.Column>
+                <Table.Column id="actions">{isFa ? "مدیریت" : "Management"}</Table.Column>
+              </Table.Header>
+              <Table.Body
+                items={visible}
+                // React Aria caches a row's cells per item, so anything a cell
+                // reads from outside the item has to be listed here. Without
+                // this a refused removal never reaches the row's dialog.
+                dependencies={[removeMutation.error, busy, actorRole, canManage, user?.id, lang]}
+                renderEmptyState={() => (
+                  <EmptyState
+                    label={
+                      members.length === 0
+                        ? isFa
+                          ? "عضوی در این فضای کاری نیست"
+                          : "No workspace members"
+                        : isFa
+                          ? "عضوی با این جست‌وجو پیدا نشد"
+                          : "No member matches this search"
+                    }
+                  />
+                )}
+              >
+                {(member: WorkspaceMember) => {
+                  const isSelf = member.user_id === user?.id;
+                  return (
+                    <Table.Row id={member.id}>
+                      <Table.Cell>
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Avatar size="sm" color="accent" variant="soft">
+                            <Avatar.Fallback>{memberName(member, isFa).slice(0, 1).toUpperCase()}</Avatar.Fallback>
+                          </Avatar>
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold text-foreground" dir="auto">
+                              {member.display_name || memberContact(member, isFa)}
+                              {isSelf && (
+                                <span className="ms-1 font-normal text-muted">{isFa ? "(شما)" : "(you)"}</span>
+                              )}
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-muted" dir="ltr">
+                              {memberContact(member, isFa)}
+                            </span>
+                          </span>
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <StatusBadge status={member.role} label={roleLabel(member.role, lang)} />
+                      </Table.Cell>
+                      <Table.Cell className="text-xs text-muted">{formatDate(member.joined_at, lang)}</Table.Cell>
+                      <Table.Cell>
+                        <MemberRowActions
+                          member={member}
+                          actorRole={actorRole}
+                          isSelf={isSelf}
+                          manageable={canManage && canManageTarget(actorRole, user?.id, member)}
+                          busy={busy}
+                          removeError={removeMutation.error}
+                          isFa={isFa}
+                          lang={lang}
+                          onApplyRole={applyRole}
+                          onRemove={remove}
+                          onActionStarted={() => {
+                            roleMutation.reset();
+                            removeMutation.reset();
+                          }}
+                        />
+                      </Table.Cell>
+                    </Table.Row>
+                  );
+                }}
+              </Table.Body>
+            </Table.Content>
+          </Table.ScrollContainer>
+        </Table>
+      </Card.Content>
+    </Card>
+  );
+}
+
+/** The "Invite member" button and the modal it opens. */
+function InviteMember({ actorRole }: { actorRole: WorkspaceRole }) {
+  const { lang } = useI18n();
+  const isFa = lang === "fa";
+  const inviteMutation = useInviteMember();
+  const [isOpen, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<AssignableWorkspaceRole>("member");
+  const [days, setDays] = useState<number>(DEFAULT_EXPIRY_DAYS);
+  const pending = inviteMutation.isPending;
+  const daysValid = Number.isInteger(days) && days >= MIN_EXPIRY_DAYS && days <= MAX_EXPIRY_DAYS;
+
+  // Every close goes through here, so a failed invitation never greets the user
+  // again the next time the modal opens.
+  function changeOpen(open: boolean) {
+    if (pending) return;
+    if (!open) inviteMutation.reset();
+    setOpen(open);
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending || !email.trim() || !daysValid) return;
+    inviteMutation.reset();
+    // A failed delivery keeps the typed address for another attempt; only a
+    // delivered invitation clears the form and closes the modal.
+    inviteMutation.mutate(
+      { email: email.trim(), role, expires_in_days: days },
+      {
+        onSuccess: () => {
+          setEmail("");
+          setOpen(false);
+          toast.success(isFa ? "دعوت‌نامه ارسال شد." : "Invitation sent.");
+        },
+      },
+    );
+  }
+
+  return (
+    <Modal isOpen={isOpen} onOpenChange={changeOpen}>
+      <Button size="sm" variant="primary" className="ms-auto">
+        <Mail aria-hidden="true" size={15} />
+        {isFa ? "دعوت عضو" : "Invite member"}
+      </Button>
+      <Modal.Backdrop>
+        <Modal.Container>
+          <Modal.Dialog>
+            <form onSubmit={submit} noValidate>
+              <Modal.Header>
+                <Modal.Heading>{isFa ? "دعوت عضو تازه" : "Invite a new member"}</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body className="space-y-4">
+                <p className="m-0 text-xs text-muted">
+                  {isFa ? "دعوت‌نامه از طریق ایمیل ارسال می‌شود" : "Invitations are delivered by email"}
+                </p>
+
+                <TextField
+                  value={email}
+                  onChange={setEmail}
+                  type="email"
+                  autoComplete="email"
+                  isRequired
+                  isReadOnly={pending}
+                  fullWidth
+                >
+                  <Label>{isFa ? "ایمیل" : "Email address"}</Label>
+                  <Input dir="ltr" placeholder="name@company.com" />
+                </TextField>
+
+                <div className="flex flex-col gap-1.5">
+                  <OptionSelect
+                    label={isFa ? "نقش" : "Role"}
+                    showLabel
+                    value={role}
+                    isDisabled={pending}
+                    describedBy={role === "admin" ? "invitation-role-note" : undefined}
+                    options={assignableRoles(actorRole).map((candidate) => ({
+                      id: candidate,
+                      text: roleLabel(candidate, lang),
+                    }))}
+                    onChange={(next) => setRole(next as AssignableWorkspaceRole)}
+                  />
+                  {role === "admin" && (
+                    <p id="invitation-role-note" className="m-0 text-xs text-muted">
+                      {ADMIN_CONSEQUENCE[lang]}
+                    </p>
+                  )}
+                </div>
+
+                <NumberField
+                  value={days}
+                  onChange={setDays}
+                  minValue={MIN_EXPIRY_DAYS}
+                  maxValue={MAX_EXPIRY_DAYS}
+                  step={1}
+                  isReadOnly={pending}
+                  isInvalid={!daysValid}
+                  fullWidth
+                >
+                  <Label>{isFa ? "اعتبار (روز)" : "Expiry (days)"}</Label>
+                  <NumberField.Group>
+                    <NumberField.DecrementButton />
+                    <NumberField.Input />
+                    <NumberField.IncrementButton />
+                  </NumberField.Group>
+                  <Description>
+                    {isFa ? "یک عدد صحیح بین ۱ تا ۳۰ وارد کنید." : "Enter a whole number from 1 to 30."}
+                  </Description>
+                </NumberField>
+
+                {inviteMutation.error && (
+                  <ErrorState
+                    error={inviteMutation.error}
+                    codes={MEMBER_ERROR_CODES}
+                    fallback={isFa ? "عملیات دعوت ناموفق بود." : "The invitation action failed."}
+                  />
+                )}
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="ghost" isDisabled={pending} onPress={() => changeOpen(false)}>
+                  {isFa ? "انصراف" : "Cancel"}
+                </Button>
+                <Button type="submit" variant="primary" isDisabled={pending || !email.trim() || !daysValid}>
+                  <UserPlus aria-hidden="true" size={15} />
+                  {pending ? (isFa ? "در حال ارسال" : "Sending") : (isFa ? "ارسال دعوت" : "Send invite")}
+                </Button>
+              </Modal.Footer>
+            </form>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }
 
@@ -498,15 +774,15 @@ function InvitationRow({
         ? `${isFa ? "لغوشده در:" : "Revoked:"} ${formatDate(invitation.revoked_at, lang)}`
         : `${isFa ? "انقضا:" : "Expires:"} ${formatDate(invitation.expires_at, lang)}`;
   return (
-    <li className="platform-invitation-row flex flex-col gap-3 border-b border-border-subtle px-4 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+    <li className="flex flex-col gap-3 border-b border-separator px-1 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="truncate text-sm font-semibold text-text-primary" dir="ltr">
+          <span className="truncate text-sm font-semibold text-foreground" dir="ltr">
             {invitation.email}
           </span>
           <StatusBadge status={invitation.status} />
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-secondary">
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
             <ShieldCheck aria-hidden="true" size={13} />
             {roleLabel(invitation.role, lang)}
@@ -518,17 +794,17 @@ function InvitationRow({
         </div>
       </div>
       {invitation.status === "pending" && (
-        <button
-          type="button"
-          className="platform-button platform-button-danger shrink-0 self-start sm:self-auto"
-          onClick={() => {
-            if (!isRevoking) onRevoke();
-          }}
-          aria-disabled={isRevoking}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="shrink-0 self-start text-danger sm:self-auto"
+          isDisabled={isRevoking}
+          aria-label={isFa ? `لغو دعوت ${invitation.email}` : `Revoke the invitation for ${invitation.email}`}
+          onPress={onRevoke}
         >
           <Trash2 aria-hidden="true" size={14} />
           {isRevoking ? (isFa ? "در حال لغو" : "Revoking") : (isFa ? "لغو دعوت" : "Revoke")}
-        </button>
+        </Button>
       )}
     </li>
   );
@@ -538,171 +814,108 @@ function InvitationManagement({ actorRole }: { actorRole: WorkspaceRole }) {
   const { lang } = useI18n();
   const isFa = lang === "fa";
   const invitationsQuery = useInvitations();
-  const inviteMutation = useInviteMember();
   const revokeMutation = useRevokeInvitation();
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<AssignableWorkspaceRole>("member");
-  const [expiresInDays, setExpiresInDays] = useState("7");
-  const [daysTouched, setDaysTouched] = useState(false);
+  const [tab, setTab] = useState<InvitationStatus>("pending");
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const roles = actorRole === "owner" ? ALL_ASSIGNABLE_ROLES : ADMIN_ASSIGNABLE_ROLES;
-  const days = parseWholeNumber(expiresInDays);
-  const daysValid = days !== null && days >= 1 && days <= 30;
-  const pending = inviteMutation.isPending;
 
-  function submitInvitation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setDaysTouched(true);
-    if (pending || !email.trim() || !daysValid || days === null) return;
-    inviteMutation.reset();
-    revokeMutation.reset();
-    // A failed delivery keeps the typed address for another attempt; only a
-    // delivered invitation clears the form.
-    inviteMutation.mutate(
-      { email: email.trim(), role, expires_in_days: days },
-      { onSuccess: () => setEmail("") },
+  const invitations = invitationsQuery.data?.items ?? [];
+  const byStatus = (status: InvitationStatus) => invitations.filter((item) => item.status === status);
+
+  let body: ReactNode;
+  if (invitationsQuery.isLoading) {
+    body = <LoadingState label={isFa ? "در حال دریافت دعوت‌ها" : "Loading invitations"} />;
+  } else if (invitationsQuery.isError) {
+    body = (
+      <ErrorState
+        error={invitationsQuery.error}
+        codes={MEMBER_ERROR_CODES}
+        fallback={isFa ? "دریافت دعوت‌ها ناموفق بود." : "Could not load invitations."}
+      />
+    );
+  } else {
+    body = (
+      <Tabs selectedKey={tab} onSelectionChange={(key) => setTab(key as InvitationStatus)}>
+        <Tabs.List aria-label={isFa ? "وضعیت دعوت‌ها" : "Invitation states"}>
+          {INVITATION_TABS.map((status) => (
+            <Tabs.Tab key={status} id={status}>
+              {`${statusLabel(status, lang)} (${formatNumber(byStatus(status).length, lang)})`}
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+        {INVITATION_TABS.map((status) => {
+          const items = byStatus(status);
+          return (
+            <Tabs.Panel key={status} id={status}>
+              {items.length === 0 ? (
+                <EmptyState label={isFa ? "دعوتی در این وضعیت نیست" : "No invitation in this state"} />
+              ) : (
+                <ul className="m-0 list-none p-0">
+                  {items.map((invitation) => (
+                    <InvitationRow
+                      key={invitation.id}
+                      invitation={invitation}
+                      isFa={isFa}
+                      lang={lang}
+                      isRevoking={revokeMutation.isPending && revokeMutation.variables === invitation.id}
+                      onRevoke={() => {
+                        revokeMutation.reset();
+                        revokeMutation.mutate(invitation.id, {
+                          onSuccess: () => {
+                            headingRef.current?.focus();
+                            toast.success(isFa ? "دعوت لغو شد." : "The invitation was revoked.");
+                          },
+                        });
+                      }}
+                    />
+                  ))}
+                </ul>
+              )}
+            </Tabs.Panel>
+          );
+        })}
+      </Tabs>
     );
   }
 
   return (
-    <section className="platform-invitations platform-surface overflow-hidden" aria-labelledby="invitations-heading">
-      <div className="border-b border-border-subtle px-4 py-4 sm:px-5">
-        <div className="flex items-center gap-3">
-          <UserPlus aria-hidden="true" className="text-accent" size={20} />
-          <div>
-            <h2 id="invitations-heading" ref={headingRef} tabIndex={-1} className="m-0 text-sm font-semibold text-text-primary">
+    <Card<"section">
+      render={(props) => <section {...props} />}
+      aria-labelledby="invitations-heading"
+      className="min-w-0"
+    >
+      <Card.Header className="flex-wrap gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <UserPlus aria-hidden="true" className="shrink-0 text-accent" size={20} />
+          <div className="min-w-0">
+            <Card.Title<"h2">
+              render={(props) => <h2 {...props} />}
+              id="invitations-heading"
+              ref={headingRef}
+              tabIndex={-1}
+            >
               {isFa ? "دعوت‌ها" : "Invitations"}
-            </h2>
-            <p className="mt-1 mb-0 text-xs text-text-secondary">
+            </Card.Title>
+            <Card.Description>
               {isFa ? "دعوت‌نامه از طریق ایمیل ارسال می‌شود" : "Invitations are delivered by email"}
-            </p>
+            </Card.Description>
           </div>
         </div>
-      </div>
+        <InviteMember actorRole={actorRole} />
+      </Card.Header>
 
-      <form className="platform-invite-form grid gap-4 border-b border-border-subtle bg-bg-primary p-4 sm:grid-cols-2 sm:p-5" onSubmit={submitInvitation} noValidate>
-        <div className="platform-field sm:col-span-2">
-          <label htmlFor="invitation-email">{isFa ? "ایمیل" : "Email address"}</label>
-          <div className="relative">
-            <Mail aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-text-muted" size={15} />
-            <input
-              id="invitation-email"
-              className="platform-input ps-9"
-              type="email"
-              dir="ltr"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => {
-                setEmail(event.currentTarget.value);
-                if (inviteMutation.isSuccess) inviteMutation.reset();
-              }}
-              placeholder="name@company.com"
-              required
-              aria-disabled={pending}
-              readOnly={pending}
+      <Card.Content className="min-w-0">
+        {revokeMutation.error && (
+          <div className="mb-4">
+            <ErrorState
+              error={revokeMutation.error}
+              codes={MEMBER_ERROR_CODES}
+              fallback={isFa ? "عملیات دعوت ناموفق بود." : "The invitation action failed."}
             />
           </div>
-        </div>
-        <div className="platform-field">
-          <label htmlFor="invitation-role">{isFa ? "نقش" : "Role"}</label>
-          <select
-            id="invitation-role"
-            className="platform-select"
-            value={role}
-            onChange={(event) => {
-              if (!pending) setRole(event.currentTarget.value as AssignableWorkspaceRole);
-            }}
-            aria-disabled={pending}
-            aria-describedby={role === "admin" ? "invitation-role-note" : undefined}
-          >
-            {roles.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {roleLabel(candidate, lang)}
-              </option>
-            ))}
-          </select>
-          {role === "admin" && (
-            <p id="invitation-role-note" className="m-0 text-xs text-text-muted">{ADMIN_CONSEQUENCE[lang]}</p>
-          )}
-        </div>
-        <div className="platform-field">
-          <label htmlFor="invitation-expiry">{isFa ? "اعتبار (روز)" : "Expiry (days)"}</label>
-          <input
-            id="invitation-expiry"
-            className="platform-input"
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            value={expiresInDays}
-            onChange={(event) => setExpiresInDays(event.currentTarget.value)}
-            onBlur={() => setDaysTouched(true)}
-            aria-invalid={daysTouched && !daysValid}
-            aria-describedby="invitation-expiry-help"
-            required
-            readOnly={pending}
-          />
-          <p id="invitation-expiry-help" className={daysTouched && !daysValid ? "platform-form-error" : "m-0 text-xs text-text-muted"}>
-            {isFa ? "یک عدد صحیح بین ۱ تا ۳۰ وارد کنید." : "Enter a whole number from 1 to 30."}
-          </p>
-        </div>
-        <button
-          type="submit"
-          className="platform-button platform-button-primary self-end sm:col-span-2"
-          aria-disabled={pending || !email.trim() || !daysValid}
-        >
-          <UserPlus aria-hidden="true" size={15} />
-          {pending ? (isFa ? "در حال ارسال" : "Sending") : (isFa ? "ارسال دعوت" : "Send invite")}
-        </button>
-      </form>
-
-      {(inviteMutation.error || revokeMutation.error) && (
-        <div className="p-4 pb-0">
-          <ErrorState
-            error={inviteMutation.error ?? revokeMutation.error}
-            codes={MEMBER_ERROR_CODES}
-            fallback={isFa ? "عملیات دعوت ناموفق بود." : "The invitation action failed."}
-          />
-        </div>
-      )}
-      {inviteMutation.isSuccess && (
-        <p className="m-0 border-b border-border-subtle px-4 py-3 text-xs text-success" role="status">
-          {isFa ? "دعوت‌نامه ارسال شد." : "Invitation sent."}
-        </p>
-      )}
-
-      {invitationsQuery.isLoading ? (
-        <LoadingState label={isFa ? "در حال دریافت دعوت‌ها" : "Loading invitations"} />
-      ) : invitationsQuery.isError ? (
-        <div className="p-4">
-          <ErrorState
-            error={invitationsQuery.error}
-            codes={MEMBER_ERROR_CODES}
-            fallback={isFa ? "دریافت دعوت‌ها ناموفق بود." : "Could not load invitations."}
-          />
-        </div>
-      ) : invitationsQuery.data?.items.length ? (
-        <ul className="m-0 list-none p-0">
-          {invitationsQuery.data.items.map((invitation) => (
-            <InvitationRow
-              key={invitation.id}
-              invitation={invitation}
-              isFa={isFa}
-              lang={lang}
-              isRevoking={revokeMutation.isPending && revokeMutation.variables === invitation.id}
-              onRevoke={() => {
-                inviteMutation.reset();
-                revokeMutation.reset();
-                revokeMutation.mutate(invitation.id, { onSuccess: () => headingRef.current?.focus() });
-              }}
-            />
-          ))}
-        </ul>
-      ) : (
-        <div className="p-4">
-          <EmptyState label={isFa ? "دعوتی ثبت نشده است" : "No invitations yet"} />
-        </div>
-      )}
-    </section>
+        )}
+        {body}
+      </Card.Content>
+    </Card>
   );
 }
 
@@ -717,16 +930,18 @@ export default function MembersPage() {
   const canManage = can.has("member:manage");
 
   return (
-    <main className="platform-page platform-members-page space-y-5">
+    <main className="platform-page space-y-5">
       <PageHeader
         eyebrow={workspace?.name ?? (isFa ? "فضای کاری" : "Workspace")}
         title={isFa ? "اعضا و دسترسی‌ها" : "Members and access"}
-        actions={role ? (
-          <span className={`platform-status platform-status-${role}`}>
-            <ShieldCheck aria-hidden="true" size={13} />
-            {roleLabel(role, lang)}
-          </span>
-        ) : undefined}
+        actions={
+          role ? (
+            <span className={`platform-status platform-status-${role}`}>
+              <ShieldCheck aria-hidden="true" size={13} />
+              {roleLabel(role, lang)}
+            </span>
+          ) : undefined
+        }
       />
 
       {!role ? (
@@ -735,7 +950,7 @@ export default function MembersPage() {
           fallback={isFa ? "فضای کاری فعالی انتخاب نشده است." : "No active workspace is selected."}
         />
       ) : (
-        <div className={`platform-members-grid grid gap-5 ${canManage ? "2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]" : "grid-cols-1"}`}>
+        <div className="grid min-w-0 gap-5">
           <MemberDirectory actorRole={role} canManage={canManage} />
           {canManage && <InvitationManagement actorRole={role} />}
         </div>
