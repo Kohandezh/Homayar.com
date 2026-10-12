@@ -25,3 +25,8 @@ dist-ssr
 
 # HeroUI docs (downloaded, refresh locally)
 .heroui-docs/
+
+# Playwright
+e2e/.mailbox.jsonl
+playwright-report/
+test-results/
