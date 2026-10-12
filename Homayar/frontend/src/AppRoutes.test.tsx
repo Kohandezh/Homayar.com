@@ -195,7 +195,7 @@ describe("admin pages", () => {
     expect(await screen.findByText("Ali")).toBeInTheDocument();
     expect(screen.queryByLabelText("Role for Ali")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove Ali" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Invite member" })).not.toBeInTheDocument();
     expect(requestedUrls(get)).not.toContain("/members/invitations");
   });
 
@@ -216,7 +216,8 @@ describe("admin pages", () => {
     renderApp("/admin/members", workspace("admin"));
     expect(await screen.findByLabelText("Role for Ali")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove Ali" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    // The invite form lives in a modal, so only its trigger is on the page.
+    expect(screen.getByRole("button", { name: "Invite member" })).toBeInTheDocument();
   });
 
   it("hides management for an owner role whose permissions lack member:manage", async () => {

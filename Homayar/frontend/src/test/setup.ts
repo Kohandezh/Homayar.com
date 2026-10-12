@@ -1,6 +1,24 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { toast } from "@heroui/react";
+import { afterEach, vi } from "vitest";
+
+// jsdom has no matchMedia; HeroUI reads it for its responsive components.
+// Every query answers "no match", which is the desktop layout.
+Object.defineProperty(window, "matchMedia", {
+  configurable: true,
+  writable: true,
+  value: (query: string): MediaQueryList => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(() => false),
+  }),
+});
 
 const storageValues = new Map<string, string>();
 Object.defineProperty(window, "localStorage", {
@@ -17,7 +35,20 @@ Object.defineProperty(window, "localStorage", {
   } satisfies Storage,
 });
 
+// jsdom measures nothing, so the observer never has a size to report.
+// HeroUI's toast region and table only need the constructor to exist.
+class NoopResizeObserver implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+window.ResizeObserver = NoopResizeObserver;
+globalThis.ResizeObserver = NoopResizeObserver;
+
 afterEach(() => {
   cleanup();
+  // The toast queue is a module singleton, so one test's toast would
+  // otherwise still be on screen in the next one.
+  toast.clear();
   window.localStorage.clear();
 });

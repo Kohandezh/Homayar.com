@@ -8,6 +8,7 @@ import { render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError, AxiosHeaders, type AxiosResponse } from "axios";
 import { MemoryRouter, type MemoryRouterProps } from "react-router-dom";
+import { Toast } from "@heroui/react";
 import { vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n";
 import { AuthContext, type AuthContextValue } from "@/lib/auth-context";
@@ -111,7 +112,11 @@ export function renderConsole(ui: ReactElement, options: RenderOptions = {}) {
       <QueryClientProvider client={queryClient}>
         <I18nProvider>
           <MemoryRouter initialEntries={[options.route ?? "/"]}>
-            <AuthContext.Provider value={context}>{children}</AuthContext.Provider>
+            <AuthContext.Provider value={context}>
+              {children}
+              {/* Mirrors App.tsx, so a page's toasts are visible to tests. */}
+              <Toast.Provider />
+            </AuthContext.Provider>
           </MemoryRouter>
         </I18nProvider>
       </QueryClientProvider>

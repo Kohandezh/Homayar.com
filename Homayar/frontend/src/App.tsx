@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toast } from "@heroui/react";
 import { I18nProvider } from "@/lib/i18n";
 import AuthProvider from "@/lib/AuthProvider";
 import { useI18n } from "@/lib/i18n-context";
@@ -31,6 +32,9 @@ export default function App() {
             <Suspense fallback={<RouteFallback />}>
               <AppRoutes />
             </Suspense>
+            {/* One region for every page's success toasts; it reads the
+                language from the surrounding I18nProvider. */}
+            <Toast.Provider />
           </AuthProvider>
         </BrowserRouter>
       </I18nProvider>
