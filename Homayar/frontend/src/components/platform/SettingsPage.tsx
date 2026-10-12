@@ -1,47 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import {
-  ChevronLeft,
-  ChevronRight,
-  History,
-  LockKeyhole,
-  Save,
-  Settings,
-  SlidersHorizontal,
-} from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { LockKeyhole, Save, Settings, SlidersHorizontal } from "lucide-react";
 
-import {
-  AUDIT_EVENT_LABELS,
-  auditDetailKeyLabel,
-  auditDetailValue,
-  auditEventLabel,
-  auditTargetLabel,
-} from "@/lib/audit-labels";
 import { useAuth } from "@/lib/auth-context";
 import { useCan } from "@/lib/use-can";
 import type { ErrorCodeMessages } from "@/lib/error-messages";
-import { formatDate, formatNumber, localizeDigits, parseWholeNumber } from "@/lib/format";
+import { formatDate, localizeDigits, parseWholeNumber } from "@/lib/format";
 import { useI18n } from "@/lib/i18n-context";
-import {
-  useAuditEvents,
-  useMembers,
-  useUpdateWorkspaceSettings,
-  useWorkspaceSettings,
-} from "@/lib/platform-api";
-import { apiErrorInfo } from "@/lib/api-errors";
+import { useUpdateWorkspaceSettings, useWorkspaceSettings } from "@/lib/platform-api";
 import type {
-  AuditEventListParams,
-  JsonValue,
   RetentionMode,
   UpdateWorkspaceSettingsInput,
   WorkspaceSettings as WorkspaceSettingsType,
 } from "@/types/platform";
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-  PageHeader,
-  StatusBadge,
-} from "@/components/platform/Ui";
+import { ErrorState, LoadingState, PageHeader } from "@/components/platform/Ui";
 
 type ChosenRetentionMode = Exclude<RetentionMode, "legacy_unresolved">;
 
@@ -54,14 +25,6 @@ const SETTINGS_ERROR_CODES: ErrorCodeMessages = {
   workspace_not_found: {
     fa: "این فضای کاری در دسترس نیست.",
     en: "This workspace is not available.",
-  },
-  invalid_cursor: {
-    fa: "فهرست رویدادها تغییر کرده است؛ از صفحهٔ اول دوباره ببینید.",
-    en: "The event list has changed; start again from the first page.",
-  },
-  invalid_audit_range: {
-    fa: "بازهٔ زمانی رویدادها معتبر نیست؛ از صفحهٔ اول دوباره ببینید.",
-    en: "The event range is not valid; start again from the first page.",
   },
 };
 
@@ -307,215 +270,6 @@ function SettingsPanel() {
   );
 }
 
-function formatAuditDetail(value: JsonValue): string {
-  if (value === null) return "null";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value);
-}
-
-function AuditPanel() {
-  const { lang } = useI18n();
-  const isFa = lang === "fa";
-  const [eventTypeInput, setEventTypeInput] = useState("");
-  const [outcomeInput, setOutcomeInput] = useState("");
-  const [filters, setFilters] = useState({ eventType: "", outcome: "" });
-  const [cursorStack, setCursorStack] = useState<Array<string | undefined>>([undefined]);
-  const cursor = cursorStack[cursorStack.length - 1];
-  const params = useMemo<AuditEventListParams>(
-    () => ({
-      limit: 25,
-      cursor,
-      event_type: filters.eventType || undefined,
-      outcome: filters.outcome || undefined,
-    }),
-    [cursor, filters],
-  );
-  const auditQuery = useAuditEvents(params);
-  const membersQuery = useMembers();
-  const memberNames = useMemo(
-    () => new Map((membersQuery.data?.items ?? []).map((member) => [member.user_id, member.display_name || member.email || member.phone_e164 || member.user_id])),
-    [membersQuery.data],
-  );
-  const filtered = Boolean(filters.eventType || filters.outcome);
-  const errorCode = auditQuery.isError ? apiErrorInfo(auditQuery.error).code : null;
-  const cursorLost = errorCode === "invalid_cursor" || errorCode === "invalid_audit_range";
-
-  function applyFilters(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setFilters({ eventType: eventTypeInput.trim(), outcome: outcomeInput });
-    setCursorStack([undefined]);
-  }
-
-  const knownTypes = Object.keys(AUDIT_EVENT_LABELS);
-  const pageNumber = formatNumber(cursorStack.length, lang);
-
-  return (
-    <section className="platform-audit-log platform-surface overflow-hidden" aria-labelledby="audit-heading">
-      <div className="border-b border-border-subtle px-4 py-4 sm:px-5">
-        <div className="flex items-center gap-3">
-          <History aria-hidden="true" className="text-accent" size={20} />
-          <div>
-            <h2 id="audit-heading" className="m-0 text-sm font-semibold text-text-primary">
-              {isFa ? "لاگ ممیزی" : "Audit log"}
-            </h2>
-            <p className="mt-1 mb-0 text-xs text-text-secondary">
-              {isFa ? "رویدادهای امنیتی و مدیریتی این فضای کاری" : "Security and administrative events for this workspace"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <form className="platform-audit-filters grid gap-3 border-b border-border-subtle bg-bg-primary p-4 sm:grid-cols-[minmax(180px,1fr)_160px_auto] sm:items-end sm:p-5" onSubmit={applyFilters}>
-        <div className="platform-field">
-          <label htmlFor="audit-event-type">{isFa ? "نوع رویداد" : "Event type"}</label>
-          <select
-            id="audit-event-type"
-            className="platform-select"
-            value={eventTypeInput}
-            onChange={(event) => setEventTypeInput(event.currentTarget.value)}
-          >
-            <option value="">{isFa ? "همهٔ رویدادها" : "All events"}</option>
-            {knownTypes.map((type) => (
-              <option key={type} value={type}>{auditEventLabel(type, lang)}</option>
-            ))}
-          </select>
-        </div>
-        <div className="platform-field">
-          <label htmlFor="audit-outcome">{isFa ? "نتیجه" : "Outcome"}</label>
-          <select id="audit-outcome" className="platform-select" value={outcomeInput} onChange={(event) => setOutcomeInput(event.currentTarget.value)}>
-            <option value="">{isFa ? "همه نتایج" : "All outcomes"}</option>
-            <option value="success">{isFa ? "موفق" : "Succeeded"}</option>
-            <option value="failure">{isFa ? "ناموفق" : "Failed"}</option>
-          </select>
-        </div>
-        <button type="submit" className="platform-button">
-          <SlidersHorizontal aria-hidden="true" size={15} />
-          {isFa ? "اعمال فیلتر" : "Apply filters"}
-        </button>
-      </form>
-
-      {auditQuery.isLoading ? (
-        <LoadingState label={isFa ? "در حال دریافت رویدادها" : "Loading audit events"} />
-      ) : auditQuery.isError ? (
-        <div className="grid gap-3 p-4">
-          <ErrorState
-            error={auditQuery.error}
-            codes={SETTINGS_ERROR_CODES}
-            fallback={isFa ? "دریافت لاگ ممیزی ناموفق بود." : "Could not load the audit log."}
-          />
-          {cursorLost && (
-            <button type="button" className="platform-button justify-self-start" onClick={() => setCursorStack([undefined])}>
-              {isFa ? "صفحهٔ اول" : "First page"}
-            </button>
-          )}
-        </div>
-      ) : auditQuery.data?.items.length ? (
-        <>
-          <ol className="m-0 list-none p-0" aria-busy={auditQuery.isFetching}>
-            {auditQuery.data.items.map((auditEvent) => {
-              const eventLabel = auditEventLabel(auditEvent.event_type, lang);
-              const actor = auditEvent.actor_user_id
-                ? memberNames.get(auditEvent.actor_user_id) ?? auditEvent.actor_user_id
-                : (isFa ? "سیستم" : "System");
-              return (
-                <li key={auditEvent.id} className="platform-audit-event border-b border-border-subtle px-4 py-4 last:border-b-0 sm:px-5">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <strong className="break-words text-sm text-text-primary">
-                          {eventLabel ?? <bdi dir="ltr">{auditEvent.event_type}</bdi>}
-                        </strong>
-                        <StatusBadge status={auditEvent.outcome} />
-                      </div>
-                      {eventLabel && (
-                        <code className="mt-1 block text-[0.68rem] text-text-muted" dir="ltr">{auditEvent.event_type}</code>
-                      )}
-                      <dl className="mt-3 grid gap-x-5 gap-y-2 text-xs text-text-secondary sm:grid-cols-2">
-                        <div>
-                          <dt className="inline text-text-muted">{isFa ? "عامل: " : "Actor: "}</dt>
-                          <dd className="inline"><bdi dir="auto">{actor}</bdi></dd>
-                        </div>
-                        <div>
-                          <dt className="inline text-text-muted">{isFa ? "هدف: " : "Target: "}</dt>
-                          <dd className="inline">
-                            {auditEvent.target_type
-                              ? <>{auditTargetLabel(auditEvent.target_type, lang)}{auditEvent.target_id && <> · <bdi dir="ltr" className="font-mono">{auditEvent.target_id}</bdi></>}</>
-                              : (isFa ? "بدون هدف" : "None")}
-                          </dd>
-                        </div>
-                      </dl>
-                      {Object.keys(auditEvent.details).length > 0 && (
-                        <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
-                          {Object.entries(auditEvent.details).map(([key, value]) => (
-                            <div key={key} className="min-w-0">
-                              <dt className="inline text-text-muted">{auditDetailKeyLabel(key, lang)}: </dt>
-                              <dd className="inline break-all"><bdi dir="auto">{auditDetailValue(key, formatAuditDetail(value), lang)}</bdi></dd>
-                            </div>
-                          ))}
-                        </dl>
-                      )}
-                    </div>
-                    <time className="shrink-0 text-xs text-text-muted" dateTime={auditEvent.occurred_at}>
-                      {formatDate(auditEvent.occurred_at, lang)}
-                    </time>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-          <nav className="flex items-center justify-between gap-3 border-t border-border-subtle px-4 py-3 sm:px-5" aria-label={isFa ? "صفحه‌بندی لاگ ممیزی" : "Audit log pagination"}>
-            <button
-              type="button"
-              className="platform-button"
-              aria-disabled={cursorStack.length === 1 || auditQuery.isFetching}
-              onClick={() => {
-                if (cursorStack.length === 1 || auditQuery.isFetching) return;
-                setCursorStack((current) => current.slice(0, -1));
-              }}
-            >
-              <ChevronLeft aria-hidden="true" size={15} className="rtl-mirror" />
-              {isFa ? "قبلی" : "Previous"}
-            </button>
-            <span className="text-xs text-text-muted" aria-live="polite">
-              {isFa ? `صفحه ${pageNumber}` : `Page ${pageNumber}`}
-            </span>
-            <button
-              type="button"
-              className="platform-button"
-              aria-disabled={!auditQuery.data.next_cursor || auditQuery.isFetching}
-              onClick={() => {
-                if (!auditQuery.data.next_cursor || auditQuery.isFetching) return;
-                setCursorStack((current) => [...current, auditQuery.data.next_cursor ?? undefined]);
-              }}
-            >
-              {isFa ? "بعدی" : "Next"}
-              <ChevronRight aria-hidden="true" size={15} className="rtl-mirror" />
-            </button>
-          </nav>
-        </>
-      ) : (
-        <div className="p-4">
-          <EmptyState
-            label={filtered
-              ? (isFa ? "رویدادی با این فیلتر یافت نشد." : "No audit events match these filters.")
-              : (isFa ? "هنوز رویدادی ثبت نشده است." : "No events have been recorded yet.")}
-          />
-        </div>
-      )}
-    </section>
-  );
-}
-
-function SettingsContent() {
-  return (
-    <div className="platform-settings-grid grid gap-5 xl:grid-cols-[minmax(320px,0.42fr)_minmax(0,0.58fr)]">
-      <SettingsPanel />
-      <AuditPanel />
-    </div>
-  );
-}
-
 export default function SettingsPage() {
   const { workspace } = useAuth();
   const { lang } = useI18n();
@@ -526,7 +280,7 @@ export default function SettingsPage() {
     <main className="platform-page platform-settings-page">
       <PageHeader
         eyebrow={workspace?.name ?? (isFa ? "فضای کاری" : "Workspace")}
-        title={isFa ? "تنظیمات و ممیزی" : "Settings and audit"}
+        title={isFa ? "تنظیمات فضای کاری" : "Workspace settings"}
         actions={canAdminister ? (
           <span className="inline-flex items-center gap-2 text-xs text-text-secondary">
             <Settings aria-hidden="true" size={15} />
@@ -546,7 +300,7 @@ export default function SettingsPage() {
                 {isFa ? "دسترسی مدیریتی لازم است" : "Administrative access required"}
               </h2>
               <p className="mt-2 mb-0 text-sm text-text-secondary">
-                {isFa ? "فقط مالک یا مدیر فضای کاری می‌تواند تنظیمات و لاگ ممیزی را مشاهده کند." : "Only workspace owners and administrators can view settings and the audit log."}
+                {isFa ? "فقط مالک یا مدیر فضای کاری می‌تواند تنظیمات را مشاهده کند." : "Only workspace owners and administrators can view these settings."}
               </p>
               <p className="mt-2 mb-0 text-sm text-text-secondary">
                 {isFa ? "برای تغییر تنظیمات با مالک یا مدیر فضای کاری هماهنگ کنید." : "Ask a workspace owner or administrator to change settings."}
@@ -555,7 +309,7 @@ export default function SettingsPage() {
           </div>
         </section>
       ) : (
-        <SettingsContent />
+        <SettingsPanel />
       )}
     </main>
   );
