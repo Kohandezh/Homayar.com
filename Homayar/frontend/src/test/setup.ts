@@ -3,26 +3,28 @@ import { cleanup } from "@testing-library/react";
 import { toast } from "@heroui/react";
 import { afterEach, vi } from "vitest";
 
-// jsdom has no matchMedia; HeroUI reads it for its responsive components.
-// Every query answers "no match", which is the desktop layout.
-Object.defineProperty(window, "matchMedia", {
-  configurable: true,
-  writable: true,
-  value: (query: string): MediaQueryList => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(() => false),
-  }),
-});
-
 // The component tests run in jsdom. `e2e/smtp-sink.test.ts` tests plain Node
 // code and runs in the `node` environment, where there is no DOM to prepare.
 const hasDom = typeof window !== "undefined";
+
+// jsdom has no matchMedia; HeroUI reads it for its responsive components.
+// Every query answers "no match", which is the desktop layout.
+if (hasDom) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string): MediaQueryList => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    }),
+  });
+}
 
 const storageValues = new Map<string, string>();
 if (hasDom) {
@@ -48,7 +50,7 @@ class NoopResizeObserver implements ResizeObserver {
   unobserve() {}
   disconnect() {}
 }
-window.ResizeObserver = NoopResizeObserver;
+if (hasDom) window.ResizeObserver = NoopResizeObserver;
 globalThis.ResizeObserver = NoopResizeObserver;
 
 afterEach(() => {
