@@ -662,20 +662,44 @@ export interface AuditEventListParams {
  */
 export type RetentionMode = "finite" | "indefinite" | "immediate" | "legacy_unresolved";
 
+/** `workspace`: every member sees every record. `team`: supervisors see their teams, agents their own. */
+export type RecordScope = "workspace" | "team";
+
+/** `allow`: a file uploaded again is processed again. `reject`: it is refused. */
+export type DuplicateMediaPolicy = "allow" | "reject";
+
+/** The kinds of personal data the redaction can mask. */
+export type PiiRedactionClass = "email" | "phone" | "ir_national_id" | "bank_card" | "iban" | "ir_postal_code";
+
 export interface WorkspaceSettings {
   id: string;
   name: string;
   retention_days: number;
   retention_mode: RetentionMode;
   delete_audio_after_processing: boolean;
+  record_scope: RecordScope;
+  public_share_links_enabled: boolean;
+  organization_share_links_enabled: boolean;
+  duplicate_media_policy: DuplicateMediaPolicy;
+  pii_redaction_enabled: boolean;
+  /** Sorted by value by the server. */
+  pii_redaction_classes: PiiRedactionClass[];
   updated_at: IsoDateTime;
 }
 
-interface UpdateWorkspaceSettingsShape {
+export interface UpdateWorkspaceSettingsShape {
   name?: string;
   retention_days?: number;
   retention_mode?: Exclude<RetentionMode, "legacy_unresolved">;
   delete_audio_after_processing?: boolean;
+  record_scope?: RecordScope;
+  public_share_links_enabled?: boolean;
+  organization_share_links_enabled?: boolean;
+  duplicate_media_policy?: DuplicateMediaPolicy;
+  /** Owner only (`pii:original_access`). */
+  pii_redaction_enabled?: boolean;
+  /** Owner only (`pii:original_access`). Never empty. */
+  pii_redaction_classes?: PiiRedactionClass[];
 }
 
 export type UpdateWorkspaceSettingsInput = AtLeastOne<UpdateWorkspaceSettingsShape>;

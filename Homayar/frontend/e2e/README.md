@@ -15,7 +15,7 @@ cookies, and text direction.
 | --- | --- |
 | `admin-overview.spec.ts` | An owner signs in and `/admin` shows every card with real numbers. |
 | `members.spec.ts` | An owner changes a member's role, removes the member, invites them back, and the invited account accepts. |
-| `workspace-settings.spec.ts` | An owner edits a workspace setting and the audit log records `workspace.settings.updated`. |
+| `workspace-settings.spec.ts` | An owner changes `Public share links` and `Duplicate files`, the values survive a reload, and the audit log records `workspace.settings.updated`. An admin sees the privacy controls locked. Cancelling the immediate-retention warning saves nothing. The page is right to left in Persian. |
 | `access-control.spec.ts` | A viewer is blocked from `/admin` and `/admin/settings`, and still opens the pages their role allows. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
 
@@ -67,7 +67,7 @@ hooks, which run even when a step fails:
 * `members.spec.ts`, in `afterAll`: the role goes back to administrator, a
   leftover pending invitation is revoked, and a removed member is invited and
   accepted again.
-* `workspace-settings.spec.ts`, in `afterEach`: the workspace name goes back.
+* `workspace-settings.spec.ts`, in `afterEach`: `Public share links` and `Duplicate files` go back to their seeded values.
 
 Re-running the seed is **not** a repair. `_ensure_workspace` returns an
 existing workspace untouched (`backend/database/demo_seed.py`), so `make
