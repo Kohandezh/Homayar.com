@@ -11,6 +11,8 @@ import api, { API_BASE_URL } from "@/lib/api";
 import { apiErrorInfo } from "@/lib/api-errors";
 import type {
   ActionItem,
+  AdminJobListParams,
+  AdminJobListResponse,
   AuditEventListParams,
   AuditEventListResponse,
   BillingUsageResponse,
@@ -37,6 +39,7 @@ import type {
   PlanCatalogResponse,
   ReadinessResponse,
   ProcessingJob,
+  RunPolicySnapshotListResponse,
   SearchParams,
   SearchResponse,
   ShareLink,
@@ -164,6 +167,11 @@ export const platformQueryKeys = {
   auditEvents: (params: AuditEventListParams) =>
     ["platform", "admin", "audit-events", params] as const,
   auditEventsRoot: () => ["platform", "admin", "audit-events"] as const,
+  adminJobs: (params: AdminJobListParams) =>
+    ["platform", "admin", "jobs", params] as const,
+  adminJobsRoot: () => ["platform", "admin", "jobs"] as const,
+  jobPolicySnapshots: (jobId: string) =>
+    ["platform", "admin", "jobs", jobId, "policy-snapshots"] as const,
   workspaceSettings: () => ["platform", "admin", "workspace-settings"] as const,
   readiness: () => ["platform", "readiness"] as const,
 };
@@ -477,6 +485,30 @@ export async function listAuditEvents(
   return response.data;
 }
 
+/**
+ * One page of the workspace's processing jobs (HOM-183). `state` repeats in
+ * the query string, so the array is serialized without indexes
+ * (`?state=failed&state=dead_letter`), which is what FastAPI reads.
+ */
+export async function listAdminJobs(
+  params: AdminJobListParams = {},
+): Promise<AdminJobListResponse> {
+  const response = await api.get<AdminJobListResponse>("/admin/jobs", {
+    params,
+    paramsSerializer: { indexes: null },
+  });
+  return response.data;
+}
+
+export async function getJobPolicySnapshots(
+  jobId: string,
+): Promise<RunPolicySnapshotListResponse> {
+  const response = await api.get<RunPolicySnapshotListResponse>(
+    `/admin/jobs/${jobId}/policy-snapshots`,
+  );
+  return response.data;
+}
+
 export async function getWorkspaceSettings(): Promise<WorkspaceSettings> {
   const response = await api.get<WorkspaceSettings>("/admin/workspace-settings");
   return response.data;
@@ -557,7 +589,11 @@ export function useReplayJob() {
     onSuccess: async (_result, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meeting(variables.meetingId) }),
+        // The job is queued again, so its stages, its row and its `replayable`
+        // flag change, on the meeting page and in the admin list.
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingJob(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.adminJobsRoot() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.billing() }),
       ]);
     },
@@ -941,6 +977,26 @@ export function useAuditEvents(params: AuditEventListParams = {}) {
     // Paging keeps the current page (and the focused button) while the next
     // one loads (QA S-01).
     placeholderData: keepPreviousData,
+  });
+}
+
+export function useAdminJobs(params: AdminJobListParams = {}) {
+  return useQuery({
+    queryKey: platformQueryKeys.adminJobs(params),
+    queryFn: () => listAdminJobs(params),
+    // Paging keeps the current page (and the focused button) while the next
+    // one loads, the same as the audit log.
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The AI policy behind each attempt of one job; only fetched for an open row. */
+export function useJobPolicySnapshots(jobId: string | null | undefined) {
+  const id = jobId ?? "";
+  return useQuery({
+    queryKey: platformQueryKeys.jobPolicySnapshots(id),
+    queryFn: () => getJobPolicySnapshots(id),
+    enabled: Boolean(jobId),
   });
 }
 

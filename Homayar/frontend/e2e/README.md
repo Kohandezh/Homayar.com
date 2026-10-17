@@ -14,6 +14,7 @@ cookies, and text direction.
 | File | Flow |
 | --- | --- |
 | `admin-overview.spec.ts` | An owner signs in and `/admin` shows every card with real numbers. |
+| `processing.spec.ts` | An owner filters `/admin/processing` by state, reads a dead-letter job's drawer (failure, timeline, policy) and sees the failed jobs offer no replay. |
 | `members.spec.ts` | An owner changes a member's role, removes the member, invites them back, and the invited account accepts. |
 | `workspace-settings.spec.ts` | An owner changes `Public share links` and `Duplicate files`, the values survive a reload, and the audit log records `workspace.settings.updated`. An admin sees the privacy controls locked. Cancelling the immediate-retention warning saves nothing. The page is right to left in Persian. |
 | `access-control.spec.ts` | A viewer is blocked from `/admin` and `/admin/settings`, and still opens the pages their role allows. |

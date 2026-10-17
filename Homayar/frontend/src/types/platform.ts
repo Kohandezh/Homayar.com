@@ -654,6 +654,64 @@ export interface AuditEventListParams {
 }
 
 /**
+ * One processing job in the administrator's list
+ * (GET /admin/jobs, backend/schemas/admin.py AdminJobResponse). Metadata
+ * only: no transcript, recording, lease or reservation data.
+ */
+export interface AdminJob {
+  id: string;
+  meeting_id: string;
+  meeting_title: string;
+  state: JobState;
+  stage: string;
+  attempt_count: number;
+  max_attempts: number;
+  failure_code: string | null;
+  failure_class: string | null;
+  /** Already sanitized by the server: secrets redacted, cut to 500 characters. */
+  failure_message: string | null;
+  replay_count: number;
+  max_replays: number;
+  /**
+   * The replay endpoint's static checks pass. Quota is not part of it, so a
+   * replayable job can still be refused with 429.
+   */
+  replayable: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface AdminJobListResponse {
+  items: AdminJob[];
+  next_cursor: string | null;
+}
+
+export interface AdminJobListParams {
+  limit?: number;
+  cursor?: string;
+  /** Repeats in the query string (`?state=failed&state=dead_letter`). */
+  state?: JobState[];
+  stage?: string;
+}
+
+/** Which AI policy one processing attempt ran under (GET /admin/jobs/{id}/policy-snapshots). */
+export interface RunPolicySnapshot {
+  attempt: number;
+  policy_version: number;
+  policy_digest: string;
+  policy_document: Record<string, JsonValue>;
+  text_privacy_digest: string | null;
+  strict_manifests: boolean;
+  stages: Array<Record<string, JsonValue>>;
+  created_at: IsoDateTime;
+}
+
+export interface RunPolicySnapshotListResponse {
+  job_id: string;
+  items: RunPolicySnapshot[];
+}
+
+/**
  * Explicit retention semantics (WP07-T01, ADR 0020). `finite` keeps data
  * `retention_days` (>= 1) days after ingestion; `indefinite` never deletes by
  * age; `immediate` makes data deletion-eligible once processing is terminal.
