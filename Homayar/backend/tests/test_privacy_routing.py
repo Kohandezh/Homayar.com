@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import threading
 from datetime import UTC, datetime
 from urllib.parse import urlparse
@@ -104,8 +105,62 @@ def _dump(value) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+# Generated identifiers, content digests and timestamps are random, so their hex digits or
+# microseconds can contain a marker such as "0912" by chance (about 0.7% of runs of
+# test_reads_default_to_redacted_and_the_original_needs_the_owner; CI run 38598299491).  They
+# cannot carry a transcript value, so they are blanked by their exact shape before the markers
+# are checked.  A digest must contain a letter, so a raw digit run (phone, national ID) is never
+# blanked.
+_GENERATED = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"|(?<![0-9A-Za-z])(?=[0-9]*[a-f])[0-9a-f]{24,128}(?![0-9A-Za-z])"
+    r"|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?"
+)
+
+
 def _no_raw(text: str) -> bool:
-    return not any(marker in text for marker in RAW)
+    visible = _GENERATED.sub(" ", text)
+    return not any(marker in visible for marker in RAW)
+
+
+_UUID_WITH_MARKER = "5ea8c0d0-9240-4faa-0912-034ab7d71ca5"
+
+
+def test_raw_check_ignores_markers_inside_generated_values():
+    """Regression: a random ID, digest or timestamp that contains "0912" is not a leak."""
+    body = {
+        "meeting_id": _UUID_WITH_MARKER,
+        "digest": "e07352c17058c7ca0912a31590a9daf9d68e16" + "ab" * 13,
+        "created_at": "2026-10-17T16:10:53.009123-04:00",
+        "text": "کد ملی [IR_NATIONAL_ID_1] و موبایل [PHONE_1] است.",
+    }
+    text = _dump(body)
+    assert "0912" in text  # a plain substring check reports a leak here
+    assert _no_raw(text)
+    assert _no_raw(repr(body))
+
+
+@pytest.mark.parametrize("marker", RAW)
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{marker}",
+        "موبایل {marker} است",
+        _UUID_WITH_MARKER + "{marker}",
+        "{marker}" + _UUID_WITH_MARKER,
+        "id=" + _UUID_WITH_MARKER + " text={marker}",
+    ],
+)
+def test_raw_check_still_reports_every_marker(marker, template):
+    leaked = template.format(marker=marker)
+    assert not _no_raw(leaked)
+    assert not _no_raw(_dump({"meeting_id": _UUID_WITH_MARKER, "text": leaked}))
+
+
+def test_raw_check_reports_digit_runs_that_look_like_hex():
+    # A long run of digits has no hex letter, so it is never blanked as a digest.
+    assert not _no_raw("000000000000091234567890000000")
+    assert not _no_raw(_dump({"value": "09123456789" * 3}))
 
 
 def _owner_tenant(owner) -> dict:
