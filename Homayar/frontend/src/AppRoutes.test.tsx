@@ -164,6 +164,21 @@ describe("admin pages", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Audit log" })).toBeInTheDocument();
   });
 
+  it("asks for billing data on the usage page only for a role with billing:read", async () => {
+    const billingUrls = ["/billing/subscription", "/billing/usage", "/billing/usage/events", "/billing/plans"];
+    const get = pendingReads();
+    const owner = renderApp("/admin/usage", workspace("owner"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Usage and subscription" })).toBeInTheDocument();
+    for (const url of billingUrls) expect(requestedUrls(get)).toContain(url);
+    owner.unmount();
+    vi.restoreAllMocks();
+
+    const memberGet = pendingReads();
+    renderApp("/admin/usage", workspace("member"));
+    expect(await screen.findByRole("heading", { level: 1, name: "No access" })).toBeInTheDocument();
+    for (const url of billingUrls) expect(requestedUrls(memberGet)).not.toContain(url);
+  });
+
   it("shows the shared coming-soon page for every admin path without a page, in both languages", async () => {
     pendingReads();
     const placeholders = ADMIN_NAV.filter((entry) => !(entry.path in ADMIN_PAGES));

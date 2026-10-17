@@ -87,6 +87,34 @@ export function formatAudioSeconds(seconds: number, locale: string) {
   return remainder ? `${formatNumber(minutes, locale)} min ${remainder} s` : `${formatNumber(minutes, locale)} min`;
 }
 
+/**
+ * Audio seconds as hours and minutes, e.g. "2 h 5 min" / "۲ ساعت و ۵ دقیقه".
+ * Minutes are floored, so a quota is never shown as larger than it is. Under a
+ * minute is "less than one minute", and a negative amount (an adjustment) is a
+ * minus sign followed by the text of its magnitude.
+ */
+export function formatAudioHours(seconds: number, locale: string) {
+  const sign = seconds < 0 ? "-" : "";
+  const magnitude = Math.abs(seconds);
+  const totalMinutes = Math.floor(magnitude / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (locale === "fa") {
+    let text: string;
+    if (magnitude > 0 && totalMinutes === 0) text = "کمتر از ۱ دقیقه";
+    else if (hours === 0) text = `${formatNumber(minutes, locale)} دقیقه`;
+    else if (minutes > 0) text = `${formatNumber(hours, locale)} ساعت و ${formatNumber(minutes, locale)} دقیقه`;
+    else text = `${formatNumber(hours, locale)} ساعت`;
+    return `${sign}${text}`;
+  }
+  let text: string;
+  if (magnitude > 0 && totalMinutes === 0) text = "< 1 min";
+  else if (hours === 0) text = `${formatNumber(minutes, locale)} min`;
+  else if (minutes > 0) text = `${formatNumber(hours, locale)} h ${formatNumber(minutes, locale)} min`;
+  else text = `${formatNumber(hours, locale)} h`;
+  return `${sign}${text}`;
+}
+
 /** Bytes as KB/MB with locale digits. */
 export function formatBytes(bytes: number, locale: string) {
   const units = locale === "fa" ? ["بایت", "کیلوبایت", "مگابایت", "گیگابایت"] : ["B", "KB", "MB", "GB"];
