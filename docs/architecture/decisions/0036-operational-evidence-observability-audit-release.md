@@ -76,3 +76,7 @@ This ADR is extended section by section as each Lane D change lands.
 5. **Defined failure behaviour.** Audit rows of operations that happened are transactional
    (fail closed); refused attempts are recorded best effort in their own commit (the response
    does not change). Both failure kinds are counted for alerting.
+6. **Free-text masking (owner decision 2026-10-17, option B).** Reasons, an API key's name and
+   integration identifiers go through the text PII detector before they are written (class
+   placeholders), then are capped at 120 characters. This keeps personal data out of an
+   append-only table instead of having to erase it later.

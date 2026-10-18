@@ -11,7 +11,9 @@ the system, whose component is then named by the correlation id
 **result** (``outcome``) and the **correlation id** (``request_id``: the
 request's ``X-Request-ID`` or the bound correlation id when the caller passes
 none).  ``details`` holds ids, counts and enum values; secrets are redacted at
-write time and the client IP is stored only as a peppered hash.
+write time, personal data in free-text values (reasons, labels, integration
+identifiers) is masked with the text PII detector, and the client IP is stored
+only as a peppered hash.
 
 Delivery
 --------
@@ -58,6 +60,15 @@ SENSITIVE_DETAIL_KEYS = {
 }
 MAX_DETAIL_STRING_LENGTH = 500
 REDACTED = "[redacted]"
+# Free text a user or an integration types (owner decision 2026-10-17, option B):
+# personal data in it is replaced by class placeholders ("[PHONE_1]", "[EMAIL_1]",
+# national id, bank card, IBAN, postal code) with the text PII detector, then the
+# value is capped. Ids, counts and enum values stay as they are.
+FREE_TEXT_DETAIL_KEYS = frozenset(
+    {"reason", "release_reason", "deletion_reason", "name", "external_event_id",
+     "source_provider"}
+)
+MAX_FREE_TEXT_LENGTH = 120
 
 # Delivery classes (see the module docstring).
 TRANSACTIONAL = "transactional"
@@ -176,6 +187,22 @@ def _sanitize_value(value: Any) -> Any:
     return str(value)[:300]
 
 
+def _is_free_text_key(key: str) -> bool:
+    lowered = key.casefold()
+    return lowered in FREE_TEXT_DETAIL_KEYS or lowered.endswith("_reason")
+
+
+def _mask_free_text(value: str) -> str:
+    """Personal data replaced by class placeholders, then capped (masking first, so
+    the cap can never leave half an identifier behind)."""
+    from backend.privacy.text_pii import redact
+
+    if looks_like_secret(value):
+        return REDACTED
+    masked, _ = redact(value)
+    return masked[:MAX_FREE_TEXT_LENGTH]
+
+
 def _sanitize_details(details: dict[str, Any] | None) -> dict[str, Any]:
     if not details:
         return {}
@@ -183,6 +210,8 @@ def _sanitize_details(details: dict[str, Any] | None) -> dict[str, Any]:
     for key, value in details.items():
         if _is_sensitive_key(key):
             sanitized[key] = REDACTED
+        elif isinstance(value, str) and _is_free_text_key(key):
+            sanitized[key] = _mask_free_text(value)
         else:
             sanitized[key] = _sanitize_value(value)
     return sanitized

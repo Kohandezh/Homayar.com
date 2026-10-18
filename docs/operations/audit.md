@@ -44,6 +44,13 @@ arrive they need catalogue entries (the coverage test enforces it).
 * Raw identifiers of a refused login: only a 16-character prefix of the peppered digest of
   the identifier (`target_type = login_identifier`).
 * Client IP addresses: only `ip_hash`.
+* Personal data in free text (owner decision 2026-10-17, option B): the values of `reason`,
+  `release_reason`, `deletion_reason`, any `*_reason`, `name` (an API key's label),
+  `external_event_id` and `source_provider` pass through the text PII detector
+  (`backend/privacy/text_pii.py`: phone, e-mail, Iranian national ID, bank card, IBAN, postal
+  code) and are stored with class placeholders (`[PHONE_1]`, `[EMAIL_1]`, …), then capped at
+  120 characters. Masking runs before the cap, so a cut never leaves half an identifier. Ids,
+  counts and enum values are stored unchanged.
 
 ## Delivery and failure behaviour
 
