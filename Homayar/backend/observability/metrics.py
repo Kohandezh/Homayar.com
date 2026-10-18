@@ -234,11 +234,15 @@ def observe_http(method: str, route: str, status_code: int, seconds: float) -> N
 
 
 def observe_auth_failure(reason: str) -> None:
-    AUTH_FAILURES.labels(reason if reason in AUTH_FAILURE_REASONS else "other").inc()
+    label = reason if reason in AUTH_FAILURE_REASONS else "other"
+    guarded_write(lambda: AUTH_FAILURES.labels(label).inc())
 
 
 def observe_audit_write_failure(delivery: str) -> None:
-    AUDIT_WRITE_FAILURES.labels(delivery if delivery in AUDIT_WRITE_DELIVERIES else "other").inc()
+    # Called from the engine's error hook: a metrics failure must not replace the
+    # database error the caller is about to see.
+    label = delivery if delivery in AUDIT_WRITE_DELIVERIES else "other"
+    guarded_write(lambda: AUDIT_WRITE_FAILURES.labels(label).inc())
 
 
 def failure_category(failure_class: str | None, failure_code: str | None) -> str:
