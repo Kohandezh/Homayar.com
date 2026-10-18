@@ -20,6 +20,7 @@ import {
   getBillingUsage,
   getCurrentSubscription,
   getMeeting,
+  getMeetingCounts,
   getMeetingJob,
   getMeetingSummary,
   getPlanCatalog,
@@ -54,6 +55,8 @@ import {
   uploadMeeting,
   useAssignTeamMember,
   useCreateTeam,
+  useDeleteMeeting,
+  useMeetingCounts,
   useRevokeTeamAssignment,
   useTeam,
   useTeams,
@@ -62,6 +65,7 @@ import {
 import { testQueryClient, apiError } from "@/test/fixtures";
 import type {
   Meeting,
+  MeetingCountsResponse,
   ProcessingJob,
   UploadAcceptedResponse,
 } from "@/types/platform";
@@ -222,6 +226,105 @@ describe("platform meeting API", () => {
     });
     expect(exportDownload.filename).toBe("homayar-meeting-1.txt");
     expect(filenameFromContentDisposition(undefined, "fallback.txt")).toBe("fallback.txt");
+  });
+});
+
+describe("meeting counts API", () => {
+  const countsBody: MeetingCountsResponse = {
+    counts: {
+      uploading: 0,
+      uploaded: 0,
+      queued: 4,
+      processing: 0,
+      transcribing: 1,
+      diarizing: 0,
+      analyzing: 0,
+      completed: 120,
+      partial: 2,
+      failed: 3,
+      cancelled: 5,
+    },
+    total: 135,
+  };
+
+  it("reads the counts endpoint like the meeting list", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse(countsBody));
+
+    await expect(getMeetingCounts()).resolves.toEqual(countsBody);
+    expect(get).toHaveBeenCalledWith("/meetings/counts", undefined);
+
+    const signal = new AbortController().signal;
+    await getMeetingCounts(signal);
+    expect(get).toHaveBeenLastCalledWith("/meetings/counts", { signal });
+  });
+
+  it("keeps the counts key under the meetings prefix", () => {
+    expect(platformQueryKeys.meetingCounts()).toEqual(["platform", "meetings", "counts"]);
+    const prefix = platformQueryKeys.meetings();
+    expect(platformQueryKeys.meetingCounts().slice(0, prefix.length)).toEqual(prefix);
+  });
+
+  it("reads the counts through useMeetingCounts", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse(countsBody));
+    const queryClient = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useMeetingCounts(), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    });
+
+    expect(hook.result.current.data).toEqual(countsBody);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith("/meetings/counts", expect.objectContaining({ signal: expect.anything() }));
+  });
+
+  it("invalidates the counts cache when a meeting is deleted", async () => {
+    const remove = vi.spyOn(api, "delete").mockResolvedValue(axiosResponse(undefined));
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const del = renderHook(() => useDeleteMeeting(), { wrapper });
+    await act(async () => {
+      await del.result.current.mutateAsync("meeting-1");
+    });
+
+    expect(remove).toHaveBeenCalledWith("/meetings/meeting-1");
+    const countsInvalidations = invalidate.mock.calls.filter(
+      (call) => JSON.stringify(call[0]?.queryKey) === JSON.stringify(["platform", "meetings", "counts"]),
+    );
+    expect(countsInvalidations).toHaveLength(1);
+  });
+
+  it("does not retry a 404 counts answer, so the fallback is not delayed", async () => {
+    const get = vi.spyOn(api, "get").mockRejectedValue(apiError(404, "not_found"));
+    const queryClient = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useMeetingCounts(), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isError).toBe(true), { timeout: 4_000 });
+    });
+
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a 500 counts answer once", async () => {
+    const get = vi.spyOn(api, "get").mockRejectedValue(apiError(500, "internal_error"));
+    const queryClient = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useMeetingCounts(), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isError).toBe(true), { timeout: 6_000 });
+    });
+
+    expect(get).toHaveBeenCalledTimes(2);
   });
 });
 
