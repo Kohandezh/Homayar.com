@@ -83,29 +83,45 @@ def exception_summary(exc: BaseException) -> str:
     return summary
 
 
-def safe_message(record: logging.LogRecord) -> str:
-    """The record's message with any embedded exception text replaced by its summary.
+def _summarised(value: object) -> object:
+    return exception_summary(value) if isinstance(value, BaseException) else value
 
-    Celery's task-failure records pass ``repr(exception)`` as the ``exc``
-    argument (``Task %(name)s[%(id)s] raised unexpected: %(exc)s``), and code may
-    pass an exception as a ``%s`` argument; either would put the exception's
-    text (SQL, parameters, DETAIL) in the message. The result is also scrubbed.
+
+def safe_message(record: logging.LogRecord) -> str:
+    """The record's message with every embedded exception text replaced by its summary.
+
+    An exception passed as a ``%s`` argument (tuple or mapping form, with or without
+    ``exc_info``) is replaced by ``exception_summary``. Celery's task records pass
+    ``repr(exception)`` as the ``exc`` argument (``... raised unexpected: %(exc)s``,
+    also for Retry and expected ``throws=`` errors that carry no ``exc_info``): it
+    becomes the summary, or ``[exception]`` when no exception object is attached.
+    The result is also scrubbed.
     """
     exc = record.exc_info[1] if record.exc_info and record.exc_info[1] else None
-    if exc is None:
-        return diagnostic_text(record.getMessage())
-    summary = exception_summary(exc)
+    summary = exception_summary(exc) if exc is not None else None
     args = record.args
-    if isinstance(args, Mapping) and "exc" in args:
+    message: str | None = None
+    if isinstance(args, Mapping):
+        safe_args = {key: _summarised(value) for key, value in args.items()}
+        if "exc" in safe_args and not isinstance(args.get("exc"), BaseException):
+            safe_args["exc"] = summary or "[exception]"
+        if "traceback" in safe_args:
+            safe_args["traceback"] = ""
         try:
-            message = str(record.msg) % {**args, "exc": summary, "traceback": ""}
+            message = str(record.msg) % safe_args
         except (KeyError, TypeError, ValueError):
-            message = record.getMessage()
-    else:
+            message = None
+    elif isinstance(args, tuple) and args:
+        try:
+            message = str(record.msg) % tuple(_summarised(value) for value in args)
+        except (TypeError, ValueError):
+            message = None
+    if message is None:
         message = record.getMessage()
-    for text in {repr(exc), str(exc), repr(_single_cause(exc)), str(_single_cause(exc))}:
-        if len(text) >= 8 and text != summary:
-            message = message.replace(text, summary)
+    if exc is not None and summary is not None:
+        for text in {repr(exc), str(exc), repr(_single_cause(exc)), str(_single_cause(exc))}:
+            if len(text) >= 8 and text != summary:
+                message = message.replace(text, summary)
     return diagnostic_text(message)
 
 
@@ -143,6 +159,12 @@ class ServerLogFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if '"WebSocket %s"' in str(record.msg) and isinstance(record.args, tuple):
+            # uvicorn's handshake line carries the raw path and query string; the
+            # app serves no WebSocket route, so the path is never worth keeping.
+            record.args = tuple(
+                "[path]" if index == 1 else value for index, value in enumerate(record.args)
+            )
         message = safe_message(record).strip()
         exc = record.exc_info[1] if record.exc_info else None
         if exc is not None:

@@ -326,3 +326,34 @@ def test_the_unhandled_error_line_names_only_the_class(settings, caplog):
     [record] = [r for r in caplog.records if r.getMessage().startswith("UNHANDLED_ERROR")]
     line = json.loads(JSONFormatter().format(record))
     assert line["exception"] == "RuntimeError"
+
+
+def test_an_exception_argument_without_exc_info_is_summarised():
+    error = _integrity_error()
+    for args in ((error,), ({"error": error},)):
+        msg = "write failed: %s" if args[0] is error else "write failed: %(error)s"
+        record = logging.LogRecord("homayar", logging.WARNING, __file__, 1, msg, args, None)
+        line = JSONFormatter().format(record)
+        assert "IntegrityError FakePsycopgError sqlstate=23505" in line
+        for leaked in (_EMAIL, _PHONE, "INSERT INTO", "DETAIL", "[SQL", "[parameters"):
+            assert leaked not in line
+
+
+def test_a_celery_record_without_exc_info_drops_its_exception_text():
+    context = {"name": "t", "id": "1", "description": "retry", "exc": repr(_integrity_error()),
+               "traceback": "Traceback ...", "args": "()", "kwargs": "{}"}
+    record = logging.LogRecord("celery.app.trace", logging.INFO, __file__, 1,
+                               "Task %(name)s[%(id)s] %(description)s: %(exc)s", (context,), None)
+    message = safe_message(record)
+    assert message == "Task t[1] retry: [exception]"
+
+
+def test_websocket_handshake_lines_never_carry_the_path():
+    from backend.services.logging_service import ServerLogFilter
+
+    for msg, args in (('%s - "WebSocket %s" 403', ("1.2.3.4:5", f"/ws/{_SHARE_TOKEN}?t=x")),
+                      ('%s - "WebSocket %s" [accepted]', ("1.2.3.4:5", f"/ws/{_SHARE_TOKEN}"))):
+        record = logging.LogRecord("uvicorn.error", logging.INFO, __file__, 1, msg, args, None)
+        ServerLogFilter().filter(record)
+        assert _SHARE_TOKEN not in record.getMessage()
+        assert '"WebSocket [path]"' in record.getMessage()
