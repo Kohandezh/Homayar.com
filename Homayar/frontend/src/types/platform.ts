@@ -711,6 +711,17 @@ export interface AuditEventListParams {
   occurred_before?: IsoDateTime;
 }
 
+/** One entry of the event-type catalog (GET /admin/audit-event-types). */
+export interface AuditEventTypeEntry {
+  event_type: string;
+  group: string;
+  target_type: string | null;
+}
+
+export interface AuditEventTypeListResponse {
+  items: AuditEventTypeEntry[];
+}
+
 /**
  * One processing job in the administrator's list
  * (GET /admin/jobs, backend/schemas/admin.py AdminJobResponse). Metadata

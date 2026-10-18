@@ -1,8 +1,8 @@
 /**
- * Labels for audit log entries (QA S-04). Event types are the ones the
- * backend records (grep of `event_type="…"` in backend/ at the Session C
- * integration). Unknown types, keys and values are shown as sent, never
- * guessed; the raw code stays visible next to a label.
+ * Labels for audit log entries (QA S-04). The list of event types comes
+ * from GET /admin/audit-event-types; this file holds only their fa and en
+ * labels. Unknown types, keys and values are shown as sent, never guessed;
+ * the raw code stays visible next to a label.
  */
 import type { JsonValue } from "@/types/platform";
 
@@ -22,7 +22,6 @@ export const AUDIT_EVENT_LABELS: Labels = {
   "meeting.updated": { fa: "جلسه ویرایش شد", en: "Meeting edited" },
   "meeting.deleted": { fa: "جلسه حذف شد", en: "Meeting deleted" },
   "meeting.exported": { fa: "از جلسه خروجی گرفته شد", en: "Meeting exported" },
-  "meeting.read": { fa: "جلسه مشاهده شد", en: "Meeting viewed" },
   "meeting.speaker_renamed": { fa: "نام گوینده تغییر کرد", en: "Speaker renamed" },
   "meeting.share_created": { fa: "لینک اشتراک ساخته شد", en: "Share link created" },
   "meeting.share_revoked": { fa: "لینک اشتراک لغو شد", en: "Share link revoked" },
@@ -30,6 +29,10 @@ export const AUDIT_EVENT_LABELS: Labels = {
   "meeting.share_recipients_changed": { fa: "گیرندگان لینک اشتراک تغییر کردند", en: "Share recipients changed" },
   "meeting.processing.completed": { fa: "پردازش جلسه تمام شد", en: "Processing finished" },
   "meeting.processing.failed": { fa: "پردازش جلسه ناموفق بود", en: "Processing failed" },
+  "meeting.processing.cancelled": { fa: "پردازش جلسه لغو شد", en: "Processing cancelled" },
+  "meeting.processing.lease_expired": { fa: "مهلت پردازش جلسه به پایان رسید", en: "Processing lease expired" },
+  "meeting.processing.replayed": { fa: "پردازش جلسه دوباره اجرا شد", en: "Processing replayed" },
+  "meeting.processing.retry_scheduled": { fa: "تلاش دوباره برای پردازش زمان‌بندی شد", en: "Processing retry scheduled" },
   "meeting.retention_expired": { fa: "مهلت نگهداری جلسه به پایان رسید", en: "Retention period ended" },
   "meeting.recording.deleted_after_processing": { fa: "فایل صوتی پس از پردازش حذف شد", en: "Recording deleted after processing" },
   "meeting.recording.retained_after_processing": { fa: "فایل صوتی پس از پردازش نگه داشته شد", en: "Recording kept after processing" },
@@ -53,6 +56,8 @@ export const AUDIT_EVENT_LABELS: Labels = {
   "media.integrity_checked": { fa: "سلامت فایل رسانه بررسی شد", en: "Media integrity checked" },
   "media.legal_hold_placed": { fa: "نگهداری قانونی اعمال شد", en: "Legal hold placed" },
   "media.legal_hold_released": { fa: "نگهداری قانونی برداشته شد", en: "Legal hold released" },
+  "media.orphan_removed": { fa: "فایل رسانهٔ بی‌صاحب حذف شد", en: "Orphaned media removed" },
+  "media.orphans_reported": { fa: "فایل‌های رسانهٔ بی‌صاحب گزارش شدند", en: "Orphaned media reported" },
   "ingestion.accepted": { fa: "دریافت فایل پذیرفته شد", en: "Ingestion accepted" },
   "ingestion.rejected": { fa: "دریافت فایل رد شد", en: "Ingestion rejected" },
   "ingestion.replayed": { fa: "ارسال تکراری شناسایی شد", en: "Ingestion replayed" },
@@ -62,6 +67,22 @@ export const AUDIT_EVENT_LABELS: Labels = {
   "team.updated": { fa: "تیم ویرایش شد", en: "Team edited" },
   "team.assignment.created": { fa: "عضو به تیم اضافه شد", en: "Team assignment added" },
   "team.assignment.revoked": { fa: "عضو از تیم برداشته شد", en: "Team assignment removed" },
+  "organization.member.changed": { fa: "عضویت سازمان تغییر کرد", en: "Organization member changed" },
+  "organization.member.granted": { fa: "عضو به سازمان اضافه شد", en: "Organization member added" },
+  "organization.member.revoked": { fa: "عضو از سازمان برداشته شد", en: "Organization member removed" },
+  "organization.scope.granted": { fa: "دسترسی سازمانی داده شد", en: "Organization scope granted" },
+  "organization.scope.revoked": { fa: "دسترسی سازمانی لغو شد", en: "Organization scope revoked" },
+  "organization.workspace.created": { fa: "فضای کاری سازمان ساخته شد", en: "Organization workspace created" },
+  "organization.workspace.member_installed": { fa: "عضو در فضای کاری سازمان قرار گرفت", en: "Member added to organization workspace" },
+  "organization.workspace.member_removed": { fa: "عضو از فضای کاری سازمان برداشته شد", en: "Member removed from organization workspace" },
+  "service_location.created": { fa: "مکان خدمات ساخته شد", en: "Service location created" },
+  "service_location.updated": { fa: "مکان خدمات ویرایش شد", en: "Service location edited" },
+  "service_location.deleted": { fa: "مکان خدمات حذف شد", en: "Service location deleted" },
+  "usage.reconciled": { fa: "مصرف تطبیق داده شد", en: "Usage reconciled" },
+  "voice.node.registered": { fa: "گره صوتی ثبت شد", en: "Voice node registered" },
+  "voice.node.drain_changed": { fa: "وضعیت تخلیهٔ گره صوتی تغییر کرد", en: "Voice node drain changed" },
+  "voicemail.classified": { fa: "پیام صوتی دسته‌بندی شد", en: "Voicemail classified" },
+  "voicemail.updated": { fa: "پیام صوتی ویرایش شد", en: "Voicemail edited" },
   "auth.register": { fa: "ثبت‌نام", en: "Registration" },
   "auth.email_verified": { fa: "تأیید ایمیل", en: "Email verified" },
   "auth.verification_resent": { fa: "ارسال دوبارهٔ ایمیل تأیید", en: "Verification email resent" },
@@ -119,7 +140,10 @@ const ROLE_VALUES: Labels = {
   viewer: { fa: "بیننده", en: "Viewer" },
 };
 
-/** The first part of an event type (`member.role_changed` -> `member`). */
+/**
+ * Labels for the `group` values of GET /admin/audit-event-types; a group
+ * without a label is shown as sent.
+ */
 const GROUP_LABELS: Labels = {
   member: { fa: "اعضا", en: "Members" },
   workspace: { fa: "فضای کاری", en: "Workspace" },
@@ -133,29 +157,13 @@ const GROUP_LABELS: Labels = {
   media: { fa: "فایل‌های رسانه", en: "Media" },
   ingestion: { fa: "دریافت فایل", en: "Ingestion" },
   team: { fa: "تیم‌ها", en: "Teams" },
+  organization: { fa: "سازمان", en: "Organization" },
+  service_location: { fa: "مکان‌های خدمات", en: "Service locations" },
+  usage: { fa: "مصرف", en: "Usage" },
+  voice: { fa: "گره‌های صوتی", en: "Voice nodes" },
+  voicemail: { fa: "پیام‌های صوتی", en: "Voicemail" },
   auth: { fa: "ورود و حساب", en: "Sign-in and account" },
 };
-
-export interface AuditEventGroup {
-  prefix: string;
-  types: string[];
-}
-
-/**
- * The known event types grouped by their prefix (`member.*`, `meeting.*`), in
- * catalog order, for the event-type filter. There is no catalog endpoint, so
- * this list is the one in this file and has to match the backend names.
- */
-export function auditEventTypeGroups(): AuditEventGroup[] {
-  const groups = new Map<string, string[]>();
-  for (const type of Object.keys(AUDIT_EVENT_LABELS)) {
-    const prefix = type.split(".")[0];
-    const types = groups.get(prefix);
-    if (types) types.push(type);
-    else groups.set(prefix, [type]);
-  }
-  return [...groups].map(([prefix, types]) => ({ prefix, types }));
-}
 
 export function auditEventGroupLabel(prefix: string, lang: Lang): string {
   return GROUP_LABELS[prefix]?.[lang] ?? prefix;
