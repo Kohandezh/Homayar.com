@@ -193,10 +193,44 @@ def status_class(status_code: int) -> str:
     return f"{status_code // 100}xx" if 100 <= status_code <= 599 else "other"
 
 
+class WriteGuard:
+    """Run a metric write; a failure is logged at most once a minute, never raised.
+
+    In multiprocess mode every write touches an mmap file in
+    ``PROMETHEUS_MULTIPROC_DIR``; a full or missing directory must not fail the
+    request, login or audit write that is being counted.
+    """
+
+    def __init__(self, log_interval: float = 60.0) -> None:
+        self._log_interval = log_interval
+        self._last_logged = -math.inf
+        self._lock = threading.Lock()
+
+    def __call__(self, write: Callable[[], object]) -> None:
+        try:
+            write()
+        except Exception as exc:  # noqa: BLE001 - metrics never fail the caller
+            now = time.monotonic()
+            with self._lock:
+                if now - self._last_logged < self._log_interval:
+                    return
+                self._last_logged = now
+            from backend.services.logging_service import logger
+
+            logger.warning("METRICS_WRITE_FAILED error_type=%s", type(exc).__name__)
+
+
+guarded_write = WriteGuard()
+
+
 def observe_http(method: str, route: str, status_code: int, seconds: float) -> None:
     method = method.upper() if method.upper() in HTTP_METHODS else "OTHER"
-    HTTP_REQUESTS.labels(method, route, status_class(status_code)).inc()
-    HTTP_DURATION.labels(method, route).observe(max(0.0, seconds))
+
+    def write() -> None:
+        HTTP_REQUESTS.labels(method, route, status_class(status_code)).inc()
+        HTTP_DURATION.labels(method, route).observe(max(0.0, seconds))
+
+    guarded_write(write)
 
 
 def observe_auth_failure(reason: str) -> None:
@@ -740,7 +774,7 @@ def probe_storage(settings: Settings) -> Any:
             ignore_configured_endpoint_urls=True,
             connect_timeout=DEPENDENCY_TIMEOUT_SECONDS,
             read_timeout=DEPENDENCY_TIMEOUT_SECONDS,
-            retries={"max_attempts": 1, "mode": "standard"},
+            retries={"total_max_attempts": 1, "mode": "standard"},  # one attempt, no retry
         )
     }
     if settings.storage_endpoint_url:
@@ -858,7 +892,7 @@ class StateCollector(Collector):
     def _failed(self, name: str, snapshot: Snapshot, error_type: str) -> None:
         from backend.services.logging_service import logger
 
-        COLLECTION_ERRORS.labels(name).inc()
+        guarded_write(lambda: COLLECTION_ERRORS.labels(name).inc())
         logger.warning("METRICS_SOURCE_FAILED source=%s error_type=%s", name, error_type)
         if name in DEPENDENCY_SOURCES:
             snapshot.add(

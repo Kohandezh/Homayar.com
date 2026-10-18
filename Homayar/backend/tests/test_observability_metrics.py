@@ -27,7 +27,7 @@ from backend.database.relational import reset_database_state
 from backend.database.saas_models import AuditEvent, JobState, ProcessingJob, ProviderHealth, User
 from backend.jobs.processor import process_job
 from backend.main import create_app
-from backend.observability import heartbeats, metrics
+from backend.observability import heartbeats, metrics, scrub
 from backend.observability.correlation import (
     correlation_scope,
     current_correlation_id,
@@ -35,7 +35,6 @@ from backend.observability.correlation import (
     request_correlation_id,
 )
 from backend.observability.metrics import (
-    REGISTRY,
     StateCollector,
     failure_category,
     metrics_access,
@@ -91,6 +90,16 @@ def _scrape(client, **headers) -> dict[str, list[tuple[dict[str, str], float]]]:
     return samples
 
 
+def _counter(name: str, **labels: str) -> float:
+    """A counter's current value as /metrics reports it, in single- and multiprocess mode."""
+    exposition = metrics.in_process_exposition().decode()
+    for family in text_string_to_metric_families(exposition):
+        for sample in family.samples:
+            if sample.name == name and all(sample.labels.get(k) == v for k, v in labels.items()):
+                return sample.value
+    return 0.0
+
+
 def _value(samples, name: str, **labels: str) -> float | None:
     for sample_labels, value in samples.get(name, []):
         if all(sample_labels.get(key) == wanted for key, wanted in labels.items()):
@@ -112,7 +121,7 @@ def test_metrics_expose_queue_jobs_dependencies_heartbeats_and_build_identity(
     )
     upload_labels = {"method": "POST", "route": "/api/v1/uploads", "status_class": "2xx"}
     # In-process counters are cumulative for the whole test process: compare deltas.
-    uploads_before = REGISTRY.get_sample_value("homayar_http_requests_total", upload_labels) or 0
+    uploads_before = _counter("homayar_http_requests_total", **upload_labels)
     job_id, workspace_id = _queued_upload(client, email_outbox, monkeypatch)
 
     queued = _scrape(client)
@@ -522,9 +531,7 @@ def test_a_hung_dependency_bounds_the_scrape_and_is_not_restarted(client, settin
 
     monkeypatch.setattr(metrics, "collect_storage", hung)
     collector = StateCollector(settings, cache_seconds=0, source_timeout=0.5)
-    before = REGISTRY.get_sample_value(
-        "homayar_metrics_collection_errors_total", {"source": "storage"}
-    ) or 0
+    before = _counter("homayar_metrics_collection_errors_total", source="storage")
     try:
         for _ in range(2):
             started = time.monotonic()
@@ -538,9 +545,7 @@ def test_a_hung_dependency_bounds_the_scrape_and_is_not_restarted(client, settin
             assert ("database",) in [labels for labels, _ in
                                      snapshot.families["homayar_dependency_up"][2]]
         assert calls == [1]  # the hung probe is not started a second time
-        after = REGISTRY.get_sample_value(
-            "homayar_metrics_collection_errors_total", {"source": "storage"}
-        )
+        after = _counter("homayar_metrics_collection_errors_total", source="storage")
         assert after == before + 2
     finally:
         gate.set()
@@ -780,3 +785,125 @@ def test_scrubbing_long_adversarial_input_is_bounded_and_fast():
         result = diagnostic_text(hostile)
         assert time.monotonic() - started < 1.0
         assert len(result) <= 2100
+
+
+def test_a_bearer_token_across_the_length_limit_is_scrubbed_before_the_cut():
+    token = "Q" * 30
+    text = "x" * (scrub.MAX_DIAGNOSTIC_LENGTH - 15) + " Bearer " + token
+    result = diagnostic_text(text)
+    assert token[:7] not in result  # the old pre-cut kept 7 characters, too few to match
+    assert len(result) <= scrub.MAX_DIAGNOSTIC_LENGTH + len(scrub.TRUNCATED)
+    tail = "y" * scrub.MAX_SCRUB_INPUT + " Bearer " + token  # beyond what is examined
+    assert token[:7] not in diagnostic_text(tail)
+
+
+def test_a_failing_metric_write_never_fails_the_request(client, monkeypatch, caplog):
+    from backend.services.logging_service import logger
+
+    class FullDirectory:
+        def labels(self, *labels):
+            raise OSError(28, "No space left on device")
+
+    logger.disabled = False  # Alembic's fileConfig in other tests disables it
+    monkeypatch.setattr(metrics, "HTTP_REQUESTS", FullDirectory())
+    monkeypatch.setattr(metrics, "guarded_write", metrics.WriteGuard())
+    with caplog.at_level(logging.WARNING, logger="homayar"):
+        for _ in range(3):
+            assert client.get("/healthz").status_code == 200
+    failures = [r.getMessage() for r in caplog.records
+                if r.getMessage().startswith("METRICS_WRITE_FAILED")]
+    assert failures == ["METRICS_WRITE_FAILED error_type=OSError"]  # once, not per request
+
+
+@contextmanager
+def _uvicorn(app) -> Iterator[int]:
+    """The app behind a real uvicorn server on a free loopback port."""
+    import uvicorn
+
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=0, lifespan="off", log_config=None,
+                       access_log=False)
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 30
+    while not server.started:
+        assert time.monotonic() < deadline, "uvicorn did not start"
+        time.sleep(0.05)
+    try:
+        yield server.servers[0].sockets[0].getsockname()[1]
+    finally:
+        server.should_exit = True
+        thread.join(10)
+
+
+def test_the_server_log_of_an_escaped_database_error_has_no_sql_parameters_or_detail(
+    settings, capfd
+):
+    # E1: uvicorn logs an exception that escaped the app on "uvicorn.error", with
+    # its own handler and the full traceback. Run a real server and capture every
+    # handler: uvicorn's formatter, the root JSON handler and the raw stdout/stderr.
+    import httpx
+    from sqlalchemy.exc import IntegrityError
+    from uvicorn.logging import DefaultFormatter
+
+    class FakePsycopgError(Exception):
+        sqlstate = "23505"
+        diag = None
+
+    error_text = (
+        'duplicate key value violates unique constraint "uq_users_email"\n'
+        f"DETAIL:  Key (email)=({_EMAIL}) already exists."
+    )
+    server_lines: list[str] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            server_lines.append(self.format(record))
+
+    capture = Capture()
+    capture.setFormatter(DefaultFormatter("%(levelprefix)s %(message)s", use_colors=False))
+    server_logger = logging.getLogger("uvicorn.error")
+    server_logger.disabled = False  # Alembic's fileConfig in other tests disables it
+    server_logger.addHandler(capture)
+    try:
+        with _app_client(settings) as client:
+            app = client.app
+
+            @app.get("/api/v1/shares/{share_token}/db-explode")
+            def db_explode(share_token: str):
+                raise IntegrityError(
+                    "INSERT INTO users (email, phone_e164) VALUES (%(email)s, %(phone)s)",
+                    {"email": _EMAIL, "phone": _PHONE},
+                    FakePsycopgError(error_text),
+                )
+
+            with _uvicorn(app) as port, httpx.Client(trust_env=False, timeout=30) as http:
+                response = http.get(
+                    f"http://127.0.0.1:{port}/api/v1/shares/{_SHARE_TOKEN}/db-explode",
+                    headers={"Host": "testserver", "X-Request-ID": "error-request-0002"},
+                )
+    finally:
+        server_logger.removeHandler(capture)
+    assert response.status_code == 500
+    [line] = [entry for entry in server_lines if "Exception in ASGI application" in entry]
+    assert "request_id=error-request-0002" in line
+    assert "IntegrityError FakePsycopgError sqlstate=23505" in line
+    captured = capfd.readouterr()
+    for output in ("\n".join(server_lines), captured.out, captured.err):
+        for leaked in (_EMAIL, _PHONE, _SHARE_TOKEN, "INSERT INTO", "DETAIL", "Traceback"):
+            assert leaked not in output, leaked
+
+
+def test_the_server_log_filter_is_installed_once_on_uvicorns_loggers():
+    from backend.services.logging_service import (
+        SERVER_LOGGERS,
+        ServerLogFilter,
+        install_server_log_filter,
+    )
+
+    install_server_log_filter()
+    install_server_log_filter()
+    for name in SERVER_LOGGERS:
+        filters = logging.getLogger(name).filters
+        assert sum(isinstance(f, ServerLogFilter) for f in filters) == 1, name
