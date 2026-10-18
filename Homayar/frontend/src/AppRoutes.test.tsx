@@ -136,6 +136,29 @@ describe("admin route guard", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Privacy" })).toBeInTheDocument();
   });
 
+  it("opens the API keys page for owners and administrators, who then request the key list", async () => {
+    for (const role of ["owner", "admin"] as const) {
+      const get = pendingReads();
+      const view = renderApp("/admin/api-keys", workspace(role));
+      expect(await screen.findByRole("heading", { level: 1, name: "API keys" })).toBeInTheDocument();
+      expect(requestedUrls(get).some((url) => url.startsWith("/api-keys"))).toBe(true);
+      view.unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("blocks the API keys page for members and viewers, and an owner whose permissions lack api_key:manage, with no request", async () => {
+    for (const selected of [workspace("member"), workspace("viewer"), workspace("owner", ["meeting:read", "member:read"])]) {
+      const get = pendingReads();
+      const view = renderApp("/admin/api-keys", selected);
+      expect(await screen.findByRole("heading", { level: 1, name: "No access" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "API keys" })).not.toBeInTheDocument();
+      expect(requestedUrls(get).filter((url) => url.startsWith("/api-keys"))).toEqual([]);
+      view.unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("says no access in Persian", async () => {
     pendingReads();
     renderApp("/admin/settings", workspace("viewer"), "fa");

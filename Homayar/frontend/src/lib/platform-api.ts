@@ -13,11 +13,14 @@ import type {
   ActionItem,
   AdminJobListParams,
   AdminJobListResponse,
+  ApiKeyListResponse,
   AuditEventListParams,
   AuditEventListResponse,
   BillingUsageResponse,
   CreateActionInput,
+  CreatedApiKey,
   CreatedShareLink,
+  CreateApiKeyInput,
   CreateShareInput,
   CreateTeamInput,
   CurrentSubscriptionResponse,
@@ -183,6 +186,7 @@ export const platformQueryKeys = {
   jobPolicySnapshots: (jobId: string) =>
     ["platform", "admin", "jobs", jobId, "policy-snapshots"] as const,
   workspaceSettings: () => ["platform", "admin", "workspace-settings"] as const,
+  apiKeys: () => ["platform", "admin", "api-keys"] as const,
   readiness: () => ["platform", "readiness"] as const,
 };
 
@@ -566,6 +570,21 @@ export async function updateWorkspaceSettings(
 ): Promise<WorkspaceSettings> {
   const response = await api.patch<WorkspaceSettings>("/admin/workspace-settings", input);
   return response.data;
+}
+
+export async function listApiKeys(signal?: AbortSignal): Promise<ApiKeyListResponse> {
+  const config = signal ? { signal } : undefined;
+  const response = await api.get<ApiKeyListResponse>("/api-keys", config);
+  return response.data;
+}
+
+export async function createApiKey(input: CreateApiKeyInput): Promise<CreatedApiKey> {
+  const response = await api.post<CreatedApiKey>("/api-keys", input);
+  return response.data;
+}
+
+export async function revokeApiKey(keyId: string): Promise<void> {
+  await api.delete(`/api-keys/${encodeURIComponent(keyId)}`);
 }
 
 function meetingIdOrEmpty(meetingId: string | null | undefined): string {
@@ -1120,6 +1139,44 @@ export function useUpdateWorkspaceSettings() {
     mutationFn: updateWorkspaceSettings,
     onSuccess: (settings) => {
       queryClient.setQueryData(platformQueryKeys.workspaceSettings(), settings);
+    },
+  });
+}
+
+export function useApiKeys() {
+  return useQuery({
+    queryKey: platformQueryKeys.apiKeys(),
+    queryFn: ({ signal }) => listApiKeys(signal),
+  });
+}
+
+/**
+ * The 201 answer holds the one and only copy of the raw key, so the mutation
+ * is dropped from the cache at once (`gcTime: 0` plus `reset()` when the
+ * modal closes) and its success only invalidates the list; the key itself is
+ * never written into any query, the way `useRevealValue` never caches a
+ * revealed value.
+ */
+export function useCreateApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createApiKey,
+    gcTime: 0,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformQueryKeys.apiKeys() });
+    },
+  });
+}
+
+export function useRevokeApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: revokeApiKey,
+    // Also on a 404: the key is gone on the server, so the list must not keep
+    // showing it as active (the same reason the member mutations invalidate
+    // onSettled).
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: platformQueryKeys.apiKeys() });
     },
   });
 }
