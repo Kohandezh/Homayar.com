@@ -606,6 +606,29 @@ def test_multiprocess_mode_sums_every_worker(tmp_path):
     )
     assert samples[key] == 8
     assert "process_cpu_seconds_total" not in exposition  # no per-process series
+    for source in metrics.COLLECTION_SOURCES:  # exported at 0 before any failure
+        assert samples[("homayar_metrics_collection_errors_total", (("source", source),))] == 0
+
+
+def test_every_scrape_source_is_exported_before_its_first_failure(client, settings, monkeypatch):
+    # increase() needs a 0 sample before the first failure (PR #47 review, P4).
+    used: set[str] = set()
+    original = metrics.StateCollector._run
+
+    def recording(self, sources, snapshot):
+        used.update(sources)
+        return original(self, sources, snapshot)
+
+    monkeypatch.setattr(metrics.StateCollector, "_run", recording)
+    collector = metrics.StateCollector(settings, cache_seconds=0)
+    try:
+        collector.refresh()
+    finally:
+        collector.close()
+    assert used == set(metrics.COLLECTION_SOURCES)
+    samples = _scrape(client)
+    for source in metrics.COLLECTION_SOURCES:
+        assert _value(samples, "homayar_metrics_collection_errors_total", source=source) is not None
 
 
 def test_metrics_accept_the_internal_service_host_and_nothing_else_does(settings):

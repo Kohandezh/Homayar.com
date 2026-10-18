@@ -73,6 +73,17 @@ DEPENDENCY_TIMEOUT_SECONDS = 2.0
 # then the database aggregates), so a scrape waits at most about twice this.
 SOURCE_TIMEOUT_SECONDS = 3.0
 DEPENDENCY_SOURCES = frozenset({"database", "redis", "storage"})
+# Every scrape-time source, in collection order (stage 1, then the database aggregates).
+COLLECTION_SOURCES = (
+    "build_info",
+    "redis",
+    "heartbeats",
+    "storage",
+    "database",
+    "jobs",
+    "dispatch",
+    "providers",
+)
 PROBE_TENANT = "homayar-health-probe"
 PROBE_OBJECT_TOKEN = "readiness-probe-object"  # noqa: S105 - object name, not a credential
 
@@ -130,6 +141,10 @@ COLLECTION_ERRORS = Counter(
     ("source",),
     registry=_COUNTER_REGISTRY,
 )
+# Labelled children start at 0, not at their first increment: Prometheus does not
+# treat a new series as starting from 0, so increase() would miss the first event.
+for _source in COLLECTION_SOURCES:
+    COLLECTION_ERRORS.labels(_source)
 
 
 def metrics_access(settings: Settings) -> Literal["disabled", "token", "open"]:
