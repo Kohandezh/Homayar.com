@@ -2,39 +2,111 @@
 
 import json
 import logging
+import re
 import sys
+from collections.abc import Mapping
 from datetime import datetime
 
 from backend.observability.correlation import CorrelationLogFilter
 from backend.observability.scrub import diagnostic_text
 
+# Exception types whose message Homayar code writes for display and never fills
+# with request input, personal data or a statement (by qualified class name, so
+# this module imports none of them). Every other message is left out.
+SAFE_MESSAGE_TYPES = frozenset(
+    {
+        "backend.providers.base.ProviderError",  # its public_message, by contract
+        "backend.database.rls.RowLevelSecurityPostureError",  # deployment posture
+    }
+)
+_BOUNDED_CODE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+_DIAGNOSTIC_FIELDS = ("constraint_name", "table_name", "column_name")
+
+
+def _qualified(cls: type) -> str:
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _database_fields(error: BaseException) -> list[str]:
+    """SQLSTATE and the constraint/table/column of a driver error (psycopg)."""
+    fields = []
+    sqlstate = getattr(error, "sqlstate", None)
+    if isinstance(sqlstate, str) and _BOUNDED_CODE.fullmatch(sqlstate):
+        fields.append(f"sqlstate={sqlstate}")
+    diag = getattr(error, "diag", None)
+    for field in _DIAGNOSTIC_FIELDS:
+        value = getattr(diag, field, None) if diag is not None else None
+        if isinstance(value, str) and _BOUNDED_CODE.fullmatch(value):
+            fields.append(f"{field}={value}")
+    return fields
+
 
 def exception_summary(exc: BaseException) -> str:
-    """What a log line may say about an exception.
+    """What a log line may say about an exception: its class, never its text.
 
-    A database error is named by its classes, SQLSTATE and the constraint, table
-    and column involved: never by its message, which quotes the statement, the
-    bound parameters and psycopg's DETAIL (row values: e-mails, phone numbers,
-    content). Any other exception text is bounded and passes through the
-    credential and personal-data scrubbers.
+    Exception messages carry what the failing code had in hand: a database
+    error quotes the statement, the bound parameters and psycopg's ``DETAIL``
+    (row values: e-mails, phone numbers, content); a validation error repeats
+    the input; a wrapper repeats the error it wraps. So a summary names the
+    class and only fields that are bounded by construction: the driver error
+    with its SQLSTATE and constraint/table/column, a machine-readable ``code``,
+    an ``errno``, and the class of an explicit cause (``raise ... from``). The
+    (scrubbed) message is added only for the types in ``SAFE_MESSAGE_TYPES``.
     """
-    from sqlalchemy.exc import StatementError
+    from sqlalchemy.exc import SQLAlchemyError, StatementError
 
+    exc = _single_cause(exc)
+    parts = [type(exc).__name__]
     if isinstance(exc, StatementError):
-        parts = [type(exc).__name__]
         orig = getattr(exc, "orig", None)
         if orig is not None:
             parts.append(type(orig).__name__)
-            sqlstate = getattr(orig, "sqlstate", None)
-            if sqlstate:
-                parts.append(f"sqlstate={sqlstate}")
-            diag = getattr(orig, "diag", None)
-            for field in ("constraint_name", "table_name", "column_name"):
-                value = getattr(diag, field, None) if diag is not None else None
-                if value:
-                    parts.append(f"{field}={value}")
-        return " ".join(parts)
-    return diagnostic_text(str(exc))
+            parts.extend(_database_fields(orig))
+    else:
+        parts.extend(_database_fields(exc))
+        code = getattr(exc, "code", None)
+        if not isinstance(exc, SQLAlchemyError) and isinstance(code, str):
+            if _BOUNDED_CODE.fullmatch(code):
+                parts.append(f"code={code}")
+        if isinstance(exc, OSError) and isinstance(exc.errno, int):
+            parts.append(f"errno={exc.errno}")
+        # Only an explicit ``raise ... from``: the implicit context is often
+        # unrelated (Starlette re-raises inside its exception-group handler).
+        cause = _single_cause(exc.__cause__) if exc.__cause__ is not None else None
+        if cause is not None and cause is not exc:
+            parts.append(f"cause={type(cause).__name__}")
+    summary = " ".join(parts)
+    if any(_qualified(cls) in SAFE_MESSAGE_TYPES for cls in type(exc).__mro__):
+        message = diagnostic_text(str(exc))
+        if message:
+            summary = f"{summary}: {message}"
+    return summary
+
+
+def safe_message(record: logging.LogRecord) -> str:
+    """The record's message with any embedded exception text replaced by its summary.
+
+    Celery's task-failure records pass ``repr(exception)`` as the ``exc``
+    argument (``Task %(name)s[%(id)s] raised unexpected: %(exc)s``), and code may
+    pass an exception as a ``%s`` argument; either would put the exception's
+    text (SQL, parameters, DETAIL) in the message. The result is also scrubbed.
+    """
+    exc = record.exc_info[1] if record.exc_info and record.exc_info[1] else None
+    if exc is None:
+        return diagnostic_text(record.getMessage())
+    summary = exception_summary(exc)
+    args = record.args
+    if isinstance(args, Mapping) and "exc" in args:
+        try:
+            message = str(record.msg) % {**args, "exc": summary, "traceback": ""}
+        except (KeyError, TypeError, ValueError):
+            message = record.getMessage()
+    else:
+        message = record.getMessage()
+    for text in {repr(exc), str(exc), repr(_single_cause(exc)), str(_single_cause(exc))}:
+        if len(text) >= 8 and text != summary:
+            message = message.replace(text, summary)
+    return diagnostic_text(message)
 
 
 # uvicorn's own loggers. ``uvicorn.error`` carries the server's records, among them
@@ -71,7 +143,7 @@ class ServerLogFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        message = diagnostic_text(record.getMessage()).strip()
+        message = safe_message(record).strip()
         exc = record.exc_info[1] if record.exc_info else None
         if exc is not None:
             exc = _single_cause(exc)
@@ -114,7 +186,7 @@ class JSONFormatter(logging.Formatter):
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "level": record.levelname,
             "logger": record.name,
-            "message": diagnostic_text(record.getMessage()),
+            "message": safe_message(record),
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,

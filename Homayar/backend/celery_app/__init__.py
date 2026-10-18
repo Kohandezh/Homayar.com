@@ -7,7 +7,10 @@ started without ``--queues`` still consumes it; deployment commands pass
 ``--queues processing`` anyway so the subscription is visible in process lists.
 """
 
+import logging
+
 from celery import Celery
+from celery.signals import setup_logging as celery_setup_logging
 from kombu import Queue
 
 from backend.config import get_settings
@@ -141,6 +144,22 @@ def make_celery() -> Celery:
         },
     )
     return celery
+
+
+@celery_setup_logging.connect
+def use_homayar_logging(loglevel: int | str | None = None, **_options: object) -> None:
+    """Keep Homayar's JSON logging in workers and beat (log privacy).
+
+    With no receiver on this signal a worker replaces the root handlers with
+    Celery's own, which print a failed task's full traceback and the
+    exception's text (SQL, bound parameters, psycopg DETAIL). With one, Celery
+    leaves logging alone: every celery.* record reaches the scrubbed JSON
+    handler, which writes the exception summary and no traceback.
+    """
+    from backend.services.logging_service import setup_logging
+
+    level = logging.getLevelName(loglevel) if isinstance(loglevel, int) else loglevel
+    setup_logging(level if isinstance(level, str) and level else "INFO")
 
 
 celery_app = make_celery()

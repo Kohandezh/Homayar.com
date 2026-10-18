@@ -586,7 +586,7 @@ def otp_request(
         # Nothing is committed: the challenge that was never delivered cannot
         # be verified and does not start a resend cooldown.
         db.rollback()
-        logger.error("OTP_DELIVERY_FAILED error_type=%s", exc)
+        logger.error("OTP_DELIVERY_FAILED error_type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=503,
             detail={"code": "otp_delivery_failed", "message": "The code could not be sent"},

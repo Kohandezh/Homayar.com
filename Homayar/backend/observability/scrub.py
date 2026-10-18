@@ -90,6 +90,15 @@ def _scrub_url(match: re.Match[str]) -> str:
     return f"{scheme}{REDACTED}{rest[at:]}"
 
 
+# Where a credential starts: a secret key name, a credential header, a scheme.
+_INTRODUCER = re.compile(
+    r"(?i)(?:authorization|cookie|x-api-key|x-csrf-token|bearer|basic|://|eyJ|sk[-_]|hk_|"
+    + _SECRET_KEY_NAME
+    + r")"
+)
+_BOUNDARY_WINDOW = 1024
+
+
 def _examined(text: str) -> tuple[str, bool]:
     """The part of ``text`` that is scrubbed, and whether anything was left out."""
     if len(text) <= MAX_SCRUB_INPUT:
@@ -97,7 +106,14 @@ def _examined(text: str) -> tuple[str, bool]:
     head = text[:MAX_SCRUB_INPUT]
     # Drop the token cut at the boundary: half a secret matches no pattern.
     cut = max(head.rfind(" "), head.rfind("\n"), head.rfind("\t"))
-    return (head[:cut] if cut > 0 else ""), True
+    head = head[:cut] if cut > 0 else ""
+    # A quoted value may hold spaces, so the words before the cut could survive
+    # without their closing quote: drop everything from the last credential
+    # introducer near the boundary.
+    starts = [m.start() for m in _INTRODUCER.finditer(head, max(0, len(head) - _BOUNDARY_WINDOW))]
+    if starts:
+        head = head[: starts[-1]]
+    return head, True
 
 
 def _finished(text: str, shortened: bool) -> str:
