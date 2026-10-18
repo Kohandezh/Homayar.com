@@ -187,6 +187,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/teams/{team_id}/assignments | team:manage +csrf |
 | DELETE | /api/v1/teams/{team_id}/assignments/{assignment_id} | team:manage +csrf |
 | GET | /api/v1/admin/audit-events | audit:read |
+| GET | /api/v1/admin/shares | workspace:manage |
 | GET | /api/v1/admin/workspace-settings | workspace:manage |
 | PATCH | /api/v1/admin/workspace-settings | workspace:manage +csrf |
 | GET | /api/v1/admin/jobs | workspace:manage |
@@ -302,6 +303,7 @@ Source: `backend/services/share_service.py`, `backend/services/download_service.
 | Downloads | local storage: application-mediated streaming with `Range`/`206`, bounded 1 MiB chunks, `X-Homayar-Revocation: immediate`. S3-compatible storage: 307 to a presigned URL for exactly that object, TTL ≤ 300 s, `X-Homayar-Revocation: expiry-bounded` (an already-issued URL survives revocation until it expires). |
 | Database ceiling | a request carrying only the share token sees, through RLS, the one shared meeting's content, the issuer's membership and (as any signed-in user) the caller's own memberships and organization memberships; it can write only the share's access counters, a recipient binding and an audit row. Tenant context is bound only for the `workspace` audience after membership validation. |
 | Tokens | 32 random bytes (URL-safe); only the peppered SHA-256 is stored; raw tokens appear in the creation response only. Rate limited per token and client address. |
+| Administrator list | `GET /api/v1/admin/shares` (`workspace:manage`, read-only, never through an API key) lists every share link of the workspace with its status (`active`, `revoked`, `expired`), leaving out shares of soft-deleted meetings. It never returns the token, the token hash, a share URL or recipient addresses. Test: `test_admin_shares_api.py`. |
 
 ## 6b. API-key scope (WP03-T07)
 
