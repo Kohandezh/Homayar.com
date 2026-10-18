@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -51,8 +52,33 @@ def _copy_file(source: Path, target: Path) -> None:
             os.close(fd)
 
 
+OFFSITE_MARKER = ".homayar-offsite"
+
+
+def check_offsite_directory(destination_root: Path, backup_root: Path) -> None:
+    """A directory target counts as off-site only with positive evidence.
+
+    The operator writes ``.homayar-offsite`` on the remote medium when it is
+    provisioned.  An unmounted share (Docker creates a missing bind source;
+    an empty mountpoint stays a local directory) has no marker, so the copy
+    is refused instead of landing on the application host while the
+    off-site gauge says otherwise.  A target inside the backup root, or one
+    that contains it, is never off-site.
+    """
+    destination = Path(destination_root).resolve()
+    root = Path(backup_root).resolve()
+    if destination == root or root in destination.parents or destination in root.parents:
+        raise BackupInvalid("offsite_inside_backup_root", str(destination))
+    if not (destination / OFFSITE_MARKER).is_file():
+        raise BackupInvalid(
+            "offsite_not_provisioned",
+            f"{destination} has no {OFFSITE_MARKER} marker: is the off-site medium mounted?",
+        )
+
+
 def replicate_to_directory(set_dir: Path, destination_root: Path) -> dict[str, Any]:
     source = Path(set_dir)
+    check_offsite_directory(destination_root, source.parent.parent)
     verify_set(source, None, deep=False)
     manifest = read_manifest(source)
     backup_id = manifest["backup_id"]
@@ -206,11 +232,34 @@ def fetch_from_s3(destination: str, backup_id: str, local_root: Path, *, client=
     return final
 
 
+def _s3_objects_by_set(bucket: str, prefix: str, client) -> dict[str, list[dict]]:
+    groups: dict[str, list[dict]] = {}
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=f"{prefix}/" if prefix else ""):
+        for item in page.get("Contents", []):
+            rest = item["Key"][len(prefix) + 1 if prefix else 0 :]
+            backup_id = rest.split("/", 1)[0]
+            if valid_backup_id(backup_id):
+                groups.setdefault(backup_id, []).append(item)
+    return groups
+
+
 def prune_s3(
-    destination: str, *, daily: int, monthly: int, dry_run: bool = False, client=None
+    destination: str,
+    *,
+    daily: int,
+    monthly: int,
+    dry_run: bool = False,
+    client=None,
+    partial_grace_seconds: int = 24 * 3600,
 ) -> dict[str, list[str]]:
-    """Apply the retention policy to an S3 off-site copy (complete sets only;
-    the newest is always kept).  Incomplete copies are left for an operator."""
+    """Apply the retention policy to an S3 off-site copy.
+
+    Complete sets (with a manifest) follow ``retained``; copies WITHOUT a
+    manifest (an interrupted upload or prune) are deleted once their newest
+    object is older than the grace period, so encrypted copies of deleted
+    data never outlive the retention unseen.
+    """
     from backend.backup.retention import retained
 
     bucket, prefix = parse_s3(destination)
@@ -218,14 +267,29 @@ def prune_s3(
     sets = list_s3_sets(destination, client=client)
     keep = retained(sets, daily=daily, monthly=monthly)
     expired = sorted(set(sets) - keep)
+    now = datetime.now(UTC)
+    stale = sorted(
+        backup_id
+        for backup_id, items in _s3_objects_by_set(bucket, prefix, client).items()
+        if backup_id not in sets
+        and (now - max(item["LastModified"] for item in items)).total_seconds()
+        >= partial_grace_seconds
+    )
     if not dry_run:
+        for backup_id in stale:
+            for item in _s3_objects_by_set(bucket, prefix, client).get(backup_id, []):
+                client.delete_object(Bucket=bucket, Key=item["Key"])
         paginator = client.get_paginator("list_objects_v2")
         for backup_id in expired:
-            # The manifest goes first: from then on the copy is incomplete.
-            client.delete_object(Bucket=bucket, Key=_s3_key(prefix, backup_id, MANIFEST_NAME))
+            # Data first, manifest last: an interrupted prune leaves a listed
+            # set that fails verification and is pruned again next run,
+            # never unlisted leftovers that would outlive the retention.
+            manifest_key = _s3_key(prefix, backup_id, MANIFEST_NAME)
             for page in paginator.paginate(
                 Bucket=bucket, Prefix=_s3_key(prefix, backup_id, "") + "/"
             ):
                 for item in page.get("Contents", []):
-                    client.delete_object(Bucket=bucket, Key=item["Key"])
-    return {"kept": sorted(keep), "expired": expired}
+                    if item["Key"] != manifest_key:
+                        client.delete_object(Bucket=bucket, Key=item["Key"])
+            client.delete_object(Bucket=bucket, Key=manifest_key)
+    return {"kept": sorted(keep), "expired": expired, "stale_partials": stale}

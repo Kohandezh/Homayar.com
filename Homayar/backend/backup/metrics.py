@@ -11,8 +11,10 @@ and the age alert fires.  Path: ``HOMAYAR_BACKUP_TEXTFILE`` or
 
 from __future__ import annotations
 
+import fcntl
 import os
 import re
+import tempfile
 from pathlib import Path
 
 METRIC = "homayar_backup_last_success_timestamp_seconds"
@@ -40,28 +42,43 @@ def read_values(path: Path) -> dict[str, float]:
 
 
 def record_success(path: Path, timestamps: dict[str, float]) -> None:
-    """Merge ``{target: unix_time}`` into the textfile (atomic replace)."""
+    """Merge ``{target: unix_time}`` into the textfile.
+
+    A value never moves backwards (verifying an old set cannot make the
+    gauge look fresher than the newest verified one).  Concurrent writers
+    (two ``compose run`` containers both have PID 1) are serialised by an
+    ``flock`` on a lock file next to the textfile, and each writes its own
+    ``mkstemp`` temporary before the atomic rename.  The directory is 0755
+    and the file 0644 so a non-root node_exporter can read them.
+    """
     unknown = set(timestamps) - set(TARGETS)
     if unknown:
         raise ValueError(f"unknown backup targets: {sorted(unknown)}")
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-    values = read_values(path)
-    values.update(timestamps)
-    body = [
-        f"# HELP {METRIC} Unix time of the last successful Homayar backup per target.",
-        f"# TYPE {METRIC} gauge",
-    ]
-    body += [
-        f'{METRIC}{{target="{target}"}} {values[target]:.3f}'
-        for target in TARGETS
-        if target in values
-    ]
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o755)  # noqa: S103 - node_exporter must traverse it
+    lock_fd = os.open(path.parent / f".{path.name}.lock", os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        os.write(fd, ("\n".join(body) + "\n").encode("ascii"))
-        os.fsync(fd)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        values = read_values(path)
+        for target, value in timestamps.items():
+            values[target] = max(value, values.get(target, value))
+        body = [
+            f"# HELP {METRIC} Unix time of the last successful Homayar backup per target.",
+            f"# TYPE {METRIC} gauge",
+        ]
+        body += [
+            f'{METRIC}{{target="{target}"}} {values[target]:.3f}'
+            for target in TARGETS
+            if target in values
+        ]
+        fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        try:
+            os.write(fd, ("\n".join(body) + "\n").encode("ascii"))
+            os.fchmod(fd, 0o644)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temporary, path)
     finally:
-        os.close(fd)
-    os.replace(temporary, path)
+        os.close(lock_fd)  # releases the flock

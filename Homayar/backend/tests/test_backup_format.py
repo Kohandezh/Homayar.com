@@ -207,20 +207,37 @@ def _ids(start: datetime, count: int, step: timedelta) -> list[str]:
     return [new_backup_id(start + i * step) for i in range(count)]
 
 
-def test_retention_keeps_30_daily_and_12_monthly_and_always_the_newest():
+def test_retention_keeps_30_daily_and_12_monthly_beyond_the_daily_window():
     start = datetime(2025, 1, 1, 2, 0, tzinfo=UTC)
     nightly = _ids(start, 500, timedelta(days=1))
     extra_same_day = new_backup_id(start + timedelta(days=499, hours=5))
     keep = retained(nightly + [extra_same_day])
-    newest = max(nightly + [extra_same_day])
-    assert newest in keep and extra_same_day == newest
+    assert extra_same_day in keep  # the newest set
     assert nightly[-1] not in keep  # an older set of the same (newest) day
-    daily = {b for b in keep if b[:8] >= nightly[-30][:8]}
+    window_start = nightly[-30][:8]
+    daily = sorted(b for b in keep if b[:8] >= window_start)
+    monthly = sorted(b for b in keep if b[:8] < window_start)
     assert len(daily) == 30
-    months = {b[:6] for b in keep}
-    assert len(months) == 12 + 0 and len(keep) <= 30 + 12
+    # 12 monthly sets, all OLDER than the daily window, one per month, the
+    # newest of each month: about 12 months of history beyond the 30 days.
+    assert len(monthly) == 12 and len({b[:6] for b in monthly}) == 12
+    assert all(
+        b == max(n for n in nightly if n[:6] == b[:6] and n[:8] < window_start) for b in monthly
+    )
     assert retained([]) == set()
     assert retained(nightly[:1]) == {nightly[0]}
+
+
+def test_retention_prefers_a_full_verified_set_over_a_newer_partial_one():
+    day = datetime(2026, 10, 17, tzinfo=UTC)
+    full = new_backup_id(day.replace(hour=2))
+    db_only = new_backup_id(day.replace(hour=18))
+    yesterday = new_backup_id(day - timedelta(hours=20))
+    keep = retained([yesterday, full, db_only], daily=30, monthly=12, qualifying={full, yesterday})
+    assert full in keep  # the day's representative is the verified full set
+    assert db_only in keep  # still the newest set overall
+    keep = retained([yesterday, full], daily=30, monthly=0, qualifying=set())
+    assert keep == {yesterday, full}  # nothing qualifies: newest per bucket
 
 
 def test_freshness_textfile_is_merged_atomically_and_only_known_targets(tmp_path):
@@ -228,11 +245,15 @@ def test_freshness_textfile_is_merged_atomically_and_only_known_targets(tmp_path
     metrics.record_success(path, {"postgres": 100.0, "objects": 100.0})
     metrics.record_success(path, {"offsite": 90.5})
     metrics.record_success(path, {"postgres": 200.0})
+    metrics.record_success(path, {"postgres": 150.0})  # an older set verified later
     assert metrics.read_values(path) == {"postgres": 200.0, "objects": 100.0, "offsite": 90.5}
+    assert path.stat().st_mode & 0o777 == 0o644 and path.parent.stat().st_mode & 0o777 == 0o755
     text = path.read_text()
     assert 'homayar_backup_last_success_timestamp_seconds{target="offsite"} 90.500' in text
     assert "# TYPE homayar_backup_last_success_timestamp_seconds gauge" in text
-    assert [p.name for p in path.parent.iterdir()] == [path.name]
+    assert sorted(p.name for p in path.parent.iterdir() if not p.name.endswith(".lock")) == [
+        path.name
+    ]
     with pytest.raises(ValueError):
         metrics.record_success(path, {"redis": 1.0})
     custom = tmp_path / "textfile" / "x.prom"
@@ -247,10 +268,12 @@ class _FakeS3:
 
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
+        self.modified: dict[tuple[str, str], datetime] = {}
 
     def upload_file(self, filename, bucket, key, ExtraArgs=None, Config=None):  # noqa: N803
         assert (ExtraArgs or {}).get("ChecksumAlgorithm") == "SHA256"
         self.objects[(bucket, key)] = Path(filename).read_bytes()
+        self.modified[(bucket, key)] = datetime.now(UTC)
 
     def head_object(self, Bucket, Key):  # noqa: N803
         return {"ContentLength": len(self.objects[(Bucket, Key)])}
@@ -266,7 +289,7 @@ class _FakeS3:
 
     def paginate(self, Bucket, Prefix=""):  # noqa: N803
         keys = sorted(k for b, k in self.objects if b == Bucket and k.startswith(Prefix))
-        yield {"Contents": [{"Key": k} for k in keys]}
+        yield {"Contents": [{"Key": k, "LastModified": self.modified[(Bucket, k)]} for k in keys]}
 
 
 def _fake_set(root: Path, backup_id: str) -> Path:
@@ -330,6 +353,15 @@ def test_s3_copy_without_its_manifest_is_not_a_set_and_retention_applies_off_sit
     dry = prune_s3("s3://offsite/p", daily=2, monthly=0, dry_run=True, client=s3)
     assert dry["expired"] == [ids[1]] and set(dry["kept"]) == {ids[2], ids[3]}
     assert list_s3_sets("s3://offsite/p", client=s3) == ids[1:]
-    prune_s3("s3://offsite/p", daily=2, monthly=0, client=s3)
+    result = prune_s3("s3://offsite/p", daily=2, monthly=0, client=s3)
     assert list_s3_sets("s3://offsite/p", client=s3) == ids[2:]
     assert not [k for _, k in s3.objects if k.startswith(f"p/{ids[1]}/")]
+    # The manifest-less copy is young: kept for now (an upload may be running) ...
+    assert result["stale_partials"] == [] and [k for _, k in s3.objects if ids[0] in k]
+    for location in list(s3.modified):
+        if ids[0] in location[1]:
+            s3.modified[location] -= timedelta(days=2)
+    # ... and swept once it is older than the grace period, never listed as a set.
+    result = prune_s3("s3://offsite/p", daily=2, monthly=0, client=s3)
+    assert result["stale_partials"] == [ids[0]]
+    assert not [k for _, k in s3.objects if ids[0] in k]

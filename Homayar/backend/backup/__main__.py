@@ -3,8 +3,11 @@
 Common environment: ``BACKUP_ROOT`` (default ``/backups``),
 ``HOMAYAR_BACKUP_KEY_FILE`` (or ``HOMAYAR_BACKUP_KEY``), the application's
 own settings (``DATABASE_URL``, ``STORAGE_*``, ``TOMBSTONE_JOURNAL_DIR``).
-``DATABASE_URL`` must log in as a superuser / BYPASSRLS role (the bundled
-Compose ``POSTGRES_USER`` is one); the application itself then switches to
+The administrative DSN comes from ``BACKUP_DATABASE_URL``,
+``BACKUP_DATABASE_URL_FILE`` or else ``DATABASE_URL`` -- never from the
+command line (a password on argv is visible to every local user).  It must
+log in as a superuser / BYPASSRLS role (the bundled Compose
+``POSTGRES_USER`` is one); the application itself switches to
 ``homayar_app`` with ``SET ROLE``.
 
 Commands (exit 0 = success, 1 = refused/failed, 2 = usage):
@@ -12,7 +15,9 @@ Commands (exit 0 = success, 1 = refused/failed, 2 = usage):
   keygen KEY_ID                     print a new key line for the secret manager
   create                            take one consistent, encrypted backup
   list                              complete sets (and interrupted partials)
-  verify [ID|PATH] [--no-key]       prove a set is complete and intact
+  verify [ID|PATH] [--no-key]       prove a set is complete and intact; a deep
+                                    verify marks it verified and moves the
+                                    postgres/objects freshness gauges
   prune [--dry-run]                 apply 30 daily + 12 monthly retention
   replicate ID DEST                 copy a set off the host (directory or s3://)
   fetch ID SOURCE                   pull an s3:// copy back and verify it
@@ -20,6 +25,8 @@ Commands (exit 0 = success, 1 = refused/failed, 2 = usage):
   reconcile ID --staging-db NAME    replay tombstones, verify, write the report
   promote ID --staging-db NAME --live-db NAME   rename staging to live (PASS only)
   gate --live-db NAME               exit 0 only for a promoted, reconciled restore
+  retired                           databases kept by promote, with drop_after
+  drop-retired NAME --confirm NAME  drop one of them
 """
 
 from __future__ import annotations
@@ -67,8 +74,10 @@ def _settings_with_target_storage(args):
 
 
 def _admin_url(args, settings=None) -> str:
-    if args.admin_url or os.environ.get("BACKUP_DATABASE_URL"):
-        return args.admin_url or os.environ["BACKUP_DATABASE_URL"]
+    if os.environ.get("BACKUP_DATABASE_URL"):
+        return os.environ["BACKUP_DATABASE_URL"]
+    if os.environ.get("BACKUP_DATABASE_URL_FILE"):
+        return Path(os.environ["BACKUP_DATABASE_URL_FILE"]).read_text(encoding="utf-8").strip()
     if settings is None:
         from backend.config import get_settings
 
@@ -83,7 +92,6 @@ def cmd_keygen(args) -> int:
 
 def cmd_create(args) -> int:
     from backend.backup.create import create_backup
-    from backend.backup.metrics import textfile_path
     from backend.config import get_settings
     from backend.storage import create_object_storage
 
@@ -94,7 +102,6 @@ def cmd_create(args) -> int:
         database_url=_admin_url(args, settings),
         storage=None if args.no_objects else create_object_storage(settings),
         settings=settings,
-        metrics_path=textfile_path(_root(args)),
     )
     _print(
         {
@@ -131,8 +138,33 @@ def cmd_verify(args) -> int:
     if target is None:
         raise BackupInvalid("no_backup", "no complete set in the backup root")
     key = None if args.no_key else load_key(key_file=args.key_file)
-    _print(verify_set(target, key, deep=not args.no_key))
+    summary = verify_set(target, key, deep=not args.no_key)
+    if summary["decrypted"]:
+        _mark_verified(target, summary)
+    _print(summary)
     return 0
+
+
+def _mark_verified(set_dir: Path, summary: dict[str, Any]) -> None:
+    """A deep verify is what makes a set count: retention prefers it and the
+    freshness gauges move (to its snapshot time, never backwards)."""
+    from datetime import UTC, datetime
+
+    from backend.backup import metrics
+    from backend.backup.manifest import read_manifest
+
+    manifest = read_manifest(set_dir)
+    if set_dir.parent.name == "sets":
+        marker = set_dir.parent / f"{manifest['backup_id']}.verified"
+        marker.write_text(datetime.now(UTC).isoformat() + "\n", encoding="ascii")
+    snapshot = datetime.fromisoformat(manifest["created_at"]).timestamp()
+    targets = {"postgres": snapshot}
+    objects = manifest["stores"]["objects"]
+    if objects.get("included") and objects.get("integrity", "complete") == "complete":
+        targets["objects"] = snapshot
+    root = set_dir.parent.parent if set_dir.parent.name == "sets" else set_dir.parent
+    metrics.record_success(metrics.textfile_path(root), targets)
+    summary["gauges_updated"] = sorted(targets)
 
 
 def cmd_prune(args) -> int:
@@ -192,7 +224,7 @@ def cmd_restore(args) -> int:
         storage_target=describe_storage_target(settings),
         # The database the application serves (resolved settings, so a
         # DATABASE_URL_FILE deployment is guarded as well).
-        live_database_url=args.live_database_url or get_settings().database_url,
+        live_database_url=get_settings().database_url,
         app_role=settings.database_app_role or "homayar_app",
         resume=args.resume,
     )
@@ -266,6 +298,20 @@ def cmd_gate(args) -> int:
     return 1
 
 
+def cmd_retired(args) -> int:
+    from backend.backup.reconcile import list_retired
+
+    _print(list_retired(_admin_url(args)))
+    return 0
+
+
+def cmd_drop_retired(args) -> int:
+    from backend.backup.reconcile import drop_retired
+
+    _print(drop_retired(_admin_url(args), args.database, confirm=args.confirm))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m backend.backup",
@@ -274,9 +320,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--root", help="backup root (default $BACKUP_ROOT or /backups)")
     parser.add_argument("--key-file", help="key file (default $HOMAYAR_BACKUP_KEY_FILE)")
-    parser.add_argument(
-        "--admin-url", help="superuser DSN (default $BACKUP_DATABASE_URL or DATABASE_URL)"
-    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("keygen")
@@ -322,7 +365,6 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--target-bucket", help="restore objects into this bucket")
         p.set_defaults(func=func)
         if name == "restore":
-            p.add_argument("--live-database-url", default="")
             p.add_argument("--no-objects", action="store_true")
             p.add_argument("--resume", action="store_true")
         else:
@@ -344,6 +386,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("gate")
     p.add_argument("--live-db", required=True)
     p.set_defaults(func=cmd_gate)
+
+    sub.add_parser("retired").set_defaults(func=cmd_retired)
+
+    p = sub.add_parser("drop-retired")
+    p.add_argument("database")
+    p.add_argument("--confirm", required=True)
+    p.set_defaults(func=cmd_drop_retired)
     return parser
 
 

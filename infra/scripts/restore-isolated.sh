@@ -82,6 +82,14 @@ if grep -Eq '^(api|worker|scheduler|proxy)$' <<<"${running}"; then
 fi
 
 mark restore START
+previous=""
+for argument in ${reconcile_args[@]+"${reconcile_args[@]}"}; do
+  case "${previous}" in
+    --accept-*) mark owner_override "${previous}=${argument}" ;;
+  esac
+  [[ "${argument}" != "--revoke-share-links" ]] || mark owner_override "${argument}"
+  previous="${argument}"
+done
 mark stores START
 compose_onprem up -d --wait postgres redis minio
 compose_onprem run --rm --no-deps minio-bootstrap

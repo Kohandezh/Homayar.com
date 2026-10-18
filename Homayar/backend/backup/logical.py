@@ -182,7 +182,11 @@ class Snapshot:
 
     def copy_out(self, table: str) -> Iterator[bytes]:
         columns = sql.SQL(", ").join(sql.Identifier(c[0]) for c in self.columns[table])
-        statement = sql.SQL("COPY {} ({}) TO STDOUT").format(sql.Identifier(table), columns)
+        # COPY (SELECT ...) also reads partitioned parents, which plain
+        # COPY <table> TO refuses.
+        statement = sql.SQL("COPY (SELECT {} FROM {}) TO STDOUT").format(
+            columns, sql.Identifier(table)
+        )
         with self.connection.cursor() as cursor:
             with cursor.copy(statement) as copy:
                 for data in copy:

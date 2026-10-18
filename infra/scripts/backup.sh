@@ -2,9 +2,13 @@
 # One scheduled backup run (HOM-116, ADR 0035): create -> verify -> off-site copy -> prune.
 #
 # Runs the backup-tool service of the on-prem Compose project against the
-# running postgres and minio services. Exits non-zero on any failure; the
-# freshness textfile (homayar_backup_last_success_timestamp_seconds) only
-# moves forward after a step succeeded, so the backup-age alert fires.
+# running postgres and minio services. Exits non-zero on any failure. The
+# freshness textfile (homayar_backup_last_success_timestamp_seconds) moves
+# only after a deep verify (postgres, objects) or a verified off-site copy
+# (offsite), so the backup-age alert fires when a step fails. A set whose
+# object copy is degraded (missing or mismatching required objects) is still
+# verified and copied off-site, but its objects gauge does not move and the
+# run exits 3.
 set -Eeuo pipefail
 umask 077
 
@@ -41,6 +45,12 @@ require_env BACKUP_KEY_FILE
 [[ -r "${BACKUP_KEY_FILE}" ]] || die "Backup key file is not readable: ${BACKUP_KEY_FILE}"
 export BACKUP_TEXTFILE_DIR="${BACKUP_TEXTFILE_DIR:-${BACKUP_ROOT}/metrics}"
 mkdir -p -- "${BACKUP_TEXTFILE_DIR}"
+chmod 0755 "${BACKUP_TEXTFILE_DIR}"
+case "$(cd -- "${BACKUP_TEXTFILE_DIR}" && pwd -P)/" in
+  "$(cd -- "${BACKUP_ROOT}" && pwd -P)"/*)
+    printf 'WARNING: BACKUP_TEXTFILE_DIR is inside BACKUP_ROOT; a 0700 backup root hides the gauge from node_exporter.\n' >&2
+    ;;
+esac
 if [[ "${offsite}" == "1" && -z "${BACKUP_OFFSITE:-}" && -z "${BACKUP_OFFSITE_PATH:-}" ]]; then
   die "No off-site target: set BACKUP_OFFSITE (s3://) or BACKUP_OFFSITE_PATH, or pass --no-offsite."
 fi
@@ -60,7 +70,10 @@ output="$(tool create)"
 printf '%s\n' "${output}"
 backup_id="$(sed -n 's/^  "backup_id": "\([^"]*\)",*$/\1/p' <<<"${output}" | head -n 1)"
 [[ -n "${backup_id}" ]] || die "The backup did not report its id."
+degraded=0
+grep -q '"integrity": "degraded"' <<<"${output}" && degraded=1
 
+# The deep verify marks the set verified and moves the freshness gauges.
 tool verify "${backup_id}"
 
 offsite_target=""
@@ -77,4 +90,8 @@ if [[ "${prune}" == "1" ]]; then
   fi
 fi
 
+if [[ "${degraded}" == "1" ]]; then
+  printf 'ERROR: backup %s has degraded object integrity (see stores.objects in its manifest).\n' "${backup_id}" >&2
+  exit 3
+fi
 printf 'Backup %s completed.\n' "${backup_id}"

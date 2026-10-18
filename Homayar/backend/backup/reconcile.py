@@ -39,10 +39,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import UTC, datetime
+from contextlib import closing, contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -56,14 +57,16 @@ from backend.backup.logical import (
     table_columns,
     with_database,
 )
-from backend.backup.manifest import BackupInvalid, read_manifest
+from backend.backup.manifest import BackupInvalid, check_manifest_mac, read_manifest
 from backend.backup.release import code_heads
 from backend.backup.restore import (
     RestoreRefused,
+    cas_marker,
+    marker_payload,
     marker_statement,
     read_marker,
     read_state,
-    write_marker,
+    staging_lock,
 )
 from backend.backup.verify import load_catalog
 from backend.database import relational
@@ -268,6 +271,47 @@ def _tenant_boundaries(admin_url: str, load: dict[str, Any]) -> dict[str, Any]:
                             "rows": count,
                         }
                     )
+        # Every foreign key between two tenant-keyed tables must join rows of
+        # the same workspace (the load proved only that the parent exists).
+        tenant_keyed = {
+            t for t in present if "workspace_id" in {c[0] for c in table_columns(connection, t)}
+        }
+        constraints = connection.execute(
+            "SELECT con.conname, child.relname, parent.relname, "
+            "ARRAY(SELECT a.attname FROM unnest(con.conkey) WITH ORDINALITY k(n, i) "
+            "      JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.n "
+            "      ORDER BY k.i), "
+            "ARRAY(SELECT a.attname FROM unnest(con.confkey) WITH ORDINALITY k(n, i) "
+            "      JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.n "
+            "      ORDER BY k.i) "
+            "FROM pg_constraint con JOIN pg_class child ON child.oid = con.conrelid "
+            "JOIN pg_class parent ON parent.oid = con.confrelid "
+            "JOIN pg_namespace n ON n.oid = con.connamespace "
+            "WHERE con.contype = 'f' AND n.nspname = 'public' ORDER BY con.conname"
+        ).fetchall()
+        tenant_links = 0
+        for name, child, parent, child_columns, parent_columns in constraints:
+            if child not in tenant_keyed or parent not in tenant_keyed:
+                continue
+            if "workspace_id" in child_columns:
+                continue  # composite with the tenant: already the same workspace
+            tenant_links += 1
+            joined = sql.SQL(" AND ").join(
+                sql.SQL("p.{} = c.{}").format(sql.Identifier(pc), sql.Identifier(cc))
+                for cc, pc in zip(child_columns, parent_columns, strict=True)
+            )
+            count = int(
+                connection.execute(
+                    sql.SQL(
+                        "SELECT count(*) FROM {} c JOIN {} p ON {} "
+                        "WHERE c.workspace_id IS DISTINCT FROM p.workspace_id"
+                    ).format(sql.Identifier(child), sql.Identifier(parent), joined)
+                ).fetchone()[0]
+            )
+            if count:
+                problems.append(
+                    {"table": child, "problem": f"{name} points into another tenant", "rows": count}
+                )
         for table, column in (
             ("media_objects", "storage_key"),
             ("recordings", "storage_key"),
@@ -294,6 +338,7 @@ def _tenant_boundaries(admin_url: str, load: dict[str, Any]) -> dict[str, Any]:
         problems.append({"problem": "per-tenant counts were not verified at load"})
     return _check(
         "FAIL" if problems else "PASS",
+        tenant_foreign_keys_checked=tenant_links,
         per_tenant_tables_verified_at_load=load.get("tenant_tables_verified", 0),
         foreign_keys_verified_at_load=bool(load.get("foreign_keys_verified")),
         problems=problems[:50],
@@ -301,12 +346,13 @@ def _tenant_boundaries(admin_url: str, load: dict[str, Any]) -> dict[str, Any]:
 
 
 def _references(connection) -> dict[str, dict[str, Any]]:
-    """Live expectations by key in the restored database (after the replay)."""
+    """Live expectations (and expected SHA-256) by key in the restored database."""
     refs: dict[str, dict[str, Any]] = {}
     present = set(list_tables(connection))
     if "media_objects" in present:
-        for key, workspace_id, meeting_id, state in connection.execute(
-            "SELECT storage_key, workspace_id, meeting_id, lifecycle_state FROM media_objects"
+        for key, workspace_id, meeting_id, state, sha256 in connection.execute(
+            "SELECT storage_key, workspace_id, meeting_id, lifecycle_state, sha256 "
+            "FROM media_objects"
         ):
             required = str(state).upper() in {"ACTIVE", "RETENTION_PENDING", "LEGAL_HOLD"}
             gone = str(state).upper() == "DELETED"
@@ -314,10 +360,12 @@ def _references(connection) -> dict[str, dict[str, Any]]:
                 "workspace_id": workspace_id,
                 "meeting_id": meeting_id,
                 "expectation": "required" if required else ("gone" if gone else "optional"),
+                "sha256": sha256,
             }
     if "recordings" in present:
-        for key, workspace_id, meeting_id, deleted in connection.execute(
-            "SELECT storage_key, workspace_id, meeting_id, deleted_at IS NOT NULL FROM recordings"
+        for key, workspace_id, meeting_id, deleted, sha256 in connection.execute(
+            "SELECT storage_key, workspace_id, meeting_id, deleted_at IS NOT NULL, "
+            "checksum_sha256 FROM recordings"
         ):
             if key in refs:
                 continue
@@ -325,11 +373,12 @@ def _references(connection) -> dict[str, dict[str, Any]]:
                 "workspace_id": workspace_id,
                 "meeting_id": meeting_id,
                 "expectation": "optional" if deleted else "required",
+                "sha256": sha256,
             }
     if "stage_checkpoints" in present:
-        for key, workspace_id, meeting_id, state, removed in connection.execute(
-            "SELECT artifact_key, workspace_id, meeting_id, state, object_deleted_at IS NOT NULL "
-            "FROM stage_checkpoints"
+        for key, workspace_id, meeting_id, state, removed, sha256 in connection.execute(
+            "SELECT artifact_key, workspace_id, meeting_id, state, object_deleted_at IS NOT NULL, "
+            "artifact_sha256 FROM stage_checkpoints"
         ):
             expectation = (
                 "gone"
@@ -341,8 +390,20 @@ def _references(connection) -> dict[str, dict[str, Any]]:
                     "workspace_id": workspace_id,
                     "meeting_id": meeting_id,
                     "expectation": expectation,
+                    "sha256": sha256,
                 }
     return refs
+
+
+def _stored_sha256(storage: ObjectStorage, workspace_id: str, key: str) -> str | None:
+    digest = hashlib.sha256()
+    try:
+        with closing(storage.open_reader(workspace_id, key)) as reader:
+            for block in iter(lambda: reader.read(1024 * 1024), b""):
+                digest.update(block)
+    except StorageError:
+        return None
+    return digest.hexdigest()
 
 
 def _objects(
@@ -350,10 +411,19 @@ def _objects(
     storage: ObjectStorage | None,
     workspaces: list[str],
     *,
+    catalog: dict[str, Any],
     accept_missing: str | None,
 ) -> dict[str, Any]:
+    """Every required object is present AND hashes to its restored row's SHA-256.
+
+    Bytes are re-read from the target store (corruption after the restore is
+    caught too).  A required object the backup itself recorded as deleted
+    after the snapshot (the live row was gone or being deleted when the copy
+    ran) is explained, listed and not a failure; anything else missing or
+    different fails unless the owner accepts the loss.
+    """
     if storage is None:
-        return _check("WARN", note="object store not restored (no storage configured)")
+        return _check("FAIL", note="no object store: a restore without objects is not usable")
     with connect(admin_url) as connection:
         refs = _references(connection)
         connection.rollback()
@@ -361,9 +431,22 @@ def _objects(
     for workspace_id in sorted(workspaces):
         for listing in storage.iter_objects(workspace_id):
             stored[listing.key] = workspace_id
-    missing = sorted(
-        k for k, r in refs.items() if r["expectation"] == "required" and k not in stored
-    )
+    explained = {
+        item["key"]: item["reason"] for item in catalog["objects"].get("missing_explained", [])
+    }
+    required = {k: r for k, r in refs.items() if r["expectation"] == "required"}
+    missing = sorted(k for k in required if k not in stored and k not in explained)
+    missing_explained = sorted(k for k in required if k not in stored and k in explained)
+    corrupt = []
+    verified = 0
+    for key, ref in sorted(required.items()):
+        if key not in stored or not ref.get("sha256"):
+            continue
+        actual = _stored_sha256(storage, stored[key], key)
+        if actual != ref["sha256"]:
+            corrupt.append(key)
+        else:
+            verified += 1
     orphans = sorted(k for k in stored if k not in refs)
     lingering = sorted(k for k, r in refs.items() if r["expectation"] == "gone" and k in stored)
     # Bytes copied while their deletion was in flight: the restored row says
@@ -375,16 +458,26 @@ def _objects(
         except StorageError:
             removal_failed.append(key)
     status = "PASS"
-    if missing:
+    if missing or corrupt:
         status = "PASS" if accept_missing else "FAIL"
+    elif missing_explained:
+        status = "WARN"
     if removal_failed:
         status = "FAIL"
     return _check(
         status,
         stored=len(stored),
         referenced=len(refs),
+        required=len(required),
+        content_verified=verified,
         required_missing=len(missing),
         required_missing_keys=missing[:100],
+        content_mismatch=len(corrupt),
+        content_mismatch_keys=corrupt[:100],
+        deleted_after_snapshot=[
+            {"key": key, "reason": explained[key]} for key in missing_explained[:100]
+        ],
+        backup_integrity=catalog["objects"].get("integrity", "complete"),
         orphans=len(orphans),
         orphan_keys=orphans[:100],
         removed_again=len(lingering) - len(removal_failed),
@@ -580,6 +673,42 @@ def report_digest(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _journal_identity(
+    journal: Any, watermark: dict[str, Any], workspaces: list[str]
+) -> tuple[list[str], str]:
+    """Positive evidence that the replica is THIS deployment's journal, at
+    least as new as the backup.
+
+    The backup fingerprinted every journal file (name, size, SHA-256 of its
+    content then); the files are append-only, so the replica must hold each
+    one with the same first ``size`` bytes.  A backup taken before the first
+    deletion has no fingerprint: the replica is then only accepted if all of
+    its records belong to tenants of the restored database ("unanchored").
+    """
+    problems: list[str] = []
+    present = {path.name: path for path in journal.files()}
+    recorded = watermark.get("files")
+    if isinstance(recorded, list) and recorded:
+        for entry in recorded:
+            path = present.get(entry["name"])
+            if path is None:
+                problems.append(f"{entry['name']}: missing (stale or foreign replica)")
+                continue
+            with open(path, "rb") as handle:
+                prefix = handle.read(int(entry["size"]))
+            if len(prefix) < int(entry["size"]):
+                problems.append(f"{entry['name']}: shorter than at backup time (stale replica)")
+            elif hashlib.sha256(prefix).hexdigest() != entry["sha256"]:
+                problems.append(f"{entry['name']}: differs from the backup's journal")
+        return problems, "anchored"
+    records, _ = journal.read()
+    known = set(workspaces)
+    foreign = sorted({r.workspace_id for r in records} - known)
+    if foreign:
+        problems.append(f"records of {len(foreign)} tenant(s) unknown to this backup")
+    return problems, "unanchored"
+
+
 def reconcile_restore(
     *,
     set_dir: Path,
@@ -598,12 +727,51 @@ def reconcile_restore(
     max_tenants: int = 500,
 ) -> dict[str, Any]:
     """Run every check, replay the tombstones, write the sealed report."""
+    manifest = read_manifest(set_dir)
+    check_manifest_mac(manifest, key)  # its journal fingerprint decides below
+    with staging_lock(admin_url, staging_database):
+        return _reconcile_locked(
+            set_dir=Path(set_dir),
+            key=key,
+            manifest=manifest,
+            admin_url=admin_url,
+            staging_database=staging_database,
+            settings=settings,
+            storage=storage,
+            work_dir=Path(work_dir),
+            storage_target=storage_target,
+            app_role=app_role,
+            accept_held=accept_held,
+            accept_missing=accept_missing,
+            accept_no_journal=accept_no_journal,
+            revoke_share_links=revoke_share_links,
+            max_tenants=max_tenants,
+        )
+
+
+def _reconcile_locked(
+    *,
+    set_dir: Path,
+    key: BackupKey,
+    manifest: dict[str, Any],
+    admin_url: str,
+    staging_database: str,
+    settings: Any,
+    storage: ObjectStorage,
+    work_dir: Path,
+    storage_target: str,
+    app_role: str,
+    accept_held: str | None,
+    accept_missing: str | None,
+    accept_no_journal: str | None,
+    revoke_share_links: bool,
+    max_tenants: int,
+) -> dict[str, Any]:
     from backend.jobs.tombstone_reapply import reapply_tombstones, verify_tombstones
     from backend.services.tombstone_journal import journal_for
 
     started = time.monotonic()
     started_at = _now()
-    manifest = read_manifest(set_dir)
     backup_id = manifest["backup_id"]
     catalog = load_catalog(set_dir, manifest, key)
     staging_url = with_database(admin_url, staging_database)
@@ -622,6 +790,16 @@ def reconcile_restore(
         )
     if state.get("backup_id") != backup_id or state.get("staging_database") != staging_database:
         raise RestoreRefused("state_mismatch", "the work dir belongs to another restore")
+    if not (state.get("manifest_mac") == marker.get("manifest_mac") == manifest["mac"]):
+        raise RestoreRefused(
+            "manifest_mismatch", "reconcile only the set this restore verified and loaded"
+        )
+    if state.get("storage_target") is None:
+        raise RestoreRefused(
+            "db_only_restore",
+            "a restore without objects cannot be reconciled (journaled bytes and required "
+            "objects are unverifiable); restore the set with its objects",
+        )
     if state.get("storage_target") != storage_target:
         raise RestoreRefused(
             "storage_target_mismatch",
@@ -629,11 +807,14 @@ def reconcile_restore(
         )
     # Any earlier report stops being promotable the moment this run starts
     # changing the database; only this run's final marker can make it so again.
-    write_marker(
-        admin_url,
-        staging_database,
-        {"backup_id": backup_id, "state": "reconciling", "at": _now()},
-    )
+    reconciling = {
+        "backup_id": backup_id,
+        "manifest_mac": manifest["mac"],
+        "state": "reconciling",
+        "run": secrets.token_hex(8),
+        "at": _now(),
+    }
+    cas_marker(admin_url, staging_database, marker, reconciling)
     checks["marker"] = _check("PASS", state=marker.get("state"))
 
     mark = time.monotonic()
@@ -659,41 +840,45 @@ def reconcile_restore(
     watermark = manifest.get("tombstone_journal", {})
     if journal is None or not journal.files():
         # Unset, unmounted or empty: nothing proves that later deletions are
-        # re-applied, unless the backup itself recorded an empty journal.
-        empty_at_backup = watermark.get("configured") and not watermark.get("records")
+        # re-applied.  Only an explicit owner decision lets this pass.
         checks["tombstones"] = _check(
-            "PASS" if (accept_no_journal or (journal is not None and empty_at_backup)) else "FAIL",
+            "PASS" if accept_no_journal else "FAIL",
             note="no tombstone journal files: deletions after the backup cannot be re-applied",
             journal_records_at_backup=watermark.get("records"),
-            accepted_no_journal=accept_no_journal,
+            owner_override_no_journal=accept_no_journal,
         )
     else:
-        records, rejected = journal.read()
+        identity_problems, anchoring = _journal_identity(journal, watermark, workspaces)
+        records, _ = journal.read()
         latest = max((r.tombstoned_at for r in records), default=None)
-        stale = []
-        if watermark.get("configured"):
-            if len(records) < int(watermark.get("records") or 0):
-                stale.append("fewer records than at backup time")
-            recorded_latest = watermark.get("latest_tombstoned_at")
-            if recorded_latest and (
-                latest is None or latest < datetime.fromisoformat(recorded_latest)
-            ):
-                stale.append("newest record older than at backup time")
-        with bound_database(staging_settings):
-            replay = reapply_tombstones(
-                staging_settings, journal=journal, storage=storage, remove_unknown_keys=True
-            )
-            verified = verify_tombstones(staging_settings, journal=journal)
+        stale = list(identity_problems)
+        if len(records) < int(watermark.get("records") or 0):
+            stale.append("fewer records than at backup time")
+        recorded_latest = watermark.get("latest_tombstoned_at")
+        if recorded_latest and (latest is None or latest < datetime.fromisoformat(recorded_latest)):
+            stale.append("newest record older than at backup time")
+        replay: dict[str, Any] = {}
+        verified: dict[str, Any] = {}
+        if not stale:
+            with bound_database(staging_settings):
+                replay = reapply_tombstones(
+                    staging_settings, journal=journal, storage=storage, remove_unknown_keys=True
+                )
+                verified = verify_tombstones(staging_settings, journal=journal)
         failed = (
-            stale or verified["alive"] or verified["rejected_lines"] or verified["purges_failed"]
+            stale
+            or verified.get("alive")
+            or verified.get("rejected_lines")
+            or verified.get("purges_failed")
         )
         checks["tombstones"] = _check(
             "FAIL" if failed else "PASS",
+            journal_identity=anchoring,
             replay=replay,
             verify=verified,
             journal_records=len(records),
             journal_records_at_backup=watermark.get("records"),
-            stale_journal=stale,
+            stale_or_foreign_journal=stale,
         )
     timings["tombstones"] = round(time.monotonic() - mark, 3)
 
@@ -702,7 +887,9 @@ def reconcile_restore(
     if checks["non_resurrection"]["status"] == "REVIEW" and accept_held:
         checks["non_resurrection"]["status"] = "PASS"
         checks["non_resurrection"]["details"]["accepted_held"] = accept_held
-    checks["objects"] = _objects(staging_url, storage, workspaces, accept_missing=accept_missing)
+    checks["objects"] = _objects(
+        staging_url, storage, workspaces, catalog=catalog, accept_missing=accept_missing
+    )
     checks["secrets"] = _secrets(catalog, settings, key)
     checks["post_backup_state"] = _post_backup_state(
         staging_url, revoke_share_links=revoke_share_links, now=datetime.now(UTC)
@@ -717,16 +904,28 @@ def reconcile_restore(
         overall = "REVIEW_REQUIRED"
     else:
         overall = "PASS"
+    overrides = {
+        name: value
+        for name, value in (
+            ("accept_no_journal", accept_no_journal),
+            ("accept_missing", accept_missing),
+            ("accept_held", accept_held),
+            ("revoke_share_links", revoke_share_links or None),
+        )
+        if value
+    }
     report = _seal(
         {
             "kind": "homayar-reconciliation/1",
             "backup_id": backup_id,
+            "manifest_mac": manifest["mac"],
             "backup_created_at": manifest["created_at"],
             "staging_database": staging_database,
             "started_at": started_at,
             "finished_at": _now(),
             "status": overall,
             "statuses": statuses,
+            "owner_overrides": overrides,
             "checks": checks,
             "timings_seconds": timings,
         },
@@ -737,11 +936,13 @@ def reconcile_restore(
     temporary.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
-    write_marker(
+    cas_marker(
         admin_url,
         staging_database,
+        reconciling,
         {
             "backup_id": backup_id,
+            "manifest_mac": manifest["mac"],
             "state": "reconciled",
             "status": overall,
             "report_sha256": report_digest(path),
@@ -749,6 +950,15 @@ def reconcile_restore(
         },
     )
     return {**report, "path": str(path)}
+
+
+RETIRED_PREFIX = "homayar-retired "
+RETIRED_DAYS = 7
+
+
+def _database_is_empty(admin_url: str, database: str) -> bool:
+    with connect(with_database(admin_url, database), autocommit=True) as connection:
+        return not list_tables(connection)
 
 
 def promote(
@@ -760,7 +970,14 @@ def promote(
     key: BackupKey,
     retire_existing: bool = False,
 ) -> dict[str, Any]:
-    """Rename the reconciled staging database to the live name (PASS only)."""
+    """Rename the reconciled staging database to the live name (PASS only).
+
+    An existing live-name database that is empty (the one the postgres image
+    creates) is dropped afterwards; one with data is kept as
+    ``<live>_retired_<ts>`` and marked with a ``drop_after`` date: it is
+    outside backups, retention and tombstone replay, so ``drop-retired``
+    must remove it within that time.
+    """
     from backend.backup.restore import validate_database_name
 
     staging = validate_database_name(staging_database)
@@ -770,41 +987,100 @@ def promote(
         raise RestoreRefused("not_reconciled", f"reconciliation status is {report.get('status')}")
     if report.get("staging_database") != staging:
         raise RestoreRefused("report_mismatch", "the report belongs to another staging database")
-    marker = read_marker(admin_url, staging)
-    if not isinstance(marker, dict) or marker.get("state") != "reconciled":
-        raise RestoreRefused("staging_not_reconciled", f"{staging} is not in state reconciled")
-    if marker.get("backup_id") != report["backup_id"] or marker.get(
-        "report_sha256"
-    ) != report_digest(report_path):
-        raise RestoreRefused(
-            "report_mismatch", "the report is not the last reconciliation of this database"
-        )
-    retired = None
-    promoted_marker = {
-        "backup_id": report["backup_id"],
-        "state": "promoted",
-        "report_sha256": marker["report_sha256"],
-        "promoted_from": staging,
-        "at": _now(),
-    }
-    # Both renames and the new marker commit together or not at all.
-    with connect(with_database(admin_url, "postgres")) as connection:
-        exists = connection.execute(
-            "SELECT 1 FROM pg_database WHERE datname = %s", (live,)
-        ).fetchone()
-        if exists:
-            if not retire_existing:
+    with staging_lock(admin_url, staging):
+        marker = read_marker(admin_url, staging)
+        if not isinstance(marker, dict) or marker.get("state") != "reconciled":
+            raise RestoreRefused("staging_not_reconciled", f"{staging} is not in state reconciled")
+        if (
+            marker.get("backup_id") != report["backup_id"]
+            or marker.get("report_sha256") != report_digest(report_path)
+            or marker.get("manifest_mac") != report.get("manifest_mac")
+        ):
+            raise RestoreRefused(
+                "report_mismatch", "the report is not the last reconciliation of this database"
+            )
+        live_exists = read_marker(admin_url, live) is not False
+        if live_exists and not retire_existing:
+            raise RestoreRefused(
+                "live_database_exists", f"{live} exists; pass retire_existing to keep it renamed"
+            )
+        live_empty = live_exists and _database_is_empty(admin_url, live)
+        retired = None
+        now = datetime.now(UTC)
+        promoted_marker = {
+            "backup_id": report["backup_id"],
+            "manifest_mac": marker["manifest_mac"],
+            "state": "promoted",
+            "report_sha256": marker["report_sha256"],
+            "promoted_from": staging,
+            "at": _now(),
+        }
+        # Renames and markers commit together or not at all.
+        with connect(with_database(admin_url, "postgres")) as connection:
+            if live_exists:
+                retired = f"{live[:40]}_retired_{now:%Y%m%d%H%M%S}"
+                connection.execute(f'ALTER DATABASE "{live}" RENAME TO "{retired}"')
+                if not live_empty:
+                    note = {
+                        "retired_at": now.isoformat(),
+                        "drop_after": (now + timedelta(days=RETIRED_DAYS)).isoformat(),
+                        "replaced_by_backup": report["backup_id"],
+                    }
+                    payload = RETIRED_PREFIX + json.dumps(note, sort_keys=True)
+                    connection.execute(
+                        f'COMMENT ON DATABASE "{retired}" IS '
+                        + "'"
+                        + payload.replace("'", "''")
+                        + "'"
+                    )
+            connection.execute(f'ALTER DATABASE "{staging}" RENAME TO "{live}"')
+            # The rename holds the database's lock: re-read the marker.
+            current = connection.execute(
+                "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = %s",
+                (live,),
+            ).fetchone()[0]
+            if current != marker_payload(marker):
                 connection.rollback()
-                raise RestoreRefused(
-                    "live_database_exists",
-                    f"{live} exists; pass retire_existing to keep it renamed",
-                )
-            retired = f"{live[:40]}_retired_{datetime.now(UTC):%Y%m%d%H%M%S}"
-            connection.execute(f'ALTER DATABASE "{live}" RENAME TO "{retired}"')
-        connection.execute(f'ALTER DATABASE "{staging}" RENAME TO "{live}"')
-        connection.execute(marker_statement(live, promoted_marker))
-        connection.commit()
-    return {"backup_id": report["backup_id"], "live_database": live, "retired_database": retired}
+                raise RestoreRefused("staging_changed", f"{staging} changed while promoting")
+            connection.execute(marker_statement(live, promoted_marker))
+            connection.commit()
+        dropped = None
+        if retired and live_empty:
+            with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
+                connection.execute(f'DROP DATABASE "{retired}"')
+            dropped, retired = retired, None
+    return {
+        "backup_id": report["backup_id"],
+        "live_database": live,
+        "retired_database": retired,
+        "dropped_empty_database": dropped,
+    }
+
+
+def list_retired(admin_url: str) -> list[dict[str, Any]]:
+    with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
+        rows = connection.execute(
+            "SELECT datname, shobj_description(oid, 'pg_database') FROM pg_database "
+            "ORDER BY datname"
+        ).fetchall()
+    retired = []
+    for name, comment in rows:
+        if comment and comment.startswith(RETIRED_PREFIX):
+            retired.append({"database": name, **json.loads(comment[len(RETIRED_PREFIX) :])})
+    return retired
+
+
+def drop_retired(admin_url: str, database: str, *, confirm: str) -> dict[str, Any]:
+    from backend.backup.restore import validate_database_name
+
+    database = validate_database_name(database)
+    if confirm != database:
+        raise RestoreRefused("confirmation_mismatch", "--confirm must repeat the database name")
+    if database not in {item["database"] for item in list_retired(admin_url)}:
+        raise RestoreRefused("not_retired", f"{database} is not a database retired by promote")
+    with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
+        connection.execute(f'DROP DATABASE "{database}" WITH (FORCE)')
+    return {"dropped": database}
 
 
 __all__ = ["BackupInvalid", "promote", "reconcile_restore", "load_report", "bound_database"]

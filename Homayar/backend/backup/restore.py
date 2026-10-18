@@ -31,6 +31,8 @@ import json
 import os
 import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,7 @@ from backend.database.rls import APP_ROLE, apply_row_level_security
 from backend.storage import ObjectStorage
 
 MARKER_PREFIX = "homayar-restore "
+STAGING_WORD = "restoring"
 STATE_FILE = "restore-state.json"
 _DATABASE_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
@@ -96,8 +99,12 @@ def read_marker(admin_url: str, database: str) -> dict[str, Any] | None | bool:
     return marker if isinstance(marker, dict) else None
 
 
+def marker_payload(marker: dict[str, Any]) -> str:
+    return MARKER_PREFIX + json.dumps(marker, sort_keys=True, separators=(",", ":"))
+
+
 def marker_statement(database: str, marker: dict[str, Any]) -> str:
-    payload = MARKER_PREFIX + json.dumps(marker, sort_keys=True, separators=(",", ":"))
+    payload = marker_payload(marker)
     return (
         f'COMMENT ON DATABASE "{validate_database_name(database)}" IS '
         + "'"
@@ -111,26 +118,70 @@ def write_marker(admin_url: str, database: str, marker: dict[str, Any]) -> None:
         connection.execute(marker_statement(database, marker))
 
 
+def cas_marker(
+    admin_url: str, database: str, expected: dict[str, Any], marker: dict[str, Any]
+) -> None:
+    """Replace the marker only if it is still exactly ``expected``.
+
+    Every writer holds ``staging_lock``; the comparison is the second line of
+    defence (a run that lost its lock, or a marker changed by hand)."""
+    with connect(with_database(admin_url, "postgres")) as connection:
+        current = connection.execute(
+            "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = %s",
+            (database,),
+        ).fetchone()
+        if current is None or current[0] != marker_payload(expected):
+            connection.rollback()
+            raise RestoreRefused("staging_changed", f"the marker of {database} changed underneath")
+        connection.execute(marker_statement(database, marker))
+        connection.commit()
+
+
+@contextmanager
+def staging_lock(admin_url: str, staging: str) -> Iterator[None]:
+    """One restore / reconcile / promote at a time per staging database.
+
+    A session-level advisory lock on the maintenance database, held for the
+    whole run and released by the server if the process dies."""
+    connection = connect(with_database(admin_url, "postgres"), autocommit=True)
+    try:
+        acquired = connection.execute(
+            "SELECT pg_try_advisory_lock(hashtext(%s))", (f"homayar-restore:{staging}",)
+        ).fetchone()[0]
+        if not acquired:
+            raise RestoreRefused(
+                "staging_busy", f"another restore, reconcile or promote is working on {staging}"
+            )
+        yield
+    finally:
+        connection.close()
+
+
 def _isolation_guard(
     *, admin_url: str, staging: str, live_database_url: str | None, catalog: dict[str, Any]
 ) -> None:
-    target = server_identity(admin_url)
-    if live_database_url:
-        if (
-            server_identity(live_database_url) == target
-            and database_name(live_database_url) == staging
-        ):
-            raise RestoreRefused(
-                "staging_is_live", "the staging database is the one the application serves"
-            )
+    """The staging database is never the live one, whatever the host strings.
+
+    Host names differ between an operator host and the Compose network
+    (``10.0.0.5`` vs ``postgres``), so the live and source names are refused
+    by name alone, and every staging name must say what it is."""
+    if live_database_url and database_name(live_database_url) == staging:
+        raise RestoreRefused(
+            "staging_is_live", "the staging database is the one the application serves"
+        )
     source = catalog["config"]["database"]
-    if (source["host"], int(source["port"])) == target and source["name"] == staging:
+    if source["name"] == staging:
         raise RestoreRefused(
             "staging_is_source", "the staging database is the backup's own source database"
         )
+    if STAGING_WORD not in staging:
+        raise RestoreRefused(
+            "staging_name",
+            f"a staging database name must contain {STAGING_WORD!r} (e.g. homayar_{STAGING_WORD})",
+        )
 
 
-def _prepare_staging(admin_url: str, staging: str, backup_id: str) -> None:
+def _prepare_staging(admin_url: str, staging: str, backup_id: str, manifest_mac: str) -> dict:
     marker = read_marker(admin_url, staging)
     with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
         if marker is not False:
@@ -148,7 +199,14 @@ def _prepare_staging(admin_url: str, staging: str, backup_id: str) -> None:
             # Idempotent retry: a half-done restore of the same backup is redone.
             connection.execute(f'DROP DATABASE "{staging}" WITH (FORCE)')
         connection.execute(f"CREATE DATABASE \"{staging}\" TEMPLATE template0 ENCODING 'UTF8'")
-    write_marker(admin_url, staging, {"backup_id": backup_id, "state": "restoring", "at": _now()})
+    marker = {
+        "backup_id": backup_id,
+        "manifest_mac": manifest_mac,
+        "state": "restoring",
+        "at": _now(),
+    }
+    write_marker(admin_url, staging, marker)
+    return marker
 
 
 def describe_storage_target(settings: Any) -> str:
@@ -245,6 +303,49 @@ def restore_backup(
                 "this backup; restore into an empty, isolated store (or --resume this restore)",
             )
     mark = lap("verify", mark)
+    with staging_lock(admin_url, staging):
+        return _restore_locked(
+            set_dir=Path(set_dir),
+            key=key,
+            admin_url=admin_url,
+            staging=staging,
+            storage=storage,
+            work_dir=work_dir,
+            storage_target=storage_target,
+            app_role=app_role,
+            manifest=manifest,
+            catalog=catalog,
+            revision=revision,
+            timings=timings,
+            started=started,
+            started_at=started_at,
+            mark=mark,
+        )
+
+
+def _restore_locked(
+    *,
+    set_dir: Path,
+    key: BackupKey,
+    admin_url: str,
+    staging: str,
+    storage: ObjectStorage | None,
+    work_dir: Path,
+    storage_target: str,
+    app_role: str,
+    manifest: dict[str, Any],
+    catalog: dict[str, Any],
+    revision: str,
+    timings: dict[str, float],
+    started: float,
+    started_at: str,
+    mark: float,
+) -> dict[str, Any]:
+    backup_id = manifest["backup_id"]
+
+    def lap(name: str, since: float) -> float:
+        timings[name] = round(time.monotonic() - since, 3)
+        return time.monotonic()
 
     state: dict[str, Any] = {
         "backup_id": backup_id,
@@ -252,6 +353,8 @@ def restore_backup(
         "staging_database": staging,
         "server": list(server_identity(admin_url)),
         "storage_target": storage_target if storage is not None else None,
+        # The set this restore verified; reconcile accepts no other.
+        "manifest_mac": manifest["mac"],
         "backup_created_at": manifest["created_at"],
         "started_at": started_at,
         "status": "restoring",
@@ -259,7 +362,7 @@ def restore_backup(
     }
     write_state(work_dir, state)
 
-    _prepare_staging(admin_url, staging, backup_id)
+    restoring = _prepare_staging(admin_url, staging, backup_id, manifest["mac"])
     staging_url = with_database(admin_url, staging)
     run_alembic(staging_url, revision)
     mark = lap("schema_at_backup_revision", mark)
@@ -296,7 +399,7 @@ def restore_backup(
         )
     mark = lap("objects", mark)
 
-    write_marker(admin_url, staging, {"backup_id": backup_id, "state": "loaded", "at": _now()})
+    cas_marker(admin_url, staging, restoring, {**restoring, "state": "loaded", "at": _now()})
     timings["total"] = round(time.monotonic() - started, 3)
     state.update(
         {

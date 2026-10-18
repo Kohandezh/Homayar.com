@@ -23,13 +23,15 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from psycopg import sql as psycopg_sql
+from sqlalchemy.engine import make_url
 
 from backend.backup import faults
 from backend.backup.__main__ import main as cli
 from backend.backup.create import BackupBusy, backup_lock, create_backup
-from backend.backup.crypto import BackupKey, file_sha256
+from backend.backup.crypto import BackupKey, decrypt_to_bytes, file_sha256
 from backend.backup.faults import FaultInjected
-from backend.backup.logical import connect, database_name, with_database
+from backend.backup.logical import DatabaseBackupError, connect, database_name, with_database
 from backend.backup.manifest import (
     BackupInvalid,
     list_complete_sets,
@@ -37,14 +39,21 @@ from backend.backup.manifest import (
     read_manifest,
     write_manifest,
 )
-from backend.backup.metrics import read_values
-from backend.backup.reconcile import REPORT_FILE, promote, reconcile_restore
+from backend.backup.metrics import read_values, record_success
+from backend.backup.reconcile import (
+    REPORT_FILE,
+    drop_retired,
+    list_retired,
+    promote,
+    reconcile_restore,
+)
 from backend.backup.release import PROJECT_DIR, code_heads
 from backend.backup.restore import (
     RestoreRefused,
     describe_storage_target,
     read_marker,
     restore_backup,
+    write_marker,
 )
 from backend.backup.retention import prune
 from backend.backup.verify import verify_set
@@ -144,7 +153,7 @@ def _restore(settings, tmp_path, set_dir, staging, **kwargs):
         storage=storage,
         work_dir=kwargs.pop("work_dir", tmp_path / "restore-work"),
         storage_target=describe_storage_target(target_settings),
-        live_database_url=settings.database_url,
+        live_database_url=kwargs.pop("live_database_url", settings.database_url),
         **kwargs,
     )
     return state, target_settings, storage
@@ -187,8 +196,14 @@ def test_backup_offsite_copy_isolated_restore_reconcile_promote_and_serve(
 
     root = tmp_path / "backups"
     textfile = root / "metrics" / "homayar_backup.prom"
-    manifest = _backup(settings, tmp_path, root=root, metrics_path=textfile)
+    monkeypatch.setenv("BACKUP_DATABASE_URL", _admin())  # never a DSN on argv
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
+    monkeypatch.setenv(
+        "HOMAYAR_BACKUP_KEY", f"{KEY.key_id}:{base64.b64encode(KEY.secret).decode()}"
+    )
+    manifest = _backup(settings, tmp_path, root=root)
     set_dir = Path(manifest["path"])
+    assert not textfile.exists()  # creating a set moves no gauge
 
     # Identity and integrity evidence of the set (HOM-116).
     assert manifest["backup_id"] == set_dir.name
@@ -204,18 +219,36 @@ def test_backup_offsite_copy_isolated_restore_reconcile_promote_and_serve(
     assert {"redis", "secrets", "tombstone_journal"} <= set(manifest["excluded"])
     raw = b"".join(p.read_bytes() for p in set_dir.rglob("*.enc"))
     assert b"Weekly customer call" not in raw and alpha["credentials"]["email"].encode() not in raw
-    assert settings.token_pepper.encode() not in (set_dir / "manifest.json").read_bytes()
+    catalog = json.loads(
+        decrypt_to_bytes(
+            set_dir / "catalog.json.enc",
+            KEY,
+            backup_id=manifest["backup_id"],
+            name="catalog.json.enc",
+        )
+    )
+    secret_values = [settings.jwt_secret, settings.token_pepper, settings.database_url]
+    for blob in ((set_dir / "manifest.json").read_text(), json.dumps(catalog)):
+        assert not [value for value in secret_values if value in blob]
+    assert objects["integrity"] == "complete"
     summary = verify_set(set_dir, KEY)
     assert summary["decrypted"] and summary["objects"] == objects["objects"]
     snapshot_time = datetime.fromisoformat(manifest["created_at"]).timestamp()
+    assert cli(["--root", str(root), "verify", manifest["backup_id"]]) == 0
     assert read_values(textfile) == {
         "postgres": pytest.approx(snapshot_time, abs=0.001),
         "objects": pytest.approx(snapshot_time, abs=0.001),
     }
+    assert (root / "sets" / f"{manifest['backup_id']}.verified").is_file()
 
-    # An encrypted copy off the primary host, through the operator CLI.
+    # An encrypted copy off the primary host, through the operator CLI. A
+    # directory counts as off-site only once its medium carries the marker.
     offsite = tmp_path / "offsite"
-    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
+    offsite.mkdir()
+    assert cli(["--root", str(root), "replicate", manifest["backup_id"], str(offsite)]) == 1
+    assert cli(["--root", str(root), "replicate", manifest["backup_id"], str(root / "x")]) == 1
+    assert "offsite" not in read_values(textfile)
+    (offsite / ".homayar-offsite").write_text("drill medium\n")
     assert cli(["--root", str(root), "replicate", manifest["backup_id"], str(offsite)]) == 0
     replica = offsite / "sets" / manifest["backup_id"]
     assert verify_set(replica, None)["mac_verified"] is False  # checksums only, no key there
@@ -243,7 +276,9 @@ def test_backup_offsite_copy_isolated_restore_reconcile_promote_and_serve(
             key=KEY,
         )
     assert early.value.code == "report_unreadable"
-    assert cli(["--admin-url", _admin(), "gate", "--live-db", live]) == 1
+    assert cli(["gate", "--live-db", live]) == 1
+    with pytest.raises(SystemExit):
+        cli(["--admin-url", _admin(), "gate", "--live-db", live])  # no DSN flags any more
 
     report = _reconcile(replica, staging, target_settings, target_storage, tmp_path)
     assert report["status"] == "PASS", report["statuses"]
@@ -255,6 +290,9 @@ def test_backup_offsite_copy_isolated_restore_reconcile_promote_and_serve(
     assert checks["rls_behavior"]["details"]["own_meetings_visible"] >= 3
     assert checks["tenant_boundaries"]["details"]["per_tenant_tables_verified_at_load"] > 20
     assert checks["objects"]["details"]["required_missing"] == 0
+    assert checks["objects"]["details"]["content_verified"] >= 3
+    assert checks["tombstones"]["details"]["journal_identity"] == "unanchored"
+    assert checks["tenant_boundaries"]["details"]["tenant_foreign_keys_checked"] > 5
     assert checks["secrets"]["status"] == "PASS"
     assert not _scalar(
         staging_url, "SELECT deleted_at IS NULL FROM meetings WHERE id = %s", (erased,)
@@ -275,7 +313,7 @@ def test_backup_offsite_copy_isolated_restore_reconcile_promote_and_serve(
         key=KEY,
     )
     assert promoted["live_database"] == live
-    assert cli(["--admin-url", _admin(), "gate", "--live-db", live]) == 0
+    assert cli(["gate", "--live-db", live]) == 0
 
     # The restored application starts and serves the restored tenants, isolated.
     live_settings = target_settings.model_copy(
@@ -360,7 +398,7 @@ def test_interrupted_backups_never_leave_a_usable_set_and_release_the_lock(
     # 1. A failure during the object copy.
     monkeypatch.setenv("HOMAYAR_BACKUP_FAULT", "during_objects")
     with pytest.raises(FaultInjected):
-        _backup(settings, tmp_path, root=root, metrics_path=textfile)
+        _backup(settings, tmp_path, root=root)
     monkeypatch.delenv("HOMAYAR_BACKUP_FAULT")
     assert list_complete_sets(root) == [] and list_partial_sets(root) == []
     assert not textfile.exists()
@@ -375,7 +413,7 @@ def test_interrupted_backups_never_leave_a_usable_set_and_release_the_lock(
 
     monkeypatch.setattr(faults, "point", interrupt)
     with pytest.raises(KeyboardInterrupt):
-        _backup(settings, tmp_path, root=root, metrics_path=textfile)
+        _backup(settings, tmp_path, root=root)
     monkeypatch.setattr(faults, "point", original)
     assert list_complete_sets(root) == [] and list_partial_sets(root) == []
 
@@ -408,9 +446,19 @@ def test_interrupted_backups_never_leave_a_usable_set_and_release_the_lock(
     assert not textfile.exists()
 
     # The kernel released the lock: the next scheduled run completes.
-    manifest = _backup(settings, tmp_path, root=root, metrics_path=textfile)
+    manifest = _backup(settings, tmp_path, root=root)
     assert [name for name, _ in list_complete_sets(root)] == [manifest["backup_id"]]
-    assert read_values(textfile)["postgres"] > 0
+    assert not textfile.exists()  # only a verified set moves the gauges
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
+    monkeypatch.setenv(
+        "HOMAYAR_BACKUP_KEY", f"{KEY.key_id}:{base64.b64encode(KEY.secret).decode()}"
+    )
+    assert cli(["--root", str(root), "verify", manifest["backup_id"]]) == 0
+    fresh = read_values(textfile)
+    assert set(fresh) == {"postgres", "objects"}
+    older = datetime.fromisoformat(manifest["created_at"]).timestamp() - 3600
+    record_success(textfile, {"postgres": older})  # verifying an older set later
+    assert read_values(textfile)["postgres"] == fresh["postgres"]  # never moves backwards
     pruned = prune(root, partial_grace_seconds=0)
     assert pruned["stale_partials"] == [partial[0].name] and pruned["kept"] == [
         manifest["backup_id"]
@@ -541,12 +589,28 @@ def test_restore_failure_isolation_guards_and_idempotent_retry(
     _delete(client, tenant, meeting)
     staging, live = _names("retry", databases)
 
-    # Isolation: never into the database the application serves (= the source here).
+    # Isolation: never into the database the application serves, by name alone
+    # (host strings differ between an operator host and the Compose network).
     with pytest.raises(RestoreRefused) as same:
         _restore(settings, tmp_path, set_dir, database_name(settings.database_url))
-    assert same.value.code in {"staging_is_live", "staging_is_source"}
+    assert same.value.code == "staging_is_live"
+    live_elsewhere = f"hy_live_restoring_{secrets.token_hex(3)}"
+    with pytest.raises(RestoreRefused) as live_only:
+        _restore(
+            settings,
+            tmp_path,
+            set_dir,
+            live_elsewhere,
+            live_database_url=with_database(
+                "postgresql+psycopg://app@10.0.0.5:5432/x", live_elsewhere
+            ),
+        )
+    assert live_only.value.code == "staging_is_live"
+    with pytest.raises(RestoreRefused) as unnamed:
+        _restore(settings, tmp_path, set_dir, f"hy_plain_{secrets.token_hex(3)}")
+    assert unnamed.value.code == "staging_name"
     # Never over a database that is not a restore target.
-    foreign = f"hy_foreign_{secrets.token_hex(4)}"
+    foreign = f"hy_foreign_restoring_{secrets.token_hex(4)}"
     databases.append(foreign)
     with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
         connection.execute(f'CREATE DATABASE "{foreign}"')
@@ -562,6 +626,12 @@ def test_restore_failure_isolation_guards_and_idempotent_retry(
         _restore(settings, tmp_path, set_dir, staging, target=occupied_target)
     assert occupied.value.code == "target_store_not_empty"
     assert read_marker(_admin(), staging) is False
+    # One run per staging database: a second concurrent run is refused.
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as holder:
+        holder.execute("SELECT pg_advisory_lock(hashtext(%s))", (f"homayar-restore:{staging}",))
+        with pytest.raises(RestoreRefused) as busy:
+            _restore(settings, tmp_path, set_dir, staging, target=_target(settings, tmp_path, "b"))
+        assert busy.value.code == "staging_busy"
 
     # A crash in the middle of the object restore.
     target = _target(settings, tmp_path)
@@ -595,13 +665,58 @@ def test_restore_failure_isolation_guards_and_idempotent_retry(
         )
     assert wrong_store.value.code == "storage_target_mismatch"
 
+    # The backup recorded no tombstone, but one followed it: an empty replica
+    # must not pass (only an explicit owner decision could).
+    no_files = tmp_path / "unsynced-replica"
+    no_files.mkdir()
+    unsynced = target[0].model_copy(update={"tombstone_journal_dir": str(no_files)})
+    blind = _reconcile(set_dir, staging, unsynced, target[1], tmp_path)
+    assert blind["statuses"]["tombstones"] == "FAIL"
     first = _reconcile(set_dir, staging, target[0], target[1], tmp_path)
     assert first["status"] == "PASS", first["statuses"]
     assert first["checks"]["tombstones"]["details"]["replay"]["reapplied"] == 1
+    first_report = tmp_path / "first-report.json"
+    shutil.copy(first["path"], first_report)
     second = _reconcile(set_dir, staging, target[0], target[1], tmp_path)  # idempotent
     assert second["status"] == "PASS", second["statuses"]
     replay = second["checks"]["tombstones"]["details"]["replay"]
     assert replay["reapplied"] == 0 and replay["already_tombstoned"] == 1
+
+    # An older (genuinely sealed, PASS) report cannot promote a later state ...
+    with pytest.raises(RestoreRefused) as stale_report:
+        promote(
+            admin_url=_admin(),
+            staging_database=staging,
+            live_database=live,
+            report_path=first_report,
+            key=KEY,
+        )
+    assert stale_report.value.code == "report_mismatch"
+    # ... nor can any report while a reconcile is (or was left) running.
+    current = read_marker(_admin(), staging)
+    write_marker(_admin(), staging, {**current, "state": "reconciling"})
+    with pytest.raises(RestoreRefused) as running:
+        promote(
+            admin_url=_admin(),
+            staging_database=staging,
+            live_database=live,
+            report_path=Path(second["path"]),
+            key=KEY,
+        )
+    assert running.value.code == "staging_not_reconciled"
+    # Reconcile runs only against the set the restore verified.
+    original = (set_dir / "manifest.json").read_bytes()
+    edited = json.loads(original)
+    edited["tombstone_journal"] = {"configured": True, "files": [], "records": 0}
+    (set_dir / "manifest.json").write_text(json.dumps(edited))
+    with pytest.raises(BackupInvalid) as tampered:
+        _reconcile(set_dir, staging, target[0], target[1], tmp_path)
+    assert tampered.value.code == "manifest_tampered"
+    write_manifest(set_dir, {k: v for k, v in edited.items() if k != "mac"}, KEY)
+    with pytest.raises(RestoreRefused) as resealed:
+        _reconcile(set_dir, staging, target[0], target[1], tmp_path)
+    assert resealed.value.code == "manifest_mismatch"
+    (set_dir / "manifest.json").write_bytes(original)
 
     # Another backup cannot be restored over this staging database.
     other_set = Path(_backup(settings, tmp_path, root=tmp_path / "backups-2")["path"])
@@ -654,6 +769,13 @@ def test_reconciliation_fails_on_broken_rls_or_crossed_tenants_and_blocks_promot
             "UPDATE transcript_segments SET workspace_id = %s WHERE meeting_id = %s",
             (beta["workspace_id"], meeting),
         )
+        # A row whose only tenant link is a plain foreign key (no meeting_id).
+        crossed = connection.execute(
+            "UPDATE usage_events SET workspace_id = %s WHERE id = (SELECT id FROM usage_events "
+            "WHERE workspace_id = %s AND reservation_id IS NOT NULL LIMIT 1) RETURNING id",
+            (beta["workspace_id"], alpha["workspace_id"]),
+        ).fetchone()
+        assert crossed is not None
         connection.commit()
     report = _reconcile(set_dir, staging, target_settings, storage, tmp_path)
     assert report["status"] == "FAIL"
@@ -662,6 +784,10 @@ def test_reconciliation_fails_on_broken_rls_or_crossed_tenants_and_blocks_promot
     assert report["statuses"]["tenant_boundaries"] == "FAIL"
     problems = report["checks"]["tenant_boundaries"]["details"]["problems"]
     assert any(p["table"] == "transcript_segments" for p in problems)
+    assert any(
+        p["table"] == "usage_events" and "points into another tenant" in p["problem"]
+        for p in problems
+    )
     with pytest.raises(RestoreRefused) as blocked:
         promote(
             admin_url=_admin(),
@@ -701,28 +827,87 @@ def test_object_reconciliation_reports_orphans_and_fails_on_missing_bytes(
     workspace_id = tenant["workspace_id"]
     original = next(m for m in _media(meeting) if m.kind.name == "ORIGINAL")
     assert storage.delete(workspace_id, original.storage_key)
+    # A checkpoint whose object the restored row says was removed (copied while
+    # its cleanup was in flight): reconciliation removes the bytes again.
+    with connect(with_database(_admin(), staging)) as connection:
+        artifact = connection.execute(
+            "UPDATE stage_checkpoints SET state = 'ABANDONED', object_deleted_at = now() "
+            "WHERE id = (SELECT id FROM stage_checkpoints WHERE meeting_id = %s "
+            "ORDER BY id LIMIT 1) RETURNING artifact_key",
+            (meeting,),
+        ).fetchone()[0]
+        connection.commit()
+    assert storage.exists(workspace_id, artifact)
     orphan = storage.put_stream(workspace_id, iter([b"stray bytes"]), content_type="audio/wav")
+    # Bit rot in the target store after the restore: content no longer matches the row.
+    with connect(with_database(_admin(), staging)) as connection:
+        rotten = connection.execute(
+            "SELECT artifact_key FROM stage_checkpoints WHERE meeting_id = %s "
+            "AND state = 'PUBLISHED' ORDER BY id DESC LIMIT 1",
+            (meeting,),
+        ).fetchone()[0]
+        connection.rollback()
+    rotten_path = Path(target_settings.storage_local_root) / rotten
+    rotten_path.write_bytes(b"{}" + rotten_path.read_bytes()[2:])
 
     report = _reconcile(set_dir, staging, target_settings, storage, tmp_path)
     details = report["checks"]["objects"]["details"]
     assert report["statuses"]["objects"] == "FAIL" and report["status"] == "FAIL"
+    assert details["content_mismatch_keys"] == [rotten]
     assert details["required_missing_keys"] == [original.storage_key]
     assert details["orphan_keys"] == [orphan.key]
     assert storage.exists(workspace_id, orphan.key)  # reported, never deleted
+    assert details["removed_again"] == 1 and not storage.exists(workspace_id, artifact)
 
     accepted = _reconcile(
-        set_dir, staging, target_settings, storage, tmp_path, accept_missing="INC-42"
+        set_dir,
+        staging,
+        target_settings,
+        storage,
+        tmp_path,
+        accept_missing="INC-42",
+        accept_no_journal="OWNER-NO-DELETIONS",  # nothing was ever deleted here
     )
     assert accepted["status"] == "PASS", accepted["statuses"]
     assert accepted["checks"]["objects"]["details"]["accepted_missing"] == "INC-42"
-    promote(
+    assert accepted["owner_overrides"] == {
+        "accept_missing": "INC-42",
+        "accept_no_journal": "OWNER-NO-DELETIONS",
+    }
+    # The live name already holds data: it is kept, marked, and must be dropped.
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        connection.execute(f'CREATE DATABASE "{live}"')
+    with connect(with_database(_admin(), live)) as connection:
+        connection.execute("CREATE TABLE old_rows (id int)")
+        connection.commit()
+    with pytest.raises(RestoreRefused) as exists:
+        promote(
+            admin_url=_admin(),
+            staging_database=staging,
+            live_database=live,
+            report_path=tmp_path / "restore-work" / REPORT_FILE,
+            key=KEY,
+        )
+    assert exists.value.code == "live_database_exists"
+    promoted = promote(
         admin_url=_admin(),
         staging_database=staging,
         live_database=live,
         report_path=tmp_path / "restore-work" / REPORT_FILE,
         key=KEY,
+        retire_existing=True,
     )
     assert read_marker(_admin(), live)["state"] == "promoted"
+    retired = promoted["retired_database"]
+    databases.append(retired)
+    listed = {item["database"]: item for item in list_retired(_admin())}
+    assert retired in listed and listed[retired]["replaced_by_backup"] == promoted["backup_id"]
+    with pytest.raises(RestoreRefused):
+        drop_retired(_admin(), retired, confirm="wrong")
+    with pytest.raises(RestoreRefused):
+        drop_retired(_admin(), live, confirm=live)  # only retired databases
+    assert drop_retired(_admin(), retired, confirm=retired) == {"dropped": retired}
+    assert read_marker(_admin(), retired) is False
 
 
 def test_a_conversation_held_in_the_backup_needs_an_owner_decision_before_promotion(
@@ -766,6 +951,19 @@ def test_a_conversation_held_in_the_backup_needs_an_owner_decision_before_promot
     )
     assert decided["status"] == "PASS", decided["statuses"]
     assert decided["checks"]["non_resurrection"]["details"]["accepted_held"] == "LEGAL-7"
+    # The empty database a fresh postgres image creates under the live name is dropped.
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        connection.execute(f'CREATE DATABASE "{live}"')
+    promoted = promote(
+        admin_url=_admin(),
+        staging_database=staging,
+        live_database=live,
+        report_path=tmp_path / "restore-work" / REPORT_FILE,
+        key=KEY,
+        retire_existing=True,
+    )
+    assert promoted["retired_database"] is None and promoted["dropped_empty_database"]
+    assert read_marker(_admin(), promoted["dropped_empty_database"]) is False
 
 
 # --- deletion state: journal trust and the object-copy window ----------------------------
@@ -804,15 +1002,28 @@ def test_reconciliation_refuses_an_empty_or_stale_tombstone_journal(
     (stale / first_file.name).write_text(first_file.read_text().splitlines(keepends=True)[0])
     report = run(stale)  # a replica older than the backup itself
     assert report["statuses"]["tombstones"] == "FAIL"
-    assert report["checks"]["tombstones"]["details"]["stale_journal"]
+    assert report["checks"]["tombstones"]["details"]["stale_or_foreign_journal"]
+
+    foreign = tmp_path / "foreign-replica"
+    foreign.mkdir()
+    lines = first_file.read_text().splitlines(keepends=True)
+    (foreign / first_file.name).write_text(lines[1] + lines[0] + "".join(lines[2:]))
+    report = run(foreign)  # same records, different bytes: not this deployment's file
+    assert report["statuses"]["tombstones"] == "FAIL"
+    assert any(
+        "differs" in p
+        for p in report["checks"]["tombstones"]["details"]["stale_or_foreign_journal"]
+    )
 
     accepted = run(empty, accept_no_journal="OWNER-NO-JOURNAL-1")
     assert accepted["statuses"]["tombstones"] == "PASS"
     details = accepted["checks"]["tombstones"]["details"]
-    assert details["accepted_no_journal"] == "OWNER-NO-JOURNAL-1"
+    assert details["owner_override_no_journal"] == "OWNER-NO-JOURNAL-1"
+    assert accepted["owner_overrides"]["accept_no_journal"] == "OWNER-NO-JOURNAL-1"
 
     report = run(journal_dir)  # the real replica: the post-backup deletion is replayed
     assert report["status"] == "PASS", report["statuses"]
+    assert report["checks"]["tombstones"]["details"]["journal_identity"] == "anchored"
     assert report["checks"]["tombstones"]["details"]["replay"]["reapplied"] == 1
 
 
@@ -848,3 +1059,66 @@ def test_bytes_copied_after_the_snapshot_of_a_later_deleted_conversation_are_rem
     replay = report["checks"]["tombstones"]["details"]["replay"]
     assert replay["meeting_absent"] == 1 and replay["unknown_keys_removed"] == len(late_keys)
     assert not any(storage.exists(workspace_id, key) for key in late_keys)
+
+
+# --- backup-side integrity --------------------------------------------------------------
+
+
+def test_a_corrupt_source_object_degrades_the_set_and_never_passes_reconciliation(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "bk-rot")
+    meeting = _processed(client, tenant, settings, key="bk-rot-1", index=20)
+    _stamp_head(settings.database_url)
+    original = next(m for m in _media(meeting) if m.kind.name == "ORIGINAL")
+    source_path = Path(settings.storage_local_root) / original.storage_key
+    data = bytearray(source_path.read_bytes())
+    data[-1] ^= 0x01  # bit rot on the primary store
+    source_path.write_bytes(bytes(data))
+
+    root = tmp_path / "backups"
+    textfile = tmp_path / "textfile" / "homayar_backup.prom"
+    manifest = _backup(settings, tmp_path, root=root)
+    objects = manifest["stores"]["objects"]
+    assert objects["integrity"] == "degraded" and objects["checksum_mismatch_at_copy"] == 1
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
+    monkeypatch.setenv(
+        "HOMAYAR_BACKUP_KEY", f"{KEY.key_id}:{base64.b64encode(KEY.secret).decode()}"
+    )
+    assert cli(["--root", str(root), "verify", manifest["backup_id"]]) == 0
+    assert set(read_values(textfile)) == {"postgres"}  # the objects gauge stays stale
+
+    staging, _ = _names("rot", databases)
+    _, target_settings, storage = _restore(settings, tmp_path, manifest["path"], staging)
+    report = _reconcile(
+        manifest["path"], staging, target_settings, storage, tmp_path, accept_no_journal="T"
+    )
+    details = report["checks"]["objects"]["details"]
+    assert report["statuses"]["objects"] == "FAIL"
+    assert original.storage_key in details["content_mismatch_keys"]
+    assert details["backup_integrity"] == "degraded"
+
+
+def test_a_role_subject_to_row_level_security_cannot_take_a_backup(settings, tmp_path):
+    role = f"hy_backup_rls_{secrets.token_hex(3)}"
+    password = secrets.token_hex(12)
+    with connect(_admin(), autocommit=True) as connection:
+        connection.execute(
+            psycopg_sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOBYPASSRLS").format(
+                psycopg_sql.Identifier(role), psycopg_sql.Literal(password)
+            )
+        )
+    try:
+        url = (
+            make_url(_admin())
+            .set(username=role, password=password)
+            .render_as_string(hide_password=False)
+        )
+        with pytest.raises(DatabaseBackupError) as refused:
+            create_backup(root=tmp_path / "b", key=KEY, database_url=url, storage=None)
+        assert refused.value.code == "role_subject_to_rls"
+        assert list_complete_sets(tmp_path / "b") == []
+    finally:
+        with connect(_admin(), autocommit=True) as connection:
+            connection.execute(psycopg_sql.SQL("DROP ROLE {}").format(psycopg_sql.Identifier(role)))

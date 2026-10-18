@@ -23,6 +23,7 @@ or restores it.  ``prune`` removes stale partial directories.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import shutil
@@ -33,12 +34,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from backend.backup import faults, metrics
+from psycopg import sql
+
+from backend.backup import faults
 from backend.backup.crypto import ALGORITHM, CHUNK_SIZE, BackupKey, EncryptingWriter
 from backend.backup.logical import (
     SKIP_TABLES,
+    connect,
     database_name,
     describe_snapshot,
+    list_tables,
     open_snapshot,
     server_identity,
 )
@@ -150,18 +155,88 @@ def _fsync_tree(path: Path) -> None:
 
 
 def _journal_watermark(settings: Any) -> dict[str, Any]:
+    """Where the tombstone journal stood at backup time, and its fingerprint.
+
+    The journal files are append-only: a replica of THIS deployment's journal
+    that is at least as new as the backup holds every recorded file with the
+    same first ``size`` bytes.  Reconcile checks that, so an empty, stale or
+    foreign replica cannot pass for the real one.
+    """
     journal = journal_for(settings) if settings is not None else None
     if journal is None:
         return {"configured": False}
+    fingerprint = []
+    for path in journal.files():
+        data = path.read_bytes()
+        fingerprint.append(
+            {"name": path.name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        )
     records, rejected = journal.read()
     latest = max((r.tombstoned_at for r in records), default=None)
     return {
         "configured": True,
-        "files": len(journal.files()),
+        "files": fingerprint,
         "records": len(records),
         "rejected_lines": rejected,
         "latest_tombstoned_at": latest.isoformat() if latest else None,
     }
+
+
+def _explain_missing(database_url: str, keys: list[str]) -> dict[str, str]:
+    """Why a required object was absent at copy time, from the LIVE rows.
+
+    Objects are copied after the snapshot: one whose row was deleted (or is
+    being deleted) by then was removed on purpose, e.g. a purge or "delete
+    audio after processing".  Anything else is unexplained loss.
+    """
+    if not keys:
+        return {}
+    reasons: dict[str, str] = {}
+    with connect(database_url, autocommit=True) as connection:
+        tables = set(list_tables(connection))
+        if "media_objects" in tables:
+            for key, state in connection.execute(
+                "SELECT storage_key, lifecycle_state FROM media_objects "
+                "WHERE storage_key = ANY(%s)",
+                (keys,),
+            ):
+                if str(state).upper() in {"DELETED", "DELETION_PENDING"}:
+                    reasons[key] = f"media {str(state).lower()} after the snapshot"
+        if "stage_checkpoints" in tables:
+            for key, removed, state in connection.execute(
+                "SELECT artifact_key, object_deleted_at IS NOT NULL, state FROM stage_checkpoints "
+                "WHERE artifact_key = ANY(%s)",
+                (keys,),
+            ):
+                if removed or str(state).upper() != "PUBLISHED":
+                    reasons[key] = "checkpoint object removed after the snapshot"
+        if "recordings" in tables:
+            for (key,) in connection.execute(
+                "SELECT storage_key FROM recordings WHERE storage_key = ANY(%s) "
+                "AND deleted_at IS NOT NULL",
+                (keys,),
+            ):
+                reasons.setdefault(key, "recording deleted after the snapshot")
+        known = set()
+        for table, column in (
+            ("media_objects", "storage_key"),
+            ("stage_checkpoints", "artifact_key"),
+            ("recordings", "storage_key"),
+        ):
+            if table in tables:
+                known |= {
+                    row[0]
+                    for row in connection.execute(
+                        sql.SQL("SELECT {} FROM {} WHERE {} = ANY(%s)").format(
+                            sql.Identifier(column), sql.Identifier(table), sql.Identifier(column)
+                        ),
+                        (keys,),
+                    )
+                }
+        for key in keys:
+            if key not in known:
+                reasons.setdefault(key, "row removed after the snapshot")
+    return reasons
 
 
 def config_references(
@@ -206,12 +281,12 @@ def create_backup(
     storage: ObjectStorage | None,
     settings: Any = None,
     lock_timeout_ms: int = 60000,
-    metrics_path: Path | None = None,
+    metrics_path: Path | None = None,  # deprecated: gauges move only after verify
 ) -> dict[str, Any]:
     """Write one complete set below ``root``; returns its manifest (+ ``path``).
 
-    ``metrics_path`` (the alerting textfile) is updated only after the set
-    is complete, with the snapshot time of the data it holds.
+    No freshness gauge moves here: only a successful deep ``verify`` (and
+    ``replicate`` for the off-site copy) advances them.
     """
     root = Path(root)
     sets_dir(root).mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -236,12 +311,6 @@ def create_backup(
         except BaseException:
             shutil.rmtree(work, ignore_errors=True)
             raise
-    if metrics_path is not None:
-        snapshot_time = datetime.fromisoformat(manifest["created_at"]).timestamp()
-        targets = {"postgres": snapshot_time}
-        if manifest["stores"]["objects"]["included"]:
-            targets["objects"] = snapshot_time
-        metrics.record_success(metrics_path, targets)
     return {**manifest, "path": str(destination)}
 
 
@@ -315,6 +384,17 @@ def _write_set(
             "objects": 0,
             "bytes": 0,
         }
+    explained = _explain_missing(database_url, object_result["missing_at_copy"])
+    object_result["missing_explained"] = [
+        {"key": key, "reason": reason} for key, reason in sorted(explained.items())
+    ]
+    object_result["missing_unexplained"] = sorted(
+        key for key in object_result["missing_at_copy"] if key not in explained
+    )
+    degraded = bool(
+        object_result["missing_unexplained"] or object_result["checksum_mismatch_at_copy"]
+    )
+    object_result["integrity"] = "degraded" if degraded else "complete"
     objects_seconds = round(time.monotonic() - objects_started, 3)
 
     catalog = {
@@ -365,7 +445,9 @@ def _write_set(
                 "bucket": getattr(settings, "storage_bucket", None) if settings else None,
                 "objects": object_result["objects"],
                 "bytes": object_result["bytes"],
+                "integrity": object_result.get("integrity", "complete"),
                 "missing_at_copy": len(object_result["missing_at_copy"]),
+                "missing_unexplained": len(object_result.get("missing_unexplained", [])),
                 "vanished_during_copy": len(object_result["vanished_during_copy"]),
                 "checksum_mismatch_at_copy": len(object_result["checksum_mismatch_at_copy"]),
             },

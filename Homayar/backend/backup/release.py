@@ -46,7 +46,12 @@ def run_alembic(database_url: str, target: str, *, timeout: int = 3600) -> None:
     cached settings and configures logging globally; neither may leak into
     the caller.
     """
-    env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL_FILE"}
+    # Settings read variables case-insensitively: drop every spelling.
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k.upper() not in {"DATABASE_URL", "DATABASE_URL_FILE"}
+    }
     env["DATABASE_URL"] = database_url
     result = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", target],
