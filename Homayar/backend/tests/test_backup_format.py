@@ -1,0 +1,606 @@
+"""HOM-116: the encrypted backup file format, manifest seal, retention and freshness
+metric (no database needed; the PostgreSQL round trips are in test_backup_restore.py)."""
+
+from __future__ import annotations
+
+import base64
+import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from backend.backup import metrics
+from backend.backup.crypto import (
+    CHUNK_SIZE,
+    HEADER_SIZE,
+    TAG_SIZE,
+    BackupKey,
+    BackupKeyError,
+    DecryptionError,
+    EncryptingWriter,
+    decrypt_to_bytes,
+    generate_key,
+    load_key,
+    parse_key,
+)
+from backend.backup.manifest import (
+    FORMAT,
+    BackupInvalid,
+    check_manifest_mac,
+    new_backup_id,
+    read_manifest,
+    valid_file_name,
+    write_manifest,
+)
+from backend.backup.retention import retained
+
+BACKUP_ID = "20261017T120000Z-0a1b2c3d"
+
+
+def _key(key_id: str = "drill-1", fill: int = 7) -> BackupKey:
+    return BackupKey(key_id, bytes([fill]) * 32)
+
+
+def _encrypt(tmp_path: Path, data: bytes, *, name: str = "db/meetings.copy.enc") -> Path:
+    path = tmp_path / name
+    with EncryptingWriter(path, _key(), backup_id=BACKUP_ID, name=name) as writer:
+        # Uneven writes exercise the chunk buffer.
+        for offset in range(0, len(data), 333_333):
+            writer.write(data[offset : offset + 333_333])
+    return path
+
+
+@pytest.mark.parametrize(
+    "size", [0, 1, CHUNK_SIZE - 1, CHUNK_SIZE, CHUNK_SIZE + 1, 3 * CHUNK_SIZE, 3 * CHUNK_SIZE + 17]
+)
+def test_round_trip_at_every_chunk_boundary(tmp_path, size):
+    data = bytes((i * 31) % 251 for i in range(size))
+    path = _encrypt(tmp_path, data)
+    chunks = max(1, -(-size // CHUNK_SIZE))
+    assert path.stat().st_size == HEADER_SIZE + size + chunks * TAG_SIZE
+    assert decrypt_to_bytes(path, _key(), backup_id=BACKUP_ID, name="db/meetings.copy.enc") == data
+    assert data[:64] not in path.read_bytes()[HEADER_SIZE:] or size < 64
+
+
+def test_two_encryptions_of_the_same_bytes_differ(tmp_path):
+    one = _encrypt(tmp_path, b"same content" * 100, name="db/a.copy.enc").read_bytes()
+    two = _encrypt(tmp_path, b"same content" * 100, name="db/b.copy.enc").read_bytes()
+    assert one[HEADER_SIZE:] != two[HEADER_SIZE:]
+
+
+def _flip(path: Path, offset: int) -> None:
+    data = bytearray(path.read_bytes())
+    data[offset] ^= 0x01
+    path.write_bytes(bytes(data))
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["bit_flip", "header", "truncate_at_boundary", "truncate_tail", "append", "drop_middle_chunk"],
+)
+def test_any_tampering_or_truncation_fails_authentication(tmp_path, tamper):
+    data = bytes(range(256)) * (3 * CHUNK_SIZE // 256)
+    path = _encrypt(tmp_path, data)
+    block = CHUNK_SIZE + TAG_SIZE
+    raw = path.read_bytes()
+    if tamper == "bit_flip":
+        _flip(path, HEADER_SIZE + block + 10)
+    elif tamper == "header":
+        _flip(path, 12)
+    elif tamper == "truncate_at_boundary":
+        path.write_bytes(raw[: HEADER_SIZE + 2 * block])
+    elif tamper == "truncate_tail":
+        path.write_bytes(raw[:-1])
+    elif tamper == "append":
+        path.write_bytes(raw + b"\0" * 32)
+    else:
+        path.write_bytes(raw[: HEADER_SIZE + block] + raw[HEADER_SIZE + 2 * block :])
+    with pytest.raises(DecryptionError):
+        decrypt_to_bytes(path, _key(), backup_id=BACKUP_ID, name="db/meetings.copy.enc")
+
+
+@pytest.mark.parametrize(
+    "key, backup_id, name",
+    [
+        (_key(fill=8), BACKUP_ID, "db/meetings.copy.enc"),
+        (_key(), "20261017T120000Z-ffffffff", "db/meetings.copy.enc"),
+        (_key(), BACKUP_ID, "db/recordings.copy.enc"),
+    ],
+)
+def test_a_file_only_opens_with_its_key_backup_and_name(tmp_path, key, backup_id, name):
+    path = _encrypt(tmp_path, b"tenant rows")
+    with pytest.raises(DecryptionError):
+        decrypt_to_bytes(path, key, backup_id=backup_id, name=name)
+
+
+def test_key_lines_parse_and_never_print_the_secret(tmp_path):
+    line = generate_key("site-a-2026")
+    key = parse_key(line)
+    assert key.key_id == "site-a-2026" and len(key.secret) == 32
+    assert line.split(":", 1)[1] not in repr(key) and len(key.fingerprint) == 32
+    key_file = tmp_path / "backup.key"
+    key_file.write_text(line + "\n", encoding="ascii")
+    assert load_key(env={"HOMAYAR_BACKUP_KEY_FILE": str(key_file)}) == key
+    assert load_key(env={"HOMAYAR_BACKUP_KEY": line}) == key
+    short = "k:" + base64.b64encode(b"x" * 16).decode()
+    for bad in ("nokey", "k:not-base64!", short, ":" + line.split(":", 1)[1]):
+        with pytest.raises(BackupKeyError):
+            parse_key(bad)
+    with pytest.raises(BackupKeyError):
+        load_key(env={})
+
+
+def _manifest() -> dict:
+    key = _key()
+    return {
+        "format": FORMAT,
+        "backup_id": BACKUP_ID,
+        "created_at": "2026-10-17T12:00:00+00:00",
+        "encryption": {
+            "state": "encrypted",
+            "algorithm": "AES-256-GCM/STREAM-1MiB/HKDF-SHA256",
+            "key_id": key.key_id,
+            "key_fingerprint": key.fingerprint,
+        },
+        "files": [
+            {"name": "catalog.json.enc", "size": 10, "sha256": "0" * 64, "plaintext_size": 1}
+        ],
+    }
+
+
+def test_manifest_seal_detects_any_edit_and_a_foreign_key(tmp_path):
+    write_manifest(tmp_path, _manifest(), _key())
+    manifest = read_manifest(tmp_path)
+    check_manifest_mac(manifest, _key())
+    with pytest.raises(BackupInvalid) as wrong:
+        check_manifest_mac(manifest, _key("other-key", fill=9))
+    assert wrong.value.code == "wrong_key"
+    edited = json.loads((tmp_path / "manifest.json").read_text())
+    edited["created_at"] = "2026-10-18T12:00:00+00:00"
+    (tmp_path / "manifest.json").write_text(json.dumps(edited))
+    with pytest.raises(BackupInvalid) as tampered:
+        check_manifest_mac(read_manifest(tmp_path), _key())
+    assert tampered.value.code == "manifest_tampered"
+
+
+@pytest.mark.parametrize(
+    "mutate, code",
+    [
+        (lambda m: m.update(format="homayar-backup/9"), "format_unsupported"),
+        (lambda m: m.update(backup_id="../etc"), "manifest_corrupt"),
+        (lambda m: m.update(files=[]), "manifest_corrupt"),
+        (lambda m: m["files"].append(dict(m["files"][0])), "manifest_corrupt"),
+        (lambda m: m["files"][0].update(name="../../outside"), "manifest_corrupt"),
+        (lambda m: m["encryption"].update(state="none"), "manifest_corrupt"),
+        (lambda m: m.pop("mac"), "manifest_corrupt"),
+    ],
+)
+def test_malformed_manifests_are_rejected_with_stable_codes(tmp_path, mutate, code):
+    write_manifest(tmp_path, _manifest(), _key())
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    mutate(manifest)
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(BackupInvalid) as error:
+        read_manifest(tmp_path)
+    assert error.value.code == code
+
+
+def test_missing_or_unparsable_manifest(tmp_path):
+    with pytest.raises(BackupInvalid) as missing:
+        read_manifest(tmp_path)
+    assert missing.value.code == "manifest_missing"
+    (tmp_path / "manifest.json").write_bytes(b"\xff{")
+    with pytest.raises(BackupInvalid) as corrupt:
+        read_manifest(tmp_path)
+    assert corrupt.value.code == "manifest_corrupt"
+
+
+def test_file_names_cannot_escape_the_set():
+    assert valid_file_name("db/meetings.copy.enc")
+    assert valid_file_name("objects/ab/" + "ab" * 32 + ".enc")
+    for bad in ("../x", "db/../../etc.copy.enc", "/abs", "db/Meetings.copy.enc", "manifest.json"):
+        assert not valid_file_name(bad)
+
+
+def _ids(start: datetime, count: int, step: timedelta) -> list[str]:
+    return [new_backup_id(start + i * step) for i in range(count)]
+
+
+def test_retention_keeps_30_daily_and_12_monthly_beyond_the_daily_window():
+    start = datetime(2025, 1, 1, 2, 0, tzinfo=UTC)
+    nightly = _ids(start, 500, timedelta(days=1))
+    extra_same_day = new_backup_id(start + timedelta(days=499, hours=5))
+    keep = retained(nightly + [extra_same_day])
+    assert extra_same_day in keep  # the newest set
+    assert nightly[-1] not in keep  # an older set of the same (newest) day
+    window_start = nightly[-30][:8]
+    daily = sorted(b for b in keep if b[:8] >= window_start)
+    monthly = sorted(b for b in keep if b[:8] < window_start)
+    assert len(daily) == 30
+    # 12 monthly sets, all OLDER than the daily window, one per month, the
+    # newest of each month: about 12 months of history beyond the 30 days.
+    assert len(monthly) == 12 and len({b[:6] for b in monthly}) == 12
+    assert all(
+        b == max(n for n in nightly if n[:6] == b[:6] and n[:8] < window_start) for b in monthly
+    )
+    assert retained([]) == set()
+    assert retained(nightly[:1]) == {nightly[0]}
+
+
+def test_retention_prefers_a_full_verified_set_over_a_newer_partial_one():
+    day = datetime(2026, 10, 17, tzinfo=UTC)
+    full = new_backup_id(day.replace(hour=2))
+    db_only = new_backup_id(day.replace(hour=18))
+    yesterday = new_backup_id(day - timedelta(hours=20))
+    keep = retained([yesterday, full, db_only], daily=30, monthly=12, qualifying={full, yesterday})
+    assert full in keep  # the day's representative is the verified full set
+    assert db_only in keep  # still the newest set overall
+    keep = retained([yesterday, full], daily=30, monthly=0, qualifying=set())
+    assert keep == {yesterday, full}  # nothing qualifies: newest per bucket
+
+
+def test_freshness_textfile_is_merged_atomically_and_only_known_targets(tmp_path):
+    path = metrics.textfile_path(tmp_path, env={})
+    metrics.record_success(path, {"postgres": 100.0, "objects": 100.0})
+    metrics.record_success(path, {"offsite": 90.5})
+    metrics.record_success(path, {"postgres": 200.0})
+    metrics.record_success(path, {"postgres": 150.0})  # an older set verified later
+    assert metrics.read_values(path) == {"postgres": 200.0, "objects": 100.0, "offsite": 90.5}
+    assert path.stat().st_mode & 0o777 == 0o644 and path.parent.stat().st_mode & 0o777 == 0o755
+    text = path.read_text()
+    assert 'homayar_backup_last_success_timestamp_seconds{target="offsite"} 90.500' in text
+    assert "# TYPE homayar_backup_last_success_timestamp_seconds gauge" in text
+    assert sorted(p.name for p in path.parent.iterdir() if not p.name.endswith(".lock")) == [
+        path.name
+    ]
+    with pytest.raises(ValueError):
+        metrics.record_success(path, {"redis": 1.0})
+    custom = tmp_path / "textfile" / "x.prom"
+    assert metrics.textfile_path(tmp_path, env={"HOMAYAR_BACKUP_TEXTFILE": str(custom)}) == custom
+    shared = tmp_path / "shared-collector-dir"  # node_exporter's, possibly not ours
+    shared.mkdir()
+    shared.chmod(0o750)
+    metrics.record_success(shared / "homayar_backup.prom", {"postgres": 1.0})
+    assert shared.stat().st_mode & 0o777 == 0o750  # an existing directory keeps its mode
+
+
+# --- off-site copies (S3 code paths against an in-memory stand-in) -------------------
+
+
+class _FakeS3:
+    """The few S3 calls the replication uses, kept in memory."""
+
+    def __init__(self) -> None:
+        self.objects: dict[tuple[str, str], bytes] = {}
+        self.modified: dict[tuple[str, str], datetime] = {}
+
+    def upload_file(self, filename, bucket, key, ExtraArgs=None, Config=None):  # noqa: N803
+        assert (ExtraArgs or {}).get("ChecksumAlgorithm") == "SHA256"
+        self.objects[(bucket, key)] = Path(filename).read_bytes()
+        self.modified[(bucket, key)] = datetime.now(UTC)
+
+    def head_object(self, Bucket, Key):  # noqa: N803
+        return {"ContentLength": len(self.objects[(Bucket, Key)])}
+
+    def download_file(self, bucket, key, filename):
+        Path(filename).write_bytes(self.objects[(bucket, key)])
+
+    def delete_object(self, Bucket, Key):  # noqa: N803
+        self.objects.pop((Bucket, Key), None)
+
+    def get_paginator(self, _name):
+        return self
+
+    def paginate(self, Bucket, Prefix=""):  # noqa: N803
+        keys = sorted(k for b, k in self.objects if b == Bucket and k.startswith(Prefix))
+        yield {"Contents": [{"Key": k, "LastModified": self.modified[(Bucket, k)]} for k in keys]}
+
+
+def _fake_set(root: Path, backup_id: str) -> Path:
+    """A structurally complete set (catalog + one table) sealed with the test key."""
+    directory = root / "sets" / backup_id
+    entries = []
+    for name, payload in (
+        ("catalog.json.enc", json.dumps({"backup_id": backup_id}).encode()),
+        ("db/meetings.copy.enc", b"row\t1\n" * 1000),
+    ):
+        with EncryptingWriter(directory / name, _key(), backup_id=backup_id, name=name) as writer:
+            writer.write(payload)
+        entries.append(
+            {
+                "name": name,
+                "size": writer.size,
+                "sha256": writer.sha256,
+                "plaintext_size": writer.plaintext_size,
+            }
+        )
+    manifest = {**_manifest(), "backup_id": backup_id, "files": entries}
+    write_manifest(directory, manifest, _key())
+    return directory
+
+
+def test_s3_copy_lists_fetches_verifies_and_rejects_a_corrupt_download(tmp_path):
+    from backend.backup.replicate import fetch_from_s3, list_s3_sets, replicate_to_s3
+    from backend.backup.verify import verify_set
+
+    backup_id = "20261017T020000Z-00000001"
+    set_dir = _fake_set(tmp_path / "primary", backup_id)
+    s3 = _FakeS3()
+    result = replicate_to_s3(set_dir, "s3://offsite/site-a", client=s3)
+    assert result["status"] == "copied" and result["files"] == 2
+    assert ("offsite", f"site-a/{backup_id}/manifest.json") in s3.objects
+    assert list_s3_sets("s3://offsite/site-a", client=s3) == [backup_id]
+
+    fetched = fetch_from_s3("s3://offsite/site-a", backup_id, tmp_path / "restore-1", client=s3)
+    assert verify_set(fetched, _key(), deep=False)["mac_verified"]
+
+    key = ("offsite", f"site-a/{backup_id}/db/meetings.copy.enc")
+    corrupted = bytearray(s3.objects[key])
+    corrupted[-5] ^= 0x01
+    s3.objects[key] = bytes(corrupted)
+    with pytest.raises(BackupInvalid) as error:
+        fetch_from_s3("s3://offsite/site-a", backup_id, tmp_path / "restore-2", client=s3)
+    assert error.value.code == "copy_checksum_mismatch"
+    assert not list((tmp_path / "restore-2" / "sets").iterdir())  # nothing half-fetched stays
+
+
+def test_s3_copy_without_its_manifest_is_not_a_set_and_retention_applies_off_site(tmp_path):
+    from backend.backup.replicate import list_s3_sets, prune_s3, replicate_to_s3
+
+    s3 = _FakeS3()
+    ids = [f"2026101{day}T020000Z-0000000{day}" for day in range(1, 5)]
+    for backup_id in ids:
+        replicate_to_s3(_fake_set(tmp_path / "primary", backup_id), "s3://offsite/p", client=s3)
+    s3.delete_object(Bucket="offsite", Key=f"p/{ids[0]}/manifest.json")  # interrupted copy
+    assert list_s3_sets("s3://offsite/p", client=s3) == ids[1:]
+
+    dry = prune_s3("s3://offsite/p", daily=2, monthly=0, dry_run=True, client=s3)
+    assert dry["expired"] == [ids[1]] and set(dry["kept"]) == {ids[2], ids[3]}
+    assert list_s3_sets("s3://offsite/p", client=s3) == ids[1:]
+    result = prune_s3("s3://offsite/p", daily=2, monthly=0, client=s3)
+    assert list_s3_sets("s3://offsite/p", client=s3) == ids[2:]
+    assert not [k for _, k in s3.objects if k.startswith(f"p/{ids[1]}/")]
+    # The manifest-less copy is young: kept for now (an upload may be running) ...
+    assert result["stale_partials"] == [] and [k for _, k in s3.objects if ids[0] in k]
+    for location in list(s3.modified):
+        if ids[0] in location[1]:
+            s3.modified[location] -= timedelta(days=2)
+    # ... and swept once it is older than the grace period, never listed as a set.
+    result = prune_s3("s3://offsite/p", daily=2, monthly=0, client=s3)
+    assert result["stale_partials"] == [ids[0]]
+    assert not [k for _, k in s3.objects if ids[0] in k]
+
+
+# --- required objects absent at copy time: explained or lost (C1) ------------------------
+
+
+def test_only_the_row_that_set_the_expectation_explains_an_absent_object():
+    from backend.backup.create import classify_missing
+
+    snapshot = datetime(2026, 10, 18, 2, 0, tzinfo=UTC)
+    after, before = snapshot + timedelta(minutes=5), snapshot - timedelta(hours=3)
+    checked = {"media_object", "recording", "checkpoint"}
+    references = {
+        "purged": {"source": "media_object"},
+        "media-deleted-later": {"source": "media_object"},
+        "media-deleted-earlier": {"source": "media_object"},
+        "media-still-active": {"source": "media_object"},
+        "held": {"source": "media_object", "held": True},
+        "held-then-deleted": {"source": "media_object", "held": True},
+        "recording-deleted-later": {"source": "recording"},
+        "recording-deleted-earlier": {"source": "recording"},
+        "checkpoint-cleaned-later": {"source": "checkpoint"},
+        "checkpoint-invalidated": {"source": "checkpoint"},
+        "unknown-source": {"source": "something-else"},
+    }
+    live = {
+        "media-deleted-later": [{"state": "DELETED", "removed_at": after}],
+        "media-deleted-earlier": [{"state": "DELETED", "removed_at": before}],
+        "media-still-active": [{"state": "ACTIVE", "removed_at": None}],
+        # The legal-hold original keeps its row; the recording sharing its key
+        # was deleted by the user, but that row never decides for media.
+        "held": [{"state": "LEGAL_HOLD", "removed_at": None}],
+        "held-then-deleted": [{"state": "DELETED", "removed_at": after}],
+        "recording-deleted-later": [{"state": None, "removed_at": after}],
+        "recording-deleted-earlier": [{"state": None, "removed_at": before}],
+        "checkpoint-cleaned-later": [{"state": "ABANDONED", "removed_at": after}],
+        # App-detected loss (corrupt or missing artifact) is not a deletion.
+        "checkpoint-invalidated": [{"state": "INVALIDATED", "removed_at": None}],
+    }
+    keys = sorted(references) + ["not-referenced"]
+
+    reasons = classify_missing(keys, references, live, checked, snapshot)
+
+    assert reasons == {
+        "purged": "media row removed after the snapshot",
+        "media-deleted-later": "media deleted after the snapshot",
+        "recording-deleted-later": "recording deleted after the snapshot",
+        "checkpoint-cleaned-later": "checkpoint deleted after the snapshot",
+    }
+    # A source that could not be checked (its table is gone) explains nothing.
+    assert classify_missing(["purged"], references, {}, {"recording"}, snapshot) == {}
+
+
+def test_a_legal_hold_on_any_row_of_a_key_sticks_to_its_reference():
+    from backend.backup.objects import _merge
+
+    references: dict = {}
+    held = {"key": "k", "expectation": "required", "source": "media_object", "held": True}
+    _merge(references, held)
+    _merge(references, {"key": "k", "expectation": "required", "source": "media_object"})
+    assert references["k"]["held"] is True
+    later = {"key": "j", "expectation": "optional", "source": "media_object", "held": False}
+    _merge(references, later)
+    _merge(references, {"key": "j", "expectation": "required", "source": "media_object"})
+    assert "held" not in references["j"] or not references["j"]["held"]
+    _merge(references, {"key": "j", "expectation": "gone", "source": "media_object", "held": True})
+    assert references["j"]["expectation"] == "required" and references["j"]["held"] is True
+
+
+# --- retired databases (C3) ---------------------------------------------------------------
+
+
+def test_a_retired_entry_keeps_the_real_name_and_flags_overdue_or_malformed_notes():
+    from backend.backup.reconcile import RETIRED_PREFIX, _retired_entry
+
+    now = datetime(2026, 10, 30, tzinfo=UTC)
+    spoof = RETIRED_PREFIX + json.dumps(
+        {"database": "homayar", "drop_after": "2026-11-20T00:00:00+00:00", "overdue": False}
+    )
+    entry = _retired_entry("other_db", spoof, now)
+    assert entry["database"] == "other_db" and entry["overdue"] is False
+
+    late = RETIRED_PREFIX + json.dumps({"drop_after": "2026-10-25T00:00:00+00:00"})
+    assert _retired_entry("homayar_retired_20261018000000", late, now)["overdue"] is True
+    for broken in ("{not json", "[1, 2]", '"text"', json.dumps({"drop_after": "soon"})):
+        entry = _retired_entry("x_retired_20261018000000", RETIRED_PREFIX + broken, now)
+        assert entry["database"] == "x_retired_20261018000000" and entry["overdue"] is True
+
+
+# --- a freshness textfile that cannot be written never stops a backup (T1) ---------------
+
+
+def _verifiable_set(root: Path, backup_id: str) -> Path:
+    """A set that passes a deep verify: catalog + one table, sealed with the test key."""
+    directory = root / "sets" / backup_id
+    catalog = {"backup_id": backup_id, "database": {"tables": ["meetings"]}}
+    catalog["objects"] = {"inventory": []}
+    entries = []
+    for name, payload in (
+        ("catalog.json.enc", json.dumps(catalog).encode()),
+        ("db/meetings.copy.enc", b"row\t1\n" * 10),
+    ):
+        with EncryptingWriter(directory / name, _key(), backup_id=backup_id, name=name) as writer:
+            writer.write(payload)
+        entries.append(
+            {
+                "name": name,
+                "size": writer.size,
+                "sha256": writer.sha256,
+                "plaintext_size": writer.plaintext_size,
+            }
+        )
+    manifest = {
+        **_manifest(),
+        "backup_id": backup_id,
+        "files": entries,
+        "stores": {"objects": {"included": False}},
+    }
+    write_manifest(directory, manifest, _key())
+    return directory
+
+
+def test_a_textfile_that_cannot_be_written_never_stops_verify_or_replicate(
+    tmp_path, monkeypatch, capsys
+):
+    from backend.backup.__main__ import EXIT_GAUGE_NOT_WRITTEN
+    from backend.backup.__main__ import main as cli
+    from backend.backup.manifest import list_complete_sets
+    from backend.backup.replicate import OFFSITE_MARKER
+
+    root = tmp_path / "root"
+    backup_id = "20261018T020000Z-0000000a"
+    _verifiable_set(root, backup_id)
+    blocked = tmp_path / "not-a-directory"  # fails for root too (no DAC override needed)
+    blocked.write_text("")
+    key = _key()
+    monkeypatch.setenv(
+        "HOMAYAR_BACKUP_KEY", f"{key.key_id}:{base64.b64encode(key.secret).decode()}"
+    )
+    monkeypatch.delenv("HOMAYAR_BACKUP_KEY_FILE", raising=False)
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(blocked / "homayar_backup.prom"))
+
+    assert cli(["--root", str(root), "textfile-check"]) == EXIT_GAUGE_NOT_WRITTEN
+    assert cli(["--root", str(root), "verify", backup_id]) == EXIT_GAUGE_NOT_WRITTEN
+    assert (root / "sets" / f"{backup_id}.verified").is_file()  # the set still counts
+    offsite = tmp_path / "offsite"
+    offsite.mkdir()
+    (offsite / OFFSITE_MARKER).write_text("provisioned\n")
+    assert cli(["--root", str(root), "replicate", backup_id, str(offsite)]) == (
+        EXIT_GAUGE_NOT_WRITTEN
+    )
+    assert [name for name, _ in list_complete_sets(offsite)] == [backup_id]  # copied anyway
+    assert "freshness gauge not written" in capsys.readouterr().err
+
+    textfile = tmp_path / "collector" / "homayar_backup.prom"
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
+    assert cli(["--root", str(root), "textfile-check"]) == 0
+    assert cli(["--root", str(root), "verify", backup_id]) == 0
+    assert set(metrics.read_values(textfile)) == {"postgres"}
+
+
+_FAKE_DOCKER = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${FAKE_DOCKER_LOG}"
+case " $* " in
+  *" ps "*) printf 'postgres\\nminio\\n' ;;
+  *" textfile-check "*) exit "${FAKE_TEXTFILE_STATUS:-0}" ;;
+  *" create "*)
+    printf '{\\n  "backup_id": "20261018T020000Z-0000000b",\\n'
+    printf '  "stores": {"objects": {"integrity": "%s"}}\\n}\\n' "${FAKE_INTEGRITY:-complete}" ;;
+  *" verify "*) exit "${FAKE_VERIFY_STATUS:-0}" ;;
+  *" replicate "*) exit "${FAKE_REPLICATE_STATUS:-0}" ;;
+esac
+exit 0
+"""
+
+
+@pytest.mark.parametrize(
+    ("statuses", "expected_exit", "pruned"),
+    [
+        ({}, 0, True),
+        (
+            {"FAKE_TEXTFILE_STATUS": "4", "FAKE_VERIFY_STATUS": "4", "FAKE_REPLICATE_STATUS": "4"},
+            4,
+            True,
+        ),
+        ({"FAKE_REPLICATE_STATUS": "4"}, 4, True),
+        ({"FAKE_VERIFY_STATUS": "4", "FAKE_INTEGRITY": "degraded"}, 3, True),
+        ({"FAKE_VERIFY_STATUS": "1"}, 1, False),
+    ],
+)
+def test_backup_sh_finishes_copy_and_prune_when_only_the_gauge_fails(
+    tmp_path, statuses, expected_exit, pruned
+):
+    import os
+    import subprocess
+
+    script = Path(__file__).resolve().parents[3] / "infra" / "scripts" / "backup.sh"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(_FAKE_DOCKER)
+    (bin_dir / "docker").chmod(0o755)
+    for name in ("root", "offsite", "collector"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "backup.key").write_text("k:" + base64.b64encode(b"\x01" * 32).decode())
+    log = tmp_path / "docker.log"
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("BACKUP_", "COMPOSE_", "NODE_EXPORTER_", "EGRESS_"))
+    }
+    env.update(
+        {
+            "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}",
+            "BACKUP_ROOT": str(tmp_path / "root"),
+            "BACKUP_KEY_FILE": str(tmp_path / "backup.key"),
+            "BACKUP_OFFSITE_PATH": str(tmp_path / "offsite"),
+            "NODE_EXPORTER_TEXTFILE_DIR": str(tmp_path / "collector"),
+            "FAKE_DOCKER_LOG": str(log),
+            **statuses,
+        }
+    )
+    result = subprocess.run(  # noqa: S603 - the repository's own script
+        ["bash", str(script)],  # noqa: S607 - bash from PATH, as cron runs it
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected_exit, result.stderr
+    calls = log.read_text()
+    assert "textfile-check" in calls and "verify 20261018T020000Z-0000000b" in calls
+    assert (" prune" in calls) is pruned
+    assert ("replicate 20261018T020000Z-0000000b /offsite" in calls) is pruned
+    if expected_exit == 4:
+        assert "could not be written" in result.stderr
