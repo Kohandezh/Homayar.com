@@ -439,6 +439,25 @@ pooling by construction. The `SET ROLE` shape is **not** (the role switch is iss
 the transaction that follows), so behind a transaction-mode pooler use the direct login
 role and leave `DATABASE_APP_ROLE` empty.
 
+### Append-only audit trail and the application login (HOM-115)
+
+`audit_events` is append-only for the application only because `homayar_app` holds no
+`UPDATE` or `DELETE` on it ([audit.md, Protection](audit.md#protection)). That holds only
+when the application never runs SQL with more than `homayar_app`'s privileges:
+
+* `DATABASE_URL` logs in as a role `IN ROLE homayar_app` (`homayar_api` above): not the
+  table owner, not a superuser or `BYPASSRLS` role, with no grants of its own, and not a
+  member of `homayar_audit_reader`.
+* Every application connection comes from `build_engine`
+  (`backend/database/relational.py`): with `DATABASE_APP_ROLE=homayar_app` each checkout
+  runs `SET ROLE homayar_app`; behind a transaction-mode pooler leave it empty and the
+  login acts through its `homayar_app` membership.
+
+With the other shape in the table above (the owner's login plus
+`DATABASE_APP_ROLE=homayar_app`), or any connection opened outside `build_engine`, the
+application holds the owner's credentials and append-only is not enforced: only the
+[protected audit sink](audit.md#protected-audit-sink) would detect a rewrite.
+
 ## Upgrade and Rollback
 
 **Mandatory internal TLS (HOM-161).** From this release, production refuses to start with

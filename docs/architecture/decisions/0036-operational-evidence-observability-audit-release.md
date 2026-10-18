@@ -130,6 +130,16 @@ sink verifier reports it as `accepted_erasure`.
    `head_hash` and `last_seq`, and the heartbeat keeps `last_seq`; the runbook asks the
    operator to keep that copy. Sink segments are kept for as long as the rows (no audit
    retention purge exists); pruning needs a checkpoint procedure that is not built.
+7. **The first export is gated on a legacy-row review (PROPOSED, pending the owner's
+   decision).** Rows written before HOM-114 masking may hold unmasked free text, and an
+   exported copy cannot be removed from a write-once segment. In staging and production
+   the first export into an empty sink therefore refuses to run until it is given the
+   approval reference of that review (`export --legacy-review <ref>`); the reference is
+   record 1 of the chain (HMAC-covered, so a writer of the sink without the key cannot
+   forge it), copied into the first manifest and `HEAD.json`, and reported by every
+   `verify`. A recording into an empty sink by `record-erasure` is refused there for the
+   same reason. We rejected a boolean setting: it records neither who acknowledged the
+   review nor when. Test and development are not gated.
 
 ### Consequences
 

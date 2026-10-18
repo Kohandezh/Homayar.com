@@ -196,7 +196,15 @@ not a member of `homayar_audit_reader`, is a superuser or has `BYPASSRLS`, or ca
 
 ```bash
 python -m backend.observability.audit_sink export
+# the first export into an empty sink, staging and production only:
+python -m backend.observability.audit_sink export --legacy-review <approval reference>
 ```
+
+Before the first export, do the one-off [legacy-row review](#legacy-row-review)
+(**PROPOSED**, pending the owner's decision). In staging and production the first export
+into an empty sink refuses to run (exit 2, nothing written) until it is given the review's
+approval reference with `--legacy-review`; later exports need nothing and refuse the flag.
+Test and development are not gated.
 
 Run it from `Homayar/` on a schedule (every 15 minutes is a good default; the window is
 `[watermark, now - AUDIT_EXPORT_SETTLE_SECONDS)` by `occurred_at`, read by the database
@@ -208,6 +216,47 @@ into place, and `HEAD.json` last). Record `head_hash` and `last_seq` somewhere t
 writer cannot change (the heartbeat, the scheduler's log, a ticket): that is the
 independent copy of the head that [Sink limits](#sink-limits) relies on.
 
+### Legacy-row review
+
+**PROPOSED — pending the owner's decision** on exporting audit rows written before HOM-114
+masking. Until the owner decides, treat this as the required one-off step before the first
+export in staging or production.
+
+Rows written before the HOM-114 release (the *masking cut-over*: when that release was
+deployed) went in without write-time masking, so their free-text values (`reason`,
+`*_reason`, `name`, `external_event_id`, `source_provider`) may hold personal data. Once
+exported, a row's copy stays in its write-once segment (see the
+[erasure procedure](#erasure-procedure)), so the review comes first:
+
+1. List the candidate rows through the exporter's login, as `homayar_audit_reader` (it sees
+   every tenant; the table owner sees only platform rows unless it binds a workspace):
+
+   ```sql
+   BEGIN;
+   SET LOCAL ROLE homayar_audit_reader;
+   SELECT id, occurred_at, event_type, workspace_id, details
+   FROM audit_events
+   WHERE occurred_at < '<masking cut-over, UTC>'
+     AND EXISTS (
+       SELECT 1 FROM json_object_keys(details) AS k
+       WHERE k IN ('reason', 'name', 'external_event_id', 'source_provider')
+          OR k LIKE '%\_reason'
+     )
+   ORDER BY occurred_at, id;
+   ROLLBACK;
+   ```
+
+2. The owner decides, row by row or as a whole, what may be exported, and approves it under
+   one reference (ticket or change id; letters, digits and `._:/#-`).
+3. Rows that must not reach the sink are erased by the DBA with step 3 of the
+   [erasure procedure](#erasure-procedure), before the first export. They never reach the
+   sink, so there is no `record-erasure` for them (in staging and production it is refused
+   on an empty sink); the approval reference documents them.
+4. Run the first export with `--legacy-review <reference>`. The reference becomes record 1
+   of the chain (`type: legacy_review`, with the environment and the time), is copied into
+   the first manifest and `HEAD.json`, and every `verify` reports it as `legacy_review`
+   (a copy that disagrees with the chain is `manifest_mismatch` / `head_mismatch`).
+
 ### Verify runbook
 
 ```bash
@@ -218,7 +267,8 @@ python -m backend.observability.audit_sink verify --sink-only  # chain only (off
 Run `verify` after each export or at least daily, and `--sink-only` on every backup copy.
 Exit 0: no problem (notices may be listed); 1: at least one problem; 2: configuration
 error. The JSON report lists `problems` and `notices` with the kind, `seq` and event id,
-never a value.
+never a value, and `legacy_review` (the acknowledged [legacy-row review](#legacy-row-review),
+or `null`).
 
 ### Verification findings
 
@@ -266,8 +316,8 @@ A historical row may be erased only by this procedure, run as the **table owner*
 The exported copy stays in its sink segment (segments are write-once). It holds only what
 the row held after write-time masking; removing it means rebuilding the chain from segment
 1 and is an owner decision outside this procedure. Rows recorded before HOM-114 masking can
-hold unmasked free text: review them before the first export, and erase what must go
-before it reaches the sink.
+hold unmasked free text: the [legacy-row review](#legacy-row-review) handles them before
+the first export.
 
 ### Sink retention
 
@@ -283,7 +333,8 @@ Each run writes the operator heartbeat hash `homayar:obs:sweep:audit_export` or
 `homayar:obs:sweep:audit_verify` in Redis (best effort, as for the sweeps): `last_run`,
 `last_success` or `last_failure`, `last_duration_seconds`, `last_error_type` and the
 counters (`exported`, `last_seq` for export; `records`, `erasures`, `segments`, `last_seq`,
-`problems`, `notices`, `accepted_erasures`, `referential_nulls` for a passing verify). A
+`problems`, `notices`, `accepted_erasures`, `referential_nulls`, `legacy_reviewed` for a
+passing verify). A refused first export records `last_failure` on `audit_export`. A
 failing verify records `last_failure` with `last_error_type=AuditSinkError`. `/metrics`
 exports them as `homayar_periodic_task_last_success_timestamp_seconds{task="audit_export"}`
 (and `..._last_failure_...`, `..._last_run_...`, `homayar_periodic_task_result{task,field}`);

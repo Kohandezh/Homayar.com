@@ -47,6 +47,7 @@ EXPORTER_LOGIN = "homayar_audit_exporter_probe"
 APP_LOGIN = "homayar_audit_sink_app_probe"
 BOTH_LOGIN = "homayar_audit_sink_both_probe"
 APPROVAL = "CHG-2026-0042"
+LEGACY_APPROVAL = "OWNER-2026-10-19/legacy-review"
 # Personal data and credential-shaped values, built at runtime (no literal in the source).
 PHONE = "0912" + "7654321"
 EMAIL = "sara.ahmadi" + "@example.com"
@@ -421,6 +422,108 @@ def test_an_unkeyed_chain_is_refused_outside_test_and_development(sink_settings:
         export_events(staging)
     with pytest.raises(AuditSinkError, match="AUDIT_SINK_HMAC_KEY is required"):
         verify_sink(staging)
+
+
+# --- the legacy-row review gate (PROPOSED, pending the owner's decision) -------------------
+
+
+def _settled_now(settings: Settings):
+    """``_database_now`` replacement: every export sees all rows recorded so far."""
+    return lambda _session: datetime.now(UTC) + timedelta(
+        seconds=settings.audit_export_settle_seconds
+    )
+
+
+def test_the_first_staging_export_into_an_empty_sink_needs_the_legacy_review(
+    sink_settings: Settings, memory_heartbeats, monkeypatch, capsys
+):
+    victim = _seed(sink_settings)
+    staging = sink_settings.model_copy(update={"environment": "staging"})
+    monkeypatch.setattr(audit_sink, "get_settings", lambda: staging)
+
+    assert audit_sink.main(["export"]) == 2
+    message = capsys.readouterr().err
+    assert "--legacy-review" in message and "audit.md#legacy-row-review" in message
+    assert not _sink(staging).exists()  # refused before anything was written
+    assert memory_heartbeats.read_all()["audit_export"]["last_error_type"] == "AuditSinkError"
+
+    for reference in ("reviewed by " + PHONE, "ok", ""):
+        assert audit_sink.main(["export", "--legacy-review", reference]) == 2
+        assert "approval reference" in capsys.readouterr().err
+        assert not _sink(staging).exists()
+
+    # An erasure record would create the head and skip the review.
+    assert audit_sink.main(["record-erasure", "--event-id", victim, "--approval", APPROVAL]) == 2
+    assert "first export" in capsys.readouterr().err
+    assert not _sink(staging).exists()
+
+    production = sink_settings.model_copy(update={"environment": "production"})
+    with pytest.raises(AuditSinkError, match="legacy-row review"):
+        export_events(production)
+    assert not _sink(production).exists()
+
+
+@pytest.mark.postgres
+def test_the_acknowledged_review_is_recorded_once_and_reported(
+    sink_settings: Settings, memory_heartbeats, monkeypatch, capsys
+):
+    if not _postgres():
+        pytest.skip("staging reads PostgreSQL through the exporter's login")
+    _seed(sink_settings)
+    staging = sink_settings.model_copy(update={"environment": "staging"})
+    monkeypatch.setattr(audit_sink, "get_settings", lambda: staging)
+    monkeypatch.setattr(audit_sink, "_database_now", _settled_now(staging))
+    total = _audit_rows()
+
+    assert audit_sink.main(["export", "--legacy-review", LEGACY_APPROVAL]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["legacy_review"] == LEGACY_APPROVAL
+    assert (printed["exported"], printed["segment"], printed["last_seq"]) == (total, 1, total + 1)
+    first = json.loads(_segment(staging).read_text("utf-8").splitlines()[0])
+    assert (first["seq"], first["type"], first["prev"]) == (1, "legacy_review", audit_sink.GENESIS)
+    review = first["legacy_review"]
+    assert (review["approval"], review["environment"]) == (LEGACY_APPROVAL, "staging")
+    manifest_path = _sink(staging) / "segments" / "00000001.manifest.json"
+    head_path = _sink(staging) / "HEAD.json"
+    manifest = json.loads(manifest_path.read_text("utf-8"))
+    assert manifest["legacy_review"] == json.loads(head_path.read_text("utf-8"))["legacy_review"]
+    assert manifest["legacy_review"] == review and manifest["events"] == total
+
+    report = verify_sink(staging)
+    assert report.ok, report.as_dict()
+    assert (report.legacy_review, report.records) == (review, total)
+    assert audit_sink.main(["verify"]) == 0
+    assert json.loads(capsys.readouterr().out)["legacy_review"] == review
+    verify_counters = json.loads(memory_heartbeats.read_all()["audit_verify"]["result"])
+    assert verify_counters["legacy_reviewed"] == 1
+
+    # Later exports need no acknowledgement and refuse a second one.
+    later = _seed(staging)
+    assert audit_sink.main(["export"]) == 0
+    assert json.loads(capsys.readouterr().out)["exported"] == 1
+    assert audit_sink.main(["export", "--legacy-review", LEGACY_APPROVAL]) == 2
+    assert "recorded once" in capsys.readouterr().err
+    assert audit_sink.main(["record-erasure", "--event-id", later, "--approval", APPROVAL]) == 0
+    capsys.readouterr()
+    report = verify_sink(staging)
+    assert report.ok and report.legacy_review == review and report.erasures == 1
+
+    # The copy in HEAD.json is checked against the chain.
+    head = json.loads(head_path.read_text("utf-8"))
+    head["legacy_review"] = {**review, "approval": "FORGED-0001"}
+    head_path.write_text(json.dumps(head), encoding="utf-8")
+    assert "head_mismatch" in _kinds(verify_sink(staging, against_database=False).problems)
+
+
+def test_development_and_test_are_not_gated(sink_settings: Settings, tmp_path: Path):
+    victim = _seed(sink_settings)
+    development = sink_settings.model_copy(update={"environment": "development"})
+    result = _export(development)
+    assert result.exported >= 1 and result.legacy_review is None
+    report = verify_sink(development)
+    assert report.ok and report.legacy_review is None
+    fresh = sink_settings.model_copy(update={"audit_sink_dir": str(tmp_path / "fresh-sink")})
+    assert record_erasure(fresh, event_id=victim, approval=APPROVAL) == 1  # test env: no gate
 
 
 # --- the exporter's identity --------------------------------------------------------------

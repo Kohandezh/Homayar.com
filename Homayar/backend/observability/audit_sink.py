@@ -5,6 +5,7 @@ ORM guard).  The table owner and a superuser can still change rows, so the sink
 keeps an independent, tamper-evident copy **outside the application's reach**::
 
     python -m backend.observability.audit_sink export          # append settled events
+    python -m backend.observability.audit_sink export --legacy-review REF  # first, staging/prod
     python -m backend.observability.audit_sink verify          # chain + database
     python -m backend.observability.audit_sink verify --sink-only
     python -m backend.observability.audit_sink record-erasure --event-id ID --approval REF
@@ -17,7 +18,8 @@ a separate host or volume, ideally write-once storage)::
     HEAD.json                        last sequence, chain head, export watermark
 
 Every record carries ``seq`` (global, contiguous from 1), its ``type`` (``event``: an
-audit row's columns as stored; ``erasure``: an owner-approved erasure of one row),
+audit row's columns as stored; ``erasure``: an owner-approved erasure of one row;
+``legacy_review``: the acknowledgement of the legacy-row review, see below),
 the previous record's hash and its own hash ``H(prev || canonical record)``, where H
 is HMAC-SHA256 under ``AUDIT_SINK_HMAC_KEY`` (plain SHA-256 without a key, accepted
 only in test and development).
@@ -44,6 +46,13 @@ The exporter reads through its own login (``AUDIT_EXPORT_DATABASE_URL``) and
 refuses a login that is (or can become) ``homayar_app``.  Events younger than
 ``AUDIT_EXPORT_SETTLE_SECONDS`` wait for the next run, so a transaction that commits
 late is not skipped.
+
+Rows written before HOM-114 masking may hold unmasked free text.  In staging and
+production the first export into an empty sink therefore refuses to run until the
+legacy-row review (``docs/operations/audit.md#legacy-row-review``) is acknowledged with
+``--legacy-review <approval reference>``; the reference becomes record 1 of the chain
+and is copied into the first manifest and ``HEAD.json``, and ``verify`` reports it.
+Test and development are not gated.
 """
 
 from __future__ import annotations
@@ -52,6 +61,7 @@ import argparse
 import fcntl
 import hashlib
 import hmac
+import itertools
 import json
 import os
 import re
@@ -96,9 +106,13 @@ EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,36}$")
 APPROVAL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#-]{2,79}$")
 KEY_ID_LABEL = b"homayar-audit-sink/key-id/v1"
 UNKEYED_ENVIRONMENTS = frozenset({"test", "development"})
+# Where the first export into an empty sink needs the legacy-row review acknowledged.
+LEGACY_REVIEW_ENVIRONMENTS = frozenset({"staging", "production"})
+LEGACY_REVIEW_RUNBOOK = "docs/operations/audit.md#legacy-row-review"
 
 EVENT = "event"
 ERASURE = "erasure"
+LEGACY_REVIEW = "legacy_review"
 
 
 class AuditSinkError(RuntimeError):
@@ -164,6 +178,7 @@ class Head:
     segments: int = 0
     algorithm: str = "sha256"
     key_id: str | None = None
+    legacy_review: dict[str, str] | None = None  # copy of the chain's record 1, if any
 
     def to_json(self) -> str:
         return (
@@ -176,6 +191,7 @@ class Head:
                     "segments": self.segments,
                     "algorithm": self.algorithm,
                     "key_id": self.key_id,
+                    "legacy_review": self.legacy_review,
                 }
             )
             + "\n"
@@ -208,7 +224,13 @@ def read_head(sink: Path) -> Head | None:
         segments=int(data["segments"]),
         algorithm=str(data.get("algorithm", "sha256")),
         key_id=data.get("key_id"),
+        legacy_review=data.get("legacy_review"),
     )
+
+
+def sink_is_empty(sink: Path) -> bool:
+    """No committed head and no half-committed first segment."""
+    return not (sink / "HEAD.json").exists() and not _segment_paths(sink, 1)[1].exists()
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -304,6 +326,7 @@ def _open_head(sink: Path, chain: Chain) -> Head:
         segments=head.segments + 1,
         algorithm=chain.algorithm,
         key_id=chain.key_id,
+        legacy_review=manifest.get("legacy_review") or head.legacy_review,
     )
     _replace(sink / "HEAD.json", head.to_json())
     return head
@@ -316,8 +339,9 @@ def _append_segment(
     records: Iterator[dict[str, Any]],
     *,
     window: tuple[str | None, str] | None,
-) -> tuple[Head, int]:
-    """Write ``records`` as the next segment and commit it; returns the new head.
+) -> tuple[Head, dict[str, int]]:
+    """Write ``records`` as the next segment and commit it; returns the new head and
+    the number of records of each type.
 
     Order: segment written as ``.partial`` and fsynced, then its manifest (created
     exclusively), then the rename to ``.jsonl``, then ``HEAD.json``.  An interruption
@@ -327,7 +351,9 @@ def _append_segment(
     segment, manifest_path, partial = _segment_paths(sink, number)
     if segment.exists() or manifest_path.exists():
         raise AuditSinkError(f"Segment {number} already exists; the sink is inconsistent")
-    previous, seq, counts = head.head_hash, head.last_seq, {EVENT: 0, ERASURE: 0}
+    previous, seq = head.head_hash, head.last_seq
+    counts = {EVENT: 0, ERASURE: 0, LEGACY_REVIEW: 0}
+    review: dict[str, str] | None = None
     descriptor = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         for record in records:
@@ -338,15 +364,17 @@ def _append_segment(
             handle.write("\n")
             previous = digest
             counts[record["type"]] += 1
+            if record["type"] == LEGACY_REVIEW:
+                review = record[LEGACY_REVIEW]
         handle.flush()
         os.fsync(handle.fileno())
-    count = counts[EVENT] + counts[ERASURE]
+    count = sum(counts.values())
     if count == 0:
         partial.unlink()
         if window is not None:
             head.watermark = window[1]
             _replace(sink / "HEAD.json", head.to_json())
-        return head, 0
+        return head, counts
     manifest = {
         "format": SINK_FORMAT,
         "segment": number,
@@ -357,6 +385,7 @@ def _append_segment(
         "count": count,
         "events": counts[EVENT],
         "erasures": counts[ERASURE],
+        "legacy_review": review,
         "window_start": window[0] if window else None,
         "window_end": window[1] if window else None,
         "prev_head": head.head_hash,
@@ -375,9 +404,10 @@ def _append_segment(
         segments=number,
         algorithm=chain.algorithm,
         key_id=chain.key_id,
+        legacy_review=review or head.legacy_review,
     )
     _replace(sink / "HEAD.json", new_head.to_json())
-    return new_head, count
+    return new_head, counts
 
 
 # --- database access ------------------------------------------------------------------
@@ -508,15 +538,47 @@ class ExportResult:
     last_seq: int
     watermark: str | None
     head_hash: str
+    legacy_review: str | None = None  # the approval reference this export recorded
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        values = {
             "exported": self.exported,
             "segment": self.segment,
             "last_seq": self.last_seq,
             "watermark": self.watermark,
             "head_hash": self.head_hash,
         }
+        if self.legacy_review:
+            values["legacy_review"] = self.legacy_review
+        return values
+
+
+def _check_legacy_review(settings: Settings, sink: Path, legacy_review: str | None) -> bool:
+    """Whether this export records the legacy-row review; refuses before any write.
+
+    The first export into an empty sink in staging or production needs the review
+    acknowledged by an approval reference (PROPOSED, pending the owner's decision on
+    exporting rows written before HOM-114 masking).  Later exports need nothing, and
+    the reference cannot be recorded twice.
+    """
+    if legacy_review is not None and not APPROVAL_PATTERN.fullmatch(legacy_review):
+        raise AuditSinkError(
+            "--legacy-review must be an approval reference (letters, digits and ._:/#-, "
+            "3-80 characters), not free text"
+        )
+    empty = sink_is_empty(sink)
+    if legacy_review is not None and not empty:
+        raise AuditSinkError(
+            "--legacy-review is recorded once, by the first export into an empty sink; "
+            "this sink already has one"
+        )
+    if empty and legacy_review is None and settings.environment in LEGACY_REVIEW_ENVIRONMENTS:
+        raise AuditSinkError(
+            f"The first export into an empty sink in {settings.environment} needs the "
+            "legacy-row review: review the rows written before HOM-114 masking "
+            f"({LEGACY_REVIEW_RUNBOOK}), then run export --legacy-review <approval reference>"
+        )
+    return legacy_review is not None
 
 
 def export_events(
@@ -525,12 +587,19 @@ def export_events(
     sink: Path | None = None,
     engine: Engine | None = None,
     now: datetime | None = None,
+    legacy_review: str | None = None,
 ) -> ExportResult:
-    """Append every settled event after the watermark as one new segment."""
+    """Append every settled event after the watermark as one new segment.
+
+    ``legacy_review`` is the approval reference of the legacy-row review; required for
+    the first export into an empty sink in staging and production, refused afterwards.
+    """
     settings = settings or get_settings()
     sink = sink or sink_dir(settings)
     chain = sink_chain(settings)
+    _check_legacy_review(settings, sink, legacy_review)  # before anything is written
     with _sink_lock(sink):
+        reviewed = _check_legacy_review(settings, sink, legacy_review)  # under the lock
         head = _open_head(sink, chain)
         with _reader_session(settings, engine) as session:
             current = as_utc(now) or _database_now(session)
@@ -538,13 +607,40 @@ def export_events(
             start = datetime.fromisoformat(head.watermark) if head.watermark else None
             if start is not None and end <= start:
                 return ExportResult(0, None, head.last_seq, head.watermark, head.head_hash)
-            records = ({"type": EVENT, "row": row} for row in _rows(session, start=start, end=end))
-            head, count = _append_segment(
-                sink, head, chain, records, window=(head.watermark, end.isoformat())
+            first: list[dict[str, Any]] = []
+            if reviewed:
+                review = {
+                    "approval": legacy_review,
+                    "environment": settings.environment,
+                    "recorded_at": _iso(datetime.now(UTC)),
+                }
+                first.append({"type": LEGACY_REVIEW, LEGACY_REVIEW: review})
+            rows = ({"type": EVENT, "row": row} for row in _rows(session, start=start, end=end))
+            head, counts = _append_segment(
+                sink,
+                head,
+                chain,
+                itertools.chain(first, rows),
+                window=(head.watermark, end.isoformat()),
             )
     return ExportResult(
-        count, head.segments if count else None, head.last_seq, head.watermark, head.head_hash
+        counts[EVENT],
+        head.segments if sum(counts.values()) else None,
+        head.last_seq,
+        head.watermark,
+        head.head_hash,
+        legacy_review if reviewed else None,
     )
+
+
+def _refuse_erasure_before_first_export(settings: Settings, sink: Path) -> None:
+    # An erasure record would create the sink's head and skip the legacy-row review.
+    if settings.environment in LEGACY_REVIEW_ENVIRONMENTS and sink_is_empty(sink):
+        raise AuditSinkError(
+            "The sink is empty: run the first export (export --legacy-review) before "
+            "recording an erasure; rows erased before the first export never reach the "
+            f"sink and belong to the legacy-row review ({LEGACY_REVIEW_RUNBOOK})"
+        )
 
 
 def record_erasure(
@@ -571,14 +667,16 @@ def record_erasure(
     settings = settings or get_settings()
     sink = sink or sink_dir(settings)
     chain = sink_chain(settings)
+    _refuse_erasure_before_first_export(settings, sink)
     recorded_at = _iso(now or datetime.now(UTC))
     with _sink_lock(sink):
+        _refuse_erasure_before_first_export(settings, sink)
         head = _open_head(sink, chain)
         record = {
             "type": ERASURE,
             "erasure": {"event_id": event_id, "approval": approval, "recorded_at": recorded_at},
         }
-        head, _ = _append_segment(sink, head, chain, iter([record]), window=None)
+        head, _counts = _append_segment(sink, head, chain, iter([record]), window=None)
     return head.last_seq
 
 
@@ -606,6 +704,7 @@ class VerifyReport:
     last_seq: int = 0
     head_hash: str = GENESIS
     against_database: bool = False
+    legacy_review: dict[str, str] | None = None
     problems: list[Finding] = field(default_factory=list)
     notices: list[Finding] = field(default_factory=list)
 
@@ -625,6 +724,7 @@ class VerifyReport:
             "last_seq": self.last_seq,
             "head_hash": self.head_hash,
             "against_database": self.against_database,
+            "legacy_review": self.legacy_review,
             "problems": [finding.as_dict() for finding in self.problems],
             "notices": [finding.as_dict() for finding in self.notices],
         }
@@ -665,7 +765,7 @@ def _read_sink(sink: Path, chain: Chain, report: VerifyReport) -> _SinkContents:
             report.problems.append(Finding("manifest_mismatch", detail=f"segment {number}"))
         if manifest.get("file_sha256") != _sha256_file(segment):
             report.problems.append(Finding("segment_file_changed", detail=f"segment {number}"))
-        count = 0
+        count, segment_review = 0, None
         with segment.open(encoding="utf-8") as handle:
             for line in handle:
                 try:
@@ -701,14 +801,22 @@ def _read_sink(sink: Path, chain: Chain, report: VerifyReport) -> _SinkContents:
                     erasure = stored["erasure"]
                     contents.erasures[erasure["event_id"]] = erasure["approval"]
                     report.erasures += 1
+                elif stored.get("type") == LEGACY_REVIEW:
+                    segment_review = stored[LEGACY_REVIEW]
+                    report.legacy_review = segment_review
         if (
             count != manifest.get("count")
             or manifest.get("last_seq") != expected_seq - 1
             or manifest.get("head_hash") != previous
+            or manifest.get("legacy_review") != segment_review
         ):
             report.problems.append(Finding("manifest_mismatch", detail=f"segment {number}"))
     report.last_seq, report.head_hash = expected_seq - 1, previous
-    if head.last_seq != expected_seq - 1 or head.head_hash != previous:
+    if (
+        head.last_seq != expected_seq - 1
+        or head.head_hash != previous
+        or head.legacy_review != report.legacy_review
+    ):
         report.problems.append(
             Finding("head_mismatch", detail="HEAD.json disagrees with the chain")
         )
@@ -814,6 +922,7 @@ def _verify_counters(report: VerifyReport) -> dict[str, int]:
         "notices": len(report.notices),
         "accepted_erasures": kinds.count("accepted_erasure"),
         "referential_nulls": kinds.count("referential_null"),
+        "legacy_reviewed": int(report.legacy_review is not None),
     }
 
 
@@ -825,7 +934,13 @@ def main(argv: list[str] | None = None) -> int:
         description="Protected audit sink (HOM-115): export, verify, record an erasure.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("export", help="append settled audit events to the sink")
+    export = commands.add_parser("export", help="append settled audit events to the sink")
+    export.add_argument(
+        "--legacy-review",
+        metavar="APPROVAL_REF",
+        help="first export into an empty sink in staging/production: the approval reference "
+        f"of the legacy-row review ({LEGACY_REVIEW_RUNBOOK})",
+    )
     verify = commands.add_parser("verify", help="check the chain and the database")
     verify.add_argument(
         "--sink-only", action="store_true", help="check the chain without reading the database"
@@ -841,7 +956,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "export":
             try:
-                result = export_events(settings)
+                result = export_events(settings, legacy_review=args.legacy_review)
             except Exception as exc:
                 record_run("audit_export", started=started, finished=time.time(), error=exc)
                 raise
