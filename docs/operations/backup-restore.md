@@ -133,7 +133,8 @@ cannot run underneath; a lock wait over 60 s fails the run), reads the catalog a
 rows in that snapshot (`COPY (SELECT …)`, so partitioned tables work), copies the objects of the
 snapshot's tenants, explains a required object it did not find only by the row that set the
 expectation, when that row was deleted or marked for deletion after the snapshot (a legally held
-object is never explained), fingerprints the tombstone journal, writes the encrypted
+object, including the stage outputs a hold keeps for a deleted meeting, is never explained, and a
+checkpoint found missing or corrupt by the application stays a loss), fingerprints the tombstone journal, writes the encrypted
 catalog and the sealed manifest, fsyncs and renames `sets/.partial-<id>` to `sets/<id>`. It
 moves no gauge. The database connection must be a superuser or `BYPASSRLS` role (the bundled
 `POSTGRES_USER` is); a role subject to RLS is refused.

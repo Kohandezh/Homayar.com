@@ -61,6 +61,7 @@ from backend.backup.logical import (
     with_database,
 )
 from backend.backup.manifest import BackupInvalid, check_manifest_mac, read_manifest
+from backend.backup.objects import LOSS_REASONS
 from backend.backup.release import code_heads
 from backend.backup.restore import (
     RestoreRefused,
@@ -380,21 +381,45 @@ def _references(connection) -> dict[str, dict[str, Any]]:
                 "sha256": sha256,
             }
     if "stage_checkpoints" in present:
-        for key, workspace_id, meeting_id, state, removed, sha256 in connection.execute(
-            "SELECT artifact_key, workspace_id, meeting_id, state, object_deleted_at IS NOT NULL, "
-            "artifact_sha256 FROM stage_checkpoints"
-        ):
-            expectation = (
-                "gone"
-                if removed
-                else ("required" if str(state).upper() == "PUBLISHED" else "optional")
-            )
+        held_meetings = {
+            ref["meeting_id"] for ref in refs.values() if ref.get("held") and ref["meeting_id"]
+        }
+        query = (
+            "SELECT c.artifact_key, c.workspace_id, c.meeting_id, c.state, "
+            "c.object_deleted_at IS NOT NULL, c.artifact_sha256, c.invalidation_reason, "
+            "m.id IS NULL OR m.deleted_at IS NOT NULL "
+            "FROM stage_checkpoints c LEFT JOIN meetings m ON m.id = c.meeting_id"
+            if "meetings" in present
+            else "SELECT artifact_key, workspace_id, meeting_id, state, "
+            "object_deleted_at IS NOT NULL, artifact_sha256, invalidation_reason, false "
+            "FROM stage_checkpoints"
+        )
+        for (
+            key,
+            workspace_id,
+            meeting_id,
+            state,
+            removed,
+            sha256,
+            reason,
+            meeting_deleted,
+        ) in connection.execute(query):
+            held = meeting_id in held_meetings and str(reason or "").lower() not in LOSS_REASONS
+            if removed:
+                expectation = "gone"
+            elif str(state).upper() == "PUBLISHED":
+                expectation = "required"
+            elif held and meeting_deleted and str(state).upper() == "INVALIDATED":
+                expectation = "required"  # a legal hold keeps a deleted meeting's outputs
+            else:
+                expectation = "optional"
             if key not in refs or expectation == "required":
                 refs[key] = {
                     "workspace_id": workspace_id,
                     "meeting_id": meeting_id,
                     "expectation": expectation,
                     "sha256": sha256,
+                    "held": held and expectation == "required",
                 }
     return refs
 

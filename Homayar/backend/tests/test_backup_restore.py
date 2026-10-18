@@ -132,6 +132,13 @@ def _backup(settings, tmp_path: Path, **kwargs) -> dict:
     )
 
 
+def _row(database_url: str, statement: str, params: tuple = ()) -> tuple:
+    with connect(database_url) as connection:
+        row = connection.execute(statement, params).fetchone()
+        connection.rollback()
+    return tuple(row)
+
+
 def _scalar(database_url: str, statement: str, params: tuple = ()):
     with connect(database_url) as connection:
         value = connection.execute(statement, params).fetchone()[0]
@@ -1241,6 +1248,16 @@ def test_lost_bytes_of_a_held_conversation_are_never_explained_as_a_deletion(
         (key,),
     )
     (Path(settings.storage_local_root) / key).unlink()  # the held bytes are lost
+    # The deleted meeting's checkpoints are invalidated, but the hold keeps their
+    # bytes: losing one is a loss too (HOM-214), not an optional object.
+    artifact, reason = _row(
+        _admin(),
+        "SELECT artifact_key, invalidation_reason FROM stage_checkpoints "
+        "WHERE meeting_id = %s AND object_deleted_at IS NULL ORDER BY id LIMIT 1",
+        (meeting,),
+    )
+    assert reason == "meeting_deleted"
+    (Path(settings.storage_local_root) / artifact).unlink()
     _stamp_head(settings.database_url)
 
     root = tmp_path / "backups"
@@ -1258,8 +1275,8 @@ def test_lost_bytes_of_a_held_conversation_are_never_explained_as_a_deletion(
     backup_id = json.loads(output)["backup_id"]
     set_dir = Path(json.loads(output)["path"])
     catalog = load_catalog(set_dir, read_manifest(set_dir), KEY)
-    assert key in catalog["objects"]["missing_unexplained"]
-    assert key not in {item["key"] for item in catalog["objects"]["missing_explained"]}
+    assert {key, artifact} <= set(catalog["objects"]["missing_unexplained"])
+    assert not catalog["objects"]["missing_explained"]
     assert cli(["--root", str(root), "verify", backup_id]) == 0
     assert set(read_values(textfile)) == {"postgres"}  # the objects gauge stays stale
 
@@ -1270,7 +1287,7 @@ def test_lost_bytes_of_a_held_conversation_are_never_explained_as_a_deletion(
     )
     details = report["checks"]["objects"]["details"]
     assert report["statuses"]["objects"] == "FAIL" and report["status"] == "FAIL"
-    assert key in details["required_missing_keys"]
+    assert {key, artifact} <= set(details["required_missing_keys"])
     assert details["deleted_after_snapshot"] == []
 
 

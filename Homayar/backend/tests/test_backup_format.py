@@ -460,6 +460,8 @@ def test_only_the_row_that_set_the_expectation_explains_an_absent_object():
         "recording-deleted-earlier": {"source": "recording"},
         "checkpoint-cleaned-later": {"source": "checkpoint"},
         "checkpoint-invalidated": {"source": "checkpoint"},
+        "checkpoint-lost-then-swept": {"source": "checkpoint"},
+        "media-deleted-skewed": {"source": "media_object"},
         "unknown-source": {"source": "something-else"},
     }
     live = {
@@ -474,7 +476,13 @@ def test_only_the_row_that_set_the_expectation_explains_an_absent_object():
         "recording-deleted-earlier": [{"state": None, "removed_at": before}],
         "checkpoint-cleaned-later": [{"state": "ABANDONED", "removed_at": after}],
         # App-detected loss (corrupt or missing artifact) is not a deletion.
-        "checkpoint-invalidated": [{"state": "INVALIDATED", "removed_at": None}],
+        "checkpoint-invalidated": [{"state": "artifact_missing", "removed_at": None}],
+        # Found missing by the application, then swept: still a loss (HOM-214).
+        "checkpoint-lost-then-swept": [{"state": "artifact_missing", "removed_at": after}],
+        # Committed after the snapshot, stamped a little before it by the app's clock.
+        "media-deleted-skewed": [
+            {"state": "DELETED", "removed_at": snapshot - timedelta(minutes=5)}
+        ],
     }
     keys = sorted(references) + ["not-referenced"]
 
@@ -485,6 +493,7 @@ def test_only_the_row_that_set_the_expectation_explains_an_absent_object():
         "media-deleted-later": "media deleted after the snapshot",
         "recording-deleted-later": "recording deleted after the snapshot",
         "checkpoint-cleaned-later": "checkpoint deleted after the snapshot",
+        "media-deleted-skewed": "media deleted after the snapshot",
     }
     # A source that could not be checked (its table is gone) explains nothing.
     assert classify_missing(["purged"], references, {}, {"recording"}, snapshot) == {}

@@ -72,8 +72,10 @@ migration slot), and CI must run the tests without new tooling.
     Staging names must contain `restoring`; the live and source names are refused by name.
 11. **Content, not just presence.** Reconcile re-hashes every required object in the target
     store against its restored row. The backup explains an object missing at copy time only by
-    the row that set its expectation, deleted or marked for deletion after the snapshot; a
-    legally held object is never explained (neither at backup nor at reconcile). Unexplained
+    the row that set its expectation, deleted or marked for deletion after the snapshot (with a
+    15-minute clock-skew tolerance); a legally held object, including the stage outputs a hold
+    keeps for a deleted meeting, is never explained (neither at backup nor at reconcile), and a
+    checkpoint the application found missing or corrupt stays a loss once swept. Unexplained
     loss or mismatching bytes mark the set's object copy `degraded`
     (kept, but the `objects` gauge does not move and the scheduled run fails).
 12. **Gauges follow verification.** Only a deep `verify` moves `postgres`/`objects` and only a

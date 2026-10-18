@@ -72,11 +72,14 @@ Included in every set (one exported `REPEATABLE READ READ ONLY` snapshot, taken 
   partitioned tables), the Alembic revision, the sequences, per-table and per-tenant row counts.
 - **Object storage:** every object under the tenant prefix of every tenant in the snapshot,
   copied through the application's storage interface, with a SHA-256 per object and the
-  database's expectation for it (`required` / `optional` / `gone`). Objects are copied after the
+  database's expectation for it (`required` / `optional` / `gone`); the stage outputs a legal
+  hold keeps for a deleted meeting are `required` and held. Objects are copied after the
   snapshot. A required object missing at copy time is explained only by the row that set the
   expectation, when that row was removed, deleted or marked for deletion after the snapshot
-  (e.g. a purge or "delete audio after processing"); another table's row with the same key never
-  explains it, and a legally held object is never explained. An
+  (e.g. a purge or "delete audio after processing"; the removal time may precede the snapshot
+  by at most 15 minutes of clock skew, since the snapshot already shows the row live); another
+  table's row with the same key never explains it, a legally held object is never explained,
+  and a checkpoint the application found missing or corrupt stays a loss even once swept. An
   unexplained missing object, or bytes that do not match their row, mark the set's object copy
   `degraded`: the set is still kept (its database part is good), but the `objects` freshness
   gauge does not move and `backup.sh` exits non-zero.
