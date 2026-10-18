@@ -64,10 +64,17 @@ def _table_exists(snapshot: Snapshot, table: str) -> bool:
 
 
 def _merge(references: dict[str, dict[str, Any]], ref: dict[str, Any]) -> None:
-    """Keep the strongest expectation when two rows point at one key."""
+    """Keep the strongest expectation when two rows point at one key.
+
+    A legal hold on any row of the key sticks: held bytes are never explained
+    away as an intended deletion.
+    """
     current = references.get(ref["key"])
+    held = bool(ref.get("held")) or bool(current and current.get("held"))
     if current is None or _RANK[ref["expectation"]] > _RANK[current["expectation"]]:
         references[ref["key"]] = ref
+    if held:
+        references[ref["key"]]["held"] = True
 
 
 def collect_references(snapshot: Snapshot) -> dict[str, dict[str, Any]]:
@@ -88,6 +95,7 @@ def collect_references(snapshot: Snapshot) -> dict[str, dict[str, Any]]:
                     "expectation": _MEDIA_EXPECTATION.get(str(state).upper(), "required"),
                     "content_type": content_type,
                     "source": "media_object",
+                    "held": str(state).upper() == "LEGAL_HOLD",
                 },
             )
     if _table_exists(snapshot, "recordings"):

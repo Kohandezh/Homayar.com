@@ -34,8 +34,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from psycopg import sql
-
 from backend.backup import faults
 from backend.backup.crypto import ALGORITHM, CHUNK_SIZE, BackupKey, EncryptingWriter
 from backend.backup.logical import (
@@ -182,61 +180,103 @@ def _journal_watermark(settings: Any) -> dict[str, Any]:
     }
 
 
-def _explain_missing(database_url: str, keys: list[str]) -> dict[str, str]:
-    """Why a required object was absent at copy time, from the LIVE rows.
+_MEDIA_REMOVAL_STATES = {"DELETED", "DELETION_PENDING"}
+_SOURCE_LABEL = {"media_object": "media", "recording": "recording", "checkpoint": "checkpoint"}
+# Per source: the table, and how its LIVE row says the bytes were removed and when.
+_LIVE_ROW_QUERIES = {
+    "media_object": (
+        "media_objects",
+        "SELECT storage_key, lifecycle_state, GREATEST(deletion_requested_at, deleted_at) "
+        "FROM media_objects WHERE storage_key = ANY(%s)",
+    ),
+    "recording": (
+        "recordings",
+        "SELECT storage_key, NULL, deleted_at FROM recordings WHERE storage_key = ANY(%s)",
+    ),
+    "checkpoint": (
+        "stage_checkpoints",
+        "SELECT artifact_key, state, object_deleted_at FROM stage_checkpoints "
+        "WHERE artifact_key = ANY(%s)",
+    ),
+}
 
-    Objects are copied after the snapshot: one whose row was deleted (or is
-    being deleted) by then was removed on purpose, e.g. a purge or "delete
-    audio after processing".  Anything else is unexplained loss.
+
+def _live_rows(
+    database_url: str, keys: list[str], references: dict[str, dict[str, Any]]
+) -> tuple[dict[str, list[dict[str, Any]]], set[str]]:
+    """The LIVE rows of the table each missing key's expectation came from.
+
+    Returns the rows by key and the sources that could be checked; a key of
+    any other source has no evidence and stays unexplained.
     """
-    if not keys:
-        return {}
-    reasons: dict[str, str] = {}
+    by_source: dict[str, list[str]] = {}
+    for key in keys:
+        by_source.setdefault(str((references.get(key) or {}).get("source")), []).append(key)
+    live: dict[str, list[dict[str, Any]]] = {}
+    checked: set[str] = set()
     with connect(database_url, autocommit=True) as connection:
         tables = set(list_tables(connection))
-        if "media_objects" in tables:
-            for key, state in connection.execute(
-                "SELECT storage_key, lifecycle_state FROM media_objects "
-                "WHERE storage_key = ANY(%s)",
-                (keys,),
+        for source, source_keys in by_source.items():
+            if source not in _LIVE_ROW_QUERIES or _LIVE_ROW_QUERIES[source][0] not in tables:
+                continue
+            checked.add(source)
+            for key, state, removed_at in connection.execute(
+                _LIVE_ROW_QUERIES[source][1], (source_keys,)
             ):
-                if str(state).upper() in {"DELETED", "DELETION_PENDING"}:
-                    reasons[key] = f"media {str(state).lower()} after the snapshot"
-        if "stage_checkpoints" in tables:
-            for key, removed, state in connection.execute(
-                "SELECT artifact_key, object_deleted_at IS NOT NULL, state FROM stage_checkpoints "
-                "WHERE artifact_key = ANY(%s)",
-                (keys,),
-            ):
-                if removed or str(state).upper() != "PUBLISHED":
-                    reasons[key] = "checkpoint object removed after the snapshot"
-        if "recordings" in tables:
-            for (key,) in connection.execute(
-                "SELECT storage_key FROM recordings WHERE storage_key = ANY(%s) "
-                "AND deleted_at IS NOT NULL",
-                (keys,),
-            ):
-                reasons.setdefault(key, "recording deleted after the snapshot")
-        known = set()
-        for table, column in (
-            ("media_objects", "storage_key"),
-            ("stage_checkpoints", "artifact_key"),
-            ("recordings", "storage_key"),
-        ):
-            if table in tables:
-                known |= {
-                    row[0]
-                    for row in connection.execute(
-                        sql.SQL("SELECT {} FROM {} WHERE {} = ANY(%s)").format(
-                            sql.Identifier(column), sql.Identifier(table), sql.Identifier(column)
-                        ),
-                        (keys,),
-                    )
-                }
-        for key in keys:
-            if key not in known:
-                reasons.setdefault(key, "row removed after the snapshot")
+                live.setdefault(key, []).append({"state": state, "removed_at": removed_at})
+    return live, checked
+
+
+def _removed_after(source: str, row: dict[str, Any], snapshot_time: datetime) -> bool:
+    removed_at = row["removed_at"]
+    if removed_at is None or removed_at <= snapshot_time:
+        return False
+    if source == "media_object":
+        return str(row["state"]).upper() in _MEDIA_REMOVAL_STATES
+    return True
+
+
+def classify_missing(
+    keys: list[str],
+    references: dict[str, dict[str, Any]],
+    live: dict[str, list[dict[str, Any]]],
+    checked: set[str],
+    snapshot_time: datetime,
+) -> dict[str, str]:
+    """Which required objects absent at copy time were removed on purpose.
+
+    Objects are copied after the snapshot, so a purge or "delete audio after
+    processing" in between explains an absent object.  Only the row that set
+    the expectation can explain it (a key shared with another table never
+    borrows that table's state), a legally held object is never explained,
+    and the removal must be dated after the snapshot.  Everything else is
+    unexplained loss.
+    """
+    reasons: dict[str, str] = {}
+    for key in keys:
+        ref = references.get(key) or {}
+        source = str(ref.get("source"))
+        if ref.get("held") or source not in checked:
+            continue
+        label = _SOURCE_LABEL[source]
+        rows = live.get(key)
+        if not rows:
+            reasons[key] = f"{label} row removed after the snapshot"
+        elif all(_removed_after(source, row, snapshot_time) for row in rows):
+            reasons[key] = f"{label} deleted after the snapshot"
     return reasons
+
+
+def _explain_missing(
+    database_url: str,
+    keys: list[str],
+    references: dict[str, dict[str, Any]],
+    snapshot_time: datetime,
+) -> dict[str, str]:
+    if not keys:
+        return {}
+    live, checked = _live_rows(database_url, keys, references)
+    return classify_missing(keys, references, live, checked, snapshot_time)
 
 
 def config_references(
@@ -384,7 +424,12 @@ def _write_set(
             "objects": 0,
             "bytes": 0,
         }
-    explained = _explain_missing(database_url, object_result["missing_at_copy"])
+    explained = _explain_missing(
+        database_url,
+        object_result["missing_at_copy"],
+        references,
+        datetime.fromisoformat(snapshot_meta["database_time"]),
+    )
     object_result["missing_explained"] = [
         {"key": key, "reason": reason} for key, reason in sorted(explained.items())
     ]

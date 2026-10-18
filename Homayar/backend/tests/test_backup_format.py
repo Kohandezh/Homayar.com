@@ -365,3 +365,89 @@ def test_s3_copy_without_its_manifest_is_not_a_set_and_retention_applies_off_sit
     result = prune_s3("s3://offsite/p", daily=2, monthly=0, client=s3)
     assert result["stale_partials"] == [ids[0]]
     assert not [k for _, k in s3.objects if ids[0] in k]
+
+
+# --- required objects absent at copy time: explained or lost (C1) ------------------------
+
+
+def test_only_the_row_that_set_the_expectation_explains_an_absent_object():
+    from backend.backup.create import classify_missing
+
+    snapshot = datetime(2026, 10, 18, 2, 0, tzinfo=UTC)
+    after, before = snapshot + timedelta(minutes=5), snapshot - timedelta(hours=3)
+    checked = {"media_object", "recording", "checkpoint"}
+    references = {
+        "purged": {"source": "media_object"},
+        "media-deleted-later": {"source": "media_object"},
+        "media-deleted-earlier": {"source": "media_object"},
+        "media-still-active": {"source": "media_object"},
+        "held": {"source": "media_object", "held": True},
+        "held-then-deleted": {"source": "media_object", "held": True},
+        "recording-deleted-later": {"source": "recording"},
+        "recording-deleted-earlier": {"source": "recording"},
+        "checkpoint-cleaned-later": {"source": "checkpoint"},
+        "checkpoint-invalidated": {"source": "checkpoint"},
+        "unknown-source": {"source": "something-else"},
+    }
+    live = {
+        "media-deleted-later": [{"state": "DELETED", "removed_at": after}],
+        "media-deleted-earlier": [{"state": "DELETED", "removed_at": before}],
+        "media-still-active": [{"state": "ACTIVE", "removed_at": None}],
+        # The legal-hold original keeps its row; the recording sharing its key
+        # was deleted by the user, but that row never decides for media.
+        "held": [{"state": "LEGAL_HOLD", "removed_at": None}],
+        "held-then-deleted": [{"state": "DELETED", "removed_at": after}],
+        "recording-deleted-later": [{"state": None, "removed_at": after}],
+        "recording-deleted-earlier": [{"state": None, "removed_at": before}],
+        "checkpoint-cleaned-later": [{"state": "ABANDONED", "removed_at": after}],
+        # App-detected loss (corrupt or missing artifact) is not a deletion.
+        "checkpoint-invalidated": [{"state": "INVALIDATED", "removed_at": None}],
+    }
+    keys = sorted(references) + ["not-referenced"]
+
+    reasons = classify_missing(keys, references, live, checked, snapshot)
+
+    assert reasons == {
+        "purged": "media row removed after the snapshot",
+        "media-deleted-later": "media deleted after the snapshot",
+        "recording-deleted-later": "recording deleted after the snapshot",
+        "checkpoint-cleaned-later": "checkpoint deleted after the snapshot",
+    }
+    # A source that could not be checked (its table is gone) explains nothing.
+    assert classify_missing(["purged"], references, {}, {"recording"}, snapshot) == {}
+
+
+def test_a_legal_hold_on_any_row_of_a_key_sticks_to_its_reference():
+    from backend.backup.objects import _merge
+
+    references: dict = {}
+    held = {"key": "k", "expectation": "required", "source": "media_object", "held": True}
+    _merge(references, held)
+    _merge(references, {"key": "k", "expectation": "required", "source": "media_object"})
+    assert references["k"]["held"] is True
+    later = {"key": "j", "expectation": "optional", "source": "media_object", "held": False}
+    _merge(references, later)
+    _merge(references, {"key": "j", "expectation": "required", "source": "media_object"})
+    assert "held" not in references["j"] or not references["j"]["held"]
+    _merge(references, {"key": "j", "expectation": "gone", "source": "media_object", "held": True})
+    assert references["j"]["expectation"] == "required" and references["j"]["held"] is True
+
+
+# --- retired databases (C3) ---------------------------------------------------------------
+
+
+def test_a_retired_entry_keeps_the_real_name_and_flags_overdue_or_malformed_notes():
+    from backend.backup.reconcile import RETIRED_PREFIX, _retired_entry
+
+    now = datetime(2026, 10, 30, tzinfo=UTC)
+    spoof = RETIRED_PREFIX + json.dumps(
+        {"database": "homayar", "drop_after": "2026-11-20T00:00:00+00:00", "overdue": False}
+    )
+    entry = _retired_entry("other_db", spoof, now)
+    assert entry["database"] == "other_db" and entry["overdue"] is False
+
+    late = RETIRED_PREFIX + json.dumps({"drop_after": "2026-10-25T00:00:00+00:00"})
+    assert _retired_entry("homayar_retired_20261018000000", late, now)["overdue"] is True
+    for broken in ("{not json", "[1, 2]", '"text"', json.dumps({"drop_after": "soon"})):
+        entry = _retired_entry("x_retired_20261018000000", RETIRED_PREFIX + broken, now)
+        assert entry["database"] == "x_retired_20261018000000" and entry["overdue"] is True

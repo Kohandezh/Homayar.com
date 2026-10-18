@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import time
 from collections.abc import Iterator
@@ -47,12 +48,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import psycopg
 from psycopg import sql
 
 from backend.backup.crypto import BackupKey
 from backend.backup.logical import (
     alembic_revisions,
     connect,
+    database_name,
     list_tables,
     table_columns,
     with_database,
@@ -361,6 +364,7 @@ def _references(connection) -> dict[str, dict[str, Any]]:
                 "meeting_id": meeting_id,
                 "expectation": "required" if required else ("gone" if gone else "optional"),
                 "sha256": sha256,
+                "held": str(state).upper() == "LEGAL_HOLD" or bool(refs.get(key, {}).get("held")),
             }
     if "recordings" in present:
         for key, workspace_id, meeting_id, deleted, sha256 in connection.execute(
@@ -418,9 +422,10 @@ def _objects(
 
     Bytes are re-read from the target store (corruption after the restore is
     caught too).  A required object the backup itself recorded as deleted
-    after the snapshot (the live row was gone or being deleted when the copy
-    ran) is explained, listed and not a failure; anything else missing or
-    different fails unless the owner accepts the loss.
+    after the snapshot (its own row was gone or being deleted when the copy
+    ran, and it was not under legal hold) is explained, listed and not a
+    failure; anything else missing or different fails unless the owner
+    accepts the loss.
     """
     if storage is None:
         return _check("FAIL", note="no object store: a restore without objects is not usable")
@@ -434,6 +439,9 @@ def _objects(
     explained = {
         item["key"]: item["reason"] for item in catalog["objects"].get("missing_explained", [])
     }
+    # A legally held object is never an intended deletion, whatever an older
+    # set's catalog says.
+    explained = {k: v for k, v in explained.items() if not refs.get(k, {}).get("held")}
     required = {k: r for k, r in refs.items() if r["expectation"] == "required"}
     missing = sorted(k for k in required if k not in stored and k not in explained)
     missing_explained = sorted(k for k in required if k not in stored and k in explained)
@@ -954,11 +962,18 @@ def _reconcile_locked(
 
 RETIRED_PREFIX = "homayar-retired "
 RETIRED_DAYS = 7
+_RETIRED_NAME = re.compile(r".+_retired_\d{14}")
 
 
 def _database_is_empty(admin_url: str, database: str) -> bool:
+    """No user relation in any schema (the database a postgres image creates)."""
     with connect(with_database(admin_url, database), autocommit=True) as connection:
-        return not list_tables(connection)
+        return not connection.execute(
+            "SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_' "
+            "AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') "
+            "LIMIT 1"
+        ).fetchone()
 
 
 def promote(
@@ -972,13 +987,15 @@ def promote(
 ) -> dict[str, Any]:
     """Rename the reconciled staging database to the live name (PASS only).
 
-    An existing live-name database that is empty (the one the postgres image
-    creates) is dropped afterwards; one with data is kept as
-    ``<live>_retired_<ts>`` and marked with a ``drop_after`` date: it is
-    outside backups, retention and tombstone replay, so ``drop-retired``
-    must remove it within that time.
+    An existing live-name database is renamed ``<live>_retired_<ts>`` and
+    marked with a ``drop_after`` deadline in the same transaction.  After the
+    commit it is dropped only if it is empty (the one the postgres image
+    creates), judged on the retired database itself; one with data is kept:
+    it is outside backups, retention and tombstone replay, so the operator
+    must ``drop-retired`` it by its deadline (``retired`` flags overdue ones).
+    Promotes onto one live name are serialised by an advisory lock.
     """
-    from backend.backup.restore import validate_database_name
+    from backend.backup.restore import live_lock, validate_database_name
 
     staging = validate_database_name(staging_database)
     live = validate_database_name(live_database)
@@ -987,7 +1004,7 @@ def promote(
         raise RestoreRefused("not_reconciled", f"reconciliation status is {report.get('status')}")
     if report.get("staging_database") != staging:
         raise RestoreRefused("report_mismatch", "the report belongs to another staging database")
-    with staging_lock(admin_url, staging):
+    with staging_lock(admin_url, staging), live_lock(admin_url, live):
         marker = read_marker(admin_url, staging)
         if not isinstance(marker, dict) or marker.get("state") != "reconciled":
             raise RestoreRefused("staging_not_reconciled", f"{staging} is not in state reconciled")
@@ -1004,7 +1021,6 @@ def promote(
             raise RestoreRefused(
                 "live_database_exists", f"{live} exists; pass retire_existing to keep it renamed"
             )
-        live_empty = live_exists and _database_is_empty(admin_url, live)
         retired = None
         now = datetime.now(UTC)
         promoted_marker = {
@@ -1015,24 +1031,22 @@ def promote(
             "promoted_from": staging,
             "at": _now(),
         }
-        # Renames and markers commit together or not at all.
+        # Renames and markers commit together or not at all.  The replaced
+        # database is marked retired before anything decides to drop it, so a
+        # crash after the commit leaves it listed by ``retired``.
         with connect(with_database(admin_url, "postgres")) as connection:
             if live_exists:
                 retired = f"{live[:40]}_retired_{now:%Y%m%d%H%M%S}"
                 connection.execute(f'ALTER DATABASE "{live}" RENAME TO "{retired}"')
-                if not live_empty:
-                    note = {
-                        "retired_at": now.isoformat(),
-                        "drop_after": (now + timedelta(days=RETIRED_DAYS)).isoformat(),
-                        "replaced_by_backup": report["backup_id"],
-                    }
-                    payload = RETIRED_PREFIX + json.dumps(note, sort_keys=True)
-                    connection.execute(
-                        f'COMMENT ON DATABASE "{retired}" IS '
-                        + "'"
-                        + payload.replace("'", "''")
-                        + "'"
-                    )
+                note = {
+                    "retired_at": now.isoformat(),
+                    "drop_after": (now + timedelta(days=RETIRED_DAYS)).isoformat(),
+                    "replaced_by_backup": report["backup_id"],
+                }
+                payload = RETIRED_PREFIX + json.dumps(note, sort_keys=True)
+                connection.execute(
+                    f'COMMENT ON DATABASE "{retired}" IS ' + "'" + payload.replace("'", "''") + "'"
+                )
             connection.execute(f'ALTER DATABASE "{staging}" RENAME TO "{live}"')
             # The rename holds the database's lock: re-read the marker.
             current = connection.execute(
@@ -1045,41 +1059,95 @@ def promote(
             connection.execute(marker_statement(live, promoted_marker))
             connection.commit()
         dropped = None
-        if retired and live_empty:
-            with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
-                connection.execute(f'DROP DATABASE "{retired}"')
-            dropped, retired = retired, None
+        drop_error = None
+        if retired:
+            # Judged now, on the retired name nothing serves any more; the
+            # promote itself has committed whatever happens here.
+            try:
+                if _database_is_empty(admin_url, retired):
+                    with connect(
+                        with_database(admin_url, "postgres"), autocommit=True
+                    ) as connection:
+                        connection.execute(f'DROP DATABASE "{retired}"')
+                    dropped, retired = retired, None
+            except psycopg.Error as exc:
+                drop_error = type(exc).__name__
     return {
         "backup_id": report["backup_id"],
         "live_database": live,
         "retired_database": retired,
         "dropped_empty_database": dropped,
+        "retired_drop_error": drop_error,
     }
 
 
+def _retired_entry(name: str, comment: str, now: datetime) -> dict[str, Any]:
+    try:
+        note = json.loads(comment[len(RETIRED_PREFIX) :])
+    except ValueError:
+        note = None
+    if not isinstance(note, dict):
+        return {"database": name, "malformed_note": True, "overdue": True}
+    entry = {k: v for k, v in note.items() if k not in {"database", "overdue", "malformed_note"}}
+    try:
+        deadline = datetime.fromisoformat(str(note.get("drop_after")))
+        overdue = deadline.tzinfo is None or now > deadline
+    except ValueError:
+        overdue = True
+    # The real catalog name always wins over anything the comment says.
+    return {**entry, "database": name, "overdue": overdue}
+
+
 def list_retired(admin_url: str) -> list[dict[str, Any]]:
+    """Databases promote kept, each flagged ``overdue`` once past its ``drop_after``."""
     with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
         rows = connection.execute(
             "SELECT datname, shobj_description(oid, 'pg_database') FROM pg_database "
             "ORDER BY datname"
         ).fetchall()
-    retired = []
-    for name, comment in rows:
-        if comment and comment.startswith(RETIRED_PREFIX):
-            retired.append({"database": name, **json.loads(comment[len(RETIRED_PREFIX) :])})
-    return retired
+    now = datetime.now(UTC)
+    return [
+        _retired_entry(name, comment, now)
+        for name, comment in rows
+        if comment and comment.startswith(RETIRED_PREFIX)
+    ]
 
 
-def drop_retired(admin_url: str, database: str, *, confirm: str) -> dict[str, Any]:
+def drop_retired(
+    admin_url: str, database: str, *, confirm: str, live_database: str | None = None
+) -> dict[str, Any]:
+    """Drop one database promote retired, never the live or a staging one.
+
+    The comment alone is not trusted (any database owner can write one): the
+    name must have the retired form, must not be the live database (given, or
+    the one the admin URL names) or a ``restoring`` staging database, and no
+    session may be using it.
+    """
     from backend.backup.restore import validate_database_name
 
     database = validate_database_name(database)
     if confirm != database:
         raise RestoreRefused("confirmation_mismatch", "--confirm must repeat the database name")
-    if database not in {item["database"] for item in list_retired(admin_url)}:
+    protected = {database_name(admin_url), "postgres", "template0", "template1"}
+    if live_database:
+        protected.add(live_database)
+    if database in protected:
+        raise RestoreRefused("live_database", f"{database} is the live or a system database")
+    if "restoring" in database:
+        raise RestoreRefused("staging_database", f"{database} is a restore staging database")
+    if not _RETIRED_NAME.fullmatch(database) or database not in {
+        item["database"] for item in list_retired(admin_url)
+    }:
         raise RestoreRefused("not_retired", f"{database} is not a database retired by promote")
     with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
-        connection.execute(f'DROP DATABASE "{database}" WITH (FORCE)')
+        sessions = connection.execute(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = %s", (database,)
+        ).fetchone()[0]
+        if sessions:
+            raise RestoreRefused(
+                "database_in_use", f"{database} has {sessions} session(s); it may be serving"
+            )
+        connection.execute(f'DROP DATABASE "{database}"')
     return {"dropped": database}
 
 

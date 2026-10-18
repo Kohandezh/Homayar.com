@@ -27,6 +27,7 @@ from psycopg import sql as psycopg_sql
 from sqlalchemy.engine import make_url
 
 from backend.backup import faults
+from backend.backup import reconcile as reconcile_module
 from backend.backup.__main__ import main as cli
 from backend.backup.create import BackupBusy, backup_lock, create_backup
 from backend.backup.crypto import BackupKey, decrypt_to_bytes, file_sha256
@@ -42,6 +43,7 @@ from backend.backup.manifest import (
 from backend.backup.metrics import read_values, record_success
 from backend.backup.reconcile import (
     REPORT_FILE,
+    RETIRED_PREFIX,
     drop_retired,
     list_retired,
     promote,
@@ -51,12 +53,13 @@ from backend.backup.release import PROJECT_DIR, code_heads
 from backend.backup.restore import (
     RestoreRefused,
     describe_storage_target,
+    live_lock,
     read_marker,
     restore_backup,
     write_marker,
 )
 from backend.backup.retention import prune
-from backend.backup.verify import verify_set
+from backend.backup.verify import load_catalog, verify_set
 from backend.database.relational import reset_database_state
 from backend.main import create_app
 from backend.storage import create_object_storage
@@ -874,39 +877,98 @@ def test_object_reconciliation_reports_orphans_and_fails_on_missing_bytes(
         "accept_missing": "INC-42",
         "accept_no_journal": "OWNER-NO-DELETIONS",
     }
-    # The live name already holds data: it is kept, marked, and must be dropped.
+    # The live name already exists.
     with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
         connection.execute(f'CREATE DATABASE "{live}"')
-    with connect(with_database(_admin(), live)) as connection:
-        connection.execute("CREATE TABLE old_rows (id int)")
-        connection.commit()
+    promote_args = {
+        "admin_url": _admin(),
+        "staging_database": staging,
+        "live_database": live,
+        "report_path": tmp_path / "restore-work" / REPORT_FILE,
+        "key": KEY,
+    }
     with pytest.raises(RestoreRefused) as exists:
-        promote(
-            admin_url=_admin(),
-            staging_database=staging,
-            live_database=live,
-            report_path=tmp_path / "restore-work" / REPORT_FILE,
-            key=KEY,
-        )
+        promote(**promote_args)
     assert exists.value.code == "live_database_exists"
-    promoted = promote(
-        admin_url=_admin(),
-        staging_database=staging,
-        live_database=live,
-        report_path=tmp_path / "restore-work" / REPORT_FILE,
-        key=KEY,
-        retire_existing=True,
-    )
-    assert read_marker(_admin(), live)["state"] == "promoted"
+    with live_lock(_admin(), live):  # another promote is replacing the live database
+        with pytest.raises(RestoreRefused) as busy:
+            promote(**promote_args, retire_existing=True)
+    assert busy.value.code == "live_busy"
+    # Data lands under the live name after the live database was first looked at
+    # but before the rename (e.g. a concurrent promote from another staging
+    # database): the replaced database is judged after the rename and kept.
+    real_connect = reconcile_module.connect
+    raced: list[bool] = []
+
+    def connect_then_race(url, autocommit=False):
+        if not autocommit and database_name(url) == "postgres" and not raced:
+            raced.append(True)
+            with real_connect(with_database(_admin(), live)) as other:
+                other.execute("CREATE TABLE promoted_meanwhile (id int)")
+                other.commit()
+        return real_connect(url, autocommit=autocommit)
+
+    monkeypatch.setattr(reconcile_module, "connect", connect_then_race)
+    promoted = promote(**promote_args, retire_existing=True)
+    monkeypatch.setattr(reconcile_module, "connect", real_connect)
+    assert raced and read_marker(_admin(), live)["state"] == "promoted"
     retired = promoted["retired_database"]
     databases.append(retired)
+    assert retired and promoted["dropped_empty_database"] is None
+    assert _scalar(
+        with_database(_admin(), retired),
+        "SELECT count(*) FROM pg_tables WHERE tablename = 'promoted_meanwhile'",
+    )
     listed = {item["database"]: item for item in list_retired(_admin())}
-    assert retired in listed and listed[retired]["replaced_by_backup"] == promoted["backup_id"]
-    with pytest.raises(RestoreRefused):
+    assert listed[retired]["replaced_by_backup"] == promoted["backup_id"]
+    assert listed[retired]["overdue"] is False
+
+    # A retired note is only a comment: it never makes the live, a staging or an
+    # unrelated database droppable, and a malformed one does not break the listing.
+    spoof = f"hy_spoof_{secrets.token_hex(4)}"
+    databases.append(spoof)
+    claim = RETIRED_PREFIX + json.dumps(
+        {"database": live, "drop_after": "2026-01-01T00:00:00+00:00"}
+    )
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        for name in (spoof, staging):
+            connection.execute(f'CREATE DATABASE "{name}"')
+            connection.execute(
+                psycopg_sql.SQL("COMMENT ON DATABASE {} IS {}").format(
+                    psycopg_sql.Identifier(name), psycopg_sql.Literal(claim)
+                )
+            )
+    listed = {item["database"]: item for item in list_retired(_admin())}
+    assert listed[spoof]["overdue"] is True and live not in listed
+    for name, code in (
+        (live, "live_database"),
+        (staging, "staging_database"),
+        (spoof, "not_retired"),
+    ):
+        with pytest.raises(RestoreRefused) as refused:
+            drop_retired(_admin(), name, confirm=name, live_database=live)
+        assert refused.value.code == code
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        connection.execute(
+            psycopg_sql.SQL("COMMENT ON DATABASE {} IS {}").format(
+                psycopg_sql.Identifier(spoof), psycopg_sql.Literal(RETIRED_PREFIX + "{broken")
+            )
+        )
+    listed = {item["database"]: item for item in list_retired(_admin())}
+    assert listed[spoof]["malformed_note"] is True
+
+    with pytest.raises(RestoreRefused) as wrong:
         drop_retired(_admin(), retired, confirm="wrong")
-    with pytest.raises(RestoreRefused):
-        drop_retired(_admin(), live, confirm=live)  # only retired databases
-    assert drop_retired(_admin(), retired, confirm=retired) == {"dropped": retired}
+    assert wrong.value.code == "confirmation_mismatch"
+    with connect(with_database(_admin(), retired)) as session:  # someone still uses it
+        session.execute("SELECT 1")
+        with pytest.raises(RestoreRefused) as in_use:
+            drop_retired(_admin(), retired, confirm=retired, live_database=live)
+        assert in_use.value.code == "database_in_use"
+        session.rollback()
+    assert drop_retired(_admin(), retired, confirm=retired, live_database=live) == {
+        "dropped": retired
+    }
     assert read_marker(_admin(), retired) is False
 
 
@@ -1098,6 +1160,68 @@ def test_a_corrupt_source_object_degrades_the_set_and_never_passes_reconciliatio
     assert report["statuses"]["objects"] == "FAIL"
     assert original.storage_key in details["content_mismatch_keys"]
     assert details["backup_integrity"] == "degraded"
+
+
+def test_lost_bytes_of_a_held_conversation_are_never_explained_as_a_deletion(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases, capsys
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "bk-heldloss")
+    meeting = _processed(client, tenant, settings, key="bk-heldloss-1", index=21)
+    held = client.post(
+        f"/api/v1/meetings/{meeting}/legal-hold",
+        json={"reason": "litigation 2026-12", "review_at": _review(30)},
+        headers=_headers(tenant),
+        cookies=tenant["cookies"],
+    )
+    assert held.status_code == 200, held.text
+    _delete(client, tenant, meeting)  # the user deletes it; the held original stays
+    original = next(m for m in _media(meeting) if m.kind.name == "ORIGINAL")
+    key = original.storage_key
+    assert (
+        _scalar(
+            _admin(), "SELECT lifecycle_state FROM media_objects WHERE storage_key = %s", (key,)
+        )
+        == "LEGAL_HOLD"
+    )
+    # The deleted recording row shares the key: it must not explain the loss.
+    assert _scalar(
+        _admin(),
+        "SELECT count(*) FROM recordings WHERE storage_key = %s AND deleted_at IS NOT NULL",
+        (key,),
+    )
+    (Path(settings.storage_local_root) / key).unlink()  # the held bytes are lost
+    _stamp_head(settings.database_url)
+
+    root = tmp_path / "backups"
+    textfile = tmp_path / "textfile" / "homayar_backup.prom"
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
+    monkeypatch.setenv(
+        "HOMAYAR_BACKUP_KEY", f"{KEY.key_id}:{base64.b64encode(KEY.secret).decode()}"
+    )
+    monkeypatch.setenv("BACKUP_DATABASE_URL", _admin())
+    monkeypatch.setattr("backend.config.get_settings", lambda: settings)
+    capsys.readouterr()
+    assert cli(["--root", str(root), "create"]) == 0
+    output = capsys.readouterr().out
+    assert '"integrity": "degraded"' in output  # the exact line backup.sh exits 3 on
+    backup_id = json.loads(output)["backup_id"]
+    set_dir = Path(json.loads(output)["path"])
+    catalog = load_catalog(set_dir, read_manifest(set_dir), KEY)
+    assert key in catalog["objects"]["missing_unexplained"]
+    assert key not in {item["key"] for item in catalog["objects"]["missing_explained"]}
+    assert cli(["--root", str(root), "verify", backup_id]) == 0
+    assert set(read_values(textfile)) == {"postgres"}  # the objects gauge stays stale
+
+    staging, _ = _names("heldloss", databases)
+    _, target_settings, storage = _restore(settings, tmp_path, set_dir, staging)
+    report = _reconcile(
+        set_dir, staging, target_settings, storage, tmp_path, accept_held="LEGAL-21"
+    )
+    details = report["checks"]["objects"]["details"]
+    assert report["statuses"]["objects"] == "FAIL" and report["status"] == "FAIL"
+    assert key in details["required_missing_keys"]
+    assert details["deleted_after_snapshot"] == []
 
 
 def test_a_role_subject_to_row_level_security_cannot_take_a_backup(settings, tmp_path):

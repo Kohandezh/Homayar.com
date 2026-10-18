@@ -25,8 +25,9 @@ Commands (exit 0 = success, 1 = refused/failed, 2 = usage):
   reconcile ID --staging-db NAME    replay tombstones, verify, write the report
   promote ID --staging-db NAME --live-db NAME   rename staging to live (PASS only)
   gate --live-db NAME               exit 0 only for a promoted, reconciled restore
-  retired                           databases kept by promote, with drop_after
-  drop-retired NAME --confirm NAME  drop one of them
+  retired                           databases kept by promote; overdue past drop_after
+  drop-retired NAME --confirm NAME [--live-db NAME]
+                                    drop one (never the live, a staging or an in-use one)
 """
 
 from __future__ import annotations
@@ -306,9 +307,19 @@ def cmd_retired(args) -> int:
 
 
 def cmd_drop_retired(args) -> int:
+    from backend.backup.logical import database_name
     from backend.backup.reconcile import drop_retired
+    from backend.config import get_settings
 
-    _print(drop_retired(_admin_url(args), args.database, confirm=args.confirm))
+    settings = get_settings()
+    _print(
+        drop_retired(
+            _admin_url(args, settings),
+            args.database,
+            confirm=args.confirm,
+            live_database=args.live_db or database_name(settings.database_url),
+        )
+    )
     return 0
 
 
@@ -392,6 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("drop-retired")
     p.add_argument("database")
     p.add_argument("--confirm", required=True)
+    p.add_argument("--live-db", help="the live database (default: the application's)")
     p.set_defaults(func=cmd_drop_retired)
     return parser
 

@@ -138,23 +138,43 @@ def cas_marker(
 
 
 @contextmanager
-def staging_lock(admin_url: str, staging: str) -> Iterator[None]:
-    """One restore / reconcile / promote at a time per staging database.
-
-    A session-level advisory lock on the maintenance database, held for the
+def _advisory_lock(admin_url: str, name: str, *, code: str, message: str) -> Iterator[None]:
+    """A session-level advisory lock on the maintenance database, held for the
     whole run and released by the server if the process dies."""
     connection = connect(with_database(admin_url, "postgres"), autocommit=True)
     try:
         acquired = connection.execute(
-            "SELECT pg_try_advisory_lock(hashtext(%s))", (f"homayar-restore:{staging}",)
+            "SELECT pg_try_advisory_lock(hashtext(%s))", (name,)
         ).fetchone()[0]
         if not acquired:
-            raise RestoreRefused(
-                "staging_busy", f"another restore, reconcile or promote is working on {staging}"
-            )
+            raise RestoreRefused(code, message)
         yield
     finally:
         connection.close()
+
+
+@contextmanager
+def staging_lock(admin_url: str, staging: str) -> Iterator[None]:
+    """One restore / reconcile / promote at a time per staging database."""
+    with _advisory_lock(
+        admin_url,
+        f"homayar-restore:{staging}",
+        code="staging_busy",
+        message=f"another restore, reconcile or promote is working on {staging}",
+    ):
+        yield
+
+
+@contextmanager
+def live_lock(admin_url: str, live: str) -> Iterator[None]:
+    """One promote at a time per live name, whatever staging database it comes from."""
+    with _advisory_lock(
+        admin_url,
+        f"homayar-live:{live}",
+        code="live_busy",
+        message=f"another promote is replacing {live}",
+    ):
+        yield
 
 
 def _isolation_guard(

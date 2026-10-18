@@ -54,6 +54,21 @@ esac
 if [[ "${offsite}" == "1" && -z "${BACKUP_OFFSITE:-}" && -z "${BACKUP_OFFSITE_PATH:-}" ]]; then
   die "No off-site target: set BACKUP_OFFSITE (s3://) or BACKUP_OFFSITE_PATH, or pass --no-offsite."
 fi
+if [[ "${offsite}" == "1" && -z "${BACKUP_OFFSITE:-}" && -n "${BACKUP_OFFSITE_PATH:-}" ]]; then
+  # The tool only sees the container paths (/backups, /offsite): compare the host paths here.
+  [[ -d "${BACKUP_OFFSITE_PATH}" ]] || die "BACKUP_OFFSITE_PATH is not a directory (is the off-site medium mounted?): ${BACKUP_OFFSITE_PATH}"
+  root_real="$(cd -- "${BACKUP_ROOT}" && pwd -P)"
+  offsite_real="$(cd -- "${BACKUP_OFFSITE_PATH}" && pwd -P)"
+  case "${offsite_real}/" in
+    "${root_real}"/*) die "BACKUP_OFFSITE_PATH is inside BACKUP_ROOT: that is not an off-site copy." ;;
+  esac
+  case "${root_real}/" in
+    "${offsite_real}"/*) die "BACKUP_ROOT is inside BACKUP_OFFSITE_PATH: that is not an off-site copy." ;;
+  esac
+  if [[ "$(df -P -- "${root_real}" | awk 'NR == 2 { print $6 }')" == "$(df -P -- "${offsite_real}" | awk 'NR == 2 { print $6 }')" ]]; then
+    printf 'WARNING: BACKUP_OFFSITE_PATH is on the same filesystem as BACKUP_ROOT; it is off-site only if that filesystem is another host or medium.\n' >&2
+  fi
+fi
 if [[ "${offsite}" == "1" && "${BACKUP_OFFSITE:-}" == s3://* && -z "${EGRESS_PROXY_URL:-}" ]]; then
   die "An s3:// off-site target is reached through the egress proxy: start --profile egress, allowlist its host and set EGRESS_PROXY_URL."
 fi
