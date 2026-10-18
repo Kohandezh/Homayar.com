@@ -9,10 +9,20 @@ scanned for secrets and transcript text. Objectives:
 the recorded evidence in [`2026-10-18-evidence/`](2026-10-18-evidence/); nothing is estimated.
 
 **Recorded run:** run 9, 2026-10-18 19:46–20:00 UTC, on code **`b9836ae`** (PR #42 head after
-the integrator's review) with the drill harness of **`3f020dd`**.
+the integrator's review) with the drill harness of **`92f6769`** (same harness content).
 
-**Result:** recovery usable **237.1 s (3 min 57 s)** after the recovery decision (target
-≤ 8 h). Measured data-loss window **181.4 s (3 min 01 s)**. Reconciliation **PASS**, smoke
+**What was drilled, and what was not.** The drill ran on `b9836ae`, **not on current `main`**.
+Main has since changed `tombstone_journal.py`, `retention_purge.py`,
+`checkpoints.discover_workspaces` (HOM-210 rotation), `conversation_purge_service.py` and
+`demo_seed.py`; none of those changes was drilled. PR #75 (`4cdead9`) also removed `public-web`
+from `compose.onprem.yaml`, from nginx `depends_on` and from `dr-drill.sh`: the measured setup
+(ingress 15.2 s, the procedure in §3 and the scan list in §8) still includes `public-web`, so it
+differs from the topology now shipped. A re-run on main is needed before these numbers stand
+for main.
+
+**Result** (one local Docker host, 4,901 rows / 441 MB; detection, provisioning, secrets,
+image pulls and DNS/TLS excluded): recovery usable **237.1 s (3 min 57 s)** after the recovery
+decision (target ≤ 8 h). Measured data-loss window **181.4 s (3 min 01 s)**. Reconciliation **PASS**, smoke
 tests **13/13**, all 5 restore-gate probes as expected, diagnostics leakage scan **clean
 (0 matches in 45 files)**. No product or tool bug was found; the harness needed fixes (§10).
 
@@ -28,8 +38,8 @@ tests **13/13**, all 5 restore-gate probes as expected, diagnostics leakage scan
 | Promote only with a PASS report for this staging database | PASS — 5/5 probes as expected | `gate-probes.jsonl` |
 | Smoke tests through nginx on the restored system | PASS — 13/13 | `smoke.json` |
 | No secret or transcript text in diagnostics | PASS — 0 matches in every category | `leakage-scan.json` |
-| RTO ≤ 8 h | **met** — 237.1 s | `summary.json` → `achieved_rto_seconds` |
-| RPO ≤ 24 h | measured window met (181.4 s); schedule-based bound in §5 | `summary.json` → `data_loss_window_seconds` |
+| RTO ≤ 8 h | **met for the drilled scope** — 237.1 s (one local Docker host, 4,901 rows / 441 MB; detection, provisioning, secrets, image pulls, DNS/TLS excluded) | `summary.json` → `achieved_rto_seconds` |
+| RPO ≤ 24 h | **not demonstrated**; the 181.4 s window is only the gap the drill set up; the schedule-based bound (§5) exceeds the target; D03 open | `summary.json` → `data_loss_window_seconds` |
 | Deletions re-applied before use | PASS — 5 journaled deletions (2 before, 3 after the backup) stay deleted | §7 |
 
 ## 2. Environment
@@ -39,7 +49,7 @@ tests **13/13**, all 5 restore-gate probes as expected, diagnostics leakage scan
 | Host | MacBook Pro, Intel Core i9-8950HK (6 cores / 12 threads), 32 GB RAM, macOS 15.8.2 |
 | Container runtime | Docker Desktop, Engine 29.5.3, Compose v5.1.4; Linux VM with 12 vCPU and 7.75 GiB RAM |
 | Host load | Shared with other sessions. 1-min load average 4.3 at the start (19:46Z), 11.8 during the backup (19:51Z), 26.6 at the end (20:00Z); no sample inside the recovery window. Earlier attempts ran at 150–740 (§10). |
-| Code | `b9836ae` (branch `claude/lane-c-backup-restore-recovery-86b88f`, PR #42). API image `homayar/api:lane-c-drill` `sha256:9adeba87…`, built 2026-10-18 18:42Z from this branch, whose product files are identical to `b9836ae`. Harness `3f020dd`. |
+| Code | `b9836ae` (branch `claude/lane-c-backup-restore-recovery-86b88f`, PR #42). API image `homayar/api:lane-c-drill` `sha256:9adeba87…`, built 2026-10-18 18:42Z from this branch, whose product files are identical to `b9836ae`. Harness `92f6769`. |
 | Web images | `homayar-ci/public-web:local` (`sha256:4a3036d1…`, 2026-09-25), `homayar-ci/console-web:local` (`sha256:9a541fb0…`, 2026-09-25): CI builds, not of this commit; health-checked only |
 | Stores | `postgres:17-alpine` (17.11), `redis:7.4-alpine`, `nginx:1.28-alpine`, `quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z`, `quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z`, all local |
 | Application mode | `APP_ENVIRONMENT=production`, `DEPLOYMENT_MODE=onprem`, `SECURE_COOKIES=true`, internal-hop TLS opt-outs as shipped (HOM-196) |
@@ -105,7 +115,7 @@ from `restore-timeline.log` (1 s precision).
 | 19:55:20 → 19:55:49 | reconcile (tool 12.8 s: integrity 1.95 s, tombstones 1.75 s, objects re-hash and rest 9.04 s) → **PASS** | +121 → +150 |
 | 19:55:49 → 19:56:24 | promote (`homayar_restoring` → `homayar`) + gate open | +150 → +185 |
 | 19:56:24 → 19:56:57 | api, worker, scheduler up; `/readyz` OK (**app ready**) | +185 → +218 |
-| 19:56:57.263 → 19:57:12.507 | ingress opened (proxy, public-web, console-web) | +218.2 → +233.5 |
+| 19:56:57.263 → 19:57:12.507 | ingress opened (proxy, public-web, console-web; `public-web` no longer shipped, #75) | +218.2 → +233.5 |
 | 19:57:12.576 → 19:57:15.992 | smoke tests, 13/13 | +233.6 → +237.0 |
 | **19:57:16.088** | **READY** | **+237.1** |
 | 19:57:16.176 → 20:00:00.464 | restore-gate probes (not timed) | |
@@ -127,7 +137,10 @@ backup key, pulling images, or DNS/TLS cutover (all were already in place).
   set is at most one interval plus the time from its snapshot until its off-site copy is
   complete — here 61.1 s to the off-site directory (end of `backup.sh`) and 115.8 s to the S3
   copy the restore used, i.e. about **24 h + 2 min**. A missed or failed run is noticed by the
-  26 h backup-age alert, so the bound then becomes about 26 h plus repair (objectives §2).
+  26 h backup-age alert once it exists (Lane C/D contract; not merged until #47), so the bound
+  then becomes about 26 h plus repair (objectives §2). The `rpo_note` in the recorded
+  `summary.json` ("interval plus one backup duration") is superseded by this paragraph; the
+  evidence file is kept as generated and `summarize.py` is corrected.
   Keeping 24 h strictly needs a shorter interval or alert (owner decision D03).
 - Deletions after the backup: re-applied from the journal replica (§7); the window equals the
   replica's sync interval, which this drill did not measure (one copy right after the
@@ -273,7 +286,14 @@ alone.
 - The leakage scan covers the diagnostics listed in §8 with exact (and prefix) matching; it
   does not prove absence of paraphrased or partially redacted content, and it does not look at
   data stores (database, MinIO, encrypted sets), which hold customer content by design.
-- Web front ends were CI images of 2026-09-25 and were only health-checked.
+- Web front ends were CI images of 2026-09-25 and were only health-checked; `public-web` has
+  since been removed from the on-prem profile (#75).
+- Known harness defects, left for a follow-up ticket (not this PR): (a) no `trap EXIT/ERR`
+  cleanup, so a failed run leaves the drill projects, the off-site MinIO and the 0600
+  `drill.env`/`backup.key`/`offsite.env`, and leftover volumes are silently reused;
+  (b) `wait_healthy` runs `compose ps` without `--all`, so exited services count as healthy;
+  (c) a failing `config --services` collects no logs and the leak scan still passes, because
+  `leak_scan.py` does not assert the expected log set.
 
 ## 12. Evidence files
 

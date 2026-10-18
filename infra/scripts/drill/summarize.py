@@ -133,8 +133,10 @@ def main(evidence: str) -> int:
         "data_loss_window_seconds": round(loss_window, 3),
         "rpo_target_seconds": RPO_TARGET_SECONDS,
         "rpo_note": (
-            "measured window = failure time - snapshot time of the last backup; with the daily "
-            "schedule the worst case is the schedule interval plus one backup duration"
+            "measured window = failure time - snapshot time of the last backup (the gap the "
+            "drill set up, not an RPO); with a daily schedule the bound is the interval plus "
+            "snapshot-to-off-site time, and about 26 h plus repair after a missed run "
+            "(disaster-recovery-objectives.md section 2)"
         ),
     }
     print(json.dumps(summary, indent=2, sort_keys=True))

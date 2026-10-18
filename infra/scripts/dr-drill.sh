@@ -149,7 +149,7 @@ prod --profile onprem up -d --wait postgres redis minio
 prod --profile onprem run --rm --no-deps minio-bootstrap
 prod --profile onprem --profile migrate run --rm --no-deps migrate
 # Before T0, not measured: on a loaded host a health check can miss its window
-# (public-web start-up, the worker's ~10 s `celery inspect ping`), and `up --wait`
+# (the worker's ~10 s `celery inspect ping`), and `up --wait`
 # gives up on the first unhealthy state; wait for every service to report healthy.
 prod --profile onprem up -d --wait || wait_healthy prod "${DRILL_PROD_HEALTH_SECONDS:-900}"
 mark prod_up END
