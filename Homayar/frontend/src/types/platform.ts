@@ -197,6 +197,11 @@ export interface MeetingListParams {
   status?: MeetingStatus;
 }
 
+export interface MeetingCountsResponse {
+  counts: Record<MeetingStatus, number>;
+  total: number;
+}
+
 export interface UploadMeetingInput {
   file: File;
   idempotencyKey: string;
@@ -709,6 +714,17 @@ export interface AuditEventListParams {
   target_id?: string;
   occurred_after?: IsoDateTime;
   occurred_before?: IsoDateTime;
+}
+
+/** One entry of the event-type catalog (GET /admin/audit-event-types). */
+export interface AuditEventTypeEntry {
+  event_type: string;
+  group: string;
+  target_type: string | null;
+}
+
+export interface AuditEventTypeListResponse {
+  items: AuditEventTypeEntry[];
 }
 
 /**
