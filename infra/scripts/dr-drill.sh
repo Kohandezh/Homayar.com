@@ -13,7 +13,10 @@
 #      nginx; T_ready = smoke tests passed. RTO = T_ready - T0;
 #   6. after T_ready (not timed): restore-gate probes on a second, database-only
 #      staging restore of the same set (gate closed while loaded, promote refused
-#      without a PASS report and with another database's PASS report).
+#      without a PASS report and with another database's PASS report);
+#   7. after T_ready (not timed): every service log of both projects, the console
+#      output and the evidence are scanned for the drill's secrets and the seeded
+#      transcript text (evidence/leakage-scan.json; the drill fails on a match).
 #
 # Evidence (timeline, manifest, reconciliation report, smoke results, summary)
 # goes to $DRILL_DIR/evidence. It only ever touches the homayar-drill-* projects.
@@ -38,10 +41,14 @@ OFFSITE=homayar-drill-offsite
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ ! -e "${DRILL_DIR}" || -z "$(ls -A "${DRILL_DIR}")" ]] || die "DRILL_DIR must be new or empty"
-mkdir -p "${DRILL_DIR}"/{backups,offsite-dir,journal,journal-replica,restore-backups,evidence}
+mkdir -p "${DRILL_DIR}"/{backups,offsite-dir,journal,journal-replica,restore-backups,evidence,logs}
+mkdir -p "${DRILL_DIR}"/{metrics-prod,metrics-restore}
 DRILL_DIR="$(cd -- "${DRILL_DIR}" && pwd -P)"
 E="${DRILL_DIR}/evidence"
 TIMELINE="${E}/drill-timeline.log"
+LOGS="${DRILL_DIR}/logs"
+# Everything the drill prints is a diagnostic too (scanned in step 7).
+exec > >(tee -a "${LOGS}/console.log") 2>&1
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 epoch() { "${PY}" -c 'import time; print(f"{time.time():.3f}")'; }
@@ -78,6 +85,14 @@ compose_for() {  # project, then compose arguments
   shift
   docker compose --project-name "${project}" --env-file "${DRILL_DIR}/drill.env" --file "${COMPOSE_FILE}" "$@"
 }
+collect_logs() {  # file prefix, then the compose wrapper (prod / restore_env)
+  local prefix="$1" service
+  shift
+  for service in $("$@" --profile onprem config --services); do
+    "$@" --profile onprem logs --no-color --timestamps "${service}" \
+      > "${LOGS}/${prefix}-${service}.log" 2>&1 || true
+  done
+}
 prod() {
   PUBLIC_ORIGIN="http://127.0.0.1:${PROD_PORT}" CORS_ORIGINS="http://127.0.0.1:${PROD_PORT}" \
   TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${PROD_PORT}" \
@@ -91,8 +106,10 @@ chmod 0600 "${DRILL_DIR}/backup.key"
 # --- off-site stand-in (another "host": own container and volume) ----------------
 docker rm -f "${OFFSITE}" >/dev/null 2>&1 || true
 offsite_secret="$(rand)"
-docker run -d --name "${OFFSITE}" -p "127.0.0.1:${OFFSITE_PORT}:9000" \
-  -e MINIO_ROOT_USER=offsite -e MINIO_ROOT_PASSWORD="${offsite_secret}" \
+# The secret goes through an env file, never on a command line (argv is visible).
+printf 'MINIO_ROOT_USER=offsite\nMINIO_ROOT_PASSWORD=%s\n' "${offsite_secret}" > "${DRILL_DIR}/offsite.env"
+chmod 0600 "${DRILL_DIR}/offsite.env"
+docker run -d --name "${OFFSITE}" -p "127.0.0.1:${OFFSITE_PORT}:9000" --env-file "${DRILL_DIR}/offsite.env" \
   quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data >/dev/null
 export HOMAYAR_BACKUP_S3_ENDPOINT="http://127.0.0.1:${OFFSITE_PORT}" HOMAYAR_BACKUP_S3_ACCESS_KEY=offsite \
   HOMAYAR_BACKUP_S3_SECRET_KEY="${offsite_secret}" HOMAYAR_BACKUP_S3_REGION=us-east-1
@@ -113,7 +130,9 @@ mark prod_up START
 prod --profile onprem up -d --wait postgres redis minio
 prod --profile onprem run --rm --no-deps minio-bootstrap
 prod --profile onprem --profile migrate run --rm --no-deps migrate
-prod --profile onprem up -d --wait
+# Before T0, not measured: on a loaded host a health check can miss its window
+# (public-web start-up); one more --wait is enough once the containers are up.
+prod --profile onprem up -d --wait || prod --profile onprem up -d --wait
 mark prod_up END
 
 mark seed START
@@ -124,22 +143,25 @@ prod --profile onprem --profile ops run --rm --no-deps -T \
 mark seed END
 
 # --- 2. backup + off-site ---------------------------------------------------------
+# A directory off-site target must carry the marker (and lie outside BACKUP_ROOT).
+: > "${DRILL_DIR}/offsite-dir/.homayar-offsite"
 mark backup START
 PUBLIC_ORIGIN="http://127.0.0.1:${PROD_PORT}" CORS_ORIGINS="http://127.0.0.1:${PROD_PORT}" \
 TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${PROD_PORT}" COMPOSE_PROJECT_NAME="${PROD}" \
 TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal" BACKUP_ROOT="${DRILL_DIR}/backups" \
 BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" BACKUP_OFFSITE_PATH="${DRILL_DIR}/offsite-dir" \
+BACKUP_TEXTFILE_DIR="${DRILL_DIR}/metrics-prod" \
   "${REPO_ROOT}/infra/scripts/backup.sh" | tee "${E}/backup.out"
 mark backup END
 backup_id="$(sed -n 's/^  "backup_id": "\([^"]*\)",*$/\1/p' "${E}/backup.out" | head -n 1)"
 [[ -n "${backup_id}" ]] || die "no backup id"
 cp "${DRILL_DIR}/backups/sets/${backup_id}/manifest.json" "${E}/manifest.json"
 mark offsite_s3 START
-(cd "${REPO_ROOT}/Homayar" && HOMAYAR_BACKUP_TEXTFILE="${DRILL_DIR}/backups/metrics/homayar_backup.prom" \
+(cd "${REPO_ROOT}/Homayar" && HOMAYAR_BACKUP_TEXTFILE="${DRILL_DIR}/metrics-prod/homayar_backup.prom" \
   "${PY}" -m backend.backup --root "${DRILL_DIR}/backups" replicate "${backup_id}" s3://homayar-offsite/site-a) \
   > "${E}/offsite-s3.json"
 mark offsite_s3 END
-cp "${DRILL_DIR}/backups/metrics/homayar_backup.prom" "${E}/homayar_backup.prom"
+cp "${DRILL_DIR}/metrics-prod/homayar_backup.prom" "${E}/homayar_backup.prom"
 
 # --- 3. after the backup ----------------------------------------------------------
 sleep "${DRILL_GAP_SECONDS:-60}"
@@ -150,9 +172,10 @@ mark post_backup_changes END
 cp -a "${DRILL_DIR}/journal/." "${DRILL_DIR}/journal-replica/"
 
 # --- 4. disaster ------------------------------------------------------------------
+collect_logs prod prod
 mark failure START
 prod --profile onprem --profile ops --profile migrate down --volumes --remove-orphans
-rm -rf "${DRILL_DIR}/journal" "${DRILL_DIR}/backups"
+rm -rf "${DRILL_DIR}/journal" "${DRILL_DIR}/backups" "${DRILL_DIR}/metrics-prod"
 mark failure END
 
 # --- 5. recovery (timed from T0) ----------------------------------------------------
@@ -167,7 +190,7 @@ PUBLIC_ORIGIN="http://127.0.0.1:${RESTORE_PORT}" CORS_ORIGINS="http://127.0.0.1:
 TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${RESTORE_PORT}" COMPOSE_PROJECT_NAME="${RESTORE}" \
 LIVE_COMPOSE_PROJECT="${PROD}" TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal-replica" \
 BACKUP_ROOT="${DRILL_DIR}/restore-backups" BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" \
-POSTGRES_DB=homayar \
+BACKUP_TEXTFILE_DIR="${DRILL_DIR}/metrics-restore" POSTGRES_DB=homayar \
   "${REPO_ROOT}/infra/scripts/restore-isolated.sh" --backup "${backup_id}" --start-app \
   2>&1 | tee "${E}/restore-isolated.out"
 mark restore_isolated END
@@ -193,7 +216,7 @@ restore_env() {
   PUBLIC_ORIGIN="http://127.0.0.1:${RESTORE_PORT}" CORS_ORIGINS="http://127.0.0.1:${RESTORE_PORT}" \
   TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${RESTORE_PORT}" \
   TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal-replica" BACKUP_ROOT="${DRILL_DIR}/restore-backups" \
-  BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" BACKUP_TEXTFILE_DIR="${DRILL_DIR}/restore-backups/metrics" \
+  BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" BACKUP_TEXTFILE_DIR="${DRILL_DIR}/metrics-restore" \
     compose_for "${RESTORE}" "$@"
 }
 probe() {  # name, expected exit code, backup-tool arguments
@@ -217,16 +240,16 @@ print(json.dumps({"probe": name, "command": command, "expected_exit": int(expect
 }
 probe_work="/backups/restores/${backup_id}-gate-probe"
 mark gate_probes START
-probe staging_restore_db_only 0 restore "${backup_id}" --staging-db homayar_gateprobe --no-objects \
+probe staging_restore_db_only 0 restore "${backup_id}" --staging-db homayar_probe_restoring --no-objects \
   --work-dir "${probe_work}"
-probe gate_closed_before_reconcile 1 gate --live-db homayar_gateprobe
-probe promote_refused_without_report 1 promote "${backup_id}" --staging-db homayar_gateprobe \
-  --live-db homayar_gateprobe_live --work-dir "${probe_work}"
+probe gate_closed_before_reconcile 1 gate --live-db homayar_probe_restoring
+probe promote_refused_without_report 1 promote "${backup_id}" --staging-db homayar_probe_restoring \
+  --live-db homayar_probe_live --work-dir "${probe_work}"
 probe promote_refused_with_other_databases_pass 1 promote "${backup_id}" \
-  --staging-db homayar_gateprobe --live-db homayar_gateprobe_live
+  --staging-db homayar_probe_restoring --live-db homayar_probe_live
 probe live_gate_open_after_promote 0 gate --live-db homayar
 restore_env --profile onprem exec -T postgres sh -ec \
-  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS homayar_gateprobe WITH (FORCE)"'
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS homayar_probe_restoring WITH (FORCE)"'
 mark gate_probes END
 
 cp "${DRILL_DIR}/restore-backups/restores/${backup_id}/reconciliation-report.json" "${E}/"
@@ -234,3 +257,16 @@ cp "${DRILL_DIR}/restore-backups/restores/${backup_id}/restore-state.json" "${E}
 cp "${DRILL_DIR}/restore-backups/restores/${backup_id}/timeline.log" "${E}/restore-timeline.log"
 "${PY}" "${SCRIPT_DIR}/drill/summarize.py" "${E}" > "${E}/summary.json"
 cat "${E}/summary.json"
+
+# --- 7. diagnostics leakage scan (after READY, not timed) ---------------------------
+collect_logs restore restore_env
+docker logs "${OFFSITE}" > "${LOGS}/offsite-minio.log" 2>&1 || true
+mark leakage_scan START
+leak_rc=0
+"${PY}" "${SCRIPT_DIR}/drill/leak_scan.py" --root "${DRILL_DIR}" --env drill.env --key backup.key \
+  --demo-seed "${REPO_ROOT}/Homayar/backend/database/demo_seed.py" \
+  --exclude drill.env backup.key offsite.env evidence/tenants.json --out evidence/leakage-scan.json \
+  logs evidence restore-backups/restores metrics-restore gate-probes.stderr probe.out ||
+  leak_rc=$?
+mark leakage_scan END
+[[ "${leak_rc}" == "0" ]] || die "the diagnostics leakage scan matched; see ${E}/leakage-scan.json"

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 
@@ -25,6 +26,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tenants", type=int, default=4)
     parser.add_argument("--sample-rate", type=int, default=48_000)
     args = parser.parse_args(argv)
+
+    # stdout carries only the result: the application logs to stdout (a lease
+    # warning under load once broke tenants.json), so point fd 1 at stderr
+    # while seeding and write the result to the saved descriptor.
+    result_fd = os.dup(1)
+    os.dup2(2, 1)
 
     from backend.config import Settings
     from backend.database import demo_seed
@@ -57,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
         print(f"seeded tenant {index}: {result.meeting_count} meetings", file=sys.stderr)
-    print(json.dumps({"tenants": tenants, "password": demo_seed.DEMO_PASSWORD}))
+    sys.stdout.flush()
+    with os.fdopen(result_fd, "w") as result:
+        result.write(json.dumps({"tenants": tenants, "password": demo_seed.DEMO_PASSWORD}) + "\n")
     return 0
 
 
