@@ -1,5 +1,5 @@
 {
-  "at": "2026-10-18T05:07:45Z",
+  "at": "2026-10-18T19:57:12Z",
   "checks": [
     {
       "check": "tenant 0 signs in and lists conversations",
@@ -14,25 +14,35 @@
     {
       "check": "tenant 2 signs in and lists conversations",
       "ok": true,
-      "detail": "30 listed"
+      "detail": "29 listed"
     },
     {
       "check": "tenant 3 signs in and lists conversations",
       "ok": true,
-      "detail": "30 listed"
+      "detail": "29 listed"
     },
     {
-      "check": "deleted conversation 24e61c94 stays deleted",
+      "check": "deleted conversation c006b031 stays deleted",
       "ok": true,
       "detail": "404"
     },
     {
-      "check": "deleted conversation 46e64a72 stays deleted",
+      "check": "deleted conversation 7a1d6efd stays deleted",
       "ok": true,
       "detail": "404"
     },
     {
-      "check": "deleted conversation 1a0b1460 stays deleted",
+      "check": "deleted conversation 90407d22 stays deleted",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "check": "conversation 7dc28694 deleted before the backup stays deleted",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "check": "conversation ad5c5a6a deleted before the backup stays deleted",
       "ok": true,
       "detail": "404"
     },
@@ -59,7 +69,7 @@
   ],
   "observations": {
     "post_backup_revoked_share": {
-      "share_id": "a8ce8321-6651-4fa5-8cb7-99cef0278d5c",
+      "share_id": "80d030d4-b99f-43b8-bcc0-2228d278b3f2",
       "listed": true,
       "revoked_at_after_restore": null,
       "active_again": true

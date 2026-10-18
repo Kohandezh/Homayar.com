@@ -1,30 +1,40 @@
 {
-  "at": "2026-10-18T05:01:19Z",
+  "at": "2026-10-18T19:53:08Z",
   "deleted": [
     {
       "tenant": 0,
-      "meeting_id": "24e61c94-f1c6-4420-9d5e-989a619f6008"
+      "meeting_id": "c006b031-2001-4049-ae05-def7aa667cb6"
     },
     {
       "tenant": 0,
-      "meeting_id": "46e64a72-4089-4311-9bc0-3999c3ea1682"
+      "meeting_id": "7a1d6efd-bf1c-4e1b-a2a2-6c79e2d0e3b5"
     },
     {
       "tenant": 1,
-      "meeting_id": "1a0b1460-92af-4dcf-a49f-db1f2acffa26"
+      "meeting_id": "90407d22-fbb3-4eef-9258-314c718c4c71"
     }
   ],
   "revoked_share": {
     "tenant": 1,
-    "meeting_id": "9fa9395f-0a07-4399-926d-cb90a92fde58",
-    "share_id": "a8ce8321-6651-4fa5-8cb7-99cef0278d5c"
+    "meeting_id": "efe01b7e-bfed-4ea7-bd74-e1af229f2dca",
+    "share_id": "80d030d4-b99f-43b8-bcc0-2228d278b3f2"
   },
+  "deleted_before_backup": [
+    {
+      "tenant": 2,
+      "meeting_id": "7dc28694-9012-40b6-8f36-2b9c941d2197"
+    },
+    {
+      "tenant": 3,
+      "meeting_id": "ad5c5a6a-1f9d-45c3-80e5-2cb4d0cf7878"
+    }
+  ],
   "kept": {
     "tenant": 0,
-    "meeting_id": "d23dc456-26ed-4e6a-af08-43a95b06f23d"
+    "meeting_id": "f8515ad1-1bc7-4e16-8730-9cbc682cf601"
   },
   "created_after_backup": {
     "tenant": 0,
-    "meeting_id": "a2f9d76f-c748-4755-8db3-10cb9a890846"
+    "meeting_id": "048bd91f-5289-487f-b27a-b9086f6157ea"
   }
 }

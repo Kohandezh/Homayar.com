@@ -1,6 +1,6 @@
 {
-  "backup_created_at": "2026-10-18T04:56:05.180304+00:00",
-  "backup_id": "20261018T045604Z-594e6854",
+  "backup_created_at": "2026-10-18T19:50:12.944147+00:00",
+  "backup_id": "20261018T195012Z-252a044c",
   "checks": {
     "marker": {
       "details": {
@@ -14,7 +14,7 @@
         "alive": [],
         "content_rows": [],
         "held_for_review": [],
-        "journaled": 3,
+        "journaled": 5,
         "object_bytes_left": []
       },
       "status": "PASS"
@@ -22,14 +22,20 @@
     "objects": {
       "details": {
         "accepted_missing": null,
+        "backup_integrity": "complete",
+        "content_mismatch": 0,
+        "content_mismatch_keys": [],
+        "content_verified": 364,
+        "deleted_after_snapshot": [],
         "orphan_keys": [],
         "orphans": 0,
         "referenced": 384,
         "removal_failed_keys": [],
         "removed_again": 0,
+        "required": 364,
         "required_missing": 0,
         "required_missing_keys": [],
-        "stored": 372
+        "stored": 364
       },
       "status": "PASS"
     },
@@ -84,43 +90,47 @@
       "details": {
         "foreign_keys_verified_at_load": true,
         "per_tenant_tables_verified_at_load": 46,
-        "problems": []
+        "problems": [],
+        "tenant_foreign_keys_checked": 77
       },
       "status": "PASS"
     },
     "tombstones": {
       "details": {
-        "journal_records": 3,
-        "journal_records_at_backup": 0,
+        "journal_identity": "anchored",
+        "journal_records": 5,
+        "journal_records_at_backup": 2,
         "replay": {
-          "already_tombstoned": 0,
+          "already_tombstoned": 2,
           "jobs_cancelled": 0,
           "meeting_absent": 0,
-          "purges_completed": 3,
-          "purges_reopened": 0,
+          "purges_completed": 5,
+          "purges_reopened": 2,
           "reapplied": 3,
-          "records": 3,
+          "records": 5,
           "rejected_lines": 0,
           "unknown_keys_failed": 0,
           "unknown_keys_removed": 0
         },
-        "stale_journal": [],
+        "stale_or_foreign_journal": [],
         "verify": {
           "alive": 0,
           "purges_failed": 0,
           "purges_open": 0,
-          "records": 3,
+          "records": 5,
           "rejected_lines": 0
         }
       },
       "status": "PASS"
     }
   },
-  "finished_at": "2026-10-18T05:04:38.296198+00:00",
+  "finished_at": "2026-10-18T19:55:47.818459+00:00",
   "kind": "homayar-reconciliation/1",
-  "mac": "596ed105cced2cdd3fd06af8cc57ce355c996459264ca3b1dbb950dbe5a55db2",
+  "mac": "6dcd300b5eb20924a05661f574f968a316e261b69f80c0bb3f1cfc72d2d97cf6",
+  "manifest_mac": "77b0fecb33c8cfcdd3e5fd7214dd85764b3327e57ffb24ca390ca173384080fc",
+  "owner_overrides": {},
   "staging_database": "homayar_restoring",
-  "started_at": "2026-10-18T05:04:34.651436+00:00",
+  "started_at": "2026-10-18T19:55:35.003169+00:00",
   "status": "PASS",
   "statuses": {
     "marker": "PASS",
@@ -135,9 +145,9 @@
     "tombstones": "PASS"
   },
   "timings_seconds": {
-    "integrity": 1.56,
-    "reconcile": 0.465,
-    "tombstones": 1.527,
-    "total": 3.645
+    "integrity": 1.948,
+    "reconcile": 9.04,
+    "tombstones": 1.754,
+    "total": 12.815
   }
 }
