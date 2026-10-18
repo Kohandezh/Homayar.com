@@ -335,8 +335,10 @@ def test_the_proxy_never_routes_metrics_to_the_api():
     assert api_paths and all(
         path == "/readyz" or path.startswith("/api/v1") for path in api_paths
     ), api_paths
+    # The catch-all (a redirect or the public site) never reaches the API.
     catch_all = [body for _, path, body in blocks if path == "/"]
-    assert len(catch_all) == 1 and "$public_upstream" in catch_all[0]
+    assert len(catch_all) == 1
+    assert "$api_upstream" not in catch_all[0] and "metrics" not in catch_all[0]
 
 
 # --- heartbeats ------------------------------------------------------------------------
