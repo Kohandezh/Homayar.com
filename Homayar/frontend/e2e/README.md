@@ -37,6 +37,7 @@ settings, which the invitation flow still needs.
 | `access-control.spec.ts` | A viewer is blocked from `/admin` and `/admin/settings`, and still opens the pages their role allows. |
 | `ai-policy.spec.ts` | An owner edits `/admin/ai-policy` with a preset that differs from the current policy, sees the saved version in `Version history` and compares it; an admin reads the policy and history with no edit controls; the page is right to left in Persian. |
 | `api-keys.spec.ts` | An owner reads the seeded key, creates one whose secret shows exactly once and revokes it through the confirm dialog; the page is right to left in Persian and a member is blocked. |
+| `privacy.spec.ts` | An owner places a legal hold on a seeded meeting from its `Data and retention` panel, finds it on `/admin/privacy` under `All holds` and `Due in 30 days` (not `Review due`), releases it from the register, and downloads a data subject export after the warning; an admin gets `No access` and sees no data panel on the meeting. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
 
 Add a file here as each new admin page lands.
@@ -92,6 +93,13 @@ hooks, which run even when a step fails:
   active flag back, and any assignment the run added (the viewer as a `Sales`
   agent) is revoked. A revoked assignment row stays in the drawer as history;
   the server has no way to delete it, and the member count ignores it.
+* `privacy.spec.ts`, in `afterEach`: the run notes the legal holds that were
+  already placed before it did anything, and releases over the API (with the
+  same owner session) only the holds it added. Holds placed by someone else
+  stay as they were. A failed release does not stop the others; the test fails
+  once after the loop. The restore never requests a deletion. The audit log
+  keeps the `media.legal_hold_placed`, `media.legal_hold_released` and
+  `subject.exported` events of every run; the API has no way to remove them.
 * `ai-policy.spec.ts`, in `afterEach`: the policy document the test started
   from is written back over the API. AI policy versions are append-only, so the
   restore itself appends one more version; the document is back to its starting
