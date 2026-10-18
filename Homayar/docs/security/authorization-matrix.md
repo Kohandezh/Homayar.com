@@ -158,6 +158,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/health | public |
 | GET | /healthz | public |
 | GET | /readyz | public |
+| GET | /metrics | public |
 | POST | /api/v1/auth/register | public |
 | POST | /api/v1/auth/verify-email | public |
 | POST | /api/v1/auth/verify-email/resend | session+csrf |
@@ -283,6 +284,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/voicemails/{voicemail_id} | meeting:read |
 | PATCH | /api/v1/voicemails/{voicemail_id} | meeting:update +csrf |
 <!-- matrix:routes:end -->
+
+`GET /metrics` (HOM-113) has no session dependency, so its row reads `public`; its real rule is enforced inside the handler (`backend.observability.metrics.metrics_access`). When `METRICS_BEARER_TOKEN` is set, a matching bearer token is required (constant-time comparison). In staging and production without a token it answers 404, unless `METRICS_ALLOW_UNAUTHENTICATED=true` opts out; that opt-out is on-premise only and is refused in cloud. `METRICS_ENABLED=false` answers 404. It is the only path exempt from the `TRUSTED_HOSTS` check (Prometheus scrapes `api:8000`). The nginx proxy never routes it, and a test asserts this.
 
 Notes on the public rows: `logout` and `refresh` authenticate through the refresh cookie/token they consume; the three `shares/{share_token}` routes are token-addressed and enforce the share contract in §6a on every request; `auth/google/callback` binds to the state cookie issued by `google/start`.
 
