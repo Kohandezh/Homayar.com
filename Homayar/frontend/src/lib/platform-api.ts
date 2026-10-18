@@ -16,6 +16,7 @@ import type {
   ApiKeyListResponse,
   AuditEventListParams,
   AuditEventListResponse,
+  AuditEventTypeListResponse,
   BillingUsageResponse,
   CreateActionInput,
   CreatedApiKey,
@@ -180,6 +181,7 @@ export const platformQueryKeys = {
   auditEvents: (params: AuditEventListParams) =>
     ["platform", "admin", "audit-events", params] as const,
   auditEventsRoot: () => ["platform", "admin", "audit-events"] as const,
+  auditEventTypes: () => ["platform", "admin", "audit-event-types"] as const,
   adminJobs: (params: AdminJobListParams) =>
     ["platform", "admin", "jobs", params] as const,
   adminJobsRoot: () => ["platform", "admin", "jobs"] as const,
@@ -533,6 +535,17 @@ export async function listAuditEvents(
   params: AuditEventListParams = {},
 ): Promise<AuditEventListResponse> {
   const response = await api.get<AuditEventListResponse>("/admin/audit-events", { params });
+  return response.data;
+}
+
+/** The catalog behind the audit event-type filter (GET /admin/audit-event-types). */
+export async function listAuditEventTypes(
+  signal?: AbortSignal,
+): Promise<AuditEventTypeListResponse> {
+  const path = "/admin/audit-event-types";
+  const response = signal
+    ? await api.get<AuditEventTypeListResponse>(path, { signal })
+    : await api.get<AuditEventTypeListResponse>(path);
   return response.data;
 }
 
@@ -1103,6 +1116,19 @@ export function useAuditEvents(params: AuditEventListParams = {}) {
     // Paging keeps the current page (and the focused button) while the next
     // one loads (QA S-01).
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * The catalog behind the event-type filter. It changes only with a backend
+ * release, so it is read once per session, not once per page visit.
+ */
+export function useAuditEventTypes() {
+  return useQuery({
+    queryKey: platformQueryKeys.auditEventTypes(),
+    queryFn: ({ signal }) => listAuditEventTypes(signal),
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 }
 

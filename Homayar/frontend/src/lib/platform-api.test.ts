@@ -32,6 +32,7 @@ import {
   jobRefetchInterval,
   listActions,
   listAuditEvents,
+  listAuditEventTypes,
   listInvitations,
   listMeetings,
   listMembers,
@@ -321,6 +322,7 @@ describe("billing, members, and admin API", () => {
     await revokeInvitation("invitation-1");
     await removeMember("membership-1");
     await listAuditEvents({ event_type: "meeting.uploaded", limit: 20 });
+    await listAuditEventTypes();
     await getWorkspaceSettings();
     await updateWorkspaceSettings({ retention_days: 90 });
 
@@ -329,7 +331,8 @@ describe("billing, members, and admin API", () => {
     expect(get).toHaveBeenNthCalledWith(3, "/admin/audit-events", {
       params: { event_type: "meeting.uploaded", limit: 20 },
     });
-    expect(get).toHaveBeenNthCalledWith(4, "/admin/workspace-settings");
+    expect(get).toHaveBeenNthCalledWith(4, "/admin/audit-event-types");
+    expect(get).toHaveBeenNthCalledWith(5, "/admin/workspace-settings");
     expect(post).toHaveBeenNthCalledWith(1, "/members/invitations", {
       email: "new@example.com",
       role: "member",
