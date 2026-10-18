@@ -243,6 +243,12 @@ class MeetingListResponse(BaseModel):
     next_before: datetime | None = None
 
 
+class MeetingCountsResponse(BaseModel):
+    # One key per meeting status, in enum order; a status with no meetings is 0.
+    counts: dict[str, int]
+    total: int
+
+
 class UploadAcceptedResponse(BaseModel):
     meeting: MeetingResponse
     recording: RecordingResponse

@@ -207,6 +207,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/uploads | meeting:create +csrf |
 | POST | /api/v1/uploads/ | meeting:create +csrf |
 | GET | /api/v1/meetings | meeting:read |
+| GET | /api/v1/meetings/counts | meeting:read |
 | GET | /api/v1/meetings/{meeting_id} | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/job | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/recording | meeting:read |
