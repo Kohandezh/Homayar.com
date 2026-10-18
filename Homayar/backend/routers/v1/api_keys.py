@@ -33,6 +33,7 @@ from backend.services.api_key_service import (
     list_api_keys,
     revoke_api_key,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 
 router = APIRouter(prefix="/api-keys", tags=["api keys"])
@@ -66,7 +67,7 @@ def create_workspace_api_key(
     )
     record_audit_event(
         db,
-        event_type="api_key.created",
+        event_type=AuditEventType.API_KEY_CREATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="api_key",
@@ -98,7 +99,7 @@ def revoke_workspace_api_key(
     if revoke_api_key(db, key=key, now=datetime.now(UTC)):
         record_audit_event(
             db,
-            event_type="api_key.revoked",
+            event_type=AuditEventType.API_KEY_REVOKED,
             actor_user_id=context.actor.user.id,
             workspace_id=context.workspace.id,
             target_type="api_key",

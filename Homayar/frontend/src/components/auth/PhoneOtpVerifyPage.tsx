@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { KeyRound } from "lucide-react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router";
 import { apiErrorInfo } from "@/lib/api-errors";
 import { requestPhoneOtp, verifyPhoneOtp } from "@/lib/auth";
 import { useAuth } from "@/lib/auth-context";

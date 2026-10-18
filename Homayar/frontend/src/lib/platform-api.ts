@@ -13,12 +13,16 @@ import type {
   ActionItem,
   AdminJobListParams,
   AdminJobListResponse,
+  ApiKeyListResponse,
   AuditEventListParams,
   AuditEventListResponse,
   BillingUsageResponse,
   CreateActionInput,
+  CreatedApiKey,
   CreatedShareLink,
+  CreateApiKeyInput,
   CreateShareInput,
+  CreateTeamInput,
   CurrentSubscriptionResponse,
   DownloadPayload,
   EvidenceListResponse,
@@ -44,6 +48,12 @@ import type {
   SearchResponse,
   ShareLink,
   SharedMeeting,
+  Team,
+  TeamAssignment,
+  TeamDetail,
+  TeamListResponse,
+  AssignTeamMemberInput,
+  UpdateTeamInput,
   Transcript,
   TranscriptSpeaker,
   TranscriptView,
@@ -163,6 +173,9 @@ export const platformQueryKeys = {
   usageEventsRoot: () => ["platform", "billing", "usage-events"] as const,
   members: () => ["platform", "members"] as const,
   invitations: () => ["platform", "members", "invitations"] as const,
+  teams: () => ["platform", "teams"] as const,
+  /** The prefix above also matches this key, so one invalidation refreshes both. */
+  team: (id: string) => ["platform", "teams", id] as const,
   admin: () => ["platform", "admin"] as const,
   auditEvents: (params: AuditEventListParams) =>
     ["platform", "admin", "audit-events", params] as const,
@@ -173,6 +186,7 @@ export const platformQueryKeys = {
   jobPolicySnapshots: (jobId: string) =>
     ["platform", "admin", "jobs", jobId, "policy-snapshots"] as const,
   workspaceSettings: () => ["platform", "admin", "workspace-settings"] as const,
+  apiKeys: () => ["platform", "admin", "api-keys"] as const,
   readiness: () => ["platform", "readiness"] as const,
 };
 
@@ -478,6 +492,43 @@ export async function removeMember(membershipId: string): Promise<void> {
   await api.delete(`/members/${membershipId}`);
 }
 
+export async function listTeams(signal?: AbortSignal): Promise<TeamListResponse> {
+  const response = signal ? await api.get<TeamListResponse>("/teams", { signal }) : await api.get<TeamListResponse>("/teams");
+  return response.data;
+}
+
+export async function getTeam(teamId: string, signal?: AbortSignal): Promise<TeamDetail> {
+  const path = `/teams/${teamId}`;
+  const response = signal ? await api.get<TeamDetail>(path, { signal }) : await api.get<TeamDetail>(path);
+  return response.data;
+}
+
+export async function createTeam(input: CreateTeamInput): Promise<Team> {
+  const response = await api.post<Team>("/teams", { name: input.name });
+  return response.data;
+}
+
+export async function updateTeam(teamId: string, patch: UpdateTeamInput): Promise<Team> {
+  const response = await api.patch<Team>(`/teams/${teamId}`, patch);
+  return response.data;
+}
+
+export async function assignTeamMember(teamId: string, input: AssignTeamMemberInput): Promise<TeamAssignment> {
+  // The date keys are absent, not null, when no period was chosen.
+  const body = {
+    user_id: input.user_id,
+    role: input.role,
+    ...(input.valid_from !== undefined ? { valid_from: input.valid_from } : {}),
+    ...(input.valid_until !== undefined ? { valid_until: input.valid_until } : {}),
+  };
+  const response = await api.post<TeamAssignment>(`/teams/${teamId}/assignments`, body);
+  return response.data;
+}
+
+export async function revokeTeamAssignment(teamId: string, assignmentId: string): Promise<void> {
+  await api.delete(`/teams/${teamId}/assignments/${assignmentId}`);
+}
+
 export async function listAuditEvents(
   params: AuditEventListParams = {},
 ): Promise<AuditEventListResponse> {
@@ -519,6 +570,21 @@ export async function updateWorkspaceSettings(
 ): Promise<WorkspaceSettings> {
   const response = await api.patch<WorkspaceSettings>("/admin/workspace-settings", input);
   return response.data;
+}
+
+export async function listApiKeys(signal?: AbortSignal): Promise<ApiKeyListResponse> {
+  const config = signal ? { signal } : undefined;
+  const response = await api.get<ApiKeyListResponse>("/api-keys", config);
+  return response.data;
+}
+
+export async function createApiKey(input: CreateApiKeyInput): Promise<CreatedApiKey> {
+  const response = await api.post<CreatedApiKey>("/api-keys", input);
+  return response.data;
+}
+
+export async function revokeApiKey(keyId: string): Promise<void> {
+  await api.delete(`/api-keys/${encodeURIComponent(keyId)}`);
 }
 
 function meetingIdOrEmpty(meetingId: string | null | undefined): string {
@@ -970,6 +1036,66 @@ export function useRemoveMember() {
   });
 }
 
+export function useTeams() {
+  return useQuery({
+    queryKey: platformQueryKeys.teams(),
+    queryFn: ({ signal }) => listTeams(signal),
+  });
+}
+
+/** One team with its assignments; disabled until a team is actually opened. */
+export function useTeam(teamId: string | null | undefined) {
+  const id = teamId ?? "";
+  return useQuery({
+    queryKey: platformQueryKeys.team(id),
+    queryFn: ({ signal }) => getTeam(id, signal),
+    enabled: Boolean(teamId),
+  });
+}
+
+/**
+ * Every team mutation invalidates the whole `teams` prefix on settle: the
+ * list, each team's assignments and the member counts all come from it.
+ */
+function useInvalidateTeamsOnSettle() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: platformQueryKeys.teams() });
+}
+
+export function useCreateTeam() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: createTeam,
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useUpdateTeam() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, patch }: { teamId: string; patch: UpdateTeamInput }) => updateTeam(teamId, patch),
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useAssignTeamMember() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, input }: { teamId: string; input: AssignTeamMemberInput }) =>
+      assignTeamMember(teamId, input),
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useRevokeTeamAssignment() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, assignmentId }: { teamId: string; assignmentId: string }) =>
+      revokeTeamAssignment(teamId, assignmentId),
+    onSettled: invalidateTeams,
+  });
+}
+
 export function useAuditEvents(params: AuditEventListParams = {}) {
   return useQuery({
     queryKey: platformQueryKeys.auditEvents(params),
@@ -1013,6 +1139,44 @@ export function useUpdateWorkspaceSettings() {
     mutationFn: updateWorkspaceSettings,
     onSuccess: (settings) => {
       queryClient.setQueryData(platformQueryKeys.workspaceSettings(), settings);
+    },
+  });
+}
+
+export function useApiKeys() {
+  return useQuery({
+    queryKey: platformQueryKeys.apiKeys(),
+    queryFn: ({ signal }) => listApiKeys(signal),
+  });
+}
+
+/**
+ * The 201 answer holds the one and only copy of the raw key, so the mutation
+ * is dropped from the cache at once (`gcTime: 0` plus `reset()` when the
+ * modal closes) and its success only invalidates the list; the key itself is
+ * never written into any query, the way `useRevealValue` never caches a
+ * revealed value.
+ */
+export function useCreateApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createApiKey,
+    gcTime: 0,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformQueryKeys.apiKeys() });
+    },
+  });
+}
+
+export function useRevokeApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: revokeApiKey,
+    // Also on a 404: the key is gone on the server, so the list must not keep
+    // showing it as active (the same reason the member mutations invalidate
+    // onSettled).
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: platformQueryKeys.apiKeys() });
     },
   });
 }

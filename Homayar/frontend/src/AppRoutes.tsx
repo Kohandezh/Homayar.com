@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet, useLocation } from "react-router";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { ADMIN_NAV } from "@/lib/navigation";
@@ -107,7 +107,7 @@ export function AppRoutes() {
               key={entry.path}
               path={entry.path}
               element={
-                <AdminGuard permission={entry.permission}>
+                <AdminGuard entry={entry}>
                   <AdminPage entry={entry} />
                 </AdminGuard>
               }

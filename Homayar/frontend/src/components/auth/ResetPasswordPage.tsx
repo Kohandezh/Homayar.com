@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { KeyRound } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { resetPassword } from "@/lib/auth";
 import { authErrorText, useAuthCopy } from "@/components/auth/auth-copy";
 import { AuthCard, AuthField, FormAlert, PasswordField, SubmitButton } from "@/components/auth/AuthUi";

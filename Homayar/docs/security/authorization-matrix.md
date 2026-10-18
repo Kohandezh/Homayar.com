@@ -69,7 +69,7 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 | ai_policy:manage | ✓ | – | – | – |
 <!-- matrix:permissions:end -->
 
-`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds (§6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope.
+`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope.
 
 ### 3a. Permission grants by organization role (machine-checked)
 
@@ -187,6 +187,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/teams/{team_id}/assignments | team:manage +csrf |
 | DELETE | /api/v1/teams/{team_id}/assignments/{assignment_id} | team:manage +csrf |
 | GET | /api/v1/admin/audit-events | audit:read |
+| GET | /api/v1/admin/audit-event-types | audit:read |
+| GET | /api/v1/admin/shares | workspace:manage |
 | GET | /api/v1/admin/workspace-settings | workspace:manage |
 | PATCH | /api/v1/admin/workspace-settings | workspace:manage +csrf |
 | GET | /api/v1/admin/jobs | workspace:manage |
@@ -196,6 +198,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | PUT | /api/v1/admin/ai-policy | ai_policy:manage +csrf |
 | GET | /api/v1/admin/ai-policy/versions | workspace:manage |
 | GET | /api/v1/admin/jobs/{job_id}/policy-snapshots | workspace:manage |
+| GET | /api/v1/admin/legal-holds | legal_hold:manage |
 | GET | /api/v1/billing/plans | billing:read |
 | GET | /api/v1/billing/subscription | billing:read |
 | GET | /api/v1/billing/usage | billing:read |
@@ -204,6 +207,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/uploads | meeting:create +csrf |
 | POST | /api/v1/uploads/ | meeting:create +csrf |
 | GET | /api/v1/meetings | meeting:read |
+| GET | /api/v1/meetings/counts | meeting:read |
 | GET | /api/v1/meetings/{meeting_id} | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/job | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/recording | meeting:read |
@@ -302,6 +306,7 @@ Source: `backend/services/share_service.py`, `backend/services/download_service.
 | Downloads | local storage: application-mediated streaming with `Range`/`206`, bounded 1 MiB chunks, `X-Homayar-Revocation: immediate`. S3-compatible storage: 307 to a presigned URL for exactly that object, TTL ≤ 300 s, `X-Homayar-Revocation: expiry-bounded` (an already-issued URL survives revocation until it expires). |
 | Database ceiling | a request carrying only the share token sees, through RLS, the one shared meeting's content, the issuer's membership and (as any signed-in user) the caller's own memberships and organization memberships; it can write only the share's access counters, a recipient binding and an audit row. Tenant context is bound only for the `workspace` audience after membership validation. |
 | Tokens | 32 random bytes (URL-safe); only the peppered SHA-256 is stored; raw tokens appear in the creation response only. Rate limited per token and client address. |
+| Administrator list | `GET /api/v1/admin/shares` (`workspace:manage`, read-only, never through an API key) lists every share link of the workspace with its status (`active`, `revoked`, `expired`), leaving out shares of soft-deleted meetings. It never returns the token, the token hash, a share URL or recipient addresses. Test: `test_admin_shares_api.py`. |
 
 ## 6b. API-key scope (WP03-T07)
 
@@ -387,6 +392,7 @@ Scopes an API key may carry (machine-checked against `API_KEY_SCOPES`):
 | The ORIGINAL is registered in the upload transaction from the digest-verified stored object, linked to the recording, the ingestion row and the root job, with the conversation's retention; the storage layer never overwrites a published object | `create_upload_job`, `Recording.media_object_id`, `put_stream` (no in-place overwrite) | same, `test_storage_providers.py` |
 | Deletion is state first, bytes second: a request marks the row `deletion_pending` (or records the request on a `legal_hold` row and keeps the bytes), the removal happens after the commit and is idempotent; a failed removal leaves the row pending; `deleted` rows carry `deleted_at`. Meeting deletion and delete-after-processing both go through this path; on meeting deletion the recording is unavailable at once, under delete-after-processing the recording is marked deleted only once the bytes are gone (WP06: nothing is pretended) and a hold keeps both; closing an ORIGINAL (`mark_deleted`, whichever path removed the bytes — a released hold's request included) retires its recording so no row claims bytes that no longer exist | `retire_meeting_media`, `request_deletion`, `delete_objects`, `mark_deleted`; `delete_meeting` route; `_delete_audio_after_success` in `backend/jobs/processor.py` | same, `test_job_processor.py` |
 | A legal hold is a compliance action separate from deletion preferences (WP07-T02): only `legal_hold:manage` (owner; never an API-key scope, admins excluded) places or releases one, through `POST /meetings/{meeting_id}/legal-hold` (every live object of a live conversation), `POST /media/{media_id}/legal-hold` (one object, also of a deleted conversation) and `POST /media/{media_id}/legal-hold/release`; a hold records who placed it, a reason (3–200 chars) and a review date (future, ≤ 3650 days; constraint `ck_media_hold_review`), is idempotent (a repeat never rewrites owner/reason), overrides retention expiry, a recorded deletion request, orphan classification and temporary cleanup until released, and cannot be placed on deleted bytes (`409 already_deleted`); the release needs its own reason, is audited with `release_reason` / `held_since` / `deletion_pending`, and resumes a recorded deletion request state-first, bytes-second; the reconciliation sweep reports overdue reviews (`holds_review_due`, warning log) and never acts on them | `place_legal_hold` / `release_legal_hold` / `holds_due_for_review`, `Permission.LEGAL_HOLD_MANAGE`, `reconcile_media_objects` | `test_legal_hold.py`, `test_media_lifecycle.py` |
+| The legal-hold register (HOM-192): `GET /admin/legal-holds` lists every object of the caller's workspace that is on hold now (released and never-held objects are left out) with media id, kind, meeting id and title, reason, who placed the hold, when, and the review date, and no storage key, digest, filename or size; it needs `legal_hold:manage` (owner only; admin, member and viewer get `403`; never an API-key scope, so every key gets `403 api_key_scope_denied`); holds of soft-deleted conversations and of objects without a meeting are listed (`meeting_title` is the stored title, or null without a meeting row); `due_before` keeps holds whose review date is on or before it (a value without a time zone is UTC); the order is review date then id, ascending, paged with a cursor of its own (a malformed cursor or another list's cursor is `400 invalid_cursor`); the query and its meeting join are bound to the caller's workspace; the read writes no audit event | `list_legal_holds` in `backend/routers/v1/admin.py`, `list_workspace_legal_holds` in `backend/services/admin_legal_holds_service.py` | `test_admin_legal_holds_api.py` |
 | Integrity is verified by re-reading the bytes and comparing digest and size (`verified` / `corrupt` / `missing`), audited; the route needs `meeting:update` (+CSRF) and answers `404` for another conversation's object | `verify_integrity`, `POST /meetings/{meeting_id}/media/{media_id}/verify` | same |
 | Media rows are tenant rows readable with `meeting:read` under record scope through the conversation; responses never carry the storage key; a foreign tenant sees `404`; RLS tenant-only policy | `GET /meetings/{meeting_id}/media`, `_get_meeting`, `media_objects` in `WORKSPACE_TABLES` | same, `test_row_level_security.py` |
 | Audit of media events carries ids, kind, state, reason, size and integrity only | `_details` in `backend/services/media_lifecycle_service.py` | `test_media_lifecycle.py` |

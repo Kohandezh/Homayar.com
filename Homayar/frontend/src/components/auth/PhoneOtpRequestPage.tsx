@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Phone } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import { apiErrorInfo } from "@/lib/api-errors";
 import { requestPhoneOtp } from "@/lib/auth";
 import { useAuthMethods } from "@/lib/auth-methods";

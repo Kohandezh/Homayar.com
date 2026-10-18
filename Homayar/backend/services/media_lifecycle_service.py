@@ -37,6 +37,7 @@ from backend.database.saas_models import (
     Recording,
     Workspace,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.logging_service import logger
 from backend.storage.base import ObjectNotFoundError, ObjectStorage, StoredObject
@@ -120,7 +121,7 @@ def register_original(
     recording.media_object_id = media.id
     record_audit_event(
         db,
-        event_type="media.registered",
+        event_type=AuditEventType.MEDIA_REGISTERED,
         actor_user_id=actor_user_id,
         workspace_id=workspace.id,
         target_type="media",
@@ -191,7 +192,7 @@ def register_derived(
     db.flush()
     record_audit_event(
         db,
-        event_type="media.registered",
+        event_type=AuditEventType.MEDIA_REGISTERED,
         actor_user_id=actor_user_id,
         workspace_id=source.workspace_id,
         target_type="media",
@@ -265,7 +266,7 @@ def request_deletion(
         media.deletion_reason = reason[:_MAX_REASON]
         record_audit_event(
             db,
-            event_type="media.deletion_requested",
+            event_type=AuditEventType.MEDIA_DELETION_REQUESTED,
             actor_user_id=actor_user_id,
             workspace_id=media.workspace_id,
             target_type="media",
@@ -303,7 +304,7 @@ def mark_deleted(
             recording.deleted_at = now
     record_audit_event(
         db,
-        event_type="media.deleted",
+        event_type=AuditEventType.MEDIA_DELETED,
         actor_user_id=actor_user_id,
         workspace_id=media.workspace_id,
         target_type="media",
@@ -438,7 +439,7 @@ def place_legal_hold(
     media.legal_hold_review_at = review_at
     record_audit_event(
         db,
-        event_type="media.legal_hold_placed",
+        event_type=AuditEventType.MEDIA_LEGAL_HOLD_PLACED,
         actor_user_id=actor_user_id,
         workspace_id=media.workspace_id,
         target_type="media",
@@ -478,7 +479,7 @@ def release_legal_hold(
     )
     record_audit_event(
         db,
-        event_type="media.legal_hold_released",
+        event_type=AuditEventType.MEDIA_LEGAL_HOLD_RELEASED,
         actor_user_id=actor_user_id,
         workspace_id=media.workspace_id,
         target_type="media",
@@ -542,7 +543,7 @@ def verify_integrity(
     media.last_verified_at = now
     record_audit_event(
         db,
-        event_type="media.integrity_checked",
+        event_type=AuditEventType.MEDIA_INTEGRITY_CHECKED,
         actor_user_id=actor_user_id,
         workspace_id=media.workspace_id,
         target_type="media",

@@ -1,12 +1,12 @@
 import { useId, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router";
 import { AudioLines, LogOut } from "lucide-react";
 import { Button, Separator, Spinner, buttonVariants } from "@heroui/react";
 import { useAuth } from "@/lib/auth-context";
 import { describeApiError } from "@/lib/error-messages";
 import { useI18n, type Lang } from "@/lib/i18n-context";
 import { ADMIN_NAV, MAIN_NAV, type MainNavEntry } from "@/lib/navigation";
-import { useCan } from "@/lib/use-can";
+import { canOpenAdminEntry, useCan } from "@/lib/use-can";
 
 function NavItem({ entry, lang, onNavigate }: { entry: MainNavEntry; lang: Lang; onNavigate?: () => void }) {
   return (
@@ -31,8 +31,8 @@ function NavItem({ entry, lang, onNavigate }: { entry: MainNavEntry; lang: Lang;
 
 /**
  * The console navigation: the desktop sidebar and the body of the mobile
- * drawer. Admin entries appear only when the selected workspace has their
- * permission, the same check the route guard makes.
+ * drawer. Admin entries appear only when they open (canOpenAdminEntry), the
+ * same check the route guard makes.
  */
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate();
@@ -43,7 +43,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const isFa = lang === "fa";
-  const adminEntries = ADMIN_NAV.filter((entry) => can.has(entry.permission));
+  const adminEntries = ADMIN_NAV.filter((entry) => canOpenAdminEntry(can, entry));
 
   async function handleLogout() {
     setLogoutError("");

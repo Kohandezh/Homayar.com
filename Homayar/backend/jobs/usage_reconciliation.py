@@ -51,13 +51,14 @@ from backend.database.tenant_context import (
     bind_tenant_context,
 )
 from backend.jobs.leases import database_now
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import adjust_usage, release_usage
 from backend.services.logging_service import logger
 
 ORPHAN_REASON = "reconciled_orphan"
 COUNTER_REASON = "reconciled_counters"
-AUDIT_EVENT = "usage.reconciled"
+AUDIT_EVENT = AuditEventType.USAGE_RECONCILED
 
 
 @dataclass(frozen=True)

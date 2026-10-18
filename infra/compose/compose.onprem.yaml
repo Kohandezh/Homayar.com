@@ -373,6 +373,50 @@ services:
     networks: [backend]
     logging: *default-logging
 
+  # Backup, isolated restore and recovery (HOM-116/117, ADR 0035,
+  # docs/operations/backup-restore.md). Wrapped by infra/scripts/backup.sh and
+  # infra/scripts/restore-isolated.sh:
+  #   ... --profile onprem --profile ops run --rm backup-tool create | verify | list | prune
+  #   ... run --rm backup-tool restore|reconcile|promote <id> --staging-db <db>_restoring ...
+  # DATABASE_URL must log in as POSTGRES_USER (superuser): a backup bypasses RLS.
+  # The key file comes from the secret manager and is never stored with the sets.
+  backup-tool:
+    <<: *api-image
+    profiles: [ops]
+    user: "${BACKUP_UID:-10001}:${BACKUP_GID:-10001}"
+    entrypoint: ["python", "-m", "backend.backup"]
+    command: ["list"]
+    environment:
+      <<: *app-environment
+      BACKUP_ROOT: /backups
+      HOMAYAR_BACKUP_KEY_FILE: /run/secrets/homayar-backup-key
+      HOMAYAR_BACKUP_TEXTFILE: /textfile/homayar_backup.prom
+      HOMAYAR_RELEASE_SHA: "${HOMAYAR_RELEASE_SHA:-}"
+      HOMAYAR_RELEASE_VERSION: "${HOMAYAR_RELEASE_VERSION:-}"
+      API_IMAGE: "${API_IMAGE:-homayar/api:local}"
+      HOMAYAR_BACKUP_S3_ENDPOINT: "${BACKUP_OFFSITE_S3_ENDPOINT:-}"
+      HOMAYAR_BACKUP_S3_ACCESS_KEY: "${BACKUP_OFFSITE_S3_ACCESS_KEY:-}"
+      HOMAYAR_BACKUP_S3_SECRET_KEY: "${BACKUP_OFFSITE_S3_SECRET_KEY:-}"
+      HOMAYAR_BACKUP_S3_REGION: "${BACKUP_OFFSITE_S3_REGION:-us-east-1}"
+    volumes:
+      - "${BACKUP_ROOT:-../backups}:/backups"
+      - "${BACKUP_KEY_FILE:-/dev/null}:/run/secrets/homayar-backup-key:ro"
+      # node_exporter's textfile directory, outside the 0700 backup root (backup.sh requires it).
+      - "${NODE_EXPORTER_TEXTFILE_DIR:-../node-exporter-textfile}:/textfile"
+      - "${BACKUP_OFFSITE_PATH:-../backups-offsite}:/offsite"
+      - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones:ro"
+    # No depends_on: the scripts start exactly the stores they need (and the
+    # ops profile stays valid on its own, like minio-tools).
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # backend: PostgreSQL and MinIO; egress: an s3:// off-site target through
+    # the egress proxy (its host must be on the allowlist).
+    networks: [backend, egress]
+    logging: *default-logging
+
   migrate:
     <<: *api-image
     profiles: [migrate]

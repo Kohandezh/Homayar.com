@@ -10,6 +10,7 @@ import {
   useMembers,
   useReadiness,
 } from "@/lib/platform-api";
+import { useVoiceCapacity } from "@/lib/voice-api";
 import { formatAudioSeconds, formatDate } from "@/lib/format";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, networkError, renderConsole } from "@/test/fixtures";
 import type {
@@ -30,6 +31,10 @@ vi.mock("@/lib/platform-api", () => ({
   useInvitations: vi.fn(),
   useAuditEvents: vi.fn(),
   useReadiness: vi.fn(),
+}));
+
+vi.mock("@/lib/voice-api", () => ({
+  useVoiceCapacity: vi.fn(),
 }));
 
 const T = "2026-09-24T12:00:00Z";
@@ -139,6 +144,7 @@ interface Answers {
   invitations: QueryState;
   audit: QueryState;
   readiness: QueryState;
+  voice: QueryState;
 }
 
 const ALL_DATA: Answers = {
@@ -171,6 +177,7 @@ const ALL_DATA: Answers = {
     next_cursor: null,
   }),
   readiness: ok({ status: "ready", checks: { database: "ready", redis: "ready" } }),
+  voice: ok({ workspace: { workspace_id: "ws-1", held: 0, limit: 200 } }),
 };
 
 function answer(overrides: Partial<Answers> = {}) {
@@ -184,6 +191,7 @@ function answer(overrides: Partial<Answers> = {}) {
   vi.mocked(useInvitations).mockReturnValue(answers.invitations as never);
   vi.mocked(useAuditEvents).mockReturnValue(answers.audit as never);
   vi.mocked(useReadiness).mockReturnValue(answers.readiness as never);
+  vi.mocked(useVoiceCapacity).mockReturnValue(answers.voice as never);
 }
 
 function renderPage(lang: "fa" | "en" = "en", permissions?: string[]) {
@@ -196,8 +204,8 @@ function renderPage(lang: "fa" | "en" = "en", permissions?: string[]) {
   });
 }
 
-const CARD_NAMES_EN = ["Processing", "Needs attention", "Quota", "Plan", "Members", "Recent activity"];
-const CARD_NAMES_FA = ["پردازش", "نیازمند بررسی", "سهمیه", "طرح اشتراک", "اعضا", "رویدادهای اخیر"];
+const CARD_NAMES_EN = ["Processing", "Needs attention", "Voice capacity", "Quota", "Plan", "Members", "Recent activity"];
+const CARD_NAMES_FA = ["پردازش", "نیازمند بررسی", "ظرفیت تماس صوتی", "سهمیه", "طرح اشتراک", "اعضا", "رویدادهای اخیر"];
 
 function region(name: string) {
   return screen.getByRole("region", { name });
@@ -234,9 +242,16 @@ describe("AdminOverviewPage", () => {
     expect(meetingParams).toContainEqual({ limit: 100 });
     expect(meetingParams).toContainEqual({ status: "failed", limit: 5 });
     expect(vi.mocked(useAuditEvents).mock.calls.map(([params]) => params)).toContainEqual({ limit: 10 });
-    for (const hook of [useBillingUsage, useCurrentSubscription, useMembers, useInvitations, useReadiness]) {
+    for (const hook of [useBillingUsage, useCurrentSubscription, useMembers, useInvitations, useReadiness, useVoiceCapacity]) {
       expect(hook).toHaveBeenCalled();
     }
+  });
+
+  it("shows the workspace voice capacity to an admin who is not a platform operator", () => {
+    renderPage("en");
+    const card = region("Voice capacity");
+    expect(within(card).getByText("0 / 200")).toBeInTheDocument();
+    expect(within(card).getByRole("meter", { name: "Concurrent calls" })).toHaveAttribute("aria-valuenow", "0");
   });
 
   it("counts meetings by group and says which sample the numbers cover", () => {
@@ -352,6 +367,7 @@ describe("AdminOverviewPage states", () => {
       invitations: pending(),
       audit: pending(),
       readiness: pending(),
+      voice: pending(),
     });
     renderPage("en");
     for (const name of CARD_NAMES_EN) {
@@ -375,6 +391,7 @@ describe("AdminOverviewPage states", () => {
       invitations: failed(),
       audit: failed(),
       readiness: failed(networkError()),
+      voice: failed(),
     });
     renderPage("en");
     expect(screen.getByRole("heading", { level: 1, name: "Admin overview" })).toBeInTheDocument();
@@ -480,16 +497,17 @@ describe("AdminOverviewPage system status chip", () => {
     expect(chip.closest("section")).toBeNull();
     expect(screen.queryByText(/Degraded/)).not.toBeInTheDocument();
     expect(screen.queryByText("System ready")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("region")).toHaveLength(6);
+    expect(screen.getAllByRole("region")).toHaveLength(7);
   });
 });
 
 describe("AdminOverviewPage permissions", () => {
   it("renders only the cards the workspace may read and never asks for the others", () => {
     renderPage("en", ["workspace:manage", "meeting:read"]);
-    expect(screen.getAllByRole("region")).toHaveLength(2);
+    expect(screen.getAllByRole("region")).toHaveLength(3);
     expect(region("Processing")).toBeInTheDocument();
     expect(region("Needs attention")).toBeInTheDocument();
+    expect(region("Voice capacity")).toBeInTheDocument();
     for (const name of ["Quota", "Plan", "Members", "Recent activity"]) {
       expect(screen.queryByRole("region", { name })).not.toBeInTheDocument();
     }
@@ -503,7 +521,9 @@ describe("AdminOverviewPage permissions", () => {
     renderPage("en", ["workspace:manage", "billing:read", "member:read", "audit:read"]);
     expect(screen.queryByRole("region", { name: "Processing" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Needs attention" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Voice capacity" })).not.toBeInTheDocument();
     expect(useMeetings).not.toHaveBeenCalled();
+    expect(useVoiceCapacity).not.toHaveBeenCalled();
     expect(screen.getAllByRole("region")).toHaveLength(4);
   });
 });
@@ -522,6 +542,7 @@ describe("AdminOverviewPage in Persian", () => {
     expect(within(region("سهمیه")).getByText("نامحدود")).toBeInTheDocument();
     expect(within(region("طرح اشتراک")).getByText("فعال")).toBeInTheDocument();
     expect(screen.getByText("سامانه آماده است")).toBeInTheDocument();
+    expect(within(region("ظرفیت تماس صوتی")).getByText("۰ / ۲۰۰")).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/[0-9]/);
   });
 

@@ -46,6 +46,7 @@ from backend.security.context import (
     require_write_permission,
 )
 from backend.security.tokens import token_digest
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.download_service import deliver_recording
 from backend.services.export_service import (
@@ -131,7 +132,7 @@ def create_share(
     )
     record_audit_event(
         db,
-        event_type="meeting.share_created",
+        event_type=AuditEventType.MEETING_SHARE_CREATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="share_link",
@@ -205,7 +206,7 @@ def revoke_share(
         share.revoked_at = datetime.now(UTC)
         record_audit_event(
             db,
-            event_type="meeting.share_revoked",
+            event_type=AuditEventType.MEETING_SHARE_REVOKED,
             actor_user_id=context.actor.user.id,
             workspace_id=context.workspace.id,
             target_type="share_link",
@@ -244,7 +245,7 @@ def edit_share_recipients(
     )
     record_audit_event(
         db,
-        event_type="meeting.share_recipients_changed",
+        event_type=AuditEventType.MEETING_SHARE_RECIPIENTS_CHANGED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="share_link",
@@ -340,7 +341,7 @@ def _record_access(
         details.update(extra)
     record_audit_event(
         db,
-        event_type="meeting.share_accessed",
+        event_type=AuditEventType.MEETING_SHARE_ACCESSED,
         actor_user_id=grant.actor_user.id if grant.actor_user else None,
         workspace_id=grant.share.workspace_id,
         target_type="share_link",

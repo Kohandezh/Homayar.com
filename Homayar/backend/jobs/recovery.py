@@ -60,6 +60,7 @@ from backend.jobs.leases import as_utc, database_now, release_lease
 from backend.jobs.outbox import dispatch_job, rearm_dispatch
 from backend.jobs.processor import STAGE_BY_POINTER, persist_stage_runs
 from backend.jobs.states import STAGE_ORDER, StageRecord
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.logging_service import logger
 
@@ -193,7 +194,7 @@ def recover_expired_lease(candidate: ExpiredLease, settings: Settings) -> Recove
                 now=now,
             )
             state = "cancelled"
-            event_type = "meeting.processing.cancelled"
+            event_type = AuditEventType.MEETING_PROCESSING_CANCELLED
         elif verdict == RetryVerdict.ALLOWED:
             job.state = JobState.QUEUED
             job.stage = "recovery_scheduled"
@@ -202,7 +203,7 @@ def recover_expired_lease(candidate: ExpiredLease, settings: Settings) -> Recove
             assert meeting is not None
             meeting.status = MeetingStatus.QUEUED
             state = "recovered"
-            event_type = "meeting.processing.lease_expired"
+            event_type = AuditEventType.MEETING_PROCESSING_LEASE_EXPIRED
         else:
             if verdict == RetryVerdict.DEADLINE_EXCEEDED:
                 code, failure_class = JOB_DEADLINE_EXCEEDED, FailureClass.DEADLINE
@@ -225,7 +226,7 @@ def recover_expired_lease(candidate: ExpiredLease, settings: Settings) -> Recove
                 release_reason=LEASE_EXPIRED,
             )
             state = "exhausted"
-            event_type = "meeting.processing.failed"
+            event_type = AuditEventType.MEETING_PROCESSING_FAILED
             details["retryable"] = False
             details["terminal_reason"] = verdict.value
         record_audit_event(

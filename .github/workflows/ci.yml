@@ -91,6 +91,39 @@ jobs:
         if: hashFiles('tests/**/*.spec.ts') != ''
         run: pnpm test:e2e
 
+  website:
+    name: Website lint and Cloudflare build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "${{ env.NODE_VERSION }}"
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build for Cloudflare Workers
+        run: pnpm build:cf
+
   console-web:
     name: Product console lint, build, and tests
     runs-on: ubuntu-24.04
@@ -320,6 +353,7 @@ jobs:
           rhysd/actionlint:1.7.7
           -color=false
           .github/workflows/ci.yml
+          .github/workflows/release-website.yml
 
       - name: Validate on-prem Compose profile
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem config --quiet

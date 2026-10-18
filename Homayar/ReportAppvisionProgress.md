@@ -10,13 +10,14 @@ VALIDATED requires passing evidence on the recorded SHA. Historical WP statuses 
 
 | Field | Value |
 | --- | --- |
-| Updated (UTC) | 2026-10-10 (WP18 plans and entitlements, PR #18; see §L; freeze at main `ecd77cc` in §K) |
+| Updated (UTC) | 2026-10-17 (integrator reconciliation after Lanes A/B and the console backend tickets; §M; infrastructure-freeze status in §N) |
 | Repository | github.com/Kohandezh/Homayar.com (monorepo; product in `Homayar/`, ADR 0033) |
-| Working branch | `backend/core-freeze-wp18` from main `ecd77cc` (PR #18) |
-| Migration head | `c5e7a9b1d3f6` on the working branch (versioned plans; 32 linear migrations; main: `a1c3e5f7b9d2`) |
+| Current main | `fcc4962` (merge of PR #39, the Phase 0 privacy-test fix; §M) |
+| Working sessions | Integrator, plus Lane C (backup/restore, HOM-153/116/117/118) and Lane D (audit/observability/release, HOM-113/114/115/126/28/29); Lanes A and B retired (§E) |
+| Migration head | `d8a2f4c6b1e3` (HOM-195 text views); 33 migrations, one Alembic head |
 | Runtime | Python 3.12, FastAPI, SQLAlchemy 2, Alembic, Celery 5 + Redis |
-| CI services | PostgreSQL 17, Redis 7.4, ffmpeg 6.1.1 (Ubuntu 24.04) |
-| Last validated main | `ecd77cc` locally (§K): 2346 passed, 45 skipped; last CI-validated: `fd2d298`/PR #6 run 36294427694 (716 passed, 46 skipped) |
+| CI services | PostgreSQL 17, Redis 7.4, ffmpeg 6.1.1 (Ubuntu 24.04); GitHub Actions runs again since 2026-10-10 |
+| Last validated main | `fcc4962`: its tree was validated by PR #39's run 39079278356 (7 of 7 checks; backend 2806 passed / 0 failed / 46 skipped; main had not moved, so the merge ref equals `fcc4962`). The push run on main is 39080861815. Last green main before Phase 0: `05c16ad` (2026-10-14). Core Baseline (local) `ecd77cc`, §K |
 
 ## B. Authoritative repository map (backend = `Homayar/backend`)
 
@@ -32,7 +33,7 @@ VALIDATED requires passing evidence on the recorded SHA. Historical WP statuses 
 | Processing | `jobs/{processor,leases,recovery,outbox,dispatcher,checkpoints,failures,replay}.py`, `celery_app/` | processing_jobs, job_dispatches, processing_stage_runs, stage_checkpoints | `/meetings/{id}/job`, `/admin/jobs/{id}/replay` | process_meeting_job, sweep_* | test_job_*, test_dispatch_outbox, test_stage_checkpoints, test_transport_drills | VALIDATED (WP06) |
 | Evidence | `services/evidence_service.py` | evidence_spans, transcript_revisions | `/meetings/{id}/evidence` | — | test_evidence_spans | VALIDATED (WP04) |
 | Models/providers | `providers/{base,schemas,factory,registry,routing,policy,resilience,egress,whisper,openai_compatible,padyar}.py` | model_manifests, provider_health, ai_policy_versions, run_policy_snapshots | `/admin/ai-policy*` | model_preflight | test_provider_*, test_model_registry, test_ai_policy, test_egress_denial | PARTIAL (WP08; Gateway contract external) |
-| Privacy | `privacy/*` | transcript_redactions, redacted_segments, pii_mappings | `/privacy/subject-exports` | — | test_text_pii | VALIDATED (WP07 local) |
+| Privacy | `privacy/*` | transcript_redactions, redacted_segments, pii_mappings | `/privacy/subject-exports` | — | test_text_pii, test_privacy_routing | VALIDATED (WP07 local; detector `text-pii/4`, HOM-171, PR #25) |
 | Retention | `services/retention_policy.py`, `conversation_purge_service.py`, `tombstone_journal.py`, `jobs/retention_purge.py` | conversation_purges | legal-hold routes | run_retention_purge | test_retention_*, test_legal_hold, test_tombstone_reapply | VALIDATED (WP07 local) |
 | Usage/billing | `services/entitlement_service.py`, `jobs/usage_reconciliation.py`, `routers/v1/billing.py` | plans, plan_versions, subscriptions, entitlements, usage_reservations, usage_events, provider_usage | `/billing/*` | reconcile_usage | test_usage_ledger, test_entitlements, test_billing_api, test_plan_catalog, test_admin_seats | PARTIAL (F18 foundation; F19 versioned plans, pinned grants and owner/admin seats (§L); plan change/rollover WP18-T04 and paid onboarding N01 open) |
 | Approvals/actions | `action_items` via insights router | action_items | `/meetings/{id}/actions` | — | test_insights_shares_api | PARTIAL (no approval workflow) |
@@ -41,14 +42,14 @@ VALIDATED requires passing evidence on the recorded SHA. Historical WP statuses 
 | Voice runtime | `voice/{models,admission,state,metrics,loadtest,recovery}.py`, `routers/v1/voice.py` | voice_call_sessions (tenant), voice_workspace_limits (tenant), voice_media_nodes / voice_admission_locks / voice_capacity_slots (deployment-wide) | `/voice/calls*`, `/voice/capacity`, `/voice/nodes*` (platform operator), `/voice/recover` | beat `voice-recovery` | test_voice_admission, test_voice_api | PARTIAL (control plane; no SIP/WebRTC media) |
 | Voicemail | `voicemail/{models,ingest,classify,pipeline,search}.py`, `routers/v1/voicemail.py` | voicemail_messages | `/voicemails*` | `jobs/processor._run_voicemail_hook` | test_voicemail_* | PARTIAL (rule classifier; LLM classifier pluggable) |
 | Locations | `locations/{gazetteer,extract,normalize,validate,routing,service,models}.py`, `routers/v1/locations.py` | service_locations | `/locations*`, `/locations/resolve`, `/locations/nearest` | — | test_locations_* | PARTIAL (approx. centroids; no geocoder) |
-| Speech/language | `speech/{text_normalize,dates,entities,audio_profile,languages,benchmark}.py` | — | — | — | test_speech_* | PARTIAL (library; not yet wired into processor) |
+| Speech/language | `speech/{text_normalize,dates,entities,audio_profile,languages,benchmark}.py` | — | — | — | test_speech_*, test_text_view | PARTIAL (derived normalized view + entities wired into the processor, HOM-195, PR #23, ADR 0034; accuracy needs the corpus) |
 | Workflows | none | — | — | — | — | PLANNED |
 | Notifications | model only | notifications | — | — | — | PARTIAL |
 | Exports | `services/export_service.py`, `privacy/subject_export.py` | — | `/meetings/{id}/export` | — | — | PARTIAL |
 | Licensing/capabilities | model-license check in `providers/routing.py`; API-key capability policy | — | — | — | — | PLANNED (X01/X02/X09) |
 | Support bundle | none | — | — | — | — | PLANNED (X15) |
-| Observability | `services/audit_service.py` | audit_events | `/admin/audit-events` | — | — | PARTIAL (WP20 not started) |
-| Deployment | `infra/`, `docker-compose*`, egress proxy | — | — | — | infra/egress tests | PARTIAL |
+| Observability | `services/audit_service.py` | audit_events | `/admin/audit-events` | — | — | PARTIAL (WP20 in progress: Lane D, HOM-113/114/115/126) |
+| Deployment | `infra/`, `docker-compose*`, egress proxy | — | — | — | infra/egress tests, test_transport_policy | PARTIAL (production TLS on internal hops, HOM-161, PR #24; bundled-service certificates HOM-196 open) |
 
 Legacy, unmounted: `routers/{copilot,dashboard,graph,ldap_sync,webhook}.py`, `services/llm_router.py`,
 `database/models.py` (Pydantic), `websocket/manager.py` (stub). Do not extend them.
@@ -81,7 +82,28 @@ DEFERRED by AppVision §11.2 ("not authorized by initial coding kickoff").
 
 ## E. Active work wave
 
-Wave P0-1 (2026-09-27), integrator Session A; five workers with exclusive ownership:
+**Infrastructure-freeze wave (from 2026-10-17, owner master prompt).** Lanes A and B (2026-10-10) are retired; their work merged (§M). Three sessions, with disjoint file ownership set by the integrator:
+
+| Session | Linear (in order) | Owns | Local PostgreSQL |
+| --- | --- | --- | --- |
+| Integrator | Phase 0 (red main), HOM-33 → 34 → 35 → 196 after both lanes | `Homayar/ReportAppvisionProgress.md`, Linear housekeeping, merges, the integration gate | 54335 |
+| Lane C, backup/restore/recovery | HOM-153 → 116 → 117 → 118 | `backend/backup/` (new), `infra/scripts/*`, `infra/compose/compose.onprem.yaml` (one `ops` backup-tool service), `docs/operations/backup-restore.md` and the DR documents, ADR 0035; no migration | 54333 |
+| Lane D, audit/observability/release | HOM-113 → 114 → 115 → 126 → 28 → 29 | `backend/observability/` (new), `main.py`, `services/audit_service.py`, `services/logging_service.py`, `config.py` (additive settings), new `ci.yml` steps, `infra/docker/api.Dockerfile`, `.env.example`, `infra/observability/`, `infra/release/`, ADR 0036/0037; the single migration slot of the wave | 54334 |
+
+Owner decisions recorded for this wave (2026-10-17):
+
+- **Backup objectives (provisional, owner-approved infrastructure defaults):**
+  - RPO 24 h, RTO 8 h.
+  - Retention: 30 daily and 12 monthly backups.
+  - At least one encrypted copy outside the primary application host.
+  - A restored environment stays unavailable to users until tombstone and deletion state is re-applied, tenant boundaries are verified, and integrity and reconciliation checks pass.
+- **Audit protection (option B):**
+  - `audit_events` is append-only for the app role (UPDATE and DELETE revoked).
+  - Free-text detail values are masked with the text-PII detector at write time (120-character cap).
+  - A historical audit row can be erased only through a documented, owner-approved DBA procedure that the protected sink's verifier flags.
+- **Backup alert contract (between Lanes C and D):** the gauge `homayar_backup_last_success_timestamp_seconds{target}` is written to a node_exporter textfile. It alerts when its age exceeds 26 h or when it is absent.
+
+*Superseded:* Wave P0-1 (2026-09-27), integrator Session A; five workers with exclusive ownership:
 A `voice/`, `routers/v1/voice.py`; B `providers/` (TTS, local runtimes, artifacts, hardware);
 C `speech/`; D `locations/`, `routers/v1/locations.py`, `schemas/locations.py`;
 E `voicemail/`, `routers/v1/voicemail.py`, `schemas/voicemail.py`.
@@ -90,17 +112,33 @@ Integrator-exclusive: migrations, `saas_models.py`, `rls.py`, `authorization.py`
 
 ## F. Frozen backend sections
 
-Core Baseline at main `ecd77cc` (§K), on local evidence only (not CI-validated). Wave P0-1 is PARTIAL: repository-controlled foundations landed; live qualification external.
+Core Baseline at main `ecd77cc` (§K), on local evidence only (not CI-validated). Wave P0-1 is PARTIAL: repository-controlled foundations landed; live qualification external. **Infrastructure is not frozen** (§N).
 
 ## G. External blockers
 
-- Real PBX/SIP carrier and 200-call media infrastructure (X21/V01–V07 live qualification).
-- Persian annotated telephone corpus with rights (WP13-T01; F27/F80 accuracy).
-- Local model weights/hardware qualification (F74, K-rows).
-- Homayar AI API Gateway contract (WP08).
-- Live S3 bucket (WP05-T05); credential owners (WP02-T01).
+Status 2026-10-17. None of these is supplied, and none is replaced by a substitute:
+
+| Blocker | Blocks | Status |
+| --- | --- | --- |
+| Persian call corpus with rights (HOM-65) | WP13 evaluation (HOM-66 to 71), F27/F80 accuracy claims | not supplied |
+| GPU host and model weights (AppVision D09) | WP09-T03 to T07, WP10 diarization, F74 | not supplied |
+| Homayar AI Gateway contract (D07) | WP08 Gateway adapter; 3 contract tests skipped | not supplied |
+| Live S3 qualification bucket (HOM-36) | F14 live qualification; 41 live-S3 tests opt-in and skipped | not supplied |
+| PBX test system: Asterisk, FreePBX or Issabel (HOM-87) | F63, live voice and SIP qualification (X21, V01 to V07) | not supplied |
+| Credential rotation by the credential owners (HOM-30, HOM-31) | WP02-T01/T02; not done by the team | owner action open |
+| GitHub/CI account | none: Actions runs again since 2026-10-10; branch protection needs GitHub Pro on this private repository | no blocker |
 
 ## H. Next safe work (dependency order)
+
+Owner order from 2026-10-17 (infrastructure first; no product features before the freeze):
+
+1. Phase 0: make main green (§M); reconcile this report and Linear.
+2. Lane C: backup and restore (HOM-153 → 116 → 117 → 118). Lane D, in parallel: audit, observability and release (HOM-113 → 114 → 115 → 126 → 28 → 29).
+3. Integration gate after both lanes merge: migrations, auth/session, tenant/RLS, privacy, retention, audit, queue/recovery, backup/restore, health, observability, build reproducibility, full backend suite.
+4. Deployment security: HOM-33 → 34 → 35 → 196.
+5. Infrastructure Freeze Gate (§N). Only then resume product work (WP12 call report, WP11 signals, WP18 billing, WP24 actions and the rest).
+
+*Superseded list (2026-10-10).* Item 1 is done (HOM-195, PR #23); item 3 is done (HOM-157, HOM-169).
 
 1. Wire `speech.text_normalize`/`entities` into the processor output (transcript post-processing) and into `locations.extract` and `voicemail.classify` (remove their local normalizers). Parallel-safe per package.
 2. Voice runtime media bridge contract (SIP/WebRTC adapter interface, LiveKit/Asterisk ARI) behind `voice/` — interfaces + fakes; live qualification BLOCKED_EXTERNAL.
@@ -247,3 +285,72 @@ Release notes:
 - Migration `c5e7a9b1d3f6` is not backward-compatible with the prior image: stop the API before migrating. To roll the app back, export `plan_versions` and downgrade first (runbook "Upgrade and Rollback").
 - Free demo workspaces have one seat, which their owner holds: they cannot add admins, only members and viewers.
 - The frontend contract changes are listed in the PR #18 description.
+
+## M. Lanes A/B, console backend tickets and Phase 0 (2026-10-10 .. 2026-10-17)
+
+Backend PRs merged since `8234d08`, with GitHub Actions evidence on each PR's final head:
+
+| PR | Linear | Result | Backend CI on the final head |
+| --- | --- | --- | --- |
+| #21 (Lane A) | HOM-172 | Documented CI bound for the golden-module gate (`HOMAYAR_GOLDEN_BUDGET_SECONDS=120`, honoured only with `CI=true`, range 30–300 s; 30 s stays the default); backend job timeout 40 min | run 38081359582: 2413 passed / 0 failed / 46 skipped |
+| #23 (Lane B) | HOM-195 | Derived normalized text view and entities per transcript revision; raw evidence unchanged; RLS and purge coverage; ADR 0034; migration `d8a2f4c6b1e3` | run 38088234130: 2434 / 0 / 46 |
+| #25 (Lane B) | HOM-171 | PII detector `text-pii/4`: the postal keyword is matched with harakat and tatweel; owner-approved golden re-baseline of version/digest pins only | run 38089871487: 2446 / 0 / 46 |
+| #24 (Lane A) | HOM-161 | Production requires TLS to PostgreSQL, Redis, Neo4j and object storage; on-prem has audited, same-host-only, per-hop opt-outs; cloud has none | run 38108005671 (head `16fb67f`): 2733 / 0 / 46 |
+| #22 (Sina) | HOM-175 | Demo workspace seed for the console | run 38084797435: 2413 / **1 failed** / 46. The failure is the HOM-172 30 s gate: the run started at 20:42, before #21's CI bound merged at 20:54. Merged on that check; main was green afterwards (`cfed7ac`) |
+| #26 (Sina) | HOM-183 | Admin jobs list and per-state counts | run 38090572273: 2451 / 0 / 46 |
+| #27 (Sina) | HOM-184 | `system_role` and workspace permissions in the session payload | run 38090852784: 2443 / 0 / 46 |
+
+The console PRs #19, #20, #28, #30 to #35 (HOM-173, 174, 176, 177, 178, 180, 186, 189) and the Linear agent worker #29 (HOM-197) are frontend and tooling, outside this backend record.
+
+Main CI since 2026-10-10:
+- green on `7670e0c`, `7fa0dcf`, `d868836`, `d876a2a`, `cfed7ac`, `6fc62f7`, `2c7c7aa`, `57516f2` and `05c16ad`;
+- red on `8234d08`: the HOM-172 30 s gate (52.58 s), before #21's CI bound;
+- red on `0937918`: a console Vitest `window` failure, fixed by #34;
+- red on `19d2d5d`: Phase 0, below;
+- the other runs were cancelled by a newer push.
+
+**Phase 0 (P0 privacy test, PR #39, merged 2026-10-17 as `fcc4962`).**
+- **Symptom.** Main `19d2d5d` failed `test_privacy_routing.py::test_reads_default_to_redacted_and_the_original_needs_the_owner` (run 38598299491: 1 failed / 2773 passed / 46 skipped). That merge changed only console files, and the same backend code passed on `05c16ad`.
+- **Cause: a test false positive, not a leak.** The helper `_no_raw` searched the whole response for short raw markers such as `0912`, and random UUIDs, digests and timestamp microseconds can contain them by chance. A captured run (40 checks) shows the redacted bodies hold only placeholders. Its 15 random hex tokens (387 four-character windows) and 4 timestamps give about a 0.7% chance per run of that one test.
+- **Fix (test-only).** Generated values are blanked by their exact shape before the check: canonical UUIDs, standalone 24–128-character hex digests that contain a letter, and ISO timestamps. All markers and all 19 call sites stay, and raw digit runs are never blanked. Regression tests cover the false positive, and every marker in five placements still being reported.
+- **Evidence.**
+  - Local PostgreSQL 16 with the `ci.yml` env: 13 privacy, RLS, retention, legal-hold, transcript, text-view and API files, 222 passed / 0 failed / 0 skipped.
+  - CI on the PR head `98f4401` (run 39079278356): 7 of 7 checks green; backend 2806 passed / 0 failed / 46 skipped.
+  - Main after the merge: `fcc4962`, the same tree; push run 39080861815.
+
+**Linear housekeeping (2026-10-17).** HOM-161 is Done, with its evidence comment. HOM-196 (certificates for the bundled on-prem services) stays open. The optional caller-number backfill from HOM-171 is tracked as HOM-199 and scheduled after the freeze.
+
+## N. Infrastructure freeze status
+
+```
+CURRENT MAIN: fcc4962
+MIGRATION HEAD: d8a2f4c6b1e3 (33 migrations, one head)
+MAIN GREEN: YES (tree validated by run 39079278356: 2806 passed / 0 failed / 46 skipped; push run 39080861815)
+
+LANE C:
+- issues: HOM-153, HOM-116, HOM-117, HOM-118
+- status: started 2026-10-17 (design; implementation after Phase 0 merges)
+- PRs: none yet
+- evidence: none yet
+
+LANE D:
+- issues: HOM-113, HOM-114, HOM-115, HOM-126, HOM-28, HOM-29
+- status: started 2026-10-17 (owner decision on audit erasure taken: option B)
+- PRs: none yet
+- evidence: none yet
+
+BACKUP: not delivered (legacy infra/scripts only; Lane C)
+RESTORE: not delivered (Lane C)
+RPO/RTO: provisional owner defaults 24 h / 8 h; no drill recorded yet
+AUDIT: audit_events exists; append-only protection and protected sink not delivered (Lane D)
+OBSERVABILITY: `/healthz`, `/readyz` and JSON logs exist; metrics, correlation IDs and alerts not delivered (Lane D)
+REPRODUCIBLE BUILD: not delivered (HOM-28, Lane D)
+RELEASE MANIFEST: not delivered (HOM-29, Lane D)
+DEPLOYMENT SECURITY: production TLS on internal hops done (HOM-161); HOM-33, 34, 35 and 196 open; HOM-30/31 need the credential owners
+
+INFRASTRUCTURE FROZEN: NO
+
+OPEN P0: none repository-controlled beyond the freeze-gate items above (the Phase 0 privacy-test failure is closed by PR #39)
+EXTERNAL BLOCKERS: §G (corpus, GPU and models, Gateway contract, live S3 bucket, PBX test system, credential rotation)
+NEXT ACTION: Lanes C and D implement and open PRs; integrator reviews and merges each, then runs the integration gate
+```
