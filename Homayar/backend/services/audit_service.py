@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.saas_models import AuditEvent
+from backend.observability.correlation import current_correlation_id
 from backend.security.tokens import token_digest
 from backend.services.audit_event_types import AuditEventType
 
@@ -51,6 +52,9 @@ def record_audit_event(
     settings: Settings | None = None,
 ) -> AuditEvent:
     settings = settings or get_settings()
+    # Without an explicit request id the bound correlation id names the work
+    # (request, ``job:<id>`` or ``sweep:<task>:<run>``, HOM-113).
+    correlation = request_id or current_correlation_id()
     event = AuditEvent(
         # an AuditEventType member is stored as its plain string value
         event_type=event_type.value if isinstance(event_type, AuditEventType) else event_type,
@@ -59,10 +63,9 @@ def record_audit_event(
         target_type=target_type,
         target_id=target_id,
         outcome=outcome,
-        request_id=request_id,
+        request_id=correlation[:80] if correlation else None,
         ip_hash=token_digest(f"ip:{ip_address}", settings) if ip_address else None,
         details=_sanitize_details(details),
     )
     db.add(event)
     return event
-

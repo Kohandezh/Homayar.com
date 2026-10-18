@@ -43,6 +43,7 @@ SECRET_FIELDS: tuple[str, ...] = (
     "smtp_password",
     "neo4j_password",
     "sentry_dsn",
+    "metrics_bearer_token",
 )
 
 # Serialized form of a non-empty secret setting (HOM-160).
@@ -667,7 +668,16 @@ class Settings(BaseSettings):
 
     # OBSERVABILITY / BILLING
     sentry_dsn: SecretSetting = ""
+    # Prometheus scrape endpoint GET /metrics on the API port (HOM-113, ADR 0036); the
+    # proxy never routes it. In staging and production it answers only with
+    # METRICS_BEARER_TOKEN (at least 32 characters) as a bearer token, or without one
+    # when METRICS_ALLOW_UNAUTHENTICATED=true is set explicitly (a private scrape
+    # network); otherwise it answers 404 and startup logs METRICS_ENDPOINT_DISABLED.
     metrics_enabled: bool = True
+    metrics_bearer_token: SecretSetting = ""
+    metrics_allow_unauthenticated: bool = False
+    # Scrape-time state (queue, outbox, providers, dependencies) is cached this long.
+    metrics_cache_seconds: int = 15
     billing_provider: str = "manual"
 
     def __init__(self, **values: Any) -> None:
@@ -818,6 +828,21 @@ class Settings(BaseSettings):
             keyring = parse_keyring(self.pii_mapping_keys)  # raises ValueError
             if self.pii_mapping_active_key_id not in keyring:
                 raise ValueError("PII_MAPPING_ACTIVE_KEY_ID must name one of PII_MAPPING_KEYS")
+        if self.metrics_bearer_token and len(self.metrics_bearer_token.strip()) < 32:
+            raise ValueError("METRICS_BEARER_TOKEN must be at least 32 characters")
+        if not 0 <= self.metrics_cache_seconds <= 300:
+            raise ValueError("METRICS_CACHE_SECONDS must be between 0 and 300")
+        if (
+            self.metrics_allow_unauthenticated
+            and self.deployment_mode == "cloud"
+            and self.environment in ("staging", "production")
+        ):
+            # Same rule as the HOM-161 transport opt-outs: none in cloud. On-premise
+            # the opt-out is logged at startup by name (METRICS_UNAUTHENTICATED_OPT_OUT).
+            raise ValueError(
+                "METRICS_ALLOW_UNAUTHENTICATED is refused with DEPLOYMENT_MODE=cloud; "
+                "set METRICS_BEARER_TOKEN instead (HOM-113)"
+            )
         plaintext_hops: list[str] = []
         if self.environment == "production":
             if len(self.jwt_secret) < 32 or len(self.token_pepper) < 32:

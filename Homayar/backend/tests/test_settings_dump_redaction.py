@@ -31,7 +31,7 @@ def settings() -> Settings:
 
 
 def test_secret_field_list_is_complete() -> None:
-    assert len(SECRET_FIELDS) == 15
+    assert len(SECRET_FIELDS) == 16  # + METRICS_BEARER_TOKEN (HOM-113)
 
 
 def test_model_dump_redacts_every_secret(settings: Settings) -> None:
