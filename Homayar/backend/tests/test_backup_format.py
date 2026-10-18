@@ -269,32 +269,100 @@ def test_freshness_textfile_is_merged_atomically_and_only_known_targets(tmp_path
 
 
 class _FakeS3:
-    """The few S3 calls the replication uses, kept in memory."""
+    """The S3 calls the replication uses, kept in memory.
 
-    def __init__(self) -> None:
+    ``checksums`` makes HEAD report the SHA-256 of what is stored (as S3 does
+    for an upload with ``ChecksumAlgorithm``); ``versioning="Enabled"`` keeps
+    every version and turns a plain delete into a delete marker; keys in
+    ``locked`` cannot have their versions deleted (object lock).
+    """
+
+    def __init__(self, *, checksums: bool = True, versioning: str = "") -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
         self.modified: dict[tuple[str, str], datetime] = {}
+        self.checksums = checksums
+        self.versioning = versioning
+        self.versions: list[dict] = []  # {"Key", "VersionId", "marker"}
+        self.locked: set[str] = set()
+        self.uploads: list[dict] = []
+        self.aborted: list[str] = []
+
+    def _store(self, bucket, key, data: bytes) -> None:
+        self.objects[(bucket, key)] = data
+        self.modified[(bucket, key)] = datetime.now(UTC)
+        if self.versioning == "Enabled":
+            self.versions.append(
+                {"Key": key, "VersionId": f"v{len(self.versions)}", "marker": False}
+            )
 
     def upload_file(self, filename, bucket, key, ExtraArgs=None, Config=None):  # noqa: N803
         assert (ExtraArgs or {}).get("ChecksumAlgorithm") == "SHA256"
-        self.objects[(bucket, key)] = Path(filename).read_bytes()
-        self.modified[(bucket, key)] = datetime.now(UTC)
+        self._store(bucket, key, Path(filename).read_bytes())
 
-    def head_object(self, Bucket, Key):  # noqa: N803
-        return {"ContentLength": len(self.objects[(Bucket, Key)])}
+    def put_object(self, Bucket, Key, Body, ChecksumAlgorithm=None):  # noqa: N803
+        assert ChecksumAlgorithm == "SHA256"
+        self._store(Bucket, Key, bytes(Body))
+
+    def head_object(self, Bucket, Key, ChecksumMode=None):  # noqa: N803
+        import hashlib
+
+        data = self.objects[(Bucket, Key)]
+        head = {"ContentLength": len(data)}
+        if self.checksums and ChecksumMode == "ENABLED":
+            head["ChecksumSHA256"] = base64.b64encode(hashlib.sha256(data).digest()).decode()
+        return head
+
+    def get_object(self, Bucket, Key):  # noqa: N803
+        import io
+
+        return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
 
     def download_file(self, bucket, key, filename):
         Path(filename).write_bytes(self.objects[(bucket, key)])
 
-    def delete_object(self, Bucket, Key):  # noqa: N803
-        self.objects.pop((Bucket, Key), None)
+    def delete_object(self, Bucket, Key, VersionId=None):  # noqa: N803
+        from botocore.exceptions import ClientError
 
-    def get_paginator(self, _name):
-        return self
+        if VersionId is None:
+            if self.objects.pop((Bucket, Key), None) is not None and self.versioning == "Enabled":
+                version = f"v{len(self.versions)}"
+                self.versions.append({"Key": Key, "VersionId": version, "marker": True})
+            return
+        version = next(v for v in self.versions if v["VersionId"] == VersionId)
+        if Key in self.locked and not version["marker"]:  # a lock protects versions, not markers
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "DeleteObject")
+        self.versions = [v for v in self.versions if v["VersionId"] != VersionId]
 
-    def paginate(self, Bucket, Prefix=""):  # noqa: N803
-        keys = sorted(k for b, k in self.objects if b == Bucket and k.startswith(Prefix))
-        yield {"Contents": [{"Key": k, "LastModified": self.modified[(Bucket, k)]} for k in keys]}
+    def get_bucket_versioning(self, Bucket):  # noqa: N803
+        return {"Status": self.versioning} if self.versioning else {}
+
+    def list_multipart_uploads(self, Bucket, Prefix="", **_):  # noqa: N803
+        return {"Uploads": [u for u in self.uploads if u["Key"].startswith(Prefix)]}
+
+    def abort_multipart_upload(self, Bucket, Key, UploadId):  # noqa: N803
+        self.aborted.append(UploadId)
+        self.uploads = [u for u in self.uploads if u["UploadId"] != UploadId]
+
+    def get_paginator(self, name):
+        fake = self
+
+        class _Pages:
+            def paginate(self, Bucket, Prefix=""):  # noqa: N803
+                if name == "list_object_versions":
+                    found = [v for v in fake.versions if v["Key"].startswith(Prefix)]
+                    yield {
+                        "Versions": [v for v in found if not v["marker"]],
+                        "DeleteMarkers": [v for v in found if v["marker"]],
+                    }
+                    return
+                keys = sorted(k for b, k in fake.objects if b == Bucket and k.startswith(Prefix))
+                yield {
+                    "Contents": [
+                        {"Key": k, "LastModified": fake.modified[(Bucket, k)]} for k in keys
+                    ]
+                }
+
+        return _Pages()
 
 
 def _fake_set(root: Path, backup_id: str) -> Path:
@@ -671,3 +739,128 @@ def test_journal_identity_needs_positive_evidence_and_accepts_post_backup_tenant
     gone = {"files": [{"name": "tombstones-20261001.jsonl", "size": 0, "sha256": "0" * 64}]}
     problems, _, _ = _journal_identity(_StubJournal(replica, [known]), gone, ["ws-known"])
     assert problems == ["tombstones-20261001.jsonl: missing (stale or foreign replica)"]
+
+
+# --- off-site copies: verified by SHA-256, retention, interrupted uploads, versions (HOM-213)
+
+
+def _offsite_source(root: Path, backup_id: str, *, full: bool, verified: bool) -> Path:
+    """A set under ``root/sets`` whose manifest says whether objects are included."""
+    directory = root / "sets" / backup_id
+    entries = []
+    for name, payload in (("catalog.json.enc", b"{}"), ("db/meetings.copy.enc", b"r\n" * 50)):
+        with EncryptingWriter(directory / name, _key(), backup_id=backup_id, name=name) as writer:
+            writer.write(payload)
+        entries.append(
+            {
+                "name": name,
+                "size": writer.size,
+                "sha256": writer.sha256,
+                "plaintext_size": writer.plaintext_size,
+            }
+        )
+    stores = {"objects": {"included": full, "integrity": "complete"}}
+    manifest = {**_manifest(), "backup_id": backup_id, "files": entries, "stores": stores}
+    write_manifest(directory, manifest, _key())
+    if verified:
+        (root / "sets" / f"{backup_id}.verified").write_text("verified\n")
+    return directory
+
+
+def test_an_s3_copy_is_verified_by_sha256_before_it_counts(tmp_path):
+    from backend.backup.replicate import replicate_to_s3
+
+    backup_id = "20261017T020000Z-0000000c"
+    set_dir = _offsite_source(tmp_path / "root", backup_id, full=True, verified=True)
+
+    s3 = _FakeS3()
+    result = replicate_to_s3(set_dir, "s3://offsite/p", client=s3)
+    assert result["verified_by"] == {"checksum": 3, "download": 0}  # 2 files + manifest
+    assert ("offsite", f"p/{backup_id}.verified") in s3.objects  # deep-verified at the source
+
+    plain = _FakeS3(checksums=False)  # a store that reports no checksum: read it back
+    assert replicate_to_s3(set_dir, "s3://offsite/p", client=plain)["verified_by"] == {
+        "checksum": 0,
+        "download": 3,
+    }
+
+    class _Garbling(_FakeS3):  # the bytes change on the way in
+        def upload_file(self, filename, bucket, key, ExtraArgs=None, Config=None):  # noqa: N803
+            super().upload_file(filename, bucket, key, ExtraArgs, Config)
+            data = bytearray(self.objects[(bucket, key)])
+            data[0] ^= 0x01
+            self.objects[(bucket, key)] = bytes(data)
+
+    for garbling in (_Garbling(), _Garbling(checksums=False)):
+        with pytest.raises(BackupInvalid) as refused:
+            replicate_to_s3(set_dir, "s3://offsite/p", client=garbling)
+        assert refused.value.code == "copy_checksum_mismatch"
+
+
+def test_off_site_retention_prefers_the_same_full_verified_sets_as_the_root(tmp_path):
+    from backend.backup.replicate import (
+        OFFSITE_MARKER,
+        list_s3_sets,
+        prune_s3,
+        replicate_to_directory,
+        replicate_to_s3,
+    )
+    from backend.backup.retention import prune
+
+    root = tmp_path / "root"
+    full_day1 = "20261016T010000Z-0000000a"
+    db_only_day1 = "20261016T020000Z-0000000b"  # newer, but no objects and unverified
+    full_day2 = "20261017T010000Z-0000000c"
+    sources = [
+        _offsite_source(root, full_day1, full=True, verified=True),
+        _offsite_source(root, db_only_day1, full=False, verified=False),
+        _offsite_source(root, full_day2, full=True, verified=True),
+    ]
+    s3 = _FakeS3()
+    directory = tmp_path / "offsite-dir"
+    directory.mkdir()
+    (directory / OFFSITE_MARKER).write_text("provisioned\n")
+    for set_dir in sources:
+        replicate_to_s3(set_dir, "s3://offsite/p", client=s3)
+        replicate_to_directory(set_dir, directory)
+
+    result = prune_s3("s3://offsite/p", daily=2, monthly=0, client=s3)
+    assert result["qualifying"] == [full_day1, full_day2]
+    assert result["expired"] == [db_only_day1]
+    assert list_s3_sets("s3://offsite/p", client=s3) == [full_day1, full_day2]
+    assert ("offsite", f"p/{db_only_day1}.verified") not in s3.objects
+    assert prune(directory, daily=2, monthly=0)["expired"] == [db_only_day1]
+    assert prune(root, daily=2, monthly=0)["expired"] == [db_only_day1]
+
+
+def test_s3_prune_aborts_stale_uploads_and_deletes_noncurrent_versions(tmp_path):
+    from backend.backup.replicate import list_s3_sets, prune_s3, replicate_to_s3
+
+    root = tmp_path / "root"
+    old, new = "20261015T020000Z-0000000a", "20261017T020000Z-0000000b"
+    s3 = _FakeS3(versioning="Enabled")
+    for backup_id in (old, new):
+        replicate_to_s3(
+            _offsite_source(root, backup_id, full=True, verified=True), "s3://offsite/p", client=s3
+        )
+    now = datetime.now(UTC)
+    s3.uploads = [
+        {
+            "Key": f"p/{new}/objects/big.enc",
+            "UploadId": "stale",
+            "Initiated": now - timedelta(days=2),
+        },
+        {"Key": f"p/{new}/objects/big2.enc", "UploadId": "live", "Initiated": now},
+    ]
+    s3.locked = {f"p/{old}/catalog.json.enc"}  # object lock still protects one version
+
+    dry = prune_s3("s3://offsite/p", daily=1, monthly=0, dry_run=True, client=s3)
+    assert dry["aborted_uploads"] == [f"p/{new}/objects/big.enc"] and not s3.aborted
+
+    result = prune_s3("s3://offsite/p", daily=1, monthly=0, client=s3)
+    assert result["expired"] == [old] and list_s3_sets("s3://offsite/p", client=s3) == [new]
+    assert s3.aborted == ["stale"] and [u["UploadId"] for u in s3.uploads] == ["live"]
+    assert result["versioning"] == "Enabled" and result["versions_locked"] == 1
+    left = [v["Key"] for v in s3.versions if v["Key"].startswith(f"p/{old}")]
+    assert left == [f"p/{old}/catalog.json.enc"]  # only what the lock protects remains
+    assert result["versions_deleted"] > 0

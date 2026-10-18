@@ -39,7 +39,12 @@ here is a target for the drill to measure, never an estimate taken from a script
   newest qualifying set of the month (else its newest). History therefore reaches about
   12 months beyond the 30 days, not 12 months counted from today.
 - The newest set is always kept. Interrupted (`.partial-*`) sets are removed after 6 h; S3 copies
-  without a manifest (interrupted uploads or prunes) after 24 h.
+  without a manifest (interrupted uploads or prunes) and interrupted multipart uploads after 24 h.
+- Off-site copies follow the same choice: the copy of a deep-verified set carries its verified
+  marker (`sets/<id>.verified` in a directory, `<prefix>/<id>.verified` in S3), so off-site
+  retention prefers the same full verified sets. In a versioned bucket, prune also deletes the
+  noncurrent versions and delete markers of the sets it removes; versions an object lock still
+  protects expire with the lock, so keep the lock period within the retention.
 
 ### 3.2 Off-site copies
 
