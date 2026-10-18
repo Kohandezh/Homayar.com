@@ -49,7 +49,6 @@ rand() { "${PY}" -c 'import secrets; print(secrets.token_hex(24))'; }
 pg_password="$(rand)"; redis_password="$(rand)"
 cat > "${DRILL_DIR}/drill.env" <<EOF
 API_IMAGE=${API_IMAGE}
-PUBLIC_WEB_IMAGE=${PUBLIC_WEB_IMAGE:-homayar/public-web:local}
 CONSOLE_WEB_IMAGE=${CONSOLE_WEB_IMAGE:-homayar/console-web:local}
 POSTGRES_DB=homayar
 POSTGRES_USER=homayar

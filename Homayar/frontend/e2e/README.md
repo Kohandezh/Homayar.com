@@ -41,8 +41,16 @@ settings, which the invitation flow still needs.
 | `privacy.spec.ts` | An owner places a legal hold on a seeded meeting from its `Data and retention` panel, finds it on `/admin/privacy` under `All holds` and `Due in 30 days` (not `Review due`), releases it from the register, and downloads a data subject export after the warning; an admin gets `No access` and sees no data panel on the meeting. |
 | `voice-operations.spec.ts` | The demo owner (not a platform operator) sees `0 / 200` on the `Voice capacity` card, no `Voice operations` link, and `No access` on `/admin/voice` with no capacity request. With `/auth/me` changed to `system_role: "operator"` and every voice request mocked, the owner drains and resumes nodes through the confirm dialog; any unmocked API write is aborted in the browser, so nothing is written to the backend. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
+| `organization.spec.ts` | Read only. The owner picks the demo organization in the sidebar switcher and reads the overview (30 meetings for the workspace), the members table (the owner row has no row action), the workspaces table and the empty scope grants page; one page is right to left in Persian. A member, who belongs to no organization, sees no switcher and gets `No access` on the organization URL. Any organization request that is not a GET is aborted in the browser and fails the test. |
+| `organization-writes.spec.ts` | With the real owner session and a mocked organization API: add an analyst with a validity window, change the end date, revoke; create a workspace; add a member to a workspace; add and revoke a scope grant; an administrator gets no `Administrator` role to grant. Each test asserts that no organization request reached the real API. |
 
 Add a file here as each new admin page lands.
+
+`organization-writes.spec.ts` is the one spec that mocks: it answers every
+`/api/v1/organizations**` request with `page.route`, from in-memory state.
+The demo backend is shared, so these writes must not reach it, and the seed
+has no analyst or executive to give a scope grant to. The sign-in and every
+other request stay real.
 
 `smtp-sink.ts` is the helper the invitation flow needs, not a flow. Its own
 tests (`smtp-sink.test.ts`) run under Vitest with `npm test`, because the SMTP

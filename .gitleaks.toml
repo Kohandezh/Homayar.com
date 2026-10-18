@@ -106,3 +106,17 @@ regexes = [
   '''^\s*\+?\s*"(_[A-Z]+_[0-9]+_[0-9]+|[A-Za-z0-9_./-]+\.py)":\s*"[0-9a-f]{64}",?\s*$''',
   '''^\s*\("[a-z_]+",\s*"[0-9a-f]{24}"\),?\s*$''',
 ]
+
+[[allowlists]]
+description = """Drill and backup evidence manifests (HOM-118) record the backup key's \
+fingerprint: HMAC-SHA256 of the key over a fixed label, cut to 32 lowercase hex characters \
+(backend/backup/crypto.py BackupKey.fingerprint). It is one-way and identifies the key \
+without revealing it; only that exact line shape in these files is allowed."""
+condition = "AND"
+paths = [
+  '''^docs/operations/drills/[^/]+/manifest\.json$''',
+]
+regexTarget = "line"
+regexes = [
+  '''^\s*"key_fingerprint":\s*"[0-9a-f]{32}",?\s*$''',
+]

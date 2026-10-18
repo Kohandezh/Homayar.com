@@ -7,6 +7,7 @@ import { describeApiError } from "@/lib/error-messages";
 import { useI18n, type Lang } from "@/lib/i18n-context";
 import { ADMIN_NAV, MAIN_NAV, type MainNavEntry } from "@/lib/navigation";
 import { canOpenAdminEntry, useCan } from "@/lib/use-can";
+import OrgSidebarSection from "@/components/org/OrgSidebarSection";
 
 function NavItem({ entry, lang, onNavigate }: { entry: MainNavEntry; lang: Lang; onNavigate?: () => void }) {
   return (
@@ -93,6 +94,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </div>
           </>
         )}
+
+        <OrgSidebarSection onNavigate={onNavigate} />
       </nav>
 
       <div className="flex flex-col gap-2 border-t border-separator pt-3">
