@@ -28,7 +28,7 @@ from backend.observability.correlation import (
     job_correlation_id,
     request_correlation_id,
 )
-from backend.observability.metrics import failure_category, metrics_access, quantile
+from backend.observability.metrics import REGISTRY, failure_category, metrics_access, quantile
 from backend.observability.release import code_migration_head
 from backend.observability.scrub import scrub_text
 from backend.services.logging_service import JSONFormatter
@@ -94,6 +94,9 @@ def test_metrics_expose_queue_jobs_dependencies_heartbeats_and_build_identity(
         finished=1002.5,
         result={"purges_failed": 2, "purges_completed": 7, "workspace": "not-an-int"},
     )
+    upload_labels = {"method": "POST", "route": "/api/v1/uploads", "status_class": "2xx"}
+    # In-process counters are cumulative for the whole test process: compare deltas.
+    uploads_before = REGISTRY.get_sample_value("homayar_http_requests_total", upload_labels) or 0
     job_id, workspace_id = _queued_upload(client, email_outbox, monkeypatch)
 
     queued = _scrape(client)
@@ -122,13 +125,7 @@ def test_metrics_expose_queue_jobs_dependencies_heartbeats_and_build_identity(
     assert set(build) == {
         "version", "source_sha", "profile", "migration_head", "python_version", "uv_lock_sha256"
     }
-    assert _value(
-        queued,
-        "homayar_http_requests_total",
-        method="POST",
-        route="/api/v1/uploads",
-        status_class="2xx",
-    ) == 1
+    assert _value(queued, "homayar_http_requests_total", **upload_labels) == uploads_before + 1
 
     assert process_job(job_id, worker_id="metrics-test", settings=settings,
                        providers=_providers())["status"] == "completed"
