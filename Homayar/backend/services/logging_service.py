@@ -5,16 +5,44 @@ import sys
 from datetime import datetime
 
 from backend.observability.correlation import CorrelationLogFilter
-from backend.observability.scrub import scrub_text
+from backend.observability.scrub import diagnostic_text
+
+
+def exception_summary(exc: BaseException) -> str:
+    """What a log line may say about an exception.
+
+    A database error is named by its classes, SQLSTATE and the constraint, table
+    and column involved: never by its message, which quotes the statement, the
+    bound parameters and psycopg's DETAIL (row values: e-mails, phone numbers,
+    content). Any other exception text is bounded and passes through the
+    credential and personal-data scrubbers.
+    """
+    from sqlalchemy.exc import StatementError
+
+    if isinstance(exc, StatementError):
+        parts = [type(exc).__name__]
+        orig = getattr(exc, "orig", None)
+        if orig is not None:
+            parts.append(type(orig).__name__)
+            sqlstate = getattr(orig, "sqlstate", None)
+            if sqlstate:
+                parts.append(f"sqlstate={sqlstate}")
+            diag = getattr(orig, "diag", None)
+            for field in ("constraint_name", "table_name", "column_name"):
+                value = getattr(diag, field, None) if diag is not None else None
+                if value:
+                    parts.append(f"{field}={value}")
+        return " ".join(parts)
+    return diagnostic_text(str(exc))
 
 
 class JSONFormatter(logging.Formatter):
     """One JSON object per record.
 
     ``correlation_id`` names the request, job attempt or sweep run the record
-    belongs to (``backend.observability.correlation``). The message and the
-    exception text pass through ``scrub_text`` so a credential that reaches a
-    log argument (a URL with a password, an echoed header) is not written out.
+    belongs to (``backend.observability.correlation``). The message is bounded
+    and passes through the credential and personal-data scrubbers; exceptions
+    are summarised by ``exception_summary``. No traceback is written.
     """
 
     def format(self, record: logging.LogRecord) -> str:
@@ -22,7 +50,7 @@ class JSONFormatter(logging.Formatter):
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "level": record.levelname,
             "logger": record.name,
-            "message": scrub_text(record.getMessage()),
+            "message": diagnostic_text(record.getMessage()),
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
@@ -31,7 +59,7 @@ class JSONFormatter(logging.Formatter):
         if correlation_id:
             log_entry["correlation_id"] = correlation_id
         if record.exc_info and record.exc_info[1]:
-            log_entry["exception"] = scrub_text(str(record.exc_info[1]))
+            log_entry["exception"] = exception_summary(record.exc_info[1])
         return json.dumps(log_entry, ensure_ascii=False)
 
 

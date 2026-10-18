@@ -2,14 +2,23 @@
 
 Two kinds of series:
 
-* **In-process counters** of this API process: HTTP requests by route
-  *template* and status class, request latency, authentication failures by
-  bounded reason, audit write failures.
+* **In-process counters** of the API: HTTP requests by route *template* and
+  status class, request latency, and scrape-time collection errors.  With
+  ``uvicorn --workers N`` set ``PROMETHEUS_MULTIPROC_DIR`` to an empty,
+  per-container directory (the cloud compose profile uses a tmpfs path): every
+  worker then writes its counters there and ``/metrics`` sums all workers, so
+  successive scrapes never jump between processes.  Without it (one process,
+  tests) the counters live in the process.
 * **Scrape-time state** read when Prometheus scrapes ``/metrics`` and cached
-  for ``METRICS_CACHE_SECONDS``: dependency health (PostgreSQL, Redis, object
-  storage), the durable queue (``processing_jobs``), the dispatch outbox,
-  recent job outcomes, durations and retries, provider endpoint health, the
-  broker queue length, the periodic sweep heartbeats and the schema revision.
+  for ``METRICS_CACHE_SECONDS``.  Every source runs in its own thread with a
+  deadline (``SOURCE_TIMEOUT_SECONDS``) on a dedicated database engine with a
+  connect timeout and a 2 s statement timeout; a source that misses its deadline
+  is reported as failed (a dependency as down) and is not started again while it
+  still hangs, so a black-holed dependency bounds a scrape instead of holding it.
+  The sources: dependency health (PostgreSQL, Redis, object storage), the
+  durable queue (``processing_jobs``), the dispatch outbox, recent job outcomes,
+  durations and retries, provider endpoint health, the broker queue length, the
+  periodic sweep heartbeats and the schema revision.
   Workers run in other processes and need no scrape endpoint of their own:
   everything they decide is durable in PostgreSQL or reported as a heartbeat.
 
@@ -30,10 +39,12 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -46,17 +57,22 @@ from prometheus_client import (
     PlatformCollector,
     ProcessCollector,
     generate_latest,
+    multiprocess,
 )
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.registry import Collector
 from sqlalchemy import func, or_, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.config import Settings
 
 RECENT_WINDOW = timedelta(minutes=15)
 MAX_DURATION_SAMPLES = 5000
 DEPENDENCY_TIMEOUT_SECONDS = 2.0
+# Deadline of one scrape-time source; a refresh runs two stages (dependency probes,
+# then the database aggregates), so a scrape waits at most about twice this.
+SOURCE_TIMEOUT_SECONDS = 3.0
+DEPENDENCY_SOURCES = frozenset({"database", "redis", "storage"})
 PROBE_TENANT = "homayar-health-probe"
 PROBE_OBJECT_TOKEN = "readiness-probe-object"  # noqa: S105 - object name, not a credential
 
@@ -78,46 +94,41 @@ DISPATCH_STATES = ("pending", "published", "failed", "cancelled")
 PROVIDER_STAGES = ("asr", "diarization", "intelligence", "tts", "other")
 QUANTILES = (("0.5", 0.5), ("0.95", 0.95), ("1", 1.0))
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
-AUTH_FAILURE_REASONS = frozenset(
-    {"invalid_credentials", "invalid_refresh", "refresh_replay", "csrf_failed"}
-)
 
 METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST
 
+# prometheus_client reads PROMETHEUS_MULTIPROC_DIR when it is imported; this module
+# only mirrors that choice. In multiprocess mode the counters are not registered
+# here: they write to per-process files that MultiProcessCollector sums.
+MULTIPROCESS_DIR = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "").strip()
+if MULTIPROCESS_DIR:
+    os.makedirs(MULTIPROCESS_DIR, exist_ok=True)
+
 REGISTRY = CollectorRegistry(auto_describe=True)
-ProcessCollector(registry=REGISTRY)
-PlatformCollector(registry=REGISTRY)
+_COUNTER_REGISTRY: CollectorRegistry | None = None if MULTIPROCESS_DIR else REGISTRY
+if not MULTIPROCESS_DIR:
+    # Per-process series would flip between workers; only one process here.
+    ProcessCollector(registry=REGISTRY)
+    PlatformCollector(registry=REGISTRY)
 
 HTTP_REQUESTS = Counter(
     "homayar_http_requests",
     "API requests by method, route template and status class.",
     ("method", "route", "status_class"),
-    registry=REGISTRY,
+    registry=_COUNTER_REGISTRY,
 )
 HTTP_DURATION = Histogram(
     "homayar_http_request_duration_seconds",
     "API request latency by method and route template.",
     ("method", "route"),
     buckets=(0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 120.0),
-    registry=REGISTRY,
-)
-AUTH_FAILURES = Counter(
-    "homayar_auth_failures",
-    "Rejected authentication attempts by bounded reason.",
-    ("reason",),
-    registry=REGISTRY,
-)
-AUDIT_WRITE_FAILURES = Counter(
-    "homayar_audit_write_failures",
-    "Audit events that could not be written (delivery: transactional or best_effort).",
-    ("delivery",),
-    registry=REGISTRY,
+    registry=_COUNTER_REGISTRY,
 )
 COLLECTION_ERRORS = Counter(
     "homayar_metrics_collection_errors",
-    "Scrape-time state sources that failed (the source's series are omitted).",
+    "Scrape-time state sources that failed or missed their deadline.",
     ("source",),
-    registry=REGISTRY,
+    registry=_COUNTER_REGISTRY,
 )
 
 
@@ -147,16 +158,6 @@ def observe_http(method: str, route: str, status_code: int, seconds: float) -> N
     method = method.upper() if method.upper() in HTTP_METHODS else "OTHER"
     HTTP_REQUESTS.labels(method, route, status_class(status_code)).inc()
     HTTP_DURATION.labels(method, route).observe(max(0.0, seconds))
-
-
-def observe_auth_failure(reason: str) -> None:
-    AUTH_FAILURES.labels(reason if reason in AUTH_FAILURE_REASONS else "other").inc()
-
-
-def observe_audit_write_failure(delivery: str) -> None:
-    AUDIT_WRITE_FAILURES.labels(
-        delivery if delivery in ("transactional", "best_effort") else "other"
-    ).inc()
 
 
 def failure_category(failure_class: str | None, failure_code: str | None) -> str:
@@ -199,18 +200,23 @@ def quantile(values: list[float], q: float) -> float:
 class Snapshot:
     """Gauge samples of one collection: ``name -> (help, label names, samples)``."""
 
-    families: dict[str, tuple[str, tuple[str, ...], list[tuple[tuple[str, ...], float]]]] = (
-        field(default_factory=dict)
+    families: dict[str, tuple[str, tuple[str, ...], list[tuple[tuple[str, ...], float]]]] = field(
+        default_factory=dict
     )
 
-    def add(
-        self, name: str, help_text: str, value: float, **labels: str
-    ) -> None:
+    def add(self, name: str, help_text: str, value: float, **labels: str) -> None:
         names = tuple(labels)
         entry = self.families.setdefault(name, (help_text, names, []))
         if entry[1] != names:
             raise ValueError(f"Inconsistent labels for {name}")
         entry[2].append((tuple(labels[n] for n in names), float(value)))
+
+    def merge(self, other: Snapshot) -> None:
+        for name, (help_text, label_names, samples) in other.families.items():
+            entry = self.families.setdefault(name, (help_text, label_names, []))
+            if entry[1] != label_names:
+                raise ValueError(f"Inconsistent labels for {name}")
+            entry[2].extend(samples)
 
     def metric_families(self) -> Iterator[GaugeMetricFamily]:
         for name, (help_text, label_names, samples) in sorted(self.families.items()):
@@ -233,12 +239,10 @@ def _bounded_statement_timeout(db: Session) -> None:
         db.execute(text(f"SET LOCAL statement_timeout = {milliseconds}"))
 
 
-def collect_database(snapshot: Snapshot, settings: Settings, *, now: datetime) -> bool:
-    from backend.database.relational import get_session_factory
-
+def collect_database(snapshot: Snapshot, factory: sessionmaker[Session]) -> bool:
     started = time.perf_counter()
     try:
-        with get_session_factory()() as db:
+        with factory() as db:
             _bounded_statement_timeout(db)
             db.execute(text("SELECT 1"))
             revision = _database_revision(db)
@@ -284,13 +288,12 @@ def _database_revision(db: Session) -> str | None:
     return db.execute(text("SELECT version_num FROM alembic_version")).scalar()
 
 
-def collect_jobs(snapshot: Snapshot, *, now: datetime) -> None:
-    from backend.database.relational import get_session_factory
+def collect_jobs(snapshot: Snapshot, factory: sessionmaker[Session], *, now: datetime) -> None:
     from backend.database.saas_models import JobState, ProcessingJob
     from backend.database.tenant_context import SERVICE_SCOPE_RECOVERY, bind_service_scope
 
     since = now - RECENT_WINDOW
-    with get_session_factory()() as db:
+    with factory() as db:
         # Read-only discovery scope of the lease sweeper (aggregates only).
         bind_service_scope(db, SERVICE_SCOPE_RECOVERY)
         _bounded_statement_timeout(db)
@@ -300,9 +303,7 @@ def collect_jobs(snapshot: Snapshot, *, now: datetime) -> None:
         ):
             by_state[state.value] = int(count)
         for state in JOB_STATES:
-            snapshot.add(
-                "homayar_jobs", "Processing jobs by state.", by_state[state], state=state
-            )
+            snapshot.add("homayar_jobs", "Processing jobs by state.", by_state[state], state=state)
 
         due_from = func.coalesce(ProcessingJob.retry_after, ProcessingJob.updated_at)
         due_count, oldest_due = db.execute(
@@ -466,12 +467,11 @@ def _duration_quantiles(snapshot: Snapshot, rows: Iterable[Any]) -> None:
             snapshot.add(name, help_text, quantile(values, q), quantile=label)
 
 
-def collect_dispatch(snapshot: Snapshot, *, now: datetime) -> None:
-    from backend.database.relational import get_session_factory
+def collect_dispatch(snapshot: Snapshot, factory: sessionmaker[Session], *, now: datetime) -> None:
     from backend.database.saas_models import DispatchState, JobDispatch
     from backend.database.tenant_context import SERVICE_SCOPE_DISPATCH, bind_service_scope
 
-    with get_session_factory()() as db:
+    with factory() as db:
         bind_service_scope(db, SERVICE_SCOPE_DISPATCH)
         _bounded_statement_timeout(db)
         by_state = dict.fromkeys(DISPATCH_STATES, 0)
@@ -499,8 +499,7 @@ def collect_dispatch(snapshot: Snapshot, *, now: datetime) -> None:
     )
 
 
-def collect_providers(snapshot: Snapshot, *, now: datetime) -> None:
-    from backend.database.relational import get_session_factory
+def collect_providers(snapshot: Snapshot, factory: sessionmaker[Session], *, now: datetime) -> None:
     from backend.database.saas_models import ProviderHealth
     from backend.jobs.leases import as_utc
 
@@ -510,7 +509,7 @@ def collect_providers(snapshot: Snapshot, *, now: datetime) -> None:
     failing = dict.fromkeys(PROVIDER_STAGES, 0)
     recent = dict.fromkeys(PROVIDER_STAGES, 0)
     worst = dict.fromkeys(PROVIDER_STAGES, 0)
-    with get_session_factory()() as db:
+    with factory() as db:
         _bounded_statement_timeout(db)
         rows = db.execute(
             select(
@@ -534,7 +533,9 @@ def collect_providers(snapshot: Snapshot, *, now: datetime) -> None:
         worst[key] = max(worst[key], int(consecutive))
     for stage in PROVIDER_STAGES:
         snapshot.add(
-            "homayar_provider_endpoints", "Known networked provider endpoints.", totals[stage],
+            "homayar_provider_endpoints",
+            "Known networked provider endpoints.",
+            totals[stage],
             stage=stage,
         )
         snapshot.add(
@@ -563,7 +564,7 @@ def collect_providers(snapshot: Snapshot, *, now: datetime) -> None:
         )
 
 
-def collect_redis(snapshot: Snapshot, settings: Settings, *, now: datetime) -> None:
+def collect_redis(snapshot: Snapshot, settings: Settings) -> None:
     import redis
 
     from backend.celery_app import PROCESSING_QUEUE
@@ -673,13 +674,47 @@ def _as_float(value: str | None) -> float | None:
         return None
 
 
-def collect_storage(snapshot: Snapshot, settings: Settings) -> None:
-    from backend.storage.base import object_key_for
+def probe_storage(settings: Settings) -> Any:
+    """The object store the probe uses: S3 with 2 s timeouts and a single attempt
+    (botocore's defaults wait 60 s per connect and retry up to 5 times)."""
     from backend.storage.factory import create_object_storage
+
+    if settings.storage_backend != "s3":
+        return create_object_storage(settings)
+    import boto3  # type: ignore[import-untyped]
+    from botocore.config import Config  # type: ignore[import-untyped]
+
+    from backend.storage.s3 import S3ObjectStorage
+
+    client_kwargs: dict[str, Any] = {
+        "config": Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path" if settings.storage_endpoint_url else "auto"},
+            ignore_configured_endpoint_urls=True,
+            connect_timeout=DEPENDENCY_TIMEOUT_SECONDS,
+            read_timeout=DEPENDENCY_TIMEOUT_SECONDS,
+            retries={"max_attempts": 1, "mode": "standard"},
+        )
+    }
+    if settings.storage_endpoint_url:
+        client_kwargs["endpoint_url"] = settings.storage_endpoint_url
+    if settings.storage_region:
+        client_kwargs["region_name"] = settings.storage_region
+    if settings.storage_access_key:
+        client_kwargs["aws_access_key_id"] = settings.storage_access_key
+        client_kwargs["aws_secret_access_key"] = settings.storage_secret_key
+    return S3ObjectStorage(
+        settings.storage_bucket,
+        max_size_bytes=settings.max_upload_size_mb * 1024 * 1024,
+        client=boto3.client("s3", **client_kwargs),
+    )
+
+
+def collect_storage(snapshot: Snapshot, storage: Any) -> None:
+    from backend.storage.base import object_key_for
 
     started = time.perf_counter()
     try:
-        storage = create_object_storage(settings)
         storage.exists(PROBE_TENANT, object_key_for(PROBE_TENANT, PROBE_OBJECT_TOKEN))
         up = True
     except Exception:
@@ -710,59 +745,142 @@ def collect_build_info(snapshot: Snapshot) -> None:
     )
 
 
-def collect_snapshot(settings: Settings, *, now: datetime | None = None) -> Snapshot:
-    """Every scrape-time source; a failing source is counted and skipped."""
-    now = now or datetime.now(UTC)
-    snapshot = Snapshot()
-    sources: list[tuple[str, Callable[[], Any]]] = [
-        ("build_info", lambda: collect_build_info(snapshot)),
-        ("redis", lambda: collect_redis(snapshot, settings, now=now)),
-        ("heartbeats", lambda: collect_heartbeats(snapshot, settings)),
-        ("storage", lambda: collect_storage(snapshot, settings)),
-    ]
-    database_up = False
-    try:
-        database_up = collect_database(snapshot, settings, now=now)
-    except Exception:
-        COLLECTION_ERRORS.labels("database").inc()
-    if database_up:
-        sources += [
-            ("jobs", lambda: collect_jobs(snapshot, now=now)),
-            ("dispatch", lambda: collect_dispatch(snapshot, now=now)),
-            ("providers", lambda: collect_providers(snapshot, now=now)),
-        ]
-    for name, source in sources:
-        try:
-            source()
-        except Exception as exc:
-            COLLECTION_ERRORS.labels(name).inc()
-            from backend.services.logging_service import logger
+def metrics_session_factory(settings: Settings) -> tuple[Any, sessionmaker[Session]]:
+    """A small engine of its own: connect timeout, at most four connections, the
+    application role and the same tenant-context hooks as the application's."""
+    from sqlalchemy.engine import make_url
 
-            logger.warning(
-                "METRICS_SOURCE_FAILED source=%s error_type=%s", name, type(exc).__name__
-            )
-    snapshot.add(
-        "homayar_metrics_snapshot_timestamp_seconds",
-        "Unix time the scrape-time state was collected.",
-        now.timestamp(),
+    from backend.database.relational import build_engine
+    from backend.database.tenant_context import install_session_listeners
+
+    url = make_url(settings.database_url)
+    if url.get_backend_name() == "postgresql":
+        url = url.update_query_dict({"connect_timeout": str(int(DEPENDENCY_TIMEOUT_SECONDS))})
+    tuned = settings.model_copy(
+        update={
+            "database_url": url.render_as_string(hide_password=False),
+            "database_pool_size": 1,
+            "database_max_overflow": 3,
+        }
     )
-    return snapshot
+    engine = build_engine(tuned)
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    install_session_listeners(factory)
+    return engine, factory
 
 
 class StateCollector(Collector):
-    """Serves the cached scrape-time snapshot; refreshes it at most every ``cache_seconds``."""
+    """The scrape-time snapshot, refreshed at most every ``cache_seconds``.
 
-    def __init__(self, settings: Settings, *, cache_seconds: float) -> None:
+    A refresh runs every source in a worker thread and waits at most
+    ``source_timeout`` per stage.  A source that misses the deadline is counted
+    in ``homayar_metrics_collection_errors_total{source}`` (a dependency probe
+    reports the dependency as down) and stays in flight: it is not started again
+    until it returns, so a hung dependency costs one thread, not one per scrape.
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        cache_seconds: float,
+        source_timeout: float | None = None,
+    ) -> None:
         self._settings = settings
         self._cache_seconds = cache_seconds
+        self._source_timeout = source_timeout or SOURCE_TIMEOUT_SECONDS
         self._lock = threading.Lock()
         self._snapshot: Snapshot | None = None
         self._taken_at = 0.0
+        self._executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="homayar-metrics")
+        self._inflight: dict[str, Future[Any]] = {}
+        self._engine: Any = None
+        self._factory: sessionmaker[Session] | None = None
+        self._storage: Any = None
+
+    def _session_factory(self) -> sessionmaker[Session]:
+        if self._factory is None:
+            self._engine, self._factory = metrics_session_factory(self._settings)
+        return self._factory
+
+    def _probe_storage(self, snapshot: Snapshot) -> None:
+        if self._storage is None:
+            self._storage = probe_storage(self._settings)
+        collect_storage(snapshot, self._storage)
+
+    def _failed(self, name: str, snapshot: Snapshot, error_type: str) -> None:
+        from backend.services.logging_service import logger
+
+        COLLECTION_ERRORS.labels(name).inc()
+        logger.warning("METRICS_SOURCE_FAILED source=%s error_type=%s", name, error_type)
+        if name in DEPENDENCY_SOURCES:
+            snapshot.add(
+                "homayar_dependency_up",
+                "1 when the dependency answered the health probe of this scrape.",
+                0.0,
+                dependency=name,
+            )
+
+    def _run(
+        self, sources: dict[str, Callable[[Snapshot], Any]], snapshot: Snapshot
+    ) -> dict[str, Any]:
+        started: dict[str, tuple[Future[Any], Snapshot]] = {}
+        for name, source in sources.items():
+            previous = self._inflight.get(name)
+            if previous is not None and not previous.done():
+                self._failed(name, snapshot, "StillRunning")
+                continue
+            part = Snapshot()
+            future = self._executor.submit(source, part)
+            self._inflight[name] = future
+            started[name] = (future, part)
+        wait([future for future, _ in started.values()], timeout=self._source_timeout)
+        results: dict[str, Any] = {}
+        for name, (future, part) in started.items():
+            if not future.done():
+                self._failed(name, snapshot, "Timeout")
+            elif future.exception() is not None:
+                self._failed(name, snapshot, type(future.exception()).__name__)
+            else:
+                snapshot.merge(part)
+                results[name] = future.result()
+        return results
+
+    def refresh(self, *, now: datetime | None = None) -> Snapshot:
+        now = now or datetime.now(UTC)
+        settings = self._settings
+        snapshot = Snapshot()
+        probes = self._run(
+            {
+                "build_info": collect_build_info,
+                "redis": lambda part: collect_redis(part, settings),
+                "heartbeats": lambda part: collect_heartbeats(part, settings),
+                "storage": self._probe_storage,
+                "database": lambda part: collect_database(part, self._session_factory()),
+            },
+            snapshot,
+        )
+        if probes.get("database") is True:
+            factory = self._session_factory()
+            self._run(
+                {
+                    "jobs": lambda part: collect_jobs(part, factory, now=now),
+                    "dispatch": lambda part: collect_dispatch(part, factory, now=now),
+                    "providers": lambda part: collect_providers(part, factory, now=now),
+                },
+                snapshot,
+            )
+        snapshot.add(
+            "homayar_metrics_snapshot_timestamp_seconds",
+            "Unix time the scrape-time state was collected.",
+            now.timestamp(),
+        )
+        return snapshot
 
     def collect(self) -> Iterator[GaugeMetricFamily]:
-        with self._lock:
+        with self._lock:  # held for at most about 2 x source_timeout
             if self._snapshot is None or time.monotonic() - self._taken_at >= self._cache_seconds:
-                self._snapshot = collect_snapshot(self._settings)
+                self._snapshot = self.refresh()
                 self._taken_at = time.monotonic()
             snapshot = self._snapshot
         yield from snapshot.metric_families()
@@ -770,9 +888,23 @@ class StateCollector(Collector):
     def describe(self) -> list[Any]:
         return []
 
+    def close(self) -> None:
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        if self._engine is not None:
+            self._engine.dispose()
+
+
+def in_process_exposition() -> bytes:
+    """Counters and histograms: summed over every worker in multiprocess mode."""
+    if MULTIPROCESS_DIR:
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry, path=MULTIPROCESS_DIR)
+        return generate_latest(registry)
+    return generate_latest(REGISTRY)
+
 
 def render(collector: StateCollector) -> bytes:
     """The exposition text: in-process series plus the scrape-time snapshot."""
     state = CollectorRegistry(auto_describe=False)
     state.register(collector)
-    return generate_latest(REGISTRY) + generate_latest(state)
+    return in_process_exposition() + generate_latest(state)

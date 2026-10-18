@@ -5,12 +5,14 @@ import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
+import anyio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
+from starlette.types import Receive, Scope, Send
 
 from backend.config import Settings, get_settings
 from backend.database.relational import (
@@ -28,6 +30,7 @@ from backend.observability.metrics import (
     observe_http,
     render,
 )
+from backend.observability.release import code_migration_head
 from backend.routers.v1 import admin as admin_v1
 from backend.routers.v1 import ai_policy as ai_policy_v1
 from backend.routers.v1 import api_keys as api_keys_v1
@@ -47,6 +50,20 @@ from backend.routers.v1 import voicemail as voicemail_v1
 from backend.services.auth_service import ensure_development_demo_account
 from backend.services.logging_service import logger
 from backend.services.tenancy_service import ensure_plan_catalog
+
+METRICS_PATH = "/metrics"
+
+
+class _TrustedHostExceptMetrics(TrustedHostMiddleware):
+    """TRUSTED_HOSTS lists the public hostnames; Prometheus scrapes the API by its
+    internal service name (``api:8000``). ``/metrics`` answers no host-derived
+    content and needs its bearer token, so only that path skips the host check."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path") == METRICS_PATH:
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
 
 
 def _verify_database_posture(settings: Settings) -> None:
@@ -114,10 +131,26 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             # WP07-T04: without the journal a restore cannot reapply deletions
             # made after the backup (the sweep also reports journal_backlog).
             logger.warning("TOMBSTONE_JOURNAL_NOT_CONFIGURED restores may resurrect deleted data")
+        if settings.metrics_enabled:
+            # Load the Alembic scripts once now, not inside the first scrape's deadline.
+            code_migration_head()
         if settings.metrics_enabled and metrics_access(settings) == "disabled":
             # Staging/production without METRICS_BEARER_TOKEN and without the explicit
             # METRICS_ALLOW_UNAUTHENTICATED opt-out: /metrics answers 404 (HOM-113).
             logger.warning("METRICS_ENDPOINT_DISABLED reason=no_bearer_token")
+        elif (
+            settings.metrics_enabled
+            and settings.metrics_allow_unauthenticated
+            and not settings.metrics_bearer_token
+            and settings.environment in ("staging", "production")
+        ):
+            # The on-premise opt-out (refused for DEPLOYMENT_MODE=cloud by Settings),
+            # named at startup like the HOM-161 transport opt-outs.
+            logger.warning(
+                "METRICS_UNAUTHENTICATED_OPT_OUT deployment_mode=%s variable=%s",
+                settings.deployment_mode,
+                "METRICS_ALLOW_UNAUTHENTICATED",
+            )
         logger.info(
             "HOMAYAR_STARTED environment=%s deployment_mode=%s",
             settings.environment,
@@ -128,7 +161,10 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             from backend.database.neo4j_connection import Neo4jConnection
 
             Neo4jConnection.close()
+        state_collector.close()
         logger.info("HOMAYAR_STOPPED")
+
+    state_collector = StateCollector(settings, cache_seconds=settings.metrics_cache_seconds)
 
     app = FastAPI(
         title="Homayar Conversation Intelligence API",
@@ -142,7 +178,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.dependency_overrides[get_settings] = lambda: settings
 
     app.add_middleware(
-        TrustedHostMiddleware,
+        _TrustedHostExceptMetrics,
         allowed_hosts=[host.strip() for host in settings.trusted_hosts.split(",") if host.strip()],
     )
     app.add_middleware(
@@ -218,15 +254,15 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    state_collector = StateCollector(settings, cache_seconds=settings.metrics_cache_seconds)
-
-    @app.get("/metrics", include_in_schema=False)
-    def metrics_endpoint(request: Request) -> Response:
+    @app.get(METRICS_PATH, include_in_schema=False)
+    async def metrics_endpoint(request: Request) -> Response:
         """Prometheus exposition (HOM-113, ADR 0036): served on the API port only.
 
-        Not routed by the proxy. ``metrics_access`` decides: ``disabled`` (404),
-        ``token`` (bearer token, compared in constant time) or ``open``
-        (development/test, or the explicit staging/production opt-out).
+        Not routed by the proxy and exempt from the trusted-host check (scraped as
+        ``api:8000``). ``metrics_access`` decides: ``disabled`` (404), ``token``
+        (bearer token, compared in constant time) or ``open`` (development/test,
+        or the explicit on-premise opt-out). Rendering runs on a limiter of one
+        thread, so concurrent scrapes wait without taking the API's threadpool.
         """
         access = metrics_access(settings)
         if access == "disabled":
@@ -237,14 +273,18 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             scheme, _, presented = request.headers.get("authorization", "").partition(" ")
             if scheme.casefold() != "bearer" or not secrets.compare_digest(
                 presented.strip().encode("utf-8"),
-                settings.metrics_bearer_token.encode("utf-8"),
+                settings.metrics_bearer_token.strip().encode("utf-8"),
             ):
                 raise HTTPException(
                     status_code=401,
                     detail={"code": "unauthorized", "message": "Metrics need a bearer token"},
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-        return Response(content=render(state_collector), media_type=METRICS_CONTENT_TYPE)
+        limiter = getattr(app.state, "metrics_limiter", None)
+        if limiter is None:
+            limiter = app.state.metrics_limiter = anyio.CapacityLimiter(1)
+        body = await anyio.to_thread.run_sync(render, state_collector, limiter=limiter)
+        return Response(content=body, media_type=METRICS_CONTENT_TYPE)
 
     @app.get("/readyz", tags=["system"])
     async def readiness():
@@ -316,13 +356,16 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled_error_handler(request: Request, exc: Exception):
         request_id = getattr(request.state, "request_id", None)
-        logger.error(
-            "UNHANDLED_ERROR request_id=%s path=%s error_type=%s",
-            request_id,
-            request.url.path,
-            type(exc).__name__,
-            exc_info=True,
-        )
+        # The route template, never the raw path (share and invitation tokens live
+        # in paths); the middleware's correlation scope has already ended here.
+        with correlation_scope(request_id or "unknown-request"):
+            logger.error(
+                "UNHANDLED_ERROR request_id=%s route=%s error_type=%s",
+                request_id,
+                _route_template(request),
+                type(exc).__name__,
+                exc_info=True,
+            )
         return JSONResponse(
             status_code=500,
             content=_error_payload(

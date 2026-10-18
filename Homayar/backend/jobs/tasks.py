@@ -26,8 +26,8 @@ def process_meeting_job(self, job_id: str, workspace_id: str | None = None):
     from backend.jobs.processor import process_job
 
     # One correlation id per attempt (HOM-113): its audit events and log lines
-    # carry ``job:<id>``, which is how an operator finds a failed job.
-    with correlation_scope(job_correlation_id(job_id)):
+    # carry ``job:<id>:<delivery>``; ``job:<id>`` is the prefix an operator searches.
+    with correlation_scope(job_correlation_id(job_id, self.request.id)):
         # The message may assert a workspace; the persisted job is the authority.
         if not verify_job_payload(job_id, workspace_id):
             return {"job_id": job_id, "status": "rejected_payload"}

@@ -828,10 +828,21 @@ class Settings(BaseSettings):
             keyring = parse_keyring(self.pii_mapping_keys)  # raises ValueError
             if self.pii_mapping_active_key_id not in keyring:
                 raise ValueError("PII_MAPPING_ACTIVE_KEY_ID must name one of PII_MAPPING_KEYS")
-        if self.metrics_bearer_token and len(self.metrics_bearer_token) < 32:
+        if self.metrics_bearer_token and len(self.metrics_bearer_token.strip()) < 32:
             raise ValueError("METRICS_BEARER_TOKEN must be at least 32 characters")
         if not 0 <= self.metrics_cache_seconds <= 300:
             raise ValueError("METRICS_CACHE_SECONDS must be between 0 and 300")
+        if (
+            self.metrics_allow_unauthenticated
+            and self.deployment_mode == "cloud"
+            and self.environment in ("staging", "production")
+        ):
+            # Same rule as the HOM-161 transport opt-outs: none in cloud. On-premise
+            # the opt-out is logged at startup by name (METRICS_UNAUTHENTICATED_OPT_OUT).
+            raise ValueError(
+                "METRICS_ALLOW_UNAUTHENTICATED is refused with DEPLOYMENT_MODE=cloud; "
+                "set METRICS_BEARER_TOKEN instead (HOM-113)"
+            )
         plaintext_hops: list[str] = []
         if self.environment == "production":
             if len(self.jwt_secret) < 32 or len(self.token_pepper) < 32:
