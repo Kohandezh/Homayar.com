@@ -43,8 +43,11 @@ OFFSITE=homayar-drill-offsite
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ ! -e "${DRILL_DIR}" || -z "$(ls -A "${DRILL_DIR}")" ]] || die "DRILL_DIR must be new or empty"
 mkdir -p "${DRILL_DIR}"/{backups,offsite-dir,journal,journal-replica,restore-backups,evidence,logs}
-# node_exporter textfile directory of the "production" host: outside BACKUP_ROOT.
+# node_exporter textfile directory of the "production" host: outside BACKUP_ROOT,
+# owned by BACKUP_UID:BACKUP_GID (this user), 0755. Set for every backup-tool run:
+# the Compose default would bind a directory of the repository.
 mkdir -p "${DRILL_DIR}/node-exporter-textfile"
+chmod 0755 "${DRILL_DIR}/node-exporter-textfile"
 DRILL_DIR="$(cd -- "${DRILL_DIR}" && pwd -P)"
 E="${DRILL_DIR}/evidence"
 TIMELINE="${E}/drill-timeline.log"
@@ -97,10 +100,22 @@ collect_logs() {  # file prefix, then the compose wrapper (prod / restore_env)
       > "${LOGS}/${prefix}-${service}.log" 2>&1 || true
   done
 }
+wait_healthy() {  # compose wrapper, seconds: every service with a health check is healthy
+  local wrapper="$1" deadline pending
+  deadline=$(( $(date +%s) + $2 ))
+  while :; do
+    pending="$("${wrapper}" --profile onprem ps --format '{{.Service}} {{.Health}}' |
+      awk '$2 != "" && $2 != "healthy" { printf "%s(%s) ", $1, $2 }')"
+    [[ -n "${pending}" ]] || return 0
+    (( $(date +%s) < deadline )) || die "not healthy after $2 s: ${pending}"
+    sleep 5
+  done
+}
 prod() {
   PUBLIC_ORIGIN="http://127.0.0.1:${PROD_PORT}" CORS_ORIGINS="http://127.0.0.1:${PROD_PORT}" \
   TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${PROD_PORT}" \
   TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal" BACKUP_ROOT="${DRILL_DIR}/backups" \
+  NODE_EXPORTER_TEXTFILE_DIR="${DRILL_DIR}/node-exporter-textfile" \
     compose_for "${PROD}" "$@"
 }
 
@@ -135,8 +150,9 @@ prod --profile onprem up -d --wait postgres redis minio
 prod --profile onprem run --rm --no-deps minio-bootstrap
 prod --profile onprem --profile migrate run --rm --no-deps migrate
 # Before T0, not measured: on a loaded host a health check can miss its window
-# (public-web start-up); one more --wait is enough once the containers are up.
-prod --profile onprem up -d --wait || prod --profile onprem up -d --wait
+# (public-web start-up, the worker's ~10 s `celery inspect ping`), and `up --wait`
+# gives up on the first unhealthy state; wait for every service to report healthy.
+prod --profile onprem up -d --wait || wait_healthy prod "${DRILL_PROD_HEALTH_SECONDS:-900}"
 mark prod_up END
 
 mark seed START
@@ -230,6 +246,7 @@ restore_env() {
   TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${RESTORE_PORT}" \
   TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal-replica" BACKUP_ROOT="${DRILL_DIR}/restore-backups" \
   BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" \
+  NODE_EXPORTER_TEXTFILE_DIR="${DRILL_DIR}/restore-backups/restores/${backup_id}/metrics" \
     compose_for "${RESTORE}" "$@"
 }
 probe() {  # name, expected exit code, backup-tool arguments
