@@ -33,6 +33,7 @@ settings, which the invitation flow still needs.
 | `usage.spec.ts` | An owner reads `/admin/usage` (subscription, quota meters, event history with filter and paging, plan catalog with no prices) in `en` and `fa`, and a member gets `No access`. |
 | `members.spec.ts` | An owner changes a member's role, removes the member, invites them back, and the invited account accepts. |
 | `teams.spec.ts` | An owner reads the seeded teams with their member counts and the record-scope banner, opens `Sales`, renames and re-renames `Support`, deactivates and reactivates it, assigns the viewer to `Sales` and revokes the assignment. The page is right to left in Persian, and a member sees no write control. |
+| `locations.spec.ts` | An owner creates a dealer location in `Atlantis` (seeing both save warnings), filters `/admin/locations` by kind, city and status, renames the location and deletes it through the confirm. A member gets `No access`. |
 | `workspace-settings.spec.ts` | An owner changes `Public share links` and `Duplicate files`, the values survive a reload, and the audit log records `workspace.settings.updated`. An admin sees the privacy controls locked. Cancelling the immediate-retention warning saves nothing. The page is right to left in Persian. |
 | `access-control.spec.ts` | A viewer is blocked from `/admin` and `/admin/settings`, and still opens the pages their role allows. |
 | `ai-policy.spec.ts` | An owner edits `/admin/ai-policy` with a preset that differs from the current policy, sees the saved version in `Version history` and compares it; an admin reads the policy and history with no edit controls; the page is right to left in Persian. |
@@ -100,6 +101,9 @@ hooks, which run even when a step fails:
   once after the loop. The restore never requests a deletion. The audit log
   keeps the `media.legal_hold_placed`, `media.legal_hold_released` and
   `subject.exported` events of every run; the API has no way to remove them.
+* `locations.spec.ts`, in `afterAll`: every location whose `code` starts with
+  this run's `e2e-loc-` prefix is deleted over the API, so a failed step
+  leaves nothing behind.
 * `ai-policy.spec.ts`, in `afterEach`: the policy document the test started
   from is written back over the API. AI policy versions are append-only, so the
   restore itself appends one more version; the document is back to its starting
