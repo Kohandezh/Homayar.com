@@ -72,14 +72,20 @@ EXEMPT_DETAIL_KEYS = frozenset(
         "id", "kind", "state", "status", "source", "source_type", "stage", "stages",
         "digest", "scopes", "placeholder", "pii_class", "identifier_classes",
         "credential_prefix", "version", "previous_version", "role", "previous_role",
-        "outcome", "method", "delivery", "category", "failure_class", "failure_code",
+        "outcome", "method", "delivery", "category", "failure_class", "fields",
         "manifest_id", "plan", "language", "mode", "visibility",
     }
 )
 EXEMPT_DETAIL_SUFFIXES = (
     "_id", "_ids", "_digest", "_sha256", "_hash", "_at", "_count", "_bytes", "_seconds",
-    "_version", "_number", "_prefix", "_class", "_type", "_state", "_kind", "_code",
-    "_status", "_role",
+    "_version", "_number", "_prefix", "_class", "_type", "_state", "_kind",
+    "_status", "_role", "_fields",
+)
+# A key naming personal data is never exempt, whatever its suffix (national_id,
+# phone_number, card_number, ...).
+PERSONAL_DATA_KEY_PARTS = (
+    "national", "phone", "mobile", "card", "iban", "email", "passport", "postal", "address",
+    "birth",
 )
 # The free text a user or an integration supplies for these is masked, too; the
 # names stay documented for reviewers (the owner's list, 2026-10-17).
@@ -201,6 +207,8 @@ def _is_sensitive_key(key: str) -> bool:
 def _is_exempt_key(key: str) -> bool:
     lowered = key.casefold()
     if lowered in FREE_TEXT_DETAIL_KEYS or lowered.endswith("_reason"):
+        return False
+    if any(part in lowered for part in PERSONAL_DATA_KEY_PARTS):
         return False
     return lowered in EXEMPT_DETAIL_KEYS or lowered.endswith(EXEMPT_DETAIL_SUFFIXES)
 

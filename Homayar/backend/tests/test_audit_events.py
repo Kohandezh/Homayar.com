@@ -12,6 +12,7 @@ import ast
 import json
 import logging
 import re
+import uuid
 from pathlib import Path
 
 import pytest
@@ -268,20 +269,24 @@ def test_model_manifest_registration_is_audited_once(client):
 def test_a_failed_registration_audit_is_not_mistaken_for_a_duplicate(client, monkeypatch):
     if not is_postgres_url(configured_database_url()):
         pytest.skip("needs PostgreSQL column limits")
+    from sqlalchemy.exc import IntegrityError
+
     from backend.database.relational import get_session_factory
     from backend.database.saas_models import ModelManifestRecord
+    from backend.providers.base import ProviderError
     from backend.providers.registry import ModelManifest
     from backend.services import model_registry_service
     from backend.tests.test_model_registry import _bundle, _qualifying
 
-    def too_long(db, **fields):  # a real database failure of the audit insert
-        return record_audit_event(db, **{**fields, "outcome": "x" * 40})
+    def unknown_actor(db, **fields):  # an IntegrityError of the audit row itself (FK)
+        return record_audit_event(db, **{**fields, "actor_user_id": str(uuid.uuid4())})
 
-    monkeypatch.setattr(model_registry_service, "record_audit_event", too_long)
+    monkeypatch.setattr(model_registry_service, "record_audit_event", unknown_actor)
     manifest = ModelManifest.model_validate(_qualifying(_bundle())[0])
     with get_session_factory()() as db:
-        with pytest.raises(DBAPIError):
+        with pytest.raises(IntegrityError) as raised:
             model_registry_service.register_manifest(db, manifest)
+        assert not isinstance(raised.value, ProviderError)  # not manifest_conflict
         db.rollback()
     with inspection_session_factory()() as db:
         assert db.get(ModelManifestRecord, manifest.digest) is None
@@ -415,6 +420,7 @@ def test_a_failing_replay_audit_never_undoes_the_revocation(client, email_outbox
         return real(db, **fields)
 
     monkeypatch.setattr(audit_service, "record_audit_event", broken)
+    monkeypatch.setattr("backend.routers.v1.auth.record_audit_event", broken)
     csrf = client.cookies.get(CSRF_COOKIE)
     client.cookies.delete(REFRESH_COOKIE)
     client.cookies.set(REFRESH_COOKIE, stolen)
@@ -476,11 +482,14 @@ def test_an_uncatalogued_event_type_is_logged_once(client, settings, caplog):
     from backend.database.relational import get_session_factory
     from backend.services.logging_service import logger
 
-    logger.disabled = False
-    with caplog.at_level(logging.WARNING, logger="homayar"), get_session_factory()() as db:
-        for _ in range(2):
-            record_audit_event(db, event_type="test.not_catalogued", settings=settings)
-        db.commit()
+    was_disabled, logger.disabled = logger.disabled, False
+    try:
+        with caplog.at_level(logging.WARNING, logger="homayar"), get_session_factory()() as db:
+            for _ in range(2):
+                record_audit_event(db, event_type="test.not_catalogued", settings=settings)
+            db.commit()
+    finally:
+        logger.disabled = was_disabled
     warnings = [r.getMessage() for r in caplog.records
                 if r.getMessage().startswith("AUDIT_EVENT_UNCATALOGUED")]
     assert warnings == ["AUDIT_EVENT_UNCATALOGUED event_type=test.not_catalogued"]
@@ -521,3 +530,38 @@ def test_admins_read_only_their_workspace_events(client, email_outbox):
         # only this workspace's rows: no other tenant, no platform (login) events
         assert ids <= own
         assert not any(item["event_type"].startswith("auth.") for item in items)
+
+
+def test_a_long_field_name_list_is_stored_whole(client, settings):
+    from backend.database.relational import get_session_factory
+
+    fields = ",".join([
+        "name", "default_language", "timezone", "pii_redaction_enabled",
+        "public_share_links_enabled", "record_scope", "retention_days", "retention_mode",
+        "recording_retention_after_processing", "transcript_visibility", "speaker_labels",
+    ])
+    assert len(fields) > audit_service.MAX_FREE_TEXT_LENGTH
+    with get_session_factory()() as db:
+        record_audit_event(db, event_type="workspace.settings.updated",
+                           details={"fields": fields}, settings=settings)
+        db.commit()
+    [event] = _events("workspace.settings.updated")
+    assert event.details["fields"] == fields
+
+
+def test_keys_naming_personal_data_are_never_exempt(client, settings):
+    from backend.database.relational import get_session_factory
+
+    phone = "0912" + "7654321"
+    with get_session_factory()() as db:
+        record_audit_event(
+            db, event_type="meeting.updated",
+            details={"phone_number": phone, "contact_phone_id": phone,
+                     "national_id": "0012345678x", "meeting_id": "m-1"},
+            settings=settings,
+        )
+        db.commit()
+    [event] = _events("meeting.updated")
+    assert event.details["phone_number"] == "[PHONE_1]"
+    assert phone not in _row_text(event)
+    assert event.details["meeting_id"] == "m-1"
