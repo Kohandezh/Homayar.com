@@ -179,6 +179,13 @@ describe("admin pages", () => {
     for (const url of billingUrls) expect(requestedUrls(memberGet)).not.toContain(url);
   });
 
+  it("renders the teams page behind its route, not the coming-soon placeholder", async () => {
+    pendingReads();
+    renderApp("/admin/teams");
+    expect(await screen.findByRole("heading", { level: 1, name: "Teams" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
+  });
+
   it("shows the shared coming-soon page for every admin path without a page, in both languages", async () => {
     pendingReads();
     const placeholders = ADMIN_NAV.filter((entry) => !(entry.path in ADMIN_PAGES));
