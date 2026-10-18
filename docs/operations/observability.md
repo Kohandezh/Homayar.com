@@ -1,6 +1,7 @@
 # Observability: metrics, correlation ids and heartbeats
 
 Scope: HOM-113 (WP20-T01). Decision record: [ADR 0036](../architecture/decisions/0036-operational-evidence-observability-audit-release.md).
+Alerts on these series and their runbook: [alerts.md](alerts.md) (HOM-126).
 
 ## Correlation ids
 

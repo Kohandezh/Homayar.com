@@ -1,0 +1,661 @@
+# promtool unit tests for homayar.rules.yml (HOM-126).
+# Run: promtool test rules infra/observability/prometheus/tests/homayar.rules.test.yml
+#
+# Each alert is tested in a normal state (no alert) and in the failure it describes.
+# Two API replicas ("api-1", "api-2") report the same database-derived state in the
+# cases where double counting would change the outcome.
+
+rule_files:
+  - ../homayar.rules.yml
+
+evaluation_interval: 30s
+
+# Without an explicit order promtool evaluates the groups of one tick in random order, so an
+# alert could read a recording rule from the previous tick. List every group, recording first.
+group_eval_order:
+  - homayar-recording
+  - homayar-availability
+  - homayar-processing
+  - homayar-retention
+  - homayar-security
+  - homayar-backup
+
+tests:
+  # --- dependencies ----------------------------------------------------------------
+  - interval: 30s
+    input_series:
+      - series: 'homayar_dependency_up{dependency="database",instance="api-1",job="homayar-api"}'
+        values: '1x10 0x10'
+      - series: 'homayar_dependency_up{dependency="redis",instance="api-1",job="homayar-api"}'
+        values: '1x20'
+      - series: 'up{instance="api-1",job="homayar-api"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HomayarDatabaseUnavailable
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: HomayarDatabaseUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "PostgreSQL does not answer the API's health probe"
+              runbook: docs/operations/alerts.md#homayardatabaseunavailable
+      - eval_time: 8m
+        alertname: HomayarRedisUnavailable
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: HomayarApiScrapeFailing
+        exp_alerts: []
+
+  # --- periodic sweeps: a healthy 30 s sweep that stops after 10 minutes ------------
+  - interval: 30s
+    input_series:
+      - series: 'homayar_periodic_task_interval_seconds{task="dispatch_outbox",instance="api-1",job="homayar-api"}'
+        values: '30x60'
+      - series: 'homayar_periodic_task_interval_seconds{task="dispatch_outbox",instance="api-2",job="homayar-api"}'
+        values: '30x60'
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="dispatch_outbox",instance="api-1",job="homayar-api"}'
+        values: '0+30x20 600x40'
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="dispatch_outbox",instance="api-2",job="homayar-api"}'
+        values: '0+30x20 600x40'
+      - series: 'homayar_periodic_task_interval_seconds{task="retention_purge",instance="api-1",job="homayar-api"}'
+        values: '900x60'
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="retention_purge",instance="api-1",job="homayar-api"}'
+        values: '0x30 900x30'
+      - series: 'homayar_periodic_task_interval_seconds{task="voice_recovery",instance="api-1",job="homayar-api"}'
+        values: '15x80'
+    alert_rule_test:
+      # still within three intervals (and the 4-minute floor) of the last success
+      - eval_time: 13m
+        alertname: HomayarPeriodicSweepStale
+        exp_alerts: []
+      # last success at 10m: stale after 14m, fires one minute later (15m30s at the latest)
+      - eval_time: 16m
+        alertname: HomayarPeriodicSweepStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              task: dispatch_outbox
+            exp_annotations:
+              summary: "Periodic sweep dispatch_outbox has not succeeded for three intervals"
+              description: "Celery beat, every worker on the processing queue, or the sweep itself stopped."
+              runbook: docs/operations/alerts.md#homayarperiodicsweepstale
+      # voice_recovery has an interval but never reported a success
+      - eval_time: 20m
+        alertname: HomayarPeriodicSweepNeverReported
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: HomayarPeriodicSweepNeverReported
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              task: voice_recovery
+            exp_annotations:
+              summary: "Periodic sweep voice_recovery never reported a successful run"
+              runbook: docs/operations/alerts.md#homayarperiodicsweepstale
+
+  # --- a 15-minute sweep: one transient failure, then two failures in a row ------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_periodic_task_interval_seconds{task="media_reconciliation",instance="api-1",job="homayar-api"}'
+        values: '900x50'
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="media_reconciliation",instance="api-1",job="homayar-api"}'
+        values: '100x50'
+      # minutes 0-5: no failure yet; 6-21: one failed run 900 s after the success;
+      # from 22: a second failed run, 1800 s after the success
+      - series: 'homayar_periodic_task_last_failure_timestamp_seconds{task="media_reconciliation",instance="api-1",job="homayar-api"}'
+        values: '_x5 1000x15 1900x28'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HomayarPeriodicSweepFailing
+        exp_alerts: []
+      # a single failure, whatever its age, waits for the next run
+      - eval_time: 21m
+        alertname: HomayarPeriodicSweepFailing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: HomayarPeriodicSweepFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              task: media_reconciliation
+            exp_annotations:
+              summary: "Sweep media_reconciliation failed at least twice in a row"
+              runbook: docs/operations/alerts.md#homayarperiodicsweepfailing
+
+  # --- queue backlog and expired leases -----------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_jobs_oldest_queued_due_age_seconds{instance="api-1",job="homayar-api"}'
+        values: '5x10 0+60x40'
+      - series: 'homayar_jobs_running_lease_expired{instance="api-1",job="homayar-api"}'
+        values: '0x5 1x3 0x5 2x20'
+    alert_rule_test:
+      # a normal queue keeps the oldest due job a few seconds old
+      - eval_time: 10m
+        alertname: HomayarQueueBacklog
+        exp_alerts: []
+      # age passes 900 s at minute 27 and stays above it for 10 more minutes
+      - eval_time: 38m
+        alertname: HomayarQueueBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "A due processing job has waited more than 15 minutes"
+              runbook: docs/operations/alerts.md#homayarqueuebacklog
+      - eval_time: 38m
+        alertname: HomayarQueueStalled
+        exp_alerts: []
+      # a lease that the sweep recovers within minutes does not alert
+      - eval_time: 12m
+        alertname: HomayarExpiredLeasesNotRecovered
+        exp_alerts: []
+      - eval_time: 27m
+        alertname: HomayarExpiredLeasesNotRecovered
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "2 running jobs kept an expired lease for 10 minutes"
+              description: "Workers died and the lease-recovery sweep has not fenced their jobs."
+              runbook: docs/operations/alerts.md#homayarexpiredleasesnotrecovered
+
+  # --- processing failure rate, two replicas -----------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_jobs_finished_15m{outcome="completed",instance="api-1",job="homayar-api"}'
+        values: '9x20 5x20'
+      - series: 'homayar_jobs_finished_15m{outcome="completed",instance="api-2",job="homayar-api"}'
+        values: '9x20 5x20'
+      - series: 'homayar_jobs_finished_15m{outcome="dead_letter",instance="api-1",job="homayar-api"}'
+        values: '1x20 2x20'
+      - series: 'homayar_jobs_finished_15m{outcome="dead_letter",instance="api-2",job="homayar-api"}'
+        values: '1x20 2x20'
+      - series: 'homayar_jobs_finished_15m{outcome="failed",instance="api-1",job="homayar-api"}'
+        values: '0x20 3x20'
+      - series: 'homayar_jobs_finished_15m{outcome="failed",instance="api-2",job="homayar-api"}'
+        values: '0x20 3x20'
+      - series: 'homayar_jobs_failed_15m{outcome="dead_letter",category="provider",instance="api-1",job="homayar-api"}'
+        values: '1x20 2x20'
+      - series: 'homayar_jobs_failed_15m{outcome="dead_letter",category="provider",instance="api-2",job="homayar-api"}'
+        values: '1x20 2x20'
+      - series: 'homayar_jobs_failed_15m{outcome="failed",category="media",instance="api-1",job="homayar-api"}'
+        values: '0x20 3x20'
+      - series: 'homayar_jobs_failed_15m{outcome="failed",category="media",instance="api-2",job="homayar-api"}'
+        values: '0x20 3x20'
+    alert_rule_test:
+      # 1 failure in 10 jobs (10%), counted once although two replicas report it
+      - eval_time: 19m
+        alertname: HomayarProcessingFailureRate
+        exp_alerts: []
+      - eval_time: 19m
+        alertname: HomayarDeadLetterJobs
+        exp_alerts: []
+      # 5 failures in 10 jobs for 15 minutes
+      - eval_time: 38m
+        alertname: HomayarProcessingFailureRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "More than 20% of the jobs finished in 15 minutes failed"
+              runbook: docs/operations/alerts.md#homayarprocessingfailurerate
+      # 2 dead-lettered jobs per replica stay below the threshold of 3 (no double count)
+      - eval_time: 36m
+        alertname: HomayarDeadLetterJobs
+        exp_alerts: []
+      - eval_time: 36m
+        alertname: HomayarProviderJobFailures
+        exp_alerts: []
+
+  # --- dead letters, retries, providers, outbox ----------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_jobs_failed_15m{outcome="dead_letter",category="provider",instance="api-1",job="homayar-api"}'
+        values: '0x5 4x20'
+      - series: 'homayar_jobs_retry_scheduled{instance="api-1",job="homayar-api"}'
+        values: '2x30'
+      - series: 'homayar_provider_circuits_open{stage="asr",instance="api-1",job="homayar-api"}'
+        values: '0x5 1x3 0x2 1x20'
+      - series: 'homayar_provider_circuits_open{stage="intelligence",instance="api-1",job="homayar-api"}'
+        values: '0x30'
+      - series: 'homayar_dispatch_oldest_due_age_seconds{instance="api-1",job="homayar-api"}'
+        values: '0x5 30x5 0x5 400x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: HomayarDeadLetterJobs
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "4 jobs were parked in dead-letter in 15 minutes"
+              runbook: docs/operations/alerts.md#homayardeadletterjobs
+      - eval_time: 16m
+        alertname: HomayarProviderJobFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Provider failures stopped 4 jobs in 15 minutes"
+              runbook: docs/operations/alerts.md#homayarproviderjobfailures
+      - eval_time: 25m
+        alertname: HomayarRetryBacklog
+        exp_alerts: []
+      # a circuit that opens for its 60 s cool-down and closes again does not alert
+      - eval_time: 10m
+        alertname: HomayarProviderCircuitOpen
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: HomayarProviderCircuitOpen
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stage: asr
+            exp_annotations:
+              summary: "A asr provider circuit has stayed open for 10 minutes"
+              runbook: docs/operations/alerts.md#homayarprovidercircuitopen
+      # a publication delayed by one retry does not alert; one stuck for 5 minutes does
+      - eval_time: 12m
+        alertname: HomayarDispatchOutboxStuck
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: HomayarDispatchOutboxStuck
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Accepted jobs have not been published to the broker for 5 minutes"
+              runbook: docs/operations/alerts.md#homayardispatchoutboxstuck
+
+  # --- retention purge, storage reconciliation ----------------------------------------
+  - interval: 5m
+    input_series:
+      - series: 'homayar_periodic_task_result{task="retention_purge",field="purges_failed_open",instance="api-1",job="homayar-api"}'
+        values: '0x6 1x12'
+      - series: 'homayar_periodic_task_result{task="retention_purge",field="purges_completed",instance="api-1",job="homayar-api"}'
+        values: '7x18'
+      - series: 'homayar_periodic_task_result{task="retention_purge",field="journal_backlog",instance="api-1",job="homayar-api"}'
+        values: '0x18'
+      - series: 'homayar_periodic_task_result{task="media_reconciliation",field="missing_flagged",instance="api-1",job="homayar-api"}'
+        values: '0x18'
+      - series: 'homayar_periodic_task_result{task="media_reconciliation",field="unavailable",instance="api-1",job="homayar-api"}'
+        values: '0x18'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HomayarPurgeFailed
+        exp_alerts: []
+      - eval_time: 65m
+        alertname: HomayarPurgeFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "1 conversation purges exhausted their attempts"
+              description: "Deleted or expired conversations still hold content or bytes until an operator requeues them."
+              runbook: docs/operations/alerts.md#homayarpurgefailed
+      - eval_time: 85m
+        alertname: HomayarTombstoneJournalBacklog
+        exp_alerts: []
+      - eval_time: 85m
+        alertname: HomayarMissingMediaObjects
+        exp_alerts: []
+      - eval_time: 85m
+        alertname: HomayarStorageReconciliationFailing
+        exp_alerts: []
+
+  # --- security signals ------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_audit_write_failures_total{delivery="transactional",instance="api-1",job="homayar-api"}'
+        values: '0x10 1x30'
+      - series: 'homayar_auth_failures_total{reason="refresh_replay",instance="api-1",job="homayar-api"}'
+        values: '0x40'
+      - series: 'homayar_auth_failures_total{reason="invalid_credentials",instance="api-1",job="homayar-api"}'
+        values: '0+5x40'
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="audit_verify",instance="api-1",job="homayar-api"}'
+        values: '60x20 60x20'
+      - series: 'homayar_periodic_task_last_failure_timestamp_seconds{task="audit_verify",instance="api-1",job="homayar-api"}'
+        values: '_x20 1300x20'
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="audit_export",instance="api-1",job="homayar-api"}'
+        values: '0+60x40'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: HomayarAuditWriteFailures
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: HomayarAuditWriteFailures
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Audit events could not be written"
+              description: "Transactional failures rolled back the operations they describe; best-effort failures lost the record of refused attempts."
+              runbook: docs/operations/alerts.md#homayarauditwritefailures
+      # the alert clears once no new failure happened for ten minutes
+      - eval_time: 30m
+        alertname: HomayarAuditWriteFailures
+        exp_alerts: []
+      # 5 failed logins per minute is normal noise
+      - eval_time: 30m
+        alertname: HomayarLoginFailureSpike
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: HomayarRefreshTokenReplay
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: HomayarAuditSinkVerificationFailed
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: HomayarAuditSinkVerificationFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "The protected audit sink no longer matches the database (altered or missing events)"
+              runbook: docs/operations/alerts.md#homayarauditsinkverificationfailed
+      # an operator job has no beat interval: its failure is not also a sweep failure
+      - eval_time: 35m
+        alertname: HomayarPeriodicSweepFailing
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: HomayarAuditExportStale
+        exp_alerts: []
+
+  # --- backups (Lane C textfile contract) ----------------------------------------------
+  # Samples every 5 minutes (node_exporter is scraped often; the textfile changes daily).
+  - interval: 5m
+    input_series:
+      - series: 'homayar_backup_last_success_timestamp_seconds{target="postgres",instance="node-1",job="node"}'
+        values: '0x400'
+      - series: 'homayar_backup_last_success_timestamp_seconds{target="objects",instance="node-1",job="node"}'
+        values: '0+300x400'
+      - series: 'homayar_backup_last_success_timestamp_seconds{target="offsite",instance="node-1",job="node"}'
+        values: '0+300x400'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: HomayarBackupTooOld
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: HomayarBackupTooOld
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              target: postgres
+            exp_annotations:
+              summary: "The last successful postgres backup is older than 26 hours (RPO 24 h)"
+              runbook: docs/operations/alerts.md#homayarbackuptooold
+      - eval_time: 27h
+        alertname: HomayarBackupMetricMissing
+        exp_alerts: []
+
+  - interval: 5m
+    input_series:
+      - series: 'homayar_backup_last_success_timestamp_seconds{target="postgres",instance="node-1",job="node"}'
+        values: '0+300x40'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: HomayarBackupMetricMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              target: objects
+            exp_annotations:
+              summary: "A backup target reports no success timestamp at all"
+              runbook: docs/operations/alerts.md#homayarbackuptooold
+          - exp_labels:
+              severity: warning
+              target: offsite
+            exp_annotations:
+              summary: "A backup target reports no success timestamp at all"
+              runbook: docs/operations/alerts.md#homayarbackuptooold
+
+  # --- API error rate ----------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_http_requests_total{method="GET",route="/api/v1/meetings",status_class="2xx",instance="api-1",job="homayar-api"}'
+        values: '0+60x40'
+      - series: 'homayar_http_requests_total{method="GET",route="/api/v1/meetings",status_class="5xx",instance="api-1",job="homayar-api"}'
+        values: '0+1x15 15+10x25'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: HomayarApiErrorRate
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: HomayarApiErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "More than 5% of API requests fail with 5xx"
+              runbook: docs/operations/alerts.md#homayarapierrorrate
+
+  # --- availability: one replica, Redis, object storage and the schema fail ------------
+  - interval: 1m
+    input_series:
+      - series: 'up{instance="api-1",job="homayar-api"}'
+        values: '1x26'
+      - series: 'up{instance="api-2",job="homayar-api"}'
+        values: '1x4 0x21'
+      - series: 'homayar_dependency_up{dependency="redis",instance="api-1",job="homayar-api"}'
+        values: '1x5 0x20'
+      - series: 'homayar_dependency_up{dependency="storage",instance="api-1",job="homayar-api"}'
+        values: '1x5 0x20'
+      - series: 'homayar_schema_up_to_date{instance="api-1",job="homayar-api"}'
+        values: '1x5 0x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: HomayarApiScrapeFailing
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: HomayarObjectStorageUnavailable
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: HomayarSchemaBehindCode
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: HomayarRedisUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Redis (broker) does not answer PING"
+              description: "No job can be published or consumed; queued work waits in the outbox."
+              runbook: docs/operations/alerts.md#homayarredisunavailable
+      # only the replica that cannot be scraped alerts
+      - eval_time: 12m
+        alertname: HomayarApiScrapeFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: api-2
+              job: homayar-api
+            exp_annotations:
+              summary: "Prometheus cannot scrape the Homayar API (api-2)"
+              description: "The API is down, unreachable, or refuses /metrics (missing METRICS_BEARER_TOKEN gives 404)."
+              runbook: docs/operations/alerts.md#homayarapiscrapefailing
+      - eval_time: 12m
+        alertname: HomayarObjectStorageUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Object storage does not answer the API's probe"
+              runbook: docs/operations/alerts.md#homayarobjectstorageunavailable
+      - eval_time: 22m
+        alertname: HomayarSchemaBehindCode
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The database's Alembic revision differs from the running code's migration head"
+              runbook: docs/operations/alerts.md#homayarschemabehindcode
+
+  # --- a sweep heartbeat cannot be read while Redis is down -----------------------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_periodic_task_interval_seconds{task="voice_recovery",instance="api-1",job="homayar-api"}'
+        values: '15x40'
+      - series: 'homayar_dependency_up{dependency="redis",instance="api-1",job="homayar-api"}'
+        values: '0x40'
+    alert_rule_test:
+      # HomayarRedisUnavailable names the cause; no warning per sweep on top of it
+      - eval_time: 35m
+        alertname: HomayarPeriodicSweepNeverReported
+        exp_alerts: []
+
+  # --- processing: a stalled queue and a growing retry backlog ---------------------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_jobs_oldest_queued_due_age_seconds{instance="api-1",job="homayar-api"}'
+        values: '0x5 3500+60x25'
+      - series: 'homayar_jobs_retry_scheduled{instance="api-1",job="homayar-api"}'
+        values: '2x5 15x25'
+    alert_rule_test:
+      # the oldest due job passes an hour at minute 8 and stays there
+      - eval_time: 25m
+        alertname: HomayarQueueStalled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "A due processing job has waited more than an hour"
+              runbook: docs/operations/alerts.md#homayarqueuebacklog
+      - eval_time: 4m
+        alertname: HomayarRetryBacklog
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: HomayarRetryBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "15 jobs wait for a retry after failed attempts"
+              runbook: docs/operations/alerts.md#homayarretrybacklog
+
+  # --- storage reconciliation and retention: failures -------------------------------------
+  - interval: 5m
+    input_series:
+      - series: 'homayar_periodic_task_result{task="media_reconciliation",field="unavailable",instance="api-1",job="homayar-api"}'
+        values: '0x2 1x22'
+      # one run flags two missing objects; the next run does not count them again
+      - series: 'homayar_periodic_task_result{task="media_reconciliation",field="missing_flagged",instance="api-1",job="homayar-api"}'
+        values: '0x3 2x2 0x19'
+      - series: 'homayar_periodic_task_result{task="retention_purge",field="purges_overdue",instance="api-1",job="homayar-api"}'
+        values: '0x2 3x22'
+      - series: 'homayar_periodic_task_result{task="retention_purge",field="journal_backlog",instance="api-1",job="homayar-api"}'
+        values: '0x2 5x22'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HomayarStorageReconciliationFailing
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: HomayarStorageReconciliationFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Object-store operations of the reconciliation sweeps keep failing"
+              runbook: docs/operations/alerts.md#homayarstoragereconciliationfailing
+      - eval_time: 15m
+        alertname: HomayarMissingMediaObjects
+        exp_alerts: []
+      # fires on the run that flags them ...
+      - eval_time: 20m
+        alertname: HomayarMissingMediaObjects
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Media objects recorded in PostgreSQL are missing from object storage"
+              runbook: docs/operations/alerts.md#homayarmissingmediaobjects
+      # ... and resolves at the next run, although the objects stay missing (runbook)
+      - eval_time: 40m
+        alertname: HomayarMissingMediaObjects
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: HomayarPurgeOverdue
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: HomayarPurgeOverdue
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Conversation purges have been pending for more than 24 hours without a hold"
+              runbook: docs/operations/alerts.md#homayarpurgefailed
+      - eval_time: 10m
+        alertname: HomayarTombstoneJournalBacklog
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: HomayarTombstoneJournalBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Tombstones are not reaching the journal outside the backups"
+              description: "A restore made now could resurrect deleted conversations."
+              runbook: docs/operations/alerts.md#homayartombstonejournalbacklog
+
+  # --- security signals: failures ----------------------------------------------------------
+  - interval: 1m
+    input_series:
+      # 120 failed logins per minute
+      - series: 'homayar_auth_failures_total{reason="invalid_credentials",instance="api-1",job="homayar-api"}'
+        values: '0+120x30'
+      - series: 'homayar_auth_failures_total{reason="refresh_replay",instance="api-1",job="homayar-api"}'
+        values: '0x10 1x20'
+      - series: 'homayar_metrics_collection_errors_total{source="heartbeats",instance="api-1",job="homayar-api"}'
+        values: '0x5 2+2x25'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HomayarLoginFailureSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "More than 60 failed logins per minute for 10 minutes"
+              runbook: docs/operations/alerts.md#homayarloginfailurespike
+      - eval_time: 5m
+        alertname: HomayarRefreshTokenReplay
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: HomayarRefreshTokenReplay
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "A replayed refresh token was rejected and its session revoked"
+              description: "A refresh token was used twice: possible token theft. The audit trail has auth.refresh_replay_detected with the user."
+              runbook: docs/operations/alerts.md#homayarrefreshtokenreplay
+      - eval_time: 4m
+        alertname: HomayarMetricsCollectionErrors
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: HomayarMetricsCollectionErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Scrape-time state sources keep failing; some Homayar series are missing"
+              runbook: docs/operations/alerts.md#homayarmetricscollectionerrors
+
+  # --- the audit export stops ----------------------------------------------------------------
+  - interval: 5m
+    input_series:
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="audit_export",instance="api-1",job="homayar-api"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: HomayarAuditExportStale
+        exp_alerts: []
+      - eval_time: 2h20m
+        alertname: HomayarAuditExportStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "No audit export into the protected sink for more than 2 hours"
+              runbook: docs/operations/alerts.md#homayarauditexportstale

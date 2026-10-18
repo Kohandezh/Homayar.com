@@ -50,3 +50,53 @@ This ADR is extended section by section as each Lane D change lands.
   read `completed_at`, which has no dedicated index (acceptable at current volumes; an index is a
   migration for later if scrapes get slow).
 * The `recovery` scope now has a second, read-only consumer; its policy is unchanged.
+
+## Decision 4 — Alerting (HOM-126)
+
+1. **Rules live in the repository, tested.** `infra/observability/prometheus/homayar.rules.yml`
+   holds the recording and alerting rules; `tests/homayar.rules.test.yml` gives every alert a
+   promtool case where it fires on its failure and one where it stays silent in a normal state.
+   The *Container configuration* CI job runs `promtool check rules` and `promtool test rules`
+   (`prom/prometheus:v3.5.0`, read-only mount, no network). `backend/tests/test_alert_rules.py`
+   ties the rules to the code: every series a rule queries appears in a real `/metrics` scrape
+   (or is a recording rule or the backup contract below), every label value a rule matches is
+   one the code emits (task, sweep result field, outcome, category, reason, dependency, stage,
+   delivery), and every alert has `severity` `warning` or `critical`, a `summary` and a
+   `runbook` anchor that is a section of [alerts.md](../../operations/alerts.md).
+2. **`max()` across replicas for database-derived state.** Every API replica reports the same
+   scrape-time state, so rules aggregate with `max()` (`min()` for ages and the schema check)
+   instead of `sum()`; a promtool case with two replicas proves nothing is counted twice. Only
+   in-process counters (HTTP, authentication, audit writes, collection errors) are summed.
+3. **Sweep staleness = max(3 intervals, 4 minutes).** `homayar:sweep_stale_after_seconds` is
+   `clamp_min(3 × interval, 240)` and the alert waits one more minute, so the 30-second dispatch
+   sweep alerts within about 5 minutes of its last success (WP20 F78) and a 15-minute sweep after
+   about 46 minutes. A *failing* sweep alerts after two failed runs in a row (its latest failure
+   more than 1.5 intervals newer than its latest success): one transient failure never pages.
+4. **Backup contract with Lane C.** The backup tooling writes
+   `homayar_backup_last_success_timestamp_seconds{target="postgres"|"objects"|"offsite"}` (Unix
+   seconds of the last successful backup of that target) to the node_exporter textfile
+   directory. `HomayarBackupTooOld` fires when a target's timestamp is older than 26 hours (RPO
+   24 hours plus 2 hours' margin), `HomayarBackupMetricMissing` when a target reports nothing
+   for an hour.
+5. **Severity.** `critical` means data, security or the whole service is at risk now (database,
+   Redis, object storage or the scrape down, stale sweeps, a stalled queue, missing media, failed
+   purges, the tombstone journal behind, audit writes failing, the audit sink not matching,
+   backups too old); `warning` means degraded or needing attention within hours.
+
+### Not covered
+
+* Alertmanager routing, receivers, inhibition and silences are per installation; the rules carry
+  `severity` only. Inhibiting the sweep and metrics-collection alerts while
+  `HomayarRedisUnavailable` fires is recommended.
+* Workers have no scrape endpoint: a live but stuck worker shows only as queue latency, expired
+  leases and stale sweeps.
+* `HomayarMissingMediaObjects` counts the objects a reconciliation run newly flagged and resolves
+  at the next run; no series reports the rows currently flagged missing.
+* The login-failure, refresh-replay and audit-write alerts are only as complete as the call
+  sites that increment their counters; the tests check series and vocabularies, not call sites.
+* `HomayarAuditExportStale` needs a first export: an installation that never ran the export has
+  no heartbeat and gets no alert.
+* No latency or SLO burn-rate alerts (no SLO is agreed yet), no host, disk, certificate,
+  PostgreSQL or Redis internals (node_exporter and database exporters bring their own rules).
+* Sweep ages compare worker timestamps with Prometheus time: clock skew beyond a minute
+  distorts them (hosts run NTP).
