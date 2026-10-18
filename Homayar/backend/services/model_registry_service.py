@@ -56,6 +56,14 @@ def register_manifest(db: Session, manifest: ModelManifest) -> ModelManifestReco
     try:
         db.add(record)
         db.flush()
+    except IntegrityError:
+        # The digest (or manifest_id@version) exists: a duplicate or a conflict.
+        savepoint.rollback()
+        existing = db.get(ModelManifestRecord, manifest.digest)
+        if existing is None:
+            raise _conflict(manifest) from None
+        return existing
+    try:
         record_audit_event(
             db,
             event_type="model_manifest.registered",
@@ -69,13 +77,12 @@ def register_manifest(db: Session, manifest: ModelManifest) -> ModelManifestReco
             },
         )
         db.flush()
-        savepoint.commit()
-    except IntegrityError:
+    except Exception:
+        # The audit write failed: not a duplicate manifest. Undo the registration
+        # with it and let the error surface.
         savepoint.rollback()
-        existing = db.get(ModelManifestRecord, manifest.digest)
-        if existing is None:
-            raise _conflict(manifest) from None
-        return existing
+        raise
+    savepoint.commit()
     return record
 
 

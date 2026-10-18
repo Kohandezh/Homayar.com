@@ -85,3 +85,8 @@ This ADR is extended section by section as each Lane D change lands.
    integration identifiers go through the text PII detector before they are written (class
    placeholders), then are capped at 120 characters. This keeps personal data out of an
    append-only table instead of having to erase it later.
+
+Review update (PR #55): every string detail value is masked by default and only id, enum,
+digest, count and timestamp keys are exempt; nested values are sanitised recursively; a
+refresh-token replay commits its revocation before the best-effort event; each failed
+audit insert is counted once under its delivery.

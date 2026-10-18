@@ -70,3 +70,27 @@ Workspace owners and admins read their own workspace's events through
 `GET /api/v1/admin/audit-events` (permission `audit:read`); the query is filtered by the
 bound workspace and row-level security bounds it again. Platform events (`workspace_id`
 NULL) are never returned to a tenant.
+
+## Review update (PR #55): masking by default, nesting, delivery counts
+
+- **Every string detail value is masked by default** (secret check, then the text PII
+  detector, then the 120-character cap). Only keys that hold ids, enums, digests, counts or
+  timestamps are exempt (`EXEMPT_DETAIL_KEYS`, plus the suffixes `_id`, `_ids`, `_digest`,
+  `_sha256`, `_hash`, `_at`, `_count`, `_bytes`, `_seconds`, `_version`, `_number`, `_prefix`,
+  `_class`, `_type`, `_state`, `_kind`, `_code`, `_status`, `_role`). Exempt values are still
+  checked for secrets. A key the owner named as free text (`reason`, `*_reason`, `name`,
+  `external_event_id`, `source_provider`) is never exempt.
+- **Nested dicts and lists** are sanitised recursively with the same key and secret
+  checks: depth 3, 50 items per level, deeper values `[redacted]`.
+- **Refresh-token replay**: the session revocation commits first, then the event is written
+  best effort, so a failing audit write can never leave a stolen session valid.
+- **Failure counting**: a failed audit `INSERT` is counted once, by the engine hook, with the
+  delivery of the path that wrote it (`best_effort` or `transactional`).
+- An event type missing from `AUDIT_EVENT_CATALOG` is logged once as
+  `AUDIT_EVENT_UNCATALOGUED`; the write still happens.
+- **Personal data note**: the `target_id` of a failed `auth.login` (the first 16 characters of
+  the identifier's keyed hash) is a pseudonym. It is personal data under the privacy rules: it
+  links attempts on one identifier and is covered by subject-access and erasure requests like
+  any other identifier.
+- Fail-closed note: a transactional audit write that fails also fails a successful login. The
+  Integrator has raised this with the owner.

@@ -361,15 +361,17 @@ def refresh(
         db.commit()
     except RefreshTokenReplayError as exc:
         observe_auth_failure("refresh_replay")
-        # A replayed refresh token revokes its session (security event, HOM-114);
-        # the audit row commits together with the revocation.
+        # A replayed refresh token revokes its session (security event, HOM-114).
+        # The revocation commits first, so a failing audit write can never undo it.
         session_id = parse_refresh_session_id(refresh_token)
         session = db.get(LoginSession, session_id) if session_id else None
-        record_audit_event(
+        actor_user_id = session.user_id if session is not None else None
+        db.commit()
+        record_audit_event_best_effort(
             db,
             event_type="auth.refresh_replay_detected",
             outcome="denied",
-            actor_user_id=session.user_id if session is not None else None,
+            actor_user_id=actor_user_id,
             target_type="login_session",
             target_id=session_id,
             request_id=getattr(request.state, "request_id", None),
@@ -377,8 +379,6 @@ def refresh(
             details={"session_revoked": session is not None},
             settings=settings,
         )
-        # Persist the revocation before rejecting the replayed token.
-        db.commit()
         _clear_session_cookies(response, settings)
         raise HTTPException(
             status_code=401,

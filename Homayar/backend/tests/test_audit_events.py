@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -263,6 +264,29 @@ def test_model_manifest_registration_is_audited_once(client):
     assert event.details["version"] == manifest.version
 
 
+@pytest.mark.postgres
+def test_a_failed_registration_audit_is_not_mistaken_for_a_duplicate(client, monkeypatch):
+    if not is_postgres_url(configured_database_url()):
+        pytest.skip("needs PostgreSQL column limits")
+    from backend.database.relational import get_session_factory
+    from backend.database.saas_models import ModelManifestRecord
+    from backend.providers.registry import ModelManifest
+    from backend.services import model_registry_service
+    from backend.tests.test_model_registry import _bundle, _qualifying
+
+    def too_long(db, **fields):  # a real database failure of the audit insert
+        return record_audit_event(db, **{**fields, "outcome": "x" * 40})
+
+    monkeypatch.setattr(model_registry_service, "record_audit_event", too_long)
+    manifest = ModelManifest.model_validate(_qualifying(_bundle())[0])
+    with get_session_factory()() as db:
+        with pytest.raises(DBAPIError):
+            model_registry_service.register_manifest(db, manifest)
+        db.rollback()
+    with inspection_session_factory()() as db:
+        assert db.get(ModelManifestRecord, manifest.digest) is None
+
+
 # --- secrets never reach a row -----------------------------------------------------------
 
 
@@ -332,6 +356,7 @@ def test_a_failed_transactional_write_rolls_back_the_operation(client, email_out
     session = login_user(client, credentials)
     workspace_id = session["workspaces"][0]["id"]
     before = _counter("homayar_audit_write_failures_total", delivery="transactional")
+    best_before = _counter("homayar_audit_write_failures_total", delivery="best_effort")
     with get_session_factory()() as db:
         bind_user_context(db, session["user"]["id"])
         bind_tenant_context(db, workspace_id=workspace_id)
@@ -349,6 +374,117 @@ def test_a_failed_transactional_write_rolls_back_the_operation(client, email_out
     with inspection_session_factory()() as db:
         assert db.scalar(select(func.count(Team.id)).where(Team.name == "never-created")) == 0
     assert _counter("homayar_audit_write_failures_total", delivery="transactional") == before + 1
+    assert _counter("homayar_audit_write_failures_total", delivery="best_effort") == best_before
+
+
+@pytest.mark.postgres
+def test_a_failed_best_effort_insert_is_counted_once_as_best_effort(client, settings):
+    if not is_postgres_url(configured_database_url()):
+        pytest.skip("needs PostgreSQL column limits")
+    from backend.database.relational import get_session_factory
+
+    transactional = _counter("homayar_audit_write_failures_total", delivery="transactional")
+    best_effort = _counter("homayar_audit_write_failures_total", delivery="best_effort")
+    with get_session_factory()() as db:
+        written = audit_service.record_audit_event_best_effort(
+            db, event_type="auth.login", outcome="x" * 40, settings=settings  # real DB error
+        )
+    assert written is False
+    assert _counter("homayar_audit_write_failures_total", delivery="best_effort") == (
+        best_effort + 1
+    )
+    assert _counter("homayar_audit_write_failures_total", delivery="transactional") == (
+        transactional
+    )
+
+
+def test_a_failing_replay_audit_never_undoes_the_revocation(client, email_outbox, monkeypatch):
+    from backend.database.saas_models import LoginSession
+
+    credentials = register_user(client, email_outbox, email="audit-replay-fail@example.com")
+    session = login_user(client, credentials)
+    user_id = session["user"]["id"]
+    stolen = client.cookies.get(REFRESH_COOKIE)
+    csrf = client.cookies.get(CSRF_COOKIE)
+    assert client.post("/api/v1/auth/refresh", headers={"X-CSRF-Token": csrf}).status_code == 200
+    real = audit_service.record_audit_event
+
+    def broken(db, **fields):
+        if fields.get("event_type") == "auth.refresh_replay_detected":
+            raise RuntimeError("audit store unavailable")
+        return real(db, **fields)
+
+    monkeypatch.setattr(audit_service, "record_audit_event", broken)
+    csrf = client.cookies.get(CSRF_COOKIE)
+    client.cookies.delete(REFRESH_COOKIE)
+    client.cookies.set(REFRESH_COOKIE, stolen)
+    replay = client.post("/api/v1/auth/refresh", headers={"X-CSRF-Token": csrf})
+    assert replay.status_code == 401
+    with inspection_session_factory()() as db:
+        sessions = list(db.scalars(select(LoginSession).where(LoginSession.user_id == user_id)))
+    assert sessions and all(s.revoked_at is not None for s in sessions)
+    assert _events("auth.refresh_replay_detected") == []
+
+
+# --- masking and nesting -------------------------------------------------------------------
+
+
+def test_nested_values_are_redacted_and_masked_too(client, settings):
+    from backend.database.relational import get_session_factory
+
+    token = "t" * 24
+    with get_session_factory()() as db:
+        record_audit_event(
+            db,
+            event_type="workspace.settings.updated",
+            details={
+                "provider": {"api_token": token, "endpoint": {"secret": token}, "label": "x"},
+                "contacts": [f"call 0912{'1234567'}", {"password": token}],
+                "deep": {"a": {"b": {"c": {"d": token}}}},
+            },
+            settings=settings,
+        )
+        db.commit()
+    [event] = _events("workspace.settings.updated")
+    assert token not in _row_text(event)
+    assert event.details["provider"]["api_token"] == audit_service.REDACTED
+    assert event.details["contacts"][0] == "call [PHONE_1]"
+    assert event.details["contacts"][1] == {"password": audit_service.REDACTED}
+
+
+def test_every_string_is_masked_unless_its_key_holds_ids_or_enums(client, settings):
+    from backend.database.relational import get_session_factory
+
+    phone, email = "0912" + "7654321", "ali.rezaei" + "@example.com"
+    meeting_id = "0" * 7 + "912" + "1234567"  # digits that could read as a phone
+    with get_session_factory()() as db:
+        record_audit_event(
+            db,
+            event_type="meeting.updated",
+            details={"message": f"call {phone} or {email}", "meeting_id": meeting_id,
+                     "state": "completed", "digest": "a" * 64},
+            settings=settings,
+        )
+        db.commit()
+    [event] = _events("meeting.updated")
+    assert event.details["message"] == "call [PHONE_1] or [EMAIL_1]"
+    assert event.details["meeting_id"] == meeting_id
+    assert event.details["state"] == "completed" and event.details["digest"] == "a" * 64
+
+
+def test_an_uncatalogued_event_type_is_logged_once(client, settings, caplog):
+    from backend.database.relational import get_session_factory
+    from backend.services.logging_service import logger
+
+    logger.disabled = False
+    with caplog.at_level(logging.WARNING, logger="homayar"), get_session_factory()() as db:
+        for _ in range(2):
+            record_audit_event(db, event_type="test.not_catalogued", settings=settings)
+        db.commit()
+    warnings = [r.getMessage() for r in caplog.records
+                if r.getMessage().startswith("AUDIT_EVENT_UNCATALOGUED")]
+    assert warnings == ["AUDIT_EVENT_UNCATALOGUED event_type=test.not_catalogued"]
+    assert len(_events("test.not_catalogued")) == 2  # the writes still happen
 
 
 # --- tenant visibility ---------------------------------------------------------------------
