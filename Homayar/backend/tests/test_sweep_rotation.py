@@ -28,8 +28,10 @@ def test_the_first_workspace_moves_every_run_so_none_is_always_last():
     assert firsts == set(IDS)
 
 
-def test_a_budget_of_100_reaches_every_workspace_within_a_few_consecutive_runs():
-    # Worst case for a shared item budget: each run serves only the first 100.
+def test_a_budget_that_serves_only_the_head_still_reaches_every_workspace_over_time():
+    # Each run serves only the first 100 of the rotated order.  The start moves
+    # by one per run, so this samples runs 100 intervals apart; consecutive
+    # runs reach everyone within n runs (shared-budget follow-up: HOM-211).
     served: set[str] = set()
     for run in range(0, 300, 100):
         served.update(rotate(IDS, run=run)[:100])
