@@ -45,10 +45,11 @@ yarn-error.log*
 next-env.d.ts
 
 # local tooling / caches
-# .claude/ is local, except the shared skills and agents
+# .claude/ is local, except the shared skills, agents, and rules
 .claude/*
 !.claude/skills/
 !.claude/agents/
+!.claude/rules/
 .codex/
 .gstack/
 .pnpm-store/
