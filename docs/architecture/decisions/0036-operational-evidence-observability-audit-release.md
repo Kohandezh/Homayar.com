@@ -57,3 +57,22 @@ This ADR is extended section by section as each Lane D change lands.
   read `completed_at`, which has no dedicated index (acceptable at current volumes; an index is a
   migration for later if scrapes get slow).
 * The `recovery` scope now has a second, read-only consumer; its policy is unchanged.
+
+## Decision 2 — Audit event model (HOM-114)
+
+1. **One catalogue.** `AUDIT_EVENT_CATALOG` in `audit_service.py` lists every event type the
+   application records, in seven categories (security, access, privacy_access, configuration,
+   administration, deletion, processing). A test scans the backend for every literal event type
+   and fails when one is missing from the catalogue or the catalogue lists one nobody records.
+2. **Gaps closed.** `auth.login` (success, and failure without the raw identifier),
+   `auth.logout`, `auth.refresh_replay_detected` (the session is revoked; the row commits with
+   the revocation) and `model_manifest.registered` (first registration of a manifest document,
+   a platform configuration change).
+3. **Actor, tenant, action, target, time, result, correlation** on every row; the system actor
+   is `NULL` and is named by the correlation id (`job:<id>`, `sweep:<task>:<run>`).
+4. **Write-time sanitisation.** Secret keys and credential-shaped values become
+   `[redacted]` before the row is written (the admin API's read-time sanitiser stays as a
+   second layer).
+5. **Defined failure behaviour.** Audit rows of operations that happened are transactional
+   (fail closed); refused attempts are recorded best effort in their own commit (the response
+   does not change). Both failure kinds are counted for alerting.

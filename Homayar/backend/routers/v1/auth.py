@@ -9,8 +9,9 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
-from backend.database.saas_models import User
+from backend.database.saas_models import LoginSession, User
 from backend.database.tenant_context import bind_user_context
+from backend.observability.metrics import observe_auth_failure
 from backend.schemas.auth import (
     AuthMethodsResponse,
     ForgotPasswordRequest,
@@ -37,6 +38,7 @@ from backend.security.context import (
     require_csrf,
 )
 from backend.security.tokens import parse_refresh_session_id, token_digest
+from backend.services.audit_service import record_audit_event, record_audit_event_best_effort
 from backend.services.auth_service import (
     AuthenticationError,
     InvalidOneTimeTokenError,
@@ -293,6 +295,19 @@ def login(
         )
     except AuthenticationError as exc:
         db.rollback()
+        observe_auth_failure("invalid_credentials")
+        # Refused attempt (HOM-114): no raw identifier, only its peppered digest prefix.
+        record_audit_event_best_effort(
+            db,
+            event_type="auth.login",
+            outcome="failure",
+            target_type="login_identifier",
+            target_id=identifier_key[:16],
+            request_id=getattr(request.state, "request_id", None),
+            ip_address=ip,
+            details={"method": "password", "reason": "invalid_credentials"},
+            settings=settings,
+        )
         raise HTTPException(
             status_code=401,
             detail={"code": "invalid_credentials", "message": "Invalid credentials"},
@@ -304,6 +319,17 @@ def login(
         ip_address=ip,
         settings=settings,
     )
+    record_audit_event(
+        db,
+        event_type="auth.login",
+        actor_user_id=user.id,
+        target_type="user",
+        target_id=user.id,
+        request_id=getattr(request.state, "request_id", None),
+        ip_address=ip,
+        details={"method": "password"},
+        settings=settings,
+    )
     db.commit()
     _set_session_cookies(response, tokens, settings)
     return _session_response(db, user, tokens.access_expires_in)
@@ -311,6 +337,7 @@ def login(
 
 @router.post("/refresh", response_model=SessionResponse)
 def refresh(
+    request: Request,
     response: Response,
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
@@ -319,6 +346,7 @@ def refresh(
     settings: Settings = Depends(get_settings),
 ) -> SessionResponse:
     if not refresh_token or not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+        observe_auth_failure("invalid_refresh")
         raise HTTPException(
             status_code=401,
             detail={"code": "invalid_refresh", "message": "Invalid refresh session"},
@@ -332,6 +360,23 @@ def refresh(
         )
         db.commit()
     except RefreshTokenReplayError as exc:
+        observe_auth_failure("refresh_replay")
+        # A replayed refresh token revokes its session (security event, HOM-114);
+        # the audit row commits together with the revocation.
+        session_id = parse_refresh_session_id(refresh_token)
+        session = db.get(LoginSession, session_id) if session_id else None
+        record_audit_event(
+            db,
+            event_type="auth.refresh_replay_detected",
+            outcome="denied",
+            actor_user_id=session.user_id if session is not None else None,
+            target_type="login_session",
+            target_id=session_id,
+            request_id=getattr(request.state, "request_id", None),
+            ip_address=_client_ip(request),
+            details={"session_revoked": session is not None},
+            settings=settings,
+        )
         # Persist the revocation before rejecting the replayed token.
         db.commit()
         _clear_session_cookies(response, settings)
@@ -341,6 +386,7 @@ def refresh(
         ) from exc
     except AuthenticationError as exc:
         db.rollback()
+        observe_auth_failure("invalid_refresh")
         _clear_session_cookies(response, settings)
         raise HTTPException(
             status_code=401,
@@ -352,6 +398,7 @@ def refresh(
 
 @router.post("/logout", response_model=MessageResponse)
 def logout(
+    request: Request,
     response: Response,
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
@@ -360,6 +407,7 @@ def logout(
     settings: Settings = Depends(get_settings),
 ) -> MessageResponse:
     if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+        observe_auth_failure("csrf_failed")
         raise HTTPException(
             status_code=403,
             detail={"code": "csrf_failed", "message": "CSRF validation failed"},
@@ -367,7 +415,18 @@ def logout(
     if refresh_token:
         session_id = parse_refresh_session_id(refresh_token)
         if session_id:
-            revoke_session(db, session_id)
+            session = db.get(LoginSession, session_id)
+            if session is not None and session.revoked_at is None:
+                revoke_session(db, session_id)
+                record_audit_event(
+                    db,
+                    event_type="auth.logout",
+                    actor_user_id=session.user_id,
+                    target_type="login_session",
+                    target_id=session_id,
+                    request_id=getattr(request.state, "request_id", None),
+                    settings=settings,
+                )
             db.commit()
     _clear_session_cookies(response, settings)
     return MessageResponse(status="logged_out", message="Signed out")
