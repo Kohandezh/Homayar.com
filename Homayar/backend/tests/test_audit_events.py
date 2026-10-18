@@ -65,6 +65,25 @@ def _counter(name: str, **labels: str) -> float:
     return value or 0.0
 
 
+def test_failure_counters_are_exported_at_zero_and_bounded():
+    # increase() needs a 0 sample before the first failure (PR #47 review, P4).
+    for reason in metrics.AUTH_FAILURE_REASONS:
+        assert metrics.REGISTRY.get_sample_value(
+            "homayar_auth_failures_total", {"reason": reason}
+        ) is not None, reason
+    for delivery in metrics.AUDIT_WRITE_DELIVERIES:
+        assert metrics.REGISTRY.get_sample_value(
+            "homayar_audit_write_failures_total", {"delivery": delivery}
+        ) is not None, delivery
+    before = _counter("homayar_auth_failures_total", reason="other")
+    metrics.observe_auth_failure("user@example.com")  # never a label value
+    metrics.observe_audit_write_failure("anything")
+    assert _counter("homayar_auth_failures_total", reason="other") == before + 1
+    assert metrics.REGISTRY.get_sample_value(
+        "homayar_auth_failures_total", {"reason": "user@example.com"}
+    ) is None
+
+
 # --- catalog -------------------------------------------------------------------------
 
 

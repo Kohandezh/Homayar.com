@@ -66,6 +66,8 @@ In-process (this API process):
 | `homayar_http_requests_total` | `method`, `route` (path template, `unmatched` for 404s outside the routes), `status_class` |
 | `homayar_http_request_duration_seconds` (histogram) | `method`, `route` |
 | `homayar_metrics_collection_errors_total` | `source` (a source that raised or missed its deadline; every source is exported at 0 from start-up, so `increase()` sees the first failure) |
+| `homayar_auth_failures_total` | `reason`: `invalid_credentials`, `invalid_refresh`, `refresh_replay`, `csrf_failed`, `other` (HOM-114; every reason exported at 0 from start-up) |
+| `homayar_audit_write_failures_total` | `delivery`: `transactional` (the action was rolled back), `best_effort` (the action stood, the event was lost), `other` (HOM-114; exported at 0 from start-up) |
 | `process_*`, `python_info` | standard client collectors (single-process mode only) |
 
 Scrape-time state (cached `METRICS_CACHE_SECONDS`, default 15 s). Every source runs in its
