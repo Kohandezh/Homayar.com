@@ -108,6 +108,28 @@ sink verifier reports it as `accepted_erasure`.
    rows. The append-only rule removes the application's ability to rewrite history;
    detecting a change made by anyone else is the protected sink's job. No document may
    describe either layer as immutable.
+4. **A hash-chained sink outside the application's reach.** An operator job
+   (`python -m backend.observability.audit_sink export`) appends settled rows
+   (`AUDIT_EXPORT_SETTLE_SECONDS`) to write-once JSON-lines segments in `AUDIT_SINK_DIR`,
+   each record chained with HMAC-SHA256 under `AUDIT_SINK_HMAC_KEY` (required outside
+   test and development; held by the operator, not by the application). `verify` checks
+   the chain and compares every exported row with the database: `record_altered`,
+   `sequence_gap`, `row_changed`, `row_deleted` and `unexported_row` are failures.
+   We chose files the operator controls over a second database table (which the same
+   owner could rewrite) and over an external log service (a new dependency for both
+   deployment profiles); write-once storage for the directory is the deployment's choice.
+5. **Expected changes are notices, never hidden.** A `NULL` reference left by a deleted
+   workspace or user is `referential_null`. An owner-approved erasure is recorded *in the
+   chain* (`record-erasure --event-id --approval`, an approval reference and no free text)
+   before the DBA runs it as the table owner, and every later `verify` reports it as
+   `accepted_erasure`. Recording it in the chain, not in a side file, means a writer of
+   the sink without the key cannot forge an erasure to hide a deletion. The exported copy
+   stays in its segment; it holds only the masked row.
+6. **The head is anchored outside the sink.** Cutting the newest segments together with
+   `HEAD.json` is invisible to the sink alone, so every export and verify prints
+   `head_hash` and `last_seq`, and the heartbeat keeps `last_seq`; the runbook asks the
+   operator to keep that copy. Sink segments are kept for as long as the rows (no audit
+   retention purge exists); pruning needs a checkpoint procedure that is not built.
 
 ### Consequences
 
@@ -116,3 +138,7 @@ sink verifier reports it as `accepted_erasure`.
 * Deleting a user or a workspace leaves its audit rows with a `NULL` reference.
 * Granting the reader role to a login is a privileged act: it reads every tenant's
   audit rows. Only the exporter's login holds it.
+* The operator runs and schedules export and verify (heartbeats `audit_export` /
+  `audit_verify`); a change by the table owner is detected at the next `verify`, not
+  prevented, and a change made before a row's first export is not detected.
+* `verify` is linear in the number of events; acceptable at current volumes.
