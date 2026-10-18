@@ -1,14 +1,12 @@
 import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
-import { consolePath, DEMO_DISPLAY_NAMES, signIn, type DemoRole, type Lang } from "./demo";
+import { consolePath, DEMO_DISPLAY_NAMES, resumeSession } from "./demo";
 
 /**
  * The teams page (HOM-182) against the demo seed: the seeded `Sales` team
  * (admin as supervisor, member as agent) and `Support` team (owner as
  * supervisor, viewer as agent).
  *
- * The owner steps build on one signed-in page, because the backend rate
- * limits sign-ins per account (10 in 15 minutes) and this spec runs twice in
- * a row. `afterAll` puts the seed back whatever happened: the `Support` name
+ * `afterAll` puts the seed back whatever happened: the `Support` name
  * and its active flag, and any assignment this run added. A revoked row
  * stays as history; the server has no delete.
  */
@@ -31,25 +29,8 @@ function countCell(row: Locator): Locator {
   return row.getByRole("gridcell").nth(1);
 }
 
-/**
- * The backend rate limits sign-ins per account (10 in 15 minutes) and is
- * shared with other teams, so it can also just be slow: a refused attempt
- * gets a breather and two more tries before the test gives up.
- */
-async function signInPatiently(page: Page, role: DemoRole, lang: Lang = "en") {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      await signIn(page, role, lang);
-      return;
-    } catch (error) {
-      if (attempt >= 3) throw error;
-      await page.waitForTimeout(20_000);
-    }
-  }
-}
-
 async function openTeams(page: Page) {
-  await signInPatiently(page, "owner");
+  await resumeSession(page, "owner");
   await page.goto(consolePath("/admin/teams"));
   await expect(page.getByRole("heading", { name: "Teams", level: 1 })).toBeVisible();
   await expect(teamRow(page, "Sales")).toBeVisible();
@@ -179,7 +160,7 @@ test.describe.serial("the teams page", () => {
   });
 
   test("mirrors the page in Persian", async ({ page }) => {
-    await signInPatiently(page, "owner", "fa");
+    await resumeSession(page, "owner", "fa");
     await page.goto(consolePath("/admin/teams"));
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await expect(page.getByRole("heading", { name: "تیم‌ها", level: 1 })).toBeVisible();
@@ -187,7 +168,7 @@ test.describe.serial("the teams page", () => {
   });
 
   test("keeps a member read only", async ({ page }) => {
-    await signInPatiently(page, "member");
+    await resumeSession(page, "member");
     await page.goto(consolePath("/admin/teams"));
     await expect(page.getByRole("heading", { name: "Teams", level: 1 })).toBeVisible();
 

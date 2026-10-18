@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
-import { consolePath, DEMO_DISPLAY_NAMES, demoEmail, signIn } from "./demo";
+import { consolePath, DEMO_DISPLAY_NAMES, demoEmail, resumeSession } from "./demo";
 import { invitationTokenFor } from "./smtp-sink";
 
 /**
@@ -102,7 +102,7 @@ async function waitForLists(page: Page) {
 }
 
 async function openMembers(page: Page) {
-  await signIn(page, "owner");
+  await resumeSession(page, "owner");
   await page.goto(consolePath("/admin/members"));
   await expect(page.getByRole("heading", { name: "Members and access", level: 1 })).toBeVisible();
   await waitForLists(page);
@@ -148,7 +148,7 @@ async function acceptInvite(browser: Browser) {
   const invited = await browser.newContext();
   try {
     const page = await invited.newPage();
-    await signIn(page, "admin");
+    await resumeSession(page, "admin");
     await page.goto(consolePath(`/invitations/accept?token=${encodeURIComponent(token!)}`));
     await page.getByRole("button", { name: "Accept invitation" }).click();
     await expect(page.getByRole("heading", { name: "Invitation accepted" })).toBeVisible();

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { consolePath, signIn } from "./demo";
+import { consolePath, resumeSession } from "./demo";
 
 /**
  * The AI policy page (HOM-188) against the demo seed. The versions are
@@ -81,7 +81,7 @@ test.afterEach(async ({ page }) => {
 });
 
 test("an owner edits the policy, sees the saved version in the history and compares it", async ({ page }) => {
-  await signIn(page, "owner");
+  await resumeSession(page, "owner");
   await page.goto(consolePath("/admin/ai-policy"));
 
   await expect(page.getByRole("heading", { name: "AI policy", level: 1 })).toBeVisible();
@@ -131,7 +131,7 @@ test("an owner edits the policy, sees the saved version in the history and compa
 });
 
 test("an admin reads the policy and the history but cannot edit", async ({ page }) => {
-  await signIn(page, "admin");
+  await resumeSession(page, "admin");
   await page.goto(consolePath("/admin/ai-policy"));
 
   await expect(page.getByRole("heading", { name: "AI policy", level: 1 })).toBeVisible();
@@ -150,7 +150,7 @@ test("an admin reads the policy and the history but cannot edit", async ({ page 
 });
 
 test("the page lays out right to left in Persian", async ({ page }) => {
-  await signIn(page, "owner", "fa");
+  await resumeSession(page, "owner", "fa");
   await page.goto(consolePath("/admin/ai-policy"));
 
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
