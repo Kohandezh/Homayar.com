@@ -20,6 +20,7 @@ cookies, and text direction.
 | `teams.spec.ts` | An owner reads the seeded teams with their member counts and the record-scope banner, opens `Sales`, renames and re-renames `Support`, deactivates and reactivates it, assigns the viewer to `Sales` and revokes the assignment. The page is right to left in Persian, and a member sees no write control. |
 | `workspace-settings.spec.ts` | An owner changes `Public share links` and `Duplicate files`, the values survive a reload, and the audit log records `workspace.settings.updated`. An admin sees the privacy controls locked. Cancelling the immediate-retention warning saves nothing. The page is right to left in Persian. |
 | `access-control.spec.ts` | A viewer is blocked from `/admin` and `/admin/settings`, and still opens the pages their role allows. |
+| `ai-policy.spec.ts` | An owner edits `/admin/ai-policy` with a preset that differs from the current policy, sees the saved version in `Version history` and compares it; an admin reads the policy and history with no edit controls; the page is right to left in Persian. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
 
 Add a file here as each new admin page lands.
@@ -75,6 +76,13 @@ hooks, which run even when a step fails:
   active flag back, and any assignment the run added (the viewer as a `Sales`
   agent) is revoked. A revoked assignment row stays in the drawer as history;
   the server has no way to delete it, and the member count ignores it.
+* `ai-policy.spec.ts`, in `afterEach`: the policy document the test started
+  from is written back over the API. AI policy versions are append-only, so the
+  restore itself appends one more version; the document is back to its starting
+  value, but the history keeps growing by one row per owner run. After the
+  first owner run the workspace policy is a stored version, so the page badge
+  reads "Custom, version N" for good: the API has no way back to version 0,
+  the built-in default.
 
 Re-running the seed is **not** a repair. `_ensure_workspace` returns an
 existing workspace untouched (`backend/database/demo_seed.py`), so `make

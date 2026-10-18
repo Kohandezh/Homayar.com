@@ -8,6 +8,7 @@ import type { AdminPath } from "@/lib/navigation";
  */
 export const ADMIN_PAGES: Partial<Record<AdminPath, LazyExoticComponent<ComponentType>>> = {
   "/admin": lazy(() => import("@/components/admin/AdminOverviewPage")),
+  "/admin/ai-policy": lazy(() => import("@/components/admin/AiPolicyPage")),
   "/admin/audit": lazy(() => import("@/components/admin/AuditLogPage")),
   "/admin/members": lazy(() => import("@/components/platform/MembersPage")),
   "/admin/processing": lazy(() => import("@/components/admin/ProcessingPage")),
