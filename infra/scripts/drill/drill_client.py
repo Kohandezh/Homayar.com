@@ -25,15 +25,29 @@ import secrets
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import wave
 
 
+class _LoopbackIsSecure(http.cookiejar.DefaultCookiePolicy):
+    """Browsers treat http://127.0.0.1 and localhost as a secure context and send
+    Secure cookies there; so does the drill, which keeps SECURE_COOKIES=true."""
+
+    def return_ok_secure(self, cookie, request):
+        if cookie.secure and urllib.parse.urlsplit(request.full_url).hostname in _LOOPBACK:
+            return True
+        return super().return_ok_secure(cookie, request)
+
+
+_LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
 class Client:
     def __init__(self, base: str) -> None:
         self.base = base.rstrip("/")
-        self.jar = http.cookiejar.CookieJar()
+        self.jar = http.cookiejar.CookieJar(policy=_LoopbackIsSecure())
         self.opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self.jar), _NoRedirect()
         )
@@ -185,6 +199,22 @@ def smoke(args) -> int:
     created = changes["created_after_backup"]
     status, _ = clients[created["tenant"]].request("GET", f"/api/v1/meetings/{created['meeting_id']}")
     check("post-backup upload is absent (inside the RPO window)", status == 404, str(status))
+    # Not a pass/fail check: a revocation made after the backup is not journaled,
+    # so the restored link is active again unless --revoke-share-links was used.
+    revoked = changes.get("revoked_share")
+    if revoked:
+        status, shares = clients[revoked["tenant"]].json(
+            "GET", f"/api/v1/meetings/{revoked['meeting_id']}/shares"
+        )
+        share = next((s for s in (shares if status == 200 else []) if s.get("id") == revoked["share_id"]), None)
+        results["observations"] = {
+            "post_backup_revoked_share": {
+                "share_id": revoked["share_id"],
+                "listed": share is not None,
+                "revoked_at_after_restore": share.get("revoked_at") if share else None,
+                "active_again": bool(share) and not share.get("revoked_at"),
+            }
+        }
     results["passed"] = all(c["ok"] for c in results["checks"])
     print(json.dumps(results, indent=2))
     return 0 if results["passed"] else 1

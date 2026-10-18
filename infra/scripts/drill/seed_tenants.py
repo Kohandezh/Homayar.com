@@ -31,6 +31,16 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = Settings()
     demo_seed.SAMPLE_RATE_HZ = args.sample_rate
+    # The demo seed fills one workspace per database and passes fixed job keys
+    # ("demo-seed-meeting-01"); job and usage-reservation keys are unique across
+    # the database (the API scopes them per workspace), so prefix them per tenant.
+    upload = demo_seed._upload
+
+    def tenant_upload(*args, idempotency_key: str, **kwargs):
+        prefixed = f"{demo_seed.DEMO_ORGANIZATION_SLUG}:{idempotency_key}"
+        return upload(*args, idempotency_key=prefixed, **kwargs)
+
+    demo_seed._upload = tenant_upload
     tenants = []
     for index in range(args.tenants):
         demo_seed.DEMO_ORGANIZATION_SLUG = f"drill-org-{index:02d}"

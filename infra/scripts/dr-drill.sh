@@ -10,7 +10,10 @@
 #      backup root (only the off-site copies and the journal replica survive);
 #   5. from the recovery decision (T0): fetch from off-site, restore-isolated.sh
 #      into homayar-drill-restore, open ingress, run the smoke tests through
-#      nginx; T_ready = smoke tests passed. RTO = T_ready - T0.
+#      nginx; T_ready = smoke tests passed. RTO = T_ready - T0;
+#   6. after T_ready (not timed): restore-gate probes on a second, database-only
+#      staging restore of the same set (gate closed while loaded, promote refused
+#      without a PASS report and with another database's PASS report).
 #
 # Evidence (timeline, manifest, reconciliation report, smoke results, summary)
 # goes to $DRILL_DIR/evidence. It only ever touches the homayar-drill-* projects.
@@ -64,9 +67,10 @@ MINIO_ROOT_PASSWORD=$(rand)
 STORAGE_ACCESS_KEY=drill-app
 STORAGE_SECRET_KEY=$(rand)
 BIND_ADDRESS=127.0.0.1
-SECURE_COOKIES=false
 EOF
 chmod 0600 "${DRILL_DIR}/drill.env"
+# SECURE_COOKIES stays true (production refuses false); the drill client treats
+# the loopback origin as a secure context, as browsers do.
 export COMPOSE_ENV_FILE="${DRILL_DIR}/drill.env" BACKUP_UID="$(id -u)" BACKUP_GID="$(id -g)"
 
 compose_for() {  # project, then compose arguments
@@ -92,17 +96,23 @@ docker run -d --name "${OFFSITE}" -p "127.0.0.1:${OFFSITE_PORT}:9000" \
   quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data >/dev/null
 export HOMAYAR_BACKUP_S3_ENDPOINT="http://127.0.0.1:${OFFSITE_PORT}" HOMAYAR_BACKUP_S3_ACCESS_KEY=offsite \
   HOMAYAR_BACKUP_S3_SECRET_KEY="${offsite_secret}" HOMAYAR_BACKUP_S3_REGION=us-east-1
+offsite_ready=0
 for _ in $(seq 1 60); do
-  "${PY}" -c 'from backend.backup.replicate import s3_client; s3_client().create_bucket(Bucket="homayar-offsite")' \
-    >/dev/null 2>&1 && break
+  if (cd "${REPO_ROOT}/Homayar" && "${PY}" -c \
+    'from backend.backup.replicate import s3_client; s3_client().create_bucket(Bucket="homayar-offsite")') \
+    >/dev/null 2>&1; then
+    offsite_ready=1
+    break
+  fi
   sleep 1
 done
+[[ "${offsite_ready}" == "1" ]] || die "the off-site MinIO did not accept the bucket"
 
 # --- 1. production ----------------------------------------------------------------
 mark prod_up START
 prod --profile onprem up -d --wait postgres redis minio
 prod --profile onprem run --rm --no-deps minio-bootstrap
-prod --profile migrate run --rm --no-deps migrate
+prod --profile onprem --profile migrate run --rm --no-deps migrate
 prod --profile onprem up -d --wait
 mark prod_up END
 
@@ -174,6 +184,50 @@ mark smoke START
   --tenants "${E}/tenants.json" --changes "${E}/changes.json" > "${E}/smoke.json"
 mark smoke END
 mark recovery READY
+
+# --- 6. restore-gate probes (after READY, not part of the RTO) ---------------------
+# A second staging restore of the same set (database only) proves the gate on
+# this host: a loaded staging database is closed, promote is refused without a
+# PASS report and with another database's PASS report; the live one is open.
+restore_env() {
+  PUBLIC_ORIGIN="http://127.0.0.1:${RESTORE_PORT}" CORS_ORIGINS="http://127.0.0.1:${RESTORE_PORT}" \
+  TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${RESTORE_PORT}" \
+  TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal-replica" BACKUP_ROOT="${DRILL_DIR}/restore-backups" \
+  BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" BACKUP_TEXTFILE_DIR="${DRILL_DIR}/restore-backups/metrics" \
+    compose_for "${RESTORE}" "$@"
+}
+probe() {  # name, expected exit code, backup-tool arguments
+  local name="$1" expected="$2" rc=0
+  shift 2
+  restore_env --profile onprem --profile ops run --rm --no-deps -T backup-tool "$@" \
+    > "${DRILL_DIR}/probe.out" 2>> "${DRILL_DIR}/gate-probes.stderr" || rc=$?
+  "${PY}" -c '
+import json, sys
+name, expected, rc, command, path = sys.argv[1:]
+text = open(path).read()
+try:
+    output = json.loads(text)
+except ValueError:
+    output = text[-2000:]
+if isinstance(output, dict) and "database" in output and "phases" in output:
+    output = {k: output[k] for k in ("backup_id", "staging_database", "status", "storage_target")}
+print(json.dumps({"probe": name, "command": command, "expected_exit": int(expected),
+                  "exit": int(rc), "ok": int(rc) == int(expected), "output": output}))
+' "${name}" "${expected}" "${rc}" "$*" "${DRILL_DIR}/probe.out" | tee -a "${E}/gate-probes.jsonl"
+}
+probe_work="/backups/restores/${backup_id}-gate-probe"
+mark gate_probes START
+probe staging_restore_db_only 0 restore "${backup_id}" --staging-db homayar_gateprobe --no-objects \
+  --work-dir "${probe_work}"
+probe gate_closed_before_reconcile 1 gate --live-db homayar_gateprobe
+probe promote_refused_without_report 1 promote "${backup_id}" --staging-db homayar_gateprobe \
+  --live-db homayar_gateprobe_live --work-dir "${probe_work}"
+probe promote_refused_with_other_databases_pass 1 promote "${backup_id}" \
+  --staging-db homayar_gateprobe --live-db homayar_gateprobe_live
+probe live_gate_open_after_promote 0 gate --live-db homayar
+restore_env --profile onprem exec -T postgres sh -ec \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS homayar_gateprobe WITH (FORCE)"'
+mark gate_probes END
 
 cp "${DRILL_DIR}/restore-backups/restores/${backup_id}/reconciliation-report.json" "${E}/"
 cp "${DRILL_DIR}/restore-backups/restores/${backup_id}/restore-state.json" "${E}/"
