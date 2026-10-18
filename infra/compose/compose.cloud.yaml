@@ -49,6 +49,12 @@ x-app-environment: &app-environment
   TOMBSTONE_JOURNAL_DIR: /app/tombstones
   ENABLE_NEO4J_PROJECTION: "false"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+  # Prometheus /metrics on the API port (HOM-113, docs/operations/observability.md).
+  # Production needs METRICS_BEARER_TOKEN (>= 32 characters); without it /metrics
+  # answers 404. Cloud has no unauthenticated opt-out (METRICS_ALLOW_UNAUTHENTICATED).
+  METRICS_ENABLED: "${METRICS_ENABLED:-true}"
+  METRICS_BEARER_TOKEN: "${METRICS_BEARER_TOKEN:-}"
+  METRICS_CACHE_SECONDS: "${METRICS_CACHE_SECONDS:-15}"
   # Model registry and provider resilience (WP08, ADR 0026/0030). Leave
   # MODEL_MANIFEST_STRICT unset: strict by default outside development/test.
   MODEL_MANIFEST_PATHS: "${MODEL_MANIFEST_PATHS:-}"
@@ -159,6 +165,10 @@ services:
     environment:
       <<: *app-environment
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
+      # Counters of all uvicorn workers in one tmpfs directory (empty at every
+      # container start): /metrics sums them instead of answering per worker.
+      # Its own small tmpfs, so upload spooling in /tmp can never fill it.
+      PROMETHEUS_MULTIPROC_DIR: /run/homayar-metrics
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
@@ -180,6 +190,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
       - /app/logs:rw,noexec,nosuid,size=64m
+      - /run/homayar-metrics:rw,noexec,nosuid,size=32m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [edge, private]

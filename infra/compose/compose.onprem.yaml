@@ -58,6 +58,13 @@ x-app-environment: &app-environment
   TOMBSTONE_JOURNAL_DIR: /app/tombstones
   ENABLE_NEO4J_PROJECTION: "false"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+  # Prometheus scrape endpoint (HOM-113). Production needs METRICS_BEARER_TOKEN
+  # (>= 32 characters); without it /metrics answers 404. On-premise only,
+  # METRICS_ALLOW_UNAUTHENTICATED=true serves it without a token (logged at startup).
+  METRICS_ENABLED: "${METRICS_ENABLED:-true}"
+  METRICS_BEARER_TOKEN: "${METRICS_BEARER_TOKEN:-}"
+  METRICS_ALLOW_UNAUTHENTICATED: "${METRICS_ALLOW_UNAUTHENTICATED:-false}"
+  METRICS_CACHE_SECONDS: "${METRICS_CACHE_SECONDS:-15}"
   # Model registry and provider resilience (WP08, ADR 0026/0030). Leave
   # MODEL_MANIFEST_STRICT unset: strict by default outside development/test.
   MODEL_MANIFEST_PATHS: "${MODEL_MANIFEST_PATHS:-}"
@@ -188,6 +195,9 @@ services:
     environment:
       <<: *app-environment
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
+      # Counters of all uvicorn workers in one tmpfs of their own (empty at every
+      # container start, apart from the upload spool in /tmp): /metrics sums them.
+      PROMETHEUS_MULTIPROC_DIR: /run/homayar-metrics
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
@@ -216,6 +226,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
       - /app/logs:rw,noexec,nosuid,size=64m
+      - /run/homayar-metrics:rw,noexec,nosuid,size=32m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [ingress, backend, egress]
@@ -378,6 +389,25 @@ services:
     # backend: PostgreSQL and MinIO; egress: an s3:// off-site target through
     # the egress proxy (its host must be on the allowlist).
     networks: [backend, egress]
+    logging: *default-logging
+
+  # Host metrics and the backup freshness gauge (HOM-126 alert contract): the
+  # textfile collector reads what backup-tool writes to NODE_EXPORTER_TEXTFILE_DIR
+  # (homayar_backup_last_success_timestamp_seconds{target}). Opt-in profile;
+  # Prometheus scrapes node-exporter:9100 as job "homayar-node" on the backend network.
+  node-exporter:
+    image: "${NODE_EXPORTER_IMAGE:-quay.io/prometheus/node-exporter:v1.9.1}"
+    profiles: [monitoring]
+    command:
+      - --collector.textfile.directory=/textfile
+      - --web.listen-address=:9100
+    volumes:
+      - "${NODE_EXPORTER_TEXTFILE_DIR:-../node-exporter-textfile}:/textfile:ro"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
     logging: *default-logging
 
   migrate:

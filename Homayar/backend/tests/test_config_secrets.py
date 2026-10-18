@@ -38,6 +38,7 @@ SECRET_FIELDS = (
     "smtp_password",
     "neo4j_password",
     "sentry_dsn",
+    "metrics_bearer_token",
 )
 
 MARK = "Qz7fake"
@@ -61,6 +62,7 @@ FAKE_SECRETS: dict[str, str] = {
     "smtp_password": f"fake-smtp-password-{MARK}",
     "neo4j_password": f"fake-neo4j-password-{MARK}",
     "sentry_dsn": f"https://fakepublickey{MARK}@sentry.example.invalid/7",
+    "metrics_bearer_token": f"fake-metrics-bearer-token-{MARK}-0123456789",
 }
 # Settings a secret needs to validate (PII keys need their active key id).
 COMPANIONS: dict[str, dict[str, object]] = {
