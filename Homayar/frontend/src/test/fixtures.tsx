@@ -26,6 +26,9 @@ export const FIXTURE_USER: AuthUser = {
   is_active: true,
 };
 
+/** FIXTURE_USER as a platform operator (`system_role` from HOM-184). */
+export const FIXTURE_OPERATOR: AuthUser = { ...FIXTURE_USER, system_role: "operator" };
+
 export const FIXTURE_WORKSPACE: AuthWorkspace = {
   id: "ws-1",
   organization_id: "org-1",

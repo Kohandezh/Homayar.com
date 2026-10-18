@@ -107,7 +107,7 @@ export function AppRoutes() {
               key={entry.path}
               path={entry.path}
               element={
-                <AdminGuard permission={entry.permission}>
+                <AdminGuard entry={entry}>
                   <AdminPage entry={entry} />
                 </AdminGuard>
               }
