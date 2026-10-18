@@ -192,6 +192,9 @@ def fetch_from_s3(destination: str, backup_id: str, local_root: Path, *, client=
             target = work / entry["name"]
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             client.download_file(bucket, _s3_key(prefix, backup_id, entry["name"]), str(target))
+            digest, size = file_sha256(target)
+            if digest != entry["sha256"] or size != entry["size"]:
+                raise BackupInvalid("copy_checksum_mismatch", entry["name"])
         final = final_dir(local_root, backup_id)
         if final.exists():
             raise BackupInvalid("already_present", str(final))
@@ -201,3 +204,28 @@ def fetch_from_s3(destination: str, backup_id: str, local_root: Path, *, client=
         raise
     verify_set(final, None, deep=False)
     return final
+
+
+def prune_s3(
+    destination: str, *, daily: int, monthly: int, dry_run: bool = False, client=None
+) -> dict[str, list[str]]:
+    """Apply the retention policy to an S3 off-site copy (complete sets only;
+    the newest is always kept).  Incomplete copies are left for an operator."""
+    from backend.backup.retention import retained
+
+    bucket, prefix = parse_s3(destination)
+    client = client or s3_client()
+    sets = list_s3_sets(destination, client=client)
+    keep = retained(sets, daily=daily, monthly=monthly)
+    expired = sorted(set(sets) - keep)
+    if not dry_run:
+        paginator = client.get_paginator("list_objects_v2")
+        for backup_id in expired:
+            # The manifest goes first: from then on the copy is incomplete.
+            client.delete_object(Bucket=bucket, Key=_s3_key(prefix, backup_id, MANIFEST_NAME))
+            for page in paginator.paginate(
+                Bucket=bucket, Prefix=_s3_key(prefix, backup_id, "") + "/"
+            ):
+                for item in page.get("Contents", []):
+                    client.delete_object(Bucket=bucket, Key=item["Key"])
+    return {"kept": sorted(keep), "expired": expired}

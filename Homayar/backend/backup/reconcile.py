@@ -58,7 +58,13 @@ from backend.backup.logical import (
 )
 from backend.backup.manifest import BackupInvalid, read_manifest
 from backend.backup.release import code_heads
-from backend.backup.restore import RestoreRefused, read_marker, read_state, write_marker
+from backend.backup.restore import (
+    RestoreRefused,
+    marker_statement,
+    read_marker,
+    read_state,
+    write_marker,
+)
 from backend.backup.verify import load_catalog
 from backend.database import relational
 from backend.database.rls import APP_ROLE, POLICIES, POLICY_NAME
@@ -360,9 +366,19 @@ def _objects(
     )
     orphans = sorted(k for k in stored if k not in refs)
     lingering = sorted(k for k, r in refs.items() if r["expectation"] == "gone" and k in stored)
+    # Bytes copied while their deletion was in flight: the restored row says
+    # they are gone, so they are removed again (deletion state wins).
+    removal_failed = []
+    for key in lingering:
+        try:
+            storage.delete(stored[key], key)
+        except StorageError:
+            removal_failed.append(key)
     status = "PASS"
     if missing:
         status = "PASS" if accept_missing else "FAIL"
+    if removal_failed:
+        status = "FAIL"
     return _check(
         status,
         stored=len(stored),
@@ -371,8 +387,8 @@ def _objects(
         required_missing_keys=missing[:100],
         orphans=len(orphans),
         orphan_keys=orphans[:100],
-        removed_but_present=len(lingering),
-        removed_but_present_keys=lingering[:100],
+        removed_again=len(lingering) - len(removal_failed),
+        removal_failed_keys=removal_failed[:100],
         accepted_missing=accept_missing,
     )
 
@@ -387,6 +403,17 @@ def _held_meetings(connection) -> set[str]:
             "AND meeting_id IS NOT NULL"
         )
     }
+
+
+def _bytes_left(storage: ObjectStorage | None, record: Any, found: list[str]) -> None:
+    if storage is None:
+        return
+    for key in record.object_keys:
+        try:
+            if storage.exists(record.workspace_id, key):
+                found.append(key)
+        except StorageError:
+            found.append(key)
 
 
 def _non_resurrection(
@@ -407,7 +434,10 @@ def _non_resurrection(
                 (record.meeting_id, record.workspace_id),
             ).fetchone()
             if row is None:
-                continue  # the backup predates the conversation: nothing came back
+                # The backup predates the conversation, but its bytes may have
+                # been copied after the snapshot (the replay removes them).
+                _bytes_left(storage, record, bytes_left)
+                continue
             if record.meeting_id in held:
                 held_review.append(
                     {"meeting_id": record.meeting_id, "workspace_id": record.workspace_id}
@@ -436,13 +466,7 @@ def _non_resurrection(
                 )
                 if active:
                     shares.append(record.meeting_id)
-            if storage is not None:
-                for key in record.object_keys:
-                    try:
-                        if storage.exists(record.workspace_id, key):
-                            bytes_left.append(key)
-                    except StorageError:
-                        bytes_left.append(key)
+            _bytes_left(storage, record, bytes_left)
         connection.rollback()
     failed = alive or content or shares or bytes_left
     status = "FAIL" if failed else ("REVIEW" if held_review else "PASS")
@@ -565,6 +589,7 @@ def reconcile_restore(
     settings: Any,
     storage: ObjectStorage,
     work_dir: Path,
+    storage_target: str,
     app_role: str = APP_ROLE,
     accept_held: str | None = None,
     accept_missing: str | None = None,
@@ -590,13 +615,25 @@ def reconcile_restore(
     if (
         not isinstance(marker, dict)
         or marker.get("backup_id") != backup_id
-        or marker.get("state") not in {"loaded", "reconciled"}
+        or marker.get("state") not in {"loaded", "reconciling", "reconciled"}
     ):
         raise RestoreRefused(
             "staging_not_loaded", f"{staging_database} is not a loaded restore of {backup_id}"
         )
     if state.get("backup_id") != backup_id or state.get("staging_database") != staging_database:
         raise RestoreRefused("state_mismatch", "the work dir belongs to another restore")
+    if state.get("storage_target") != storage_target:
+        raise RestoreRefused(
+            "storage_target_mismatch",
+            "reconcile against the object store the restore wrote into",
+        )
+    # Any earlier report stops being promotable the moment this run starts
+    # changing the database; only this run's final marker can make it so again.
+    write_marker(
+        admin_url,
+        staging_database,
+        {"backup_id": backup_id, "state": "reconciling", "at": _now()},
+    )
     checks["marker"] = _check("PASS", state=marker.get("state"))
 
     mark = time.monotonic()
@@ -619,22 +656,45 @@ def reconcile_restore(
     )
     journal = journal_for(staging_settings)
     records: list[Any] = []
-    if journal is None:
+    watermark = manifest.get("tombstone_journal", {})
+    if journal is None or not journal.files():
+        # Unset, unmounted or empty: nothing proves that later deletions are
+        # re-applied, unless the backup itself recorded an empty journal.
+        empty_at_backup = watermark.get("configured") and not watermark.get("records")
         checks["tombstones"] = _check(
-            "PASS" if accept_no_journal else "FAIL",
-            note=(
-                "TOMBSTONE_JOURNAL_DIR is not configured: deletions after the backup "
-                "cannot be re-applied"
-            ),
-            accepted=accept_no_journal,
+            "PASS" if (accept_no_journal or (journal is not None and empty_at_backup)) else "FAIL",
+            note="no tombstone journal files: deletions after the backup cannot be re-applied",
+            journal_records_at_backup=watermark.get("records"),
+            accepted_no_journal=accept_no_journal,
         )
     else:
+        records, rejected = journal.read()
+        latest = max((r.tombstoned_at for r in records), default=None)
+        stale = []
+        if watermark.get("configured"):
+            if len(records) < int(watermark.get("records") or 0):
+                stale.append("fewer records than at backup time")
+            recorded_latest = watermark.get("latest_tombstoned_at")
+            if recorded_latest and (
+                latest is None or latest < datetime.fromisoformat(recorded_latest)
+            ):
+                stale.append("newest record older than at backup time")
         with bound_database(staging_settings):
-            replay = reapply_tombstones(staging_settings, journal=journal, storage=storage)
+            replay = reapply_tombstones(
+                staging_settings, journal=journal, storage=storage, remove_unknown_keys=True
+            )
             verified = verify_tombstones(staging_settings, journal=journal)
-        records, _ = journal.read()
-        failed = verified["alive"] or verified["rejected_lines"] or verified["purges_failed"]
-        checks["tombstones"] = _check("FAIL" if failed else "PASS", replay=replay, verify=verified)
+        failed = (
+            stale or verified["alive"] or verified["rejected_lines"] or verified["purges_failed"]
+        )
+        checks["tombstones"] = _check(
+            "FAIL" if failed else "PASS",
+            replay=replay,
+            verify=verified,
+            journal_records=len(records),
+            journal_records_at_backup=watermark.get("records"),
+            stale_journal=stale,
+        )
     timings["tombstones"] = round(time.monotonic() - mark, 3)
 
     mark = time.monotonic()
@@ -720,12 +780,21 @@ def promote(
             "report_mismatch", "the report is not the last reconciliation of this database"
         )
     retired = None
-    with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
+    promoted_marker = {
+        "backup_id": report["backup_id"],
+        "state": "promoted",
+        "report_sha256": marker["report_sha256"],
+        "promoted_from": staging,
+        "at": _now(),
+    }
+    # Both renames and the new marker commit together or not at all.
+    with connect(with_database(admin_url, "postgres")) as connection:
         exists = connection.execute(
             "SELECT 1 FROM pg_database WHERE datname = %s", (live,)
         ).fetchone()
         if exists:
             if not retire_existing:
+                connection.rollback()
                 raise RestoreRefused(
                     "live_database_exists",
                     f"{live} exists; pass retire_existing to keep it renamed",
@@ -733,17 +802,8 @@ def promote(
             retired = f"{live[:40]}_retired_{datetime.now(UTC):%Y%m%d%H%M%S}"
             connection.execute(f'ALTER DATABASE "{live}" RENAME TO "{retired}"')
         connection.execute(f'ALTER DATABASE "{staging}" RENAME TO "{live}"')
-    write_marker(
-        admin_url,
-        live,
-        {
-            "backup_id": report["backup_id"],
-            "state": "promoted",
-            "report_sha256": marker["report_sha256"],
-            "promoted_from": staging,
-            "at": _now(),
-        },
-    )
+        connection.execute(marker_statement(live, promoted_marker))
+        connection.commit()
     return {"backup_id": report["backup_id"], "live_database": live, "retired_database": retired}
 
 

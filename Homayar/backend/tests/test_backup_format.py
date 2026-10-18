@@ -237,3 +237,99 @@ def test_freshness_textfile_is_merged_atomically_and_only_known_targets(tmp_path
         metrics.record_success(path, {"redis": 1.0})
     custom = tmp_path / "textfile" / "x.prom"
     assert metrics.textfile_path(tmp_path, env={"HOMAYAR_BACKUP_TEXTFILE": str(custom)}) == custom
+
+
+# --- off-site copies (S3 code paths against an in-memory stand-in) -------------------
+
+
+class _FakeS3:
+    """The few S3 calls the replication uses, kept in memory."""
+
+    def __init__(self) -> None:
+        self.objects: dict[tuple[str, str], bytes] = {}
+
+    def upload_file(self, filename, bucket, key, ExtraArgs=None, Config=None):  # noqa: N803
+        assert (ExtraArgs or {}).get("ChecksumAlgorithm") == "SHA256"
+        self.objects[(bucket, key)] = Path(filename).read_bytes()
+
+    def head_object(self, Bucket, Key):  # noqa: N803
+        return {"ContentLength": len(self.objects[(Bucket, Key)])}
+
+    def download_file(self, bucket, key, filename):
+        Path(filename).write_bytes(self.objects[(bucket, key)])
+
+    def delete_object(self, Bucket, Key):  # noqa: N803
+        self.objects.pop((Bucket, Key), None)
+
+    def get_paginator(self, _name):
+        return self
+
+    def paginate(self, Bucket, Prefix=""):  # noqa: N803
+        keys = sorted(k for b, k in self.objects if b == Bucket and k.startswith(Prefix))
+        yield {"Contents": [{"Key": k} for k in keys]}
+
+
+def _fake_set(root: Path, backup_id: str) -> Path:
+    """A structurally complete set (catalog + one table) sealed with the test key."""
+    directory = root / "sets" / backup_id
+    entries = []
+    for name, payload in (
+        ("catalog.json.enc", json.dumps({"backup_id": backup_id}).encode()),
+        ("db/meetings.copy.enc", b"row\t1\n" * 1000),
+    ):
+        with EncryptingWriter(directory / name, _key(), backup_id=backup_id, name=name) as writer:
+            writer.write(payload)
+        entries.append(
+            {
+                "name": name,
+                "size": writer.size,
+                "sha256": writer.sha256,
+                "plaintext_size": writer.plaintext_size,
+            }
+        )
+    manifest = {**_manifest(), "backup_id": backup_id, "files": entries}
+    write_manifest(directory, manifest, _key())
+    return directory
+
+
+def test_s3_copy_lists_fetches_verifies_and_rejects_a_corrupt_download(tmp_path):
+    from backend.backup.replicate import fetch_from_s3, list_s3_sets, replicate_to_s3
+    from backend.backup.verify import verify_set
+
+    backup_id = "20261017T020000Z-00000001"
+    set_dir = _fake_set(tmp_path / "primary", backup_id)
+    s3 = _FakeS3()
+    result = replicate_to_s3(set_dir, "s3://offsite/site-a", client=s3)
+    assert result["status"] == "copied" and result["files"] == 2
+    assert ("offsite", f"site-a/{backup_id}/manifest.json") in s3.objects
+    assert list_s3_sets("s3://offsite/site-a", client=s3) == [backup_id]
+
+    fetched = fetch_from_s3("s3://offsite/site-a", backup_id, tmp_path / "restore-1", client=s3)
+    assert verify_set(fetched, _key(), deep=False)["mac_verified"]
+
+    key = ("offsite", f"site-a/{backup_id}/db/meetings.copy.enc")
+    corrupted = bytearray(s3.objects[key])
+    corrupted[-5] ^= 0x01
+    s3.objects[key] = bytes(corrupted)
+    with pytest.raises(BackupInvalid) as error:
+        fetch_from_s3("s3://offsite/site-a", backup_id, tmp_path / "restore-2", client=s3)
+    assert error.value.code == "copy_checksum_mismatch"
+    assert not list((tmp_path / "restore-2" / "sets").iterdir())  # nothing half-fetched stays
+
+
+def test_s3_copy_without_its_manifest_is_not_a_set_and_retention_applies_off_site(tmp_path):
+    from backend.backup.replicate import list_s3_sets, prune_s3, replicate_to_s3
+
+    s3 = _FakeS3()
+    ids = [f"2026101{day}T020000Z-0000000{day}" for day in range(1, 5)]
+    for backup_id in ids:
+        replicate_to_s3(_fake_set(tmp_path / "primary", backup_id), "s3://offsite/p", client=s3)
+    s3.delete_object(Bucket="offsite", Key=f"p/{ids[0]}/manifest.json")  # interrupted copy
+    assert list_s3_sets("s3://offsite/p", client=s3) == ids[1:]
+
+    dry = prune_s3("s3://offsite/p", daily=2, monthly=0, dry_run=True, client=s3)
+    assert dry["expired"] == [ids[1]] and set(dry["kept"]) == {ids[2], ids[3]}
+    assert list_s3_sets("s3://offsite/p", client=s3) == ids[1:]
+    prune_s3("s3://offsite/p", daily=2, monthly=0, client=s3)
+    assert list_s3_sets("s3://offsite/p", client=s3) == ids[2:]
+    assert not [k for _, k in s3.objects if k.startswith(f"p/{ids[1]}/")]

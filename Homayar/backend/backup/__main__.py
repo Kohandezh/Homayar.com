@@ -136,9 +136,17 @@ def cmd_verify(args) -> int:
 
 
 def cmd_prune(args) -> int:
+    from backend.backup.replicate import prune_s3
     from backend.backup.retention import prune
 
-    _print(prune(_root(args), daily=args.daily, monthly=args.monthly, dry_run=args.dry_run))
+    if args.destination and args.destination.startswith("s3://"):
+        result = prune_s3(
+            args.destination, daily=args.daily, monthly=args.monthly, dry_run=args.dry_run
+        )
+    else:
+        root = Path(args.destination) if args.destination else _root(args)
+        result = prune(root, daily=args.daily, monthly=args.monthly, dry_run=args.dry_run)
+    _print(result)
     return 0
 
 
@@ -168,7 +176,8 @@ def cmd_fetch(args) -> int:
 
 
 def cmd_restore(args) -> int:
-    from backend.backup.restore import restore_backup
+    from backend.backup.restore import describe_storage_target, restore_backup
+    from backend.config import get_settings
     from backend.storage import create_object_storage
 
     settings = _settings_with_target_storage(args)
@@ -180,7 +189,10 @@ def cmd_restore(args) -> int:
         staging_database=args.staging_db,
         storage=None if args.no_objects else create_object_storage(settings),
         work_dir=_work_dir(args, set_dir.name),
-        live_database_url=args.live_database_url or None,
+        storage_target=describe_storage_target(settings),
+        # The database the application serves (resolved settings, so a
+        # DATABASE_URL_FILE deployment is guarded as well).
+        live_database_url=args.live_database_url or get_settings().database_url,
         app_role=settings.database_app_role or "homayar_app",
         resume=args.resume,
     )
@@ -190,6 +202,7 @@ def cmd_restore(args) -> int:
 
 def cmd_reconcile(args) -> int:
     from backend.backup.reconcile import reconcile_restore
+    from backend.backup.restore import describe_storage_target
     from backend.storage import create_object_storage
 
     settings = _settings_with_target_storage(args)
@@ -202,6 +215,7 @@ def cmd_reconcile(args) -> int:
         settings=settings,
         storage=create_object_storage(settings),
         work_dir=_work_dir(args, set_dir.name),
+        storage_target=describe_storage_target(settings),
         app_role=settings.database_app_role or "homayar_app",
         accept_held=args.accept_held,
         accept_missing=args.accept_missing,
@@ -284,6 +298,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--daily", type=int, default=30)
     p.add_argument("--monthly", type=int, default=12)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument(
+        "--destination", help="an off-site copy (directory or s3://) instead of the root"
+    )
     p.set_defaults(func=cmd_prune)
 
     p = sub.add_parser("replicate")
@@ -305,7 +322,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--target-bucket", help="restore objects into this bucket")
         p.set_defaults(func=func)
         if name == "restore":
-            p.add_argument("--live-database-url", default=os.environ.get("DATABASE_URL", ""))
+            p.add_argument("--live-database-url", default="")
             p.add_argument("--no-objects", action="store_true")
             p.add_argument("--resume", action="store_true")
         else:

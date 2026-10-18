@@ -44,6 +44,9 @@ mkdir -p -- "${BACKUP_TEXTFILE_DIR}"
 if [[ "${offsite}" == "1" && -z "${BACKUP_OFFSITE:-}" && -z "${BACKUP_OFFSITE_PATH:-}" ]]; then
   die "No off-site target: set BACKUP_OFFSITE (s3://) or BACKUP_OFFSITE_PATH, or pass --no-offsite."
 fi
+if [[ "${offsite}" == "1" && "${BACKUP_OFFSITE:-}" == s3://* && -z "${EGRESS_PROXY_URL:-}" ]]; then
+  die "An s3:// off-site target is reached through the egress proxy: start --profile egress, allowlist its host and set EGRESS_PROXY_URL."
+fi
 
 tool() {
   compose --profile onprem --profile ops run --rm --no-deps -T backup-tool "$@"
@@ -60,16 +63,18 @@ backup_id="$(sed -n 's/^  "backup_id": "\([^"]*\)",*$/\1/p' <<<"${output}" | hea
 
 tool verify "${backup_id}"
 
+offsite_target=""
 if [[ "${offsite}" == "1" ]]; then
-  if [[ -n "${BACKUP_OFFSITE:-}" ]]; then
-    tool replicate "${backup_id}" "${BACKUP_OFFSITE}"
-  else
-    tool replicate "${backup_id}" /offsite
-  fi
+  offsite_target="${BACKUP_OFFSITE:-/offsite}"
+  tool replicate "${backup_id}" "${offsite_target}"
 fi
 
 if [[ "${prune}" == "1" ]]; then
   tool prune
+  # The off-site copy follows the same retention (deleted data must expire there too).
+  if [[ -n "${offsite_target}" ]]; then
+    tool prune --destination "${offsite_target}"
+  fi
 fi
 
 printf 'Backup %s completed.\n' "${backup_id}"

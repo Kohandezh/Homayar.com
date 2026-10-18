@@ -88,7 +88,13 @@ compose_onprem run --rm --no-deps minio-bootstrap
 mark stores END
 
 if [[ -n "${fetch}" ]]; then
+  # The tool has no route out except the egress proxy (its allowlist must
+  # name the off-site host). Without it, fetch on a host that can reach the
+  # copy: python -m backend.backup --root "$BACKUP_ROOT" fetch ID s3://...
+  [[ -n "${EGRESS_PROXY_URL:-}" ]] ||
+    die "--fetch needs the egress proxy (set EGRESS_PROXY_URL and allowlist the off-site host)."
   mark fetch START
+  compose --profile egress up -d --wait egress-proxy
   tool fetch "${backup_id}" "${fetch}"
   mark fetch END
 fi

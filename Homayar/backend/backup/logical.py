@@ -194,16 +194,26 @@ class Snapshot:
 
 @contextmanager
 def open_snapshot(database_url: str, *, lock_timeout_ms: int = 60000) -> Iterator[Snapshot]:
+    """Lock every table, THEN take the snapshot (order matters).
+
+    In ``REPEATABLE READ`` the snapshot is fixed by the first query, so the
+    role check and the table list run on a separate short connection and
+    the snapshot transaction issues only ``SET`` and ``LOCK`` (which take no
+    snapshot) before its first ``SELECT``.  A migration that committed while
+    the locks were awaited (a table rewrite is not MVCC-safe) is therefore
+    visible to the snapshot, and the table list is compared again inside it.
+    """
+    with connect(database_url, autocommit=True) as probe:
+        _require_bypass(probe, superuser=False)
+        tables = list_tables(probe)
     connection = connect(database_url)
     try:
         connection.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
         connection.read_only = True
         _settings(connection)
-        _require_bypass(connection, superuser=False)
         # Fail on any row a policy would hide instead of silently dumping less.
         connection.execute("SET row_security = off")
         connection.execute(f"SET lock_timeout = {int(lock_timeout_ms)}")
-        tables = list_tables(connection)
         if tables:
             connection.execute(
                 sql.SQL("LOCK TABLE {} IN ACCESS SHARE MODE").format(
@@ -211,9 +221,13 @@ def open_snapshot(database_url: str, *, lock_timeout_ms: int = 60000) -> Iterato
                 )
             )
         snapshot_id, database_time, lsn = connection.execute(
-            "SELECT pg_export_snapshot(), transaction_timestamp(), "
+            "SELECT pg_export_snapshot(), statement_timestamp(), "
             "CASE WHEN pg_is_in_recovery() THEN NULL ELSE pg_current_wal_lsn()::text END"
         ).fetchone()
+        if list_tables(connection) != tables:
+            raise DatabaseBackupError(
+                "schema_changed", "tables were created or dropped while the backup started"
+            )
         server_version = connection.execute("SHOW server_version").fetchone()[0]
         snapshot = Snapshot(
             connection=connection,

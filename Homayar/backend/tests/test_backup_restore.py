@@ -40,7 +40,12 @@ from backend.backup.manifest import (
 from backend.backup.metrics import read_values
 from backend.backup.reconcile import REPORT_FILE, promote, reconcile_restore
 from backend.backup.release import PROJECT_DIR, code_heads
-from backend.backup.restore import RestoreRefused, read_marker, restore_backup
+from backend.backup.restore import (
+    RestoreRefused,
+    describe_storage_target,
+    read_marker,
+    restore_backup,
+)
 from backend.backup.retention import prune
 from backend.backup.verify import verify_set
 from backend.database.relational import reset_database_state
@@ -138,6 +143,7 @@ def _restore(settings, tmp_path, set_dir, staging, **kwargs):
         staging_database=staging,
         storage=storage,
         work_dir=kwargs.pop("work_dir", tmp_path / "restore-work"),
+        storage_target=describe_storage_target(target_settings),
         live_database_url=settings.database_url,
         **kwargs,
     )
@@ -153,6 +159,7 @@ def _reconcile(set_dir, staging, target_settings, storage, tmp_path, **kwargs):
         settings=target_settings,
         storage=storage,
         work_dir=kwargs.pop("work_dir", tmp_path / "restore-work"),
+        storage_target=kwargs.pop("storage_target", describe_storage_target(target_settings)),
         **kwargs,
     )
 
@@ -571,8 +578,22 @@ def test_restore_failure_isolation_guards_and_idempotent_retry(
     with pytest.raises(RestoreRefused) as again:
         _restore(settings, tmp_path, set_dir, staging, target=target)
     assert again.value.code == "target_store_not_empty"
+    elsewhere = _target(settings, tmp_path, "elsewhere")
+    with pytest.raises(RestoreRefused) as moved:
+        _restore(settings, tmp_path, set_dir, staging, target=elsewhere, resume=True)
+    assert moved.value.code == "storage_target_mismatch"
     state, *_ = _restore(settings, tmp_path, set_dir, staging, target=target, resume=True)
     assert state["status"] == "loaded" and state["objects"]["already_present"] >= 1
+    with pytest.raises(RestoreRefused) as wrong_store:
+        _reconcile(
+            set_dir,
+            staging,
+            target[0],
+            target[1],
+            tmp_path,
+            storage_target=describe_storage_target(elsewhere[0]),
+        )
+    assert wrong_store.value.code == "storage_target_mismatch"
 
     first = _reconcile(set_dir, staging, target[0], target[1], tmp_path)
     assert first["status"] == "PASS", first["statuses"]
@@ -745,3 +766,85 @@ def test_a_conversation_held_in_the_backup_needs_an_owner_decision_before_promot
     )
     assert decided["status"] == "PASS", decided["statuses"]
     assert decided["checks"]["non_resurrection"]["details"]["accepted_held"] == "LEGAL-7"
+
+
+# --- deletion state: journal trust and the object-copy window ----------------------------
+
+
+def test_reconciliation_refuses_an_empty_or_stale_tombstone_journal(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "bk-journal")
+    meetings = [
+        _processed(client, tenant, settings, key=f"bk-journal-{i}", index=10 + i) for i in range(3)
+    ]
+    _delete(client, tenant, meetings[0])  # journaled before the backup
+    _delete(client, tenant, meetings[1])
+    _stamp_head(settings.database_url)
+    manifest = _backup(settings, tmp_path)
+    assert manifest["tombstone_journal"]["records"] == 2
+    _delete(client, tenant, meetings[2])  # after the backup
+    staging, _ = _names("journal", databases)
+    _, target_settings, storage = _restore(settings, tmp_path, manifest["path"], staging)
+    journal_dir = Path(settings.tombstone_journal_dir)
+
+    def run(directory: Path, **kwargs):
+        view = target_settings.model_copy(update={"tombstone_journal_dir": str(directory)})
+        return _reconcile(manifest["path"], staging, view, storage, tmp_path, **kwargs)
+
+    empty = tmp_path / "empty-replica"
+    empty.mkdir()
+    report = run(empty)  # an unmounted / failed replica
+    assert report["status"] == "FAIL" and report["statuses"]["tombstones"] == "FAIL"
+
+    stale = tmp_path / "stale-replica"
+    stale.mkdir()
+    first_file = sorted(journal_dir.iterdir())[0]
+    (stale / first_file.name).write_text(first_file.read_text().splitlines(keepends=True)[0])
+    report = run(stale)  # a replica older than the backup itself
+    assert report["statuses"]["tombstones"] == "FAIL"
+    assert report["checks"]["tombstones"]["details"]["stale_journal"]
+
+    accepted = run(empty, accept_no_journal="OWNER-NO-JOURNAL-1")
+    assert accepted["statuses"]["tombstones"] == "PASS"
+    details = accepted["checks"]["tombstones"]["details"]
+    assert details["accepted_no_journal"] == "OWNER-NO-JOURNAL-1"
+
+    report = run(journal_dir)  # the real replica: the post-backup deletion is replayed
+    assert report["status"] == "PASS", report["statuses"]
+    assert report["checks"]["tombstones"]["details"]["replay"]["reapplied"] == 1
+
+
+def test_bytes_copied_after_the_snapshot_of_a_later_deleted_conversation_are_removed(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases
+):
+    import backend.backup.create as create_module
+
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "bk-window")
+    assert _upload(client, tenant, key="bk-window-early").status_code == 202
+    _stamp_head(settings.database_url)
+    late: dict[str, str] = {}
+    copy_objects = create_module.backup_objects
+
+    def upload_during_the_copy(storage, **kwargs):
+        accepted = _upload(client, tenant, key="bk-window-late", content=CONTENT + b"late")
+        assert accepted.status_code == 202, accepted.text
+        late["meeting"] = accepted.json()["meeting"]["id"]
+        return copy_objects(storage, **kwargs)
+
+    monkeypatch.setattr(create_module, "backup_objects", upload_during_the_copy)
+    manifest = _backup(settings, tmp_path)
+    late_keys = [m.storage_key for m in _media(late["meeting"])]
+    _delete(client, tenant, late["meeting"])  # journaled with its object keys
+    staging, _ = _names("window", databases)
+    _, target_settings, storage = _restore(settings, tmp_path, manifest["path"], staging)
+    workspace_id = tenant["workspace_id"]
+    assert late_keys and all(storage.exists(workspace_id, key) for key in late_keys)
+
+    report = _reconcile(manifest["path"], staging, target_settings, storage, tmp_path)
+    assert report["status"] == "PASS", report["statuses"]
+    replay = report["checks"]["tombstones"]["details"]["replay"]
+    assert replay["meeting_absent"] == 1 and replay["unknown_keys_removed"] == len(late_keys)
+    assert not any(storage.exists(workspace_id, key) for key in late_keys)

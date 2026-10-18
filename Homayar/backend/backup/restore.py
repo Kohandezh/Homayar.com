@@ -96,15 +96,19 @@ def read_marker(admin_url: str, database: str) -> dict[str, Any] | None | bool:
     return marker if isinstance(marker, dict) else None
 
 
-def write_marker(admin_url: str, database: str, marker: dict[str, Any]) -> None:
+def marker_statement(database: str, marker: dict[str, Any]) -> str:
     payload = MARKER_PREFIX + json.dumps(marker, sort_keys=True, separators=(",", ":"))
+    return (
+        f'COMMENT ON DATABASE "{validate_database_name(database)}" IS '
+        + "'"
+        + payload.replace("'", "''")
+        + "'"
+    )
+
+
+def write_marker(admin_url: str, database: str, marker: dict[str, Any]) -> None:
     with connect(with_database(admin_url, "postgres"), autocommit=True) as connection:
-        connection.execute(
-            f'COMMENT ON DATABASE "{validate_database_name(database)}" IS '
-            + "'"
-            + payload.replace("'", "''")
-            + "'"
-        )
+        connection.execute(marker_statement(database, marker))
 
 
 def _isolation_guard(
@@ -147,6 +151,14 @@ def _prepare_staging(admin_url: str, staging: str, backup_id: str) -> None:
     write_marker(admin_url, staging, {"backup_id": backup_id, "state": "restoring", "at": _now()})
 
 
+def describe_storage_target(settings: Any) -> str:
+    """Identity of the object store a restore writes into (no credentials)."""
+    if settings.storage_backend == "local":
+        return f"local:{Path(settings.storage_local_root).resolve()}"
+    endpoint = settings.storage_endpoint_url or "aws"
+    return f"s3:{endpoint}/{settings.storage_bucket}"
+
+
 def state_path(work_dir: Path) -> Path:
     return Path(work_dir) / STATE_FILE
 
@@ -175,11 +187,16 @@ def restore_backup(
     staging_database: str,
     storage: ObjectStorage | None,
     work_dir: Path,
+    storage_target: str = "",
     live_database_url: str | None = None,
     app_role: str = APP_ROLE,
     resume: bool = False,
 ) -> dict[str, Any]:
+    """``storage_target`` names the object store (``describe_storage_target(settings)``);
+    a resume and the reconciliation must use the same one."""
     staging = validate_database_name(staging_database)
+    if storage is not None and not storage_target:
+        raise RestoreRefused("storage_target_missing", "name the target object store")
     timings: dict[str, float] = {}
     started = time.monotonic()
     started_at = _now()
@@ -214,6 +231,11 @@ def restore_backup(
         raise RestoreRefused(
             "nothing_to_resume", "no earlier restore of this backup in the work dir"
         )
+    if resume and previous.get("storage_target") != (storage_target if storage else None):
+        raise RestoreRefused(
+            "storage_target_mismatch",
+            "a resume must write into the object store the interrupted restore used",
+        )
     if storage is not None and not resume:
         occupied = target_has_objects(storage, catalog["workspaces"])
         if occupied:
@@ -229,6 +251,7 @@ def restore_backup(
         "set_dir": str(set_dir),
         "staging_database": staging,
         "server": list(server_identity(admin_url)),
+        "storage_target": storage_target if storage is not None else None,
         "backup_created_at": manifest["created_at"],
         "started_at": started_at,
         "status": "restoring",
