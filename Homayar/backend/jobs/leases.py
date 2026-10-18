@@ -162,9 +162,7 @@ def lease_expiry(policy: LeasePolicy, *, now: datetime, attempt_started_at: date
     return min(now + policy.lease, attempt_started_at + policy.attempt_timeout)
 
 
-def grant_lease(
-    job: ProcessingJob, *, worker_id: str, policy: LeasePolicy, now: datetime
-) -> Lease:
+def grant_lease(job: ProcessingJob, *, worker_id: str, policy: LeasePolicy, now: datetime) -> Lease:
     """Write the new attempt onto a row the caller holds ``FOR UPDATE``.
 
     The caller has already taken ``claim_verdict`` == CLAIMABLE in the same
@@ -217,9 +215,7 @@ def owned_job(db: Session, lease: Lease) -> tuple[ProcessingJob, datetime]:
     change; the row lock is held until that transaction ends, so a recovery
     fence or a competing claim cannot interleave.
     """
-    job = db.scalar(
-        select(ProcessingJob).where(ProcessingJob.id == lease.job_id).with_for_update()
-    )
+    job = db.scalar(select(ProcessingJob).where(ProcessingJob.id == lease.job_id).with_for_update())
     now = database_now(db)
     outcome = ownership_outcome(job, lease, now=now)
     if outcome != RenewalOutcome.RENEWED:
@@ -235,9 +231,7 @@ def lock_owned_or_cancelled(db: Session, lease: Lease) -> tuple[ProcessingJob | 
     of the attempt and is reported as such; every other loss of ownership
     means a newer attempt or the recovery fence took over and we are stale.
     """
-    job = db.scalar(
-        select(ProcessingJob).where(ProcessingJob.id == lease.job_id).with_for_update()
-    )
+    job = db.scalar(select(ProcessingJob).where(ProcessingJob.id == lease.job_id).with_for_update())
     now = database_now(db)
     outcome = ownership_outcome(job, lease, now=now)
     if outcome == RenewalOutcome.RENEWED:

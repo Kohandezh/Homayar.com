@@ -345,9 +345,7 @@ def _reusable_row(db: Session, *, meeting_id: str, stage: StageName, input_hash:
     )
 
 
-def invalidate_checkpoint(
-    checkpoint: StageCheckpoint, *, reason: str, now: datetime
-) -> None:
+def invalidate_checkpoint(checkpoint: StageCheckpoint, *, reason: str, now: datetime) -> None:
     """Mark a checkpoint unusable (row the caller holds in a tenant-bound tx)."""
     if checkpoint.state == CheckpointState.PENDING:
         checkpoint.state = CheckpointState.ABANDONED
@@ -388,7 +386,9 @@ def resume_stage(
         )
         row = (
             _reusable_row(
-                db, meeting_id=context.meeting_id, stage=identity.stage,
+                db,
+                meeting_id=context.meeting_id,
+                stage=identity.stage,
                 input_hash=identity.input_hash,
             )
             if alive
@@ -690,20 +690,42 @@ def mark_objects_deleted(db: Session, *, keys: list[str], now: datetime) -> int:
     return count
 
 
-def discover_workspaces(*, limit: int) -> list[str]:
-    """Workspaces to sweep (read-only service scope on entitlements; ids only)."""
+def discover_workspaces(
+    *, limit: int, interval_seconds: int, now: datetime | None = None
+) -> list[str]:
+    """This run's workspaces for a periodic sweep (read-only service scope; ids only).
+
+    Every workspace id is read in id order and cut into windows of ``limit``.
+    The run index is the database time divided by the sweep interval, so
+    consecutive scheduled runs take consecutive windows and every workspace is
+    visited at least once every ceil(n / limit) runs (HOM-210: a fixed
+    ``LIMIT`` never reached the workspaces after the first window).  Inside
+    the window the start moves by one each cycle, so an item budget used up by
+    one busy workspace does not skip the same neighbours every time.
+    """
     from backend.database.saas_models import Entitlement
 
     with get_session_factory()() as db:
         bind_service_scope(db, SERVICE_SCOPE_USAGE_RECONCILIATION)
-        rows = db.scalars(
-            select(Entitlement.workspace_id)
-            .distinct()
-            .order_by(Entitlement.workspace_id.asc())
-            .limit(limit)
-        ).all()
+        ids = list(
+            db.scalars(
+                select(Entitlement.workspace_id).distinct().order_by(Entitlement.workspace_id.asc())
+            ).all()
+        )
+        current = now or database_now(db)
         db.rollback()
-    return list(rows)
+    return sweep_window(ids, limit=limit, run=int(current.timestamp() // interval_seconds))
+
+
+def sweep_window(ids: list[str], *, limit: int, run: int) -> list[str]:
+    """The ``run``-th window of ``limit`` ids, its start rotated once per cycle."""
+    if not ids or limit <= 0:
+        return []
+    windows = -(-len(ids) // limit)
+    start = (run % windows) * limit
+    window = ids[start : start + limit]
+    shift = (run // windows) % len(window)
+    return window[shift:] + window[:shift]
 
 
 def _meeting_held(db: Session, meeting_id: str) -> bool:
@@ -773,7 +795,9 @@ def sweep_abandoned_artifacts(
     grace = timedelta(seconds=settings.job_artifact_grace_seconds)
     counts = {"workspaces": 0, "scanned": 0, "deleted": 0, "absent": 0, "unavailable": 0}
     remaining = batch
-    for workspace_id in discover_workspaces(limit=batch):
+    for workspace_id in discover_workspaces(
+        limit=batch, interval_seconds=settings.job_artifact_sweep_interval_seconds, now=now
+    ):
         if remaining <= 0:
             break
         counts["workspaces"] += 1

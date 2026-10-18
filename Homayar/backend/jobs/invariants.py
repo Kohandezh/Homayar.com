@@ -75,10 +75,9 @@ from backend.database.saas_models import (
     UsageReservation,
 )
 from backend.database.tenant_context import (
-    SERVICE_SCOPE_USAGE_RECONCILIATION,
-    bind_service_scope,
     bind_tenant_context,
 )
+from backend.jobs.checkpoints import discover_workspaces
 from backend.jobs.failures import TERMINAL_STATES
 from backend.jobs.leases import as_utc, database_now
 from backend.jobs.usage_reconciliation import expected_counters
@@ -400,20 +399,6 @@ def check_workspace(
     return violations
 
 
-def discover_workspaces(*, limit: int) -> list[str]:
-    """Workspace ids across tenants (read-only service scope; entitlements only)."""
-    with get_session_factory()() as db:
-        bind_service_scope(db, SERVICE_SCOPE_USAGE_RECONCILIATION)
-        rows = db.scalars(
-            select(Entitlement.workspace_id)
-            .distinct()
-            .order_by(Entitlement.workspace_id.asc())
-            .limit(limit)
-        ).all()
-        db.rollback()
-    return list(rows)
-
-
 def check_all(
     settings: Settings | None = None,
     *,
@@ -427,7 +412,9 @@ def check_all(
     """
     settings = settings or get_settings()
     batch = limit or settings.usage_reconciliation_batch_size
-    workspaces = discover_workspaces(limit=batch)
+    workspaces = discover_workspaces(
+        limit=batch, interval_seconds=settings.usage_reconciliation_interval_seconds
+    )
     violations: list[Violation] = []
     evidence = ArtifactEvidence()
     for workspace_id in workspaces:
@@ -443,9 +430,7 @@ def check_all(
         "workspaces": len(workspaces),
         "violations": len(violations),
         "by_rule": {},
-        "artifacts": (
-            {**evidence.as_dict(), "inspected": storage is not None}
-        ),
+        "artifacts": ({**evidence.as_dict(), "inspected": storage is not None}),
         "items": [asdict(v) for v in violations],
     }
     for violation in violations:
