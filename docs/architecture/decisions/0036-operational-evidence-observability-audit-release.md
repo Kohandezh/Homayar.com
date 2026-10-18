@@ -33,8 +33,10 @@ This ADR is extended section by section as each Lane D change lands.
    restarted while it hangs, so a black-holed dependency bounds a scrape (about 6 s at most)
    and never takes the API's request threadpool (rendering runs on a one-thread limiter).
    The API's own counters use Prometheus multiprocess mode under `uvicorn --workers`
-   (`PROMETHEUS_MULTIPROC_DIR`, an empty tmpfs directory per container), so every scrape sums
-   all workers instead of reading whichever worker answered.
+   (`PROMETHEUS_MULTIPROC_DIR`, an empty tmpfs of its own per container, apart from the upload
+   spool in `/tmp`), so every scrape sums all workers instead of reading whichever worker
+   answered. A failed metric write is logged (at most once a minute) and never fails the
+   request it counts.
 4. **Bounded labels only.** States, failure classes, a fixed failure *category* derived from the
    open-ended `failure_code`, provider *stage*, task names, dependency names, route *templates*
    and status classes. Never a tenant, user, meeting, job or key id, a provider endpoint or model,
@@ -46,13 +48,16 @@ This ADR is extended section by section as each Lane D change lands.
 6. **Diagnostics are scrubbed.** Log messages and exception texts are bounded and pass through a
    credential scrubber and the text PII detector; database exceptions are logged by class,
    SQLSTATE and constraint only; the 500 log line names the route template, not the raw path.
-   It is defence in depth, not permission to log sensitive data.
+   uvicorn's own record of an exception that escaped the app goes through the same scrubbing,
+   without a traceback, and carries the request id. Text is cut to its length limit only after
+   scrubbing. It is defence in depth, not permission to log sensitive data.
 
 ### Consequences
 
 * Operators can find a failed job by `job:<id>` in logs and audit rows, and see queue depth and
   latency, outcomes, retries, durations, provider circuits, dependency health, sweep liveness and
-  the running release and schema revision in one scrape.
+  the schema revision in one scrape; the release identity joins them once the HOM-28 image
+  build writes `build-info.json` (until then `homayar_build_info` reads `unknown`).
 * A scrape costs about ten aggregate queries every `METRICS_CACHE_SECONDS`; the 15-minute windows
   read `completed_at`, which has no dedicated index (acceptable at current volumes; an index is a
   migration for later if scrapes get slow).

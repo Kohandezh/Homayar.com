@@ -1,7 +1,9 @@
 """Release identity of the running backend (WP01-T04/T06, HOM-28, HOM-29).
 
-The API image is built from an exact source revision (``SOURCE_SHA`` build
-argument) and writes ``build-info.json`` at build time::
+The release build (HOM-28) is meant to build the API image from an exact source
+revision and write ``build-info.json`` into it with this command; until that
+build step lands no image contains the file, and ``runtime_identity`` reports
+``unknown`` for everything but the migration head and Python version::
 
     python -m backend.observability.release write-build-info \
         --source-sha <sha> --source-date-epoch <epoch> --profile <profile> \
