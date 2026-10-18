@@ -1,0 +1,143 @@
+{
+  "backup_created_at": "2026-10-18T04:56:05.180304+00:00",
+  "backup_id": "20261018T045604Z-594e6854",
+  "checks": {
+    "marker": {
+      "details": {
+        "state": "loaded"
+      },
+      "status": "PASS"
+    },
+    "non_resurrection": {
+      "details": {
+        "active_share_links": [],
+        "alive": [],
+        "content_rows": [],
+        "held_for_review": [],
+        "journaled": 3,
+        "object_bytes_left": []
+      },
+      "status": "PASS"
+    },
+    "objects": {
+      "details": {
+        "accepted_missing": null,
+        "orphan_keys": [],
+        "orphans": 0,
+        "referenced": 384,
+        "removal_failed_keys": [],
+        "removed_again": 0,
+        "required_missing": 0,
+        "required_missing_keys": [],
+        "stored": 372
+      },
+      "status": "PASS"
+    },
+    "post_backup_state": {
+      "details": {
+        "counts_before": {
+          "active_api_keys": 4,
+          "active_share_links": 8,
+          "pending_invitations": 0
+        },
+        "note": "revocations, password changes and sign-outs made after the backup are not journaled and are not replayed; rotate JWT_SECRET to end every session and review API keys and share links with the owner",
+        "share_links_revoked": 0
+      },
+      "status": "WARN"
+    },
+    "rls_behavior": {
+      "details": {
+        "own_meetings_visible": 120,
+        "problems": [],
+        "tables_checked": 48,
+        "tenants": 4,
+        "tenants_checked": 4
+      },
+      "status": "PASS"
+    },
+    "rls_structure": {
+      "details": {
+        "policy_tables": 48,
+        "problems": []
+      },
+      "status": "PASS"
+    },
+    "schema": {
+      "details": {
+        "code": [
+          "d8a2f4c6b1e3"
+        ],
+        "database": [
+          "d8a2f4c6b1e3"
+        ]
+      },
+      "status": "PASS"
+    },
+    "secrets": {
+      "details": {
+        "mismatched": [],
+        "pii_key_ids_missing": []
+      },
+      "status": "PASS"
+    },
+    "tenant_boundaries": {
+      "details": {
+        "foreign_keys_verified_at_load": true,
+        "per_tenant_tables_verified_at_load": 46,
+        "problems": []
+      },
+      "status": "PASS"
+    },
+    "tombstones": {
+      "details": {
+        "journal_records": 3,
+        "journal_records_at_backup": 0,
+        "replay": {
+          "already_tombstoned": 0,
+          "jobs_cancelled": 0,
+          "meeting_absent": 0,
+          "purges_completed": 3,
+          "purges_reopened": 0,
+          "reapplied": 3,
+          "records": 3,
+          "rejected_lines": 0,
+          "unknown_keys_failed": 0,
+          "unknown_keys_removed": 0
+        },
+        "stale_journal": [],
+        "verify": {
+          "alive": 0,
+          "purges_failed": 0,
+          "purges_open": 0,
+          "records": 3,
+          "rejected_lines": 0
+        }
+      },
+      "status": "PASS"
+    }
+  },
+  "finished_at": "2026-10-18T05:04:38.296198+00:00",
+  "kind": "homayar-reconciliation/1",
+  "mac": "596ed105cced2cdd3fd06af8cc57ce355c996459264ca3b1dbb950dbe5a55db2",
+  "staging_database": "homayar_restoring",
+  "started_at": "2026-10-18T05:04:34.651436+00:00",
+  "status": "PASS",
+  "statuses": {
+    "marker": "PASS",
+    "non_resurrection": "PASS",
+    "objects": "PASS",
+    "post_backup_state": "WARN",
+    "rls_behavior": "PASS",
+    "rls_structure": "PASS",
+    "schema": "PASS",
+    "secrets": "PASS",
+    "tenant_boundaries": "PASS",
+    "tombstones": "PASS"
+  },
+  "timings_seconds": {
+    "integrity": 1.56,
+    "reconcile": 0.465,
+    "tombstones": 1.527,
+    "total": 3.645
+  }
+}
