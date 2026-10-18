@@ -70,13 +70,21 @@ on every restore.
    alert (> 26 h, or absent) fires.
 
    `NODE_EXPORTER_TEXTFILE_DIR` is **required** by `backup.sh` and must be **outside** the 0700
-   backup root, because a non-root node_exporter cannot traverse a 0700 directory. Create it
-   once, owned by `BACKUP_UID`, mode 0755, for example
-   `/var/lib/node_exporter/textfile_collector`:
+   backup root, because a non-root node_exporter cannot traverse a 0700 directory. The container
+   writes it as `BACKUP_UID:BACKUP_GID` (by default the uid and gid of whoever runs `backup.sh`:
+   0:0 from root's crontab) **without** `CAP_DAC_OVERRIDE` (the service drops every capability),
+   so even root in the container can only write a directory it owns. Create it once, owned by
+   exactly that pair, mode 0755, for example `/var/lib/node_exporter/textfile_collector`, as the
+   account that will run the schedule:
 
    ```bash
-   sudo install -d -o 10001 -g 10001 -m 0755 /var/lib/node_exporter/textfile_collector
+   export BACKUP_UID="${BACKUP_UID:-$(id -u)}" BACKUP_GID="${BACKUP_GID:-$(id -g)}"
+   sudo install -d -o "$BACKUP_UID" -g "$BACKUP_GID" -m 0755 /var/lib/node_exporter/textfile_collector
    ```
+
+   Every run first probes the directory **as that container user** (`textfile-check`). If the
+   gauges cannot be written, the backup, the off-site copy and prune still run, the stale or
+   missing gauge raises the alert, and the run exits 4.
 
    Then start node_exporter with `--collector.textfile.directory` pointing at it. In a container,
    bind-mount exactly that directory read-only, e.g.
@@ -102,15 +110,22 @@ Settings used by the tool (documented here; the application `.env.example` belon
 ```bash
 BACKUP_ROOT=/secure/homayar-backups BACKUP_KEY_FILE=/etc/homayar/backup.key \
 BACKUP_OFFSITE=s3://homayar-offsite/site-a COMPOSE_ENV_FILE=/etc/homayar/onprem.env \
+NODE_EXPORTER_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
   infra/scripts/backup.sh
 ```
 
-Run it daily (systemd timer or cron) while the stack runs; it does not stop traffic. Steps:
-`create` → `verify` (full decryption; marks the set verified and moves the gauges) → `replicate`
-→ `prune` (the backup root and the off-site copy). Any failing step exits non-zero. A set whose
-object copy is `degraded` (a required object missing for no recorded reason, or bytes that do
-not match their row) is still verified and copied off-site, but the `objects` gauge does not
-move and the run exits 3: investigate the primary object store.
+Run it daily (systemd timer or cron) while the stack runs, as the account that owns
+`NODE_EXPORTER_TEXTFILE_DIR` (or with `BACKUP_UID`/`BACKUP_GID` set to its owner); it does not
+stop traffic. Use absolute paths: a relative `BACKUP_ROOT`, `BACKUP_KEY_FILE`,
+`BACKUP_OFFSITE_PATH` or `NODE_EXPORTER_TEXTFILE_DIR` is resolved against the Compose file's
+directory (`infra/compose/`), the same base Compose uses for its bind mounts. Steps:
+`textfile-check` → `create` → `verify` (full decryption; marks the set verified and moves the
+gauges) → `replicate` → `prune` (the backup root and the off-site copy). Exit codes: 0 done;
+3 the set's object copy is `degraded` (a required object missing for no recorded reason, or
+bytes that do not match their row: the set is still verified and copied off-site, but the
+`objects` gauge does not move; investigate the primary object store); 4 the backup, copy and
+prune completed but the freshness textfile could not be written (fix its owner); anything else:
+a step failed and the steps after it did not run.
 
 What `create` does: takes the backup lock (a second concurrent run is refused), opens one
 `REPEATABLE READ READ ONLY` snapshot with `ACCESS SHARE` locks on every table (a migration

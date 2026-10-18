@@ -43,6 +43,30 @@ def read_values(path: Path) -> dict[str, float]:
     return values
 
 
+def _ensure_directory(directory: Path) -> None:
+    try:
+        directory.mkdir(parents=True)
+        os.chmod(directory, 0o755)  # noqa: S103 - created here: node_exporter must read it
+    except FileExistsError:
+        pass
+
+
+def probe(path: Path) -> None:
+    """Raise ``OSError`` unless this user can write the textfile.
+
+    Exercises what ``record_success`` needs (the lock file and a temporary
+    next to the textfile) as the user that will write it: in Compose that is
+    ``BACKUP_UID`` without ``CAP_DAC_OVERRIDE``, so a host-side check cannot
+    stand in for it.
+    """
+    path = Path(path)
+    _ensure_directory(path.parent)
+    os.close(os.open(path.parent / f".{path.name}.lock", os.O_RDWR | os.O_CREAT, 0o644))
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".probe", dir=path.parent)
+    os.close(fd)
+    os.unlink(temporary)
+
+
 def record_success(path: Path, timestamps: dict[str, float]) -> None:
     """Merge ``{target: unix_time}`` into the textfile.
 
@@ -58,11 +82,7 @@ def record_success(path: Path, timestamps: dict[str, float]) -> None:
     if unknown:
         raise ValueError(f"unknown backup targets: {sorted(unknown)}")
     path = Path(path)
-    try:
-        path.parent.mkdir(parents=True)
-        os.chmod(path.parent, 0o755)  # noqa: S103 - created here: node_exporter must read it
-    except FileExistsError:
-        pass
+    _ensure_directory(path.parent)
     lock_fd = os.open(path.parent / f".{path.name}.lock", os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)

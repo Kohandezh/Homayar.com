@@ -77,6 +77,8 @@ migration slot), and CI must run the tests without new tooling.
     verified off-site copy moves `offsite`; values never move backwards. A directory counts as
     off-site only with the operator's `.homayar-offsite` marker on the remote medium: operator
     attestation, since the tool cannot see the medium (`backup.sh` checks the host paths).
+    A gauge that cannot be written never stops verify, the off-site copy or prune: the step
+    exits 4, the run finishes and exits 4, and the stale or missing gauge raises the alert.
 13. **Retention prefers full verified sets** per bucket, and the 12 monthly sets lie beyond the
     30-day window; manifest-less S3 copies are swept after 24 h.
 14. **Retired databases carry an operator-enforced deadline.** Promote renames the live-name

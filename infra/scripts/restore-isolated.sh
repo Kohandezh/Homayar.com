@@ -110,7 +110,8 @@ if [[ -n "${fetch}" ]]; then
 fi
 
 mark verify START
-tool verify "${backup_id}"
+# Exit 4: verified; only the restore-local freshness textfile could not be written.
+tool verify "${backup_id}" || [[ $? -eq 4 ]]
 mark verify END
 
 mark load START

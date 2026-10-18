@@ -25,6 +25,7 @@ Commands (exit 0 = success, 1 = refused/failed, 2 = usage):
   reconcile ID --staging-db NAME    replay tombstones, verify, write the report
   promote ID --staging-db NAME --live-db NAME   rename staging to live (PASS only)
   gate --live-db NAME               exit 0 only for a promoted, reconciled restore
+  textfile-check                    can this user write the freshness textfile? (exit 4 if not)
   retired                           databases kept by promote; overdue past drop_after
   drop-retired NAME --confirm NAME [--live-db NAME]
                                     drop one (never the live, a staging or an in-use one)
@@ -86,6 +87,24 @@ def _admin_url(args, settings=None) -> str:
     return settings.database_url
 
 
+# The step itself succeeded; only the freshness textfile could not be written.
+# The gauge stays stale (or missing) and its alert fires; callers go on.
+EXIT_GAUGE_NOT_WRITTEN = 4
+
+
+def _record_gauges(path: Path, targets: dict[str, float]) -> str | None:
+    """Write the freshness gauges; a failure is reported, never fatal to the step."""
+    from backend.backup import metrics
+
+    try:
+        metrics.record_success(path, targets)
+    except OSError as exc:
+        message = f"freshness gauge not written to {path}: {exc.strerror or exc}"
+        print(f"WARNING: {message}", file=sys.stderr)
+        return message
+    return None
+
+
 def cmd_keygen(args) -> int:
     print(generate_key(args.key_id))
     return 0
@@ -140,15 +159,15 @@ def cmd_verify(args) -> int:
         raise BackupInvalid("no_backup", "no complete set in the backup root")
     key = None if args.no_key else load_key(key_file=args.key_file)
     summary = verify_set(target, key, deep=not args.no_key)
-    if summary["decrypted"]:
-        _mark_verified(target, summary)
+    gauge_error = _mark_verified(target, summary) if summary["decrypted"] else None
     _print(summary)
-    return 0
+    return EXIT_GAUGE_NOT_WRITTEN if gauge_error else 0
 
 
-def _mark_verified(set_dir: Path, summary: dict[str, Any]) -> None:
+def _mark_verified(set_dir: Path, summary: dict[str, Any]) -> str | None:
     """A deep verify is what makes a set count: retention prefers it and the
-    freshness gauges move (to its snapshot time, never backwards)."""
+    freshness gauges move (to its snapshot time, never backwards).  The set
+    is marked verified even when the gauges cannot be written."""
     from datetime import UTC, datetime
 
     from backend.backup import metrics
@@ -164,8 +183,12 @@ def _mark_verified(set_dir: Path, summary: dict[str, Any]) -> None:
     if objects.get("included") and objects.get("integrity", "complete") == "complete":
         targets["objects"] = snapshot
     root = set_dir.parent.parent if set_dir.parent.name == "sets" else set_dir.parent
-    metrics.record_success(metrics.textfile_path(root), targets)
-    summary["gauges_updated"] = sorted(targets)
+    error = _record_gauges(metrics.textfile_path(root), targets)
+    if error:
+        summary["gauge_error"] = error
+    else:
+        summary["gauges_updated"] = sorted(targets)
+    return error
 
 
 def cmd_prune(args) -> int:
@@ -196,8 +219,23 @@ def cmd_replicate(args) -> int:
     else:
         result = replicate_to_directory(set_dir, Path(args.destination))
     created = datetime.fromisoformat(read_manifest(set_dir)["created_at"]).timestamp()
-    metrics.record_success(metrics.textfile_path(_root(args)), {"offsite": created})
+    error = _record_gauges(metrics.textfile_path(_root(args)), {"offsite": created})
+    if error:
+        result["gauge_error"] = error
     _print(result)
+    return EXIT_GAUGE_NOT_WRITTEN if error else 0
+
+
+def cmd_textfile_check(args) -> int:
+    from backend.backup import metrics
+
+    path = metrics.textfile_path(_root(args))
+    try:
+        metrics.probe(path)
+    except OSError as exc:
+        _print({"textfile": str(path), "writable": False, "error": exc.strerror or str(exc)})
+        return EXIT_GAUGE_NOT_WRITTEN
+    _print({"textfile": str(path), "writable": True})
     return 0
 
 
@@ -397,6 +435,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("gate")
     p.add_argument("--live-db", required=True)
     p.set_defaults(func=cmd_gate)
+
+    sub.add_parser("textfile-check").set_defaults(func=cmd_textfile_check)
 
     sub.add_parser("retired").set_defaults(func=cmd_retired)
 

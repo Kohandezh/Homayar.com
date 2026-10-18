@@ -456,3 +456,151 @@ def test_a_retired_entry_keeps_the_real_name_and_flags_overdue_or_malformed_note
     for broken in ("{not json", "[1, 2]", '"text"', json.dumps({"drop_after": "soon"})):
         entry = _retired_entry("x_retired_20261018000000", RETIRED_PREFIX + broken, now)
         assert entry["database"] == "x_retired_20261018000000" and entry["overdue"] is True
+
+
+# --- a freshness textfile that cannot be written never stops a backup (T1) ---------------
+
+
+def _verifiable_set(root: Path, backup_id: str) -> Path:
+    """A set that passes a deep verify: catalog + one table, sealed with the test key."""
+    directory = root / "sets" / backup_id
+    catalog = {"backup_id": backup_id, "database": {"tables": ["meetings"]}}
+    catalog["objects"] = {"inventory": []}
+    entries = []
+    for name, payload in (
+        ("catalog.json.enc", json.dumps(catalog).encode()),
+        ("db/meetings.copy.enc", b"row\t1\n" * 10),
+    ):
+        with EncryptingWriter(directory / name, _key(), backup_id=backup_id, name=name) as writer:
+            writer.write(payload)
+        entries.append(
+            {
+                "name": name,
+                "size": writer.size,
+                "sha256": writer.sha256,
+                "plaintext_size": writer.plaintext_size,
+            }
+        )
+    manifest = {
+        **_manifest(),
+        "backup_id": backup_id,
+        "files": entries,
+        "stores": {"objects": {"included": False}},
+    }
+    write_manifest(directory, manifest, _key())
+    return directory
+
+
+def test_a_textfile_that_cannot_be_written_never_stops_verify_or_replicate(
+    tmp_path, monkeypatch, capsys
+):
+    from backend.backup.__main__ import EXIT_GAUGE_NOT_WRITTEN
+    from backend.backup.__main__ import main as cli
+    from backend.backup.manifest import list_complete_sets
+    from backend.backup.replicate import OFFSITE_MARKER
+
+    root = tmp_path / "root"
+    backup_id = "20261018T020000Z-0000000a"
+    _verifiable_set(root, backup_id)
+    blocked = tmp_path / "not-a-directory"  # fails for root too (no DAC override needed)
+    blocked.write_text("")
+    key = _key()
+    monkeypatch.setenv(
+        "HOMAYAR_BACKUP_KEY", f"{key.key_id}:{base64.b64encode(key.secret).decode()}"
+    )
+    monkeypatch.delenv("HOMAYAR_BACKUP_KEY_FILE", raising=False)
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(blocked / "homayar_backup.prom"))
+
+    assert cli(["--root", str(root), "textfile-check"]) == EXIT_GAUGE_NOT_WRITTEN
+    assert cli(["--root", str(root), "verify", backup_id]) == EXIT_GAUGE_NOT_WRITTEN
+    assert (root / "sets" / f"{backup_id}.verified").is_file()  # the set still counts
+    offsite = tmp_path / "offsite"
+    offsite.mkdir()
+    (offsite / OFFSITE_MARKER).write_text("provisioned\n")
+    assert cli(["--root", str(root), "replicate", backup_id, str(offsite)]) == (
+        EXIT_GAUGE_NOT_WRITTEN
+    )
+    assert [name for name, _ in list_complete_sets(offsite)] == [backup_id]  # copied anyway
+    assert "freshness gauge not written" in capsys.readouterr().err
+
+    textfile = tmp_path / "collector" / "homayar_backup.prom"
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
+    assert cli(["--root", str(root), "textfile-check"]) == 0
+    assert cli(["--root", str(root), "verify", backup_id]) == 0
+    assert set(metrics.read_values(textfile)) == {"postgres"}
+
+
+_FAKE_DOCKER = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${FAKE_DOCKER_LOG}"
+case " $* " in
+  *" ps "*) printf 'postgres\\nminio\\n' ;;
+  *" textfile-check "*) exit "${FAKE_TEXTFILE_STATUS:-0}" ;;
+  *" create "*)
+    printf '{\\n  "backup_id": "20261018T020000Z-0000000b",\\n'
+    printf '  "stores": {"objects": {"integrity": "%s"}}\\n}\\n' "${FAKE_INTEGRITY:-complete}" ;;
+  *" verify "*) exit "${FAKE_VERIFY_STATUS:-0}" ;;
+  *" replicate "*) exit "${FAKE_REPLICATE_STATUS:-0}" ;;
+esac
+exit 0
+"""
+
+
+@pytest.mark.parametrize(
+    ("statuses", "expected_exit", "pruned"),
+    [
+        ({}, 0, True),
+        (
+            {"FAKE_TEXTFILE_STATUS": "4", "FAKE_VERIFY_STATUS": "4", "FAKE_REPLICATE_STATUS": "4"},
+            4,
+            True,
+        ),
+        ({"FAKE_REPLICATE_STATUS": "4"}, 4, True),
+        ({"FAKE_VERIFY_STATUS": "4", "FAKE_INTEGRITY": "degraded"}, 3, True),
+        ({"FAKE_VERIFY_STATUS": "1"}, 1, False),
+    ],
+)
+def test_backup_sh_finishes_copy_and_prune_when_only_the_gauge_fails(
+    tmp_path, statuses, expected_exit, pruned
+):
+    import os
+    import subprocess
+
+    script = Path(__file__).resolve().parents[3] / "infra" / "scripts" / "backup.sh"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(_FAKE_DOCKER)
+    (bin_dir / "docker").chmod(0o755)
+    for name in ("root", "offsite", "collector"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "backup.key").write_text("k:" + base64.b64encode(b"\x01" * 32).decode())
+    log = tmp_path / "docker.log"
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("BACKUP_", "COMPOSE_", "NODE_EXPORTER_", "EGRESS_"))
+    }
+    env.update(
+        {
+            "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}",
+            "BACKUP_ROOT": str(tmp_path / "root"),
+            "BACKUP_KEY_FILE": str(tmp_path / "backup.key"),
+            "BACKUP_OFFSITE_PATH": str(tmp_path / "offsite"),
+            "NODE_EXPORTER_TEXTFILE_DIR": str(tmp_path / "collector"),
+            "FAKE_DOCKER_LOG": str(log),
+            **statuses,
+        }
+    )
+    result = subprocess.run(  # noqa: S603 - the repository's own script
+        ["bash", str(script)],  # noqa: S607 - bash from PATH, as cron runs it
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected_exit, result.stderr
+    calls = log.read_text()
+    assert "textfile-check" in calls and "verify 20261018T020000Z-0000000b" in calls
+    assert (" prune" in calls) is pruned
+    assert ("replicate 20261018T020000Z-0000000b /offsite" in calls) is pruned
+    if expected_exit == 4:
+        assert "could not be written" in result.stderr
