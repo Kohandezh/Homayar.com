@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
-import uuid
+import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
 from backend.config import Settings, get_settings
@@ -20,6 +20,14 @@ from backend.database.relational import (
     session_scope,
 )
 from backend.database.rls import assert_production_posture, describe_current_role
+from backend.observability.correlation import correlation_scope, request_correlation_id
+from backend.observability.metrics import (
+    METRICS_CONTENT_TYPE,
+    StateCollector,
+    metrics_access,
+    observe_http,
+    render,
+)
 from backend.routers.v1 import admin as admin_v1
 from backend.routers.v1 import ai_policy as ai_policy_v1
 from backend.routers.v1 import api_keys as api_keys_v1
@@ -39,8 +47,6 @@ from backend.routers.v1 import voicemail as voicemail_v1
 from backend.services.auth_service import ensure_development_demo_account
 from backend.services.logging_service import logger
 from backend.services.tenancy_service import ensure_plan_catalog
-
-REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,80}$")
 
 
 def _verify_database_posture(settings: Settings) -> None:
@@ -108,6 +114,10 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             # WP07-T04: without the journal a restore cannot reapply deletions
             # made after the backup (the sweep also reports journal_backlog).
             logger.warning("TOMBSTONE_JOURNAL_NOT_CONFIGURED restores may resurrect deleted data")
+        if settings.metrics_enabled and metrics_access(settings) == "disabled":
+            # Staging/production without METRICS_BEARER_TOKEN and without the explicit
+            # METRICS_ALLOW_UNAUTHENTICATED opt-out: /metrics answers 404 (HOM-113).
+            logger.warning("METRICS_ENDPOINT_DISABLED reason=no_bearer_token")
         logger.info(
             "HOMAYAR_STARTED environment=%s deployment_mode=%s",
             settings.environment,
@@ -153,14 +163,20 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def request_context_and_security_headers(request: Request, call_next):
-        supplied_request_id = request.headers.get("x-request-id", "")
-        request_id = (
-            supplied_request_id
-            if REQUEST_ID_PATTERN.fullmatch(supplied_request_id)
-            else str(uuid.uuid4())
-        )
+        # One correlation id per request (HOM-113): the validated X-Request-ID or a
+        # fresh UUID, bound for the handler, its audit events and its log lines.
+        request_id = request_correlation_id(request.headers.get("x-request-id", ""))
         request.state.request_id = request_id
-        response = await call_next(request)
+        started = time.perf_counter()
+        with correlation_scope(request_id):
+            try:
+                response = await call_next(request)
+            except Exception:
+                observe_http(request.method, _route_template(request), 500, _elapsed(started))
+                raise
+        observe_http(
+            request.method, _route_template(request), response.status_code, _elapsed(started)
+        )
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -201,6 +217,34 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             "version": "0.5.0",
             "timestamp": datetime.now(UTC).isoformat(),
         }
+
+    state_collector = StateCollector(settings, cache_seconds=settings.metrics_cache_seconds)
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics_endpoint(request: Request) -> Response:
+        """Prometheus exposition (HOM-113, ADR 0036): served on the API port only.
+
+        Not routed by the proxy. ``metrics_access`` decides: ``disabled`` (404),
+        ``token`` (bearer token, compared in constant time) or ``open``
+        (development/test, or the explicit staging/production opt-out).
+        """
+        access = metrics_access(settings)
+        if access == "disabled":
+            raise HTTPException(
+                status_code=404, detail={"code": "not_found", "message": "Not Found"}
+            )
+        if access == "token":
+            scheme, _, presented = request.headers.get("authorization", "").partition(" ")
+            if scheme.casefold() != "bearer" or not secrets.compare_digest(
+                presented.strip().encode("utf-8"),
+                settings.metrics_bearer_token.encode("utf-8"),
+            ):
+                raise HTTPException(
+                    status_code=401,
+                    detail={"code": "unauthorized", "message": "Metrics need a bearer token"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        return Response(content=render(state_collector), media_type=METRICS_CONTENT_TYPE)
 
     @app.get("/readyz", tags=["system"])
     async def readiness():
@@ -289,6 +333,17 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
         )
 
     return app
+
+
+def _route_template(request: Request) -> str:
+    """The matched route's path template (bounded), never the raw path."""
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path if isinstance(path, str) and path else "unmatched"
+
+
+def _elapsed(started: float) -> float:
+    return time.perf_counter() - started
 
 
 app = create_app()
