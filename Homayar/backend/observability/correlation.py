@@ -1,8 +1,10 @@
 """Correlation ids (WP20-T01, HOM-113).
 
 One id names one unit of work: an HTTP request (the validated ``X-Request-ID``
-or a fresh UUID), a processing attempt (``job:<job id>``) or one run of a
-periodic sweep (``sweep:<task>:<run>``).  The id lives in a context variable,
+or a fresh UUID), a processing attempt (``job:<job id>:<delivery>``, the first
+eight characters of the broker delivery id, so a fenced attempt and its
+replacement differ while ``job:<job id>`` stays a searchable prefix) or one run
+of a periodic sweep (``sweep:<task>:<run>``).  The id lives in a context variable,
 so it follows the work into FastAPI's threadpool and into Celery task code
 without being passed around.  ``record_audit_event`` stores it as the audit
 row's ``request_id`` when the caller gives none, and every JSON log line
@@ -40,8 +42,9 @@ def request_correlation_id(supplied: str | None) -> str:
     return str(uuid.uuid4())
 
 
-def job_correlation_id(job_id: str) -> str:
-    return f"job:{job_id}"[:MAX_CORRELATION_ID_LENGTH]
+def job_correlation_id(job_id: str, delivery: str | None = None) -> str:
+    value = f"job:{job_id}:{delivery[:8]}" if delivery else f"job:{job_id}"
+    return value[:MAX_CORRELATION_ID_LENGTH]
 
 
 def sweep_correlation_id(task: str) -> str:

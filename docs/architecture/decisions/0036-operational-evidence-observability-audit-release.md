@@ -16,19 +16,25 @@ This ADR is extended section by section as each Lane D change lands.
 ## Decision 1 — Metrics and correlation ids (HOM-113)
 
 1. **One correlation id per unit of work**, held in a context variable: the validated
-   `X-Request-ID` (or a UUID) per request, `job:<id>` per processing attempt,
-   `sweep:<task>:<run>` per periodic sweep run. `record_audit_event` stores it when the caller
+   `X-Request-ID` (or a UUID) per request, `job:<id>:<delivery>` per processing attempt
+   (`job:<id>` is the searchable prefix), `sweep:<task>:<run>` per periodic sweep run. `record_audit_event` stores it when the caller
    passes no request id; every JSON log line carries it.
 2. **`/metrics` on the API port, never through the proxy.** Bearer token when configured; in
    staging and production without a token the endpoint *refuses* (404, startup warning
-   `METRICS_ENDPOINT_DISABLED`) unless `METRICS_ALLOW_UNAUTHENTICATED=true` opts out explicitly.
-   We chose refusal over a startup failure so that enabling the feature cannot take down an
-   existing production configuration; a missing scrape target is itself visible to Prometheus.
+   `METRICS_ENDPOINT_DISABLED`). We chose refusal over a startup failure so that enabling the
+   feature cannot take down an existing production configuration; a missing scrape target is
+   itself visible to Prometheus. The unauthenticated opt-out `METRICS_ALLOW_UNAUTHENTICATED`
+   follows the HOM-161 rule: refused with `DEPLOYMENT_MODE=cloud`, logged by name at startup
+   on-premise. `/metrics` alone skips the trusted-host check (scraped as `api:8000`).
 3. **Workers need no scrape endpoint.** Everything a worker decides is durable (jobs, outbox,
    provider health) or reported as a sweep heartbeat in Redis. The API reads that state at scrape
-   time, cached for `METRICS_CACHE_SECONDS`, each query bounded by a 2 s statement timeout. This
-   avoids Prometheus multi-process mode for Celery's prefork pool and gives one consistent view
-   whichever API replica is scraped.
+   time, cached for `METRICS_CACHE_SECONDS`. Each source has a deadline on a dedicated small
+   engine with connect and statement timeouts; a hung source is reported failed and not
+   restarted while it hangs, so a black-holed dependency bounds a scrape (about 6 s at most)
+   and never takes the API's request threadpool (rendering runs on a one-thread limiter).
+   The API's own counters use Prometheus multiprocess mode under `uvicorn --workers`
+   (`PROMETHEUS_MULTIPROC_DIR`, an empty tmpfs directory per container), so every scrape sums
+   all workers instead of reading whichever worker answered.
 4. **Bounded labels only.** States, failure classes, a fixed failure *category* derived from the
    open-ended `failure_code`, provider *stage*, task names, dependency names, route *templates*
    and status classes. Never a tenant, user, meeting, job or key id, a provider endpoint or model,
@@ -37,9 +43,10 @@ This ADR is extended section by section as each Lane D change lands.
 5. **Cross-tenant reads reuse reviewed scopes.** Aggregates over `processing_jobs` use the
    read-only `recovery` scope and over `job_dispatches` the `dispatch` scope; `provider_health` is
    platform state. No new row-level-security policy was needed for metrics.
-6. **Diagnostics are scrubbed.** Log messages and exception texts pass through a credential
-   scrubber (headers, bearer/basic credentials, JWTs, API keys, `password=`-style pairs, URL
-   passwords). It is defence in depth, not permission to log sensitive data.
+6. **Diagnostics are scrubbed.** Log messages and exception texts are bounded and pass through a
+   credential scrubber and the text PII detector; database exceptions are logged by class,
+   SQLSTATE and constraint only; the 500 log line names the route template, not the raw path.
+   It is defence in depth, not permission to log sensitive data.
 
 ### Consequences
 
