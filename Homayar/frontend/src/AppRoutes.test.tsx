@@ -1,7 +1,7 @@
 import { Suspense, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import api from "@/lib/api";
 import { AuthContext, useAuth } from "@/lib/auth-context";
 import { ADMIN_PAGES } from "@/components/admin/admin-pages";

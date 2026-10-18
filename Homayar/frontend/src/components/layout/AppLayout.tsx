@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router";
 import { MailWarning } from "lucide-react";
 import { Alert, Button, Drawer, linkVariants } from "@heroui/react";
 import { apiErrorInfo, minutesUntil } from "@/lib/api-errors";

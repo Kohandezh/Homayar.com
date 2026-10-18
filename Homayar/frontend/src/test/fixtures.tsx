@@ -7,7 +7,7 @@ import type { ReactElement, ReactNode } from "react";
 import { render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AxiosError, AxiosHeaders, type AxiosResponse } from "axios";
-import { MemoryRouter, type MemoryRouterProps } from "react-router-dom";
+import { MemoryRouter, type MemoryRouterProps } from "react-router";
 import { Toast } from "@heroui/react";
 import { vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n";
@@ -111,7 +111,8 @@ export function renderConsole(ui: ReactElement, options: RenderOptions = {}) {
     return (
       <QueryClientProvider client={queryClient}>
         <I18nProvider>
-          <MemoryRouter initialEntries={[options.route ?? "/"]}>
+          {/* Mirrors App.tsx, so tests run the same router mode. */}
+          <MemoryRouter initialEntries={[options.route ?? "/"]} useTransitions={false}>
             <AuthContext.Provider value={context}>
               {children}
               {/* Mirrors App.tsx, so a page's toasts are visible to tests. */}

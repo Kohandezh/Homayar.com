@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router";
 import { AudioLines, LogOut } from "lucide-react";
 import { Button, Separator, Spinner, buttonVariants } from "@heroui/react";
 import { useAuth } from "@/lib/auth-context";
