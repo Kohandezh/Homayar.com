@@ -48,7 +48,7 @@ from backend.routers.v1 import teams as teams_v1
 from backend.routers.v1 import voice as voice_v1
 from backend.routers.v1 import voicemail as voicemail_v1
 from backend.services.auth_service import ensure_development_demo_account
-from backend.services.logging_service import logger
+from backend.services.logging_service import install_server_log_filter, logger, tag_exception
 from backend.services.tenancy_service import ensure_plan_catalog
 
 METRICS_PATH = "/metrics"
@@ -110,6 +110,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        install_server_log_filter()  # in case the server reconfigured its loggers
         configure_database(settings)
         if settings.auto_create_schema:
             create_schema_for_test_or_development(settings)
@@ -356,6 +357,9 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled_error_handler(request: Request, exc: Exception):
         request_id = getattr(request.state, "request_id", None)
+        # Starlette re-raises the exception after this response and uvicorn logs it
+        # again; the tag gives that (scrubbed, traceback-free) line the request id.
+        tag_exception(exc, request_id or "unknown-request")
         # The route template, never the raw path (share and invitation tokens live
         # in paths); the middleware's correlation scope has already ended here.
         with correlation_scope(request_id or "unknown-request"):

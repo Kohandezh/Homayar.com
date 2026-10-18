@@ -198,7 +198,8 @@ services:
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
       # Counters of all uvicorn workers in one tmpfs directory (empty at every
       # container start): /metrics sums them instead of answering per worker.
-      PROMETHEUS_MULTIPROC_DIR: /tmp/homayar-metrics
+      # Its own small tmpfs, so upload spooling in /tmp can never fill it.
+      PROMETHEUS_MULTIPROC_DIR: /run/homayar-metrics
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
@@ -220,6 +221,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
       - /app/logs:rw,noexec,nosuid,size=64m
+      - /run/homayar-metrics:rw,noexec,nosuid,size=32m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [edge, private]
