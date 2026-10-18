@@ -39,6 +39,7 @@ settings, which the invitation flow still needs.
 | `ai-policy.spec.ts` | An owner edits `/admin/ai-policy` with a preset that differs from the current policy, sees the saved version in `Version history` and compares it; an admin reads the policy and history with no edit controls; the page is right to left in Persian. |
 | `api-keys.spec.ts` | An owner reads the seeded key, creates one whose secret shows exactly once and revokes it through the confirm dialog; the page is right to left in Persian and a member is blocked. |
 | `privacy.spec.ts` | An owner places a legal hold on a seeded meeting from its `Data and retention` panel, finds it on `/admin/privacy` under `All holds` and `Due in 30 days` (not `Review due`), releases it from the register, and downloads a data subject export after the warning; an admin gets `No access` and sees no data panel on the meeting. |
+| `voice-operations.spec.ts` | The demo owner (not a platform operator) sees `0 / 200` on the `Voice capacity` card, no `Voice operations` link, and `No access` on `/admin/voice` with no capacity request. With `/auth/me` changed to `system_role: "operator"` and every voice request mocked, the owner drains and resumes nodes through the confirm dialog; any unmocked API write is aborted in the browser, so nothing is written to the backend. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
 
 Add a file here as each new admin page lands.
