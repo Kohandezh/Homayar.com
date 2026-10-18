@@ -48,6 +48,22 @@ on every restore.
    plus object lock (compliance mode) on the off-site bucket, and expiry by bucket lifecycle
    rules or a job on the off-site side instead of `prune --destination` from the application
    host.
+
+   **S3 permissions** the off-site credential needs, on the bucket (`arn:aws:s3:::BUCKET`) and
+   its objects under the prefix (`arn:aws:s3:::BUCKET/PREFIX/*`):
+
+   | Step | Actions |
+   |---|---|
+   | `replicate` | `s3:PutObject`, `s3:GetObject` (checksum HEAD and read-back), `s3:ListBucket` (verified-marker backfill) |
+   | `fetch` | `s3:GetObject`, `s3:ListBucket` |
+   | `prune --destination s3://…` | `s3:ListBucket`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketMultipartUploads`, `s3:AbortMultipartUpload`, `s3:GetBucketVersioning`; in a versioned bucket also `s3:ListBucketVersions` and `s3:DeleteObjectVersion` |
+
+   A prune whose credential lacks a listing permission still applies the retention, reports
+   each denied call in `errors` and exits non-zero at the end, so the nightly run fails
+   visibly. When it cannot read the bucket's versioning (`versioning: "unknown"`) it never
+   sweeps versions. Version deletes refused by an object lock are counted in
+   `versions_locked` and expire with the lock; any other refusal is counted in
+   `versions_failed` and fails the run.
 4. **Tombstone journal**: bind `TOMBSTONE_JOURNAL_PATH` to a host directory outside the
    PostgreSQL and MinIO failure domains and replicate it continuously off the host (rsync/zfs
    send/object replication). Never restore it from an older copy; keep its files at least as long
@@ -153,8 +169,8 @@ Other commands (all through `docker compose ... --profile onprem --profile ops r
 | --- | --- |
 | `list` | complete sets and interrupted partials |
 | `verify [ID] [--no-key]` | full check (MAC, checksums, decryption), then marks the set verified and moves the gauges; `--no-key` = checksums only (at an off-site copy), marks nothing |
-| `prune [--dry-run] [--destination DIR\|s3://…]` | retention (see the objectives, §3.1) of the root or an off-site copy, preferring full verified sets; removes stale partials, manifest-less S3 copies and interrupted multipart uploads older than 24 h; in a versioned bucket also the removed sets' noncurrent versions (the result counts versions an object lock keeps) |
-| `replicate ID s3://…` or `replicate ID /offsite` | off-site copy, every file verified by SHA-256 (directory: re-hashed before the rename; S3: the store's SHA-256 checksum, else read back) before the `offsite` gauge moves; carries the set's verified marker (directory: needs `.homayar-offsite`) |
+| `prune [--dry-run] [--destination DIR\|s3://…]` | retention (see the objectives, §3.1) of the root or an off-site copy, preferring full verified sets; removes stale partials, manifest-less S3 copies and interrupted multipart uploads older than 24 h; in a versioned bucket also each removed set's versions right after the set, and versions an earlier interrupted prune left (`leftover_sets`); a partial copy with a live multipart upload is not stale. Counts `versions_locked` (object lock) and `versions_failed`; listing or delete errors are reported in `errors` and exit 1 after the run |
+| `replicate ID s3://…` or `replicate ID /offsite` | off-site copy, every file verified by SHA-256 (directory: re-hashed before the rename; S3: the store's SHA-256 checksum, else read back) before the `offsite` gauge moves; carries the set's verified marker, and backfills it for earlier copies whose manifest is byte-identical to a verified root set (`backfilled_markers`) (directory: needs `.homayar-offsite`) |
 | `fetch ID s3://…` | pull an off-site copy back into `BACKUP_ROOT`, checksums verified before it is renamed into place |
 | `retired` / `drop-retired NAME --confirm NAME [--live-db NAME]` | databases a promotion replaced, each with a 7-day `drop_after` deadline and flagged `overdue` past it; drop them by that deadline (operator-enforced: nothing drops them or alerts). `drop-retired` refuses the live database, a `restoring` database, a name not of the form `<live>_retired_<ts>` and a database with open sessions, whatever its comment says |
 

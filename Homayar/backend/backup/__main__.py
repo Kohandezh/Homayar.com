@@ -203,7 +203,8 @@ def cmd_prune(args) -> int:
         root = Path(args.destination) if args.destination else _root(args)
         result = prune(root, daily=args.daily, monthly=args.monthly, dry_run=args.dry_run)
     _print(result)
-    return 0
+    # S3 listing/permission errors are reported at the end, after everything that could run.
+    return 1 if result.get("errors") else 0
 
 
 def cmd_replicate(args) -> int:

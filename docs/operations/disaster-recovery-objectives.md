@@ -42,9 +42,12 @@ here is a target for the drill to measure, never an estimate taken from a script
   without a manifest (interrupted uploads or prunes) and interrupted multipart uploads after 24 h.
 - Off-site copies follow the same choice: the copy of a deep-verified set carries its verified
   marker (`sets/<id>.verified` in a directory, `<prefix>/<id>.verified` in S3), so off-site
-  retention prefers the same full verified sets. In a versioned bucket, prune also deletes the
-  noncurrent versions and delete markers of the sets it removes; versions an object lock still
-  protects expire with the lock, so keep the lock period within the retention.
+  retention prefers the same full verified sets (copies made before markers were carried get one
+  when their manifest is byte-identical to a verified root set). In a versioned bucket, prune
+  deletes each removed set's versions and delete markers right after the set, and also sweeps
+  versions an earlier interrupted prune left; versions an object lock still protects expire with
+  the lock, so keep the lock period within the retention. A bucket whose versioning setting the
+  credential cannot read is never swept, and any denied listing fails the run after it finishes.
 
 ### 3.2 Off-site copies
 

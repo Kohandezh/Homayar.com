@@ -87,8 +87,10 @@ migration slot), and CI must run the tests without new tooling.
 13. **Retention prefers full verified sets** per bucket, in the root and in every off-site copy
     (the copy carries the verified marker), and the 12 monthly sets lie beyond the 30-day window;
     manifest-less S3 copies and interrupted multipart uploads are swept after 24 h, and a
-    versioned bucket loses the removed sets' noncurrent versions too (object-locked versions
-    expire with the lock). An S3 copy counts only once each file's SHA-256 is confirmed.
+    versioned bucket loses each removed set's versions right after the set, plus versions an
+    interrupted prune left (object-locked versions expire with the lock; unknown versioning is
+    never swept; denied listings fail the run at the end). An S3 copy counts only once each
+    file's SHA-256 is confirmed.
 14. **Retired databases carry an operator-enforced deadline.** Promote renames the live-name
     database it replaces and marks it `homayar-retired` with a 7-day `drop_after` in the rename
     transaction, then drops it only if it holds no relation (judged on the retired database).
