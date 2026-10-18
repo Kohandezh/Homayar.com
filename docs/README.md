@@ -9,6 +9,7 @@
 - [Security work remaining](security/REMAINING-P0.md)
 - [Existing initial assessment](architecture/initial-assessment.md)
 - [Existing deployment runbook](operations/deployment.md)
+- [Release: build identity and release manifest](operations/release.md)
 - [Existing backup/restore runbook](operations/backup-restore.md)
 - [Existing CI notes](operations/ci.md)
 - [Existing health/recovery notes](operations/health-and-recovery.md)

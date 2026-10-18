@@ -6,7 +6,8 @@
 | --- | --- |
 | Public web | reviewed pnpm lifecycle scripts, frozen install, lint, server build, cPanel export, Playwright tests (the last two once committed, see below) |
 | Product console | frozen npm install, nested lint, `/app/` build, declared test script and tests |
-| Backend | frozen uv environment, single Alembic head, upgrade/check/current-head, pytest |
+| Backend | locked uv environment (`uv sync --locked`), single Alembic head, upgrade/check/current-head, pytest |
+| Release manifest | manifest of the commit generated twice and byte-compared, API image built with the commit's release arguments, its `build-info.json` and OCI labels verified against the manifest, `homayar_build_info` read from the running image, manifest uploaded as the `release-manifest` artifact ([release.md](release.md)) |
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
 | Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) and the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`) |
 

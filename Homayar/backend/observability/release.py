@@ -5,17 +5,22 @@ argument) and writes ``build-info.json`` at build time::
 
     python -m backend.observability.release write-build-info \
         --source-sha <sha> --source-date-epoch <epoch> --profile <profile> \
+        --base-image <PYTHON_IMAGE> --uv-version <UV_VERSION> \
         --lock <path to uv.lock> --pyproject <path> --output /app/build-info.json
 
 The document holds only facts that the image inputs determine (source
-revision, lock and pyproject digests, Python version, the digest of the
-installed distribution set, the Alembic migration head, the build profile and
+revision, lock and pyproject digests, the digest of the shipped code files,
+Python version, the digest of the installed distribution set, the Alembic
+migration head, the build profile,
+the base image reference and uv version the build used and
 ``SOURCE_DATE_EPOCH``), so building the same revision twice yields the same
-file.  At runtime ``/metrics`` exposes it as ``homayar_build_info`` and
-compares the migration head with the database's ``alembic_version``; the
-release manifest (``infra/release/release_manifest.py``) records the same
-values for the revision, so an operator can check that a running backend is
-the one the manifest describes.
+file.  An image built without release arguments carries the all-zero
+``UNRELEASED_SHA`` and reports ``source_sha="unreleased"``.  At runtime
+``/metrics`` exposes it as ``homayar_build_info`` and compares the migration
+head with the database's ``alembic_version``; the release manifest
+(``infra/release/release_manifest.py``) records the same values for the
+revision, so an operator can check that a running backend is the one the
+manifest describes.
 """
 
 from __future__ import annotations
@@ -25,16 +30,27 @@ import hashlib
 import json
 import platform
 import sys
+from collections.abc import Mapping
 from functools import lru_cache
 from importlib import metadata
 from pathlib import Path
 from typing import Any
 
 BUILD_INFO_SCHEMA = 1
+# SOURCE_SHA of an image built without release arguments (developer and CI smoke builds).
+UNRELEASED_SHA = "0" * 40
+# Bounded vocabulary: the profile is a ``homayar_build_info`` label.
+RELEASE_PROFILES = ("standard", "ai-local")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIR = PROJECT_ROOT / "backend" / "migrations"
 BUILD_INFO_PATH = PROJECT_ROOT / "build-info.json"
 APPLICATION_NAME = "homayar-platform"
+# What the API image ships of this code (infra/docker/api.Dockerfile.dockerignore):
+# alembic.ini and backend/ without the tests, environments and caches.  The release
+# manifest computes the same digest from the Git objects of the revision.
+SHIPPED_PATHS = ("alembic.ini", "backend")
+UNSHIPPED_PREFIXES = ("backend/tests/",)
+UNSHIPPED_PARTS = frozenset({"__pycache__", ".pytest_cache", ".venv"})
 
 
 def sha256_file(path: Path) -> str:
@@ -43,6 +59,34 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1 << 16), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def is_shipped(relative: str) -> bool:
+    """Whether the image ships the file at this POSIX path relative to the project root."""
+    parts = relative.split("/")
+    return not (
+        relative.startswith(UNSHIPPED_PREFIXES)
+        or relative.endswith(".pyc")
+        or any(part in UNSHIPPED_PARTS or part.startswith(".env") for part in parts)
+    )
+
+
+def code_file_digests(root: Path = PROJECT_ROOT) -> dict[str, str]:
+    """sha256 of every shipped code file under ``root``, by POSIX relative path."""
+    digests: dict[str, str] = {}
+    for top in SHIPPED_PATHS:
+        base = root / top
+        for path in [base] if base.is_file() else base.rglob("*"):
+            relative = path.relative_to(root).as_posix()
+            if path.is_file() and is_shipped(relative):
+                digests[relative] = sha256_file(path)
+    return digests
+
+
+def files_sha256(digests: Mapping[str, str]) -> str:
+    """Digest of a file set: the sorted lines ``<path>\\0<sha256 of content>\\n``."""
+    listing = "".join(f"{path}\0{digests[path]}\n" for path in sorted(digests))
+    return hashlib.sha256(listing.encode("utf-8")).hexdigest()
 
 
 def migration_heads(migrations_dir: Path = MIGRATIONS_DIR) -> list[str]:
@@ -101,21 +145,33 @@ def build_info_document(
     lock_path: Path,
     pyproject_path: Path,
     migrations_dir: Path = MIGRATIONS_DIR,
+    base_image: str | None = None,
+    uv_version: str | None = None,
+    code_root: Path = PROJECT_ROOT,
 ) -> dict[str, Any]:
     if len(source_sha) != 40 or any(c not in "0123456789abcdef" for c in source_sha):
         raise ValueError("source_sha must be a full 40-character lowercase git SHA")
+    if profile not in RELEASE_PROFILES:
+        raise ValueError(f"profile must be one of {', '.join(RELEASE_PROFILES)}")
     heads = migration_heads(migrations_dir)
     if len(heads) != 1:
         raise ValueError(f"Expected exactly one migration head, found {heads}")
     entries = installed_distributions()
+    code = code_file_digests(code_root)
     return {
         "schema_version": BUILD_INFO_SCHEMA,
         "application": {
             "name": APPLICATION_NAME,
             "version": _pyproject_version(pyproject_path) or "unknown",
         },
-        "source": {"sha": source_sha, "date_epoch": int(source_date_epoch)},
+        "source": {
+            "sha": source_sha,
+            "date_epoch": int(source_date_epoch),
+            "released": source_sha != UNRELEASED_SHA,
+        },
         "profile": profile,
+        "build": {"base_image": base_image or "unknown", "uv_version": uv_version or "unknown"},
+        "code": {"files_sha256": files_sha256(code), "file_count": len(code)},
         "runtime": {
             "python_version": platform.python_version(),
             "implementation": platform.python_implementation(),
@@ -152,9 +208,11 @@ def runtime_identity() -> dict[str, str]:
     info = load_build_info() or {}
     source = info.get("source") or {}
     dependencies = info.get("dependencies") or {}
+    source_sha = str(source.get("sha") or "unknown")
     return {
         "version": str((info.get("application") or {}).get("version") or application_version()),
-        "source_sha": str(source.get("sha") or "unknown"),
+        # "unknown": no build-info.json (not an image); "unreleased": built without SOURCE_SHA.
+        "source_sha": "unreleased" if source_sha == UNRELEASED_SHA else source_sha,
         "profile": str(info.get("profile") or "unknown"),
         "migration_head": str(
             (info.get("schema") or {}).get("migration_head") or code_migration_head() or "unknown"
@@ -170,7 +228,9 @@ def _main(argv: list[str]) -> int:
     write = commands.add_parser("write-build-info")
     write.add_argument("--source-sha", required=True)
     write.add_argument("--source-date-epoch", required=True, type=int)
-    write.add_argument("--profile", required=True)
+    write.add_argument("--profile", required=True, choices=RELEASE_PROFILES)
+    write.add_argument("--base-image")
+    write.add_argument("--uv-version")
     write.add_argument("--lock", required=True, type=Path)
     write.add_argument("--pyproject", required=True, type=Path)
     write.add_argument("--output", required=True, type=Path)
@@ -183,6 +243,8 @@ def _main(argv: list[str]) -> int:
             profile=args.profile,
             lock_path=args.lock,
             pyproject_path=args.pyproject,
+            base_image=args.base_image,
+            uv_version=args.uv_version,
         )
         args.output.write_text(canonical_json(document), encoding="utf-8")
         return 0

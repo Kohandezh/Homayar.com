@@ -50,3 +50,60 @@ This ADR is extended section by section as each Lane D change lands.
   read `completed_at`, which has no dedicated index (acceptable at current volumes; an index is a
   migration for later if scrapes get slow).
 * The `recovery` scope now has a second, read-only consumer; its policy is unchanged.
+
+## Decision 5 — Reproducible build and release manifest (HOM-28, HOM-29)
+
+1. **Every input of a release comes from Git objects at one commit.**
+   `infra/release/release_manifest.py generate --rev <commit>` reads files with `git cat-file`
+   and `git ls-tree` (ignoring `GIT_*` variables and replace refs), never the working tree, and
+   prints canonical JSON without wall-clock time (the build time is the commit time unless
+   given). Untracked files, dirty edits, `.env` files and environment variables cannot change
+   it; generating twice gives the same bytes. The tool is standard-library Python so it runs on
+   any release host without the backend environment.
+2. **The manifest is a description, not a policy engine.** It records the source commit, tree
+   and commit time; application version; Python, base image and uv version; digests of
+   `uv.lock`, `pyproject.toml`, `backend/requirements.txt` and the console and website locks;
+   the single migration head and the revision count (parsed from the revision literals; several
+   heads or a broken chain are refused); Dockerfile and `.dockerignore` digests and base images
+   of every image; the digest of the code the API image ships; the profile; image digests and
+   validation links passed in; `requires-python`; and what is and is not pinned.
+   `manifest_sha256` covers the canonical body. Validation links with credentials, a query or a
+   fragment are refused; no environment variable, `.env` content or Git identity is recorded.
+3. **The image proves what it was built from.** Build arguments `SOURCE_SHA`,
+   `SOURCE_DATE_EPOCH`, `SOURCE_DATE`, `RELEASE_VERSION` and `RELEASE_PROFILE` (which must agree
+   with `INSTALL_AI_LOCAL`) come from `release_manifest.py build-args`. The image writes
+   `/app/build-info.json` from its own files (lock and pyproject copies in
+   `/app/release-inputs/`, the installed distributions, the migration scripts, the shipped code
+   files, the base image reference and uv version it was built with) and carries OCI labels.
+   `release_manifest.py verify` compares a manifest with that file and the labels and lists
+   every mismatch. Hashing the shipped code closes the gap of a dirty build context with a real
+   `SOURCE_SHA`.
+4. **Unreleased builds stay possible and visible.** Without release arguments (developers, the
+   CI smoke build, `docker compose build`) the image carries the all-zero `SOURCE_SHA`;
+   `homayar_build_info` reports `source_sha="unreleased"` and `verify` fails. We chose a
+   visible marker over refusing such builds so that local development and the existing
+   container tests keep working unchanged.
+5. **Locked, not just frozen.** The API image and the backend CI job run `uv sync --locked`,
+   which refuses a `uv.lock` that is stale against `pyproject.toml`. The API base image is
+   pinned by the digest of its multi-platform index; re-pinning is a reviewed change.
+6. **Input-reproducible, not bit-for-bit.** Debian packages installed with `apt-get`, file
+   timestamps and layer digests are not pinned, so two builds of one commit produce the same
+   `build-info.json` and Python environment but not the same image digest. The manifest says so
+   (`reproducibility`); the artifact identity of a release is the pushed image digest recorded
+   in its manifest.
+
+### Consequences
+
+* An operator reads `homayar_build_info` (or `python -m backend.observability.release show`)
+  and the release manifest to answer which commit, lock and schema head a running backend came
+  from; `verify` turns that into a pass/fail check.
+* CI job `release-manifest` regenerates and byte-compares the manifest, builds the API image
+  with release arguments, verifies it, checks `/metrics` of the running image and keeps the
+  manifest as a 90-day artifact. It adds one API image build per run.
+* `backend/requirements.txt` is now checked against `uv.lock` by a test, so the two cannot
+  drift.
+* The on-prem Compose template still passes the base image tag as a build argument; Compose
+  builds are unreleased and `verify` reports the base-image difference. Pointing its default at
+  the digest is an infrastructure change outside this decision.
+* Making the image bit-for-bit reproducible (snapshot Debian archive, `rewrite-timestamp`,
+  hashed uv install) is possible later without changing the manifest format.
