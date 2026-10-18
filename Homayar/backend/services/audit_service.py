@@ -69,4 +69,3 @@ def record_audit_event(
     )
     db.add(event)
     return event
-
