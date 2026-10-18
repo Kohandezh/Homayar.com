@@ -17,6 +17,7 @@ import {
   useUpdateMeetingTitle,
 } from "@/lib/platform-api";
 import { ErrorState, LoadingState, PageHeader, StatusBadge } from "@/components/platform/Ui";
+import MeetingDataPanel from "@/components/platform/MeetingDataPanel";
 import MeetingResults from "@/components/platform/MeetingResults";
 import ProcessingStatus from "@/components/platform/ProcessingStatus";
 import { QualityPanel } from "@/components/platform/QualityPanel";
@@ -284,6 +285,8 @@ export default function MeetingDetailPage() {
       <ProcessingStatus meeting={current} canReplay={can.manageWorkspace} />
 
       {hasResults && <MeetingResults meeting={current} atMs={atMs} />}
+
+      {can.has("legal_hold:manage") && <MeetingDataPanel meetingId={meetingId} />}
 
       {operationError && <ErrorState error={operationError} fallback={copy.operationFailed} />}
     </section>
