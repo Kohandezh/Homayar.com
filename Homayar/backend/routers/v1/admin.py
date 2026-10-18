@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
-from backend.database.saas_models import JobState
+from backend.database.saas_models import JobState, ShareAudience
 from backend.jobs.outbox import dispatch_job
 from backend.jobs.replay import ReplayRefused, replay_dead_letter_job
 from backend.schemas.admin import (
@@ -15,6 +15,8 @@ from backend.schemas.admin import (
     AdminJobResponse,
     AdminJobStateCounts,
     AdminJobSummaryResponse,
+    AdminShareListResponse,
+    AdminShareResponse,
     AuditEventListResponse,
     AuditEventResponse,
     JobReplayResponse,
@@ -42,6 +44,11 @@ from backend.services.admin_service import (
     list_workspace_audit_events,
     sanitize_audit_details,
     update_workspace_settings,
+)
+from backend.services.admin_shares_service import (
+    InvalidShareCursor,
+    ShareStatus,
+    list_workspace_shares,
 )
 from backend.services.audit_service import record_audit_event
 
@@ -118,6 +125,43 @@ def list_audit_events(
             )
             for event in page.events
         ],
+        next_cursor=page.next_cursor,
+    )
+
+
+@router.get("/shares", response_model=AdminShareListResponse)
+def list_shares(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
+    status: ShareStatus | None = Query(default=None),
+    audience: ShareAudience | None = Query(default=None),
+    context: WorkspaceContext = Depends(require_workspace_admin_context),
+    db: Session = Depends(get_db),
+) -> AdminShareListResponse:
+    """Every share link of the workspace, newest first (HOM-192).
+
+    ``status`` is ``revoked`` when the link was revoked, else ``expired`` when
+    ``expires_at`` has passed, else ``active``. Filters combine with AND.
+    Shares of soft-deleted meetings are left out. The token, its hash, the
+    share URL and recipient addresses are never returned.
+    """
+    try:
+        page = list_workspace_shares(
+            db,
+            workspace_id=context.workspace.id,
+            limit=limit,
+            cursor=cursor,
+            status=status,
+            audience=audience,
+        )
+    except InvalidShareCursor as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_cursor", "message": str(exc)},
+        ) from exc
+
+    return AdminShareListResponse(
+        items=[AdminShareResponse.model_validate(row) for row in page.rows],
         next_cursor=page.next_cursor,
     )
 

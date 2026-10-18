@@ -10,8 +10,10 @@ from backend.database.saas_models import (
     JobState,
     RecordScope,
     RetentionMode,
+    ShareAudience,
 )
 from backend.schemas.meetings import JobResponse
+from backend.services.admin_shares_service import ShareStatus
 
 
 class AuditEventResponse(BaseModel):
@@ -28,6 +30,32 @@ class AuditEventResponse(BaseModel):
 
 class AuditEventListResponse(BaseModel):
     items: list[AuditEventResponse]
+    next_cursor: str | None = None
+
+
+class AdminShareResponse(BaseModel):
+    """One share link in the administrator's list (HOM-192).
+
+    Metadata only: never the token, its hash, a share URL or recipient addresses.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    meeting_id: str
+    meeting_title: str
+    audience: ShareAudience
+    status: ShareStatus
+    created_by_user_id: str
+    created_at: datetime
+    expires_at: datetime | None
+    access_count: int
+    last_accessed_at: datetime | None
+    revoked_at: datetime | None
+
+
+class AdminShareListResponse(BaseModel):
+    items: list[AdminShareResponse]
     next_cursor: str | None = None
 
 
