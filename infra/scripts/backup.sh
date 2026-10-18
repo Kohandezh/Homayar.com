@@ -26,7 +26,8 @@ Environment:
   BACKUP_KEY_FILE        key_id:base64(32 bytes) from the secret manager (required)
   BACKUP_OFFSITE         s3:// target on another host (BACKUP_OFFSITE_S3_* credentials)
   BACKUP_OFFSITE_PATH    or a mounted directory of another host/medium
-  BACKUP_TEXTFILE_DIR    node_exporter textfile directory (default \$BACKUP_ROOT/metrics)
+  NODE_EXPORTER_TEXTFILE_DIR  node_exporter's --collector.textfile.directory (required,
+                         outside BACKUP_ROOT; BACKUP_TEXTFILE_DIR is accepted as an alias)
 EOF
 }
 
@@ -43,12 +44,16 @@ done
 
 require_env BACKUP_KEY_FILE
 [[ -r "${BACKUP_KEY_FILE}" ]] || die "Backup key file is not readable: ${BACKUP_KEY_FILE}"
-export BACKUP_TEXTFILE_DIR="${BACKUP_TEXTFILE_DIR:-${BACKUP_ROOT}/metrics}"
-mkdir -p -- "${BACKUP_TEXTFILE_DIR}"
-chmod 0755 "${BACKUP_TEXTFILE_DIR}"
-case "$(cd -- "${BACKUP_TEXTFILE_DIR}" && pwd -P)/" in
+# The freshness gauge goes to node_exporter's textfile directory, never into the 0700
+# backup root (a non-root node_exporter cannot traverse it and the alert would fire).
+export NODE_EXPORTER_TEXTFILE_DIR="${NODE_EXPORTER_TEXTFILE_DIR:-${BACKUP_TEXTFILE_DIR:-}}"
+[[ -n "${NODE_EXPORTER_TEXTFILE_DIR}" ]] ||
+  die "Set NODE_EXPORTER_TEXTFILE_DIR to node_exporter's --collector.textfile.directory (outside BACKUP_ROOT)."
+[[ -d "${NODE_EXPORTER_TEXTFILE_DIR}" && -w "${NODE_EXPORTER_TEXTFILE_DIR}" ]] ||
+  die "NODE_EXPORTER_TEXTFILE_DIR must exist and be writable by the backup user (BACKUP_UID) and readable by node_exporter: ${NODE_EXPORTER_TEXTFILE_DIR}"
+case "$(cd -- "${NODE_EXPORTER_TEXTFILE_DIR}" && pwd -P)/" in
   "$(cd -- "${BACKUP_ROOT}" && pwd -P)"/*)
-    printf 'WARNING: BACKUP_TEXTFILE_DIR is inside BACKUP_ROOT; a 0700 backup root hides the gauge from node_exporter.\n' >&2
+    die "NODE_EXPORTER_TEXTFILE_DIR is inside BACKUP_ROOT: node_exporter cannot read it through the 0700 backup root."
     ;;
 esac
 if [[ "${offsite}" == "1" && -z "${BACKUP_OFFSITE:-}" && -z "${BACKUP_OFFSITE_PATH:-}" ]]; then

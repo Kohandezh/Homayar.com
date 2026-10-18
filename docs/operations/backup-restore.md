@@ -55,8 +55,8 @@ on every restore.
    lost on a restore: the replication interval is that window. Nothing measures or alerts on it
    yet; add a replication-age check.
 5. **Alerting** (contract with Lane D): the node_exporter textfile
-   `$BACKUP_TEXTFILE_DIR/homayar_backup.prom` is rewritten under a lock, through a unique
-   temporary file and an atomic rename (file 0644, directory 0755), with
+   `$NODE_EXPORTER_TEXTFILE_DIR/homayar_backup.prom` is rewritten under a lock, through a unique
+   temporary file and an atomic rename (file 0644; the directory's mode is left alone), with
 
    ```text
    homayar_backup_last_success_timestamp_seconds{target="postgres"} <snapshot unix time>
@@ -67,17 +67,30 @@ on every restore.
    Only a successful deep `verify` moves `postgres` (and `objects`, when the set includes objects
    and its copy is not `degraded`); only a verified off-site copy moves `offsite`. A value never
    moves backwards. A failed, interrupted or degraded run leaves the previous values, so the age
-   alert (> 26 h, or absent) fires. Put `BACKUP_TEXTFILE_DIR` **outside** the 0700 backup root
-   (e.g. `/var/lib/node_exporter/textfile_collector`): node_exporter cannot traverse a 0700
-   directory. Point `--collector.textfile.directory` at it.
+   alert (> 26 h, or absent) fires.
+
+   `NODE_EXPORTER_TEXTFILE_DIR` is **required** by `backup.sh` and must be **outside** the 0700
+   backup root, because a non-root node_exporter cannot traverse a 0700 directory. Create it
+   once, owned by `BACKUP_UID`, mode 0755, for example
+   `/var/lib/node_exporter/textfile_collector`:
+
+   ```bash
+   sudo install -d -o 10001 -g 10001 -m 0755 /var/lib/node_exporter/textfile_collector
+   ```
+
+   Then start node_exporter with `--collector.textfile.directory` pointing at it. In a container,
+   bind-mount exactly that directory read-only, e.g.
+   `-v /var/lib/node_exporter/textfile_collector:/textfile:ro --collector.textfile.directory=/textfile`.
+   `backup.sh` refuses a directory inside `BACKUP_ROOT` and never changes its mode. An isolated
+   restore writes its own textfile under `restores/<id>/metrics` and never the production one.
 
 Settings used by the tool (documented here; the application `.env.example` belongs to Lane D):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `BACKUP_ROOT` | `infra/backups` | sets, restore work dirs, default textfile dir |
+| `BACKUP_ROOT` | `infra/backups` | sets, restore work dirs |
 | `BACKUP_KEY_FILE` | — (required) | mounted as `HOMAYAR_BACKUP_KEY_FILE` |
-| `BACKUP_TEXTFILE_DIR` | `$BACKUP_ROOT/metrics` (set it outside a 0700 root) | node_exporter textfile directory |
+| `NODE_EXPORTER_TEXTFILE_DIR` | — (required by `backup.sh`; outside `BACKUP_ROOT`; `BACKUP_TEXTFILE_DIR` is accepted as an alias) | node_exporter's textfile directory, mounted at `/textfile` |
 | `BACKUP_DATABASE_URL` / `BACKUP_DATABASE_URL_FILE` | `DATABASE_URL` | superuser / BYPASSRLS DSN; never passed on the command line |
 | `BACKUP_OFFSITE` / `BACKUP_OFFSITE_PATH` | — | off-site target |
 | `BACKUP_OFFSITE_S3_*` | — | S3 off-site credentials and endpoint |

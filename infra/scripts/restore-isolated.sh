@@ -63,8 +63,10 @@ if [[ " ${reconcile_args[*]-} " != *" --accept-no-journal "* ]]; then
   [[ -d "${TOMBSTONE_JOURNAL_PATH}" ]] ||
     die "TOMBSTONE_JOURNAL_PATH must be the replicated journal directory: ${TOMBSTONE_JOURNAL_PATH}"
 fi
-export BACKUP_TEXTFILE_DIR="${BACKUP_TEXTFILE_DIR:-${BACKUP_ROOT}/metrics}"
-mkdir -p -- "${BACKUP_TEXTFILE_DIR}" "${BACKUP_ROOT}/restores/${backup_id}"
+# An isolated restore never writes the production freshness gauge: its verify
+# writes a textfile of its own next to the timeline.
+export NODE_EXPORTER_TEXTFILE_DIR="${BACKUP_ROOT}/restores/${backup_id}/metrics"
+mkdir -p -- "${NODE_EXPORTER_TEXTFILE_DIR}"
 timeline="${BACKUP_ROOT}/restores/${backup_id}/timeline.log"
 staging="${POSTGRES_DB}_restoring"
 

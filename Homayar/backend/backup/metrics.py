@@ -5,8 +5,10 @@ Contract with the alert rules (Lane D): the gauge
 holds the Unix time of the last *successful* backup of that target.  The
 file is rewritten atomically (temporary file, fsync, rename) and only after a
 success, so a failed or interrupted run leaves the previous value in place
-and the age alert fires.  Path: ``HOMAYAR_BACKUP_TEXTFILE`` or
-``<BACKUP_ROOT>/metrics/homayar_backup.prom``.
+and the age alert fires.  Path: ``HOMAYAR_BACKUP_TEXTFILE`` (Compose sets it
+to node_exporter's textfile directory, ``NODE_EXPORTER_TEXTFILE_DIR`` on the
+host, outside the 0700 backup root), else ``<root>/metrics/homayar_backup.prom``
+for local runs.
 """
 
 from __future__ import annotations
@@ -48,15 +50,19 @@ def record_success(path: Path, timestamps: dict[str, float]) -> None:
     gauge look fresher than the newest verified one).  Concurrent writers
     (two ``compose run`` containers both have PID 1) are serialised by an
     ``flock`` on a lock file next to the textfile, and each writes its own
-    ``mkstemp`` temporary before the atomic rename.  The directory is 0755
-    and the file 0644 so a non-root node_exporter can read them.
+    ``mkstemp`` temporary before the atomic rename.  The file is 0644; a
+    directory created here is 0755, and an existing one (possibly shared with
+    other collectors and owned by someone else) keeps its mode.
     """
     unknown = set(timestamps) - set(TARGETS)
     if unknown:
         raise ValueError(f"unknown backup targets: {sorted(unknown)}")
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, 0o755)  # noqa: S103 - node_exporter must traverse it
+    try:
+        path.parent.mkdir(parents=True)
+        os.chmod(path.parent, 0o755)  # noqa: S103 - created here: node_exporter must read it
+    except FileExistsError:
+        pass
     lock_fd = os.open(path.parent / f".{path.name}.lock", os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)

@@ -258,6 +258,11 @@ def test_freshness_textfile_is_merged_atomically_and_only_known_targets(tmp_path
         metrics.record_success(path, {"redis": 1.0})
     custom = tmp_path / "textfile" / "x.prom"
     assert metrics.textfile_path(tmp_path, env={"HOMAYAR_BACKUP_TEXTFILE": str(custom)}) == custom
+    shared = tmp_path / "shared-collector-dir"  # node_exporter's, possibly not ours
+    shared.mkdir()
+    shared.chmod(0o750)
+    metrics.record_success(shared / "homayar_backup.prom", {"postgres": 1.0})
+    assert shared.stat().st_mode & 0o777 == 0o750  # an existing directory keeps its mode
 
 
 # --- off-site copies (S3 code paths against an in-memory stand-in) -------------------

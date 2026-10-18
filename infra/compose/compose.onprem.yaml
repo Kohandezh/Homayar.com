@@ -401,7 +401,8 @@ services:
     volumes:
       - "${BACKUP_ROOT:-../backups}:/backups"
       - "${BACKUP_KEY_FILE:-/dev/null}:/run/secrets/homayar-backup-key:ro"
-      - "${BACKUP_TEXTFILE_DIR:-../backups/metrics}:/textfile"
+      # node_exporter's textfile directory, outside the 0700 backup root (backup.sh requires it).
+      - "${NODE_EXPORTER_TEXTFILE_DIR:-../node-exporter-textfile}:/textfile"
       - "${BACKUP_OFFSITE_PATH:-../backups-offsite}:/offsite"
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones:ro"
     # No depends_on: the scripts start exactly the stores they need (and the

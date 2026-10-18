@@ -52,7 +52,9 @@ migration slot), and CI must run the tests without new tooling.
    secret fingerprints, post-backup revocation counts. Held conversations and missing objects
    need an explicit, recorded owner decision.
 8. **Freshness metric.** Successful steps rewrite a node_exporter textfile
-   (`homayar_backup_last_success_timestamp_seconds{target}`) atomically; Lane D owns the alert.
+   (`homayar_backup_last_success_timestamp_seconds{target}`) atomically in
+   `NODE_EXPORTER_TEXTFILE_DIR`, which must lie outside the 0700 backup root; Lane D owns the
+   alert.
 
 9. **Positive evidence for the deletion journal.** The backup fingerprints every tombstone
    journal file (name, size, SHA-256); the files are append-only, so reconcile requires the
