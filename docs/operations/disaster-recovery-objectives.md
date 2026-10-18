@@ -59,12 +59,16 @@ here is a target for the drill to measure, never an estimate taken from a script
   compares the host paths, refuses an off-site path inside the backup root (or containing it)
   and warns when both share a filesystem; the operator confirms the medium with
   `df -P "$BACKUP_ROOT" "$BACKUP_OFFSITE_PATH"`. The tool alone sees only container paths.
-- **Immutability is not provided by the tool** (**open owner decision AppVision D15**, pending):
-  the application
-  host holds the credentials that write and prune off-site copies, so an intruder on that host
-  can delete them. Recommended: S3 versioning plus object lock (compliance mode) on the off-site
-  bucket, and expiry by bucket lifecycle rules or by a job on the off-site side rather than by
-  `prune` from the application host.
+- **Immutability: AppVision D15, DECIDED 2026-10-18 by the owner.** The S3 off-site bucket uses
+  Object Lock in GOVERNANCE mode, enabled when the bucket is created (versioning on), with a
+  default retention that matches the backup retention. Bypassing it needs a separately held,
+  privileged break-glass credential; the backup tool's credential never has
+  `s3:BypassGovernanceRetention`. An intruder on the application host can therefore not
+  destroy locked copies before their retention ends. Deletions made after a backup still win,
+  because every restore replays the tombstone journal before use. Known limit: the tool sets no
+  per-object retention, so monthly sets are locked only for the default period. A directory
+  off-site target has no such protection. Prune counts versions that are still locked, never as
+  failures, and retries them on later runs.
 
 ## 4. Backup scope
 

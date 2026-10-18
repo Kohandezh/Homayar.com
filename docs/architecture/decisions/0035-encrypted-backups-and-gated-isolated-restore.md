@@ -110,7 +110,11 @@ migration slot), and CI must run the tests without new tooling.
   and covered by `JWT_SECRET` rotation, `--revoke-share-links` and owner decisions.
 - Losing the backup key loses the sets; the key needs an escrow outside every backup location.
 - The legacy scripts remain only for reading old sets.
-- The application host can still delete off-site copies; immutability (object lock,
-  off-site-side expiry) is **open owner decision AppVision D15** (pending).
+- Immutability is **AppVision D15, DECIDED 2026-10-18**: S3 Object Lock in GOVERNANCE mode with
+  retention matching the backup retention, and a separately held break-glass credential for
+  bypass (never the tool's credential). Prune treats a refused version delete as locked only
+  when the bucket has Object Lock and that version has retention or a legal hold, and retries
+  it later. Monthly sets are locked only for the default period (the tool sets no per-object
+  retention), and directory off-site targets stay deletable from the host.
 - Deletions newer than the journal replica's last sync are lost on a restore; the journal
   replication interval needs its own alert.

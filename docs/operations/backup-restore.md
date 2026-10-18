@@ -42,12 +42,21 @@ on every restore.
    `/offsite`), so a direct `replicate` does not catch a host path nested in the backup root.
    The copy never needs the key.
 
-   The tool does not make off-site copies immutable (**open owner decision AppVision D15**,
-   pending): the
-   application host holds the credentials that write and prune them. Recommended: S3 versioning
-   plus object lock (compliance mode) on the off-site bucket, and expiry by bucket lifecycle
-   rules or a job on the off-site side instead of `prune --destination` from the application
-   host.
+   **Immutability: AppVision D15, DECIDED 2026-10-18 by the owner.** The S3 off-site bucket uses
+   Object Lock in **GOVERNANCE** mode, with retention matching the backup retention. Shortening
+   or removing a lock needs a separate, privileged break-glass credential that holds
+   `s3:BypassGovernanceRetention`, kept outside the application host and used only in an
+   emergency. A deletion made after a backup is still honoured, because every restore replays
+   the tombstone journal before the data is used. Bucket settings:
+
+   - Object Lock is enabled **when the bucket is created** (it cannot be added later on most
+     stores). This turns on versioning, and versioning must stay on.
+   - Retention is a bucket default rule (GOVERNANCE, 30 days, matching the 30-day daily window),
+     or per-object retention set by the store. The tool sets no per-object retention, so a
+     monthly set is locked only for the default period, not for the full 12 months it is kept.
+     A lock longer than the retention is safe: prune counts those versions and retries them
+     later (see below).
+   - The backup tool's credential **never** has `s3:BypassGovernanceRetention`.
 
    **S3 permissions** the off-site credential needs, on the bucket (`arn:aws:s3:::BUCKET`) and
    its objects under the prefix (`arn:aws:s3:::BUCKET/PREFIX/*`):
@@ -56,14 +65,20 @@ on every restore.
    |---|---|
    | `replicate` | `s3:PutObject`, `s3:GetObject` (checksum HEAD and read-back), `s3:ListBucket` (verified-marker backfill) |
    | `fetch` | `s3:GetObject`, `s3:ListBucket` |
-   | `prune --destination s3://…` | `s3:ListBucket`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketMultipartUploads`, `s3:AbortMultipartUpload`, `s3:GetBucketVersioning`; in a versioned bucket also `s3:ListBucketVersions` and `s3:DeleteObjectVersion` |
+   | `prune --destination s3://…` | `s3:ListBucket`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketMultipartUploads`, `s3:AbortMultipartUpload`, `s3:GetBucketVersioning`; in a versioned bucket also `s3:ListBucketVersions`, `s3:DeleteObjectVersion`, `s3:GetBucketObjectLockConfiguration`, `s3:GetObjectRetention`, `s3:GetObjectLegalHold` |
+   | never | `s3:BypassGovernanceRetention` (only the separately held break-glass credential) |
 
    A prune whose credential lacks a listing permission still applies the retention, reports
    each denied call in `errors` and exits non-zero at the end, so the nightly run fails
    visibly. When it cannot read the bucket's versioning (`versioning: "unknown"`) it never
-   sweeps versions. Version deletes refused by an object lock are counted in
-   `versions_locked` and expire with the lock; any other refusal is counted in
-   `versions_failed` and fails the run.
+   sweeps versions. A refused version delete counts in `versions_locked` only when the bucket has
+   Object Lock and that version has an unexpired retention or a legal hold (`locked_until`
+   reports the latest date). That key keeps its delete marker, so the expired set stays hidden,
+   and prune retries it once the newest marker is older than 24 hours, until the lock expires.
+   Every other refusal (for example a missing `s3:DeleteObjectVersion`) counts in
+   `versions_failed` and fails the run. Versions left with no current data are swept on a later
+   run only after the 24-hour grace period, and never while the set has a current version, so a
+   copy that is being uploaded again is not touched.
 4. **Tombstone journal**: bind `TOMBSTONE_JOURNAL_PATH` to a host directory outside the
    PostgreSQL and MinIO failure domains and replicate it continuously off the host (rsync/zfs
    send/object replication). Never restore it from an older copy; keep its files at least as long

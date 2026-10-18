@@ -117,7 +117,8 @@ def _backfill_directory_markers(source: Path, destination_root: Path) -> list[st
     """Carry the verified marker to copies made before markers were carried.
 
     Only a copy whose sealed manifest is byte-identical to the verified root
-    set's gets one: it is the same set.
+    set's, and whose files are all there with the manifest's checksums, gets
+    one: a manifest left behind by an interrupted prune is not a set.
     """
     from backend.backup.retention import verified_marker
 
@@ -128,6 +129,10 @@ def _backfill_directory_markers(source: Path, destination_root: Path) -> list[st
         if marker.exists() or not (copy / MANIFEST_NAME).is_file():
             continue
         if (copy / MANIFEST_NAME).read_bytes() != (root_set / MANIFEST_NAME).read_bytes():
+            continue
+        try:
+            verify_set(copy, None, deep=False)
+        except BackupInvalid:
             continue
         marker.write_text(datetime.now(UTC).isoformat() + "\n", encoding="ascii")
         backfilled.append(backup_id)
@@ -303,7 +308,9 @@ def _put_marker(client, bucket: str, prefix: str, backup_id: str) -> None:
 
 def _backfill_s3_markers(client, bucket: str, prefix: str, source: Path) -> list[str]:
     """Carry the verified marker to copies made before markers were carried,
-    when the copy's sealed manifest is byte-identical to the verified root set's."""
+    when the copy's sealed manifest is byte-identical to the verified root
+    set's and every file it lists is stored with its size and SHA-256 (read
+    back when the store reports no usable checksum)."""
     verified = _root_verified(source)
     if not verified:
         return []
@@ -314,9 +321,26 @@ def _backfill_s3_markers(client, bucket: str, prefix: str, source: Path) -> list
         body = client.get_object(Bucket=bucket, Key=_s3_key(prefix, backup_id, MANIFEST_NAME))
         if body["Body"].read() != (verified[backup_id] / MANIFEST_NAME).read_bytes():
             continue
+        if not _s3_copy_complete(client, bucket, prefix, verified[backup_id]):
+            continue
         _put_marker(client, bucket, prefix, backup_id)
         backfilled.append(backup_id)
     return backfilled
+
+
+def _s3_copy_complete(client, bucket: str, prefix: str, set_dir: Path) -> bool:
+    from botocore.exceptions import ClientError
+
+    manifest = read_manifest(set_dir)
+    for entry in manifest["files"]:
+        key = _s3_key(prefix, manifest["backup_id"], entry["name"])
+        try:
+            _verify_s3_copy(
+                client, bucket, key, set_dir / entry["name"], entry["size"], entry["sha256"]
+            )
+        except (BackupInvalid, ClientError, KeyError):
+            return False
+    return True
 
 
 def list_s3_sets(destination: str, *, client=None) -> list[str]:
@@ -406,6 +430,10 @@ def _s3_set_is_full(client, bucket: str, prefix: str, backup_id: str) -> bool:
 
 
 _LOCK_CODES = frozenset({"AccessDenied", "ObjectLocked"})
+# The object (or the bucket) has no lock configuration: nothing protects it.
+_NO_LOCK_CODES = frozenset(
+    {"NoSuchObjectLockConfiguration", "ObjectLockConfigurationNotFoundError", "InvalidRequest"}
+)
 
 
 def _error_code(exc: Exception) -> str:
@@ -423,9 +451,10 @@ def _set_of(prefix: str, key: str) -> str | None:
 
 def _uploads(
     client, bucket: str, prefix: str, now: datetime, grace: int, errors: list[str]
-) -> tuple[list[dict], set[str]]:
-    """Multipart uploads interrupted longer ago than the grace period, and the
-    backup ids that still have a live (recent) upload."""
+) -> tuple[list[dict], set[str], bool]:
+    """Multipart uploads interrupted longer ago than the grace period, the
+    backup ids that still have a live (recent) upload, and whether the
+    listing succeeded."""
     from botocore.exceptions import ClientError
 
     stale: list[dict] = []
@@ -440,12 +469,12 @@ def _uploads(
                 elif backup_id := _set_of(prefix, upload["Key"]):
                     live.add(backup_id)
             if not page.get("IsTruncated"):
-                return stale, live
+                return stale, live, True
             request["KeyMarker"] = page.get("NextKeyMarker", "")
             request["UploadIdMarker"] = page.get("NextUploadIdMarker", "")
     except ClientError as exc:
         errors.append(f"list_multipart_uploads: {_error_code(exc)}")
-        return [], set()
+        return [], set(), False
 
 
 def _versioning(client, bucket: str, errors: list[str]) -> str:
@@ -456,6 +485,19 @@ def _versioning(client, bucket: str, errors: list[str]) -> str:
     except ClientError as exc:
         errors.append(f"get_bucket_versioning: {_error_code(exc)}")
         return "unknown"
+
+
+def _object_lock(client, bucket: str, errors: list[str]) -> bool:
+    """Whether the bucket has Object Lock enabled (AppVision D15)."""
+    from botocore.exceptions import ClientError
+
+    try:
+        configuration = client.get_object_lock_configuration(Bucket=bucket)
+    except ClientError as exc:
+        if _error_code(exc) not in _NO_LOCK_CODES:
+            errors.append(f"get_object_lock_configuration: {_error_code(exc)}")
+        return False
+    return configuration.get("ObjectLockConfiguration", {}).get("ObjectLockEnabled") == "Enabled"
 
 
 def _versions(client, bucket: str, key_prefix: str, errors: list[str]) -> list[dict] | None:
@@ -473,27 +515,74 @@ def _versions(client, bucket: str, key_prefix: str, errors: list[str]) -> list[d
     return found
 
 
-def _purge_versions(
-    client, bucket: str, key_prefix: str, counts: dict[str, int], errors: list[str]
-) -> None:
-    """Delete every version and delete marker under ``key_prefix``.
+def _lock_until(client, bucket: str, item: dict, now: datetime, errors: list[str]) -> str | None:
+    """Whether an object lock still protects this version: its retain-until date
+    ("legal-hold" for a legal hold), or None when it does not (or cannot be read)."""
+    from botocore.exceptions import ClientError
 
-    In a versioned bucket a plain delete only adds a delete marker, so the
-    expired set would stay as noncurrent versions.  Versions an object lock
-    still protects cannot be deleted: they are counted as ``locked`` and
-    expire with the lock (keep the lock period within the retention).  Any
-    other failure is counted as ``failed`` and reported.
+    key, version = item["Key"], item["VersionId"]
+    try:
+        hold = client.get_object_legal_hold(Bucket=bucket, Key=key, VersionId=version)
+        if hold.get("LegalHold", {}).get("Status") == "ON":
+            return "legal-hold"
+    except ClientError as exc:
+        if _error_code(exc) not in _NO_LOCK_CODES:
+            errors.append(f"get_object_legal_hold: {_error_code(exc)}")
+            return None
+    try:
+        retention = client.get_object_retention(Bucket=bucket, Key=key, VersionId=version)
+    except ClientError as exc:
+        if _error_code(exc) not in _NO_LOCK_CODES:
+            errors.append(f"get_object_retention: {_error_code(exc)}")
+        return None
+    until = retention.get("Retention", {}).get("RetainUntilDate")
+    if until is not None and until > now:
+        return until.isoformat()
+    return None
+
+
+def _delete_versions(
+    client, bucket: str, items: list[dict], lock: bool, counts: dict[str, Any], errors: list[str]
+) -> None:
+    """Delete exactly these versions and delete markers.
+
+    A delete refused while an object lock (AppVision D15: GOVERNANCE
+    retention, or a legal hold) still protects the version is counted as
+    ``locked``: that key keeps its delete marker, so the set stays hidden,
+    and a later prune retries it (the leftover sweep) once the lock has
+    expired.  A refusal is ``locked`` only when the bucket has Object Lock
+    and that version has an unexpired retention or a legal hold; anything
+    else (a missing ``s3:DeleteObjectVersion``, any other error) is
+    ``failed`` and fails the run.
     """
     from botocore.exceptions import ClientError
 
-    for item in _versions(client, bucket, key_prefix, errors) or []:
-        try:
-            client.delete_object(Bucket=bucket, Key=item["Key"], VersionId=item["VersionId"])
-            counts["deleted"] += 1
-        except ClientError as exc:
-            code = _error_code(exc)
-            if code in _LOCK_CODES:
+    now = datetime.now(UTC)
+    by_key: dict[str, list[dict]] = {}
+    for item in items:
+        by_key.setdefault(item["Key"], []).append(item)
+    for key, versions in by_key.items():
+        kept = False
+        # Versions first, delete markers last: a key whose data is still there
+        # keeps its marker and is not resurrected as a current object.
+        for item in sorted(versions, key=lambda entry: entry["marker"]):
+            if item["marker"] and kept:
+                continue
+            try:
+                client.delete_object(Bucket=bucket, Key=key, VersionId=item["VersionId"])
+                counts["deleted"] += 1
+                continue
+            except ClientError as exc:
+                code = _error_code(exc)
+            kept = True
+            until = (
+                _lock_until(client, bucket, item, now, errors)
+                if lock and code in _LOCK_CODES
+                else None
+            )
+            if until is not None:
                 counts["locked"] += 1
+                counts["locked_until"] = max(counts.get("locked_until") or until, until)
             else:
                 counts["failed"] += 1
                 if f"delete_object_version: {code}" not in errors:
@@ -501,10 +590,22 @@ def _purge_versions(
 
 
 def _purge_set(
-    client, bucket: str, prefix: str, backup_id: str, counts: dict[str, int], errors: list[str]
+    client,
+    bucket: str,
+    prefix: str,
+    backup_id: str,
+    lock: bool,
+    counts: dict[str, Any],
+    errors: list[str],
 ) -> None:
+    """Delete every version and delete marker of a set and of its marker.
+
+    In a versioned bucket a plain delete only adds a delete marker, so the
+    expired set would stay as noncurrent versions.
+    """
     for key_prefix in (_s3_key(prefix, backup_id, "") + "/", _marker_key(prefix, backup_id)):
-        _purge_versions(client, bucket, key_prefix, counts, errors)
+        items = _versions(client, bucket, key_prefix, errors) or []
+        _delete_versions(client, bucket, items, lock, counts, errors)
 
 
 def prune_s3(
@@ -548,12 +649,15 @@ def prune_s3(
     keep = retained(sets, daily=daily, monthly=monthly, qualifying=qualifying)
     expired = sorted(set(sets) - keep)
     now = datetime.now(UTC)
-    uploads, live = _uploads(client, bucket, prefix, now, partial_grace_seconds, errors)
+    uploads, live, uploads_listed = _uploads(
+        client, bucket, prefix, now, partial_grace_seconds, errors
+    )
     groups = _s3_objects_by_set(bucket, prefix, client)
     stale = sorted(
         backup_id
         for backup_id, items in groups.items()
-        if backup_id not in sets
+        if uploads_listed  # without the upload listing a live copy cannot be told apart
+        and backup_id not in sets
         and backup_id not in live  # an upload is still writing it
         and (now - max(item["LastModified"] for item in items)).total_seconds()
         >= partial_grace_seconds
@@ -563,13 +667,14 @@ def prune_s3(
     # Only a bucket known to keep versions is swept: "unknown" (no permission
     # to read the setting) is reported and fails the run instead.
     versioned = versioning in {"Enabled", "Suspended"}
-    counts = {"deleted": 0, "locked": 0, "failed": 0}
+    lock = versioned and _object_lock(client, bucket, errors)
+    counts: dict[str, Any] = {"deleted": 0, "locked": 0, "failed": 0, "locked_until": None}
     purged: set[str] = set()
 
     def purge(backup_id: str) -> None:
         # Right after the delete: a prune that dies later leaves no orphaned versions.
         if versioned:
-            _purge_set(client, bucket, prefix, backup_id, counts, errors)
+            _purge_set(client, bucket, prefix, backup_id, lock, counts, errors)
             purged.add(backup_id)
 
     if not dry_run:
@@ -599,22 +704,28 @@ def prune_s3(
         for backup_id in orphan_markers:
             client.delete_object(Bucket=bucket, Key=_marker_key(prefix, backup_id))
             purge(backup_id)
-    # Versions an earlier, interrupted prune left behind: keys whose current
-    # version is a delete marker, of sets that are neither kept nor in progress.
+    # Versions an earlier, interrupted prune (or a lock) left behind: sets with
+    # no current data at all whose newest delete marker is older than the
+    # grace period, neither kept nor in progress.  Only the versions listed
+    # here are deleted, so a copy re-uploaded meanwhile keeps its new versions.
     leftovers: list[str] = []
     if versioned:
-        active = set(sets) | set(groups) | markers | live
-        latest_markers = {
-            backup_id
-            for item in _versions(client, bucket, f"{prefix}/" if prefix else "", errors) or []
-            if item["marker"]
-            and item.get("IsLatest")
-            and (backup_id := _set_of(prefix, item["Key"]))
-        }
-        leftovers = sorted(latest_markers - (active - set(expired) - set(orphan_markers)) - purged)
-        if not dry_run:
-            for backup_id in leftovers:
-                _purge_set(client, bucket, prefix, backup_id, counts, errors)
+        by_set: dict[str, list[dict]] = {}
+        for item in _versions(client, bucket, f"{prefix}/" if prefix else "", errors) or []:
+            if backup_id := _set_of(prefix, item["Key"]):
+                by_set.setdefault(backup_id, []).append(item)
+        protected = (set(sets) | set(groups) | markers | live) - set(expired) - set(orphan_markers)
+        for backup_id, items in sorted(by_set.items()):
+            if backup_id in protected or backup_id in purged:
+                continue
+            if any(item.get("IsLatest") and not item["marker"] for item in items):
+                continue  # current data: not a leftover
+            newest = max((item["LastModified"] for item in items if item["marker"]), default=None)
+            if newest is None or (now - newest).total_seconds() < partial_grace_seconds:
+                continue
+            leftovers.append(backup_id)
+            if not dry_run:
+                _delete_versions(client, bucket, items, lock, counts, errors)
     return {
         "kept": sorted(keep),
         "expired": expired,
@@ -622,8 +733,10 @@ def prune_s3(
         "qualifying": sorted(qualifying),
         "aborted_uploads": [upload["Key"] for upload in uploads],
         "versioning": versioning,
+        "object_lock": lock,
         "versions_deleted": counts["deleted"],
         "versions_locked": counts["locked"],
+        "locked_until": counts["locked_until"],
         "versions_failed": counts["failed"],
         "leftover_sets": leftovers,
         "errors": errors,
