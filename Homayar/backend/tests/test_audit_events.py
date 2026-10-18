@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 
 import pytest
+from prometheus_client.parser import text_string_to_metric_families
 from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 
@@ -60,28 +61,43 @@ def _row_text(event: AuditEvent) -> str:
     )
 
 
+def _sample(name: str, **labels: str) -> float | None:
+    """A sample as /metrics reports it, in single- and multiprocess mode."""
+    exposition = metrics.in_process_exposition().decode()
+    for family in text_string_to_metric_families(exposition):
+        for sample in family.samples:
+            if sample.name == name and sample.labels == labels:
+                return sample.value
+    return None
+
+
 def _counter(name: str, **labels: str) -> float:
-    value = metrics.REGISTRY.get_sample_value(name, labels)
-    return value or 0.0
+    return _sample(name, **labels) or 0.0
 
 
 def test_failure_counters_are_exported_at_zero_and_bounded():
     # increase() needs a 0 sample before the first failure (PR #47 review, P4).
     for reason in metrics.AUTH_FAILURE_REASONS:
-        assert metrics.REGISTRY.get_sample_value(
-            "homayar_auth_failures_total", {"reason": reason}
-        ) is not None, reason
+        assert _sample("homayar_auth_failures_total", reason=reason) is not None, reason
     for delivery in metrics.AUDIT_WRITE_DELIVERIES:
-        assert metrics.REGISTRY.get_sample_value(
-            "homayar_audit_write_failures_total", {"delivery": delivery}
-        ) is not None, delivery
+        assert _sample("homayar_audit_write_failures_total", delivery=delivery) is not None
     before = _counter("homayar_auth_failures_total", reason="other")
     metrics.observe_auth_failure("user@example.com")  # never a label value
     metrics.observe_audit_write_failure("anything")
     assert _counter("homayar_auth_failures_total", reason="other") == before + 1
-    assert metrics.REGISTRY.get_sample_value(
-        "homayar_auth_failures_total", {"reason": "user@example.com"}
-    ) is None
+    assert _sample("homayar_auth_failures_total", reason="user@example.com") is None
+
+
+def test_a_failing_counter_write_never_fails_the_caller(monkeypatch):
+    class FullDirectory:
+        def labels(self, *labels):
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(metrics, "AUTH_FAILURES", FullDirectory())
+    monkeypatch.setattr(metrics, "AUDIT_WRITE_FAILURES", FullDirectory())
+    monkeypatch.setattr(metrics, "guarded_write", metrics.WriteGuard())
+    metrics.observe_auth_failure("refresh_replay")  # neither raises
+    metrics.observe_audit_write_failure("transactional")
 
 
 # --- catalog -------------------------------------------------------------------------
