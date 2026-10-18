@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from backend.database.saas_models import (
     DuplicateMediaPolicy,
     JobState,
+    MediaKind,
     RecordScope,
     RetentionMode,
     ShareAudience,
@@ -149,3 +150,25 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
         if any(field_value is None for field_value in value.values()):
             raise ValueError("Workspace settings cannot be null")
         return value
+
+
+class AdminLegalHoldResponse(BaseModel):
+    """One media object on legal hold in the owner's register (HOM-192).
+
+    A compliance register, not a media browser: no storage key, digest,
+    filename, size or other content metadata.
+    """
+
+    media_id: str
+    kind: MediaKind
+    meeting_id: str | None
+    meeting_title: str | None  # stored title, also of a deleted conversation
+    reason: str | None
+    placed_by_user_id: str | None  # the user FK is SET NULL
+    placed_at: datetime
+    review_at: datetime
+
+
+class AdminLegalHoldListResponse(BaseModel):
+    items: list[AdminLegalHoldResponse]
+    next_cursor: str | None = None
