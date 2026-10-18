@@ -141,7 +141,9 @@ def recover_expired_lease(candidate: ExpiredLease, settings: Settings) -> Recove
             .with_for_update(skip_locked=True)
         )
         if job is None:
-            exists = db.scalar(select(ProcessingJob.id).where(ProcessingJob.id == candidate.job_id))
+            exists = db.scalar(
+                select(ProcessingJob.id).where(ProcessingJob.id == candidate.job_id)
+            )
             db.rollback()
             return RecoveryOutcome(candidate.job_id, "busy" if exists else "not_found")
         now = database_now(db)

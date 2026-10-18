@@ -405,16 +405,16 @@ def check_all(
     limit: int | None = None,
     storage: ObjectStorage | None = None,
 ) -> dict:
-    """Inspect every workspace (bounded batch). Returns counts and violations.
+    """Inspect every workspace (or the first ``limit``). Returns counts and violations.
 
     Pass ``storage`` to also confirm the objects behind published checkpoints;
     the ``artifacts`` block then says what was observed.
     """
     settings = settings or get_settings()
-    batch = limit or settings.usage_reconciliation_batch_size
-    workspaces = discover_workspaces(
-        limit=batch, interval_seconds=settings.usage_reconciliation_interval_seconds
-    )
+    # Every workspace (HOM-210); an explicit ``limit`` inspects fewer and the
+    # summary says how many of how many were looked at.
+    known = discover_workspaces(interval_seconds=settings.usage_reconciliation_interval_seconds)
+    workspaces = known[:limit] if limit else known
     violations: list[Violation] = []
     evidence = ArtifactEvidence()
     for workspace_id in workspaces:
@@ -428,6 +428,7 @@ def check_all(
             db.rollback()
     summary = {
         "workspaces": len(workspaces),
+        "workspaces_known": len(known),
         "violations": len(violations),
         "by_rule": {},
         "artifacts": ({**evidence.as_dict(), "inspected": storage is not None}),

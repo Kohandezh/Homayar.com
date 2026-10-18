@@ -194,7 +194,7 @@ def run_retention_purge(
         list(workspace_ids)
         if workspace_ids is not None
         else discover_workspaces(
-            limit=batch, interval_seconds=settings.retention_purge_interval_seconds, now=now
+            interval_seconds=settings.retention_purge_interval_seconds, now=now
         )
     )
 

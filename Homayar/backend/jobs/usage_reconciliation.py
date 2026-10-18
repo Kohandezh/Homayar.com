@@ -174,7 +174,11 @@ def reconcile_entitlement(
         ).all()
         for reservation in stale:
             meeting = db.get(Meeting, reservation.meeting_id)
-            alive = meeting is not None and meeting.deleted_at is None and reservation.id in live
+            alive = (
+                meeting is not None
+                and meeting.deleted_at is None
+                and reservation.id in live
+            )
             if alive:
                 continue
             release_usage(db, reservation.id, reason=ORPHAN_REASON)

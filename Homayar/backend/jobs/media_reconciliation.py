@@ -91,7 +91,7 @@ def reconcile_media_objects(
         list(workspace_ids)
         if workspace_ids is not None
         else discover_workspaces(
-            limit=batch, interval_seconds=settings.media_reconciliation_interval_seconds, now=now
+            interval_seconds=settings.media_reconciliation_interval_seconds, now=now
         )
     )
 

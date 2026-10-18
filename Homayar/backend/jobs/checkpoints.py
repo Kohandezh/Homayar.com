@@ -690,18 +690,14 @@ def mark_objects_deleted(db: Session, *, keys: list[str], now: datetime) -> int:
     return count
 
 
-def discover_workspaces(
-    *, limit: int, interval_seconds: int, now: datetime | None = None
-) -> list[str]:
-    """This run's workspaces for a periodic sweep (read-only service scope; ids only).
+def discover_workspaces(*, interval_seconds: int, now: datetime | None = None) -> list[str]:
+    """Every workspace to sweep, in a rotating order (read-only service scope; ids only).
 
-    Every workspace id is read in id order and cut into windows of ``limit``.
-    The run index is the database time divided by the sweep interval, so
-    consecutive scheduled runs take consecutive windows and every workspace is
-    visited at least once every ceil(n / limit) runs (HOM-210: a fixed
-    ``LIMIT`` never reached the workspaces after the first window).  Inside
-    the window the start moves by one each cycle, so an item budget used up by
-    one busy workspace does not skip the same neighbours every time.
+    A fixed ``LIMIT`` used to cut the list, so a workspace whose id sorted
+    after the first batch was never swept (HOM-210).  Every run now gets every
+    workspace; callers still stop when their item budget is spent.  The start
+    moves by one per sweep interval of database time, so a budget used up
+    early does not leave the same workspaces at the end of every run.
     """
     from backend.database.saas_models import Entitlement
 
@@ -714,18 +710,15 @@ def discover_workspaces(
         )
         current = now or database_now(db)
         db.rollback()
-    return sweep_window(ids, limit=limit, run=int(current.timestamp() // interval_seconds))
+    return rotate(ids, run=int(current.timestamp() // interval_seconds))
 
 
-def sweep_window(ids: list[str], *, limit: int, run: int) -> list[str]:
-    """The ``run``-th window of ``limit`` ids, its start rotated once per cycle."""
-    if not ids or limit <= 0:
+def rotate(ids: list[str], *, run: int) -> list[str]:
+    """``ids`` starting at position ``run`` (mod len), keeping every id once."""
+    if not ids:
         return []
-    windows = -(-len(ids) // limit)
-    start = (run % windows) * limit
-    window = ids[start : start + limit]
-    shift = (run // windows) % len(window)
-    return window[shift:] + window[:shift]
+    start = run % len(ids)
+    return ids[start:] + ids[:start]
 
 
 def _meeting_held(db: Session, meeting_id: str) -> bool:
@@ -796,7 +789,7 @@ def sweep_abandoned_artifacts(
     counts = {"workspaces": 0, "scanned": 0, "deleted": 0, "absent": 0, "unavailable": 0}
     remaining = batch
     for workspace_id in discover_workspaces(
-        limit=batch, interval_seconds=settings.job_artifact_sweep_interval_seconds, now=now
+        interval_seconds=settings.job_artifact_sweep_interval_seconds, now=now
     ):
         if remaining <= 0:
             break

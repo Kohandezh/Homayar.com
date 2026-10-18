@@ -89,11 +89,16 @@ def rearm_dispatch(
     cannot arm it twice.  Publication attempts restart per arming — they are
     dispatch attempts, not processing attempts.
     """
-    dispatch = db.scalar(select(JobDispatch).where(JobDispatch.job_id == job.id).with_for_update())
+    dispatch = db.scalar(
+        select(JobDispatch).where(JobDispatch.job_id == job.id).with_for_update()
+    )
     if dispatch is None:
         dispatch = JobDispatch(workspace_id=job.workspace_id, job_id=job.id)
         db.add(dispatch)
-    elif dispatch.state == DispatchState.PENDING and dispatch.generation == job.lease_generation:
+    elif (
+        dispatch.state == DispatchState.PENDING
+        and dispatch.generation == job.lease_generation
+    ):
         return dispatch
     dispatch.state = DispatchState.PENDING
     dispatch.generation = job.lease_generation
@@ -168,7 +173,9 @@ def dispatch_job(
 
         locked.attempt_count += 1
         try:
-            message_id = publish_processing_job(job_id, settings, workspace_id=locked.workspace_id)
+            message_id = publish_processing_job(
+                job_id, settings, workspace_id=locked.workspace_id
+            )
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"[:500]
             locked.last_error = error
@@ -231,7 +238,11 @@ def _park_undeliverable_job(
         .where(ProcessingJob.id == dispatch.job_id)
         .with_for_update(skip_locked=True)
     )
-    if job is None or job.state != JobState.QUEUED or job.lease_generation != dispatch.generation:
+    if (
+        job is None
+        or job.state != JobState.QUEUED
+        or job.lease_generation != dispatch.generation
+    ):
         return False
     bind_tenant_context(db, workspace_id=job.workspace_id)
     meeting = db.get(Meeting, job.meeting_id)
@@ -314,7 +325,9 @@ def verify_job_payload(job_id: str, workspace_id: str | None) -> bool:
         return True
     with get_session_factory()() as db:
         bind_job_context(db, job_id)
-        persisted = db.scalar(select(ProcessingJob.workspace_id).where(ProcessingJob.id == job_id))
+        persisted = db.scalar(
+            select(ProcessingJob.workspace_id).where(ProcessingJob.id == job_id)
+        )
         db.rollback()
     if persisted is None:
         # Unknown job: let the processor report not_found through its own path.
