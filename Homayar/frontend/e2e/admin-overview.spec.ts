@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { consolePath, signIn } from "./demo";
+import { consolePath, resumeSession } from "./demo";
 
 /**
  * Every card the owner's permissions allow, with one thing only its data
@@ -20,7 +20,7 @@ const CARDS: { title: string; data: (card: Locator) => Locator }[] = [
 ];
 
 test("an owner signs in and the admin overview is filled with workspace data", async ({ page }) => {
-  await signIn(page, "owner");
+  await resumeSession(page, "owner");
   await page.goto(consolePath("/admin"));
 
   await expect(page.getByRole("heading", { name: "Admin overview", level: 1 })).toBeVisible();

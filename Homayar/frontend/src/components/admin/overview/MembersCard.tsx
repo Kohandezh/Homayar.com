@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import OverviewCard from "@/components/admin/overview/OverviewCard";
 import { overviewLinkClass, type CardState } from "@/components/admin/overview/card-state";
 import { formatNumber } from "@/lib/format";

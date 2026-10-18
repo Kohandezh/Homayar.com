@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Mail, UserRound } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { register } from "@/lib/auth";
 import { isolateLtr } from "@/lib/format";
 import { authErrorText, useAuthCopy } from "@/components/auth/auth-copy";

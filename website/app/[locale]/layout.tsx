@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import "../globals.css";
 import { getDictionary } from "@/i18n";
 import { dirOf, isLocale, locales } from "@/lib/i18n";
+import { siteUrl } from "@/lib/site";
 import { jakarta, vazirmatn } from "@/lib/fonts";
 import { themeScript } from "@/lib/theme";
 import { Header } from "@/components/site/Header";
@@ -30,9 +31,10 @@ export const viewport: Viewport = {
 
 export async function generateMetadata({ params }: LayoutProps<"/[locale]">): Promise<Metadata> {
   const { locale } = await params;
-  if (!isLocale(locale)) return {};
+  if (!isLocale(locale)) return { metadataBase: new URL(siteUrl) };
   const dict = await getDictionary(locale);
   return {
+    metadataBase: new URL(siteUrl),
     title: { default: dict.home.meta.title, template: `%s | ${dict.titleSuffix}` },
     description: dict.home.meta.description,
     applicationName: dict.brand,

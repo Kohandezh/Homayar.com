@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { AxiosError, AxiosHeaders, CanceledError, type AxiosRequestConfig } from "axios";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router";
 import api from "@/lib/api";
 import { classifyUploadFailure } from "@/lib/upload-errors";
 import UploadPanel from "@/components/platform/UploadPanel";

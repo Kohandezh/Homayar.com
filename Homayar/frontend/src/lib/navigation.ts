@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LockKeyhole,
   MapPin,
+  RadioTower,
   ScrollText,
   Search,
   Settings,
@@ -31,6 +32,8 @@ export interface MainNavEntry {
 export interface AdminNavEntry extends MainNavEntry {
   /** The permission the backend needs to load the page; the route guard checks it. */
   permission: Permission;
+  /** Only for a platform operator (`system_role` "operator"), on top of `permission`. */
+  operatorOnly?: boolean;
 }
 
 /** Workspace pages every member sees. */
@@ -43,7 +46,8 @@ export const MAIN_NAV: readonly MainNavEntry[] = [
 /**
  * The admin area: one entry per route. The sidebar shows an entry and the
  * route guard opens its page only when the selected workspace has
- * `permission`.
+ * `permission` and, for an `operatorOnly` entry, the user is a platform
+ * operator (`canOpenAdminEntry` in use-can.ts).
  */
 export const ADMIN_NAV = [
   { path: "/admin", label: { fa: "نمای کلی مدیریت", en: "Admin overview" }, icon: ShieldCheck, permission: "workspace:manage" },
@@ -57,6 +61,7 @@ export const ADMIN_NAV = [
   { path: "/admin/ai-policy", label: { fa: "سیاست هوش مصنوعی", en: "AI policy" }, icon: BrainCircuit, permission: "workspace:manage" },
   { path: "/admin/privacy", label: { fa: "حریم خصوصی", en: "Privacy" }, icon: LockKeyhole, permission: "pii:original_access" },
   { path: "/admin/locations", label: { fa: "مکان‌های خدمات", en: "Locations" }, icon: MapPin, permission: "workspace:manage" },
+  { path: "/admin/voice", label: { fa: "عملیات صوتی", en: "Voice operations" }, icon: RadioTower, permission: "workspace:manage", operatorOnly: true },
 ] as const satisfies readonly AdminNavEntry[];
 
 export type AdminPath = (typeof ADMIN_NAV)[number]["path"];

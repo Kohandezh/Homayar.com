@@ -39,7 +39,16 @@ export default defineConfig({
     trace: "retain-on-failure",
     video: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    // Signs every demo role in once through the login form and saves the
+    // session (storageState) under `e2e/.auth/`; see `e2e/auth.setup.ts`.
+    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      dependencies: ["setup"],
+    },
+  ],
   ...(process.env.E2E_BASE_URL
     ? {}
     : {

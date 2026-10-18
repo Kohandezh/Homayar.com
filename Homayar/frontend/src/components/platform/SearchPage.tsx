@@ -1,6 +1,6 @@
 import { Search, X } from "lucide-react";
 import { type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 
 import type { ErrorCodeMessages } from "@/lib/error-messages";
 import { formatDate, formatDuration, formatNumber, languageName } from "@/lib/format";

@@ -26,6 +26,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.member_service import (
     InvitationExpiredError,
@@ -147,7 +148,7 @@ async def invite_member(
 
     record_audit_event(
         db,
-        event_type="member.invitation.created",
+        event_type=AuditEventType.MEMBER_INVITATION_CREATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="workspace_invitation",
@@ -177,7 +178,7 @@ async def invite_member(
         )
         record_audit_event(
             db,
-            event_type="member.invitation.delivery_failed",
+            event_type=AuditEventType.MEMBER_INVITATION_DELIVERY_FAILED,
             actor_user_id=context.actor.user.id,
             workspace_id=context.workspace.id,
             target_type="workspace_invitation",
@@ -220,7 +221,7 @@ def revoke_member_invitation(
         _raise_service_error(exc)
     record_audit_event(
         db,
-        event_type="member.invitation.revoked",
+        event_type=AuditEventType.MEMBER_INVITATION_REVOKED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="workspace_invitation",
@@ -252,7 +253,7 @@ def accept_member_invitation(
 
     record_audit_event(
         db,
-        event_type="member.invitation.accepted",
+        event_type=AuditEventType.MEMBER_INVITATION_ACCEPTED,
         actor_user_id=actor.user.id,
         workspace_id=accepted.workspace.id,
         target_type="workspace_invitation",
@@ -294,7 +295,7 @@ def update_member_role(
         _raise_service_error(exc)
     record_audit_event(
         db,
-        event_type="member.role_changed",
+        event_type=AuditEventType.MEMBER_ROLE_CHANGED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="membership",
@@ -332,7 +333,7 @@ def delete_member(
         _raise_service_error(exc)
     record_audit_event(
         db,
-        event_type="member.removed",
+        event_type=AuditEventType.MEMBER_REMOVED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="membership",

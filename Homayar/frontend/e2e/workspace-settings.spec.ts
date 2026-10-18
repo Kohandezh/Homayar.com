@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { consolePath, signIn } from "./demo";
+import { consolePath, resumeSession } from "./demo";
 
 type DuplicatePolicy = "Allow" | "Reject";
 
@@ -54,7 +54,7 @@ test.afterEach(async ({ page }) => {
 });
 
 test("an owner changes sharing and duplicates, the values persist, and the audit log records it", async ({ page }) => {
-  await signIn(page, "owner");
+  await resumeSession(page, "owner");
   await openSettings(page);
   await expect(page.getByRole("heading", { name: "Workspace settings", level: 1 })).toBeVisible();
   for (const name of SECTIONS.en) {
@@ -87,7 +87,7 @@ test("an owner changes sharing and duplicates, the values persist, and the audit
 });
 
 test("an admin sees the privacy controls locked and the other settings editable", async ({ page }) => {
-  await signIn(page, "admin");
+  await resumeSession(page, "admin");
   await openSettings(page);
 
   await expect(page.getByRole("switch", { name: "PII redaction" })).toBeDisabled();
@@ -105,7 +105,7 @@ test("an admin sees the privacy controls locked and the other settings editable"
 });
 
 test("an owner who cancels the immediate-retention warning saves nothing", async ({ page }) => {
-  await signIn(page, "owner");
+  await resumeSession(page, "owner");
   await openSettings(page);
 
   const policy = page.getByRole("radiogroup", { name: "Data retention policy" });
@@ -132,7 +132,7 @@ test("an owner who cancels the immediate-retention warning saves nothing", async
 });
 
 test("the settings page lays out right to left in Persian", async ({ page }) => {
-  await signIn(page, "owner", "fa");
+  await resumeSession(page, "owner", "fa");
   await page.goto(consolePath("/admin/settings"));
 
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");

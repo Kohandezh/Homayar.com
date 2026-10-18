@@ -197,6 +197,11 @@ export interface MeetingListParams {
   status?: MeetingStatus;
 }
 
+export interface MeetingCountsResponse {
+  counts: Record<MeetingStatus, number>;
+  total: number;
+}
+
 export interface UploadMeetingInput {
   file: File;
   idempotencyKey: string;
@@ -579,6 +584,64 @@ export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
 export type AssignableWorkspaceRole = Exclude<WorkspaceRole, "owner">;
 export type InvitationStatus = "pending" | "accepted" | "revoked" | "expired";
 
+/** The roles a person can hold inside a team (backend/schemas/teams.py). */
+export type TeamRole = "supervisor" | "agent";
+
+export interface Team {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface TeamListResponse {
+  items: Team[];
+  total: number;
+}
+
+/**
+ * One assignment of a person to a team. Revoked and ended rows stay in the
+ * list as history; `is_effective` is the server's word for "counts now".
+ */
+export interface TeamAssignment {
+  id: string;
+  team_id: string;
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  role: TeamRole;
+  valid_from: IsoDateTime;
+  valid_until: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
+  is_effective: boolean;
+  created_at: IsoDateTime;
+}
+
+export interface TeamDetail extends Team {
+  assignments: TeamAssignment[];
+}
+
+export interface CreateTeamInput {
+  name: string;
+}
+
+/** Exactly one field: a rename or an activation change, never both. */
+export type UpdateTeamInput = { name: string } | { is_active: boolean };
+
+/**
+ * `valid_from`/`valid_until` are sent only when set; the keys are absent
+ * otherwise, because the server treats null and an ISO date differently.
+ */
+export interface AssignTeamMemberInput {
+  user_id: string;
+  role: TeamRole;
+  valid_from?: string;
+  valid_until?: string;
+}
+
 export interface WorkspaceMember {
   id: string;
   user_id: string;
@@ -653,6 +716,17 @@ export interface AuditEventListParams {
   occurred_before?: IsoDateTime;
 }
 
+/** One entry of the event-type catalog (GET /admin/audit-event-types). */
+export interface AuditEventTypeEntry {
+  event_type: string;
+  group: string;
+  target_type: string | null;
+}
+
+export interface AuditEventTypeListResponse {
+  items: AuditEventTypeEntry[];
+}
+
 /**
  * One processing job in the administrator's list
  * (GET /admin/jobs, backend/schemas/admin.py AdminJobResponse). Metadata
@@ -709,6 +783,40 @@ export interface RunPolicySnapshot {
 export interface RunPolicySnapshotListResponse {
   job_id: string;
   items: RunPolicySnapshot[];
+}
+
+/**
+ * One API key of the workspace (GET /api-keys, backend/schemas/api_keys.py).
+ * The raw key itself travels only in `CreatedApiKey`, once, at creation.
+ */
+export interface ApiKey {
+  id: string;
+  name: string;
+  /** 8 hex characters; the raw key was `hk_<key_prefix>.<secret>`. */
+  key_prefix: string;
+  scopes: string[];
+  expires_at: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
+  last_used_at: IsoDateTime | null;
+  created_by_user_id: string;
+  created_at: IsoDateTime;
+}
+
+export interface ApiKeyListResponse {
+  /** Newest first, in server order. */
+  items: ApiKey[];
+}
+
+/** POST /api-keys input: name 1..160 chars, 1..16 scopes, days up to 365. */
+export interface CreateApiKeyInput {
+  name: string;
+  scopes: string[];
+  expires_in_days: number;
+}
+
+/** The 201 answer: the key's own fields plus the raw key, shown only once. */
+export interface CreatedApiKey extends ApiKey {
+  key: string;
 }
 
 /**

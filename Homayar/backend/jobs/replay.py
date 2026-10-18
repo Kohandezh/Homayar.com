@@ -32,11 +32,12 @@ from backend.database.saas_models import JobState, Meeting, MeetingStatus, Proce
 from backend.jobs.failures import RetryPolicy
 from backend.jobs.leases import as_utc, database_now, release_lease
 from backend.jobs.outbox import rearm_dispatch
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import QuotaExceededError, reserve_usage
 from backend.services.logging_service import logger
 
-REPLAY_EVENT = "meeting.processing.replayed"
+REPLAY_EVENT = AuditEventType.MEETING_PROCESSING_REPLAYED
 
 
 @dataclass

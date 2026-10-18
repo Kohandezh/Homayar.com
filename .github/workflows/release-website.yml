@@ -1,0 +1,105 @@
+name: Release website
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to release
+        required: false
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-website
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "11.1.2"
+  CI: "true"
+
+jobs:
+  release:
+    name: Build and deploy homayar.com
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Check out release ref
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Only a commit on main is released. This runs before install, so no code
+      # from an unreviewed branch runs in the job that gets the Cloudflare secret.
+      - name: Require a commit on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "::error title=Release ref is not on main::Commit $(git rev-parse HEAD) is not on origin/main. Release a branch, tag or commit SHA that is on main."
+            exit 1
+          fi
+          echo "Commit $(git rev-parse HEAD) is on origin/main."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "${{ env.NODE_VERSION }}"
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build for Cloudflare Workers
+        run: pnpm build:cf
+
+      # `pnpm deploy` is a pnpm built-in command, so the script is called with `pnpm run`.
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm run deploy
+
+      # Each check retries for up to 5 minutes: DNS and the certificate of a new
+      # custom domain can take a few minutes after the first deploy.
+      - name: Smoke-test homayar.com
+        run: |
+          set -Eeuo pipefail
+          check() {
+            local name="$1" want="$2" got="" deadline=$((SECONDS + 300))
+            shift 2
+            while true; do
+              got="$(curl --silent --output /dev/null --max-time 15 --write-out '%{http_code} %{redirect_url}' "$@" || true)"
+              if [[ "${got}" =~ ^(${want})$ ]]; then
+                echo "ok: ${name} -> ${got}"
+                return 0
+              fi
+              if (( SECONDS >= deadline )); then
+                echo "::error title=Smoke test failed::${name}: got '${got}', want '${want}'"
+                return 1
+              fi
+              echo "waiting: ${name} -> '${got}'"
+              sleep 10
+            done
+          }
+          contact_body='{"name":"Test User","email":"test@example.com","company":"Homayar QA","deployment":"saas","locale":"en"}'
+          check "GET https://homayar.com/" '(307|200) .*' https://homayar.com/
+          check "GET https://homayar.com/fa" '200 ' https://homayar.com/fa
+          check "POST https://homayar.com/api/contact" '202 ' \
+            --request POST --header 'Content-Type: application/json' --data "${contact_body}" \
+            https://homayar.com/api/contact
+          check "GET https://www.homayar.com/fa" '301 https://homayar\.com/fa' https://www.homayar.com/fa

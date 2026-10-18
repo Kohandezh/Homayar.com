@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router";
 import { MailWarning } from "lucide-react";
 import { Alert, Button, Drawer, linkVariants } from "@heroui/react";
 import { apiErrorInfo, minutesUntil } from "@/lib/api-errors";
@@ -130,8 +130,11 @@ export default function AppLayout() {
     return () => desktop.removeEventListener("change", closeOnDesktop);
   }, [navigationOpen]);
 
-  // Accepting an invitation must work before any workspace is selected.
-  const gated = !workspace && !location.pathname.startsWith("/invitations/accept");
+  // Accepting an invitation must work before any workspace is selected, and
+  // so must the organization pages (an org-only analyst has no workspace).
+  // Routes match without case, so this check does too.
+  const gated =
+    !workspace && !location.pathname.startsWith("/invitations/accept") && !/^\/org(\/|$)/i.test(location.pathname);
 
   return (
     <div className="flex min-h-dvh bg-background text-foreground">

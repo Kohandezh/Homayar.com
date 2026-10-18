@@ -44,6 +44,7 @@ from backend.database.saas_models import AuditEvent
 from backend.observability.correlation import current_correlation_id
 from backend.observability.scrub import looks_like_secret
 from backend.security.tokens import token_digest
+from backend.services.audit_event_types import AuditEventType
 
 SENSITIVE_DETAIL_KEYS = {
     "password",
@@ -69,29 +70,76 @@ REDACTED = "[redacted]"
 # digits must not read as a phone number); they are still checked for secrets.
 EXEMPT_DETAIL_KEYS = frozenset(
     {
-        "id", "kind", "state", "status", "source", "source_type", "stage", "stages",
-        "digest", "scopes", "placeholder", "pii_class", "identifier_classes",
-        "credential_prefix", "version", "previous_version", "role", "previous_role",
-        "outcome", "method", "delivery", "category", "failure_class", "fields",
-        "manifest_id", "plan", "language", "mode", "visibility",
+        "id",
+        "kind",
+        "state",
+        "status",
+        "source",
+        "source_type",
+        "stage",
+        "stages",
+        "digest",
+        "scopes",
+        "placeholder",
+        "pii_class",
+        "identifier_classes",
+        "credential_prefix",
+        "version",
+        "previous_version",
+        "role",
+        "previous_role",
+        "outcome",
+        "method",
+        "delivery",
+        "category",
+        "failure_class",
+        "fields",
+        "manifest_id",
+        "plan",
+        "language",
+        "mode",
+        "visibility",
     }
 )
 EXEMPT_DETAIL_SUFFIXES = (
-    "_id", "_ids", "_digest", "_sha256", "_hash", "_at", "_count", "_bytes", "_seconds",
-    "_version", "_number", "_prefix", "_class", "_type", "_state", "_kind",
-    "_status", "_role", "_fields",
+    "_id",
+    "_ids",
+    "_digest",
+    "_sha256",
+    "_hash",
+    "_at",
+    "_count",
+    "_bytes",
+    "_seconds",
+    "_version",
+    "_number",
+    "_prefix",
+    "_class",
+    "_type",
+    "_state",
+    "_kind",
+    "_status",
+    "_role",
+    "_fields",
 )
 # A key naming personal data is never exempt, whatever its suffix (national_id,
 # phone_number, card_number, ...).
 PERSONAL_DATA_KEY_PARTS = (
-    "national", "phone", "mobile", "card", "iban", "email", "passport", "postal", "address",
+    "national",
+    "phone",
+    "mobile",
+    "card",
+    "iban",
+    "email",
+    "passport",
+    "postal",
+    "address",
     "birth",
 )
 # The free text a user or an integration supplies for these is masked, too; the
 # names stay documented for reviewers (the owner's list, 2026-10-17).
 FREE_TEXT_DETAIL_KEYS = frozenset(
-    {"reason", "release_reason", "deletion_reason", "name", "external_event_id",
-     "source_provider"}
+    {"reason", "release_reason", "deletion_reason", "name", "external_event_id", "source_provider"}
 )
 MAX_FREE_TEXT_LENGTH = 120
 MAX_NESTED_DEPTH = 3
@@ -286,7 +334,8 @@ def record_audit_event(
     _check_catalogued(event_type)
     correlation = request_id or current_correlation_id()
     event = AuditEvent(
-        event_type=event_type,
+        # an AuditEventType member is stored as its plain string value
+        event_type=event_type.value if isinstance(event_type, AuditEventType) else event_type,
         actor_user_id=actor_user_id,
         workspace_id=workspace_id,
         target_type=target_type,

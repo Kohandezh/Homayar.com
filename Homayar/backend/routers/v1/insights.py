@@ -60,6 +60,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.evidence_service import (
     FINDING_ACTION_ITEM,
@@ -158,7 +159,7 @@ def meeting_view(
     if policy.enforced and not policy.redacted:
         record_audit_event(
             db,
-            event_type="transcript.original_accessed",
+            event_type=AuditEventType.TRANSCRIPT_ORIGINAL_ACCESSED,
             actor_user_id=context.actor.user.id,
             workspace_id=meeting.workspace_id,
             target_type="meeting",
@@ -405,7 +406,7 @@ def correct_transcript(
         ) from exc
     record_audit_event(
         db,
-        event_type="transcript.revision.created",
+        event_type=AuditEventType.TRANSCRIPT_REVISION_CREATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="transcript_revision",
@@ -765,7 +766,7 @@ def create_action(
         )
     record_audit_event(
         db,
-        event_type="action_item.created",
+        event_type=AuditEventType.ACTION_ITEM_CREATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="action_item",
@@ -866,7 +867,7 @@ def update_action(
         action.status = payload.status
     record_audit_event(
         db,
-        event_type="action_item.updated",
+        event_type=AuditEventType.ACTION_ITEM_UPDATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="action_item",
@@ -913,7 +914,7 @@ def delete_action(
     )
     record_audit_event(
         db,
-        event_type="action_item.deleted",
+        event_type=AuditEventType.ACTION_ITEM_DELETED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="action_item",
@@ -956,7 +957,7 @@ def update_speaker(
     speaker.display_name = payload.display_name
     record_audit_event(
         db,
-        event_type="meeting.speaker_renamed",
+        event_type=AuditEventType.MEETING_SPEAKER_RENAMED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="meeting_speaker",
@@ -1382,7 +1383,7 @@ def export_meeting(
     )
     record_audit_event(
         db,
-        event_type="meeting.exported",
+        event_type=AuditEventType.MEETING_EXPORTED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="meeting",

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router";
 import api from "@/lib/api";
 import SearchPage from "@/components/platform/SearchPage";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";

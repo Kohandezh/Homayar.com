@@ -6,7 +6,7 @@ import {
   Search,
   Upload,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import {
   useBillingUsage,
