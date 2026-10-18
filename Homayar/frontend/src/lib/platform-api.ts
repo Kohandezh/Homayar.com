@@ -9,6 +9,7 @@ import { isAxiosError, type AxiosResponse } from "axios";
 
 import api, { API_BASE_URL } from "@/lib/api";
 import { apiErrorInfo } from "@/lib/api-errors";
+import { NONTERMINAL_MEETING_STATUSES as NONTERMINAL_STATUSES } from "@/lib/status-labels";
 import type {
   ActionItem,
   AdminJobListParams,
@@ -33,6 +34,7 @@ import type {
   JobReplayResponse,
   JobState,
   Meeting,
+  MeetingCountsResponse,
   MeetingDetail,
   MeetingExportFormat,
   MeetingListParams,
@@ -145,6 +147,8 @@ export const platformQueryKeys = {
   meetingLists: () => ["platform", "meetings", "list"] as const,
   meetingList: (params: MeetingListParams) =>
     ["platform", "meetings", "list", params] as const,
+  /** Server-side per-status totals (GET /meetings/counts), under the meetings() prefix. */
+  meetingCounts: () => ["platform", "meetings", "counts"] as const,
   meeting: (meetingId: string) => ["platform", "meetings", meetingId] as const,
   meetingJob: (meetingId: string) =>
     ["platform", "meetings", meetingId, "job"] as const,
@@ -197,6 +201,11 @@ export async function listMeetings(
   signal?: AbortSignal,
 ): Promise<MeetingListResponse> {
   const response = await api.get<MeetingListResponse>("/meetings", signal ? { params, signal } : { params });
+  return response.data;
+}
+
+export async function getMeetingCounts(signal?: AbortSignal): Promise<MeetingCountsResponse> {
+  const response = await api.get<MeetingCountsResponse>("/meetings/counts", signal ? { signal } : undefined);
   return response.data;
 }
 
@@ -614,16 +623,35 @@ async function invalidateMeetingIntelligence(
   ]);
 }
 
-export function useMeetings(params: MeetingListParams = {}) {
+export function useMeetings(params: MeetingListParams = {}, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: platformQueryKeys.meetingList(params),
     queryFn: ({ signal }) => listMeetings(params, signal),
+    enabled: options?.enabled,
     refetchInterval: (query) => {
       if (query.state.status === "error") return pollDelayAfterError(query.state.error);
       const active = query.state.data?.items.filter((meeting) => meetingRefetchInterval(meeting) !== false) ?? [];
       if (!active.length) return false;
       const signature = active.map((meeting) => `${meeting.id}:${meeting.status}`).join(",");
       return pollDelay(unchangedFor(`list:${JSON.stringify(params)}`, signature));
+    },
+  });
+}
+
+export function useMeetingCounts() {
+  return useQuery({
+    queryKey: platformQueryKeys.meetingCounts(),
+    queryFn: ({ signal }) => getMeetingCounts(signal),
+    // A 404 (older backend without the endpoint) is not retried, so the sample fallback is not delayed.
+    retry: (failureCount, error) => pollDelayAfterError(error) !== false && failureCount < 1,
+    refetchInterval: (query) => {
+      if (query.state.status === "error") return pollDelayAfterError(query.state.error);
+      const counts = query.state.data?.counts;
+      if (!counts) return false;
+      let inProgress = 0;
+      for (const status of NONTERMINAL_STATUSES) inProgress += counts[status] ?? 0;
+      if (inProgress <= 0) return false;
+      return pollDelay(unchangedFor("counts", JSON.stringify(counts)));
     },
   });
 }
@@ -672,6 +700,7 @@ export function useReplayJob() {
         // flag change, on the meeting page and in the admin list.
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingJob(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingCounts() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.adminJobsRoot() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.billing() }),
       ]);
@@ -719,6 +748,7 @@ export function useUploadMeeting() {
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingCounts() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.billingUsage() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.usageEventsRoot() }),
       ]);
@@ -738,6 +768,7 @@ export function useUpdateMeetingTitle() {
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingCounts() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),
       ]);
     },
@@ -753,6 +784,7 @@ export function useDeleteMeeting() {
       queryClient.removeQueries({ queryKey: platformQueryKeys.meeting(meetingId), exact: true });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingCounts() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.billing() }),
       ]);

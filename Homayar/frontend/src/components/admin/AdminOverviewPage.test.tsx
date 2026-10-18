@@ -6,6 +6,7 @@ import {
   useBillingUsage,
   useCurrentSubscription,
   useInvitations,
+  useMeetingCounts,
   useMeetings,
   useMembers,
   useReadiness,
@@ -18,6 +19,7 @@ import type {
   BillingUsageSnapshot,
   CurrentSubscriptionResponse,
   Meeting,
+  MeetingCountsResponse,
   MeetingListParams,
   MeetingStatus,
   WorkspaceInvitation,
@@ -25,6 +27,7 @@ import type {
 
 vi.mock("@/lib/platform-api", () => ({
   useMeetings: vi.fn(),
+  useMeetingCounts: vi.fn(),
   useBillingUsage: vi.fn(),
   useCurrentSubscription: vi.fn(),
   useMembers: vi.fn(),
@@ -62,6 +65,28 @@ function meeting(id: string, status: MeetingStatus, title = `Meeting ${id}`): Me
     created_at: T,
     updated_at: T,
   };
+}
+
+/** A full GET /meetings/counts answer; the total defaults to the sum. */
+function countsResponse(
+  overrides: Partial<Record<MeetingStatus, number>> = {},
+  total?: number,
+): MeetingCountsResponse {
+  const counts: Record<MeetingStatus, number> = {
+    uploading: 0,
+    uploaded: 0,
+    queued: 0,
+    processing: 0,
+    transcribing: 0,
+    diarizing: 0,
+    analyzing: 0,
+    completed: 0,
+    partial: 0,
+    failed: 0,
+    cancelled: 0,
+    ...overrides,
+  };
+  return { counts, total: total ?? Object.values(counts).reduce((sum, value) => sum + value, 0) };
 }
 
 function usage(metric: string, used: number, limit: number | null, reserved = 0): BillingUsageSnapshot {
@@ -136,7 +161,10 @@ function auditEvent(id: string, eventType: string): AuditEvent {
 }
 
 interface Answers {
+  /** GET /meetings/counts, the Processing card's primary source. */
   processing: QueryState;
+  /** The 100-row list sample, read only after a counts 404. */
+  processingList: QueryState;
   attention: QueryState;
   usage: QueryState;
   subscription: QueryState;
@@ -148,19 +176,17 @@ interface Answers {
 }
 
 const ALL_DATA: Answers = {
-  processing: ok({
-    items: [
-      meeting("m1", "completed"),
-      meeting("m2", "completed"),
-      meeting("m3", "completed"),
-      meeting("m4", "queued"),
-      meeting("m5", "transcribing"),
-      meeting("m6", "failed"),
-      meeting("m7", "partial"),
-      meeting("m8", "cancelled"),
-    ],
-    next_before: null,
-  }),
+  processing: ok(
+    countsResponse({
+      completed: 3,
+      failed: 1,
+      partial: 1,
+      queued: 1,
+      transcribing: 1,
+      cancelled: 1,
+    }),
+  ),
+  processingList: ok({ items: [], next_before: null }),
   attention: ok({ items: [meeting("f1", "failed", "Board review"), meeting("f2", "failed", "Weekly sync")], next_before: null }),
   usage: ok({
     workspace_id: "ws-1",
@@ -183,8 +209,10 @@ const ALL_DATA: Answers = {
 function answer(overrides: Partial<Answers> = {}) {
   const answers = { ...ALL_DATA, ...overrides };
   vi.mocked(useMeetings).mockImplementation(
-    (params?: MeetingListParams) => (params?.status === "failed" ? answers.attention : answers.processing) as never,
+    (params?: MeetingListParams) =>
+      (params?.status === "failed" ? answers.attention : answers.processingList) as never,
   );
+  vi.mocked(useMeetingCounts).mockReturnValue(answers.processing as never);
   vi.mocked(useBillingUsage).mockReturnValue(answers.usage as never);
   vi.mocked(useCurrentSubscription).mockReturnValue(answers.subscription as never);
   vi.mocked(useMembers).mockReturnValue(answers.members as never);
@@ -238,9 +266,12 @@ describe("AdminOverviewPage", () => {
 
   it("sends each request with the agreed parameters", () => {
     renderPage("en");
-    const meetingParams = vi.mocked(useMeetings).mock.calls.map(([params]) => params);
-    expect(meetingParams).toContainEqual({ limit: 100 });
-    expect(meetingParams).toContainEqual({ status: "failed", limit: 5 });
+    const meetingCalls = vi.mocked(useMeetings).mock.calls;
+    expect(meetingCalls.map(([params]) => params)).toContainEqual({ limit: 100 });
+    expect(meetingCalls.map(([params]) => params)).toContainEqual({ status: "failed", limit: 5 });
+    // While the counts endpoint answers, the 100-row sample stays disabled.
+    expect(meetingCalls.find(([params]) => params?.limit === 100 && !params?.status)?.[1]).toEqual({ enabled: false });
+    expect(useMeetingCounts).toHaveBeenCalledWith();
     expect(vi.mocked(useAuditEvents).mock.calls.map(([params]) => params)).toContainEqual({ limit: 10 });
     for (const hook of [useBillingUsage, useCurrentSubscription, useMembers, useInvitations, useReadiness, useVoiceCapacity]) {
       expect(hook).toHaveBeenCalled();
@@ -254,7 +285,7 @@ describe("AdminOverviewPage", () => {
     expect(within(card).getByRole("meter", { name: "Concurrent calls" })).toHaveAttribute("aria-valuenow", "0");
   });
 
-  it("counts meetings by group and says which sample the numbers cover", () => {
+  it("counts meetings by group from the server counts and says they cover all meetings", () => {
     renderPage("en");
     const card = region("Processing");
     expect(definition(card, "Completed")).toBe("3");
@@ -262,13 +293,70 @@ describe("AdminOverviewPage", () => {
     expect(definition(card, "Failed")).toBe("1");
     expect(definition(card, "Partial")).toBe("1");
     expect(within(card).getByText("All meetings")).toBeInTheDocument();
+    expect(within(card).queryByText("Last 100 meetings")).not.toBeInTheDocument();
   });
 
-  it("labels the counts as the last 100 meetings when there are more", () => {
-    answer({ processing: ok({ items: [meeting("m1", "completed")], next_before: T }) });
+  it("shows the server totals even when they pass the old 100-row sample", () => {
+    answer({
+      processing: ok(
+        countsResponse({ completed: 120, failed: 3, partial: 2, queued: 4, transcribing: 1, analyzing: 2, cancelled: 5 }),
+      ),
+    });
     renderPage("en");
-    expect(within(region("Processing")).getByText("Last 100 meetings")).toBeInTheDocument();
-    expect(within(region("Processing")).queryByText("All meetings")).not.toBeInTheDocument();
+    const card = region("Processing");
+    expect(definition(card, "Completed")).toBe("120");
+    expect(definition(card, "In progress")).toBe("7");
+    expect(definition(card, "Failed")).toBe("3");
+    expect(definition(card, "Partial")).toBe("2");
+    expect(within(card).getByText("All meetings")).toBeInTheDocument();
+    expect(within(card).queryByText("Last 100 meetings")).not.toBeInTheDocument();
+  });
+
+  it("keeps only-cancelled counts out of every group and out of the empty state", () => {
+    answer({ processing: ok(countsResponse({ cancelled: 2 })) });
+    renderPage("en");
+    const card = region("Processing");
+    expect(within(card).queryByText("No meetings yet")).not.toBeInTheDocument();
+    expect(definition(card, "Completed")).toBe("0");
+    expect(definition(card, "In progress")).toBe("0");
+    expect(definition(card, "Failed")).toBe("0");
+    expect(definition(card, "Partial")).toBe("0");
+  });
+
+  it("falls back to the last 100 meetings when the counts endpoint is missing", () => {
+    answer({
+      processing: failed(apiError(404, "not_found")),
+      processingList: ok({ items: [meeting("m1", "completed"), meeting("m2", "failed")], next_before: T }),
+    });
+    renderPage("en");
+    const card = region("Processing");
+    expect(within(card).getByText("Last 100 meetings")).toBeInTheDocument();
+    expect(within(card).queryByText("All meetings")).not.toBeInTheDocument();
+    expect(definition(card, "Completed")).toBe("1");
+    expect(definition(card, "In progress")).toBe("0");
+    expect(definition(card, "Failed")).toBe("1");
+    const sampleCall = vi.mocked(useMeetings).mock.calls.find(([params]) => params?.limit === 100 && !params?.status);
+    expect(sampleCall?.[1]).toEqual({ enabled: true });
+  });
+
+  it("says all meetings on the fallback when the sample covers the whole list", () => {
+    answer({
+      processing: failed(apiError(404, "not_found")),
+      processingList: ok({ items: [meeting("m1", "completed")], next_before: null }),
+    });
+    renderPage("en");
+    expect(within(region("Processing")).getByText("All meetings")).toBeInTheDocument();
+  });
+
+  it("shows the counts error state and never falls back on other failures", () => {
+    answer({ processing: failed(apiError(500, "internal_error")) });
+    renderPage("en");
+    const card = region("Processing");
+    expect(within(card).getByRole("alert")).toBeInTheDocument();
+    expect(within(card).queryByText("All meetings")).not.toBeInTheDocument();
+    expect(within(card).queryByText("Last 100 meetings")).not.toBeInTheDocument();
+    const sampleCall = vi.mocked(useMeetings).mock.calls.find(([params]) => params?.limit === 100 && !params?.status);
+    expect(sampleCall?.[1]).toEqual({ enabled: false });
   });
 
   it("lists failed meetings with links and a way to the processing page", () => {
@@ -429,7 +517,7 @@ describe("AdminOverviewPage states", () => {
 
   it("shows each card's empty text", () => {
     answer({
-      processing: ok({ items: [], next_before: null }),
+      processing: ok(countsResponse()),
       attention: ok({ items: [], next_before: null }),
       usage: ok({ workspace_id: "ws-1", items: [usage("storage_bytes", 1, 10)] }),
       subscription: ok(subscription({ plan: null, subscription: null })),
@@ -548,7 +636,7 @@ describe("AdminOverviewPage in Persian", () => {
 
   it("shows Persian empty and state texts", () => {
     answer({
-      processing: ok({ items: [], next_before: null }),
+      processing: ok(countsResponse()),
       attention: ok({ items: [], next_before: null }),
       usage: ok({ workspace_id: "ws-1", items: [] }),
       subscription: ok(subscription({ plan: null, subscription: null })),

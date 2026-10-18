@@ -197,6 +197,11 @@ export interface MeetingListParams {
   status?: MeetingStatus;
 }
 
+export interface MeetingCountsResponse {
+  counts: Record<MeetingStatus, number>;
+  total: number;
+}
+
 export interface UploadMeetingInput {
   file: File;
   idempotencyKey: string;
