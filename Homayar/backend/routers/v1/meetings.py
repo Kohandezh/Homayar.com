@@ -15,7 +15,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -40,6 +40,7 @@ from backend.schemas.meetings import (
     LegalHoldRequest,
     MediaObjectListResponse,
     MediaObjectResponse,
+    MeetingCountsResponse,
     MeetingDetailResponse,
     MeetingListResponse,
     MeetingQualityResponse,
@@ -57,6 +58,7 @@ from backend.security.context import (
     require_write_permission,
 )
 from backend.security.idempotency import scoped_idempotency_key, validate_idempotency_key
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.conversation_purge_service import (
     REASON_MEETING_DELETED,
@@ -581,7 +583,7 @@ async def upload_meeting(
             usage = get_usage_snapshot(db, workspace_id, "audio_seconds")
             record_audit_event(
                 db,
-                event_type="meeting.uploaded",
+                event_type=AuditEventType.MEETING_UPLOADED,
                 actor_user_id=context.actor.user.id,
                 workspace_id=workspace_id,
                 target_type="meeting",
@@ -710,6 +712,27 @@ def list_meetings(
     )
 
 
+# Declared before /meetings/{meeting_id}, so "counts" is never read as a meeting id.
+@router.get("/meetings/counts", response_model=MeetingCountsResponse)
+def count_meetings(
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+) -> MeetingCountsResponse:
+    rows = db.execute(
+        select(Meeting.status, func.count())
+        .where(
+            Meeting.workspace_id == context.workspace.id,
+            Meeting.deleted_at.is_(None),
+            context.record_access.meeting_clause(),
+        )
+        .group_by(Meeting.status)
+    ).all()
+    counts = {status.value: 0 for status in MeetingStatus}
+    for status, count in rows:
+        counts[status.value] = int(count)
+    return MeetingCountsResponse(counts=counts, total=sum(counts.values()))
+
+
 @router.get("/meetings/{meeting_id}", response_model=MeetingDetailResponse)
 def get_meeting(
     meeting_id: str,
@@ -799,7 +822,7 @@ def update_meeting(
         )
     record_audit_event(
         db,
-        event_type="meeting.updated",
+        event_type=AuditEventType.MEETING_UPDATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="meeting",
@@ -858,7 +881,7 @@ def delete_meeting(
     )
     record_audit_event(
         db,
-        event_type="meeting.deleted",
+        event_type=AuditEventType.MEETING_DELETED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="meeting",

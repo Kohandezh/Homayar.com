@@ -7,12 +7,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import update
+from sqlalchemy import event, update
 
 from backend.config import Settings
 from backend.database.relational import reset_database_state
-from backend.database.saas_models import Plan, PlanVersion, Subscription
+from backend.database.saas_models import AuditEvent, Plan, PlanVersion, Subscription
 from backend.main import create_app
+from backend.services.audit_event_types import lookup_audit_event_type
 from backend.services.rate_limit_service import RateLimiter
 from backend.tests._database import (
     REQUIRE_POSTGRES_ENV,
@@ -105,6 +106,50 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for marker, skip in skips:
             if item.get_closest_marker(marker) is not None:
                 item.add_marker(skip)
+
+
+# HOM-185 runtime guard: every audit row the ORM inserts or updates during a
+# test must carry a registered event type and that type's registered target
+# type. The listener only records; the autouse fixture fails the test, so a
+# job that swallows exceptions cannot hide a bad write.
+_audit_violations: list[str] = []
+
+
+def audit_write_violation(event_type: str, target_type: str | None) -> str | None:
+    registered = lookup_audit_event_type(event_type)
+    if registered is None:
+        return (
+            f"audit event_type {event_type!r} with target_type {target_type!r}: "
+            "not in the registry (backend/services/audit_event_types.py)"
+        )
+    if target_type != registered.target_type:
+        return (
+            f"audit event_type {event_type!r} with target_type {target_type!r}: "
+            f"registered target_type is {registered.target_type!r}"
+        )
+    return None
+
+
+@event.listens_for(AuditEvent, "before_insert")
+@event.listens_for(AuditEvent, "before_update")
+def _record_audit_write(_mapper, _connection, target: AuditEvent) -> None:
+    violation = audit_write_violation(target.event_type, target.target_type)
+    if violation is not None:
+        _audit_violations.append(violation)
+
+
+def fail_on_unregistered_audit_writes(violations: list[str]) -> None:
+    if violations:
+        pytest.fail("unregistered audit writes: " + "; ".join(violations), pytrace=False)
+
+
+@pytest.fixture(autouse=True)
+def audit_event_guard() -> Generator[list[str], None, None]:
+    _audit_violations.clear()
+    yield _audit_violations
+    found = list(_audit_violations)
+    _audit_violations.clear()
+    fail_on_unregistered_audit_writes(found)
 
 
 @pytest.fixture

@@ -53,6 +53,7 @@ from backend.database.tenant_context import (
 )
 from backend.jobs.dispatcher import publish_processing_job
 from backend.jobs.failures import PUBLICATION_FAILED, FailureClass, park_job
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.logging_service import logger
 
@@ -261,7 +262,7 @@ def _park_undeliverable_job(
     )
     record_audit_event(
         db,
-        event_type="meeting.processing.failed",
+        event_type=AuditEventType.MEETING_PROCESSING_FAILED,
         workspace_id=job.workspace_id,
         target_type="meeting",
         target_id=job.meeting_id,

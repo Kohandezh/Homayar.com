@@ -174,7 +174,7 @@ def test_deletion_is_journaled_at_once_without_content(client, email_outbox, mon
 
 
 def test_an_unwritable_journal_never_blocks_deletion_and_the_sweep_catches_up(
-    client, email_outbox, monkeypatch, settings, tmp_path
+    client, email_outbox, monkeypatch, settings, tmp_path, caplog
 ):
     _patch_media(monkeypatch)
     tenant = _tenant(client, email_outbox, "journal-late")
@@ -190,6 +190,12 @@ def test_an_unwritable_journal_never_blocks_deletion_and_the_sweep_catches_up(
         settings, now=datetime.now(UTC), workspace_ids=[tenant["workspace_id"]]
     )
     assert backlog["journal_backlog"] == 1 and backlog["journaled"] == 0
+    logged = [
+        r.getMessage() for r in caplog.records if "TOMBSTONE_JOURNAL_UNAVAILABLE" in r.getMessage()
+    ]
+    # A bounded reason and the error class only: never the path or the OS error text.
+    assert logged and all("reason=write_failed cause=" in line for line in logged)
+    assert not any(str(blocker) in line or "Errno" in line for line in logged)
     blocker.unlink()
     caught_up = run_retention_purge(
         settings, now=datetime.now(UTC), workspace_ids=[tenant["workspace_id"]]

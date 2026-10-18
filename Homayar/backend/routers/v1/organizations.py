@@ -46,6 +46,7 @@ from backend.security.context import (
     require_organization_write_permission,
 )
 from backend.services import organization_service as service
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -214,7 +215,7 @@ def grant_organization_member(
         request,
         db,
         context,
-        event_type="organization.member.granted",
+        event_type=AuditEventType.ORGANIZATION_MEMBER_GRANTED,
         target_type="organization_membership",
         target_id=record.membership.id,
         details={"role": record.membership.role.value, "user_id": record.user.id},
@@ -254,7 +255,7 @@ def update_organization_member(
         request,
         db,
         context,
-        event_type="organization.member.changed",
+        event_type=AuditEventType.ORGANIZATION_MEMBER_CHANGED,
         target_type="organization_membership",
         target_id=record.membership.id,
         details={
@@ -297,7 +298,7 @@ def revoke_organization_member(
         request,
         db,
         context,
-        event_type="organization.member.revoked",
+        event_type=AuditEventType.ORGANIZATION_MEMBER_REVOKED,
         target_type="organization_membership",
         target_id=record.membership.id,
         details={"role": record.membership.role.value, "user_id": record.user.id},
@@ -372,7 +373,7 @@ def create_organization_workspace(
         request,
         db,
         context,
-        event_type="organization.workspace.created",
+        event_type=AuditEventType.ORGANIZATION_WORKSPACE_CREATED,
         target_type="workspace",
         target_id=workspace.id,
         workspace_id=workspace.id,
@@ -423,7 +424,7 @@ def install_workspace_member(
         request,
         db,
         context,
-        event_type="organization.workspace.member_installed",
+        event_type=AuditEventType.ORGANIZATION_WORKSPACE_MEMBER_INSTALLED,
         target_type="membership",
         target_id=membership.id,
         workspace_id=membership.workspace_id,
@@ -469,7 +470,7 @@ def remove_workspace_member(
         request,
         db,
         context,
-        event_type="organization.workspace.member_removed",
+        event_type=AuditEventType.ORGANIZATION_WORKSPACE_MEMBER_REMOVED,
         target_type="membership",
         target_id=membership.id,
         workspace_id=membership.workspace_id,
@@ -529,7 +530,7 @@ def create_scope_grant(
         request,
         db,
         context,
-        event_type="organization.scope.granted",
+        event_type=AuditEventType.ORGANIZATION_SCOPE_GRANTED,
         target_type="organization_scope_grant",
         target_id=grant.id,
         details={
@@ -566,7 +567,7 @@ def revoke_scope_grant(
         request,
         db,
         context,
-        event_type="organization.scope.revoked",
+        event_type=AuditEventType.ORGANIZATION_SCOPE_REVOKED,
         target_type="organization_scope_grant",
         target_id=grant.id,
         details={"membership_id": grant.membership_id, "workspace_id": grant.workspace_id},

@@ -38,10 +38,13 @@ jobs:
       - name: Run source contract checker tests
         run: bash infra/ci/tests/test-check-source-contract.sh
 
-  public-web:
-    name: Public web lint, build, and tests
+  website:
+    name: Website lint and Cloudflare build
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: website
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -56,11 +59,6 @@ jobs:
           corepack enable
           corepack prepare "pnpm@${PNPM_VERSION}" --activate
 
-      - name: Configure approved pnpm dependency builds
-        run: >-
-          pnpm config set --location=project --json allowBuilds
-          '{"esbuild":true,"sharp":true,"unrs-resolver":true}'
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -70,26 +68,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # The cPanel export script and the Playwright suite belong to the website
-      # overlay (WP01-T03) that is not in this repository yet. Each gate runs as
-      # soon as its files are committed; until then the run carries a warning.
-      - name: Report website gates not yet in the repository
-        if: hashFiles('scripts/build-cpanel.mjs') == '' || hashFiles('tests/**/*.spec.ts') == ''
-        run: >-
-          echo "::warning title=Website gates pending::scripts/build-cpanel.mjs and/or tests/*.spec.ts
-          are not committed (website overlay, WP01-T03); the cPanel export and/or browser tests were skipped."
-
-      - name: Build and validate cPanel static artifact
-        if: hashFiles('scripts/build-cpanel.mjs') != ''
-        run: pnpm build:cpanel
-
-      - name: Install Playwright Chromium
-        if: hashFiles('tests/**/*.spec.ts') != ''
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run browser tests
-        if: hashFiles('tests/**/*.spec.ts') != ''
-        run: pnpm test:e2e
+      - name: Build for Cloudflare Workers
+        run: pnpm build:cf
 
   console-web:
     name: Product console lint, build, and tests
@@ -306,7 +286,6 @@ jobs:
       MINIO_ROOT_USER: homayar-root
       MINIO_ROOT_PASSWORD: ci-only-minio-root
       NEO4J_PASSWORD: ci-only-neo4j
-      PUBLIC_WEB_IMAGE: example.invalid/homayar/public-web@sha256:1111111111111111111111111111111111111111111111111111111111111111
       CONSOLE_WEB_IMAGE: example.invalid/homayar/console-web@sha256:2222222222222222222222222222222222222222222222222222222222222222
       API_IMAGE: example.invalid/homayar/api@sha256:3333333333333333333333333333333333333333333333333333333333333333
     steps:
@@ -321,6 +300,7 @@ jobs:
           rhysd/actionlint:1.7.7
           -color=false
           .github/workflows/ci.yml
+          .github/workflows/release-website.yml
 
       - name: Validate on-prem Compose profile
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem config --quiet
@@ -375,14 +355,12 @@ jobs:
 
       - name: Validate Dockerfile build definitions
         run: |
-          docker buildx build --check --file infra/docker/public-web.Dockerfile .
           docker buildx build --check --file infra/docker/console-web.Dockerfile .
           docker buildx build --check --file infra/docker/api.Dockerfile .
           docker buildx build --check --file infra/docker/egress-proxy.Dockerfile .
 
       - name: Build application images
         run: |
-          docker build --file infra/docker/public-web.Dockerfile --tag homayar-ci/public-web:local .
           docker build --file infra/docker/console-web.Dockerfile --tag homayar-ci/console-web:local .
           docker build --file infra/docker/api.Dockerfile --tag homayar-ci/api:local .
           docker build --file infra/docker/egress-proxy.Dockerfile --tag homayar-ci/egress-proxy:local .
@@ -391,13 +369,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           cleanup() {
-            docker rm --force homayar-ci-public homayar-ci-console homayar-ci-api >/dev/null 2>&1 || true
+            docker rm --force homayar-ci-console homayar-ci-api >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          docker run --detach --name homayar-ci-public \
-            --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-            --tmpfs /app/.next/cache:rw,noexec,nosuid,size=256m \
-            --publish 127.0.0.1:3100:3000 homayar-ci/public-web:local
           docker run --detach --name homayar-ci-console \
             --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
             --publish 127.0.0.1:3180:8080 homayar-ci/console-web:local
@@ -409,20 +383,17 @@ jobs:
             --env DATABASE_URL=sqlite:////tmp/homayar-ci.db \
             --env AUTO_CREATE_SCHEMA=true \
             --publish 127.0.0.1:3800:8000 homayar-ci/api:local
-          curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 http://127.0.0.1:3100/ >/dev/null
           curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 http://127.0.0.1:3180/app/index.html >/dev/null
           curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 http://127.0.0.1:3800/healthz >/dev/null
-          test "$(docker inspect --format '{{.Config.User}}' homayar-ci-public)" = "10001:10001"
           test "$(docker inspect --format '{{.Config.User}}' homayar-ci-console)" = "101:101"
           test "$(docker inspect --format '{{.Config.User}}' homayar-ci-api)" = "10001:10001"
 
       # WP08-T06 network layer (ADR 0031): probes from inside the api, worker,
-      # scheduler and web containers as Compose attaches them; disposable
+      # scheduler and console containers as Compose attaches them; disposable
       # endpoints only, no provider is contacted.
       - name: Test network-level egress denial and the egress proxy allowlist
         env:
           API_IMAGE: homayar-ci/api:local
-          PUBLIC_WEB_IMAGE: homayar-ci/public-web:local
           CONSOLE_WEB_IMAGE: homayar-ci/console-web:local
           EGRESS_PROXY_IMAGE: homayar-ci/egress-proxy:local
         run: bash infra/egress/tests/test-egress-network.sh
@@ -484,7 +455,6 @@ jobs:
           --volume "${PWD}:/work:ro"
           --workdir /work
           hadolint/hadolint:v2.12.0-alpine
-          infra/docker/public-web.Dockerfile
           infra/docker/console-web.Dockerfile
           infra/docker/api.Dockerfile
           infra/docker/egress-proxy.Dockerfile

@@ -46,10 +46,11 @@ abandoned attempt (`category="worker_lost"`) by the lease-recovery sweep. Their 
   series are not exported. Without the variable a single process serves its own counters.
 * A metric write that fails (full or missing directory) never fails the request it counts:
   it is logged as `METRICS_WRITE_FAILED error_type=…` at most once a minute.
-* **On-premise is not wired yet.** `infra/compose/compose.onprem.yaml` belongs to the backup
-  lane until PR #42 merges; until then the on-premise API gets neither `METRICS_*` nor
-  `PROMETHEUS_MULTIPROC_DIR`, so its `/metrics` answers 404 in production and, once a token
-  is set by hand, would serve per-worker counters. The wiring is added right after #42.
+* On-premise (`compose.onprem.yaml`) passes the same `METRICS_*` settings (plus the
+  on-premise-only `METRICS_ALLOW_UNAUTHENTICATED`) and the same dedicated
+  `/run/homayar-metrics` tmpfs. The opt-in `monitoring` profile adds `node-exporter`,
+  which reads the backup freshness gauge from `NODE_EXPORTER_TEXTFILE_DIR` (written by
+  `backup-tool`, kept outside the 0700 backup root).
 * Access (`backend.observability.metrics.metrics_access`):
 
   | Setting | development / test | staging / production |

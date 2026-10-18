@@ -44,6 +44,7 @@ from backend.database.saas_models import (
 from backend.database.tenant_context import bind_tenant_context
 from backend.jobs.checkpoints import discover_workspaces
 from backend.jobs.leases import database_now
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.logging_service import logger
 from backend.services.media_lifecycle_service import (
@@ -88,7 +89,11 @@ def reconcile_media_objects(
     }
     remaining = batch
     workspaces = (
-        list(workspace_ids) if workspace_ids is not None else discover_workspaces(limit=batch)
+        list(workspace_ids)
+        if workspace_ids is not None
+        else discover_workspaces(
+            interval_seconds=settings.media_reconciliation_interval_seconds, now=now
+        )
     )
 
     for workspace_id in workspaces:
@@ -204,7 +209,7 @@ def reconcile_media_objects(
                     counts["orphans_removed"] += 1
                     record_audit_event(
                         db,
-                        event_type="media.orphan_removed",
+                        event_type=AuditEventType.MEDIA_ORPHAN_REMOVED,
                         workspace_id=workspace_id,
                         target_type="workspace",
                         target_id=workspace_id,
@@ -219,7 +224,7 @@ def reconcile_media_objects(
             if not settings.media_reconciliation_remove_orphans and ws_orphans > 0:
                 record_audit_event(
                     db,
-                    event_type="media.orphans_reported",
+                    event_type=AuditEventType.MEDIA_ORPHANS_REPORTED,
                     workspace_id=workspace_id,
                     target_type="workspace",
                     target_id=workspace_id,

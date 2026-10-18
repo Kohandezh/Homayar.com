@@ -8,10 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from backend.database.saas_models import (
     DuplicateMediaPolicy,
     JobState,
+    MediaKind,
     RecordScope,
     RetentionMode,
+    ShareAudience,
 )
 from backend.schemas.meetings import JobResponse
+from backend.services.admin_shares_service import ShareStatus
 
 
 class AuditEventResponse(BaseModel):
@@ -28,6 +31,44 @@ class AuditEventResponse(BaseModel):
 
 class AuditEventListResponse(BaseModel):
     items: list[AuditEventResponse]
+    next_cursor: str | None = None
+
+
+class AuditEventTypeResponse(BaseModel):
+    """One entry of the audit event type catalog (HOM-185)."""
+
+    event_type: str
+    group: str
+    target_type: str | None
+
+
+class AuditEventTypeListResponse(BaseModel):
+    items: list[AuditEventTypeResponse]
+
+
+class AdminShareResponse(BaseModel):
+    """One share link in the administrator's list (HOM-192).
+
+    Metadata only: never the token, its hash, a share URL or recipient addresses.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    meeting_id: str
+    meeting_title: str
+    audience: ShareAudience
+    status: ShareStatus
+    created_by_user_id: str
+    created_at: datetime
+    expires_at: datetime | None
+    access_count: int
+    last_accessed_at: datetime | None
+    revoked_at: datetime | None
+
+
+class AdminShareListResponse(BaseModel):
+    items: list[AdminShareResponse]
     next_cursor: str | None = None
 
 
@@ -121,3 +162,25 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
         if any(field_value is None for field_value in value.values()):
             raise ValueError("Workspace settings cannot be null")
         return value
+
+
+class AdminLegalHoldResponse(BaseModel):
+    """One media object on legal hold in the owner's register (HOM-192).
+
+    A compliance register, not a media browser: no storage key, digest,
+    filename, size or other content metadata.
+    """
+
+    media_id: str
+    kind: MediaKind
+    meeting_id: str | None
+    meeting_title: str | None  # stored title, also of a deleted conversation
+    reason: str | None
+    placed_by_user_id: str | None  # the user FK is SET NULL
+    placed_at: datetime
+    review_at: datetime
+
+
+class AdminLegalHoldListResponse(BaseModel):
+    items: list[AdminLegalHoldResponse]
+    next_cursor: str | None = None

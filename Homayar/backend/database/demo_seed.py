@@ -500,6 +500,7 @@ def _ensure_workspace(owner: User, settings: Settings) -> Workspace:
     )
     from backend.database.tenant_context import bind_tenant_context
     from backend.services.admin_service import update_workspace_settings
+    from backend.services.audit_event_types import AuditEventType
     from backend.services.audit_service import record_audit_event
     from backend.services.organization_service import bootstrap_owner_membership
     from backend.services.tenancy_service import ensure_plan_catalog
@@ -578,7 +579,7 @@ def _ensure_workspace(owner: User, settings: Settings) -> Workspace:
         )
         record_audit_event(
             db,
-            event_type="workspace.settings.updated",
+            event_type=AuditEventType.WORKSPACE_SETTINGS_UPDATED,
             actor_user_id=owner.id,
             workspace_id=workspace.id,
             target_type="workspace",
@@ -602,6 +603,7 @@ def _ensure_members(workspace: Workspace, users: Mapping[str, User], settings: S
     from sqlalchemy import select
 
     from backend.database.saas_models import Membership, WorkspaceRole
+    from backend.services.audit_event_types import AuditEventType
     from backend.services.audit_service import record_audit_event
     from backend.services.member_service import accept_invitation, create_invitation
 
@@ -628,7 +630,7 @@ def _ensure_members(workspace: Workspace, users: Mapping[str, User], settings: S
             )
             record_audit_event(
                 db,
-                event_type="member.invitation.created",
+                event_type=AuditEventType.MEMBER_INVITATION_CREATED,
                 actor_user_id=owner.id,
                 workspace_id=workspace.id,
                 target_type="workspace_invitation",
@@ -642,7 +644,7 @@ def _ensure_members(workspace: Workspace, users: Mapping[str, User], settings: S
             )
             record_audit_event(
                 db,
-                event_type="member.invitation.accepted",
+                event_type=AuditEventType.MEMBER_INVITATION_ACCEPTED,
                 actor_user_id=user.id,
                 workspace_id=accepted.workspace.id,
                 target_type="workspace_invitation",
@@ -664,6 +666,7 @@ def _ensure_teams(workspace: Workspace, users: Mapping[str, User], settings: Set
     from sqlalchemy import select
 
     from backend.database.saas_models import Team, TeamAssignment, TeamRole
+    from backend.services.audit_event_types import AuditEventType
     from backend.services.audit_service import record_audit_event
     from backend.services.team_service import create_assignment, create_team, slugify
 
@@ -677,7 +680,7 @@ def _ensure_teams(workspace: Workspace, users: Mapping[str, User], settings: Set
                 team = create_team(db, workspace_id=workspace.id, name=name)
                 record_audit_event(
                     db,
-                    event_type="team.created",
+                    event_type=AuditEventType.TEAM_CREATED,
                     actor_user_id=owner.id,
                     workspace_id=workspace.id,
                     target_type="team",
@@ -710,7 +713,7 @@ def _ensure_teams(workspace: Workspace, users: Mapping[str, User], settings: Set
                 )
                 record_audit_event(
                     db,
-                    event_type="team.assignment.created",
+                    event_type=AuditEventType.TEAM_ASSIGNMENT_CREATED,
                     actor_user_id=owner.id,
                     workspace_id=workspace.id,
                     target_type="team_assignment",
@@ -730,6 +733,7 @@ def _ensure_api_key(workspace: Workspace, owner: User, settings: Settings) -> No
 
     from backend.database.saas_models import ApiKey, Membership
     from backend.services.api_key_service import create_api_key
+    from backend.services.audit_event_types import AuditEventType
     from backend.services.audit_service import record_audit_event
 
     with _session(user_id=owner.id, workspace=workspace) as db:
@@ -757,7 +761,7 @@ def _ensure_api_key(workspace: Workspace, owner: User, settings: Settings) -> No
         )
         record_audit_event(
             db,
-            event_type="api_key.created",
+            event_type=AuditEventType.API_KEY_CREATED,
             actor_user_id=owner.id,
             workspace_id=workspace.id,
             target_type="api_key",
@@ -790,6 +794,7 @@ def _upload(
     planned outcome. Returns ``None`` when the meeting was seeded completely.
     """
     from backend.database.saas_models import JobState
+    from backend.services.audit_event_types import AuditEventType
     from backend.services.audit_service import record_audit_event
     from backend.services.meeting_service import create_upload_job, find_job_by_idempotency
     from backend.storage.factory import create_object_storage
@@ -834,7 +839,7 @@ def _upload(
         )
         record_audit_event(
             db,
-            event_type="meeting.uploaded",
+            event_type=AuditEventType.MEETING_UPLOADED,
             actor_user_id=owner.id,
             workspace_id=workspace.id,
             target_type="meeting",
@@ -856,6 +861,7 @@ def _dead_letter(workspace: Workspace, job_id: str, settings: Settings) -> None:
     the audit says so."""
     from backend.database.saas_models import JobState, Meeting, ProcessingJob
     from backend.jobs.failures import FailureClass, park_job
+    from backend.services.audit_event_types import AuditEventType
     from backend.services.audit_service import record_audit_event
 
     with _session(workspace=workspace) as db:
@@ -873,7 +879,7 @@ def _dead_letter(workspace: Workspace, job_id: str, settings: Settings) -> None:
         )
         record_audit_event(
             db,
-            event_type="meeting.processing.failed",
+            event_type=AuditEventType.MEETING_PROCESSING_FAILED,
             workspace_id=workspace.id,
             target_type="meeting",
             target_id=job.meeting_id,
@@ -951,6 +957,7 @@ def _ensure_shares(workspace: Workspace, users: Mapping[str, User], settings: Se
 
     from backend.database.saas_models import Meeting, MeetingStatus, ShareAudience, ShareLink
     from backend.security.tokens import random_token
+    from backend.services.audit_event_types import AuditEventType
     from backend.services.audit_service import record_audit_event
     from backend.services.share_service import ShareSpec, issue_share
 
@@ -1004,7 +1011,7 @@ def _ensure_shares(workspace: Workspace, users: Mapping[str, User], settings: Se
             )
             record_audit_event(
                 db,
-                event_type="meeting.share_created",
+                event_type=AuditEventType.MEETING_SHARE_CREATED,
                 actor_user_id=owner.id,
                 workspace_id=workspace.id,
                 target_type="share_link",
