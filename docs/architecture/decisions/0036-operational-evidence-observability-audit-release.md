@@ -80,3 +80,39 @@ This ADR is extended section by section as each Lane D change lands.
    integration identifiers go through the text PII detector before they are written (class
    placeholders), then are capped at 120 characters. This keeps personal data out of an
    append-only table instead of having to erase it later.
+
+## Decision 3 — Append-only audit trail and protected sink (HOM-115)
+
+Owner decision 2026-10-17, option B: `audit_events` is append-only for the application;
+personal data in free text is masked at write time (Decision 2.6); a historical row may
+be erased only through an owner-approved DBA procedure run as the table owner, and the
+sink verifier reports it as `accepted_erasure`.
+
+1. **Two layers, one migration.** The ORM refuses to flush a changed or deleted
+   `AuditEvent` and refuses ORM bulk `UPDATE`/`DELETE` (covers SQLite, which has no
+   roles); on PostgreSQL `homayar_app` loses `UPDATE` and `DELETE` on `audit_events`
+   (`APPEND_ONLY_TABLES`, migration `e6c3a9f1d4b8`, down revision `d8a2f4c6b1e3`). The
+   foreign keys keep `ON DELETE SET NULL`: deleting a workspace or a user must keep
+   working, and the referential action runs as the table owner. We rejected
+   `ON DELETE RESTRICT` (it would block account deletion) and a trigger that refuses
+   updates (the owner can drop a trigger as easily as change a row; it adds nothing the
+   privilege does not already give against the application).
+2. **A reader role, not a service scope.** The sink reads through `homayar_audit_reader`
+   (`NOLOGIN`, `SELECT` on `audit_events` only, policy `homayar_audit_export FOR SELECT
+   TO homayar_audit_reader USING (true)`). A service scope is a setting any session can
+   set, so a scope that unlocked every tenant's audit rows would be reachable from any
+   request handler; a role membership is not. `homayar_app` and the application's login
+   are never members; the exporter logs in with its own login that is
+   (`AUDIT_EXPORT_DATABASE_URL`). The tenant policy is unchanged.
+3. **Tamper-evident, not tamper-proof.** The owner and a superuser can still change
+   rows. The append-only rule removes the application's ability to rewrite history;
+   detecting a change made by anyone else is the protected sink's job. No document may
+   describe either layer as immutable.
+
+### Consequences
+
+* An application bug or a compromised request handler cannot rewrite or erase audit
+  history; it can still insert rows (which is how auditing works).
+* Deleting a user or a workspace leaves its audit rows with a `NULL` reference.
+* Granting the reader role to a login is a privileged act: it reads every tenant's
+  audit rows. Only the exporter's login holds it.

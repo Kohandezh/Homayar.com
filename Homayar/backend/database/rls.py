@@ -293,12 +293,25 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
 # Append-only tables (WP08-T01/T02): the application role may read and insert
 # but never update or delete rows, whatever the ORM guards do.  Referential
 # cascades (workspace removal) run as the table owner and are unaffected.
+# ``audit_events`` (HOM-115, ADR 0036): history cannot be rewritten by the
+# application; the user/workspace ``ON DELETE SET NULL`` still runs as owner.
 APPEND_ONLY_TABLES: tuple[str, ...] = (
     "model_manifests",
     "ai_policy_versions",
     "run_policy_snapshots",
     "plan_versions",
+    "audit_events",
 )
+
+# Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on
+# ``audit_events`` only, across tenants through a policy granted to it alone.
+# ``homayar_app`` is never a member and the application's login role must not be
+# one either (SET ROLE checks the session user's memberships); the exporter logs
+# in with its own role that is a member.  The tenant policy and its WITH CHECK
+# are unchanged; the reader holds no INSERT/UPDATE/DELETE privilege.
+AUDIT_READER_ROLE = "homayar_audit_reader"
+AUDIT_READER_POLICY = "homayar_audit_export"
+AUDIT_TABLE = "audit_events"
 
 
 def validate_role_name(role: str) -> str:
@@ -322,6 +335,49 @@ def ensure_app_role_statements(role: str = APP_ROLE) -> list[str]:
         (
             "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}"
+        ),
+    ]
+
+
+def audit_reader_statements(role: str = AUDIT_READER_ROLE) -> list[str]:
+    """Create the sink reader role, its SELECT grant and its read-only policy."""
+    role = validate_role_name(role)
+    return [
+        (
+            "DO $$ BEGIN "
+            f"IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN "
+            f"CREATE ROLE {role} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; "
+            "END IF; END $$;"
+        ),
+        f"GRANT USAGE ON SCHEMA public TO {role}",
+        f"REVOKE ALL ON {AUDIT_TABLE} FROM {role}",
+        f"GRANT SELECT ON {AUDIT_TABLE} TO {role}",
+        f"DROP POLICY IF EXISTS {AUDIT_READER_POLICY} ON {AUDIT_TABLE}",
+        f"CREATE POLICY {AUDIT_READER_POLICY} ON {AUDIT_TABLE} AS PERMISSIVE FOR SELECT "
+        f"TO {role} USING (true)",
+    ]
+
+
+def remove_audit_reader_statements(role: str = AUDIT_READER_ROLE) -> list[str]:
+    """Undo ``audit_reader_statements`` in this database.
+
+    The role is cluster-wide: it is dropped only when no other database still grants
+    it anything and the migration role may drop roles (CREATEROLE); otherwise it
+    stays, ``NOLOGIN`` and without privileges in this database."""
+    role = validate_role_name(role)
+    return [
+        f"DROP POLICY IF EXISTS {AUDIT_READER_POLICY} ON {AUDIT_TABLE}",
+        (
+            "DO $$ BEGIN "
+            f"IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN "
+            f"REVOKE ALL ON {AUDIT_TABLE} FROM {role}; "
+            f"REVOKE USAGE ON SCHEMA public FROM {role}; "
+            "BEGIN "
+            f"DROP ROLE {role}; "
+            "EXCEPTION WHEN dependent_objects_still_exist OR insufficient_privilege "
+            "THEN NULL; "
+            "END; "
+            "END IF; END $$;"
         ),
     ]
 
@@ -392,6 +448,9 @@ def apply_row_level_security(connection: Connection, *, role: str = APP_ROLE) ->
             text("SELECT to_regclass(:name) IS NOT NULL"), {"name": f"public.{table}"}
         ).scalar_one():
             connection.execute(text(f"REVOKE UPDATE, DELETE ON {table} FROM {role}"))
+    if AUDIT_TABLE in tables:
+        for statement in audit_reader_statements():
+            connection.execute(text(statement))
 
 
 def remove_row_level_security(connection: Connection) -> None:

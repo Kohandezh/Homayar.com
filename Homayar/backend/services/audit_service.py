@@ -28,6 +28,12 @@ Delivery
   write fails; the failure is logged (``AUDIT_WRITE_FAILED``, no details) and
   counted with ``delivery="best_effort"``.
 
+Protection
+----------
+Rows are append-only for the application (HOM-115): the ORM refuses to flush a
+changed or deleted ``AuditEvent`` and refuses ORM ``UPDATE``/``DELETE``
+statements on the table, and on PostgreSQL the application role holds no
+``UPDATE`` or ``DELETE`` privilege on it (``backend.database.rls.APPEND_ONLY_TABLES``).
 """
 
 from __future__ import annotations
@@ -172,6 +178,10 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
 }
 
 
+class AuditImmutableError(RuntimeError):
+    """Raised when application code tries to change or delete an audit event."""
+
+
 def _is_sensitive_key(key: str) -> bool:
     lowered = key.casefold()
     return any(sensitive in lowered for sensitive in SENSITIVE_DETAIL_KEYS)
@@ -278,3 +288,22 @@ def _count_audit_insert_failures(context: Any) -> None:
         from backend.observability.metrics import observe_audit_write_failure
 
         observe_audit_write_failure(TRANSACTIONAL)
+
+
+@event.listens_for(Session, "before_flush")
+def _refuse_audit_mutation(session: Session, flush_context: Any, instances: Any) -> None:
+    for obj in session.deleted:
+        if isinstance(obj, AuditEvent):
+            raise AuditImmutableError("Audit events are append-only: delete refused")
+    for obj in session.dirty:
+        if isinstance(obj, AuditEvent) and session.is_modified(obj, include_collections=False):
+            raise AuditImmutableError("Audit events are append-only: update refused")
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _refuse_bulk_audit_mutation(state: Any) -> None:
+    if not (state.is_update or state.is_delete):
+        return
+    table = getattr(state.statement, "table", None)
+    if getattr(table, "name", None) == AuditEvent.__tablename__:
+        raise AuditImmutableError("Audit events are append-only: bulk update/delete refused")
