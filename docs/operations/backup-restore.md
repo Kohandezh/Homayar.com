@@ -31,12 +31,19 @@ on every restore.
    (`BACKUP_OFFSITE`, credentials `BACKUP_OFFSITE_S3_ENDPOINT` / `_ACCESS_KEY` / `_SECRET_KEY` /
    `_REGION`; the host must be on the egress allowlist and `EGRESS_PROXY_URL` set; recommended),
    or a mounted directory of another host or medium (`BACKUP_OFFSITE_PATH`). When you provision a
-   directory target, write the marker file `.homayar-offsite` **on the remote medium**: without
-   it the copy is refused, because an unmounted share is just an empty local directory (Docker
-   even creates a missing bind source). A target inside `BACKUP_ROOT` is refused. The copy never
-   needs the key.
+   directory target, write the marker file `.homayar-offsite` **on the remote medium while it is
+   mounted**: without it the copy is refused, because an unmounted share is just an empty local
+   directory (Docker even creates a missing bind source). The marker is your attestation that
+   the directory is another host or medium; nothing in the tool can check the medium. Before you
+   write it, confirm on the host that `df -P "$BACKUP_ROOT" "$BACKUP_OFFSITE_PATH"` shows two
+   different filesystems, the second being the remote share or medium. `backup.sh` compares the
+   host paths: it refuses an off-site path inside `BACKUP_ROOT` (or containing it) and warns when
+   both are on one filesystem. The tool itself sees only the container paths (`/backups`,
+   `/offsite`), so a direct `replicate` does not catch a host path nested in the backup root.
+   The copy never needs the key.
 
-   The tool does not make off-site copies immutable (owner decision AppVision D15): the
+   The tool does not make off-site copies immutable (**open owner decision AppVision D15**,
+   pending): the
    application host holds the credentials that write and prune them. Recommended: S3 versioning
    plus object lock (compliance mode) on the off-site bucket, and expiry by bucket lifecycle
    rules or a job on the off-site side instead of `prune --destination` from the application
@@ -96,8 +103,9 @@ What `create` does: takes the backup lock (a second concurrent run is refused), 
 `REPEATABLE READ READ ONLY` snapshot with `ACCESS SHARE` locks on every table (a migration
 cannot run underneath; a lock wait over 60 s fails the run), reads the catalog and every table's
 rows in that snapshot (`COPY (SELECT …)`, so partitioned tables work), copies the objects of the
-snapshot's tenants, explains every required object it did not find from the live rows (deleted
-or being deleted after the snapshot), fingerprints the tombstone journal, writes the encrypted
+snapshot's tenants, explains a required object it did not find only by the row that set the
+expectation, when that row was deleted or marked for deletion after the snapshot (a legally held
+object is never explained), fingerprints the tombstone journal, writes the encrypted
 catalog and the sealed manifest, fsyncs and renames `sets/.partial-<id>` to `sets/<id>`. It
 moves no gauge. The database connection must be a superuser or `BYPASSRLS` role (the bundled
 `POSTGRES_USER` is); a role subject to RLS is refused.
@@ -119,7 +127,7 @@ Other commands (all through `docker compose ... --profile onprem --profile ops r
 | `prune [--dry-run] [--destination DIR\|s3://…]` | retention (see the objectives, §3.1) of the root or an off-site copy; removes stale partials and manifest-less S3 copies older than 24 h |
 | `replicate ID s3://…` or `replicate ID /offsite` | off-site copy, verified before it is renamed into place (directory: needs `.homayar-offsite`) |
 | `fetch ID s3://…` | pull an off-site copy back into `BACKUP_ROOT`, checksums verified before it is renamed into place |
-| `retired` / `drop-retired NAME --confirm NAME` | databases a promotion replaced; drop them within 7 days |
+| `retired` / `drop-retired NAME --confirm NAME [--live-db NAME]` | databases a promotion replaced, each with a 7-day `drop_after` deadline and flagged `overdue` past it; drop them by that deadline (operator-enforced: nothing drops them or alerts). `drop-retired` refuses the live database, a `restoring` database, a name not of the form `<live>_retired_<ts>` and a database with open sessions, whatever its comment says |
 
 ## 3. Disaster recovery (isolated restore)
 
@@ -170,10 +178,12 @@ reconciliation.
      FAILs), orphans (reported only), secret fingerprints and post-backup revocations. It writes
      `reconciliation-report.json`, sealed with the backup key and listing every owner override;
    - `promote` (PASS only, the latest report of this database): renames the staging database to
-     `POSTGRES_DB`. The empty database the postgres image created under that name is dropped; a
-     live-name database **with data** is kept as `<POSTGRES_DB>_retired_<ts>` with a 7-day
-     `drop_after` (it is outside backups, retention and tombstone replay: drop it with
-     `drop-retired` once the incident is closed). `gate` confirms;
+     `POSTGRES_DB`. The database under that name is renamed `<POSTGRES_DB>_retired_<ts>` and
+     marked with a 7-day `drop_after` deadline in the same transaction; right after, it is
+     dropped if it holds no relation (the empty one the postgres image creates). One **with
+     data** is kept: it is outside backups, retention and tombstone replay, so drop it with
+     `drop-retired` by its deadline (`retired` flags it `overdue` after that; nothing drops it
+     for you). Promotes onto one live name are serialised (`live_busy`). `gate` confirms;
    - `--start-app`: starts api, worker and scheduler **without ingress** and waits for `/readyz`.
 4. Smoke tests through `docker compose ... exec api` (or a port-forward that is not public): an
    owner signs in, lists conversations, a conversation deleted after the backup returns 404, a
@@ -218,5 +228,6 @@ promises that restored data is deleted again before anyone can reach it:
 4. Deleted data remains inside existing sets until they expire under the retention policy (30
    daily + 12 monthly, provisional) — in the backup root and in every off-site copy that is
    pruned (or expired by its bucket lifecycle); any restore of a set still in retention replays
-   the journal. A database retired by `promote` must be dropped within 7 days for the same
-   reason.
+   the journal. A database retired by `promote` must be dropped by its 7-day `drop_after`
+   deadline for the same reason; the deadline is operator-enforced (`retired` lists overdue
+   ones).

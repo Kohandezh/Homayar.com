@@ -45,10 +45,14 @@ here is a target for the drill to measure, never an estimate taken from a script
 
 - An `s3://` target is used as configured; it should be a bucket on another host.
 - A directory target counts as off-site only if the operator wrote `.homayar-offsite` on the
-  remote medium when provisioning it. An unmounted share shows up as an empty local directory
-  (Docker even creates a missing bind source); without the marker the copy is refused. A target
-  inside the backup root, or one containing it, is refused.
-- **Immutability is not provided by the tool** (owner decision AppVision D15): the application
+  remote medium, while mounted, when provisioning it. An unmounted share shows up as an empty
+  local directory (Docker even creates a missing bind source); without the marker the copy is
+  refused. The marker is **operator attestation**: the tool cannot see the medium. `backup.sh`
+  compares the host paths, refuses an off-site path inside the backup root (or containing it)
+  and warns when both share a filesystem; the operator confirms the medium with
+  `df -P "$BACKUP_ROOT" "$BACKUP_OFFSITE_PATH"`. The tool alone sees only container paths.
+- **Immutability is not provided by the tool** (**open owner decision AppVision D15**, pending):
+  the application
   host holds the credentials that write and prune off-site copies, so an intruder on that host
   can delete them. Recommended: S3 versioning plus object lock (compliance mode) on the off-site
   bucket, and expiry by bucket lifecycle rules or by a job on the off-site side rather than by
@@ -64,8 +68,10 @@ Included in every set (one exported `REPEATABLE READ READ ONLY` snapshot, taken 
 - **Object storage:** every object under the tenant prefix of every tenant in the snapshot,
   copied through the application's storage interface, with a SHA-256 per object and the
   database's expectation for it (`required` / `optional` / `gone`). Objects are copied after the
-  snapshot. A required object missing at copy time is explained from the live rows (deleted or
-  being deleted after the snapshot, e.g. a purge or "delete audio after processing"). An
+  snapshot. A required object missing at copy time is explained only by the row that set the
+  expectation, when that row was removed, deleted or marked for deletion after the snapshot
+  (e.g. a purge or "delete audio after processing"); another table's row with the same key never
+  explains it, and a legally held object is never explained. An
   unexplained missing object, or bytes that do not match their row, mark the set's object copy
   `degraded`: the set is still kept (its database part is good), but the `objects` freshness
   gauge does not move and `backup.sh` exits non-zero.
@@ -130,9 +136,12 @@ Excluded on purpose (recorded in every manifest under `excluded`):
   - every journaled deletion is re-applied: its content rows, active share links and bytes are
     gone;
   - every required object is present and hashes to its restored row's SHA-256.
-- If the live name already holds data, `promote` keeps it as `<live>_retired_<ts>` with a
-  `drop_after` date of 7 days. It is outside backups, retention and tombstone replay, so it must
-  be dropped (`drop-retired`) within that time; an empty live-name database is dropped at once.
+- `promote` renames the database under the live name to `<live>_retired_<ts>` and marks it with
+  a `drop_after` deadline 7 days out, in the rename transaction. Right after, it is dropped if it
+  holds no relation (the empty one the postgres image creates). One with data is kept: it is
+  outside backups, retention and tombstone replay, so it must be dropped (`drop-retired`) by the
+  deadline. The deadline is **operator-enforced**: `retired` flags overdue databases, but nothing
+  drops them or alerts. Promotes onto one live name are serialised by an advisory lock.
 
 ## 7. What is not guaranteed (honest limits)
 
@@ -164,4 +173,4 @@ Excluded on purpose (recorded in every manifest under `excluded`):
 | staging `reconciling` | database comment | a reconcile is running or died | not promotable; rerun reconcile |
 | staging `reconciled` + report FAIL / REVIEW_REQUIRED | database comment + report | checks failed or need an owner decision | not promotable |
 | `promoted` | database comment | renamed to the live name after a PASS | yes |
-| `<live>_retired_<ts>` | database comment `homayar-retired` | the database the promotion replaced | drop within 7 days |
+| `<live>_retired_<ts>` | database comment `homayar-retired` | the database the promotion replaced | drop by `drop_after` (7 days, operator-enforced; `retired` flags overdue) |

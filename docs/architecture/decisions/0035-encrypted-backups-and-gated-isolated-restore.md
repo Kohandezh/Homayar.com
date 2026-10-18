@@ -66,16 +66,24 @@ migration slot), and CI must run the tests without new tooling.
     changes are compare-and-set, and promote accepts only the latest report of the database.
     Staging names must contain `restoring`; the live and source names are refused by name.
 11. **Content, not just presence.** Reconcile re-hashes every required object in the target
-    store against its restored row. The backup explains objects missing at copy time from the
-    live rows; unexplained loss or mismatching bytes mark the set's object copy `degraded`
+    store against its restored row. The backup explains an object missing at copy time only by
+    the row that set its expectation, deleted or marked for deletion after the snapshot; a
+    legally held object is never explained (neither at backup nor at reconcile). Unexplained
+    loss or mismatching bytes mark the set's object copy `degraded`
     (kept, but the `objects` gauge does not move and the scheduled run fails).
 12. **Gauges follow verification.** Only a deep `verify` moves `postgres`/`objects` and only a
     verified off-site copy moves `offsite`; values never move backwards. A directory counts as
-    off-site only with the operator's `.homayar-offsite` marker on the remote medium.
+    off-site only with the operator's `.homayar-offsite` marker on the remote medium: operator
+    attestation, since the tool cannot see the medium (`backup.sh` checks the host paths).
 13. **Retention prefers full verified sets** per bucket, and the 12 monthly sets lie beyond the
     30-day window; manifest-less S3 copies are swept after 24 h.
-14. **Retired databases are bounded.** A live-name database that promote replaces is dropped
-    when empty, else kept 7 days under a `homayar-retired` marker and dropped by `drop-retired`.
+14. **Retired databases carry an operator-enforced deadline.** Promote renames the live-name
+    database it replaces and marks it `homayar-retired` with a 7-day `drop_after` in the rename
+    transaction, then drops it only if it holds no relation (judged on the retired database).
+    One with data stays until the operator runs `drop-retired`; `retired` flags it overdue, and
+    nothing drops it or alerts. `drop-retired` trusts the name and the live configuration, not
+    the comment: it refuses the live, a `restoring` and an in-use database. Promotes onto one
+    live name hold an advisory lock on that name.
 
 ## Consequences
 
@@ -89,6 +97,6 @@ migration slot), and CI must run the tests without new tooling.
 - Losing the backup key loses the sets; the key needs an escrow outside every backup location.
 - The legacy scripts remain only for reading old sets.
 - The application host can still delete off-site copies; immutability (object lock,
-  off-site-side expiry) is owner decision AppVision D15.
+  off-site-side expiry) is **open owner decision AppVision D15** (pending).
 - Deletions newer than the journal replica's last sync are lost on a restore; the journal
   replication interval needs its own alert.
