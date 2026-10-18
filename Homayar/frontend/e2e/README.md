@@ -9,6 +9,21 @@ The Vitest suite in `src/` keeps testing components in jsdom. These tests
 cover what only a real browser shows: routing, the admin guard, session
 cookies, and text direction.
 
+## Sign-in sessions
+
+The backend limits sign-ins (20 per IP, 10 per account, in 15 minutes), and
+the suite used to sign in through the form in almost every test, so a full
+run hit that limit. The `setup` Playwright project (`e2e/auth.setup.ts`)
+now signs each demo role (owner, admin, member, viewer) in **once per run**
+through the real form (the member through the Persian form) and saves the
+session with `storageState` under `e2e/.auth/<role>.json`. That folder is
+gitignored (the files hold live session cookies) and remade at the start of
+every run, so a run never continues a session from an earlier run. The
+specs pick the session up with `resumeSession` (`e2e/demo.ts`); only the
+language stays per test, because the setup strips `homayar_lang` from the
+saved state. See "What you need running" below for the backend's SMTP
+settings, which the invitation flow still needs.
+
 ## What is covered
 
 | File | Flow |
