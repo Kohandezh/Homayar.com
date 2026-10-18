@@ -10,8 +10,7 @@ Next.js 16.4.2 with the App Router and `proxy.ts`. Deployed to Cloudflare Worker
 
 ## Boundaries
 
-- Work only in `website/`. Do not read the root `src/` (the legacy site) or `Homayar/`. They are different apps.
-- The legacy site is not a source to copy from unless the task is moving a page from it.
+- Work only in `website/`. Do not read `Homayar/`. It is a different app.
 
 ## Next.js
 

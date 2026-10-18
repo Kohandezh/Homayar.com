@@ -11,7 +11,7 @@ React 19 + Vite single-page app. It is served next to the backend under `/app/`.
 
 ## Boundaries
 
-- Work only in `Homayar/frontend/`. Do not read `website/` or the root `src/`. They are different apps.
+- Work only in `Homayar/frontend/`. Do not read `website/`. It is a different app.
 - Do not read backend Python to learn an API shape. Start from the existing types in `src/types/` and the callers in `src/lib/*-api.ts`. Open a backend router only when the task adds or changes an endpoint and no type exists yet.
 
 ## HeroUI v3

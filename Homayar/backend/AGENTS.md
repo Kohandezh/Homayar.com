@@ -9,5 +9,5 @@ FastAPI app with Celery workers, PostgreSQL, and Redis. The Python project root 
 
 ## Boundaries
 
-- Work only in `Homayar/backend/`. Do not read `website/` or the root `src/`.
+- Work only in `Homayar/backend/`. Do not read `website/`.
 - Read `Homayar/frontend/` only when an API change needs its console caller updated in the same PR.
