@@ -6,6 +6,8 @@ Standard library only; talks to the deployment through its public origin
     python drill_client.py mutate --base http://127.0.0.1:18080 --tenants tenants.json > changes.json
     python drill_client.py smoke  --base http://127.0.0.1:18081 --tenants tenants.json --changes changes.json
 
+``predelete`` (before the backup): deletes one conversation of tenants 2 and 3,
+so the journal is not empty when the backup fingerprints it.
 ``mutate`` (after the backup): deletes two conversations of tenant 0 and one
 of tenant 1 (journaled tombstones), revokes one share link of tenant 1 (a
 post-backup revocation the restore cannot replay) and uploads one new
@@ -128,11 +130,30 @@ def _completed(meetings: list[dict]) -> list[dict]:
     return [m for m in meetings if m.get("status") in {"completed", "ready", "processed"}] or meetings
 
 
+def predelete(args) -> int:
+    """Before the backup: delete one conversation of tenants 2 and 3."""
+    tenants = json.load(open(args.tenants))
+    deleted = []
+    for tenant in tenants["tenants"][2:4]:
+        client = Client(args.base)
+        client.login(tenant["owner"], tenants["password"], tenant["workspace_id"])
+        meeting = _completed(_meetings(client))[0]
+        status, body = client.request("DELETE", f"/api/v1/meetings/{meeting['id']}")
+        if status != 204:
+            raise SystemExit(f"delete failed: {status} {body[:200]}")
+        deleted.append({"tenant": tenant["index"], "meeting_id": meeting["id"]})
+    at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    print(json.dumps({"at": at, "deleted_before_backup": deleted}, indent=2))
+    return 0
+
+
 def mutate(args) -> int:
     tenants = json.load(open(args.tenants))
     password = tenants["password"]
     t0, t1 = tenants["tenants"][0], tenants["tenants"][1]
     changes: dict = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "deleted": [], "revoked_share": None}
+    if args.pre:
+        changes["deleted_before_backup"] = json.load(open(args.pre))["deleted_before_backup"]
 
     alpha = Client(args.base)
     alpha.login(t0["owner"], password, t0["workspace_id"])
@@ -189,6 +210,10 @@ def smoke(args) -> int:
     for deleted in changes["deleted"]:
         status, _ = clients[deleted["tenant"]].request("GET", f"/api/v1/meetings/{deleted['meeting_id']}")
         check(f"deleted conversation {deleted['meeting_id'][:8]} stays deleted", status == 404, str(status))
+    for deleted in changes.get("deleted_before_backup", []):
+        status, _ = clients[deleted["tenant"]].request("GET", f"/api/v1/meetings/{deleted['meeting_id']}")
+        check(f"conversation {deleted['meeting_id'][:8]} deleted before the backup stays deleted",
+              status == 404, str(status))
     kept = changes["kept"]
     status, _ = clients[kept["tenant"]].request("GET", f"/api/v1/meetings/{kept['meeting_id']}")
     check("kept conversation is served to its tenant", status == 200, str(status))
@@ -223,14 +248,16 @@ def smoke(args) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("mutate", "smoke"):
+    for name in ("predelete", "mutate", "smoke"):
         p = sub.add_parser(name)
         p.add_argument("--base", required=True)
         p.add_argument("--tenants", required=True)
+        if name == "mutate":
+            p.add_argument("--pre", help="predelete output, carried into changes.json")
         if name == "smoke":
             p.add_argument("--changes", required=True)
     args = parser.parse_args()
-    return mutate(args) if args.command == "mutate" else smoke(args)
+    return {"predelete": predelete, "mutate": mutate, "smoke": smoke}[args.command](args)
 
 
 if __name__ == "__main__":

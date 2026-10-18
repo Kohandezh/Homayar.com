@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Restore drill on a SCRATCH host (HOM-118): measure the full usable-recovery path.
 #
-#   1. a throwaway "production" project (homayar-drill-prod) is started and seeded;
+#   1. a throwaway "production" project (homayar-drill-prod) is started and seeded,
+#      and one conversation of each of two tenants is deleted (journal not empty);
 #   2. backup.sh takes a set and copies it off-site (a directory and an S3 MinIO
 #      that stands in for another host);
 #   3. post-backup changes through the public API (deletions, a revocation, a new
@@ -78,7 +79,9 @@ EOF
 chmod 0600 "${DRILL_DIR}/drill.env"
 # SECURE_COOKIES stays true (production refuses false); the drill client treats
 # the loopback origin as a secure context, as browsers do.
-export COMPOSE_ENV_FILE="${DRILL_DIR}/drill.env" BACKUP_UID="$(id -u)" BACKUP_GID="$(id -g)"
+BACKUP_UID="$(id -u)"
+BACKUP_GID="$(id -g)"
+export COMPOSE_ENV_FILE="${DRILL_DIR}/drill.env" BACKUP_UID BACKUP_GID
 
 compose_for() {  # project, then compose arguments
   local project="$1"
@@ -142,6 +145,14 @@ prod --profile onprem --profile ops run --rm --no-deps -T \
   /drill/seed_tenants.py --tenants "${TENANTS}" --sample-rate "${SAMPLE_RATE}" > "${E}/tenants.json"
 mark seed END
 
+# Real tombstones before the backup, so the backup fingerprints a non-empty
+# journal and the restore must prove the replica is this deployment's journal.
+mark pre_backup_deletions START
+"${PY}" "${SCRIPT_DIR}/drill/drill_client.py" predelete --base "http://127.0.0.1:${PROD_PORT}" \
+  --tenants "${E}/tenants.json" > "${E}/pre-backup-changes.json"
+sleep "${DRILL_PURGE_SETTLE_SECONDS:-30}"  # let the purge jobs of those deletions run
+mark pre_backup_deletions END
+
 # --- 2. backup + off-site ---------------------------------------------------------
 # A directory off-site target must carry the marker (and lie outside BACKUP_ROOT).
 : > "${DRILL_DIR}/offsite-dir/.homayar-offsite"
@@ -167,7 +178,7 @@ cp "${DRILL_DIR}/metrics-prod/homayar_backup.prom" "${E}/homayar_backup.prom"
 sleep "${DRILL_GAP_SECONDS:-60}"
 mark post_backup_changes START
 "${PY}" "${SCRIPT_DIR}/drill/drill_client.py" mutate --base "http://127.0.0.1:${PROD_PORT}" \
-  --tenants "${E}/tenants.json" > "${E}/changes.json"
+  --tenants "${E}/tenants.json" --pre "${E}/pre-backup-changes.json" > "${E}/changes.json"
 mark post_backup_changes END
 cp -a "${DRILL_DIR}/journal/." "${DRILL_DIR}/journal-replica/"
 

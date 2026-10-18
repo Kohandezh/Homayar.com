@@ -116,6 +116,8 @@ def main(evidence: str) -> int:
                 and "promote:START" in restore_marks
                 and restore_marks["reconcile:END"] <= restore_marks["promote:START"]
             ),
+            "journal_identity": tombstones.get("journal_identity"),
+            "owner_overrides": report.get("owner_overrides"),
             "tombstone_replay": tombstones.get("replay"),
             "tombstone_verify": tombstones.get("verify"),
             "journal_records": tombstones.get("journal_records"),
