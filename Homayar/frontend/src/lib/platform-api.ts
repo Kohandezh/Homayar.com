@@ -19,6 +19,7 @@ import type {
   CreateActionInput,
   CreatedShareLink,
   CreateShareInput,
+  CreateTeamInput,
   CurrentSubscriptionResponse,
   DownloadPayload,
   EvidenceListResponse,
@@ -44,6 +45,12 @@ import type {
   SearchResponse,
   ShareLink,
   SharedMeeting,
+  Team,
+  TeamAssignment,
+  TeamDetail,
+  TeamListResponse,
+  AssignTeamMemberInput,
+  UpdateTeamInput,
   Transcript,
   TranscriptSpeaker,
   TranscriptView,
@@ -163,6 +170,9 @@ export const platformQueryKeys = {
   usageEventsRoot: () => ["platform", "billing", "usage-events"] as const,
   members: () => ["platform", "members"] as const,
   invitations: () => ["platform", "members", "invitations"] as const,
+  teams: () => ["platform", "teams"] as const,
+  /** The prefix above also matches this key, so one invalidation refreshes both. */
+  team: (id: string) => ["platform", "teams", id] as const,
   admin: () => ["platform", "admin"] as const,
   auditEvents: (params: AuditEventListParams) =>
     ["platform", "admin", "audit-events", params] as const,
@@ -476,6 +486,43 @@ export async function changeMemberRole(
 
 export async function removeMember(membershipId: string): Promise<void> {
   await api.delete(`/members/${membershipId}`);
+}
+
+export async function listTeams(signal?: AbortSignal): Promise<TeamListResponse> {
+  const response = signal ? await api.get<TeamListResponse>("/teams", { signal }) : await api.get<TeamListResponse>("/teams");
+  return response.data;
+}
+
+export async function getTeam(teamId: string, signal?: AbortSignal): Promise<TeamDetail> {
+  const path = `/teams/${teamId}`;
+  const response = signal ? await api.get<TeamDetail>(path, { signal }) : await api.get<TeamDetail>(path);
+  return response.data;
+}
+
+export async function createTeam(input: CreateTeamInput): Promise<Team> {
+  const response = await api.post<Team>("/teams", { name: input.name });
+  return response.data;
+}
+
+export async function updateTeam(teamId: string, patch: UpdateTeamInput): Promise<Team> {
+  const response = await api.patch<Team>(`/teams/${teamId}`, patch);
+  return response.data;
+}
+
+export async function assignTeamMember(teamId: string, input: AssignTeamMemberInput): Promise<TeamAssignment> {
+  // The date keys are absent, not null, when no period was chosen.
+  const body = {
+    user_id: input.user_id,
+    role: input.role,
+    ...(input.valid_from !== undefined ? { valid_from: input.valid_from } : {}),
+    ...(input.valid_until !== undefined ? { valid_until: input.valid_until } : {}),
+  };
+  const response = await api.post<TeamAssignment>(`/teams/${teamId}/assignments`, body);
+  return response.data;
+}
+
+export async function revokeTeamAssignment(teamId: string, assignmentId: string): Promise<void> {
+  await api.delete(`/teams/${teamId}/assignments/${assignmentId}`);
 }
 
 export async function listAuditEvents(
@@ -967,6 +1014,66 @@ export function useRemoveMember() {
   return useMutation({
     mutationFn: removeMember,
     onSettled: () => queryClient.invalidateQueries({ queryKey: platformQueryKeys.members() }),
+  });
+}
+
+export function useTeams() {
+  return useQuery({
+    queryKey: platformQueryKeys.teams(),
+    queryFn: ({ signal }) => listTeams(signal),
+  });
+}
+
+/** One team with its assignments; disabled until a team is actually opened. */
+export function useTeam(teamId: string | null | undefined) {
+  const id = teamId ?? "";
+  return useQuery({
+    queryKey: platformQueryKeys.team(id),
+    queryFn: ({ signal }) => getTeam(id, signal),
+    enabled: Boolean(teamId),
+  });
+}
+
+/**
+ * Every team mutation invalidates the whole `teams` prefix on settle: the
+ * list, each team's assignments and the member counts all come from it.
+ */
+function useInvalidateTeamsOnSettle() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: platformQueryKeys.teams() });
+}
+
+export function useCreateTeam() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: createTeam,
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useUpdateTeam() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, patch }: { teamId: string; patch: UpdateTeamInput }) => updateTeam(teamId, patch),
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useAssignTeamMember() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, input }: { teamId: string; input: AssignTeamMemberInput }) =>
+      assignTeamMember(teamId, input),
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useRevokeTeamAssignment() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, assignmentId }: { teamId: string; assignmentId: string }) =>
+      revokeTeamAssignment(teamId, assignmentId),
+    onSettled: invalidateTeams,
   });
 }
 

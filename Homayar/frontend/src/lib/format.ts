@@ -17,6 +17,13 @@ export function formatDate(value: string, locale: string) {
   }).format(new Date(value));
 }
 
+/** A day without a time, for validity windows and other plain dates. */
+export function formatDay(value: string, locale: string) {
+  return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR" : "en", {
+    dateStyle: "medium",
+  }).format(new Date(value));
+}
+
 function numberLocale(locale: string) {
   return locale === "fa" ? "fa-IR" : "en";
 }

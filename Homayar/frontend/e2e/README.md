@@ -17,6 +17,7 @@ cookies, and text direction.
 | `processing.spec.ts` | An owner filters `/admin/processing` by state, reads a dead-letter job's drawer (failure, timeline, policy) and sees the failed jobs offer no replay. |
 | `usage.spec.ts` | An owner reads `/admin/usage` (subscription, quota meters, event history with filter and paging, plan catalog with no prices) in `en` and `fa`, and a member gets `No access`. |
 | `members.spec.ts` | An owner changes a member's role, removes the member, invites them back, and the invited account accepts. |
+| `teams.spec.ts` | An owner reads the seeded teams with their member counts and the record-scope banner, opens `Sales`, renames and re-renames `Support`, deactivates and reactivates it, assigns the viewer to `Sales` and revokes the assignment. The page is right to left in Persian, and a member sees no write control. |
 | `workspace-settings.spec.ts` | An owner changes `Public share links` and `Duplicate files`, the values survive a reload, and the audit log records `workspace.settings.updated`. An admin sees the privacy controls locked. Cancelling the immediate-retention warning saves nothing. The page is right to left in Persian. |
 | `access-control.spec.ts` | A viewer is blocked from `/admin` and `/admin/settings`, and still opens the pages their role allows. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
@@ -70,6 +71,10 @@ hooks, which run even when a step fails:
   leftover pending invitation is revoked, and a removed member is invited and
   accepted again.
 * `workspace-settings.spec.ts`, in `afterEach`: `Public share links` and `Duplicate files` go back to their seeded values.
+* `teams.spec.ts`, in `afterAll`: `Support` gets its seeded name and its
+  active flag back, and any assignment the run added (the viewer as a `Sales`
+  agent) is revoked. A revoked assignment row stays in the drawer as history;
+  the server has no way to delete it, and the member count ignores it.
 
 Re-running the seed is **not** a repair. `_ensure_workspace` returns an
 existing workspace untouched (`backend/database/demo_seed.py`), so `make

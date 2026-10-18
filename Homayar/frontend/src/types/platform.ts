@@ -579,6 +579,64 @@ export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
 export type AssignableWorkspaceRole = Exclude<WorkspaceRole, "owner">;
 export type InvitationStatus = "pending" | "accepted" | "revoked" | "expired";
 
+/** The roles a person can hold inside a team (backend/schemas/teams.py). */
+export type TeamRole = "supervisor" | "agent";
+
+export interface Team {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface TeamListResponse {
+  items: Team[];
+  total: number;
+}
+
+/**
+ * One assignment of a person to a team. Revoked and ended rows stay in the
+ * list as history; `is_effective` is the server's word for "counts now".
+ */
+export interface TeamAssignment {
+  id: string;
+  team_id: string;
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  role: TeamRole;
+  valid_from: IsoDateTime;
+  valid_until: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
+  is_effective: boolean;
+  created_at: IsoDateTime;
+}
+
+export interface TeamDetail extends Team {
+  assignments: TeamAssignment[];
+}
+
+export interface CreateTeamInput {
+  name: string;
+}
+
+/** Exactly one field: a rename or an activation change, never both. */
+export type UpdateTeamInput = { name: string } | { is_active: boolean };
+
+/**
+ * `valid_from`/`valid_until` are sent only when set; the keys are absent
+ * otherwise, because the server treats null and an ISO date differently.
+ */
+export interface AssignTeamMemberInput {
+  user_id: string;
+  role: TeamRole;
+  valid_from?: string;
+  valid_until?: string;
+}
+
 export interface WorkspaceMember {
   id: string;
   user_id: string;
