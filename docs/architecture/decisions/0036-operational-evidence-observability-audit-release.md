@@ -80,8 +80,9 @@ This ADR is extended section by section as each Lane D change lands.
    heads or a broken chain are refused); Dockerfile and `.dockerignore` digests and base images
    of every image; the digest of the code the API image ships; the profile; image digests and
    validation links passed in; `requires-python`; and what is and is not pinned.
-   `manifest_sha256` covers the canonical body. Validation links with credentials, a query or a
-   fragment are refused; no environment variable, `.env` content or Git identity is recorded.
+   `manifest_sha256` covers the canonical body: an integrity checksum, not proof of authorship
+   (it is unkeyed; manifests and images are not signed and carry no provenance attestation).
+   Validation links with credentials, a query or a fragment are refused; no environment variable, `.env` content or Git identity is recorded.
 3. **The image proves what it was built from.** Build arguments `SOURCE_SHA`,
    `SOURCE_DATE_EPOCH`, `SOURCE_DATE`, `RELEASE_VERSION` and `RELEASE_PROFILE` (which must agree
    with `INSTALL_AI_LOCAL`) come from `release_manifest.py build-args`. The image writes

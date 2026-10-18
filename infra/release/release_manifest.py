@@ -13,8 +13,10 @@
 files, uncommitted edits and the caller's environment cannot change the result.
 The output is canonical JSON (sorted keys, no wall-clock time: the build time is
 the commit time unless ``--build-time`` is given) with ``manifest_sha256`` over
-the canonical body.  It records file digests, versions and the migration head
-only: no environment variable, ``.env`` content or Git identity.
+the canonical body: an integrity checksum against accidental change, not proof
+of authorship (it is unkeyed, so whoever edits a manifest can recompute it).
+It records file digests, versions and the migration head only: no environment
+variable, ``.env`` content or Git identity.
 
 ``build-args`` prints the ``KEY=VALUE`` Docker build arguments of the API image
 for the revision.  ``verify`` compares a manifest with the ``build-info.json``
@@ -82,6 +84,7 @@ ALWAYS_PINNED = [
 NEVER_PINNED = [
     "Debian packages installed with apt-get at build time",
     "image and layer digests (builds are not bit-for-bit reproducible)",
+    "not signed / no provenance attestation; images are local ids, not registry digests",
 ]
 
 _SHA = re.compile(r"[0-9a-f]{40}")
@@ -433,7 +436,7 @@ def verify_documents(
     problems = []
     body = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
     if manifest.get("manifest_sha256") != sha256_bytes(canonical_json(body).encode("ascii")):
-        problems.append("manifest_sha256: does not match the manifest body (edited afterwards?)")
+        problems.append("manifest_sha256: does not match the manifest body (changed afterwards?)")
     pairs = [
         ("source.sha", "source.sha"),
         ("source.commit_time_epoch", "source.date_epoch"),

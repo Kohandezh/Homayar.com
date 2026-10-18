@@ -74,7 +74,8 @@ python3 infra/release/release_manifest.py verify --manifest release-manifest.jso
 
 `verify` exits 0 with `OK: ...`, or 1 with one line per mismatch, for example
 `dependencies.uv_lock.sha256: manifest='…' build-info dependencies.uv_lock_sha256='…'`. It
-checks the manifest's own `manifest_sha256` (an edited manifest fails), the source commit and
+checks the manifest's own `manifest_sha256` (an integrity checksum, not proof of authorship: it is
+unkeyed, so whoever edits a manifest can recompute it), the source commit and
 date, version, profile, `uv.lock` and `pyproject.toml` digests, migration head, shipped-code
 digest and file count, base image reference, uv version and the Python minor version, and with
 `--image-labels` the revision, version, created and base-image labels.
@@ -127,7 +128,18 @@ Not pinned (recorded as such under `reproducibility.not_pinned` in every manifes
   the build;
 * file timestamps and layer digests;
 * the base images of `console-web`, `public-web` and `egress-proxy` (tags; the manifest records
-  them with `pinned_by_digest: false`).
+  them with `pinned_by_digest: false`);
+* signatures and provenance: the manifest and images are not signed and carry no provenance
+  attestation, and the image ids recorded by CI are local ids, not registry digests.
+
+Known gaps (documented, not addressed here):
+
+* `verify` does not compare the installed distribution set (`installed_set_sha256`); it is
+  recorded in `build-info.json` for comparison by hand between builds;
+* uv is installed with `pip install uv==<version>`, by version, not by hash;
+* the on-prem Compose file's `PYTHON_IMAGE` default is a tag (see below);
+* `SOURCE_DATE_EPOCH` sets the image `created` time and labels, not the timestamps of files in
+  the layers.
 
 `build-info.json` hashes the code the image ships (`alembic.ini` and `backend/` without tests,
 environments and caches, the same rule as `infra/docker/api.Dockerfile.dockerignore`), so an
