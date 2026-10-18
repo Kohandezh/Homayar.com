@@ -88,7 +88,11 @@ def reconcile_media_objects(
     }
     remaining = batch
     workspaces = (
-        list(workspace_ids) if workspace_ids is not None else discover_workspaces(limit=batch)
+        list(workspace_ids)
+        if workspace_ids is not None
+        else discover_workspaces(
+            interval_seconds=settings.media_reconciliation_interval_seconds, now=now
+        )
     )
 
     for workspace_id in workspaces:
