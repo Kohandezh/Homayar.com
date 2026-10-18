@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router";
 import PhoneOtpRequestPage from "@/components/auth/PhoneOtpRequestPage";
 import PhoneOtpVerifyPage from "@/components/auth/PhoneOtpVerifyPage";
 import * as auth from "@/lib/auth";

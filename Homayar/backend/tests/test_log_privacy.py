@@ -107,25 +107,45 @@ def _with_code(code: str) -> ValueError:
     ("build", "expected"),
     [
         (lambda: RuntimeError(f"cannot notify {_EMAIL} or {_PHONE}"), "RuntimeError"),
-        (_driver_error,
-         "FakePsycopgError sqlstate=23505 constraint_name=uq_users_email table_name=users"),
-        (_integrity_error,
-         "IntegrityError FakePsycopgError sqlstate=23505 constraint_name=uq_users_email "
-         "table_name=users"),
+        (
+            _driver_error,
+            "FakePsycopgError sqlstate=23505 constraint_name=uq_users_email table_name=users",
+        ),
+        (
+            _integrity_error,
+            "IntegrityError FakePsycopgError sqlstate=23505 constraint_name=uq_users_email "
+            "table_name=users",
+        ),
         (_validation_error, "ValidationError"),
         (_wrapped, "RuntimeError cause=IntegrityError"),
         (lambda: OSError(28, "No space left on device", f"/data/{_EMAIL}"), "OSError errno=28"),
-        (lambda: StorageError(f"object tenants/{_EMAIL}/a missing", code="object_not_found"),
-         "StorageError code=object_not_found"),
-        (lambda: ProviderError("asr_timeout", "Speech recognition timed out"),
-         "ProviderError code=asr_timeout: Speech recognition timed out"),
-        (lambda: ExceptionGroup("unhandled errors in a TaskGroup", [_integrity_error()]),
-         "IntegrityError FakePsycopgError sqlstate=23505 constraint_name=uq_users_email "
-         "table_name=users"),
+        (
+            lambda: StorageError(f"object tenants/{_EMAIL}/a missing", code="object_not_found"),
+            "StorageError code=object_not_found",
+        ),
+        (
+            lambda: ProviderError("asr_timeout", "Speech recognition timed out"),
+            "ProviderError code=asr_timeout: Speech recognition timed out",
+        ),
+        (
+            lambda: ExceptionGroup("unhandled errors in a TaskGroup", [_integrity_error()]),
+            "IntegrityError FakePsycopgError sqlstate=23505 constraint_name=uq_users_email "
+            "table_name=users",
+        ),
         (lambda: _with_code("x" * 65), "ValueError"),
     ],
-    ids=["runtime", "raw-driver", "sqlalchemy", "validation", "wrapper", "oserror",
-         "storage-code", "provider-allow-listed", "exception-group", "unbounded-code"],
+    ids=[
+        "runtime",
+        "raw-driver",
+        "sqlalchemy",
+        "validation",
+        "wrapper",
+        "oserror",
+        "storage-code",
+        "provider-allow-listed",
+        "exception-group",
+        "unbounded-code",
+    ],
 )
 def test_exception_summaries_name_the_class_and_bounded_fields_only(build, expected):
     summary = exception_summary(build())
@@ -142,7 +162,12 @@ def test_an_allow_listed_message_is_still_scrubbed():
 def test_an_exception_passed_as_a_message_argument_is_replaced_by_its_summary():
     error = _integrity_error()
     record = logging.LogRecord(
-        "homayar", logging.ERROR, __file__, 1, "write failed: %s", (error,),
+        "homayar",
+        logging.ERROR,
+        __file__,
+        1,
+        "write failed: %s",
+        (error,),
         (type(error), error, None),
     )
     line = json.loads(JSONFormatter().format(record))
@@ -152,9 +177,7 @@ def test_an_exception_passed_as_a_message_argument_is_replaced_by_its_summary():
 
 
 def test_safe_message_without_an_exception_is_only_scrubbed():
-    record = logging.LogRecord(
-        "homayar", logging.INFO, __file__, 1, "sent to %s", (_EMAIL,), None
-    )
+    record = logging.LogRecord("homayar", logging.INFO, __file__, 1, "sent to %s", (_EMAIL,), None)
     assert safe_message(record) == "sent to [EMAIL_1]"
 
 
@@ -183,10 +206,12 @@ def test_the_access_log_of_a_real_server_has_templates_not_tokens(settings, capf
             lines.append(self.format(record))
 
     capture = Capture()
-    capture.setFormatter(AccessFormatter(
-        '%(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
-        use_colors=False,
-    ))
+    capture.setFormatter(
+        AccessFormatter(
+            '%(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+            use_colors=False,
+        )
+    )
     access_logger = logging.getLogger(ACCESS_LOGGER)
     access_logger.disabled = False  # Alembic's fileConfig in other tests disables it
     access_logger.addHandler(capture)
@@ -194,9 +219,10 @@ def test_the_access_log_of_a_real_server_has_templates_not_tokens(settings, capf
         with _app_client(settings) as client:
             import httpx
 
-            with _uvicorn(client.app, access_log=True) as port, httpx.Client(
-                trust_env=False, timeout=30
-            ) as http:
+            with (
+                _uvicorn(client.app, access_log=True) as port,
+                httpx.Client(trust_env=False, timeout=30) as http,
+            ):
                 base = f"http://127.0.0.1:{port}"
                 headers = {"Host": "testserver"}
                 http.get(f"{base}/api/v1/shares/{_SHARE_TOKEN}", headers=headers)
@@ -259,8 +285,11 @@ def test_a_failed_celery_task_logs_its_summary_not_its_sql_or_pii(capfd):
     result = explode_integrity.apply(throw=False)
     assert result.failed()
     out, err = capfd.readouterr()
-    failures = [json.loads(line) for line in out.splitlines()
-                if line.startswith("{") and "raised unexpected" in line]
+    failures = [
+        json.loads(line)
+        for line in out.splitlines()
+        if line.startswith("{") and "raised unexpected" in line
+    ]
     assert len(failures) == 1, out
     [failure] = failures
     assert failure["logger"] == "celery.app.trace"
@@ -298,8 +327,16 @@ def test_a_quoted_secret_split_by_the_input_bound_does_not_survive():
         "a@b." * 4000,
         "token=" * 2667,
     ],
-    ids=["dots", "jwt-prefix", "schemes", "url-userinfo", "quoted-keys", "bearer", "at-signs",
-         "key-value"],
+    ids=[
+        "dots",
+        "jwt-prefix",
+        "schemes",
+        "url-userinfo",
+        "quoted-keys",
+        "bearer",
+        "at-signs",
+        "key-value",
+    ],
 )
 def test_scrubbing_hostile_input_of_the_full_bound_is_fast(hostile):
     assert len(hostile) >= scrub.MAX_SCRUB_INPUT
@@ -340,10 +377,24 @@ def test_an_exception_argument_without_exc_info_is_summarised():
 
 
 def test_a_celery_record_without_exc_info_drops_its_exception_text():
-    context = {"name": "t", "id": "1", "description": "retry", "exc": repr(_integrity_error()),
-               "traceback": "Traceback ...", "args": "()", "kwargs": "{}"}
-    record = logging.LogRecord("celery.app.trace", logging.INFO, __file__, 1,
-                               "Task %(name)s[%(id)s] %(description)s: %(exc)s", (context,), None)
+    context = {
+        "name": "t",
+        "id": "1",
+        "description": "retry",
+        "exc": repr(_integrity_error()),
+        "traceback": "Traceback ...",
+        "args": "()",
+        "kwargs": "{}",
+    }
+    record = logging.LogRecord(
+        "celery.app.trace",
+        logging.INFO,
+        __file__,
+        1,
+        "Task %(name)s[%(id)s] %(description)s: %(exc)s",
+        (context,),
+        None,
+    )
     message = safe_message(record)
     assert message == "Task t[1] retry: [exception]"
 
@@ -351,8 +402,10 @@ def test_a_celery_record_without_exc_info_drops_its_exception_text():
 def test_websocket_handshake_lines_never_carry_the_path():
     from backend.services.logging_service import ServerLogFilter
 
-    for msg, args in (('%s - "WebSocket %s" 403', ("1.2.3.4:5", f"/ws/{_SHARE_TOKEN}?t=x")),
-                      ('%s - "WebSocket %s" [accepted]', ("1.2.3.4:5", f"/ws/{_SHARE_TOKEN}"))):
+    for msg, args in (
+        ('%s - "WebSocket %s" 403', ("1.2.3.4:5", f"/ws/{_SHARE_TOKEN}?t=x")),
+        ('%s - "WebSocket %s" [accepted]', ("1.2.3.4:5", f"/ws/{_SHARE_TOKEN}")),
+    ):
         record = logging.LogRecord("uvicorn.error", logging.INFO, __file__, 1, msg, args, None)
         ServerLogFilter().filter(record)
         assert _SHARE_TOKEN not in record.getMessage()

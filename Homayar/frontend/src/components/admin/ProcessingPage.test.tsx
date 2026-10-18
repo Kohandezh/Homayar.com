@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import ProcessingPage from "@/components/admin/ProcessingPage";
 import { PROCESSING_COPY } from "@/components/platform/processing-copy";
 import api from "@/lib/api";

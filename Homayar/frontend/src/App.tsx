@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toast } from "@heroui/react";
 import { I18nProvider } from "@/lib/i18n";
@@ -27,7 +27,9 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
-        <BrowserRouter basename={routerBasename}>
+        {/* No startTransition, as in react-router v6: a lazy page that is
+            still loading shows the Loading fallback, not the old page. */}
+        <BrowserRouter basename={routerBasename} useTransitions={false}>
           <AuthProvider>
             <Suspense fallback={<RouteFallback />}>
               <AppRoutes />

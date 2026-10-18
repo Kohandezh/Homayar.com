@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Mail } from "lucide-react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { useAuth } from "@/lib/auth-context";
 import { useAuthMethods } from "@/lib/auth-methods";
 import { safeReturnPath } from "@/lib/return-path";

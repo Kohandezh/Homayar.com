@@ -9,6 +9,21 @@ The Vitest suite in `src/` keeps testing components in jsdom. These tests
 cover what only a real browser shows: routing, the admin guard, session
 cookies, and text direction.
 
+## Sign-in sessions
+
+The backend limits sign-ins (20 per IP, 10 per account, in 15 minutes), and
+the suite used to sign in through the form in almost every test, so a full
+run hit that limit. The `setup` Playwright project (`e2e/auth.setup.ts`)
+now signs each demo role (owner, admin, member, viewer) in **once per run**
+through the real form (the member through the Persian form) and saves the
+session with `storageState` under `e2e/.auth/<role>.json`. That folder is
+gitignored (the files hold live session cookies) and remade at the start of
+every run, so a run never continues a session from an earlier run. The
+specs pick the session up with `resumeSession` (`e2e/demo.ts`); only the
+language stays per test, because the setup strips `homayar_lang` from the
+saved state. See "What you need running" below for the backend's SMTP
+settings, which the invitation flow still needs.
+
 ## What is covered
 
 | File | Flow |
@@ -17,11 +32,25 @@ cookies, and text direction.
 | `processing.spec.ts` | An owner filters `/admin/processing` by state, reads a dead-letter job's drawer (failure, timeline, policy) and sees the failed jobs offer no replay. |
 | `usage.spec.ts` | An owner reads `/admin/usage` (subscription, quota meters, event history with filter and paging, plan catalog with no prices) in `en` and `fa`, and a member gets `No access`. |
 | `members.spec.ts` | An owner changes a member's role, removes the member, invites them back, and the invited account accepts. |
+| `teams.spec.ts` | An owner reads the seeded teams with their member counts and the record-scope banner, opens `Sales`, renames and re-renames `Support`, deactivates and reactivates it, assigns the viewer to `Sales` and revokes the assignment. The page is right to left in Persian, and a member sees no write control. |
+| `locations.spec.ts` | An owner creates a dealer location in `Atlantis` (seeing both save warnings), filters `/admin/locations` by kind, city and status, renames the location and deletes it through the confirm. A member gets `No access`. |
 | `workspace-settings.spec.ts` | An owner changes `Public share links` and `Duplicate files`, the values survive a reload, and the audit log records `workspace.settings.updated`. An admin sees the privacy controls locked. Cancelling the immediate-retention warning saves nothing. The page is right to left in Persian. |
 | `access-control.spec.ts` | A viewer is blocked from `/admin` and `/admin/settings`, and still opens the pages their role allows. |
+| `ai-policy.spec.ts` | An owner edits `/admin/ai-policy` with a preset that differs from the current policy, sees the saved version in `Version history` and compares it; an admin reads the policy and history with no edit controls; the page is right to left in Persian. |
+| `api-keys.spec.ts` | An owner reads the seeded key, creates one whose secret shows exactly once and revokes it through the confirm dialog; the page is right to left in Persian and a member is blocked. |
+| `privacy.spec.ts` | An owner places a legal hold on a seeded meeting from its `Data and retention` panel, finds it on `/admin/privacy` under `All holds` and `Due in 30 days` (not `Review due`), releases it from the register, and downloads a data subject export after the warning; an admin gets `No access` and sees no data panel on the meeting. |
+| `voice-operations.spec.ts` | The demo owner (not a platform operator) sees `0 / 200` on the `Voice capacity` card, no `Voice operations` link, and `No access` on `/admin/voice` with no capacity request. With `/auth/me` changed to `system_role: "operator"` and every voice request mocked, the owner drains and resumes nodes through the confirm dialog; any unmocked API write is aborted in the browser, so nothing is written to the backend. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
+| `organization.spec.ts` | Read only. The owner picks the demo organization in the sidebar switcher and reads the overview (30 meetings for the workspace), the members table (the owner row has no row action), the workspaces table and the empty scope grants page; one page is right to left in Persian. A member, who belongs to no organization, sees no switcher and gets `No access` on the organization URL. Any organization request that is not a GET is aborted in the browser and fails the test. |
+| `organization-writes.spec.ts` | With the real owner session and a mocked organization API: add an analyst with a validity window, change the end date, revoke; create a workspace; add a member to a workspace; add and revoke a scope grant; an administrator gets no `Administrator` role to grant. Each test asserts that no organization request reached the real API. |
 
 Add a file here as each new admin page lands.
+
+`organization-writes.spec.ts` is the one spec that mocks: it answers every
+`/api/v1/organizations**` request with `page.route`, from in-memory state.
+The demo backend is shared, so these writes must not reach it, and the seed
+has no analyst or executive to give a scope grant to. The sign-in and every
+other request stay real.
 
 `smtp-sink.ts` is the helper the invitation flow needs, not a flow. Its own
 tests (`smtp-sink.test.ts`) run under Vitest with `npm test`, because the SMTP
@@ -70,6 +99,28 @@ hooks, which run even when a step fails:
   leftover pending invitation is revoked, and a removed member is invited and
   accepted again.
 * `workspace-settings.spec.ts`, in `afterEach`: `Public share links` and `Duplicate files` go back to their seeded values.
+* `teams.spec.ts`, in `afterAll`: `Support` gets its seeded name and its
+  active flag back, and any assignment the run added (the viewer as a `Sales`
+  agent) is revoked. A revoked assignment row stays in the drawer as history;
+  the server has no way to delete it, and the member count ignores it.
+* `privacy.spec.ts`, in `afterEach`: the run notes the legal holds that were
+  already placed before it did anything, and releases over the API (with the
+  same owner session) only the holds it added. Holds placed by someone else
+  stay as they were. A failed release does not stop the others; the test fails
+  once after the loop. The restore never requests a deletion. The audit log
+  keeps the `media.legal_hold_placed`, `media.legal_hold_released` and
+  `subject.exported` events of every run; the API has no way to remove them.
+* `locations.spec.ts`, in `afterAll`: every location whose `code` starts with
+  this run's `e2e-loc-` prefix is deleted over the API, so a failed step
+  leaves nothing behind.
+* `ai-policy.spec.ts`, in `afterEach`: the policy document the test started
+  from is written back over the API. AI policy versions are append-only, so the
+  restore itself appends one more version; the document is back to its starting
+  value, but the history keeps growing by one row per owner run. After the
+  first owner run the workspace policy is a stored version, so the page badge
+  reads "Custom, version N" for good: the API has no way back to version 0,
+  the built-in default.
+* `api-keys.spec.ts`, in `afterEach` (A2): revokes the exact key the spec created, by name, asserting each DELETE answers 204 or 404; still-active `e2e key ...` keys older than ten minutes are swept as crashed-run leftovers; the seeded `CRM integration (demo)` key is never touched.
 
 Re-running the seed is **not** a repair. `_ensure_workspace` returns an
 existing workspace untouched (`backend/database/demo_seed.py`), so `make

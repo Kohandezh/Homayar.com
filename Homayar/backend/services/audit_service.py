@@ -8,6 +8,7 @@ from backend.config import Settings, get_settings
 from backend.database.saas_models import AuditEvent
 from backend.observability.correlation import current_correlation_id
 from backend.security.tokens import token_digest
+from backend.services.audit_event_types import AuditEventType
 
 SENSITIVE_DETAIL_KEYS = {
     "password",
@@ -55,7 +56,8 @@ def record_audit_event(
     # (request, ``job:<id>`` or ``sweep:<task>:<run>``, HOM-113).
     correlation = request_id or current_correlation_id()
     event = AuditEvent(
-        event_type=event_type,
+        # an AuditEventType member is stored as its plain string value
+        event_type=event_type.value if isinstance(event_type, AuditEventType) else event_type,
         actor_user_id=actor_user_id,
         workspace_id=workspace_id,
         target_type=target_type,
@@ -67,4 +69,3 @@ def record_audit_event(
     )
     db.add(event)
     return event
-

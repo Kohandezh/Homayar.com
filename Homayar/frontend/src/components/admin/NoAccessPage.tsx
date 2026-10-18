@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ArrowLeft, ShieldOff } from "lucide-react";
 import { Surface, buttonVariants } from "@heroui/react";
 import { useI18n } from "@/lib/i18n-context";

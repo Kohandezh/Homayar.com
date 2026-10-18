@@ -8,9 +8,15 @@ import type { AdminPath } from "@/lib/navigation";
  */
 export const ADMIN_PAGES: Partial<Record<AdminPath, LazyExoticComponent<ComponentType>>> = {
   "/admin": lazy(() => import("@/components/admin/AdminOverviewPage")),
+  "/admin/ai-policy": lazy(() => import("@/components/admin/AiPolicyPage")),
+  "/admin/api-keys": lazy(() => import("@/components/admin/ApiKeysPage")),
   "/admin/audit": lazy(() => import("@/components/admin/AuditLogPage")),
+  "/admin/locations": lazy(() => import("@/components/admin/LocationsPage")),
   "/admin/members": lazy(() => import("@/components/platform/MembersPage")),
+  "/admin/privacy": lazy(() => import("@/components/admin/PrivacyPage")),
   "/admin/processing": lazy(() => import("@/components/admin/ProcessingPage")),
   "/admin/usage": lazy(() => import("@/components/admin/AdminUsagePage")),
   "/admin/settings": lazy(() => import("@/components/platform/SettingsPage")),
+  "/admin/teams": lazy(() => import("@/components/admin/TeamsPage")),
+  "/admin/voice": lazy(() => import("@/components/admin/VoiceOperationsPage")),
 };

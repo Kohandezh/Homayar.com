@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { consolePath, signIn } from "./demo";
+import { consolePath, resumeSession } from "./demo";
 
 /**
  * The processing page against the demo seed (no mocks). The seed parks one
@@ -35,7 +35,7 @@ async function filterStates(page: import("@playwright/test").Page, labels: strin
 }
 
 test("an owner reviews failed and dead-letter jobs and can see what to replay", async ({ page }) => {
-  await signIn(page, "owner");
+  await resumeSession(page, "owner");
   await page.goto(consolePath("/admin/processing"));
 
   await expect(page.getByRole("heading", { name: "Processing", level: 1 })).toBeVisible();
