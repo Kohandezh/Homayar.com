@@ -43,7 +43,8 @@ OFFSITE=homayar-drill-offsite
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ ! -e "${DRILL_DIR}" || -z "$(ls -A "${DRILL_DIR}")" ]] || die "DRILL_DIR must be new or empty"
 mkdir -p "${DRILL_DIR}"/{backups,offsite-dir,journal,journal-replica,restore-backups,evidence,logs}
-mkdir -p "${DRILL_DIR}"/{metrics-prod,metrics-restore}
+# node_exporter textfile directory of the "production" host: outside BACKUP_ROOT.
+mkdir -p "${DRILL_DIR}/node-exporter-textfile"
 DRILL_DIR="$(cd -- "${DRILL_DIR}" && pwd -P)"
 E="${DRILL_DIR}/evidence"
 TIMELINE="${E}/drill-timeline.log"
@@ -161,18 +162,19 @@ PUBLIC_ORIGIN="http://127.0.0.1:${PROD_PORT}" CORS_ORIGINS="http://127.0.0.1:${P
 TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${PROD_PORT}" COMPOSE_PROJECT_NAME="${PROD}" \
 TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal" BACKUP_ROOT="${DRILL_DIR}/backups" \
 BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" BACKUP_OFFSITE_PATH="${DRILL_DIR}/offsite-dir" \
-BACKUP_TEXTFILE_DIR="${DRILL_DIR}/metrics-prod" \
+NODE_EXPORTER_TEXTFILE_DIR="${DRILL_DIR}/node-exporter-textfile" \
+BACKUP_TEXTFILE_DIR="${DRILL_DIR}/node-exporter-textfile" \
   "${REPO_ROOT}/infra/scripts/backup.sh" | tee "${E}/backup.out"
 mark backup END
 backup_id="$(sed -n 's/^  "backup_id": "\([^"]*\)",*$/\1/p' "${E}/backup.out" | head -n 1)"
 [[ -n "${backup_id}" ]] || die "no backup id"
 cp "${DRILL_DIR}/backups/sets/${backup_id}/manifest.json" "${E}/manifest.json"
 mark offsite_s3 START
-(cd "${REPO_ROOT}/Homayar" && HOMAYAR_BACKUP_TEXTFILE="${DRILL_DIR}/metrics-prod/homayar_backup.prom" \
+(cd "${REPO_ROOT}/Homayar" && HOMAYAR_BACKUP_TEXTFILE="${DRILL_DIR}/node-exporter-textfile/homayar_backup.prom" \
   "${PY}" -m backend.backup --root "${DRILL_DIR}/backups" replicate "${backup_id}" s3://homayar-offsite/site-a) \
   > "${E}/offsite-s3.json"
 mark offsite_s3 END
-cp "${DRILL_DIR}/metrics-prod/homayar_backup.prom" "${E}/homayar_backup.prom"
+cp "${DRILL_DIR}/node-exporter-textfile/homayar_backup.prom" "${E}/homayar_backup.prom"
 
 # --- 3. after the backup ----------------------------------------------------------
 sleep "${DRILL_GAP_SECONDS:-60}"
@@ -186,7 +188,7 @@ cp -a "${DRILL_DIR}/journal/." "${DRILL_DIR}/journal-replica/"
 collect_logs prod prod
 mark failure START
 prod --profile onprem --profile ops --profile migrate down --volumes --remove-orphans
-rm -rf "${DRILL_DIR}/journal" "${DRILL_DIR}/backups" "${DRILL_DIR}/metrics-prod"
+rm -rf "${DRILL_DIR}/journal" "${DRILL_DIR}/backups" "${DRILL_DIR}/node-exporter-textfile"
 mark failure END
 
 # --- 5. recovery (timed from T0) ----------------------------------------------------
@@ -201,7 +203,7 @@ PUBLIC_ORIGIN="http://127.0.0.1:${RESTORE_PORT}" CORS_ORIGINS="http://127.0.0.1:
 TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${RESTORE_PORT}" COMPOSE_PROJECT_NAME="${RESTORE}" \
 LIVE_COMPOSE_PROJECT="${PROD}" TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal-replica" \
 BACKUP_ROOT="${DRILL_DIR}/restore-backups" BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" \
-BACKUP_TEXTFILE_DIR="${DRILL_DIR}/metrics-restore" POSTGRES_DB=homayar \
+POSTGRES_DB=homayar \
   "${REPO_ROOT}/infra/scripts/restore-isolated.sh" --backup "${backup_id}" --start-app \
   2>&1 | tee "${E}/restore-isolated.out"
 mark restore_isolated END
@@ -227,7 +229,7 @@ restore_env() {
   PUBLIC_ORIGIN="http://127.0.0.1:${RESTORE_PORT}" CORS_ORIGINS="http://127.0.0.1:${RESTORE_PORT}" \
   TRUSTED_HOSTS="127.0.0.1,localhost" HTTP_PORT="${RESTORE_PORT}" \
   TOMBSTONE_JOURNAL_PATH="${DRILL_DIR}/journal-replica" BACKUP_ROOT="${DRILL_DIR}/restore-backups" \
-  BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" BACKUP_TEXTFILE_DIR="${DRILL_DIR}/metrics-restore" \
+  BACKUP_KEY_FILE="${DRILL_DIR}/backup.key" \
     compose_for "${RESTORE}" "$@"
 }
 probe() {  # name, expected exit code, backup-tool arguments
@@ -277,7 +279,7 @@ leak_rc=0
 "${PY}" "${SCRIPT_DIR}/drill/leak_scan.py" --root "${DRILL_DIR}" --env drill.env --key backup.key \
   --demo-seed "${REPO_ROOT}/Homayar/backend/database/demo_seed.py" \
   --exclude drill.env backup.key offsite.env evidence/tenants.json --out evidence/leakage-scan.json \
-  logs evidence restore-backups/restores metrics-restore gate-probes.stderr probe.out ||
+  logs evidence restore-backups/restores restore-backups/metrics gate-probes.stderr probe.out ||
   leak_rc=$?
 mark leakage_scan END
 [[ "${leak_rc}" == "0" ]] || die "the diagnostics leakage scan matched; see ${E}/leakage-scan.json"
