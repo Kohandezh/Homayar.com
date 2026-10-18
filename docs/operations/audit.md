@@ -52,6 +52,8 @@ arrive they need catalogue entries (the coverage test enforces it).
   field-name lists are exempt (see "Review update" below); they are still secret-checked and
   capped at 500. A key naming personal data (`national`, `phone`, `card`, `email`, …) is never
   exempt.
+  The match is on substrings, so keys such as `ip_address` or `scorecard_*` are masked too:
+  this fails closed (masked, never leaked) and is intended.
 
 ## Delivery and failure behaviour
 
