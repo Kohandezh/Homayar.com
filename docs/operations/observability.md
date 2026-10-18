@@ -81,7 +81,7 @@ instead of the API's request threadpool.
 | --- | --- | --- |
 | `homayar_dependency_up`, `homayar_dependency_probe_seconds` | `dependency` = `database`, `redis`, `storage` | `SELECT 1`; Redis `PING`; object-store `HEAD` of a fixed absent key |
 | `homayar_schema_up_to_date` | – | `alembic_version` vs the code's migration head (-1 when the database has no stamp) |
-| `homayar_build_info` (=1) | `version`, `source_sha`, `profile`, `migration_head`, `python_version`, `uv_lock_sha256` | image `build-info.json`; until the release build of HOM-28 writes it, only `migration_head` and `python_version` are real and the rest read `unknown` |
+| `homayar_build_info` (=1) | `version`, `source_sha`, `profile`, `migration_head`, `python_version`, `uv_lock_sha256` | image `build-info.json`, written at build time ([release.md](release.md)); `source_sha="unreleased"` for an image built without release arguments; outside an image (no `build-info.json`) `source_sha`, `profile` and `uv_lock_sha256` read `unknown` |
 | `homayar_jobs` | `state` | `processing_jobs` |
 | `homayar_jobs_queued_due`, `homayar_jobs_oldest_queued_due_age_seconds` | – | durable queue depth and latency |
 | `homayar_jobs_retry_scheduled`, `homayar_jobs_running_lease_expired` | – | retries waiting, attempts whose worker vanished |
