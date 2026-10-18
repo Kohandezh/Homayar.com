@@ -770,6 +770,40 @@ export interface RunPolicySnapshotListResponse {
 }
 
 /**
+ * One API key of the workspace (GET /api-keys, backend/schemas/api_keys.py).
+ * The raw key itself travels only in `CreatedApiKey`, once, at creation.
+ */
+export interface ApiKey {
+  id: string;
+  name: string;
+  /** 8 hex characters; the raw key was `hk_<key_prefix>.<secret>`. */
+  key_prefix: string;
+  scopes: string[];
+  expires_at: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
+  last_used_at: IsoDateTime | null;
+  created_by_user_id: string;
+  created_at: IsoDateTime;
+}
+
+export interface ApiKeyListResponse {
+  /** Newest first, in server order. */
+  items: ApiKey[];
+}
+
+/** POST /api-keys input: name 1..160 chars, 1..16 scopes, days up to 365. */
+export interface CreateApiKeyInput {
+  name: string;
+  scopes: string[];
+  expires_in_days: number;
+}
+
+/** The 201 answer: the key's own fields plus the raw key, shown only once. */
+export interface CreatedApiKey extends ApiKey {
+  key: string;
+}
+
+/**
  * Explicit retention semantics (WP07-T01, ADR 0020). `finite` keeps data
  * `retention_days` (>= 1) days after ingestion; `indefinite` never deletes by
  * age; `immediate` makes data deletion-eligible once processing is terminal.

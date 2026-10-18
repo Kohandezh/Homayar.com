@@ -36,6 +36,7 @@ settings, which the invitation flow still needs.
 | `workspace-settings.spec.ts` | An owner changes `Public share links` and `Duplicate files`, the values survive a reload, and the audit log records `workspace.settings.updated`. An admin sees the privacy controls locked. Cancelling the immediate-retention warning saves nothing. The page is right to left in Persian. |
 | `access-control.spec.ts` | A viewer is blocked from `/admin` and `/admin/settings`, and still opens the pages their role allows. |
 | `ai-policy.spec.ts` | An owner edits `/admin/ai-policy` with a preset that differs from the current policy, sees the saved version in `Version history` and compares it; an admin reads the policy and history with no edit controls; the page is right to left in Persian. |
+| `api-keys.spec.ts` | An owner reads the seeded key, creates one whose secret shows exactly once and revokes it through the confirm dialog; the page is right to left in Persian and a member is blocked. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
 
 Add a file here as each new admin page lands.
@@ -98,6 +99,7 @@ hooks, which run even when a step fails:
   first owner run the workspace policy is a stored version, so the page badge
   reads "Custom, version N" for good: the API has no way back to version 0,
   the built-in default.
+* `api-keys.spec.ts`, in `afterEach` (A2): revokes the exact key the spec created, by name, asserting each DELETE answers 204 or 404; still-active `e2e key ...` keys older than ten minutes are swept as crashed-run leftovers; the seeded `CRM integration (demo)` key is never touched.
 
 Re-running the seed is **not** a repair. `_ensure_workspace` returns an
 existing workspace untouched (`backend/database/demo_seed.py`), so `make
