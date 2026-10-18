@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, Link } from "react-router";
 import { Button, Table } from "@heroui/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 

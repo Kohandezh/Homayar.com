@@ -7,7 +7,7 @@ import {
   ListChecks,
   Lock,
 } from "lucide-react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router";
 
 import { useI18n } from "@/lib/i18n-context";
 import { QualityPanel } from "@/components/platform/QualityPanel";

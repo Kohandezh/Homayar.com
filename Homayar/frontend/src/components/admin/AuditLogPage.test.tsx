@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import AuditLogPage from "@/components/admin/AuditLogPage";
 import api from "@/lib/api";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";

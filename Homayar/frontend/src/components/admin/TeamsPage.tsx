@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { Alert, Button, Card, Chip, Skeleton, Table, linkVariants } from "@heroui/react";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink } from "react-router";
 import { Pencil, Plus, PowerOff, RotateCcw } from "lucide-react";
 
 import { EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/platform/Ui";

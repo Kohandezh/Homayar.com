@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router";
 import api, { WORKSPACE_DENIED_EVENT, type WorkspaceDeniedDetail } from "@/lib/api";
 import AuthProvider from "@/lib/AuthProvider";
 import { useAuth, type AuthContextValue } from "@/lib/auth-context";
