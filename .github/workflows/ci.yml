@@ -342,6 +342,16 @@ jobs:
           prom/prometheus:v3.5.0
           test rules homayar.rules.test.yml
 
+      - name: Check example Prometheus configuration
+        run: >-
+          docker run --rm
+          --network none
+          --entrypoint promtool
+          --volume "${PWD}/infra/observability/prometheus:/rules:ro"
+          --workdir /rules/tests
+          prom/prometheus:v3.5.0
+          check config --syntax-only /rules/prometheus.example.yml
+
       - name: Validate on-prem Compose profile
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem config --quiet
 

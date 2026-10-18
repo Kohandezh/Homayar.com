@@ -2,8 +2,9 @@
 
 The rules live in ``infra/observability/prometheus``. promtool proves that each alert fires
 on its failure and stays silent in a normal state; these tests prove that the rules query
-series and label values the API really exposes, and that every alert is routable
-(``severity``), explained (``summary``) and documented (a runbook section).
+series and label values the API really emits (a sample, not only HELP/TYPE lines), that the
+scrape jobs they name are the ones ``prometheus.example.yml`` configures, and that every alert
+is routable (``severity``), explained (``summary``) and documented (a runbook section).
 """
 
 from __future__ import annotations
@@ -28,10 +29,10 @@ from backend.jobs.media_reconciliation import reconcile_media_objects
 from backend.jobs.retention_purge import run_retention_purge
 from backend.observability import heartbeats
 from backend.observability.metrics import (
-    AUTH_FAILURE_REASONS,
     FAILURE_CATEGORIES,
     FINISHED_STATES,
     PROVIDER_STAGES,
+    SOURCE_TIMEOUT_SECONDS,
 )
 from backend.tests._database import inspection_session_factory
 from backend.tests.test_job_processor import _queued_upload
@@ -40,23 +41,23 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 PROMETHEUS_DIR = REPO_ROOT / "infra/observability/prometheus"
 RULES_FILE = PROMETHEUS_DIR / "homayar.rules.yml"
 RULE_TESTS_FILE = PROMETHEUS_DIR / "tests/homayar.rules.test.yml"
+EXAMPLE_CONFIG = PROMETHEUS_DIR / "prometheus.example.yml"
 RUNBOOK = "docs/operations/alerts.md"
 PROMETHEUS_IMAGE = "prom/prometheus:v3.5.0"
 
 # Not served by the API: the backup tooling (Lane C) writes this series to a node_exporter
 # textfile, one sample per target.
 EXTERNAL_METRICS = frozenset({"homayar_backup_last_success_timestamp_seconds"})
+# Series of Prometheus itself and of node_exporter's textfile collector.
+EXTERNAL_SERIES = frozenset({"up", "node_textfile_scrape_error"})
 BACKUP_TARGETS = frozenset({"postgres", "objects", "offsite"})
 SEVERITIES = frozenset({"warning", "critical"})
 # collect_jobs reports failed and dead-lettered jobs only.
 FAILED_OUTCOMES = frozenset({"failed", "dead_letter"})
-# observe_audit_write_failure maps anything else to "other".
-AUDIT_DELIVERIES = frozenset({"transactional", "best_effort", "other"})
 STATUS_CLASSES = frozenset({*(f"{n}xx" for n in range(1, 6)), "other"})
-SCRAPE_JOBS = frozenset({"homayar-api"})
 
 _METRIC = re.compile(r"(?<![\w\"])(homayar[_:][A-Za-z0-9_:]*)")
-_SELECTOR = re.compile(r"(?<![\w\":])(homayar_[A-Za-z0-9_]*|up)\s*\{([^}]*)\}")
+_SELECTOR = re.compile(r"(?<![\w\":])([A-Za-z_:][A-Za-z0-9_:]*)\s*\{([^}]*)\}")
 _MATCHER = re.compile(r'(\w+)\s*(=~|!~|!=|=)\s*"([^"]*)"')
 _ALTERNATION = re.compile(r"[a-z0-9_]+(\|[a-z0-9_]+)*")
 
@@ -68,6 +69,11 @@ def _rules() -> list[dict[str, Any]]:
 
 def _alerts() -> list[dict[str, Any]]:
     return [rule for rule in _rules() if "alert" in rule]
+
+
+def _scrape_jobs() -> set[str]:
+    config = yaml.safe_load(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+    return {job["job_name"] for job in config["scrape_configs"]}
 
 
 def _github_anchor(heading: str) -> str:
@@ -145,18 +151,14 @@ def exposition(client, email_outbox, settings, monkeypatch, heartbeat_store) -> 
 
     with pytest.raises(RuntimeError):
         heartbeats.run_with_heartbeat("media_reconciliation", broken)
-    # The operator jobs of the protected audit sink report through the same store.
-    heartbeats.record_run("audit_export", started=1.0, finished=2.0, result={"exported": 1})
-    heartbeats.record_run("audit_verify", started=1.0, finished=2.0, error=RuntimeError("x"))
 
     response = client.get("/metrics")
     assert response.status_code == 200, response.text
     names: set[str] = set()
     labels: dict[str, list[dict[str, str]]] = {}
     for family in text_string_to_metric_families(response.text):
-        # A labelled counter with no observation yet is announced by HELP/TYPE only.
-        if family.type == "counter":
-            names.add(f"{family.name}_total")
+        # Only samples count: a labelled counter that nothing increments (or creates at 0) is
+        # announced by HELP/TYPE lines alone, and an alert on it could never fire.
         for sample in family.samples:
             names.add(sample.name)
             labels.setdefault(sample.name, []).append(dict(sample.labels))
@@ -175,6 +177,9 @@ def test_rules_query_only_series_the_api_exposes(exposition):
                 known = metric in exposition.names or metric in EXTERNAL_METRICS
             if not known:
                 missing.setdefault(name, set()).add(metric)
+        for metric, _ in _selectors(rule["expr"]):
+            if not metric.startswith("homayar") and metric not in EXTERNAL_SERIES:
+                missing.setdefault(name, set()).add(metric)
     assert not missing, f"rules query series that nothing exposes: {missing}"
 
 
@@ -182,9 +187,8 @@ def _vocabulary(
     metric: str, label: str, matchers: dict[str, list[str]], exposition: Exposition
 ) -> set[str] | None:
     if label == "task":
-        if metric == "homayar_periodic_task_interval_seconds":
-            return set(heartbeats.PERIODIC_TASKS)
-        return set(heartbeats.KNOWN_TASKS)
+        # The operator jobs' alerts arrive with their producer (HOM-115).
+        return set(heartbeats.PERIODIC_TASKS)
     if label == "field" and metric == "homayar_periodic_task_result":
         tasks = matchers.get("task") or []
         assert tasks, f"{metric} matches field without naming its task"
@@ -195,20 +199,26 @@ def _vocabulary(
         return set(FINISHED_STATES)
     if label == "category" and metric == "homayar_jobs_failed_15m":
         return set(FAILURE_CATEGORIES)
-    if label == "reason" and metric == "homayar_auth_failures_total":
-        return {*AUTH_FAILURE_REASONS, "other"}
-    if label == "delivery" and metric == "homayar_audit_write_failures_total":
-        return set(AUDIT_DELIVERIES)
+    if label == "state" and metric == "homayar_jobs":
+        return exposition.values(metric, "state")
     if label == "dependency" and metric == "homayar_dependency_up":
         return exposition.values(metric, "dependency")
     if label == "stage" and metric.startswith("homayar_provider_"):
         return set(PROVIDER_STAGES)
-    if label == "status_class" and metric == "homayar_http_requests_total":
+    if label == "status_class" and metric in (
+        "homayar_http_requests_total",
+        "homayar:http_requests:rate5m",
+    ):
         return set(STATUS_CLASSES)
+    if label == "source" and metric in (
+        "homayar_metrics_collection_errors_total",
+        "homayar:metrics_collection_errors:increase15m",
+    ):
+        return exposition.values("homayar_metrics_collection_errors_total", "source")
     if label == "target" and metric in EXTERNAL_METRICS:
         return set(BACKUP_TARGETS)
-    if label == "job" and metric == "up":
-        return set(SCRAPE_JOBS)
+    if label == "job" and metric in EXTERNAL_SERIES:
+        return _scrape_jobs()
     return None
 
 
@@ -247,6 +257,19 @@ def test_rule_label_matchers_use_values_the_code_can_emit(exposition):
                     if value not in allowed
                 ]
     assert not wrong, "label values no code emits:\n" + "\n".join(wrong)
+
+
+def test_the_example_prometheus_config_matches_the_rules():
+    config = yaml.safe_load(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+    assert config["rule_files"] == [RULES_FILE.name]
+    jobs = {job["job_name"]: job for job in config["scrape_configs"]}
+    assert {"homayar-api", "homayar-node"} <= set(jobs)
+    assert jobs["homayar-api"]["metrics_path"] == "/metrics"
+    # A refresh runs two stages of source deadlines; a shorter timeout turns a slow dependency
+    # into HomayarApiScrapeFailing instead of its own alert.
+    timeout = config["global"]["scrape_timeout"]
+    assert timeout.endswith("s"), timeout
+    assert float(timeout[:-1]) > 2 * SOURCE_TIMEOUT_SECONDS
 
 
 # --- (c) every alert is routable and documented ---------------------------------------
@@ -331,8 +354,12 @@ def promtool() -> Callable[..., subprocess.CompletedProcess[str]]:
 
 @pytest.mark.parametrize(
     "args",
-    [("check", "rules", "/rules/homayar.rules.yml"), ("test", "rules", "homayar.rules.test.yml")],
-    ids=["check-rules", "test-rules"],
+    [
+        ("check", "rules", "/rules/homayar.rules.yml"),
+        ("test", "rules", "homayar.rules.test.yml"),
+        ("check", "config", "--syntax-only", "/rules/prometheus.example.yml"),
+    ],
+    ids=["check-rules", "test-rules", "check-config"],
 )
 def test_promtool_accepts_the_rules_and_their_unit_tests(promtool, args):
     result = promtool(*args)

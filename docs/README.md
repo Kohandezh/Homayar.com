@@ -13,7 +13,7 @@
 - [Existing CI notes](operations/ci.md)
 - [Existing health/recovery notes](operations/health-and-recovery.md)
 - [Observability: metrics, correlation ids, heartbeats](operations/observability.md)
-- [Alert runbook](operations/alerts.md) and [Prometheus alert rules](../infra/observability/prometheus/homayar.rules.yml) (promtool-tested)
+- [Alert runbook](operations/alerts.md), [Prometheus alert rules](../infra/observability/prometheus/homayar.rules.yml) (promtool-tested) and [example scrape configuration](../infra/observability/prometheus/prometheus.example.yml)
 - [Existing pricing research](market/pricing-benchmark.md)
 
 The dated audit is a baseline, not a production-readiness certificate. Handoff preparation only organized documentation and generated source/planning maps; runtime source paths and both Git histories remain intact. See the preparation report for exact validation and scope.

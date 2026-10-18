@@ -1,0 +1,34 @@
+# Example Prometheus configuration for Homayar (HOM-126, docs/operations/alerts.md).
+# The alert rules depend on the two job names below; keep them when you merge this into an
+# existing Prometheus. Alertmanager routing is per installation and not part of this file.
+#
+# Check: promtool check config --syntax-only infra/observability/prometheus/prometheus.example.yml
+
+global:
+  scrape_interval: 30s
+  # A refresh of the API's scrape-time state takes at most about two source deadlines
+  # (SOURCE_TIMEOUT_SECONDS = 3 s each, backend/observability/metrics.py): keep the timeout
+  # above 6 s, or a slow dependency shows up as HomayarApiScrapeFailing instead of its own alert.
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+
+rule_files:
+  - homayar.rules.yml
+
+scrape_configs:
+  # The API's own port, never the public proxy (nginx does not route /metrics). One target per
+  # API container: uvicorn's workers share it through PROMETHEUS_MULTIPROC_DIR.
+  - job_name: homayar-api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/homayar_metrics_token
+    static_configs:
+      - targets: ["api:8000"]
+
+  # node_exporter on the host that runs the backups, started with
+  # --collector.textfile.directory set to the directory of HOMAYAR_BACKUP_TEXTFILE
+  # (by default $BACKUP_ROOT/metrics).
+  - job_name: homayar-node
+    static_configs:
+      - targets: ["backup-host:9100"]
