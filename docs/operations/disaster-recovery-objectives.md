@@ -1,48 +1,81 @@
 # Disaster Recovery Objectives
 
-Version 1 · 2026-10-17 · HOM-153 (N12, reuses AppVision F79) · Status: **provisional,
+Version 1 · 2026-10-18 · HOM-153 (N12, reuses AppVision F79) · Status: **provisional,
 owner-approved defaults** (owner decision D03 still open for the final production policy).
 Implementation: ADR 0035, `Homayar/backend/backup/`, runbook
-[`backup-restore.md`](backup-restore.md). Measured evidence: [`drills/`](drills/).
+[`backup-restore.md`](backup-restore.md). Measured drill evidence: **pending (HOM-118)**; no RTO
+or RPO in this document has been measured yet.
 
 This record states what the supported topology promises and what it does not. Every number
-here is a target the drill measures, never an estimate taken from a script's duration.
+here is a target for the drill to measure, never an estimate taken from a script's duration.
 
 ## 1. Scope of this version
 
-| Profile | Covered | How |
+| Profile | Status | How |
 | --- | --- | --- |
-| On-prem / local Compose (`infra/compose/compose.onprem.yaml`) | Yes | `backup-tool` service, `infra/scripts/backup.sh`, `infra/scripts/restore-isolated.sh` |
-| Hosted cloud (`compose.cloud.yaml`, managed PostgreSQL / S3) | Same tool and targets, **not yet drilled** | provider snapshots/PITR may add to, never replace, this format |
-| Offline profile | Out of scope here | the same tool works without egress when the off-site target is a mounted directory |
+| On-prem / local Compose (`infra/compose/compose.onprem.yaml`) | Implemented and tested (unit + PostgreSQL tests); **restore drill pending (HOM-118)** | `backup-tool` service, `infra/scripts/backup.sh`, `infra/scripts/restore-isolated.sh` |
+| Hosted cloud (`compose.cloud.yaml`, managed PostgreSQL / S3) | Same tool and targets; not drilled | provider snapshots/PITR may add to, never replace, this format |
+| Offline profile | Out of scope here | the tool works without egress when the off-site target is a mounted directory |
 
 ## 2. Objectives (provisional owner defaults)
 
-| Objective | Target | What it means here |
+| Objective | Target | What the implementation can and cannot guarantee |
 | --- | --- | --- |
-| **RPO** | ≤ 24 h | Data committed after the last successful backup's snapshot time can be lost. A daily schedule plus an alert on backup age > 26 h (Lane D rule on `homayar_backup_last_success_timestamp_seconds`) bounds it. |
-| **Deletions** | 0 h | Deletions are never lost: every tombstone is journaled at once outside the backups (ADR 0022) and replayed before a restore is usable. This holds only while the journal volume survives (it is replicated separately). |
-| **RTO** | ≤ 8 h | From the decision to restore to the first successful authenticated request on the restored system. Measured end to end by the drill (stores up, fetch, verify, load, migrate, reconcile, promote, app ready, ingress). Provisioning a new host and restoring secrets are outside the measured path and must be added by the operator. |
-| **Retention** | 30 daily + 12 monthly | `python -m backend.backup prune`: newest set of each of the last 30 days that have a set and of each of the last 12 months; the newest set is always kept. |
-| **Off-host copy** | ≥ 1 encrypted copy outside the application host | `replicate` to an `s3://` bucket on another host or to a mounted directory of another host/medium, after every backup. |
+| **RPO** | ≤ 24 h | A daily backup gives a data-loss window of up to 24 h *when every run succeeds*. The backup-age alert (Lane D, on `homayar_backup_last_success_timestamp_seconds`) fires at 26 h, so a missed or failed run is noticed about 2 h *after* the 24 h target is exceeded: the worst case is about 26 h plus the time to repair. Meeting 24 h strictly needs an alert below 24 h or a more frequent schedule (owner / Lane D decision). |
+| **Deletions after the backup** | re-applied before use | Every tombstone is journaled at once outside the backups (ADR 0022) and replayed from the journal **replica** before a restore can be promoted. Deletions newer than the replica's last sync are lost, so this window equals the journal replication interval. Nothing measures or alerts on replication age yet; adding a replication-age alert is recommended. |
+| **RTO** | ≤ 8 h | From the decision to restore to the first successful authenticated request on the restored system: stores up, fetch, verify, load, migrate, reconcile, promote, app ready, ingress. **Not measured yet (HOM-118).** Provisioning a new host and restoring secrets are outside this path and must be added by the operator. |
+| **Retention** | 30 daily + 12 monthly | See §3.1. Applies to the backup root and to every off-site copy. |
+| **Off-host copy** | ≥ 1 encrypted copy outside the application host | `replicate` to an `s3://` bucket on another host (recommended) or to a mounted directory of another host or medium that carries the operator's `.homayar-offsite` marker (§3.2). |
 
-## 3. Backup scope
+## 3. Retention and off-site copies
 
-Included in every set (one exported `REPEATABLE READ READ ONLY` snapshot for the database; the
-catalog is read in the same snapshot):
+### 3.1 Retention, precisely
 
-- **PostgreSQL:** the rows of every table in `public` (logical `COPY`), the Alembic revision, the
-  sequences, per-table and per-tenant row counts.
-- **Object storage:** every object under the tenant prefix of every tenant in the snapshot
-  (recordings, derived media, stage artifacts), copied through the application's storage interface,
-  with a SHA-256 per object and the database's expectation for it (`required` / `optional` /
-  `gone`).
+- A set *qualifies* when it includes objects, its object copy is not `degraded`, and it passed a
+  deep verify (the verify step writes `sets/<id>.verified`).
+- **Daily:** the last 30 UTC days that have a set keep one set each, the newest qualifying set
+  of the day (else the day's newest set).
+- **Monthly:** the 12 most recent months *older than the daily window* keep one set each, the
+  newest qualifying set of the month (else its newest). History therefore reaches about
+  12 months beyond the 30 days, not 12 months counted from today.
+- The newest set is always kept. Interrupted (`.partial-*`) sets are removed after 6 h; S3 copies
+  without a manifest (interrupted uploads or prunes) after 24 h.
+
+### 3.2 Off-site copies
+
+- An `s3://` target is used as configured; it should be a bucket on another host.
+- A directory target counts as off-site only if the operator wrote `.homayar-offsite` on the
+  remote medium when provisioning it. An unmounted share shows up as an empty local directory
+  (Docker even creates a missing bind source); without the marker the copy is refused. A target
+  inside the backup root, or one containing it, is refused.
+- **Immutability is not provided by the tool** (owner decision AppVision D15): the application
+  host holds the credentials that write and prune off-site copies, so an intruder on that host
+  can delete them. Recommended: S3 versioning plus object lock (compliance mode) on the off-site
+  bucket, and expiry by bucket lifecycle rules or by a job on the off-site side rather than by
+  `prune` from the application host.
+
+## 4. Backup scope
+
+Included in every set (one exported `REPEATABLE READ READ ONLY` snapshot, taken after
+`ACCESS SHARE` locks on every table; the catalog is read in the same snapshot):
+
+- **PostgreSQL:** the rows of every table in `public` (`COPY (SELECT …)`, which also reads
+  partitioned tables), the Alembic revision, the sequences, per-table and per-tenant row counts.
+- **Object storage:** every object under the tenant prefix of every tenant in the snapshot,
+  copied through the application's storage interface, with a SHA-256 per object and the
+  database's expectation for it (`required` / `optional` / `gone`). Objects are copied after the
+  snapshot. A required object missing at copy time is explained from the live rows (deleted or
+  being deleted after the snapshot, e.g. a purge or "delete audio after processing"). An
+  unexplained missing object, or bytes that do not match their row, mark the set's object copy
+  `degraded`: the set is still kept (its database part is good), but the `objects` freshness
+  gauge does not move and `backup.sh` exits non-zero.
 - **Configuration references:** non-secret settings (mode, storage backend and bucket, providers,
   model manifest pins, PII key ids in use) and the *names* of the secrets a restore needs;
   `TOKEN_PEPPER` and `PII_MAPPING_KEYS` are pinned by fingerprints keyed with the backup key.
 - **Version metadata:** backup id, snapshot time, start/finish, release version and SHA, API image
   reference, Alembic revision and the code's heads, PostgreSQL server version.
-- **Tombstone-journal watermark** (record count, newest tombstone), not the journal itself.
+- **Tombstone-journal fingerprint:** name, size and SHA-256 of every journal file at backup
+  time, record count and newest tombstone. The journal itself is not in the set.
 
 Excluded on purpose (recorded in every manifest under `excluded`):
 
@@ -56,57 +89,79 @@ Excluded on purpose (recorded in every manifest under `excluded`):
 | MinIO IAM and bucket policy | deployment configuration | `minio-bootstrap` |
 | Upload quarantine, legacy upload dir, beat schedule | transient | recreated empty |
 
-## 4. Encryption requirements
+## 5. Encryption requirements
 
 - Every file of a set is encrypted before it reaches disk: AES-256-GCM in 1 MiB chunks (STREAM
   construction: chunk counter and last-chunk flag in the nonce), a per-file key derived with
   HKDF-SHA256 from the backup key, the backup id and the file name. No plaintext dump is ever
-  written, also not temporarily.
+  written, not even temporarily.
 - The manifest is plaintext (no customer content) and sealed with an HMAC under the backup key;
-  every file is listed with its size and SHA-256 so an off-site copy can be checked without the
+  every file is listed with its size and SHA-256, so an off-site copy can be checked without the
   key.
 - The backup key (`key_id:base64(32 bytes)`) lives in the secret manager and in an escrow
   separate from every backup copy. **Losing the key loses every set encrypted with it.** Rotation:
   generate a new key id (`keygen`), use it for new sets, keep old keys until their sets expire.
 
-## 5. Restore scope and the restore gate
+## 6. Restore scope and the restore gate
 
 - A restore always goes into an **isolated** target first: a separate Compose project (or
-  server) with empty stores, and the database name `<db>_restoring`. The tool refuses the live
-  database, the backup's own source database, a database that is not a marked restore target
-  and an object store that already holds the backup's tenants.
+  server) with empty stores, and a staging database whose name contains `restoring`
+  (`<db>_restoring`). The tool refuses the live database and the backup's source database by
+  name (host strings are not trusted), a database that is not a marked restore target, an object
+  store that already holds the backup's tenants, and a second concurrent run on the same staging
+  database (advisory lock; `staging_busy`). Marker changes are compare-and-set.
 - Users cannot reach restored data before reconciliation: the application only connects to the
-  live name, and `promote` renames the staging database only with a reconciliation report that is
-  PASS and sealed with the backup key. The restored application starts without ingress; ingress
-  opens after the smoke tests.
-- Reconciliation must show: Alembic head, RLS enabled/forced with the Homayar policy on every
-  policy table, no cross-tenant visibility as the application role, per-tenant row counts equal
-  to the backup at load, consistent tenant links and key prefixes, every journaled deletion
-  re-applied (content rows, share links and bytes gone), every required object present.
+  live name, and `promote` renames the staging database only with a reconciliation report that
+  is PASS, sealed with the backup key, identical to the one recorded on the database, and made
+  against the set (manifest MAC) the restore verified. The restored application starts without
+  ingress; ingress opens after the smoke tests.
+- Reconciliation must show:
+  - the schema is at the Alembic head;
+  - RLS is enabled and forced, with the Homayar policy, on every policy table;
+  - RLS behaves as `homayar_app`: no tenant row is visible without a context, and a bound tenant
+    sees no foreign rows;
+  - tenant verification (scope, exactly):
+    - per-tenant row counts equal the backup's at load time;
+    - every foreign key between two tenant-keyed tables joins rows of the same workspace;
+    - every `meeting_id` / `organization_id` link agrees on the tenant;
+    - every object key sits under its own tenant prefix;
+  - the journal replica is this deployment's journal and at least as new as the backup (§2,
+    ADR 0035);
+  - every journaled deletion is re-applied: its content rows, active share links and bytes are
+    gone;
+  - every required object is present and hashes to its restored row's SHA-256.
+- If the live name already holds data, `promote` keeps it as `<live>_retired_<ts>` with a
+  `drop_after` date of 7 days. It is outside backups, retention and tombstone replay, so it must
+  be dropped (`drop-retired`) within that time; an empty live-name database is dropped at once.
 
-## 6. What is not guaranteed (honest limits)
+## 7. What is not guaranteed (honest limits)
 
-- Data written after the last backup's snapshot is lost (≤ RPO). The drill records the window.
+- Data written after the last backup's snapshot is lost (see the RPO row in §2).
+- Deletions newer than the journal replica's last sync are lost (see §2).
+- With no journal at all, a restore passes only with an explicit owner override that is recorded
+  in the sealed report. Deletions made after the backup then come back and must be repeated.
 - **Post-backup revocations are not replayed:** share links revoked, API keys revoked, sign-outs
   and password changes made after the backup come back. The reconciliation report lists the
   counts; the runbook rotates `JWT_SECRET` (ends every session) and offers `--revoke-share-links`.
 - **Legal holds** are as in the backup. A conversation held in the backup and deleted after its
   release is reported as `REVIEW_REQUIRED`; promotion needs a recorded owner decision.
-- Objects are copied after the database snapshot: an object deleted in between is reported
-  (`missing_at_copy`, normally a journaled deletion); one created in between is an orphan of the
-  snapshot and is reported, never deleted.
 - Old object versions, MinIO IAM state and presigned URLs are not part of a set.
-- The measured RTO applies to the drilled data volume and host; it is re-measured, not
+- A `restore --no-objects` is for inspection only and cannot be reconciled or promoted.
+- Off-site copies are not immutable (§3.2).
+- The RTO will be measured for the drilled data volume and host (HOM-118) and re-measured, not
   extrapolated, when the volume grows (quarterly drill, and after any PostgreSQL major upgrade).
 
-## 7. Partial-failure states
+## 8. Partial-failure states
 
 | State | Where | Meaning | Usable? |
 | --- | --- | --- | --- |
 | `sets/.partial-<id>` | backup root | interrupted backup (failure, ^C, kill, power loss) | never; removed by `prune` |
-| `sets/<id>` | backup root | complete set (renamed after fsync + sealed manifest) | yes, after `verify` |
-| off-site copy without `manifest.json` / `.partial-` dir | off-site | interrupted copy | never |
+| `sets/<id>` without `<id>.verified` | backup root | complete set not yet deep-verified | restorable after `verify`; does not move gauges |
+| `sets/<id>` with object integrity `degraded` | manifest | database good, object copy missing/mismatching bytes | database yes; objects need an owner decision at restore |
+| off-site copy without `manifest.json` / `.partial-` dir | off-site | interrupted copy | never; swept by `prune` |
 | staging `restoring` | database comment | restore started or failed | never promotable; rerun redoes it |
 | staging `loaded` | database comment | data, schema, RLS and objects in place | not yet: reconcile |
+| staging `reconciling` | database comment | a reconcile is running or died | not promotable; rerun reconcile |
 | staging `reconciled` + report FAIL / REVIEW_REQUIRED | database comment + report | checks failed or need an owner decision | not promotable |
 | `promoted` | database comment | renamed to the live name after a PASS | yes |
+| `<live>_retired_<ts>` | database comment `homayar-retired` | the database the promotion replaced | drop within 7 days |

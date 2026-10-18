@@ -54,6 +54,29 @@ migration slot), and CI must run the tests without new tooling.
 8. **Freshness metric.** Successful steps rewrite a node_exporter textfile
    (`homayar_backup_last_success_timestamp_seconds{target}`) atomically; Lane D owns the alert.
 
+9. **Positive evidence for the deletion journal.** The backup fingerprints every tombstone
+   journal file (name, size, SHA-256); the files are append-only, so reconcile requires the
+   replica to hold each with the same leading bytes (else stale or foreign: FAIL, not
+   acceptable). A backup taken before the first deletion only accepts a replica whose records
+   all belong to its tenants. An absent or empty journal never passes on its own; the single
+   override, `--accept-no-journal REF`, is recorded in the sealed report.
+10. **Reconcile is bound to what restore verified.** Restore records the manifest MAC in its
+    state and in the staging marker; reconcile re-checks the MAC and requires the same one.
+    Restore, reconcile and promote hold a PostgreSQL advisory lock per staging database, marker
+    changes are compare-and-set, and promote accepts only the latest report of the database.
+    Staging names must contain `restoring`; the live and source names are refused by name.
+11. **Content, not just presence.** Reconcile re-hashes every required object in the target
+    store against its restored row. The backup explains objects missing at copy time from the
+    live rows; unexplained loss or mismatching bytes mark the set's object copy `degraded`
+    (kept, but the `objects` gauge does not move and the scheduled run fails).
+12. **Gauges follow verification.** Only a deep `verify` moves `postgres`/`objects` and only a
+    verified off-site copy moves `offsite`; values never move backwards. A directory counts as
+    off-site only with the operator's `.homayar-offsite` marker on the remote medium.
+13. **Retention prefers full verified sets** per bucket, and the 12 monthly sets lie beyond the
+    30-day window; manifest-less S3 copies are swept after 24 h.
+14. **Retired databases are bounded.** A live-name database that promote replaces is dropped
+    when empty, else kept 7 days under a `homayar-retired` marker and dropped by `drop-retired`.
+
 ## Consequences
 
 - Restores are slower than a physical restore of large databases (row-by-row `COPY` plus index
@@ -65,3 +88,7 @@ migration slot), and CI must run the tests without new tooling.
   and covered by `JWT_SECRET` rotation, `--revoke-share-links` and owner decisions.
 - Losing the backup key loses the sets; the key needs an escrow outside every backup location.
 - The legacy scripts remain only for reading old sets.
+- The application host can still delete off-site copies; immutability (object lock,
+  off-site-side expiry) is owner decision AppVision D15.
+- Deletions newer than the journal replica's last sync are lost on a restore; the journal
+  replication interval needs its own alert.
