@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from backend.config import Settings, get_settings
 from backend.database.saas_models import AuditEvent
 from backend.security.tokens import token_digest
+from backend.services.audit_event_types import AuditEventType
 
 SENSITIVE_DETAIL_KEYS = {
     "password",
@@ -51,7 +52,8 @@ def record_audit_event(
 ) -> AuditEvent:
     settings = settings or get_settings()
     event = AuditEvent(
-        event_type=event_type,
+        # an AuditEventType member is stored as its plain string value
+        event_type=event_type.value if isinstance(event_type, AuditEventType) else event_type,
         actor_user_id=actor_user_id,
         workspace_id=workspace_id,
         target_type=target_type,

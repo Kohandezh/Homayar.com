@@ -177,7 +177,7 @@ def test_audit_events_are_tenant_scoped_filtered_sanitized_and_paginated(
                     id=event_id,
                     workspace_id=workspace_id,
                     actor_user_id=owner_id,
-                    event_type="meeting.read",
+                    event_type="meeting.exported",
                     target_type="meeting",
                     target_id="meeting-1",
                     outcome="success",
@@ -196,7 +196,7 @@ def test_audit_events_are_tenant_scoped_filtered_sanitized_and_paginated(
             AuditEvent(
                 workspace_id=workspace_id,
                 actor_user_id=owner_id,
-                event_type="meeting.read",
+                event_type="meeting.exported",
                 target_type="meeting",
                 target_id="meeting-2",
                 outcome="failure",
@@ -206,7 +206,7 @@ def test_audit_events_are_tenant_scoped_filtered_sanitized_and_paginated(
         db.add(
             AuditEvent(
                 workspace_id=other_workspace_id,
-                event_type="meeting.read",
+                event_type="meeting.exported",
                 target_type="meeting",
                 target_id="meeting-1",
                 outcome="success",
@@ -219,7 +219,7 @@ def test_audit_events_are_tenant_scoped_filtered_sanitized_and_paginated(
     first = admin_client.get(
         "/api/v1/admin/audit-events",
         params={
-            "event_type": "meeting.read",
+            "event_type": "meeting.exported",
             "outcome": "success",
             "target_id": "meeting-1",
             "limit": 2,
@@ -231,7 +231,7 @@ def test_audit_events_are_tenant_scoped_filtered_sanitized_and_paginated(
     first_body = first.json()
     assert len(first_body["items"]) == 2
     assert first_body["next_cursor"]
-    assert all(item["event_type"] == "meeting.read" for item in first_body["items"])
+    assert all(item["event_type"] == "meeting.exported" for item in first_body["items"])
     assert all("ip_hash" not in item for item in first_body["items"])
     assert first_body["items"][0]["details"] == {
         "safe": "visible",
@@ -243,7 +243,7 @@ def test_audit_events_are_tenant_scoped_filtered_sanitized_and_paginated(
     second = admin_client.get(
         "/api/v1/admin/audit-events",
         params={
-            "event_type": "meeting.read",
+            "event_type": "meeting.exported",
             "outcome": "success",
             "target_id": "meeting-1",
             "limit": 2,

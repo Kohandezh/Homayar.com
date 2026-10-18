@@ -127,6 +127,7 @@ from backend.services.ai_policy_service import (
     current_policy,
     record_run_snapshot,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import commit_usage, release_usage
 from backend.services.evidence_service import (
@@ -1248,7 +1249,7 @@ def _persist_success(
                 )
         record_audit_event(
             db,
-            event_type="meeting.processing.completed",
+            event_type=AuditEventType.MEETING_PROCESSING_COMPLETED,
             workspace_id=claim.workspace_id,
             target_type="meeting",
             target_id=claim.meeting_id,
@@ -1337,7 +1338,7 @@ def _finalize_failure(
             if meeting is not None and meeting.deleted_at is None:
                 meeting.status = MeetingStatus.QUEUED
             details["retry_after"] = due.isoformat()
-            event_type = "meeting.processing.retry_scheduled"
+            event_type = AuditEventType.MEETING_PROCESSING_RETRY_SCHEDULED
             result = "retry_scheduled"
         else:
             if verdict is None:
@@ -1368,7 +1369,7 @@ def _finalize_failure(
                 release_reason=error.code,
             )
             details["terminal_reason"] = terminal_reason
-            event_type = "meeting.processing.failed"
+            event_type = AuditEventType.MEETING_PROCESSING_FAILED
             result = state.value
         record_audit_event(
             db,
@@ -1431,7 +1432,7 @@ def _finalize_unclaimable_job(
         )
         record_audit_event(
             db,
-            event_type="meeting.processing.failed",
+            event_type=AuditEventType.MEETING_PROCESSING_FAILED,
             workspace_id=job.workspace_id,
             target_type="meeting",
             target_id=job.meeting_id,
@@ -1523,7 +1524,7 @@ def _delete_audio_after_success(
         if not may_delete:
             record_audit_event(
                 db,
-                event_type="meeting.recording.retained_after_processing",
+                event_type=AuditEventType.MEETING_RECORDING_RETAINED_AFTER_PROCESSING,
                 workspace_id=claim.workspace_id,
                 target_type="meeting",
                 target_id=claim.meeting_id,
@@ -1561,7 +1562,7 @@ def _delete_audio_after_success(
             mark_deleted(db, media=media, now=datetime.now(UTC), settings=settings)
         record_audit_event(
             db,
-            event_type="meeting.recording.deleted_after_processing",
+            event_type=AuditEventType.MEETING_RECORDING_DELETED_AFTER_PROCESSING,
             workspace_id=claim.workspace_id,
             target_type="meeting",
             target_id=claim.meeting_id,

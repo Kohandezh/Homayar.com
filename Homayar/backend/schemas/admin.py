@@ -34,6 +34,18 @@ class AuditEventListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class AuditEventTypeResponse(BaseModel):
+    """One entry of the audit event type catalog (HOM-185)."""
+
+    event_type: str
+    group: str
+    target_type: str | None
+
+
+class AuditEventTypeListResponse(BaseModel):
+    items: list[AuditEventTypeResponse]
+
+
 class AdminShareResponse(BaseModel):
     """One share link in the administrator's list (HOM-192).
 

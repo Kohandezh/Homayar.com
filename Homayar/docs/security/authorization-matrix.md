@@ -187,6 +187,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/teams/{team_id}/assignments | team:manage +csrf |
 | DELETE | /api/v1/teams/{team_id}/assignments/{assignment_id} | team:manage +csrf |
 | GET | /api/v1/admin/audit-events | audit:read |
+| GET | /api/v1/admin/audit-event-types | audit:read |
 | GET | /api/v1/admin/shares | workspace:manage |
 | GET | /api/v1/admin/workspace-settings | workspace:manage |
 | PATCH | /api/v1/admin/workspace-settings | workspace:manage +csrf |

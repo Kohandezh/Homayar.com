@@ -28,6 +28,7 @@ from backend.security.tokens import (
     token_digest,
     verify_password,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.tenancy_service import create_personal_workspace
 
@@ -172,7 +173,7 @@ def register_email_user(
     )
     record_audit_event(
         db,
-        event_type="auth.register",
+        event_type=AuditEventType.AUTH_REGISTER,
         actor_user_id=user.id,
         target_type="user",
         target_id=user.id,
@@ -197,7 +198,7 @@ def verify_email(
         user.email_verified_at = datetime.now(UTC)
     record_audit_event(
         db,
-        event_type="auth.email_verified",
+        event_type=AuditEventType.AUTH_EMAIL_VERIFIED,
         actor_user_id=user.id,
         target_type="user",
         target_id=user.id,
@@ -228,7 +229,7 @@ def reissue_email_verification(
     )
     record_audit_event(
         db,
-        event_type="auth.verification_resent",
+        event_type=AuditEventType.AUTH_VERIFICATION_RESENT,
         actor_user_id=user.id,
         target_type="user",
         target_id=user.id,
@@ -393,7 +394,7 @@ def request_password_reset(
     )
     record_audit_event(
         db,
-        event_type="auth.password_reset_requested",
+        event_type=AuditEventType.AUTH_PASSWORD_RESET_REQUESTED,
         actor_user_id=user.id,
         target_type="user",
         target_id=user.id,
@@ -417,7 +418,7 @@ def reset_password(
     revoke_all_user_sessions(db, user)
     record_audit_event(
         db,
-        event_type="auth.password_reset_completed",
+        event_type=AuditEventType.AUTH_PASSWORD_RESET_COMPLETED,
         actor_user_id=user.id,
         target_type="user",
         target_id=user.id,
