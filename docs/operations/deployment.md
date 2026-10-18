@@ -4,15 +4,18 @@
 
 The infrastructure baseline exposes one origin through nginx:
 
-- `/` routes to the Next.js public web service.
 - `/app/` routes to the Vite console and falls back to `/app/index.html` for client routes.
 - `/api/v1/` routes unchanged to FastAPI. Both `/api/v1/uploads` and
   `/api/v1/uploads/` use the streaming 300 MB upload policy.
 - `/healthz` reports nginx liveness without testing dependencies.
 - `/readyz` proxies FastAPI's dependency-aware readiness response.
+- Every other path, including `/`, answers `302` with a redirect to `/app/`.
 
-`compose.onprem.yaml` runs PostgreSQL, Redis, MinIO, API, worker, both web services,
-and nginx. `compose.cloud.yaml` runs only application services and nginx; PostgreSQL,
+The public website (homayar.com) is not part of a self-hosted install. It lives in
+`website/` and is deployed to Cloudflare Workers (see `website/DEPLOY.md`).
+
+`compose.onprem.yaml` runs PostgreSQL, Redis, MinIO, API, worker, the console web
+service, and nginx. `compose.cloud.yaml` runs only application services and nginx; PostgreSQL,
 Redis, and S3-compatible storage are externally managed. Neo4j is an optional overlay on
 the isolated `graph` network and is never a transactional dependency.
 
@@ -20,7 +23,6 @@ the isolated `graph` network and is never a transactional dependency.
 
 | Artifact | Build context | Template | Runtime contract |
 | --- | --- | --- | --- |
-| Public web | repository root | `infra/docker/public-web.Dockerfile` | Next.js on port 3000 |
 | Product console | repository root | `infra/docker/console-web.Dockerfile` | static `/app/` tree on port 8080 |
 | API and worker | repository root | `infra/docker/api.Dockerfile` | FastAPI on 8000; Celery from the same image |
 | Reverse proxy | official nginx image plus bind-mounted config | `infra/nginx/` | HTTP on port 8080 |
@@ -39,13 +41,8 @@ Before promotion, verify these application-owned contracts:
    dependency-aware readiness at `/readyz`.
 4. `Homayar/pyproject.toml`, `Homayar/uv.lock`, `Homayar/alembic.ini`, and all migration
    revisions are present in the API build context and synchronized.
-5. The root Next.js application completes a production build and starts with `next start`.
-6. The selected provider implementation is installed. Set `INSTALL_AI_LOCAL=true` when
+5. The selected provider implementation is installed. Set `INSTALL_AI_LOCAL=true` when
    the on-premise image must contain the optional local Whisper dependency.
-
-The public image uses pnpm's explicit `allowBuilds` policy for `esbuild`, `sharp`, and
-`unrs-resolver`. Do not replace it with `dangerouslyAllowAllBuilds`; newly introduced
-dependency lifecycle scripts must fail closed until reviewed.
 
 ## Secret Contract
 
@@ -80,7 +77,7 @@ identity and override both values before first start. Existing volumes created w
 ownership require an explicit, reviewed ownership migration while Redis is stopped.
 
 The cloud profile additionally requires `STORAGE_BUCKET`, `STORAGE_REGION`, and immutable
-`PUBLIC_WEB_IMAGE`, `CONSOLE_WEB_IMAGE`, and `API_IMAGE` references. The current storage
+`CONSOLE_WEB_IMAGE` and `API_IMAGE` references. The current storage
 settings require static S3 credentials. Workload identity should replace them only after
 the application supports a credential provider chain without requiring access keys.
 
@@ -240,7 +237,7 @@ On-premise (`compose.onprem.yaml`):
 | Network | Internal | Members |
 | --- | --- | --- |
 | `edge` | no | `proxy` (nginx) only: the published port |
-| `ingress` | yes | `proxy`, `public-web`, `console-web`, `api` |
+| `ingress` | yes | `proxy`, `console-web`, `api` |
 | `backend` | yes | `api`, `worker`, `scheduler`, PostgreSQL, Redis, MinIO, jobs |
 | `egress` | yes | `api`, `worker`, `egress-proxy` |
 | `outbound` | no | `egress-proxy` only |
@@ -281,7 +278,7 @@ Limits, stated plainly:
 
 Evidence: `infra/egress/tests/test-egress-network.sh` starts the real `egress-proxy` of the
 on-prem file plus two disposable HTTP servers and probes from inside the `api`, `worker`,
-`scheduler`, `public-web` and `console-web` containers as Compose attaches them. It is a
+`scheduler` and `console-web` containers as Compose attaches them. It is a
 container-network test on one Docker host, not a validation of a production deployment.
 
 ## Image Policy
@@ -379,35 +376,6 @@ customer-managed ingress, bind nginx to a private interface, and add HSTS at tha
 boundary. Preserve the original host and request ID. Do not trust arbitrary client-supplied
 forwarding headers; configure the ingress and nginx trusted-proxy ranges together before
 using forwarded client addresses for security decisions.
-
-## cPanel Static Public Site
-
-cPanel can host only the static public site. The SaaS console under `/app/`, FastAPI under
-`/api/v1/`, workers, PostgreSQL, Redis, and object storage still require the container or
-equivalent VPS/cloud deployment described above.
-
-Build from the repository root with the canonical public origin:
-
-```bash
-corepack enable
-corepack prepare pnpm@11.1.2 --activate
-pnpm config set --location=project --json allowBuilds \
-  '{"esbuild":true,"sharp":true,"unrs-resolver":true}'
-pnpm install --frozen-lockfile
-NEXT_PUBLIC_APP_URL=https://homayar.com pnpm build:cpanel
-```
-
-The build removes any previous `out/`, temporarily excludes Next route handlers, forces
-commerce off, restores the source tree, and validates `index.html`, `404.html`, and
-`.htaccess`. It also rejects an exported API directory, symbolic links, and environment
-files. The manually maintained public pricing is compiled into the static pages; no price
-or secret is fetched from a deployment provider.
-
-Upload the **contents** of `out/` to the domain's cPanel document root, normally
-`public_html/`. Ensure hidden files are included so `out/.htaccess` becomes
-`public_html/.htaccess`; it supplies static security headers, cache rules, directory-index
-protection, and the 404 document. Do not upload the repository, `.env` files,
-`node_modules`, `.next`, or the nested `Homayar/` application tree.
 
 ## Database Roles and Row-Level Security
 
