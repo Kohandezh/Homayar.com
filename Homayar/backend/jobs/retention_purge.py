@@ -52,6 +52,7 @@ from backend.database.saas_models import (
 from backend.database.tenant_context import bind_tenant_context
 from backend.jobs.checkpoints import discover_workspaces
 from backend.jobs.leases import as_utc, database_now
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.conversation_purge_service import (
     ACTIVE_JOB_STATES,
@@ -144,7 +145,7 @@ def expire_meeting(
     )
     record_audit_event(
         db,
-        event_type="meeting.retention_expired",
+        event_type=AuditEventType.MEETING_RETENTION_EXPIRED,
         workspace_id=workspace_id,
         target_type="meeting",
         target_id=meeting_id,

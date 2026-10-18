@@ -24,6 +24,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.team_service import (
     AssignmentRecord,
@@ -102,7 +103,7 @@ def create_workspace_team(
         _raise(exc)
     record_audit_event(
         db,
-        event_type="team.created",
+        event_type=AuditEventType.TEAM_CREATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="team",
@@ -159,7 +160,7 @@ def patch_team(
         _raise(exc)
     record_audit_event(
         db,
-        event_type="team.updated",
+        event_type=AuditEventType.TEAM_UPDATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="team",
@@ -199,7 +200,7 @@ def assign_member(
         _raise(exc)
     record_audit_event(
         db,
-        event_type="team.assignment.created",
+        event_type=AuditEventType.TEAM_ASSIGNMENT_CREATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="team_assignment",
@@ -241,7 +242,7 @@ def revoke_member_assignment(
         _raise(exc)
     record_audit_event(
         db,
-        event_type="team.assignment.revoked",
+        event_type=AuditEventType.TEAM_ASSIGNMENT_REVOKED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="team_assignment",

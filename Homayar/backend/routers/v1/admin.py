@@ -21,6 +21,8 @@ from backend.schemas.admin import (
     AdminShareResponse,
     AuditEventListResponse,
     AuditEventResponse,
+    AuditEventTypeListResponse,
+    AuditEventTypeResponse,
     JobReplayResponse,
     WorkspaceSettingsResponse,
     WorkspaceSettingsUpdateRequest,
@@ -57,6 +59,7 @@ from backend.services.admin_shares_service import (
     ShareStatus,
     list_workspace_shares,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -133,6 +136,24 @@ def list_audit_events(
             for event in page.events
         ],
         next_cursor=page.next_cursor,
+    )
+
+
+@router.get("/audit-event-types", response_model=AuditEventTypeListResponse)
+def list_audit_event_types(
+    context: WorkspaceContext = Depends(require_audit_admin_context),
+) -> AuditEventTypeListResponse:
+    # The catalog is static; the workspace context only applies the access
+    # rules of GET /admin/audit-events.
+    return AuditEventTypeListResponse(
+        items=[
+            AuditEventTypeResponse(
+                event_type=member.value,
+                group=member.group,
+                target_type=member.target_type,
+            )
+            for member in sorted(AuditEventType, key=lambda member: member.value)
+        ]
     )
 
 
@@ -220,7 +241,7 @@ def patch_workspace_settings(
 
     record_audit_event(
         db,
-        event_type="workspace.settings.updated",
+        event_type=AuditEventType.WORKSPACE_SETTINGS_UPDATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="workspace",

@@ -57,6 +57,7 @@ from backend.security.context import (
     require_write_permission,
 )
 from backend.security.idempotency import scoped_idempotency_key, validate_idempotency_key
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.conversation_purge_service import (
     REASON_MEETING_DELETED,
@@ -581,7 +582,7 @@ async def upload_meeting(
             usage = get_usage_snapshot(db, workspace_id, "audio_seconds")
             record_audit_event(
                 db,
-                event_type="meeting.uploaded",
+                event_type=AuditEventType.MEETING_UPLOADED,
                 actor_user_id=context.actor.user.id,
                 workspace_id=workspace_id,
                 target_type="meeting",
@@ -799,7 +800,7 @@ def update_meeting(
         )
     record_audit_event(
         db,
-        event_type="meeting.updated",
+        event_type=AuditEventType.MEETING_UPDATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="meeting",
@@ -858,7 +859,7 @@ def delete_meeting(
     )
     record_audit_event(
         db,
-        event_type="meeting.deleted",
+        event_type=AuditEventType.MEETING_DELETED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="meeting",

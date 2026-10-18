@@ -22,6 +22,7 @@ from backend.security.context import (
     require_platform_operator,
     require_write_permission,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.voice.admission import AdmissionPolicy, VoiceControlPlane
 from backend.voice.models import VoiceCallSession, VoiceMediaNode
@@ -280,7 +281,7 @@ def register_node(
         request,
         context,
         settings,
-        "voice.node.registered",
+        AuditEventType.VOICE_NODE_REGISTERED,
         node.id,
         {"max_concurrent": node.max_concurrent, "generation": node.generation},
     )
@@ -322,7 +323,7 @@ def drain_node(
         request,
         context,
         settings,
-        "voice.node.drain_changed",
+        AuditEventType.VOICE_NODE_DRAIN_CHANGED,
         node.id,
         {"draining": node.draining},
     )
