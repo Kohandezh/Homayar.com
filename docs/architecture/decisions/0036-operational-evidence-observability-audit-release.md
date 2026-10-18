@@ -56,8 +56,9 @@ This ADR is extended section by section as each Lane D change lands.
 
 * Operators can find a failed job by `job:<id>` in logs and audit rows, and see queue depth and
   latency, outcomes, retries, durations, provider circuits, dependency health, sweep liveness and
-  the schema revision in one scrape; the release identity joins them once the HOM-28 image
-  build writes `build-info.json` (until then `homayar_build_info` reads `unknown`).
+  the schema revision in one scrape, with the release identity from the image's
+  `build-info.json` (`homayar_build_info`; `source_sha="unreleased"` for an image built without
+  release arguments, decision 5).
 * A scrape costs about ten aggregate queries every `METRICS_CACHE_SECONDS`; the 15-minute windows
   read `completed_at`, which has no dedicated index (acceptable at current volumes; an index is a
   migration for later if scrapes get slow).
