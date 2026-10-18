@@ -52,9 +52,10 @@ PERIODIC_TASKS: dict[str, str] = {
     "retention_purge": "retention_purge_interval_seconds",
     "voice_recovery": "voice_node_heartbeat_ttl_seconds",
 }
-# Operator-run jobs that report through the same store (no beat interval). The
-# protected audit sink (HOM-115) adds its export and verify runs with the tool.
-OPERATOR_TASKS: tuple[str, ...] = ()
+# Operator-run jobs that report through the same store (no beat interval): the
+# protected audit sink's export and verify runs (HOM-115,
+# ``python -m backend.observability.audit_sink``).
+OPERATOR_TASKS: tuple[str, ...] = ("audit_export", "audit_verify")
 KNOWN_TASKS: tuple[str, ...] = (*PERIODIC_TASKS, *OPERATOR_TASKS)
 
 
