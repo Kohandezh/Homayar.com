@@ -132,7 +132,9 @@ Excluded on purpose (recorded in every manifest under `excluded`):
     - every `meeting_id` / `organization_id` link agrees on the tenant;
     - every object key sits under its own tenant prefix;
   - the journal replica is this deployment's journal and at least as new as the backup (§2,
-    ADR 0035);
+    ADR 0035): it matches the backup's fingerprint of the journal files, or, if the backup
+    predates every deletion, holds records of tenants the backup knows (records of tenants
+    created later are skipped by the replay);
   - every journaled deletion is re-applied: its content rows, active share links and bytes are
     gone;
   - every required object is present and hashes to its restored row's SHA-256.

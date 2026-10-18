@@ -604,3 +604,70 @@ def test_backup_sh_finishes_copy_and_prune_when_only_the_gauge_fails(
     assert ("replicate 20261018T020000Z-0000000b /offsite" in calls) is pruned
     if expected_exit == 4:
         assert "could not be written" in result.stderr
+
+
+# --- journal identity: anchored, unanchored or no evidence (HOM-212) ---------------------
+
+
+class _StubJournal:
+    def __init__(self, directory: Path, records: list) -> None:
+        self.directory = directory
+        self.records = records
+
+    def files(self) -> list[Path]:
+        return sorted(self.directory.glob("tombstones-*.jsonl"))
+
+    def read(self) -> tuple[list, int]:
+        return self.records, 0
+
+
+def _record(workspace_id: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(workspace_id=workspace_id)
+
+
+def test_journal_identity_needs_positive_evidence_and_accepts_post_backup_tenants(tmp_path):
+    import hashlib
+
+    from backend.backup.reconcile import _journal_identity
+
+    replica = tmp_path / "replica"
+    replica.mkdir()
+    day = replica / "tombstones-20261018.jsonl"
+    day.write_bytes(b'{"a":1}\n{"b":2}\n')
+    first = b'{"a":1}\n'
+    anchored = {
+        "files": [
+            {"name": day.name, "size": len(first), "sha256": hashlib.sha256(first).hexdigest()}
+        ]
+    }
+    known, newcomer = _record("ws-known"), _record("ws-signed-up-later")
+
+    problems, mode, info = _journal_identity(
+        _StubJournal(replica, [known, newcomer]), anchored, ["ws-known"]
+    )
+    assert (problems, mode) == ([], "anchored")
+    assert info["records_of_tenants_unknown_to_backup"] == 1
+
+    # No fingerprint (backup before the first deletion): a known tenant's
+    # record is the evidence; a tenant created later does not fail it.
+    problems, mode, info = _journal_identity(
+        _StubJournal(replica, [known, newcomer]), {"files": []}, ["ws-known"]
+    )
+    assert (problems, mode) == ([], "unanchored") and info["tenants_unknown_to_backup"] == 1
+
+    # Only unknown tenants, or no records at all (blank or 0-byte files): no evidence.
+    for records in ([newcomer], []):
+        _, mode, _ = _journal_identity(_StubJournal(replica, records), {"files": []}, ["ws-known"])
+        assert mode == "none"
+
+    # A file that was empty at backup time anchors nothing, but must still be there.
+    empty_anchor = {
+        "files": [{"name": day.name, "size": 0, "sha256": hashlib.sha256().hexdigest()}]
+    }
+    _, mode, _ = _journal_identity(_StubJournal(replica, []), empty_anchor, ["ws-known"])
+    assert mode == "none"
+    gone = {"files": [{"name": "tombstones-20261001.jsonl", "size": 0, "sha256": "0" * 64}]}
+    problems, _, _ = _journal_identity(_StubJournal(replica, [known]), gone, ["ws-known"])
+    assert problems == ["tombstones-20261001.jsonl: missing (stale or foreign replica)"]

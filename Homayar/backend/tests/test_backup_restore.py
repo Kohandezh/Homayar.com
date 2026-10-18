@@ -1089,6 +1089,56 @@ def test_reconciliation_refuses_an_empty_or_stale_tombstone_journal(
     assert report["checks"]["tombstones"]["details"]["replay"]["reapplied"] == 1
 
 
+def test_a_young_deployment_replays_its_journal_with_tenants_created_after_the_backup(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases
+):
+    _patch_media(monkeypatch)
+    known = _tenant(client, email_outbox, "bk-young-a")
+    accepted = _upload(client, known, key="bk-young-a-1")
+    assert accepted.status_code == 202, accepted.text
+    known_meeting = accepted.json()["meeting"]["id"]
+    _stamp_head(settings.database_url)
+    manifest = _backup(settings, tmp_path)  # before the first deletion: nothing to anchor
+    assert manifest["tombstone_journal"]["records"] == 0
+    assert not manifest["tombstone_journal"]["files"]
+    _delete(client, known, known_meeting)
+    newcomer = _tenant(client, email_outbox, "bk-young-new")  # signed up after the backup
+    late = _upload(client, newcomer, key="bk-young-new-1")
+    assert late.status_code == 202, late.text
+    _delete(client, newcomer, late.json()["meeting"]["id"])
+    staging, _ = _names("young", databases)
+    _, target_settings, storage = _restore(settings, tmp_path, manifest["path"], staging)
+
+    def run(directory: Path, **kwargs):
+        view = target_settings.model_copy(update={"tombstone_journal_dir": str(directory)})
+        return _reconcile(manifest["path"], staging, view, storage, tmp_path, **kwargs)
+
+    blank = tmp_path / "blank-replica"
+    blank.mkdir()
+    (blank / "tombstones-20261018.jsonl").write_text("\n")  # e.g. a failed append
+    report = run(blank)
+    tombstones = report["checks"]["tombstones"]["details"]
+    assert report["statuses"]["tombstones"] == "FAIL"
+    assert tombstones["journal_identity"] == "none" and tombstones["stale_or_foreign_journal"]
+    accepted_blank = run(blank, accept_no_journal="OWNER-BLANK-1")
+    assert accepted_blank["statuses"]["tombstones"] == "PASS"
+    details = accepted_blank["checks"]["tombstones"]["details"]
+    assert details["owner_override_no_journal"] == "OWNER-BLANK-1"
+
+    report = run(Path(settings.tombstone_journal_dir))
+    tombstones = report["checks"]["tombstones"]["details"]
+    assert report["statuses"]["tombstones"] == "PASS", tombstones
+    assert tombstones["journal_identity"] == "unanchored"
+    assert tombstones["journal_identity_details"]["tenants_unknown_to_backup"] == 1
+    assert tombstones["replay"]["reapplied"] == 1  # the known tenant's deletion comes back
+    assert tombstones["owner_override_no_journal"] is None
+    assert not _scalar(
+        with_database(_admin(), staging),
+        "SELECT deleted_at IS NULL FROM meetings WHERE id = %s",
+        (known_meeting,),
+    )
+
+
 def test_bytes_copied_after_the_snapshot_of_a_later_deleted_conversation_are_removed(
     client, email_outbox, monkeypatch, settings, tmp_path, databases
 ):

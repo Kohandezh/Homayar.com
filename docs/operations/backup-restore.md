@@ -226,7 +226,7 @@ Owner decisions the report may ask for (they are recorded in the sealed report):
 | --- | --- | --- |
 | `REVIEW_REQUIRED` (held conversation in the journal) | `--accept-held REF` | the hold in the backup was released before the deletion; decide with the owner, then delete again after promotion if needed |
 | `FAIL` objects (required object missing or corrupt) | `--accept-missing REF` | accept losing or keeping damaged bytes (rows stay; the media is flagged by the reconciliation sweep) |
-| `FAIL` tombstones, no journal files at all | `--accept-no-journal REF` | the only owner override for the journal, usable whether or not the backup recorded tombstones; it is recorded in the sealed report and the restore timeline. Deletions after the backup come back and must be repeated by the owner |
+| `FAIL` tombstones, no evidence (no journal files, files without records, or records only of tenants the backup does not know) | `--accept-no-journal REF` | the only owner override for the journal; it is recorded in the sealed report and the restore timeline. Any replica present is still replayed (unknown tenants are skipped); with no replica, deletions after the backup come back and must be repeated by the owner. A replica that holds records of tenants created after the backup **and** of known tenants passes without it |
 | `FAIL` tombstones, stale or foreign replica | none | cannot be accepted: mount the current replica, or remove it and decide on `--accept-no-journal` |
 | revocations after the backup | `--revoke-share-links` | revoke every share link of the restored data (owners re-share) |
 

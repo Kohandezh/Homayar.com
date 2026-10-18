@@ -59,9 +59,12 @@ migration slot), and CI must run the tests without new tooling.
 9. **Positive evidence for the deletion journal.** The backup fingerprints every tombstone
    journal file (name, size, SHA-256); the files are append-only, so reconcile requires the
    replica to hold each with the same leading bytes (else stale or foreign: FAIL, not
-   acceptable). A backup taken before the first deletion only accepts a replica whose records
-   all belong to its tenants. An absent or empty journal never passes on its own; the single
-   override, `--accept-no-journal REF`, is recorded in the sealed report.
+   acceptable); a file that was empty at backup time only has to be present. Without such an
+   anchor (a backup taken before the first deletion), the evidence is a record of a tenant the
+   backup knows; records of tenants created after the backup are expected and skipped by the
+   replay. A replica with no evidence (no journal, no records, or only unknown tenants) never
+   passes on its own; the single override, `--accept-no-journal REF`, is recorded in the sealed
+   report, and a replica that is present is still replayed.
 10. **Reconcile is bound to what restore verified.** Restore records the manifest MAC in its
     state and in the staging marker; reconcile re-checks the MAC and requires the same one.
     Restore, reconcile and promote hold a PostgreSQL advisory lock per staging database, marker
