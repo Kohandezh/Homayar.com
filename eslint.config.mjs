@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     "website/**",
     // Standalone tools; each carries its own lint configuration and CI job.
     "tools/**",
+    // Claude Code skills; their helper scripts are not app code.
+    ".claude/**",
   ]),
 ]);
 

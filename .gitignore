@@ -45,11 +45,11 @@ yarn-error.log*
 next-env.d.ts
 
 # local tooling / caches
-# .claude/ is local, except the shared skills, agents, and rules
-.claude/*
-!.claude/skills/
-!.claude/agents/
-!.claude/rules/
+# Claude Code: .claude/ is shared in git. Only per-machine files stay out.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/.cc-writes/
+.claude/worktrees/
 .codex/
 .gstack/
 .pnpm-store/
@@ -71,3 +71,7 @@ docs/handoff/claude-fable-5.1/graphify/**/graph.full.graphml
 docs/handoff/claude-fable-5.1/graphify/**/graph.html
 docs/handoff/claude-fable-5.1/graphify/vendor/*.min.js
 docs/handoff/claude-fable-5.1/graphify/refreshes/
+
+# Python bytecode (Claude skill scripts)
+__pycache__/
+*.pyc
