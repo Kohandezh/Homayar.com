@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import subprocess
+import sys
+import textwrap
+import threading
+import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -18,31 +24,41 @@ from sqlalchemy import select
 
 from backend.config import Settings
 from backend.database.relational import reset_database_state
-from backend.database.saas_models import AuditEvent, JobState, ProcessingJob, ProviderHealth
+from backend.database.saas_models import AuditEvent, JobState, ProcessingJob, ProviderHealth, User
 from backend.jobs.processor import process_job
 from backend.main import create_app
-from backend.observability import heartbeats
+from backend.observability import heartbeats, metrics
 from backend.observability.correlation import (
     correlation_scope,
     current_correlation_id,
     job_correlation_id,
     request_correlation_id,
 )
-from backend.observability.metrics import REGISTRY, failure_category, metrics_access, quantile
+from backend.observability.metrics import (
+    REGISTRY,
+    StateCollector,
+    failure_category,
+    metrics_access,
+    quantile,
+)
 from backend.observability.release import code_migration_head
-from backend.observability.scrub import scrub_text
-from backend.services.logging_service import JSONFormatter
+from backend.observability.scrub import diagnostic_text, scrub_text
+from backend.services.logging_service import JSONFormatter, exception_summary
 from backend.tests._database import inspection_session_factory
 from backend.tests._transport import configured_redis_url
 from backend.tests.conftest import register_user
 from backend.tests.test_job_processor import _providers, _queued_upload
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+HOMAYAR_ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "metrics-bearer-token-for-tests-0123456789abcdef"  # noqa: S105 - test value
 
 
 @pytest.fixture
-def settings(settings: Settings) -> Settings:
+def settings(settings: Settings, monkeypatch) -> Settings:
+    # A wide source deadline: the host running the suite may be heavily loaded;
+    # the deadline itself is tested with explicit timeouts below.
+    monkeypatch.setattr(metrics, "SOURCE_TIMEOUT_SECONDS", 30.0)
     # Every scrape recomputes the state, so a test sees its own writes.
     return settings.model_copy(update={"metrics_cache_seconds": 0})
 
@@ -137,8 +153,11 @@ def test_metrics_expose_queue_jobs_dependencies_heartbeats_and_build_identity(
     assert _value(done, "homayar_jobs_retried_15m") == 0
 
     text = client.get("/metrics").text
+    with inspection_session_factory()() as db:
+        emails = list(db.scalars(select(User.email)))
+    assert emails
     # No tenant, job or user identity is ever a label or a value.
-    for identity in (workspace_id, job_id, "owner@example.com"):
+    for identity in (workspace_id, job_id, *emails):
         assert identity not in text
 
 
@@ -254,9 +273,14 @@ def test_staging_without_token_refuses_and_logs_once(settings, caplog):
         with _app_client(staging) as client:
             assert client.get("/metrics").status_code == 404
     assert "METRICS_ENDPOINT_DISABLED" in caplog.text
-    opted_out = staging.model_copy(update={"metrics_allow_unauthenticated": True})
-    with _app_client(opted_out) as client:
-        assert client.get("/metrics").status_code == 200
+    caplog.clear()
+    opted_out = staging.model_copy(
+        update={"metrics_allow_unauthenticated": True, "deployment_mode": "onprem"}
+    )
+    with caplog.at_level(logging.WARNING, logger="homayar"):
+        with _app_client(opted_out) as client:
+            assert client.get("/metrics").status_code == 200
+    assert "METRICS_UNAUTHENTICATED_OPT_OUT deployment_mode=onprem" in caplog.text
 
 
 def test_a_short_metrics_token_is_refused():
@@ -387,7 +411,9 @@ def test_processing_audit_events_carry_the_job_correlation_id(
             select(AuditEvent).where(AuditEvent.event_type == "meeting.processing.completed")
         )
     assert completed is not None
-    assert completed.request_id == job_correlation_id(job_id)
+    # one id per attempt (delivery), with the job id as the searchable prefix
+    assert completed.request_id.startswith(f"job:{job_id}:")
+    assert completed.request_id != job_correlation_id(job_id)
 
 
 def test_correlation_ids_are_bounded_and_scoped():
@@ -481,3 +507,276 @@ def test_quantile_is_nearest_rank():
     assert quantile(values, 0.5) == 50.0
     assert quantile(values, 0.95) == 95.0
     assert quantile(values, 1.0) == 100.0
+
+
+# --- review fixes: bounded scrapes, workers, trusted host, opt-out, logs ---------------
+
+
+def test_a_hung_dependency_bounds_the_scrape_and_is_not_restarted(client, settings, monkeypatch):
+    gate = threading.Event()
+    calls: list[int] = []
+
+    def hung(snapshot, storage):
+        calls.append(1)
+        gate.wait(30)
+
+    monkeypatch.setattr(metrics, "collect_storage", hung)
+    collector = StateCollector(settings, cache_seconds=0, source_timeout=0.5)
+    before = REGISTRY.get_sample_value(
+        "homayar_metrics_collection_errors_total", {"source": "storage"}
+    ) or 0
+    try:
+        for _ in range(2):
+            started = time.monotonic()
+            snapshot = collector.refresh()
+            assert time.monotonic() - started < 3.0  # two stages of 0.5 s, plus margin
+            storage = [
+                value for labels, value in snapshot.families["homayar_dependency_up"][2]
+                if labels == ("storage",)
+            ]
+            assert storage == [0.0]
+            assert ("database",) in [labels for labels, _ in
+                                     snapshot.families["homayar_dependency_up"][2]]
+        assert calls == [1]  # the hung probe is not started a second time
+        after = REGISTRY.get_sample_value(
+            "homayar_metrics_collection_errors_total", {"source": "storage"}
+        )
+        assert after == before + 2
+    finally:
+        gate.set()
+        collector.close()
+
+
+def test_a_down_database_and_object_store_are_reported_fast(settings):
+    broken = settings.model_copy(
+        update={
+            "database_url": "postgresql+psycopg://nobody@127.0.0.1:1/none",
+            "storage_backend": "s3",
+            "storage_bucket": "probe-bucket",
+            "storage_endpoint_url": "http://127.0.0.1:1",
+            "storage_region": "us-east-1",
+            "storage_access_key": "a" * 20,
+            "storage_secret_key": "b" * 40,
+            "redis_url": "redis://127.0.0.1:1/0",
+        }
+    )
+    collector = StateCollector(broken, cache_seconds=0, source_timeout=2.0)
+    try:
+        started = time.monotonic()
+        snapshot = collector.refresh()
+        # two stages of 2 s each at most, plus margin for a heavily loaded test host
+        assert time.monotonic() - started < 9.0
+    finally:
+        collector.close()
+    up = {labels[0]: value for labels, value in snapshot.families["homayar_dependency_up"][2]}
+    assert up == {"database": 0.0, "redis": 0.0, "storage": 0.0}
+    assert "homayar_jobs" not in snapshot.families  # no aggregates without a database
+
+
+def test_multiprocess_mode_sums_every_worker(tmp_path):
+    env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": str(tmp_path / "metrics")}
+    worker = textwrap.dedent(
+        """
+        import sys
+        from backend.observability import metrics
+        for _ in range(int(sys.argv[1])):
+            metrics.observe_http("GET", "/api/v1/meetings", 200, 0.01)
+        """
+    )
+    for count in ("3", "5"):  # two uvicorn workers, as separate processes
+        subprocess.run(  # noqa: S603 - this interpreter and a fixed script
+            [sys.executable, "-c", worker, count], env=env, cwd=HOMAYAR_ROOT, check=True
+        )
+    reader = (
+        "import sys; from backend.observability import metrics; "
+        "sys.stdout.write(metrics.in_process_exposition().decode())"
+    )
+    exposition = subprocess.run(  # noqa: S603 - this interpreter and a fixed script
+        [sys.executable, "-c", reader], env=env, cwd=HOMAYAR_ROOT, check=True,
+        capture_output=True, text=True,
+    ).stdout
+    samples = {
+        (sample.name, tuple(sorted(sample.labels.items()))): sample.value
+        for family in text_string_to_metric_families(exposition)
+        for sample in family.samples
+    }
+    key = (
+        "homayar_http_requests_total",
+        (("method", "GET"), ("route", "/api/v1/meetings"), ("status_class", "2xx")),
+    )
+    assert samples[key] == 8
+    assert "process_cpu_seconds_total" not in exposition  # no per-process series
+    for source in metrics.COLLECTION_SOURCES:  # exported at 0 before any failure
+        assert samples[("homayar_metrics_collection_errors_total", (("source", source),))] == 0
+
+
+def test_every_scrape_source_is_exported_before_its_first_failure(client, settings, monkeypatch):
+    # increase() needs a 0 sample before the first failure (PR #47 review, P4).
+    used: set[str] = set()
+    original = metrics.StateCollector._run
+
+    def recording(self, sources, snapshot):
+        used.update(sources)
+        return original(self, sources, snapshot)
+
+    monkeypatch.setattr(metrics.StateCollector, "_run", recording)
+    collector = metrics.StateCollector(settings, cache_seconds=0)
+    try:
+        collector.refresh()
+    finally:
+        collector.close()
+    assert used == set(metrics.COLLECTION_SOURCES)
+    samples = _scrape(client)
+    for source in metrics.COLLECTION_SOURCES:
+        assert _value(samples, "homayar_metrics_collection_errors_total", source=source) is not None
+
+
+def test_metrics_accept_the_internal_service_host_and_nothing_else_does(settings):
+    with _app_client(settings) as client:
+        internal = TestClient(client.app, base_url="http://api:8000")
+        assert internal.get("/metrics").status_code == 200
+        assert internal.get("/healthz").status_code == 400  # TRUSTED_HOSTS still applies
+
+
+def test_a_token_file_with_trailing_whitespace_still_matches(settings):
+    padded = settings.model_copy(update={"metrics_bearer_token": TOKEN + "\n "})
+    with _app_client(padded) as client:
+        assert client.get(
+            "/metrics", headers={"Authorization": f"Bearer {TOKEN}"}
+        ).status_code == 200
+
+
+def test_cloud_refuses_the_unauthenticated_opt_out():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="METRICS_ALLOW_UNAUTHENTICATED"):
+        Settings(
+            _env_file=None,
+            environment="staging",
+            deployment_mode="cloud",
+            metrics_allow_unauthenticated=True,
+        )
+    onprem = Settings(
+        _env_file=None,
+        environment="staging",
+        deployment_mode="onprem",
+        metrics_allow_unauthenticated=True,
+    )
+    assert metrics_access(onprem) == "open"
+
+
+# Personal data and a share token as they would reach logs; built at runtime.
+_EMAIL = "ali.rezaei" + "@example.com"
+_PHONE = "0912" + "7654321"
+_SHARE_TOKEN = "shr_" + "Zq9" * 12
+
+
+def test_database_errors_are_logged_without_parameters_or_detail():
+    from sqlalchemy.exc import IntegrityError
+
+    class FakeDiag:
+        constraint_name = "uq_users_email"
+        table_name = "users"
+        column_name = None
+
+    class FakePsycopgError(Exception):
+        sqlstate = "23505"
+        diag = FakeDiag()
+
+    original = FakePsycopgError(
+        f'duplicate key value violates unique constraint "uq_users_email"\n'
+        f"DETAIL:  Key (email)=({_EMAIL}) already exists."
+    )
+    error = IntegrityError(
+        "INSERT INTO users (email, phone_e164) VALUES (%(email)s, %(phone)s)",
+        {"email": _EMAIL, "phone": _PHONE},
+        original,
+    )
+    summary = exception_summary(error)
+    assert summary == (
+        "IntegrityError FakePsycopgError sqlstate=23505 constraint_name=uq_users_email "
+        "table_name=users"
+    )
+    record = logging.LogRecord(
+        "homayar", logging.ERROR, __file__, 1, "write failed", (), (type(error), error, None)
+    )
+    line = JSONFormatter().format(record)
+    for leaked in (_EMAIL, _PHONE, "INSERT INTO", "DETAIL"):
+        assert leaked not in line
+
+
+def test_unhandled_errors_log_the_route_template_and_correlation_without_pii(settings, caplog):
+    from backend.observability.correlation import CorrelationLogFilter
+    from backend.services.logging_service import logger
+
+    logger.disabled = False  # Alembic's fileConfig in other tests disables it
+    with _app_client(settings) as client:
+        app = client.app
+
+        @app.get("/api/v1/shares/{share_token}/explode")
+        def explode(share_token: str):
+            # Share tokens have no recognisable shape: the guarantee is that the raw
+            # path never reaches the log. Personal data in the text is masked.
+            raise RuntimeError(f"cannot notify {_EMAIL} or {_PHONE}")
+
+        caplog.handler.addFilter(CorrelationLogFilter())
+        failing = TestClient(app, raise_server_exceptions=False)
+        with caplog.at_level(logging.ERROR, logger="homayar"):
+            response = failing.get(
+                f"/api/v1/shares/{_SHARE_TOKEN}/explode",
+                headers={"X-Request-ID": "error-request-0001"},
+            )
+    assert response.status_code == 500
+    [record] = [r for r in caplog.records if r.getMessage().startswith("UNHANDLED_ERROR")]
+    line = json.loads(JSONFormatter().format(record))
+    assert line["correlation_id"] == "error-request-0001"
+    assert "route=/api/v1/shares/{share_token}/explode" in line["message"]
+    rendered = json.dumps(line)
+    for leaked in (_SHARE_TOKEN, _EMAIL, _PHONE):
+        assert leaked not in rendered
+    assert "[EMAIL_1]" in line["exception"] and "[PHONE_1]" in line["exception"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "database_url", "redis_url", "jwt_secret", "token_pepper", "google_client_secret",
+        "asanak_api_key", "storage_access_key", "storage_secret_key", "pii_mapping_keys",
+        "llm_fallback_api_key", "zai_api_key", "gapgpt_api_key", "smtp_password",
+        "neo4j_password", "sentry_dsn", "metrics_bearer_token",
+    ],
+)
+def test_every_secret_setting_name_is_scrubbed_in_any_spelling(name):
+    from backend.config import SECRET_FIELDS
+
+    assert name in SECRET_FIELDS
+    secret = "s" * 14
+    for raw in (
+        f"{name.upper()}={secret}",
+        f"{name}: {secret}",
+        f"{{'{name}': '{secret}'}}",
+        f'{{"{name}": "{secret}"}}',
+    ):
+        assert secret not in scrub_text(raw), raw
+
+
+@pytest.mark.parametrize(
+    ("raw", "leaked"),
+    [
+        ("dsn https://" + "k" * 12 + "@sentry.example.invalid/7", "k" * 12),
+        ("postgresql://homayar:" + "pa/ss" + "w" * 6 + "@db:5432/homayar", "pa/ss"),
+        ("postgresql://homayar:" + "p@ss" + "w" * 6 + "@db:5432/homayar", "ssw"),
+        ("upstream rejected {'api_key': '" + "z" * 12 + "', 'token': '" + "t" * 12 + "'}",
+         "z" * 12),
+    ],
+)
+def test_scrub_covers_dsn_users_url_passwords_and_dict_reprs(raw, leaked):
+    assert leaked not in scrub_text(raw)
+
+
+def test_scrubbing_long_adversarial_input_is_bounded_and_fast():
+    for hostile in ("a." * 8000, "eyJ-" * 4000, "x://" * 4000):
+        started = time.monotonic()
+        result = diagnostic_text(hostile)
+        assert time.monotonic() - started < 1.0
+        assert len(result) <= 2100
