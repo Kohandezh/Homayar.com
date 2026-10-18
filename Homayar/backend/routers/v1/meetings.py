@@ -15,7 +15,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -40,6 +40,7 @@ from backend.schemas.meetings import (
     LegalHoldRequest,
     MediaObjectListResponse,
     MediaObjectResponse,
+    MeetingCountsResponse,
     MeetingDetailResponse,
     MeetingListResponse,
     MeetingQualityResponse,
@@ -709,6 +710,27 @@ def list_meetings(
         items=[_meeting_response(meeting) for meeting in meetings],
         next_before=next_before,
     )
+
+
+# Declared before /meetings/{meeting_id}, so "counts" is never read as a meeting id.
+@router.get("/meetings/counts", response_model=MeetingCountsResponse)
+def count_meetings(
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+) -> MeetingCountsResponse:
+    rows = db.execute(
+        select(Meeting.status, func.count())
+        .where(
+            Meeting.workspace_id == context.workspace.id,
+            Meeting.deleted_at.is_(None),
+            context.record_access.meeting_clause(),
+        )
+        .group_by(Meeting.status)
+    ).all()
+    counts = {status.value: 0 for status in MeetingStatus}
+    for status, count in rows:
+        counts[status.value] = int(count)
+    return MeetingCountsResponse(counts=counts, total=sum(counts.values()))
 
 
 @router.get("/meetings/{meeting_id}", response_model=MeetingDetailResponse)
