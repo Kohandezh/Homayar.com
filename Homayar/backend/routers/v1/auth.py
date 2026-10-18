@@ -38,6 +38,7 @@ from backend.security.context import (
     require_csrf,
 )
 from backend.security.tokens import parse_refresh_session_id, token_digest
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event, record_audit_event_best_effort
 from backend.services.auth_service import (
     AuthenticationError,
@@ -299,7 +300,7 @@ def login(
         # Refused attempt (HOM-114): no raw identifier, only its peppered digest prefix.
         record_audit_event_best_effort(
             db,
-            event_type="auth.login",
+            event_type=AuditEventType.AUTH_LOGIN_FAILED,
             outcome="failure",
             target_type="login_identifier",
             target_id=identifier_key[:16],
@@ -321,7 +322,7 @@ def login(
     )
     record_audit_event(
         db,
-        event_type="auth.login",
+        event_type=AuditEventType.AUTH_LOGIN,
         actor_user_id=user.id,
         target_type="user",
         target_id=user.id,
@@ -369,7 +370,7 @@ def refresh(
         db.commit()
         record_audit_event_best_effort(
             db,
-            event_type="auth.refresh_replay_detected",
+            event_type=AuditEventType.AUTH_REFRESH_REPLAY_DETECTED,
             outcome="denied",
             actor_user_id=actor_user_id,
             target_type="login_session",
@@ -420,7 +421,7 @@ def logout(
                 revoke_session(db, session_id)
                 record_audit_event(
                     db,
-                    event_type="auth.logout",
+                    event_type=AuditEventType.AUTH_LOGOUT,
                     actor_user_id=session.user_id,
                     target_type="login_session",
                     target_id=session_id,

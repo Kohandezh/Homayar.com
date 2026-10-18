@@ -16,10 +16,20 @@ from sqlalchemy import select
 from backend.database.saas_models import AuditEvent
 from backend.privacy.text_pii import valid_iban, valid_national_id
 from backend.security.context import CSRF_COOKIE
-from backend.services.audit_service import MAX_FREE_TEXT_LENGTH, record_audit_event
+from backend.services import audit_service
+from backend.services.audit_service import MAX_FREE_TEXT_LENGTH
 from backend.tests._database import inspection_session_factory
 from backend.tests.test_share_policies import _cookies
 from backend.tests.test_uploads_api import _authenticated_workspace
+
+
+def record_audit_event(db, *, event_type, **fields):
+    """Write with the target type the registry records for this event type."""
+    from backend.services.audit_event_types import AuditEventType
+
+    if "target_type" not in fields and event_type in set(AuditEventType):
+        fields["target_type"] = AuditEventType(event_type).target_type
+    return audit_service.record_audit_event(db, event_type=event_type, **fields)
 
 
 def _national_id() -> str:

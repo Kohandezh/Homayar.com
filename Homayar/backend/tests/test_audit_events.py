@@ -24,7 +24,7 @@ from backend.database.saas_models import AuditEvent, Team
 from backend.observability import metrics
 from backend.security.context import CSRF_COOKIE, REFRESH_COOKIE
 from backend.services import audit_service
-from backend.services.audit_service import AUDIT_EVENT_CATALOG, record_audit_event
+from backend.services.audit_service import AUDIT_EVENT_CATALOG
 from backend.tests._database import (
     configured_database_url,
     inspection_session_factory,
@@ -36,6 +36,15 @@ from backend.tests.test_share_policies import _cookies
 BACKEND = Path(__file__).resolve().parents[1]
 EVENT_TYPE_SHAPE = re.compile(r"^[a-z_]+(\.[a-z_]+)+$")
 PASSWORD = "SecurePass123"  # noqa: S105 - the conftest test account password
+
+
+def record_audit_event(db, *, event_type, **fields):
+    """Write with the target type the registry records for this event type."""
+    from backend.services.audit_event_types import AuditEventType
+
+    if "target_type" not in fields and event_type in set(AuditEventType):
+        fields["target_type"] = AuditEventType(event_type).target_type
+    return audit_service.record_audit_event(db, event_type=event_type, **fields)
 
 
 def _events(event_type: str) -> list[AuditEvent]:
@@ -145,11 +154,11 @@ def _recorded_event_types() -> set[str]:
 
 
 def test_every_recorded_event_type_is_catalogued():
-    recorded = _recorded_event_types()
-    assert recorded, "the scan found no audit event types"
-    assert recorded - set(AUDIT_EVENT_CATALOG) == set()
-    # and the catalog lists nothing the code no longer records
-    assert set(AUDIT_EVENT_CATALOG) - recorded == set()
+    # The registry (HOM-185) lists every type the code can write; each one has a
+    # category here, and the catalogue names nothing else.
+    from backend.services.audit_event_types import AuditEventType
+
+    assert set(AUDIT_EVENT_CATALOG) == {member.value for member in AuditEventType}
 
 
 def test_catalog_categories_cover_the_required_operations():
@@ -159,7 +168,7 @@ def test_catalog_categories_cover_the_required_operations():
         "deletion", "processing",
     }
     for required in (
-        "auth.login", "auth.logout", "auth.refresh_replay_detected",
+        "auth.login", "auth.login_failed", "auth.logout", "auth.refresh_replay_detected",
         "auth.password_reset_completed",
         "member.role_changed", "member.removed", "organization.scope.granted",
         "transcript.original_accessed", "pii.revealed", "subject.exported", "meeting.exported",
@@ -201,7 +210,8 @@ def test_failed_login_is_recorded_without_identifier_or_password(client, email_o
         json={"identifier": "nobody@example.com", "password": "Wrong-Password-1"},
     )
     assert response.status_code == 401
-    [event] = _events("auth.login")
+    [event] = _events("auth.login_failed")
+    assert _events("auth.login") == []
     assert event.outcome == "failure"
     assert event.actor_user_id is None
     assert event.target_type == "login_identifier"
@@ -347,7 +357,7 @@ def test_a_failed_best_effort_write_never_changes_the_response(client, email_out
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "invalid_credentials"
     assert _counter("homayar_audit_write_failures_total", delivery="best_effort") == before + 1
-    assert _events("auth.login") == []
+    assert _events("auth.login_failed") == []
 
 
 @pytest.mark.postgres
@@ -392,7 +402,8 @@ def test_a_failed_best_effort_insert_is_counted_once_as_best_effort(client, sett
     best_effort = _counter("homayar_audit_write_failures_total", delivery="best_effort")
     with get_session_factory()() as db:
         written = audit_service.record_audit_event_best_effort(
-            db, event_type="auth.login", outcome="x" * 40, settings=settings  # real DB error
+            db, event_type="auth.login", target_type="user", outcome="x" * 40,
+            settings=settings,  # a real DB error
         )
     assert written is False
     assert _counter("homayar_audit_write_failures_total", delivery="best_effort") == (
@@ -478,7 +489,7 @@ def test_every_string_is_masked_unless_its_key_holds_ids_or_enums(client, settin
     assert event.details["state"] == "completed" and event.details["digest"] == "a" * 64
 
 
-def test_an_uncatalogued_event_type_is_logged_once(client, settings, caplog):
+def test_an_uncatalogued_event_type_is_logged_once(client, settings, caplog, audit_event_guard):
     from backend.database.relational import get_session_factory
     from backend.services.logging_service import logger
 
@@ -494,6 +505,7 @@ def test_an_uncatalogued_event_type_is_logged_once(client, settings, caplog):
                 if r.getMessage().startswith("AUDIT_EVENT_UNCATALOGUED")]
     assert warnings == ["AUDIT_EVENT_UNCATALOGUED event_type=test.not_catalogued"]
     assert len(_events("test.not_catalogued")) == 2  # the writes still happen
+    audit_event_guard.clear()  # the unregistered writes are this test's point
 
 
 # --- tenant visibility ---------------------------------------------------------------------

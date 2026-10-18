@@ -20,6 +20,7 @@ from backend.database.relational import get_session_factory
 from backend.database.saas_models import ModelManifestRecord
 from backend.providers.base import ProviderError
 from backend.providers.registry import ModelManifest, ResolvedManifest
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 
 
@@ -66,7 +67,7 @@ def register_manifest(db: Session, manifest: ModelManifest) -> ModelManifestReco
     try:
         record_audit_event(
             db,
-            event_type="model_manifest.registered",
+            event_type=AuditEventType.MODEL_MANIFEST_REGISTERED,
             target_type="model_manifest",
             target_id=manifest.digest,
             details={
