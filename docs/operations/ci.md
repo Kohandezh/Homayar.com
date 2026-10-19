@@ -7,7 +7,8 @@
 | Website | frozen pnpm install in `website/`, lint, Next.js build, Cloudflare Workers build (`pnpm build:cf`) |
 | Product console | frozen npm install, nested lint, `/app/` build, declared test script and tests |
 | Product console end-to-end | PostgreSQL and Redis services, frozen uv environment, `alembic upgrade head`, demo seed, the API on `127.0.0.1:8001`, then the full Playwright suite (`npm run test:e2e`) in Chromium |
-| Backend | frozen uv environment, single Alembic head, upgrade/check/current-head, pytest |
+| Backend | locked uv environment (`uv sync --locked`), single Alembic head, upgrade/check/current-head, pytest |
+| Release manifest | manifest of the commit generated twice and byte-compared, API image built with the commit's release arguments, its `build-info.json` and OCI labels verified against the manifest, `homayar_build_info` read from the running image, manifest uploaded as the `release-manifest` artifact ([release.md](release.md)) |
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
 | Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`), and promtool on the alert rules, their unit tests and the example Prometheus configuration (`infra/observability/prometheus`, HOM-126) |
 
