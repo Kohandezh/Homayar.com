@@ -130,7 +130,9 @@ def test_masking_happens_before_the_cap(client, settings):
 def test_ids_inside_free_text_and_plain_reasons_are_untouched(client, settings):
     from backend.database.relational import get_session_factory
 
-    plain = f"retry after {uuid.uuid4()} (job 1234)"
+    # A fixed id: about 0.2% of random UUIDs hold a digit run the detector reads as personal
+    # data, which made this test fail at random.
+    plain = "retry after 3f2b9c1e-7a4d-4e8b-b5c6-d1e2f3a4b5c6 (job 1234)"
     with get_session_factory()() as db:
         record_audit_event(db, event_type="meeting.purge_completed",
                            details={"reason": plain, "attempts": 2}, settings=settings)

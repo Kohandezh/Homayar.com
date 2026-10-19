@@ -348,11 +348,6 @@ groups:
           description: "A restore made now could resurrect deleted conversations."
           runbook: docs/operations/alerts.md#homayartombstonejournalbacklog
 
-  # Contract with the backup tooling (Lane C, ADR 0035): it writes
-  # homayar_backup_last_success_timestamp_seconds{target="postgres"|"objects"|"offsite"} to a
-  # node_exporter textfile (HOMAYAR_BACKUP_TEXTFILE). RPO is 24 h; a target pages when its last
-  # success is older than 26 h or when it reports nothing at all. An exporter that cannot
-  # deliver the file is its own critical alert, so "unreadable" and "never ran" differ.
   - name: homayar-security
     # HOM-114: the counters exist at 0 from start-up, so increase() sees the first event.
     # Targets whose counters jump between workers are left out, as for the error rate.
@@ -397,6 +392,12 @@ groups:
           description: "Possible credential stuffing or a broken client. auth.login_failed events carry only an identifier-hash prefix."
           runbook: docs/operations/alerts.md#homayarloginfailurespike
 
+
+  # Contract with the backup tooling (Lane C, ADR 0035): it writes
+  # homayar_backup_last_success_timestamp_seconds{target="postgres"|"objects"|"offsite"} to a
+  # node_exporter textfile (HOMAYAR_BACKUP_TEXTFILE). RPO is 24 h; a target pages when its last
+  # success is older than 26 h or when it reports nothing at all. An exporter that cannot
+  # deliver the file is its own critical alert, so "unreadable" and "never ran" differ.
   - name: homayar-backup
     rules:
       - alert: HomayarBackupTooOld
