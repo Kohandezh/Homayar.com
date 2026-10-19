@@ -2,43 +2,42 @@
 
 Status: workspace inventory and migration plan, 2026-09-07. This document describes the filesystem; it does not change Git ownership or make a release checkout reproducible.
 
-> **Update 2026-09-26 ([ADR 0033](decisions/0033-product-source-in-this-repository.md)):** the product source is now tracked in the outer repository under `Homayar/` as ordinary files (imported from `Kohandezh/HomaYar` `e7eeef53`); the "two independent Git repositories" description below is historical. A workspace may still hold the former clone's `Homayar/.git`; Git commands run inside `Homayar/` then address that clone, and updating the outer checkout overwrites the previously ignored files there (see the ADR's consequences).
+> **Update 2026-09-26 ([ADR 0033](decisions/0033-product-source-in-this-repository.md)):** the product source is now tracked in the outer repository under `Homayar/` as ordinary files (imported from `Kohandezh/HomaYar` `e7eeef53`). Before that, the workspace held two independent Git repositories. A workspace may still hold the former clone's `Homayar/.git`; Git commands run inside `Homayar/` then address that clone, and updating the outer checkout overwrites the previously ignored files there (see the ADR's consequences).
 
 ## Current workspace
 
-The workspace contains two independent Git repositories:
+The repository root holds no application. It holds only shared parts and two application directories:
 
-- The outer repository at the workspace root owns the Next.js commercial website. Its application source is `src/`; editorial and product content is `content/`; static assets are `public/`.
-- `Homayar/` is an embedded product repository with its own Git history and dirty working tree. Its API, workers, services, and tests are under `Homayar/backend/`. Its React/Vite product console is under `Homayar/frontend/`.
-- Root `infra/` and `.github/` contain locally authored deployment and CI work that expects both applications in the same filesystem checkout.
+- `Homayar/` is the product. Its API, workers, services, and tests are under `Homayar/backend/`. Its React/Vite product console is under `Homayar/frontend/`.
+- `website/` is the public website (homayar.com). It is a Next.js 16 app deployed to Cloudflare Workers with OpenNext. See `website/DEPLOY.md`.
+- `infra/` holds deployment and operations files (Compose, Docker, nginx, egress, backups, CI checks).
+- `.github/` holds the CI and release workflows.
+- `.claude/` holds shared Claude Code skills and agents.
+- `docs/` holds architecture, operations, security, and planning documents.
+- `tools/` holds workspace tools, for example `tools/linear-agent/`.
 
-At inspection, outer `git ls-files Homayar` returned no tracked files and outer status classified `Homayar/` as untracked. No configured submodule contract was established. Merely nesting the directory does not deliver its source to GitHub Actions, a clean clone, or a release builder. Both repositories also contain uncommitted work that must be preserved and reviewed independently.
+The old Next.js website at the root (`src/`, `content/`, `public/`, `scripts/`, `drizzle/`, root `package.json`) was removed. Its `public-web` image and Compose service were removed too. A self-hosted install now serves only the console and the API.
 
 ```text
-workspace/                         # outer website repository
-  .git/
-  src/                             # Next.js website; preserve path
-  content/                         # website content; preserve path
-  public/                          # website assets; preserve path
-  scripts/                         # current website/build scripts
-  drizzle/                         # website database migrations
-  tests/                           # website tests
+workspace/
+  .github/                         # CI and release workflows
+  .claude/                         # shared Claude Code skills and agents
   infra/                           # shared deployment and operations
-  .github/                         # current CI definition
-  Homayar/                         # separate embedded product repository
-    .git/
+  docs/
+    architecture/
+    operations/
+    market/
+  tools/                           # workspace tools
+  Homayar/                         # product
     pyproject.toml
     uv.lock
     alembic.ini
     backend/                       # API, workers, migrations, tests
     frontend/                      # product console
-  docs/
-    architecture/
-    operations/
-    market/
+  website/                         # public website (Next.js, Cloudflare Workers)
 ```
 
-The nesting is a current arrangement, not a declaration that the product has been imported into the outer repository. See [ADR 0001](decisions/0001-preserve-runtime-roots.md).
+See [ADR 0001](decisions/0001-preserve-runtime-roots.md) for the original decision to keep runtime roots in place, and [ADR 0033](decisions/0033-product-source-in-this-repository.md) for the product source in this repository.
 
 ## Documentation and support-file organization
 
@@ -61,7 +60,7 @@ Organize plans and handoff materials without moving runtime source. These are in
 
 Keep existing architecture, operations, and market documents at their current paths. Update indexes and cross-links instead of creating competing copies. Do not place secrets, production databases, customer recordings, or personal data in documentation or generated artifacts.
 
-Loose release archives or duplicate assets may move only after their consumers and references are checked. In particular, `public/` assets can be referenced by URL and should not be moved merely because a filename looks untidy. Current generated build destinations such as `out/` remain build contracts until the scripts are deliberately changed.
+Loose release archives or duplicate assets may move only after their consumers and references are checked. In particular, `website/public/` assets can be referenced by URL and should not be moved only because a filename looks untidy.
 
 ## Path coupling that prevents a cosmetic source move
 
@@ -71,14 +70,11 @@ Loose release archives or duplicate assets may move only after their consumers a
 | `infra/docker/api.Dockerfile.dockerignore` | Explicitly includes the product backend paths and excludes environment files and caches |
 | `infra/docker/console-web.Dockerfile` | Copies `Homayar/frontend/`; publishes its Vite `dist/` under the `/app/` console route |
 | `infra/docker/console-web.Dockerfile.dockerignore` | Uses an explicit allowlist rooted in `Homayar/frontend/` |
-| `infra/docker/public-web.Dockerfile` | Copies root `src/`, `content/`, and other website build inputs |
 | `.github/workflows/ci.yml` | Product jobs run in `Homayar/frontend` and `Homayar`; verify product manifests exist; use nested lockfiles for cache keys |
 | `.github/workflows/ci.yml` | Backend migration check invokes `../infra/ci/check-migrations.sh` from `Homayar/` |
+| `.github/workflows/ci.yml`, `.github/workflows/release-website.yml` | The website job and the website release run in `website/` |
 | `Homayar/pyproject.toml` | Configures tests at `backend/tests`, Python path at the product root, and migration-specific lint rules |
 | `Homayar/Makefile` | Refers to `backend`, `frontend`, the product Compose file, and Python module names |
-| `tsconfig.json` | Maps `@/*` to root `src/*` and explicitly excludes `Homayar/**` |
-| `drizzle.config.ts` | References `src/db/schema.ts` and writes root `drizzle/` |
-| `scripts/build-cpanel.mjs` | Temporarily parks `src/app/api` and writes `out/` |
 | `infra/compose/`, `infra/scripts/`, `infra/nginx/` | Depend on shared configuration locations, build context, relative script paths, and `/app/` plus `/api/v1/` routing |
 
 A migration to an `apps/` layout would therefore require coordinated Docker, CI, package, module-import, migration, build-script, documentation, and test updates. That is an engineering change with deployment consequences, not folder housekeeping.

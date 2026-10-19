@@ -46,7 +46,15 @@ _FILE_SUFFIX = ".jsonl"
 
 
 class JournalUnavailable(RuntimeError):
-    """The journal directory is not configured or cannot be written."""
+    """The journal directory is not configured or cannot be written.
+
+    ``reason`` is a bounded code that is safe to log; neither it nor the
+    message carries a path or the operating system's error text.
+    """
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -107,7 +115,7 @@ def decode(line: str) -> TombstoneRecord:
 class TombstoneJournal:
     def __init__(self, directory: str | os.PathLike[str]) -> None:
         if not str(directory):
-            raise JournalUnavailable("TOMBSTONE_JOURNAL_DIR is not configured")
+            raise JournalUnavailable("not_configured", "TOMBSTONE_JOURNAL_DIR is not configured")
         self.directory = Path(directory)
 
     def append(self, records: list[TombstoneRecord], *, now: datetime) -> None:
@@ -125,7 +133,9 @@ class TombstoneJournal:
             finally:
                 os.close(fd)
         except OSError as exc:
-            raise JournalUnavailable(f"journal write failed: {type(exc).__name__}") from exc
+            raise JournalUnavailable(
+                "write_failed", f"journal write failed: {type(exc).__name__}"
+            ) from exc
 
     def files(self) -> list[Path]:
         if not self.directory.is_dir():
@@ -218,7 +228,13 @@ def journal_pending(
         journal.append(records, now=now)
     except JournalUnavailable as exc:
         db.rollback()
-        logger.error("TOMBSTONE_JOURNAL_UNAVAILABLE workspace_id=%s error=%s", workspace_id, exc)
+        cause = type(exc.__cause__).__name__ if exc.__cause__ is not None else "none"
+        logger.error(
+            "TOMBSTONE_JOURNAL_UNAVAILABLE workspace_id=%s reason=%s cause=%s",
+            workspace_id,
+            exc.reason,
+            cause,
+        )
         return 0
     for row in rows:
         row.journaled_at = now

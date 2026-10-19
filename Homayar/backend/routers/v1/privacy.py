@@ -23,6 +23,7 @@ from backend.privacy.subject_export import (
 )
 from backend.schemas.privacy import SubjectExportRequest
 from backend.security.context import Permission, WorkspaceContext, require_write_permission
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
@@ -53,7 +54,7 @@ def export_subject(
     )
     record_audit_event(
         db,
-        event_type="subject.exported",
+        event_type=AuditEventType.SUBJECT_EXPORTED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="workspace",

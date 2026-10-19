@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { consolePath, signIn } from "./demo";
+import { consolePath, resumeSession } from "./demo";
 
 test("a viewer is blocked from workspace settings", async ({ page }) => {
-  await signIn(page, "viewer");
+  await resumeSession(page, "viewer");
   await page.goto(consolePath("/admin/settings"));
 
   await expect(page.getByRole("heading", { name: "No access" })).toBeVisible();
@@ -14,7 +14,7 @@ test("a viewer is blocked from workspace settings", async ({ page }) => {
 });
 
 test("a viewer is blocked from the admin overview", async ({ page }) => {
-  await signIn(page, "viewer");
+  await resumeSession(page, "viewer");
   await page.goto(consolePath("/admin"));
 
   await expect(page.getByRole("heading", { name: "No access" })).toBeVisible();
@@ -22,7 +22,7 @@ test("a viewer is blocked from the admin overview", async ({ page }) => {
 });
 
 test("a viewer can still open the pages their role allows", async ({ page }) => {
-  await signIn(page, "viewer");
+  await resumeSession(page, "viewer");
   await page.goto(consolePath("/admin/members"));
 
   await expect(page.getByRole("heading", { name: "Members and access", level: 1 })).toBeVisible();

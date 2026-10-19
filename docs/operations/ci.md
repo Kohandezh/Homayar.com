@@ -4,7 +4,7 @@
 
 | Job | Required checks |
 | --- | --- |
-| Public web | reviewed pnpm lifecycle scripts, frozen install, lint, server build, cPanel export, Playwright tests (the last two once committed, see below) |
+| Website | frozen pnpm install in `website/`, lint, Next.js build, Cloudflare Workers build (`pnpm build:cf`) |
 | Product console | frozen npm install, nested lint, `/app/` build, declared test script and tests |
 | Backend | frozen uv environment, single Alembic head, upgrade/check/current-head, pytest |
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
@@ -67,15 +67,7 @@ re-run that passes is not a diagnosis.
 
 Backend CI uses only isolated PostgreSQL and Redis service containers. It sets test mode and
 mock-provider permission explicitly; it does not call email, SMS, OAuth, ASR, diarization,
-LLM, S3, Neo4j, or other live providers. Root browser tests are expected to stub any external
-commercial integration they exercise.
-
-The cPanel export (`scripts/build-cpanel.mjs`, `pnpm build:cpanel`) and the Playwright suite
-(`tests/*.spec.ts`) belong to the website overlay recorded in WP01-T03, which is not committed to
-this repository yet. Until each is committed, its steps are skipped and the public-web job carries
-a "Website gates pending" warning annotation; they run automatically as soon as the files exist.
-This is a temporary exception for files that do not exist, not an optional gate: once the overlay
-lands, remove the conditions from `.github/workflows/ci.yml`.
+LLM, S3, Neo4j, or other live providers.
 
 The console lane fails when `Homayar/frontend/package.json` has no `test` script. The backend
 lane fails when Alembic configuration is absent, more than one migration head exists, schema
@@ -87,9 +79,9 @@ version tags in CI and should move to recorded multi-architecture digests after 
 mirror and update process are established. Dependency or image updates require the same test
 suite and a reviewed generated diff.
 
-The workflow builds all three image templates and starts each final image with the same
-non-root/read-only assumptions used by Compose. It verifies the public root, console
-`/app/index.html`, API `/healthz`, and configured runtime users. These checks prove build and
+The workflow builds the console and API image templates and starts each final image with the
+same non-root/read-only assumptions used by Compose. It verifies console `/app/index.html`, API
+`/healthz`, and configured runtime users. These checks prove build and
 basic process viability; they do not replace a release pipeline that emits SBOMs, scans
 packages and layers, signs digest references, starts the full selected Compose profile, and
 runs same-origin upload and tenant-isolation smoke tests without live providers.

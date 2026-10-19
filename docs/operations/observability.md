@@ -36,11 +36,22 @@ abandoned attempt (`category="worker_lost"`) by the lease-recovery sweep. Their 
   internal name (`Host: api:8000`), and the endpoint returns nothing derived from the host.
   Every other path still answers 400 for an untrusted host.
 * With `uvicorn --workers N` (the compose default is 2) set `PROMETHEUS_MULTIPROC_DIR` to an
-  empty per-container directory (the cloud compose profile uses the tmpfs path
-  `/tmp/homayar-metrics`). Every worker then writes its counters there and each scrape sums
-  all workers, whichever worker answers it. The directory must be empty when the container
+  empty per-container directory. The cloud compose profile mounts a tmpfs of its own for it,
+  `/run/homayar-metrics` (32 MB), separate from `/tmp` where uploads are spooled, so a full
+  spool cannot stop the counters and the counters cannot fill the spool. Every worker writes
+  its counters there and each scrape sums all workers, whichever worker answers it. Sizing:
+  each worker process keeps one counter file and one histogram file (sparse, 1 MiB each when
+  created, a few KiB actually used); files of a worker that exited stay until the container
+  restarts, which is correct for counters. The directory must be empty when the container
   starts (tmpfs or a fresh container filesystem). In this mode the per-process `process_*`
   series are not exported. Without the variable a single process serves its own counters.
+* A metric write that fails (full or missing directory) never fails the request it counts:
+  it is logged as `METRICS_WRITE_FAILED error_type=…` at most once a minute.
+* On-premise (`compose.onprem.yaml`) passes the same `METRICS_*` settings (plus the
+  on-premise-only `METRICS_ALLOW_UNAUTHENTICATED`) and the same dedicated
+  `/run/homayar-metrics` tmpfs. The opt-in `monitoring` profile adds `node-exporter`,
+  which reads the backup freshness gauge from `NODE_EXPORTER_TEXTFILE_DIR` (written by
+  `backup-tool`, kept outside the 0700 backup root).
 * Access (`backend.observability.metrics.metrics_access`):
 
   | Setting | development / test | staging / production |
@@ -91,7 +102,8 @@ instead of the API's request threadpool.
 | `homayar_jobs_failed_by_class_15m` | `outcome`, `failure_class` | idem |
 | `homayar_jobs_retried_15m`, `homayar_workspaces_with_failed_jobs_15m` | – | jobs needing more than one attempt; tenant impact as a count only |
 | `homayar_job_turnaround_seconds_15m`, `homayar_job_processing_seconds_15m`, `homayar_job_queue_wait_seconds_15m` | `quantile` (0.5, 0.95, 1) | completed jobs of the last 15 min (at most 5000) |
-| `homayar_dispatch_outbox`, `homayar_dispatch_oldest_due_age_seconds` | `state` | `job_dispatches` |
+| `homayar_dispatch_outbox` | `state` | `job_dispatches` |
+| `homayar_dispatch_oldest_due_age_seconds` | none (age of the oldest due, unpublished row; 0 when none is due) | `job_dispatches` |
 | `homayar_provider_endpoints`, `homayar_provider_circuits_open`, `homayar_provider_endpoints_failing`, `homayar_provider_endpoints_failed_15m`, `homayar_provider_consecutive_failures_max` | `stage` (`asr`, `diarization`, `intelligence`, `tts`, `other`) | `provider_health` |
 | `homayar_broker_queue_length` | `queue` | Redis `LLEN processing` |
 | `homayar_periodic_task_last_success_timestamp_seconds`, `..._last_failure_...`, `..._last_run_...`, `..._last_duration_seconds` | `task` | sweep heartbeats |
@@ -124,7 +136,7 @@ warning; the Redis-down alert covers it).
 ## Logs
 
 JSON lines on stdout with `correlation_id` (also on the `UNHANDLED_ERROR` line of a 500).
-The message is cut at 2000 characters and passes through two scrubbers
+The message passes through two scrubbers, and is cut at 2000 characters only afterwards
 (`backend/observability/scrub.py`): credentials (`Authorization`/`Cookie` header values,
 bearer and basic credentials, JWTs, Homayar and provider API keys, `password=`/`token=`-style
 pairs in `key=value`, JSON and Python-repr spelling, every secret setting name of
@@ -134,6 +146,10 @@ exception is logged by its classes, SQLSTATE and constraint/table/column only, n
 text (which quotes the statement, bound parameters and psycopg's `DETAIL` row values); other
 exception texts pass through the same scrubbers. `UNHANDLED_ERROR` names the route template,
 never the raw path (share and invitation tokens live in paths). No traceback is written.
+uvicorn writes its own line for an exception that escaped the app (`Exception in ASGI
+application`, logger `uvicorn.error`, uvicorn's plain-text handler); a filter on uvicorn's
+loggers scrubs that record the same way, replaces the traceback with the exception summary
+and adds `request_id=`, so the line can be matched to the `UNHANDLED_ERROR` record.
 This is defence in depth: code still must not log headers, bodies, transcripts or settings.
 Known gap outside the application: uvicorn's access log and the proxy's access log print
 raw request paths (follow-up recorded in the PR).

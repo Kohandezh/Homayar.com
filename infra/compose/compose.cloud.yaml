@@ -118,8 +118,6 @@ services:
       - ../nginx/conf.d/homayar.conf:/etc/nginx/conf.d/default.conf:ro
       - ../nginx/includes:/etc/nginx/includes:ro
     depends_on:
-      public-web:
-        condition: service_healthy
       console-web:
         condition: service_healthy
       api:
@@ -134,35 +132,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=128m
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    networks: [edge]
-    logging: *default-logging
-
-  public-web:
-    image: "${PUBLIC_WEB_IMAGE:?Set an immutable public-web image reference}"
-    profiles: [cloud]
-    environment:
-      NODE_ENV: production
-      HOSTNAME: 0.0.0.0
-      PORT: "3000"
-      NEXT_TELEMETRY_DISABLED: "1"
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:3000/').then((r) => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
-    init: true
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=128m
-      - /app/.next/cache:rw,noexec,nosuid,size=512m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [edge]
@@ -198,7 +167,8 @@ services:
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
       # Counters of all uvicorn workers in one tmpfs directory (empty at every
       # container start): /metrics sums them instead of answering per worker.
-      PROMETHEUS_MULTIPROC_DIR: /tmp/homayar-metrics
+      # Its own small tmpfs, so upload spooling in /tmp can never fill it.
+      PROMETHEUS_MULTIPROC_DIR: /run/homayar-metrics
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
@@ -220,6 +190,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
       - /app/logs:rw,noexec,nosuid,size=64m
+      - /run/homayar-metrics:rw,noexec,nosuid,size=32m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [edge, private]

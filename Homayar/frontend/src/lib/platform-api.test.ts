@@ -1,13 +1,18 @@
 import { AxiosError, AxiosHeaders, type AxiosResponse } from "axios";
+import { createElement, type ReactNode } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import api from "@/lib/api";
 import {
   PLATFORM_POLL_INTERVAL_MS,
   acceptInvitation,
+  assignTeamMember,
   changeMemberRole,
   createAction,
   createShare,
+  createTeam,
   deleteAction,
   downloadRecording,
   exportMeeting,
@@ -15,35 +20,52 @@ import {
   getBillingUsage,
   getCurrentSubscription,
   getMeeting,
+  getMeetingCounts,
   getMeetingJob,
   getMeetingSummary,
   getPlanCatalog,
   getReadiness,
   getSharedMeeting,
+  getTeam,
   getTranscript,
   getWorkspaceSettings,
   inviteMember,
   jobRefetchInterval,
   listActions,
   listAuditEvents,
+  listAuditEventTypes,
   listInvitations,
   listMeetings,
   listMembers,
   listShares,
+  listTeams,
   listUsageEvents,
   meetingRefetchInterval,
+  platformQueryKeys,
   readinessBaseUrl,
   removeMember,
   renameSpeaker,
   revokeInvitation,
   revokeShare,
+  revokeTeamAssignment,
   searchMeetings,
   updateAction,
+  updateTeam,
   updateWorkspaceSettings,
   uploadMeeting,
+  useAssignTeamMember,
+  useCreateTeam,
+  useDeleteMeeting,
+  useMeetingCounts,
+  useRevokeTeamAssignment,
+  useTeam,
+  useTeams,
+  useUpdateTeam,
 } from "@/lib/platform-api";
+import { testQueryClient, apiError } from "@/test/fixtures";
 import type {
   Meeting,
+  MeetingCountsResponse,
   ProcessingJob,
   UploadAcceptedResponse,
 } from "@/types/platform";
@@ -207,6 +229,105 @@ describe("platform meeting API", () => {
   });
 });
 
+describe("meeting counts API", () => {
+  const countsBody: MeetingCountsResponse = {
+    counts: {
+      uploading: 0,
+      uploaded: 0,
+      queued: 4,
+      processing: 0,
+      transcribing: 1,
+      diarizing: 0,
+      analyzing: 0,
+      completed: 120,
+      partial: 2,
+      failed: 3,
+      cancelled: 5,
+    },
+    total: 135,
+  };
+
+  it("reads the counts endpoint like the meeting list", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse(countsBody));
+
+    await expect(getMeetingCounts()).resolves.toEqual(countsBody);
+    expect(get).toHaveBeenCalledWith("/meetings/counts", undefined);
+
+    const signal = new AbortController().signal;
+    await getMeetingCounts(signal);
+    expect(get).toHaveBeenLastCalledWith("/meetings/counts", { signal });
+  });
+
+  it("keeps the counts key under the meetings prefix", () => {
+    expect(platformQueryKeys.meetingCounts()).toEqual(["platform", "meetings", "counts"]);
+    const prefix = platformQueryKeys.meetings();
+    expect(platformQueryKeys.meetingCounts().slice(0, prefix.length)).toEqual(prefix);
+  });
+
+  it("reads the counts through useMeetingCounts", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse(countsBody));
+    const queryClient = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useMeetingCounts(), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    });
+
+    expect(hook.result.current.data).toEqual(countsBody);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith("/meetings/counts", expect.objectContaining({ signal: expect.anything() }));
+  });
+
+  it("invalidates the counts cache when a meeting is deleted", async () => {
+    const remove = vi.spyOn(api, "delete").mockResolvedValue(axiosResponse(undefined));
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const del = renderHook(() => useDeleteMeeting(), { wrapper });
+    await act(async () => {
+      await del.result.current.mutateAsync("meeting-1");
+    });
+
+    expect(remove).toHaveBeenCalledWith("/meetings/meeting-1");
+    const countsInvalidations = invalidate.mock.calls.filter(
+      (call) => JSON.stringify(call[0]?.queryKey) === JSON.stringify(["platform", "meetings", "counts"]),
+    );
+    expect(countsInvalidations).toHaveLength(1);
+  });
+
+  it("does not retry a 404 counts answer, so the fallback is not delayed", async () => {
+    const get = vi.spyOn(api, "get").mockRejectedValue(apiError(404, "not_found"));
+    const queryClient = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useMeetingCounts(), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isError).toBe(true), { timeout: 4_000 });
+    });
+
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a 500 counts answer once", async () => {
+    const get = vi.spyOn(api, "get").mockRejectedValue(apiError(500, "internal_error"));
+    const queryClient = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useMeetingCounts(), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isError).toBe(true), { timeout: 6_000 });
+    });
+
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("meeting intelligence and sharing API", () => {
   it("maps transcript, summary, actions, speaker, and search contracts", async () => {
     const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse({}));
@@ -304,6 +425,7 @@ describe("billing, members, and admin API", () => {
     await revokeInvitation("invitation-1");
     await removeMember("membership-1");
     await listAuditEvents({ event_type: "meeting.uploaded", limit: 20 });
+    await listAuditEventTypes();
     await getWorkspaceSettings();
     await updateWorkspaceSettings({ retention_days: 90 });
 
@@ -312,7 +434,8 @@ describe("billing, members, and admin API", () => {
     expect(get).toHaveBeenNthCalledWith(3, "/admin/audit-events", {
       params: { event_type: "meeting.uploaded", limit: 20 },
     });
-    expect(get).toHaveBeenNthCalledWith(4, "/admin/workspace-settings");
+    expect(get).toHaveBeenNthCalledWith(4, "/admin/audit-event-types");
+    expect(get).toHaveBeenNthCalledWith(5, "/admin/workspace-settings");
     expect(post).toHaveBeenNthCalledWith(1, "/members/invitations", {
       email: "new@example.com",
       role: "member",
@@ -328,6 +451,112 @@ describe("billing, members, and admin API", () => {
     });
     expect(remove).toHaveBeenNthCalledWith(1, "/members/invitations/invitation-1");
     expect(remove).toHaveBeenNthCalledWith(2, "/members/membership-1");
+  });
+});
+
+describe("teams API", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("maps the team router contracts, with date keys only when a period was chosen", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse({}));
+    const post = vi.spyOn(api, "post").mockResolvedValue(axiosResponse({}));
+    const patch = vi.spyOn(api, "patch").mockResolvedValue(axiosResponse({}));
+    const remove = vi.spyOn(api, "delete").mockResolvedValue(axiosResponse(undefined));
+
+    await listTeams();
+    await getTeam("team-1");
+    await createTeam({ name: "Sales" });
+    await updateTeam("team-1", { name: "Renamed" });
+    await updateTeam("team-1", { is_active: false });
+    await assignTeamMember("team-1", { user_id: "user-1", role: "agent" });
+    await assignTeamMember("team-1", {
+      user_id: "user-1",
+      role: "supervisor",
+      valid_from: "2026-01-01T00:00:00.000Z",
+      valid_until: "2026-02-01T00:00:00.000Z",
+    });
+    await revokeTeamAssignment("team-1", "assignment-1");
+
+    expect(get).toHaveBeenNthCalledWith(1, "/teams");
+    expect(get).toHaveBeenNthCalledWith(2, "/teams/team-1");
+    expect(post).toHaveBeenNthCalledWith(1, "/teams", { name: "Sales" });
+    // A rename sends only its own key; so does an activation change.
+    expect(patch).toHaveBeenNthCalledWith(1, "/teams/team-1", { name: "Renamed" });
+    expect(patch).toHaveBeenNthCalledWith(2, "/teams/team-1", { is_active: false });
+    expect(post).toHaveBeenNthCalledWith(2, "/teams/team-1/assignments", {
+      user_id: "user-1",
+      role: "agent",
+    });
+    expect(post).toHaveBeenNthCalledWith(3, "/teams/team-1/assignments", {
+      user_id: "user-1",
+      role: "supervisor",
+      valid_from: "2026-01-01T00:00:00.000Z",
+      valid_until: "2026-02-01T00:00:00.000Z",
+    });
+    expect(remove).toHaveBeenCalledWith("/teams/team-1/assignments/assignment-1");
+  });
+
+  it("shares the teams prefix between the list and each team detail", () => {
+    expect(platformQueryKeys.teams()).toEqual(["platform", "teams"]);
+    expect(platformQueryKeys.team("team-1")).toEqual(["platform", "teams", "team-1"]);
+  });
+
+  it("keeps useTeam quiet until a team id exists", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse({}));
+    const queryClient = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    renderHook(() => useTeam(null), { wrapper });
+    const list = renderHook(() => useTeams(), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(list.result.current.isSuccess).toBe(true));
+    });
+    // Only the list was read: the disabled detail query stayed quiet.
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith("/teams", expect.anything());
+  });
+
+  it("invalidates the teams cache after every team mutation, success or failure", async () => {
+    const post = vi.spyOn(api, "post").mockResolvedValue(axiosResponse({}));
+    const patch = vi.spyOn(api, "patch").mockResolvedValueOnce(axiosResponse({})).mockRejectedValueOnce(apiError(500, "server_error"));
+    const remove = vi.spyOn(api, "delete").mockResolvedValue(axiosResponse(undefined));
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const create = renderHook(() => useCreateTeam(), { wrapper });
+    await act(async () => {
+      await create.result.current.mutateAsync({ name: "Sales" });
+    });
+    const update = renderHook(() => useUpdateTeam(), { wrapper });
+    await act(async () => {
+      await update.result.current.mutateAsync({ teamId: "team-1", patch: { name: "Renamed" } });
+    });
+    // A refused update still refreshes: the server may have changed the row.
+    const refused = renderHook(() => useUpdateTeam(), { wrapper });
+    await act(async () => {
+      await refused.result.current.mutateAsync({ teamId: "team-1", patch: { is_active: false } }).catch(() => undefined);
+    });
+    const assign = renderHook(() => useAssignTeamMember(), { wrapper });
+    await act(async () => {
+      await assign.result.current.mutateAsync({ teamId: "team-1", input: { user_id: "user-1", role: "agent" } });
+    });
+    const revoke = renderHook(() => useRevokeTeamAssignment(), { wrapper });
+    await act(async () => {
+      await revoke.result.current.mutateAsync({ teamId: "team-1", assignmentId: "assignment-1" });
+    });
+
+    expect(post).toHaveBeenCalledWith("/teams", { name: "Sales" });
+    expect(patch).toHaveBeenCalledWith("/teams/team-1", { is_active: false });
+    expect(remove).toHaveBeenCalledWith("/teams/team-1/assignments/assignment-1");
+    const teamsInvalidations = invalidate.mock.calls.filter(
+      (call) => JSON.stringify(call[0]?.queryKey) === JSON.stringify(["platform", "teams"]),
+    );
+    expect(teamsInvalidations).toHaveLength(5);
   });
 });
 

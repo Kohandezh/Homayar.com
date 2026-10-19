@@ -27,7 +27,7 @@ from backend.database.relational import reset_database_state
 from backend.database.saas_models import AuditEvent, JobState, ProcessingJob, ProviderHealth, User
 from backend.jobs.processor import process_job
 from backend.main import create_app
-from backend.observability import heartbeats, metrics
+from backend.observability import heartbeats, metrics, scrub
 from backend.observability.correlation import (
     correlation_scope,
     current_correlation_id,
@@ -35,7 +35,6 @@ from backend.observability.correlation import (
     request_correlation_id,
 )
 from backend.observability.metrics import (
-    REGISTRY,
     StateCollector,
     failure_category,
     metrics_access,
@@ -91,6 +90,16 @@ def _scrape(client, **headers) -> dict[str, list[tuple[dict[str, str], float]]]:
     return samples
 
 
+def _counter(name: str, **labels: str) -> float:
+    """A counter's current value as /metrics reports it, in single- and multiprocess mode."""
+    exposition = metrics.in_process_exposition().decode()
+    for family in text_string_to_metric_families(exposition):
+        for sample in family.samples:
+            if sample.name == name and all(sample.labels.get(k) == v for k, v in labels.items()):
+                return sample.value
+    return 0.0
+
+
 def _value(samples, name: str, **labels: str) -> float | None:
     for sample_labels, value in samples.get(name, []):
         if all(sample_labels.get(key) == wanted for key, wanted in labels.items()):
@@ -112,7 +121,7 @@ def test_metrics_expose_queue_jobs_dependencies_heartbeats_and_build_identity(
     )
     upload_labels = {"method": "POST", "route": "/api/v1/uploads", "status_class": "2xx"}
     # In-process counters are cumulative for the whole test process: compare deltas.
-    uploads_before = REGISTRY.get_sample_value("homayar_http_requests_total", upload_labels) or 0
+    uploads_before = _counter("homayar_http_requests_total", **upload_labels)
     job_id, workspace_id = _queued_upload(client, email_outbox, monkeypatch)
 
     queued = _scrape(client)
@@ -123,28 +132,46 @@ def test_metrics_expose_queue_jobs_dependencies_heartbeats_and_build_identity(
     assert _value(queued, "homayar_dependency_up", dependency="database") == 1
     assert _value(queued, "homayar_dependency_up", dependency="storage") == 1
     assert _value(queued, "homayar_dispatch_outbox", state="pending") == 1
-    assert _value(
-        queued, "homayar_periodic_task_result", task="retention_purge", field="purges_failed"
-    ) == 2
-    assert _value(
-        queued, "homayar_periodic_task_last_success_timestamp_seconds", task="retention_purge"
-    ) == 1002.5
-    assert _value(queued, "homayar_periodic_task_last_duration_seconds", task="retention_purge") \
-        == 2.5
-    assert _value(
-        queued, "homayar_periodic_task_interval_seconds", task="retention_purge"
-    ) == settings.retention_purge_interval_seconds
-    assert ("workspace" not in {labels.get("field") for labels, _ in queued.get(
-        "homayar_periodic_task_result", [])})
+    assert (
+        _value(
+            queued, "homayar_periodic_task_result", task="retention_purge", field="purges_failed"
+        )
+        == 2
+    )
+    assert (
+        _value(
+            queued, "homayar_periodic_task_last_success_timestamp_seconds", task="retention_purge"
+        )
+        == 1002.5
+    )
+    assert (
+        _value(queued, "homayar_periodic_task_last_duration_seconds", task="retention_purge") == 2.5
+    )
+    assert (
+        _value(queued, "homayar_periodic_task_interval_seconds", task="retention_purge")
+        == settings.retention_purge_interval_seconds
+    )
+    assert "workspace" not in {
+        labels.get("field") for labels, _ in queued.get("homayar_periodic_task_result", [])
+    }
     build = queued["homayar_build_info"][0][0]
     assert build["migration_head"] == code_migration_head()
     assert set(build) == {
-        "version", "source_sha", "profile", "migration_head", "python_version", "uv_lock_sha256"
+        "version",
+        "source_sha",
+        "profile",
+        "migration_head",
+        "python_version",
+        "uv_lock_sha256",
     }
     assert _value(queued, "homayar_http_requests_total", **upload_labels) == uploads_before + 1
 
-    assert process_job(job_id, worker_id="metrics-test", settings=settings,
-                       providers=_providers())["status"] == "completed"
+    assert (
+        process_job(job_id, worker_id="metrics-test", settings=settings, providers=_providers())[
+            "status"
+        ]
+        == "completed"
+    )
     done = _scrape(client)
     assert _value(done, "homayar_jobs", state="completed") == 1
     assert _value(done, "homayar_jobs_queued_due") == 0
@@ -187,10 +214,18 @@ def test_failed_jobs_are_counted_by_bounded_category_and_affected_workspaces(
         db.commit()
 
     samples = _scrape(client)
-    assert _value(samples, "homayar_jobs_failed_15m", outcome="dead_letter",
-                  category="provider") == 1
-    assert _value(samples, "homayar_jobs_failed_by_class_15m", outcome="dead_letter",
-                  failure_class="transient") == 1
+    assert (
+        _value(samples, "homayar_jobs_failed_15m", outcome="dead_letter", category="provider") == 1
+    )
+    assert (
+        _value(
+            samples,
+            "homayar_jobs_failed_by_class_15m",
+            outcome="dead_letter",
+            failure_class="transient",
+        )
+        == 1
+    )
     assert _value(samples, "homayar_jobs_retried_15m") == 1
     assert _value(samples, "homayar_workspaces_with_failed_jobs_15m") == 1
     assert _value(samples, "homayar_provider_circuits_open", stage="asr") == 1
@@ -224,10 +259,10 @@ def test_metrics_require_the_configured_bearer_token(token_settings):
         missing = client.get("/metrics")
         assert missing.status_code == 401
         assert missing.headers["www-authenticate"] == "Bearer"
-        assert client.get("/metrics", headers={"Authorization": "Bearer wrong"}).status_code \
-            == 401
-        assert client.get("/metrics", headers={"Authorization": f"Basic {TOKEN}"}).status_code \
-            == 401
+        assert client.get("/metrics", headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert (
+            client.get("/metrics", headers={"Authorization": f"Basic {TOKEN}"}).status_code == 401
+        )
         accepted = client.get("/metrics", headers={"Authorization": f"Bearer {TOKEN}"})
         assert accepted.status_code == 200
         assert "homayar_build_info" in accepted.text
@@ -294,13 +329,16 @@ def test_the_proxy_never_routes_metrics_to_the_api():
     config = (REPO_ROOT / "infra/nginx/conf.d/homayar.conf").read_text(encoding="utf-8")
     blocks = re.findall(r"location\s+(=|\^~)?\s*(\S+)\s*\{(.*?)\n    \}", config, re.S)
     assert blocks
-    api_paths = [path for _, path, body in blocks if "$api_upstream" in body or
-                 "upload-proxy.conf" in body]
+    api_paths = [
+        path for _, path, body in blocks if "$api_upstream" in body or "upload-proxy.conf" in body
+    ]
     assert api_paths and all(
         path == "/readyz" or path.startswith("/api/v1") for path in api_paths
     ), api_paths
+    # The catch-all (a redirect or the public site) never reaches the API.
     catch_all = [body for _, path, body in blocks if path == "/"]
-    assert len(catch_all) == 1 and "$public_upstream" in catch_all[0]
+    assert len(catch_all) == 1
+    assert "$api_upstream" not in catch_all[0] and "metrics" not in catch_all[0]
 
 
 # --- heartbeats ------------------------------------------------------------------------
@@ -369,9 +407,7 @@ def test_redis_heartbeat_store_round_trip():
 # --- correlation ids -------------------------------------------------------------------
 
 
-def test_request_id_is_the_audit_correlation_id_when_the_caller_passes_none(
-    client, email_outbox
-):
+def test_request_id_is_the_audit_correlation_id_when_the_caller_passes_none(client, email_outbox):
     register_user(client, email_outbox, email="corr@example.com", verify=False)
     response = client.post(
         "/api/v1/auth/verify-email",
@@ -436,7 +472,10 @@ def test_json_logs_carry_the_correlation_id_and_no_credentials():
     formatter = JSONFormatter()
     password, bearer, other = "p" * 11, "b" * 16, "h" * 7
     record = logging.LogRecord(
-        "homayar", logging.ERROR, __file__, 1,
+        "homayar",
+        logging.ERROR,
+        __file__,
+        1,
         "upstream %s failed with Authorization: Bearer " + bearer + " and password=%s",
         (f"postgresql://homayar:{password}@db:5432/homayar", other),
         None,
@@ -522,25 +561,23 @@ def test_a_hung_dependency_bounds_the_scrape_and_is_not_restarted(client, settin
 
     monkeypatch.setattr(metrics, "collect_storage", hung)
     collector = StateCollector(settings, cache_seconds=0, source_timeout=0.5)
-    before = REGISTRY.get_sample_value(
-        "homayar_metrics_collection_errors_total", {"source": "storage"}
-    ) or 0
+    before = _counter("homayar_metrics_collection_errors_total", source="storage")
     try:
         for _ in range(2):
             started = time.monotonic()
             snapshot = collector.refresh()
             assert time.monotonic() - started < 3.0  # two stages of 0.5 s, plus margin
             storage = [
-                value for labels, value in snapshot.families["homayar_dependency_up"][2]
+                value
+                for labels, value in snapshot.families["homayar_dependency_up"][2]
                 if labels == ("storage",)
             ]
             assert storage == [0.0]
-            assert ("database",) in [labels for labels, _ in
-                                     snapshot.families["homayar_dependency_up"][2]]
+            assert ("database",) in [
+                labels for labels, _ in snapshot.families["homayar_dependency_up"][2]
+            ]
         assert calls == [1]  # the hung probe is not started a second time
-        after = REGISTRY.get_sample_value(
-            "homayar_metrics_collection_errors_total", {"source": "storage"}
-        )
+        after = _counter("homayar_metrics_collection_errors_total", source="storage")
         assert after == before + 2
     finally:
         gate.set()
@@ -592,8 +629,12 @@ def test_multiprocess_mode_sums_every_worker(tmp_path):
         "sys.stdout.write(metrics.in_process_exposition().decode())"
     )
     exposition = subprocess.run(  # noqa: S603 - this interpreter and a fixed script
-        [sys.executable, "-c", reader], env=env, cwd=HOMAYAR_ROOT, check=True,
-        capture_output=True, text=True,
+        [sys.executable, "-c", reader],
+        env=env,
+        cwd=HOMAYAR_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     samples = {
         (sample.name, tuple(sorted(sample.labels.items()))): sample.value
@@ -641,9 +682,9 @@ def test_metrics_accept_the_internal_service_host_and_nothing_else_does(settings
 def test_a_token_file_with_trailing_whitespace_still_matches(settings):
     padded = settings.model_copy(update={"metrics_bearer_token": TOKEN + "\n "})
     with _app_client(padded) as client:
-        assert client.get(
-            "/metrics", headers={"Authorization": f"Bearer {TOKEN}"}
-        ).status_code == 200
+        assert (
+            client.get("/metrics", headers={"Authorization": f"Bearer {TOKEN}"}).status_code == 200
+        )
 
 
 def test_cloud_refuses_the_unauthenticated_opt_out():
@@ -740,10 +781,22 @@ def test_unhandled_errors_log_the_route_template_and_correlation_without_pii(set
 @pytest.mark.parametrize(
     "name",
     [
-        "database_url", "redis_url", "jwt_secret", "token_pepper", "google_client_secret",
-        "asanak_api_key", "storage_access_key", "storage_secret_key", "pii_mapping_keys",
-        "llm_fallback_api_key", "zai_api_key", "gapgpt_api_key", "smtp_password",
-        "neo4j_password", "sentry_dsn", "metrics_bearer_token",
+        "database_url",
+        "redis_url",
+        "jwt_secret",
+        "token_pepper",
+        "google_client_secret",
+        "asanak_api_key",
+        "storage_access_key",
+        "storage_secret_key",
+        "pii_mapping_keys",
+        "llm_fallback_api_key",
+        "zai_api_key",
+        "gapgpt_api_key",
+        "smtp_password",
+        "neo4j_password",
+        "sentry_dsn",
+        "metrics_bearer_token",
     ],
 )
 def test_every_secret_setting_name_is_scrubbed_in_any_spelling(name):
@@ -766,8 +819,10 @@ def test_every_secret_setting_name_is_scrubbed_in_any_spelling(name):
         ("dsn https://" + "k" * 12 + "@sentry.example.invalid/7", "k" * 12),
         ("postgresql://homayar:" + "pa/ss" + "w" * 6 + "@db:5432/homayar", "pa/ss"),
         ("postgresql://homayar:" + "p@ss" + "w" * 6 + "@db:5432/homayar", "ssw"),
-        ("upstream rejected {'api_key': '" + "z" * 12 + "', 'token': '" + "t" * 12 + "'}",
-         "z" * 12),
+        (
+            "upstream rejected {'api_key': '" + "z" * 12 + "', 'token': '" + "t" * 12 + "'}",
+            "z" * 12,
+        ),
     ],
 )
 def test_scrub_covers_dsn_users_url_passwords_and_dict_reprs(raw, leaked):
@@ -780,3 +835,127 @@ def test_scrubbing_long_adversarial_input_is_bounded_and_fast():
         result = diagnostic_text(hostile)
         assert time.monotonic() - started < 1.0
         assert len(result) <= 2100
+
+
+def test_a_bearer_token_across_the_length_limit_is_scrubbed_before_the_cut():
+    token = "Q" * 30
+    text = "x" * (scrub.MAX_DIAGNOSTIC_LENGTH - 15) + " Bearer " + token
+    result = diagnostic_text(text)
+    assert token[:7] not in result  # the old pre-cut kept 7 characters, too few to match
+    assert len(result) <= scrub.MAX_DIAGNOSTIC_LENGTH + len(scrub.TRUNCATED)
+    tail = "y" * scrub.MAX_SCRUB_INPUT + " Bearer " + token  # beyond what is examined
+    assert token[:7] not in diagnostic_text(tail)
+
+
+def test_a_failing_metric_write_never_fails_the_request(client, monkeypatch, caplog):
+    from backend.services.logging_service import logger
+
+    class FullDirectory:
+        def labels(self, *labels):
+            raise OSError(28, "No space left on device")
+
+    logger.disabled = False  # Alembic's fileConfig in other tests disables it
+    monkeypatch.setattr(metrics, "HTTP_REQUESTS", FullDirectory())
+    monkeypatch.setattr(metrics, "guarded_write", metrics.WriteGuard())
+    with caplog.at_level(logging.WARNING, logger="homayar"):
+        for _ in range(3):
+            assert client.get("/healthz").status_code == 200
+    failures = [
+        r.getMessage() for r in caplog.records if r.getMessage().startswith("METRICS_WRITE_FAILED")
+    ]
+    assert failures == ["METRICS_WRITE_FAILED error_type=OSError"]  # once, not per request
+
+
+@contextmanager
+def _uvicorn(app) -> Iterator[int]:
+    """The app behind a real uvicorn server on a free loopback port."""
+    import uvicorn
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app, host="127.0.0.1", port=0, lifespan="off", log_config=None, access_log=False
+        )
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 30
+    while not server.started:
+        assert time.monotonic() < deadline, "uvicorn did not start"
+        time.sleep(0.05)
+    try:
+        yield server.servers[0].sockets[0].getsockname()[1]
+    finally:
+        server.should_exit = True
+        thread.join(10)
+
+
+def test_the_server_log_of_an_escaped_database_error_has_no_sql_parameters_or_detail(
+    settings, capfd
+):
+    # E1: uvicorn logs an exception that escaped the app on "uvicorn.error", with
+    # its own handler and the full traceback. Run a real server and capture every
+    # handler: uvicorn's formatter, the root JSON handler and the raw stdout/stderr.
+    import httpx
+    from sqlalchemy.exc import IntegrityError
+    from uvicorn.logging import DefaultFormatter
+
+    class FakePsycopgError(Exception):
+        sqlstate = "23505"
+        diag = None
+
+    error_text = (
+        'duplicate key value violates unique constraint "uq_users_email"\n'
+        f"DETAIL:  Key (email)=({_EMAIL}) already exists."
+    )
+    server_lines: list[str] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            server_lines.append(self.format(record))
+
+    capture = Capture()
+    capture.setFormatter(DefaultFormatter("%(levelprefix)s %(message)s", use_colors=False))
+    server_logger = logging.getLogger("uvicorn.error")
+    server_logger.disabled = False  # Alembic's fileConfig in other tests disables it
+    server_logger.addHandler(capture)
+    try:
+        with _app_client(settings) as client:
+            app = client.app
+
+            @app.get("/api/v1/shares/{share_token}/db-explode")
+            def db_explode(share_token: str):
+                raise IntegrityError(
+                    "INSERT INTO users (email, phone_e164) VALUES (%(email)s, %(phone)s)",
+                    {"email": _EMAIL, "phone": _PHONE},
+                    FakePsycopgError(error_text),
+                )
+
+            with _uvicorn(app) as port, httpx.Client(trust_env=False, timeout=30) as http:
+                response = http.get(
+                    f"http://127.0.0.1:{port}/api/v1/shares/{_SHARE_TOKEN}/db-explode",
+                    headers={"Host": "testserver", "X-Request-ID": "error-request-0002"},
+                )
+    finally:
+        server_logger.removeHandler(capture)
+    assert response.status_code == 500
+    [line] = [entry for entry in server_lines if "Exception in ASGI application" in entry]
+    assert "request_id=error-request-0002" in line
+    assert "IntegrityError FakePsycopgError sqlstate=23505" in line
+    captured = capfd.readouterr()
+    for output in ("\n".join(server_lines), captured.out, captured.err):
+        for leaked in (_EMAIL, _PHONE, _SHARE_TOKEN, "INSERT INTO", "DETAIL", "Traceback"):
+            assert leaked not in output, leaked
+
+
+def test_the_server_log_filter_is_installed_once_on_uvicorns_loggers():
+    from backend.services.logging_service import (
+        SERVER_LOGGERS,
+        ServerLogFilter,
+        install_server_log_filter,
+    )
+
+    install_server_log_filter()
+    install_server_log_filter()
+    for name in SERVER_LOGGERS:
+        filters = logging.getLogger(name).filters
+        assert sum(isinstance(f, ServerLogFilter) for f in filters) == 1, name

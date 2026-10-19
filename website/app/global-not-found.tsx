@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 import { getDictionary } from "@/i18n";
 import { defaultLocale, dirOf, isLocale, type Locale } from "@/lib/i18n";
+import { siteUrl } from "@/lib/site";
 import { jakarta, vazirmatn } from "@/lib/fonts";
 import { themeScript } from "@/lib/theme";
 import { Header } from "@/components/site/Header";
@@ -24,7 +25,7 @@ async function currentLocale(): Promise<Locale> {
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await currentLocale();
   const dict = await getDictionary(locale);
-  return { title: `${dict.notFound.title} | ${dict.titleSuffix}`, description: dict.notFound.text };
+  return { metadataBase: new URL(siteUrl), title: `${dict.notFound.title} | ${dict.titleSuffix}`, description: dict.notFound.text };
 }
 
 export default async function GlobalNotFound() {

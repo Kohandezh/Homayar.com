@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { consolePath, signIn } from "./demo";
+import { consolePath, resumeSession } from "./demo";
 
 /**
  * The usage and subscription page (HOM-181), read-only against the demo seed:
@@ -8,7 +8,7 @@ import { consolePath, signIn } from "./demo";
  */
 
 test("an owner reads the workspace's usage, subscription and plan catalog", async ({ page }) => {
-  await signIn(page, "owner");
+  await resumeSession(page, "owner");
   await page.goto(consolePath("/admin/usage"));
 
   await expect(page.getByRole("heading", { level: 1, name: "Usage and subscription" })).toBeVisible();
@@ -40,7 +40,7 @@ test("an owner reads the workspace's usage, subscription and plan catalog", asyn
 });
 
 test("the events table filters by metric and pages through the seed's history", async ({ page }) => {
-  await signIn(page, "owner");
+  await resumeSession(page, "owner");
   await page.goto(consolePath("/admin/usage"));
 
   const events = page.getByRole("region", { name: "Usage events", exact: true });
@@ -62,7 +62,7 @@ test("the events table filters by metric and pages through the seed's history", 
 });
 
 test("the page is right to left with Persian texts in Persian", async ({ page }) => {
-  await signIn(page, "owner", "fa");
+  await resumeSession(page, "owner", "fa");
   await page.goto(consolePath("/admin/usage"));
 
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
@@ -74,7 +74,7 @@ test("the page is right to left with Persian texts in Persian", async ({ page })
 });
 
 test("a member cannot read billing data", async ({ page }) => {
-  await signIn(page, "member");
+  await resumeSession(page, "member");
   await page.goto(consolePath("/admin/usage"));
   await expect(page.getByRole("heading", { level: 1, name: "No access" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "Usage and subscription" })).toHaveCount(0);

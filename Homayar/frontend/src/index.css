@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "./theme.css";
-@import "shadcn/tailwind.css";
 
 /*
  * HeroUI owns the shared theme names (--background, --foreground, --accent,

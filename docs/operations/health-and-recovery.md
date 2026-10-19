@@ -7,7 +7,6 @@
 | nginx `/healthz` | proxy process can serve a local response | none |
 | nginx `/readyz` | FastAPI reports PostgreSQL and required Redis ready | removes instance from traffic on 503 |
 | API container `/healthz` | Python process and routing loop respond | restart after repeated failure |
-| public web `/` | Next.js responds successfully | public routes unavailable |
 | console `/app/index.html` | static console artifact exists | product UI unavailable |
 | worker Celery ping | the addressed worker consumes control messages | processing capacity unavailable |
 | worker queue subscription | `celery -A backend.celery_app inspect active_queues` lists `processing` (the only declared queue; producers route `backend.jobs.process_meeting` there and worker commands pass `--queues processing`) | accepted jobs stay queued forever |
@@ -36,7 +35,7 @@ use that ID to correlate API logs without logging tokens, cookies, or request bo
 
 ## nginx 502 or 504
 
-1. Check `public-web`, `console-web`, and `api` health separately.
+1. Check `console-web` and `api` health separately.
 2. Confirm the active Compose profile created all services on the `edge` network.
 3. Inspect nginx upstream and request timing fields.
 4. For uploads, confirm both `/api/v1/uploads` and `/api/v1/uploads/` select the streaming
