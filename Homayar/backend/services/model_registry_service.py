@@ -3,7 +3,9 @@
 Every manifest a job resolves is stored once, keyed by its digest, before any
 stage runs; stage and analysis runs then reference that digest.  The catalog
 is append-only: a different document under an existing ``manifest_id@version``
-is refused (a released manifest never changes in place).
+is refused (a released manifest never changes in place).  The first
+registration of a document is a platform configuration change and is audited
+as ``model_manifest.registered`` (HOM-114) in the same savepoint.
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ from backend.database.relational import get_session_factory
 from backend.database.saas_models import ModelManifestRecord
 from backend.providers.base import ProviderError
 from backend.providers.registry import ModelManifest, ResolvedManifest
+from backend.services.audit_event_types import AuditEventType
+from backend.services.audit_service import record_audit_event
 
 
 def _conflict(manifest: ModelManifest) -> ProviderError:
@@ -53,13 +57,33 @@ def register_manifest(db: Session, manifest: ModelManifest) -> ModelManifestReco
     try:
         db.add(record)
         db.flush()
-        savepoint.commit()
     except IntegrityError:
+        # The digest (or manifest_id@version) exists: a duplicate or a conflict.
         savepoint.rollback()
         existing = db.get(ModelManifestRecord, manifest.digest)
         if existing is None:
             raise _conflict(manifest) from None
         return existing
+    try:
+        record_audit_event(
+            db,
+            event_type=AuditEventType.MODEL_MANIFEST_REGISTERED,
+            target_type="model_manifest",
+            target_id=manifest.digest,
+            details={
+                "manifest_id": manifest.manifest_id,
+                "version": manifest.version,
+                "stage": manifest.stage,
+                "status": manifest.status.value,
+            },
+        )
+        db.flush()
+    except Exception:
+        # The audit write failed: not a duplicate manifest. Undo the registration
+        # with it and let the error surface.
+        savepoint.rollback()
+        raise
+    savepoint.commit()
     return record
 
 
