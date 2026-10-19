@@ -24,7 +24,7 @@ import json
 import math
 import os
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -229,12 +229,13 @@ def _composite_sha256(path: Path, parts: int) -> str:
     return f"{base64.b64encode(hashlib.sha256(digests).digest()).decode()}-{parts}"
 
 
-def _verify_s3_copy(client, bucket: str, key: str, path: Path, size: int, sha256: str) -> str:
-    """Prove the stored object is the local file, by SHA-256.
+def _checked_head(
+    client, bucket: str, key: str, path: Path, size: int, sha256: str
+) -> tuple[bool, dict]:
+    """HEAD the stored object: refuse a size or store-checksum mismatch.
 
-    The store's own checksum is used when it reports one we can reproduce
-    (``checksum``); otherwise the object is read back and hashed
-    (``download``).  Any mismatch refuses the copy.
+    Returns whether the store's own checksum proved the object (one we can
+    reproduce), and the HEAD response.
     """
     name = key.rsplit("/", 1)[-1]
     head = client.head_object(Bucket=bucket, Key=key, ChecksumMode="ENABLED")
@@ -244,18 +245,35 @@ def _verify_s3_copy(client, bucket: str, key: str, path: Path, size: int, sha256
     if remote and "-" not in remote:
         if remote != base64.b64encode(bytes.fromhex(sha256)).decode():
             raise BackupInvalid("copy_checksum_mismatch", name)
-        return "checksum"
+        return True, head
     if remote:
         parts = remote.rsplit("-", 1)[1]
         if parts.isdigit() and int(parts) == math.ceil(size / _PART_SIZE):
             if remote == _composite_sha256(path, int(parts)):
-                return "checksum"
+                return True, head
+    return False, head
+
+
+def _read_back(client, bucket: str, key: str, sha256: str) -> None:
     digest = hashlib.sha256()
     body = client.get_object(Bucket=bucket, Key=key)["Body"]
     for block in iter(lambda: body.read(1024 * 1024), b""):
         digest.update(block)
     if digest.hexdigest() != sha256:
-        raise BackupInvalid("copy_checksum_mismatch", name)
+        raise BackupInvalid("copy_checksum_mismatch", key.rsplit("/", 1)[-1])
+
+
+def _verify_s3_copy(client, bucket: str, key: str, path: Path, size: int, sha256: str) -> str:
+    """Prove the stored object is the local file, by SHA-256.
+
+    The store's own checksum is used when it reports one we can reproduce
+    (``checksum``); otherwise the object is read back and hashed
+    (``download``).  Any mismatch refuses the copy.
+    """
+    proved, _ = _checked_head(client, bucket, key, path, size, sha256)
+    if proved:
+        return "checksum"
+    _read_back(client, bucket, key, sha256)
     return "download"
 
 
@@ -293,7 +311,7 @@ def replicate_to_s3(set_dir: Path, destination: str, *, client=None) -> dict[str
         "files": len(manifest["files"]),
         "bytes": sum(entry["size"] for entry in manifest["files"]),
         "verified_by": verified_by,
-        "backfilled_markers": _backfill_s3_markers(client, bucket, prefix, source),
+        **_backfill_s3_markers(client, bucket, prefix, source),
     }
 
 
@@ -306,41 +324,150 @@ def _put_marker(client, bucket: str, prefix: str, backup_id: str) -> None:
     )
 
 
-def _backfill_s3_markers(client, bucket: str, prefix: str, source: Path) -> list[str]:
+_REJECTED_SUFFIX = ".offsite-rejected"
+_MISSING_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
+
+
+def _backfill_s3_markers(client, bucket: str, prefix: str, source: Path) -> dict[str, Any]:
     """Carry the verified marker to copies made before markers were carried,
     when the copy's sealed manifest is byte-identical to the verified root
     set's and every file it lists is stored with its size and SHA-256 (read
-    back when the store reports no usable checksum)."""
+    back when the store reports no usable checksum).
+
+    Best effort: it runs after the new set is copied and verified, so a
+    failure here never fails the copy (nor keeps the CLI from moving the
+    off-site gauge).  A candidate that does not qualify is reported in
+    ``backfill_rejected`` with the reason; a call that fails (a network
+    error, a denied request) is reported in ``backfill_errors`` and the
+    candidate is tried again on the next run.
+    """
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    result: dict[str, Any] = {
+        "backfilled_markers": [],
+        "backfill_rejected": [],
+        "backfill_errors": [],
+    }
     verified = _root_verified(source)
     if not verified:
-        return []
+        return result
     destination = f"s3://{bucket}/{prefix}" if prefix else f"s3://{bucket}"
-    candidates = set(list_s3_sets(destination, client=client)) & set(verified)
-    backfilled = []
-    for backup_id in sorted(candidates - _s3_markers(bucket, prefix, client)):
-        body = client.get_object(Bucket=bucket, Key=_s3_key(prefix, backup_id, MANIFEST_NAME))
-        if body["Body"].read() != (verified[backup_id] / MANIFEST_NAME).read_bytes():
+    try:
+        candidates = set(list_s3_sets(destination, client=client)) & set(verified)
+        candidates -= _s3_markers(bucket, prefix, client)
+    except (BotoCoreError, ClientError) as exc:
+        result["backfill_errors"].append({"step": "list", "error": _error_code(exc)})
+        return result
+    for backup_id in sorted(candidates):
+        try:
+            reason = _backfill_rejection(client, bucket, prefix, verified[backup_id], destination)
+            if reason is None:
+                _put_marker(client, bucket, prefix, backup_id)
+        except (BotoCoreError, ClientError, BackupInvalid, OSError) as exc:
+            # BackupInvalid/OSError: the local root set could not be read.
+            code = exc.code if isinstance(exc, BackupInvalid) else _error_code(exc)
+            result["backfill_errors"].append({"backup_id": backup_id, "error": code})
             continue
-        if not _s3_copy_complete(client, bucket, prefix, verified[backup_id]):
-            continue
-        _put_marker(client, bucket, prefix, backup_id)
-        backfilled.append(backup_id)
-    return backfilled
+        if reason is None:
+            result["backfilled_markers"].append(backup_id)
+        else:
+            result["backfill_rejected"].append({"backup_id": backup_id, "reason": reason})
+    return result
 
 
-def _s3_copy_complete(client, bucket: str, prefix: str, set_dir: Path) -> bool:
+def _rejection_record(set_dir: Path) -> Path:
+    return set_dir.parent / f"{set_dir.name}{_REJECTED_SUFFIX}"
+
+
+def _remembered_rejection(set_dir: Path, destination: str, etags: dict[str, str]) -> str | None:
+    """The reason a read-back already rejected these very objects (same ETags)."""
+    try:
+        record = json.loads(_rejection_record(set_dir).read_text(encoding="utf-8"))
+        entry = record[destination]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if isinstance(entry, dict) and entry.get("etags") == etags:
+        return str(entry.get("reason"))
+    return None
+
+
+def _remember_rejection(
+    set_dir: Path, destination: str, reason: str, etags: dict[str, str]
+) -> None:
+    """Record a read-back rejection beside the root set, so the same objects
+    are not downloaded again every night.  Best effort; removed with the set."""
+    path = _rejection_record(set_dir)
+    try:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(record, dict):
+                record = {}
+        except (OSError, ValueError):
+            record = {}
+        record[destination] = {
+            "reason": reason,
+            "etags": etags,
+            "at": datetime.now(UTC).isoformat(),
+        }
+        path.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _backfill_rejection(
+    client, bucket: str, prefix: str, set_dir: Path, destination: str
+) -> str | None:
+    """None when the off-site copy is proven complete, else why it is rejected.
+
+    Every object is first checked by HEAD (presence, size and the store's
+    checksum when it has one we can reproduce), so a missing or truncated
+    copy is rejected without downloading anything.  Only then are the
+    objects without a usable store checksum read back, and a rejection found
+    that way is remembered with the objects' ETags: the same objects are not
+    downloaded again on later runs, while a copy that is uploaded again
+    (new ETags) is checked afresh.  Network and permission errors propagate.
+    """
     from botocore.exceptions import ClientError
 
     manifest = read_manifest(set_dir)
+    backup_id = manifest["backup_id"]
+    try:
+        stored = client.get_object(Bucket=bucket, Key=_s3_key(prefix, backup_id, MANIFEST_NAME))
+    except ClientError as exc:
+        if _error_code(exc) in _MISSING_CODES:
+            return f"missing: {MANIFEST_NAME}"
+        raise
+    if stored["Body"].read() != (set_dir / MANIFEST_NAME).read_bytes():
+        return "manifest_differs: the copy's manifest is not the verified set's"
+    unproven: list[dict] = []
+    etags: dict[str, str] = {}
     for entry in manifest["files"]:
-        key = _s3_key(prefix, manifest["backup_id"], entry["name"])
+        key = _s3_key(prefix, backup_id, entry["name"])
         try:
-            _verify_s3_copy(
+            proved, head = _checked_head(
                 client, bucket, key, set_dir / entry["name"], entry["size"], entry["sha256"]
             )
-        except (BackupInvalid, ClientError, KeyError):
-            return False
-    return True
+        except BackupInvalid as exc:
+            return str(exc)
+        except ClientError as exc:
+            if _error_code(exc) in _MISSING_CODES:
+                return f"missing: {entry['name']}"
+            raise
+        etags[entry["name"]] = str(head.get("ETag", ""))
+        if not proved:
+            unproven.append(entry)
+    if not unproven:
+        return None
+    remembered = _remembered_rejection(set_dir, destination, etags)
+    if remembered is not None:
+        return remembered
+    for entry in unproven:
+        try:
+            _read_back(client, bucket, _s3_key(prefix, backup_id, entry["name"]), entry["sha256"])
+        except BackupInvalid as exc:
+            _remember_rejection(set_dir, destination, str(exc), etags)
+            return str(exc)
+    return None
 
 
 def list_s3_sets(destination: str, *, client=None) -> list[str]:
@@ -437,7 +564,8 @@ _NO_LOCK_CODES = frozenset(
 
 
 def _error_code(exc: Exception) -> str:
-    return str(getattr(exc, "response", {}).get("Error", {}).get("Code", "")) or type(exc).__name__
+    response = getattr(exc, "response", None) or {}
+    return str(response.get("Error", {}).get("Code", "")) or type(exc).__name__
 
 
 def _set_of(prefix: str, key: str) -> str | None:
@@ -515,16 +643,19 @@ def _versions(client, bucket: str, key_prefix: str, errors: list[str]) -> list[d
     return found
 
 
-def _lock_until(client, bucket: str, item: dict, now: datetime, errors: list[str]) -> str | None:
+_LEGAL_HOLD = "legal-hold"
+
+
+def _lock_until(client, bucket: str, item: dict, now: datetime, errors: list[str]) -> Any:
     """Whether an object lock still protects this version: its retain-until date
-    ("legal-hold" for a legal hold), or None when it does not (or cannot be read)."""
+    (``_LEGAL_HOLD`` for a legal hold), or None when it does not (or cannot be read)."""
     from botocore.exceptions import ClientError
 
     key, version = item["Key"], item["VersionId"]
     try:
         hold = client.get_object_legal_hold(Bucket=bucket, Key=key, VersionId=version)
         if hold.get("LegalHold", {}).get("Status") == "ON":
-            return "legal-hold"
+            return _LEGAL_HOLD
     except ClientError as exc:
         if _error_code(exc) not in _NO_LOCK_CODES:
             errors.append(f"get_object_legal_hold: {_error_code(exc)}")
@@ -537,7 +668,7 @@ def _lock_until(client, bucket: str, item: dict, now: datetime, errors: list[str
         return None
     until = retention.get("Retention", {}).get("RetainUntilDate")
     if until is not None and until > now:
-        return until.isoformat()
+        return until
     return None
 
 
@@ -580,9 +711,13 @@ def _delete_versions(
                 if lock and code in _LOCK_CODES
                 else None
             )
-            if until is not None:
+            if until == _LEGAL_HOLD:
                 counts["locked"] += 1
-                counts["locked_until"] = max(counts.get("locked_until") or until, until)
+                counts["legal_holds"] += 1
+            elif until is not None:
+                counts["locked"] += 1
+                latest = counts["locked_until"]
+                counts["locked_until"] = until if latest is None else max(latest, until)
             else:
                 counts["failed"] += 1
                 if f"delete_object_version: {code}" not in errors:
@@ -606,6 +741,61 @@ def _purge_set(
     for key_prefix in (_s3_key(prefix, backup_id, "") + "/", _marker_key(prefix, backup_id)):
         items = _versions(client, bucket, key_prefix, errors) or []
         _delete_versions(client, bucket, items, lock, counts, errors)
+
+
+def monthly_lock_until(backup_id: str, *, daily: int, monthly: int) -> datetime:
+    """How long Object Lock keeps a monthly set (AppVision D15): the earliest
+    day the retention could expire it.
+
+    A set of month M stays a monthly set until each of the ``monthly``
+    newer months has a set older than the daily window.  Month M +
+    ``monthly`` has one at the earliest on its first day, and that set
+    leaves the daily window ``daily`` days later (with a set every day;
+    missing days only delay the expiry).  So the lock never outlives the
+    retention: the prune can always delete the set once the policy expires
+    it, and the lock ends at most a day before that.  When daily backups were
+    missed the set is kept past this date; prune then leaves its lock alone
+    (``retention_past_due``) instead of extending it.
+    """
+    from backend.backup.retention import backup_time
+
+    moment = backup_time(backup_id)
+    months = moment.year * 12 + moment.month - 1 + monthly
+    first = datetime(months // 12, months % 12 + 1, 1, tzinfo=UTC)
+    return first + timedelta(days=daily)
+
+
+def _extend_retention(
+    client, bucket: str, key: str, until: datetime, counts: dict[str, Any], errors: list[str]
+) -> None:
+    """Extend the current version's GOVERNANCE retention to ``until``, never
+    shortening it (that would need ``s3:BypassGovernanceRetention``, which
+    the backup credential never has) and never touching another mode."""
+    from botocore.exceptions import ClientError
+
+    try:
+        current = client.get_object_retention(Bucket=bucket, Key=key).get("Retention", {})
+    except ClientError as exc:
+        if _error_code(exc) not in _NO_LOCK_CODES:
+            if f"get_object_retention: {_error_code(exc)}" not in errors:
+                errors.append(f"get_object_retention: {_error_code(exc)}")
+            return
+        current = {}
+    if current.get("Mode") not in (None, "GOVERNANCE"):
+        counts["retention_kept"] += 1  # COMPLIANCE: not the tool's to change
+        return
+    if current.get("RetainUntilDate") is not None and current["RetainUntilDate"] >= until:
+        counts["retention_kept"] += 1
+        return
+    try:
+        client.put_object_retention(
+            Bucket=bucket, Key=key, Retention={"Mode": "GOVERNANCE", "RetainUntilDate": until}
+        )
+    except ClientError as exc:
+        if f"put_object_retention: {_error_code(exc)}" not in errors:
+            errors.append(f"put_object_retention: {_error_code(exc)}")
+        return
+    counts["retention_extended"] += 1
 
 
 def prune_s3(
@@ -633,8 +823,14 @@ def prune_s3(
     version deletes do not stop the prune: they are reported in ``errors``
     and the CLI exits non-zero at the end.  A bucket whose versioning cannot
     be read is never swept.
+
+    With Object Lock (AppVision D15), every object of a set kept as a
+    monthly set gets its GOVERNANCE retention extended to
+    ``monthly_lock_until`` (``s3:PutObjectRetention``): the bucket default
+    covers the daily window only.  Retention is never shortened; a denied
+    extension is reported in ``errors`` and fails the run.
     """
-    from backend.backup.retention import retained
+    from backend.backup.retention import retained, retained_monthly
 
     bucket, prefix = parse_s3(destination)
     client = client or s3_client()
@@ -647,6 +843,7 @@ def prune_s3(
         if backup_id in markers and _s3_set_is_full(client, bucket, prefix, backup_id)
     }
     keep = retained(sets, daily=daily, monthly=monthly, qualifying=qualifying)
+    monthly_sets = retained_monthly(sets, daily=daily, monthly=monthly, qualifying=qualifying)
     expired = sorted(set(sets) - keep)
     now = datetime.now(UTC)
     uploads, live, uploads_listed = _uploads(
@@ -668,7 +865,16 @@ def prune_s3(
     # to read the setting) is reported and fails the run instead.
     versioned = versioning in {"Enabled", "Suspended"}
     lock = versioned and _object_lock(client, bucket, errors)
-    counts: dict[str, Any] = {"deleted": 0, "locked": 0, "failed": 0, "locked_until": None}
+    counts: dict[str, Any] = {
+        "deleted": 0,
+        "locked": 0,
+        "failed": 0,
+        "locked_until": None,
+        "legal_holds": 0,
+        "retention_extended": 0,
+        "retention_kept": 0,
+        "retention_past_due": 0,
+    }
     purged: set[str] = set()
 
     def purge(backup_id: str) -> None:
@@ -704,6 +910,19 @@ def prune_s3(
         for backup_id in orphan_markers:
             client.delete_object(Bucket=bucket, Key=_marker_key(prefix, backup_id))
             purge(backup_id)
+        if lock:
+            for backup_id in sorted(monthly_sets):
+                until = monthly_lock_until(backup_id, daily=daily, monthly=monthly)
+                if until <= now:
+                    # Missed daily backups keep the set past its earliest expiry: a
+                    # lock now would outlive the retention (and S3 refuses a past date).
+                    counts["retention_past_due"] += 1
+                    continue
+                keys = [item["Key"] for item in groups.get(backup_id, [])]
+                if backup_id in markers:
+                    keys.append(_marker_key(prefix, backup_id))
+                for key in keys:
+                    _extend_retention(client, bucket, key, until, counts, errors)
     # Versions an earlier, interrupted prune (or a lock) left behind: sets with
     # no current data at all whose newest delete marker is older than the
     # grace period, neither kept nor in progress.  Only the versions listed
@@ -736,8 +955,20 @@ def prune_s3(
         "object_lock": lock,
         "versions_deleted": counts["deleted"],
         "versions_locked": counts["locked"],
-        "locked_until": counts["locked_until"],
+        # The latest retain-until date of a refused version; legal holds have no date.
+        "locked_until": counts["locked_until"] and counts["locked_until"].isoformat(),
+        "legal_holds": counts["legal_holds"],
         "versions_failed": counts["failed"],
+        # D15: monthly sets are locked until the retention could expire them.
+        "monthly_locked_until": {
+            backup_id: monthly_lock_until(backup_id, daily=daily, monthly=monthly).isoformat()
+            for backup_id in sorted(monthly_sets)
+        }
+        if lock
+        else {},
+        "retention_extended": counts["retention_extended"],
+        "retention_kept": counts["retention_kept"],
+        "retention_past_due": counts["retention_past_due"],
         "leftover_sets": leftovers,
         "errors": errors,
     }
