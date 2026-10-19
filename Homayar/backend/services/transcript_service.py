@@ -367,9 +367,14 @@ def correct_revision(
     and segment count are preserved so audio offsets stay valid.  The base must
     be the current revision (``409 revision_stale`` otherwise), every edit must
     name a segment of that base and a speaker known to the meeting, and at
-    least one edit must change something.  Returns the new revision, its
-    segments and the number of segments that differ from the base.
+    least one edit must change something.  ``note`` is the person's reason for
+    the correction and is required (``422 reason_required`` when blank).
+    Returns the new revision, its segments and the number of segments that
+    differ from the base.
     """
+    note = " ".join((note or "").split())
+    if not note:
+        raise TranscriptError("reason_required", "A reason for the correction is required")
     if not edits:
         raise TranscriptError("no_changes", "No transcript edits were provided")
     if len(edits) > MAX_CORRECTION_EDITS:
