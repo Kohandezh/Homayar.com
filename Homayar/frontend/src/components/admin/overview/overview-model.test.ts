@@ -1,9 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { countMeetings, degradedChecks, quotaPercent, quotaRows } from "@/components/admin/overview/overview-model";
+import {
+  countMeetings,
+  degradedChecks,
+  groupMeetingCounts,
+  quotaPercent,
+  quotaRows,
+} from "@/components/admin/overview/overview-model";
 import type { MeetingStatus, UsageSnapshot } from "@/types/platform";
 
 function statuses(...values: MeetingStatus[]) {
   return values.map((status) => ({ status }));
+}
+
+/** A full server counts object; missing keys are overridden away in the tests that need them. */
+function meetingCounts(overrides: Partial<Record<MeetingStatus, number>> = {}): Record<MeetingStatus, number> {
+  return {
+    uploading: 0,
+    uploaded: 0,
+    queued: 0,
+    processing: 0,
+    transcribing: 0,
+    diarizing: 0,
+    analyzing: 0,
+    completed: 0,
+    partial: 0,
+    failed: 0,
+    cancelled: 0,
+    ...overrides,
+  };
 }
 
 function usage(metric: string, used: number, limit: number | null, reserved = 0): UsageSnapshot {
@@ -34,6 +58,48 @@ describe("countMeetings", () => {
 
   it("gives zeros for no meetings", () => {
     expect(countMeetings([])).toEqual({ completed: 0, inProgress: 0, failed: 0, partial: 0 });
+  });
+});
+
+describe("groupMeetingCounts", () => {
+  it("groups server counts, in progress being every nonterminal status", () => {
+    const counts = meetingCounts({
+      completed: 120,
+      failed: 3,
+      partial: 2,
+      queued: 4,
+      transcribing: 1,
+      analyzing: 2,
+      cancelled: 5,
+    });
+    expect(groupMeetingCounts(counts)).toEqual({ completed: 120, inProgress: 7, failed: 3, partial: 2 });
+  });
+
+  it("counts every nonterminal status, not only the active ones", () => {
+    const counts = meetingCounts({ uploading: 1, uploaded: 2, processing: 3, diarizing: 4 });
+    expect(groupMeetingCounts(counts)).toEqual({ completed: 0, inProgress: 10, failed: 0, partial: 0 });
+  });
+
+  it("leaves cancelled out of every group", () => {
+    expect(groupMeetingCounts(meetingCounts({ cancelled: 2 }))).toEqual({
+      completed: 0,
+      inProgress: 0,
+      failed: 0,
+      partial: 0,
+    });
+  });
+
+  it("treats a missing key as zero", () => {
+    expect(groupMeetingCounts({ completed: 2 } as Record<MeetingStatus, number>)).toEqual({
+      completed: 2,
+      inProgress: 0,
+      failed: 0,
+      partial: 0,
+    });
+  });
+
+  it("gives zeros for all-zero counts", () => {
+    expect(groupMeetingCounts(meetingCounts())).toEqual({ completed: 0, inProgress: 0, failed: 0, partial: 0 });
   });
 });
 

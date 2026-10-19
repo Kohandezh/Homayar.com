@@ -1,0 +1,74 @@
+"""Seed N drill tenants for a restore drill (HOM-118) — drill hosts only.
+
+Runs the demo workspace seed (``backend.database.demo_seed``: verified
+accounts per role, ~30 meetings processed by the real job processor with
+scripted providers, transcripts, analysis, share links, API key, audit) once
+per tenant with a distinct organization slug and e-mail domain, and with a
+higher sample rate so the recordings carry a realistic byte volume.
+
+Usage (inside the API image, ENVIRONMENT=development, on the drill project):
+    python /drill/seed_tenants.py --tenants 4 --sample-rate 48000
+
+The demo seed refuses every environment except development/test, so this
+can never touch a production deployment by accident.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tenants", type=int, default=4)
+    parser.add_argument("--sample-rate", type=int, default=48_000)
+    args = parser.parse_args(argv)
+
+    # stdout carries only the result: the application logs to stdout (a lease
+    # warning under load once broke tenants.json), so point fd 1 at stderr
+    # while seeding and write the result to the saved descriptor.
+    result_fd = os.dup(1)
+    os.dup2(2, 1)
+
+    from backend.config import Settings
+    from backend.database import demo_seed
+
+    settings = Settings()
+    demo_seed.SAMPLE_RATE_HZ = args.sample_rate
+    # The demo seed fills one workspace per database and passes fixed job keys
+    # ("demo-seed-meeting-01"); job and usage-reservation keys are unique across
+    # the database (the API scopes them per workspace), so prefix them per tenant.
+    upload = demo_seed._upload
+
+    def tenant_upload(*args, idempotency_key: str, **kwargs):
+        prefixed = f"{demo_seed.DEMO_ORGANIZATION_SLUG}:{idempotency_key}"
+        return upload(*args, idempotency_key=prefixed, **kwargs)
+
+    demo_seed._upload = tenant_upload
+    tenants = []
+    for index in range(args.tenants):
+        demo_seed.DEMO_ORGANIZATION_SLUG = f"drill-org-{index:02d}"
+        demo_seed.DEMO_EMAIL_DOMAIN = f"t{index:02d}.drill.example.com"
+        demo_seed.DEMO_WORKSPACE_NAME = f"Drill tenant {index:02d}"
+        result = demo_seed.seed_demo_workspace(settings)
+        tenants.append(
+            {
+                "index": index,
+                "workspace_id": result.workspace_id,
+                "organization_id": result.organization_id,
+                "owner": result.accounts["owner"].email,
+                "meetings": result.meeting_count,
+            }
+        )
+        print(f"seeded tenant {index}: {result.meeting_count} meetings", file=sys.stderr)
+    sys.stdout.flush()
+    with os.fdopen(result_fd, "w") as result:
+        result.write(json.dumps({"tenants": tenants, "password": demo_seed.DEMO_PASSWORD}) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

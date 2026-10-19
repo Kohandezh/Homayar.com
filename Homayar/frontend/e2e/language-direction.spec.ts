@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { consolePath, signIn } from "./demo";
+import { consolePath, resumeSession } from "./demo";
 
 test("the language switch flips the console between RTL and LTR", async ({ page }) => {
   // Persian is the default, so the console starts right to left.
-  await signIn(page, "owner", "fa");
+  await resumeSession(page, "owner", "fa");
   await page.goto(consolePath("/admin"));
 
   const html = page.locator("html");

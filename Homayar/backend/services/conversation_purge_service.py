@@ -65,6 +65,7 @@ from backend.database.saas_models import (
     TranscriptTextView,
 )
 from backend.jobs import checkpoints
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.logging_service import logger
 from backend.services.media_lifecycle_service import (
@@ -489,7 +490,7 @@ def run_purge_attempt(
         purge.last_error = None
         record_audit_event(
             db,
-            event_type="meeting.purge_completed",
+            event_type=AuditEventType.MEETING_PURGE_COMPLETED,
             workspace_id=workspace_id,
             target_type="meeting",
             target_id=meeting.id,
@@ -526,7 +527,7 @@ def _fail_if_exhausted(
     )
     record_audit_event(
         db,
-        event_type="meeting.purge_failed",
+        event_type=AuditEventType.MEETING_PURGE_FAILED,
         workspace_id=purge.workspace_id,
         target_type="meeting",
         target_id=purge.meeting_id,
@@ -557,7 +558,7 @@ def requeue_failed_purge(
     purge.next_attempt_at = now
     record_audit_event(
         db,
-        event_type="meeting.purge_requeued",
+        event_type=AuditEventType.MEETING_PURGE_REQUEUED,
         actor_user_id=actor_user_id,
         workspace_id=purge.workspace_id,
         target_type="meeting",

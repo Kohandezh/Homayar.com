@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight, CheckCircle2, LogIn, MailCheck } from "lucide-react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";

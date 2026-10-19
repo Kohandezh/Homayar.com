@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { AxiosRequestConfig } from "axios";
+import { Route, Routes } from "react-router";
 import api from "@/lib/api";
 import { platformQueryKeys } from "@/lib/platform-api";
+import MeetingDetailPage from "@/components/platform/MeetingDetailPage";
 import MeetingResults from "@/components/platform/MeetingResults";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole, testQueryClient } from "@/test/fixtures";
-import type { MeetingDetail, Transcript } from "@/types/platform";
+import { callReport } from "@/test/fixtures-report";
+import type { CallReportResponse, MeetingDetail, Transcript } from "@/types/platform";
 
 const T = "2026-09-24T12:00:00Z";
 
@@ -80,12 +83,15 @@ function transcript(view: "original" | "redacted", enforced = true): Transcript 
   };
 }
 
-interface Routes {
+interface ApiRoutes {
   summary?: () => unknown;
+  report?: CallReportResponse;
 }
 
-function mockApi({ summary }: Routes = {}) {
+function mockApi({ summary, report = callReport() }: ApiRoutes = {}) {
   return vi.spyOn(api, "get").mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
+    if (url === "/meetings/m-1") return okResponse(MEETING);
+    if (url === "/meetings/m-1/report") return okResponse(report);
     if (url === "/meetings/m-1/transcript") {
       return okResponse(transcript(config?.params?.view === "original" ? "original" : "redacted"));
     }
@@ -93,40 +99,21 @@ function mockApi({ summary }: Routes = {}) {
       if (summary) return summary() as never;
       throw apiError(404, "summary_not_ready");
     }
-    if (url === "/meetings/m-1/evidence") {
-      return okResponse({
-        meeting_id: "m-1",
-        analysis_run_id: "run-1",
-        current_revision_id: "rev-1",
-        items: [
-          {
-            id: "ev-1",
-            meeting_id: "m-1",
-            analysis_run_id: "run-1",
-            transcript_revision_id: "rev-1",
-            revision_number: 1,
-            is_current_revision: true,
-            segment_id: "seg-2",
-            speaker_key: "S2",
-            finding_type: "decision",
-            finding_id: null,
-            finding_index: 0,
-            text_start: 0,
-            text_end: 5,
-            text: "My number",
-            start_ms: 5000,
-            end_ms: 9000,
-            confidence: null,
-            evidence_type: "turn_reference",
-            created_at: T,
-          },
-        ],
-      });
-    }
     if (url === "/meetings/m-1/actions") return okResponse([]);
     if (url === "/meetings/m-1/shares") return okResponse([]);
     throw apiError(404, "not_found");
   });
+}
+
+/** The whole meeting page: the call report replaced the old summary tab (HOM-245). */
+function renderPage(role: "owner" | "member" | "viewer" = "owner") {
+  const workspace = { ...FIXTURE_WORKSPACE, role };
+  return renderConsole(
+    <Routes>
+      <Route path="meetings/:meetingId" element={<MeetingDetailPage />} />
+    </Routes>,
+    { route: "/meetings/m-1", lang: "en", auth: { status: "authenticated", user: FIXTURE_USER, workspace, workspaces: [workspace] } },
+  );
 }
 
 function renderResults(role: "owner" | "member" | "viewer" = "owner", queryClient = testQueryClient()) {
@@ -147,10 +134,22 @@ describe("MeetingResults", () => {
   });
 
   it("explains an unavailable summary with the API's reason instead of an error", async () => {
-    mockApi();
-    renderResults();
-    expect(await screen.findByText(/No summary is available for this meeting\./)).toBeInTheDocument();
-    expect(screen.getByText(/The analysis is not available: No speech was recognised in the recording\./)).toBeInTheDocument();
+    mockApi({
+      report: callReport({
+        summary: null,
+        outcome: { state: "unavailable", decisions: [] },
+        qa: {
+          quality: MEETING.quality!,
+          findings: [],
+          counts: { total: 0, supported: 0, unsupported: 0, sufficient: 0, partial: 0, insufficient: 0 },
+        },
+      }),
+    });
+    renderPage();
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    expect(within(summary).getByText(/No summary is available yet\./)).toBeInTheDocument();
+    expect(within(summary).getByText(/The analysis is not available: No speech was recognised in the recording\./)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("marks masked values and states what redaction does and does not cover", async () => {
@@ -237,28 +236,15 @@ describe("MeetingResults", () => {
   });
 
   it("links a decision to its evidence segment in the transcript", async () => {
-    mockApi({
-      summary: () =>
-        okResponse({
-          meeting_id: "m-1",
-          overview: "Follow up with the customer.",
-          decisions: [{ category: "decision", description: "Call back tomorrow", evidence_ids: ["ev-1"], evidence_status: "sufficient" }],
-          key_points: [],
-          topics: ["callback"],
-          sentiment: null,
-          provider: "p",
-          model: "m",
-          schema_version: 1,
-          evidence_status: "partial",
-          created_at: T,
-          updated_at: T,
-        }),
-    });
-    renderResults("owner");
-    expect(await screen.findByText("Call back tomorrow")).toBeInTheDocument();
-    expect(screen.getByText("Evidence: Sufficient")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "Show in transcript" }));
-    expect(screen.getByRole("tab", { name: "Transcript" })).toHaveAttribute("aria-selected", "true");
+    mockApi();
+    renderPage("owner");
+    const outcome = await screen.findByRole("region", { name: "Outcome" });
+    expect(within(outcome).getByText("Call back tomorrow")).toBeInTheDocument();
+    expect(within(outcome).getByText("Evidence: Sufficient")).toBeInTheDocument();
+    // The advanced area is closed until something asks for it.
+    expect(screen.queryByRole("tablist", { name: "Meeting results" })).not.toBeInTheDocument();
+    fireEvent.click(within(outcome).getByRole("button", { name: "Show in transcript" }));
+    expect(await screen.findByRole("tab", { name: "Transcript" })).toHaveAttribute("aria-selected", "true");
     await waitFor(() => expect(document.getElementById("segment-seg-2")).toHaveFocus());
   });
 
@@ -266,23 +252,28 @@ describe("MeetingResults", () => {
     mockApi();
     renderResults("viewer");
     const tablist = screen.getByRole("tablist", { name: "Meeting results" });
-    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Summary", "Transcript", "Action items"]);
-    const summaryTab = screen.getByRole("tab", { name: "Summary" });
-    summaryTab.focus();
-    fireEvent.keyDown(summaryTab, { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { name: "Transcript" })).toHaveFocus();
-    expect(screen.getByRole("tab", { name: "Transcript" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Transcript" }), { key: "End" });
+    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Transcript", "Action items", "Export"]);
+    const transcriptTab = screen.getByRole("tab", { name: "Transcript" });
+    expect(transcriptTab).toHaveAttribute("aria-selected", "true");
+    transcriptTab.focus();
+    fireEvent.keyDown(transcriptTab, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Action items" })).toHaveFocus();
     expect(screen.getByRole("tab", { name: "Action items" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText("No action items")).toBeInTheDocument();
     expect(screen.queryByLabelText("Action description")).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Action items" }), { key: "End" });
+    expect(screen.getByRole("tab", { name: "Export" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Export format")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Export" }), { key: "Home" });
+    expect(screen.getByRole("tab", { name: "Transcript" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("labels the summary by its own view, not by the transcript's (gap G10)", async () => {
-    const summary = (view: "original" | "redacted", enforced: boolean) => () =>
+    // The input view comes from the summary response; the report has none.
+    const summary = () =>
       okResponse({
         meeting_id: "m-1",
-        overview: view === "redacted" ? "Write to [EMAIL_1]" : "Write to person@example.com",
+        overview: "Write to [EMAIL_1]",
         decisions: [],
         key_points: [],
         topics: [],
@@ -290,27 +281,56 @@ describe("MeetingResults", () => {
         provider: "p",
         model: "m",
         schema_version: 1,
-        view,
-        privacy_enforced: enforced,
-        redaction: view === "redacted" ? { detector_version: "1", classes: ["email"], policy_digest: "d" } : null,
-        analysis_run: view === "redacted" ? { id: "run-1", transcript_revision_id: "rev-1", state: "completed", provider: "p", model: "m", prompt_version: null, schema_version: 1, is_mock: false, input_view: "redacted", created_at: T } : null,
+        view: "redacted",
+        privacy_enforced: true,
+        redaction: { detector_version: "1", classes: ["email"], policy_digest: "d" },
+        analysis_run: { id: "run-1", transcript_revision_id: "rev-1", state: "completed", provider: "p", model: "m", prompt_version: null, schema_version: 1, is_mock: false, input_view: "redacted", created_at: T },
         created_at: T,
         updated_at: T,
       });
+    const redactedReport = callReport({
+      view: "redacted",
+      privacy_enforced: true,
+      redaction: { detector_version: "1", classes: ["email"], policy_digest: "d" },
+      summary: { ...callReport().summary!, overview: "Write to [EMAIL_1]" },
+    });
 
-    mockApi({ summary: summary("redacted", true) });
-    const first = renderResults("owner");
-    expect(await screen.findByText(/This summary is shown with personal data masked by the same detector/)).toBeInTheDocument();
-    expect(screen.getByText("The analysis was produced from the masked transcript.")).toBeInTheDocument();
+    mockApi({ summary, report: redactedReport });
+    const first = renderPage("owner");
+    const region = await screen.findByRole("region", { name: "Summary" });
+    expect(within(region).getByText(/This summary is shown with personal data masked by the same detector/)).toBeInTheDocument();
+    expect(await within(region).findByText("The analysis was produced from the masked transcript.")).toBeInTheDocument();
     first.unmount();
     vi.restoreAllMocks();
 
-    // The transcript is redacted (mockApi) but this summary response says original:
-    // the notice follows the summary, not the transcript flag.
-    mockApi({ summary: summary("original", true) });
-    renderResults("owner");
+    // The transcript is redacted (mockApi) but this report says original:
+    // the notice follows the report, not the transcript flag.
+    mockApi({ summary, report: callReport({ view: "original", privacy_enforced: true }) });
+    const second = renderPage("owner");
     expect(await screen.findByText("This summary is shown without masking.")).toBeInTheDocument();
     expect(screen.queryByText(/This summary is shown with personal data masked/)).not.toBeInTheDocument();
+    second.unmount();
+    vi.restoreAllMocks();
+
+    // Without an enforced policy the summary is not asked for at all.
+    const plain = mockApi({ summary, report: callReport() });
+    renderPage("owner");
+    await screen.findByRole("region", { name: "Summary" });
+    expect(plain.mock.calls.some(([url]) => url === "/meetings/m-1/summary")).toBe(false);
+    expect(screen.queryByText("The analysis was produced from the masked transcript.")).not.toBeInTheDocument();
+  });
+
+  it("selects the first tab when the page asks for a panel this role does not have", async () => {
+    mockApi();
+    renderConsole(<MeetingResults meeting={MEETING} open={{ panel: "shares", segmentId: null, seq: 1 }} />, {
+      lang: "en",
+      auth: { status: "authenticated", user: FIXTURE_USER, workspace: { ...FIXTURE_WORKSPACE, role: "viewer" } },
+    });
+    const tablist = screen.getByRole("tablist", { name: "Meeting results" });
+    expect(within(tablist).queryByRole("tab", { name: "Share links" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Transcript" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("id", "meeting-panel-transcript");
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Transcript" })).toHaveFocus());
   });
 
   it("opens the transcript at the segment playing at ?at= and says when none matches (QA Q-01)", async () => {

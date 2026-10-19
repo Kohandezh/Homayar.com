@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Globe, Menu } from "lucide-react";
 import { Avatar, Button, ListBox, SearchField, Select } from "@heroui/react";
 import { useAuth } from "@/lib/auth-context";

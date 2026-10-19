@@ -22,6 +22,16 @@ export function countMeetings(items: readonly { status: MeetingStatus }[]): Meet
   return counts;
 }
 
+/** The same groups as countMeetings, from the server's per-status counts. A missing key counts as 0. */
+export function groupMeetingCounts(counts: Readonly<Record<MeetingStatus, number>>): MeetingCounts {
+  return {
+    completed: counts.completed ?? 0,
+    inProgress: NONTERMINAL_MEETING_STATUSES.reduce((sum, status) => sum + (counts[status] ?? 0), 0),
+    failed: counts.failed ?? 0,
+    partial: counts.partial ?? 0,
+  };
+}
+
 /** The quota metrics the overview shows, in display order. */
 export const QUOTA_METRICS = ["audio_seconds", "concurrent_jobs", "seats"] as const;
 export type QuotaMetric = (typeof QUOTA_METRICS)[number];

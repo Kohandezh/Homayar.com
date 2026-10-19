@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { AudioLines, Filter } from "lucide-react";
 import { useI18n } from "@/lib/i18n-context";
 import { formatDate, formatDuration } from "@/lib/format";

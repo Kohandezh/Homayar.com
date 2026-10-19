@@ -1,0 +1,79 @@
+{
+  "at": "2026-10-18T19:57:12Z",
+  "checks": [
+    {
+      "check": "tenant 0 signs in and lists conversations",
+      "ok": true,
+      "detail": "28 listed"
+    },
+    {
+      "check": "tenant 1 signs in and lists conversations",
+      "ok": true,
+      "detail": "29 listed"
+    },
+    {
+      "check": "tenant 2 signs in and lists conversations",
+      "ok": true,
+      "detail": "29 listed"
+    },
+    {
+      "check": "tenant 3 signs in and lists conversations",
+      "ok": true,
+      "detail": "29 listed"
+    },
+    {
+      "check": "deleted conversation c006b031 stays deleted",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "check": "deleted conversation 7a1d6efd stays deleted",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "check": "deleted conversation 90407d22 stays deleted",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "check": "conversation 7dc28694 deleted before the backup stays deleted",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "check": "conversation ad5c5a6a deleted before the backup stays deleted",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "check": "kept conversation is served to its tenant",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "check": "another tenant cannot read it",
+      "ok": true,
+      "detail": "404"
+    },
+    {
+      "check": "kept recording is delivered (200 or presigned redirect)",
+      "ok": true,
+      "detail": "307"
+    },
+    {
+      "check": "post-backup upload is absent (inside the RPO window)",
+      "ok": true,
+      "detail": "404"
+    }
+  ],
+  "observations": {
+    "post_backup_revoked_share": {
+      "share_id": "80d030d4-b99f-43b8-bcc0-2228d278b3f2",
+      "listed": true,
+      "revoked_at_after_restore": null,
+      "active_again": true
+    }
+  },
+  "passed": true
+}

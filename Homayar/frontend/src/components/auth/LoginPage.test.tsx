@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router";
 import LoginPage from "@/components/auth/LoginPage";
 import type { AuthContextValue } from "@/lib/auth-context";
 import { FIXTURE_USER, apiError, networkError, renderConsole, withAuthMethods } from "@/test/fixtures";

@@ -5,7 +5,7 @@
 # Starts the real egress-proxy service of infra/compose/compose.onprem.yaml in
 # a throw-away project, two disposable HTTP servers on its outbound network
 # (one allowlisted, one not), and runs probes from inside the api, worker,
-# scheduler, public-web and console-web service containers as Compose
+# scheduler and console-web service containers as Compose
 # attaches them. It proves, from the process boundary:
 #   - no application container reaches anything directly (names, IPs,
 #     public addresses, cloud metadata);
@@ -13,7 +13,7 @@
 #     for CONNECT and plain HTTP, and the application's HTTP client uses it;
 #   - the proxy refuses unlisted hosts/ports, metadata and its manager page,
 #     and publishes no host port.
-# Needs Docker and the images named by API_IMAGE, PUBLIC_WEB_IMAGE,
+# Needs Docker and the images named by API_IMAGE and
 # CONSOLE_WEB_IMAGE (built beforehand). Contacts no real provider.
 set -Eeuo pipefail
 
@@ -31,9 +31,8 @@ export STORAGE_ACCESS_KEY=t STORAGE_SECRET_KEY=t POSTGRES_DB=t POSTGRES_USER=t P
 export REDIS_PASSWORD=t MINIO_ROOT_USER=t MINIO_ROOT_PASSWORD=t
 export EGRESS_PROXY_URL=http://egress-proxy:3128 EGRESS_ALLOWLIST_PATH="${allowlist}"
 : "${API_IMAGE:?set API_IMAGE to a built API image}"
-: "${PUBLIC_WEB_IMAGE:?set PUBLIC_WEB_IMAGE to a built public-web image}"
 : "${CONSOLE_WEB_IMAGE:?set CONSOLE_WEB_IMAGE to a built console-web image}"
-export API_IMAGE PUBLIC_WEB_IMAGE CONSOLE_WEB_IMAGE
+export API_IMAGE CONSOLE_WEB_IMAGE
 
 compose=(docker compose --project-name "${project}" --file "${compose_file}" --profile onprem --profile egress)
 failures=0
@@ -98,9 +97,6 @@ for probe in direct_allowed_name direct_allowed_ip direct_public_ip direct_metad
   expect "scheduler: ${probe}" "$(field "${result}" "${probe}")" "${direct_fail}"
 done
 
-web="$("${compose[@]}" run --rm --no-deps --entrypoint node public-web -e \
-  "const s=require('net').connect({host:'1.1.1.1',port:443,timeout:4000});s.on('connect',()=>{console.log('connected');process.exit(0)});s.on('timeout',()=>{console.log('timeout');process.exit(0)});s.on('error',(e)=>{console.log('refused:'+e.code);process.exit(0)});")"
-expect "public-web: direct_public_ip" "${web}" "${direct_fail}|refused:[A-Z]+"
 console="$("${compose[@]}" run --rm --no-deps --entrypoint sh console-web -c \
   'if wget -q -T 4 -O /dev/null http://1.1.1.1/ 2>/dev/null; then echo connected; else echo refused:wget; fi')"
 expect "console-web: direct_public_ip" "${console}" "refused:wget"

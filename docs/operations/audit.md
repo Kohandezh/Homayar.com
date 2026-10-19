@@ -24,7 +24,7 @@ Catalog categories (`AUDIT_EVENT_CATALOG`):
 
 | Category | Examples |
 | --- | --- |
-| `security` | `auth.login` (success and failure), `auth.logout`, `auth.refresh_replay_detected`, password reset, OTP, Google sign-in, API key created/revoked |
+| `security` | `auth.login` (success), `auth.login_failed` (refused), `auth.logout`, `auth.refresh_replay_detected`, password reset, OTP, Google sign-in, API key created/revoked |
 | `access` | member invitations, role changes, removals, teams and assignments, organization grants and scopes, share links |
 | `privacy_access` | `transcript.original_accessed`, `pii.revealed`, `subject.exported`, `meeting.exported`, `meeting.share_accessed` |
 | `configuration` | `workspace.settings.updated`, `ai_policy.updated`, `model_manifest.registered`, service locations, voice nodes |
@@ -44,21 +44,28 @@ arrive they need catalogue entries (the coverage test enforces it).
 * Raw identifiers of a refused login: only a 16-character prefix of the peppered digest of
   the identifier (`target_type = login_identifier`).
 * Client IP addresses: only `ip_hash`.
-* Personal data in free text (owner decision 2026-10-17, option B): the values of `reason`,
-  `release_reason`, `deletion_reason`, any `*_reason`, `name` (an API key's label),
-  `external_event_id` and `source_provider` pass through the text PII detector
-  (`backend/privacy/text_pii.py`: phone, e-mail, Iranian national ID, bank card, IBAN, postal
-  code) and are stored with class placeholders (`[PHONE_1]`, `[EMAIL_1]`, …), then capped at
-  120 characters. Masking runs before the cap, so a cut never leaves half an identifier. Ids,
-  counts and enum values are stored unchanged.
+* Personal data in free text (owner decision 2026-10-17, option B): **every string value**
+  passes through the text PII detector (`backend/privacy/text_pii.py`: phone, e-mail, Iranian
+  national ID, bank card, IBAN, postal code), is stored with class placeholders (`[PHONE_1]`,
+  `[EMAIL_1]`, …), and is capped at 120 characters. Masking runs before the cap, so a cut never
+  leaves half an identifier. Only keys that hold ids, enums, digests, counts, timestamps or
+  field-name lists are exempt (see "Review update" below); they are still secret-checked and
+  capped at 500. A key naming personal data (`national`, `phone`, `card`, `email`, …) is never
+  exempt.
+  The match is on substrings, so keys such as `ip_address` or `scorecard_*` are masked too:
+  this fails closed (masked, never leaked) and is intended.
+  An id embedded in a free-text reason can be partly masked when it contains a digit run the
+  detector reads as personal data (about 0.16% of random UUIDs; fails closed); a structured
+  `*_id` key is never masked.
 
 ## Delivery and failure behaviour
 
 * **Transactional** (all events of operations that happened): the row commits with the
   operation. If the insert fails, the transaction rolls back, the operation does not happen
   and the caller gets an error; `homayar_audit_write_failures_total{delivery="transactional"}`
-  counts it (`HomayarAuditWriteFailures` alerts).
-* **Best effort** (refused attempts only: failed login): recorded in its own commit after
+  counts it once (`HomayarAuditWriteFailures` alerts, added with the alert rules).
+* **Best effort** (refused attempts and security events whose action must stand: failed
+  login, refresh-token replay after the revocation commits): recorded in its own commit after
   the rollback. If it fails, the response is unchanged, `AUDIT_WRITE_FAILED` is logged and
   `homayar_audit_write_failures_total{delivery="best_effort"}` counts it.
 * Privacy-sensitive reads (`transcript.original_accessed`, `pii.revealed`, exports) commit
@@ -70,6 +77,30 @@ Workspace owners and admins read their own workspace's events through
 `GET /api/v1/admin/audit-events` (permission `audit:read`); the query is filtered by the
 bound workspace and row-level security bounds it again. Platform events (`workspace_id`
 NULL) are never returned to a tenant.
+
+## Review update (PR #55): masking by default, nesting, delivery counts
+
+- **Every string detail value is masked by default** (secret check, then the text PII
+  detector, then the 120-character cap). Only keys that hold ids, enums, digests, counts or
+  timestamps are exempt (`EXEMPT_DETAIL_KEYS`, plus the suffixes `_id`, `_ids`, `_digest`,
+  `_sha256`, `_hash`, `_at`, `_count`, `_bytes`, `_seconds`, `_version`, `_number`, `_prefix`,
+  `_class`, `_type`, `_state`, `_kind`, `_status`, `_role`, `_fields`, plus the key `fields`). Exempt values are still
+  checked for secrets. A key the owner named as free text (`reason`, `*_reason`, `name`,
+  `external_event_id`, `source_provider`) is never exempt.
+- **Nested dicts and lists** are sanitised recursively with the same key and secret
+  checks: depth 3, 50 items per level, deeper values `[redacted]`.
+- **Refresh-token replay**: the session revocation commits first, then the event is written
+  best effort, so a failing audit write can never leave a stolen session valid.
+- **Failure counting**: a failed audit `INSERT` is counted once, by the engine hook, with the
+  delivery of the path that wrote it (`best_effort` or `transactional`).
+- An event type missing from `AUDIT_EVENT_CATALOG` is logged once as
+  `AUDIT_EVENT_UNCATALOGUED`; the write still happens.
+- **Personal data note**: the `target_id` of `auth.login_failed` (the first 16 characters of
+  the identifier's keyed hash) is a pseudonym. It is personal data under the privacy rules: it
+  links attempts on one identifier and is covered by subject-access and erasure requests like
+  any other identifier.
+- Fail-closed note: a transactional audit write that fails also fails a successful login. The
+  Integrator has raised this with the owner.
 
 ## Protection
 

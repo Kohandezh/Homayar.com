@@ -1,5 +1,5 @@
 import { AudioLines, Globe, LockKeyhole } from "lucide-react";
-import { Link, Outlet } from "react-router-dom";
+import { Link, Outlet } from "react-router";
 import { useI18n } from "@/lib/i18n-context";
 import { useAuthCopy } from "@/components/auth/auth-copy";
 

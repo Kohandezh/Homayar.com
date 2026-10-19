@@ -46,8 +46,9 @@ from backend.security.context import (
     require_write_permission,
 )
 from backend.security.tokens import token_digest
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
-from backend.services.download_service import deliver_recording
+from backend.services.download_service import deliver_recording, ensure_shared_recording_playable
 from backend.services.export_service import (
     ExportSegment,
     MeetingExport,
@@ -131,7 +132,7 @@ def create_share(
     )
     record_audit_event(
         db,
-        event_type="meeting.share_created",
+        event_type=AuditEventType.MEETING_SHARE_CREATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="share_link",
@@ -205,7 +206,7 @@ def revoke_share(
         share.revoked_at = datetime.now(UTC)
         record_audit_event(
             db,
-            event_type="meeting.share_revoked",
+            event_type=AuditEventType.MEETING_SHARE_REVOKED,
             actor_user_id=context.actor.user.id,
             workspace_id=context.workspace.id,
             target_type="share_link",
@@ -244,7 +245,7 @@ def edit_share_recipients(
     )
     record_audit_event(
         db,
-        event_type="meeting.share_recipients_changed",
+        event_type=AuditEventType.MEETING_SHARE_RECIPIENTS_CHANGED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="share_link",
@@ -340,7 +341,7 @@ def _record_access(
         details.update(extra)
     record_audit_event(
         db,
-        event_type="meeting.share_accessed",
+        event_type=AuditEventType.MEETING_SHARE_ACCESSED,
         actor_user_id=grant.actor_user.id if grant.actor_user else None,
         workspace_id=grant.share.workspace_id,
         target_type="share_link",
@@ -521,18 +522,19 @@ def download_shared_recording(
         operation="download",
         settings=settings,
     )
-    recording = db.scalar(
-        select(Recording).where(
-            Recording.meeting_id == grant.meeting.id,
-            Recording.workspace_id == grant.share.workspace_id,
-            Recording.deleted_at.is_(None),
-        )
+    # Before the access audit: a refused request is not counted as a download.
+    recording = ensure_shared_recording_playable(
+        workspace=grant.workspace,
+        meeting=grant.meeting,
+        recording=db.scalar(
+            select(Recording).where(
+                Recording.meeting_id == grant.meeting.id,
+                Recording.workspace_id == grant.share.workspace_id,
+                Recording.deleted_at.is_(None),
+            )
+        ),
+        now=datetime.now(UTC),
     )
-    if recording is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "recording_not_found", "message": "Recording not found"},
-        )
     range_header = request.headers.get("range")
     # One audit row per download start; range continuations are not re-counted.
     if not range_header or range_header.strip().startswith("bytes=0-"):

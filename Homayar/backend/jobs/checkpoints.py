@@ -345,9 +345,7 @@ def _reusable_row(db: Session, *, meeting_id: str, stage: StageName, input_hash:
     )
 
 
-def invalidate_checkpoint(
-    checkpoint: StageCheckpoint, *, reason: str, now: datetime
-) -> None:
+def invalidate_checkpoint(checkpoint: StageCheckpoint, *, reason: str, now: datetime) -> None:
     """Mark a checkpoint unusable (row the caller holds in a tenant-bound tx)."""
     if checkpoint.state == CheckpointState.PENDING:
         checkpoint.state = CheckpointState.ABANDONED
@@ -388,7 +386,9 @@ def resume_stage(
         )
         row = (
             _reusable_row(
-                db, meeting_id=context.meeting_id, stage=identity.stage,
+                db,
+                meeting_id=context.meeting_id,
+                stage=identity.stage,
                 input_hash=identity.input_hash,
             )
             if alive
@@ -690,20 +690,35 @@ def mark_objects_deleted(db: Session, *, keys: list[str], now: datetime) -> int:
     return count
 
 
-def discover_workspaces(*, limit: int) -> list[str]:
-    """Workspaces to sweep (read-only service scope on entitlements; ids only)."""
+def discover_workspaces(*, interval_seconds: int, now: datetime | None = None) -> list[str]:
+    """Every workspace to sweep, in a rotating order (read-only service scope; ids only).
+
+    A fixed ``LIMIT`` used to cut the list, so a workspace whose id sorted
+    after the first batch was never swept (HOM-210).  Every run now gets every
+    workspace; callers still stop when their item budget is spent.  The start
+    moves by one per sweep interval of database time, so a budget used up
+    early does not leave the same workspaces at the end of every run.
+    """
     from backend.database.saas_models import Entitlement
 
     with get_session_factory()() as db:
         bind_service_scope(db, SERVICE_SCOPE_USAGE_RECONCILIATION)
-        rows = db.scalars(
-            select(Entitlement.workspace_id)
-            .distinct()
-            .order_by(Entitlement.workspace_id.asc())
-            .limit(limit)
-        ).all()
+        ids = list(
+            db.scalars(
+                select(Entitlement.workspace_id).distinct().order_by(Entitlement.workspace_id.asc())
+            ).all()
+        )
+        current = now or database_now(db)
         db.rollback()
-    return list(rows)
+    return rotate(ids, run=int(current.timestamp() // interval_seconds))
+
+
+def rotate(ids: list[str], *, run: int) -> list[str]:
+    """``ids`` starting at position ``run`` (mod len), keeping every id once."""
+    if not ids:
+        return []
+    start = run % len(ids)
+    return ids[start:] + ids[:start]
 
 
 def _meeting_held(db: Session, meeting_id: str) -> bool:
@@ -773,7 +788,9 @@ def sweep_abandoned_artifacts(
     grace = timedelta(seconds=settings.job_artifact_grace_seconds)
     counts = {"workspaces": 0, "scanned": 0, "deleted": 0, "absent": 0, "unavailable": 0}
     remaining = batch
-    for workspace_id in discover_workspaces(limit=batch):
+    for workspace_id in discover_workspaces(
+        interval_seconds=settings.job_artifact_sweep_interval_seconds, now=now
+    ):
         if remaining <= 0:
             break
         counts["workspaces"] += 1

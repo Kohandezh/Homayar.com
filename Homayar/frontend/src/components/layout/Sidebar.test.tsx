@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import Sidebar from "@/components/layout/Sidebar";
 import { ADMIN_NAV, MAIN_NAV } from "@/lib/navigation";
-import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, renderConsole } from "@/test/fixtures";
+import { FIXTURE_OPERATOR, FIXTURE_USER, FIXTURE_WORKSPACE, apiError, renderConsole } from "@/test/fixtures";
 import type { AuthContextValue } from "@/lib/auth-context";
-import type { AuthWorkspace, WorkspaceRole } from "@/types/auth";
+import type { AuthUser, AuthWorkspace, WorkspaceRole } from "@/types/auth";
 
 function workspace(role: WorkspaceRole, permissions?: string[]): AuthWorkspace {
   return { ...FIXTURE_WORKSPACE, role, ...(permissions ? { permissions } : {}) };
@@ -23,24 +23,77 @@ function adminLabels() {
 }
 
 const ALL_ADMIN = ADMIN_NAV.map((entry) => entry.label.en);
+/** What a workspace owner sees without the platform operator role. */
+const NON_OPERATOR_ADMIN = ADMIN_NAV.filter((entry) => !("operatorOnly" in entry && entry.operatorOnly)).map(
+  (entry) => entry.label.en,
+);
+
+/** A user object as the server could send it, including values the type does not allow. */
+function withSystemRole(systemRole: unknown): AuthUser {
+  return { ...FIXTURE_USER, system_role: systemRole } as AuthUser;
+}
 
 describe("Sidebar navigation", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("shows every admin entry to an owner, in order, under its own group", () => {
-    renderSidebar(workspace("owner"));
+  it("shows every admin entry to an owner who is a platform operator, in order, under its own group", () => {
+    renderSidebar(workspace("owner"), "en", { user: FIXTURE_OPERATOR });
     expect(adminLabels()).toEqual(ALL_ADMIN);
     for (const entry of [...MAIN_NAV, ...ADMIN_NAV]) {
       expect(screen.getByRole("link", { name: entry.label.en }).getAttribute("href")).toMatch(new RegExp(`${entry.path}$`));
     }
   });
 
-  it("shows an admin everything except Privacy", () => {
+  it("shows an owner who is not an operator every admin entry except Voice operations", () => {
+    renderSidebar(workspace("owner"));
+    expect(NON_OPERATOR_ADMIN).not.toContain("Voice operations");
+    expect(adminLabels()).toEqual(NON_OPERATOR_ADMIN);
+    expect(screen.queryByRole("link", { name: "Voice operations" })).not.toBeInTheDocument();
+  });
+
+  it("shows an admin everything except Privacy and Voice operations", () => {
     renderSidebar(workspace("admin"));
-    expect(adminLabels()).toEqual(ALL_ADMIN.filter((label) => label !== "Privacy"));
+    expect(adminLabels()).toEqual(NON_OPERATOR_ADMIN.filter((label) => label !== "Privacy"));
     expect(screen.queryByRole("link", { name: "Privacy" })).not.toBeInTheDocument();
+  });
+
+  it("adds Voice operations, pointing at /admin/voice, for an admin who is a platform operator", () => {
+    renderSidebar(workspace("admin"), "en", { user: FIXTURE_OPERATOR });
+    expect(adminLabels()).toEqual(ALL_ADMIN.filter((label) => label !== "Privacy"));
+    expect(screen.getByRole("link", { name: "Voice operations" }).getAttribute("href")).toMatch(/\/admin\/voice$/);
+  });
+
+  // Each deny case changes one field of the allow case above it.
+  it.each([
+    ["user", withSystemRole("user")],
+    ["missing", FIXTURE_USER],
+    ["Operator (other case)", withSystemRole("Operator")],
+  ])("hides Voice operations from an admin whose system_role is %s", (_label, user) => {
+    const allowed = renderSidebar(workspace("admin"), "en", { user: FIXTURE_OPERATOR });
+    expect(screen.getByRole("link", { name: "Voice operations" })).toBeInTheDocument();
+    allowed.unmount();
+
+    renderSidebar(workspace("admin"), "en", { user });
+    expect(screen.queryByRole("link", { name: "Voice operations" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("hides Voice operations from an operator whose workspace role lacks workspace:manage", () => {
+    const allowed = renderSidebar(workspace("admin"), "en", { user: FIXTURE_OPERATOR });
+    expect(screen.getByRole("link", { name: "Voice operations" })).toBeInTheDocument();
+    allowed.unmount();
+
+    renderSidebar(workspace("member"), "en", { user: FIXTURE_OPERATOR });
+    expect(adminLabels()).toEqual(["Members", "Teams"]);
+    expect(screen.queryByRole("link", { name: "Voice operations" })).not.toBeInTheDocument();
+  });
+
+  it("names the operator entry in Persian", () => {
+    renderSidebar(workspace("owner"), "fa", { user: FIXTURE_OPERATOR });
+    const group = screen.getByRole("group", { name: "مدیریت" });
+    expect(within(group).getByRole("link", { name: "عملیات صوتی" })).toBeInTheDocument();
   });
 
   it.each(["member", "viewer"] as const)("shows a %s only Members and Teams", (role) => {
@@ -57,7 +110,7 @@ describe("Sidebar navigation", () => {
     expect(adminLabels()).toEqual(["Members"]);
     owner.unmount();
     renderSidebar(workspace("viewer", ["workspace:manage", "admin:*"]));
-    expect(adminLabels()).toEqual(["Admin overview", "Settings", "Processing", "AI policy", "Locations"]);
+    expect(adminLabels()).toEqual(["Admin overview", "Settings", "Processing", "Ingestions", "AI policy", "Locations"]);
   });
 
   it("drops the Administration group when no admin entry is visible", () => {

@@ -48,6 +48,7 @@ from backend.services.ai_policy_service import (
     list_run_snapshots,
     set_policy,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -106,7 +107,7 @@ def update_ai_policy(
     if changed:
         record_audit_event(
             db,
-            event_type="ai_policy.updated",
+            event_type=AuditEventType.AI_POLICY_UPDATED,
             actor_user_id=context.actor.user.id,
             workspace_id=context.workspace.id,
             target_type="ai_policy",

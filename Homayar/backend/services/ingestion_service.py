@@ -53,6 +53,7 @@ from backend.database.saas_models import (
     Workspace,
 )
 from backend.security.authorization import RecordAccess
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.storage.base import sanitize_original_filename
 
@@ -268,7 +269,7 @@ def resolve_existing(
     if record.payload_hash == payload_hash:
         record_audit_event(
             db,
-            event_type="ingestion.replayed",
+            event_type=AuditEventType.INGESTION_REPLAYED,
             actor_user_id=actor_user_id,
             workspace_id=record.workspace_id,
             target_type="ingestion",
@@ -298,7 +299,7 @@ def resolve_existing(
     locked.last_conflict_at = now
     record_audit_event(
         db,
-        event_type="ingestion.conflict",
+        event_type=AuditEventType.INGESTION_CONFLICT,
         actor_user_id=actor_user_id,
         workspace_id=locked.workspace_id,
         target_type="ingestion",
@@ -343,7 +344,7 @@ def accept_ingestion[T](
     if duplicate is not None and workspace.duplicate_media_policy == DuplicateMediaPolicy.REJECT:
         record_audit_event(
             db,
-            event_type="ingestion.duplicate_media",
+            event_type=AuditEventType.INGESTION_DUPLICATE_MEDIA,
             actor_user_id=actor_user_id,
             workspace_id=workspace.id,
             target_type="ingestion",
@@ -397,7 +398,7 @@ def accept_ingestion[T](
     if duplicate is not None:
         record_audit_event(
             db,
-            event_type="ingestion.duplicate_media",
+            event_type=AuditEventType.INGESTION_DUPLICATE_MEDIA,
             actor_user_id=actor_user_id,
             workspace_id=workspace.id,
             target_type="ingestion",
@@ -411,7 +412,7 @@ def accept_ingestion[T](
         )
     record_audit_event(
         db,
-        event_type="ingestion.accepted",
+        event_type=AuditEventType.INGESTION_ACCEPTED,
         actor_user_id=actor_user_id,
         workspace_id=workspace.id,
         target_type="ingestion",
@@ -475,7 +476,7 @@ def record_rejection(
     db.flush()
     record_audit_event(
         db,
-        event_type="ingestion.rejected",
+        event_type=AuditEventType.INGESTION_REJECTED,
         actor_user_id=actor_user_id,
         workspace_id=workspace.id,
         target_type="ingestion",
@@ -514,7 +515,7 @@ def audit_rejection(
         details["media_size_bytes"] = media_size_bytes
     record_audit_event(
         db,
-        event_type="ingestion.rejected",
+        event_type=AuditEventType.INGESTION_REJECTED,
         actor_user_id=actor_user_id,
         workspace_id=workspace_id,
         target_type="ingestion",

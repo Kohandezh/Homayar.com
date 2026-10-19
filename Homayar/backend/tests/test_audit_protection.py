@@ -23,6 +23,7 @@ from sqlalchemy.exc import DBAPIError
 from backend.config import Settings
 from backend.database.rls import APP_ROLE, AUDIT_READER_POLICY, AUDIT_READER_ROLE
 from backend.database.saas_models import AuditEvent, User, Workspace
+from backend.services.audit_event_types import lookup_audit_event_type
 from backend.services.audit_service import AuditImmutableError, record_audit_event
 from backend.tests._database import (
     configured_database_url,
@@ -62,14 +63,22 @@ def _tenant(client, email_outbox, label: str) -> dict:
 
 
 def _seed(workspace_id: str | None, event_type: str, actor_user_id: str | None = None) -> str:
+    """One event of a registered type, with that type's registered target type."""
     from backend.database.relational import get_session_factory
     from backend.database.tenant_context import bind_tenant_context
 
+    registered = lookup_audit_event_type(event_type)
+    assert registered is not None, event_type
     with get_session_factory()() as db:
         if workspace_id:
             bind_tenant_context(db, workspace_id=workspace_id)
         event = record_audit_event(
-            db, event_type=event_type, workspace_id=workspace_id, actor_user_id=actor_user_id
+            db,
+            event_type=registered,
+            workspace_id=workspace_id,
+            actor_user_id=actor_user_id,
+            target_type=registered.target_type,
+            target_id="audit-protection-target" if registered.target_type else None,
         )
         db.commit()
         return event.id

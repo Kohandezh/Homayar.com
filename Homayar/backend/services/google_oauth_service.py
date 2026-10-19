@@ -22,6 +22,7 @@ from backend.database.saas_models import (
 )
 from backend.security.normalization import normalize_email
 from backend.security.tokens import random_token, token_digest
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.tenancy_service import create_personal_workspace
 
@@ -229,7 +230,7 @@ async def complete_google_oauth(
     user.last_login_at = now
     record_audit_event(
         db,
-        event_type="auth.google_completed",
+        event_type=AuditEventType.AUTH_GOOGLE_COMPLETED,
         actor_user_id=user.id,
         target_type="user",
         target_id=user.id,

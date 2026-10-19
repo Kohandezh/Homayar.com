@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { KeyRound } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import { verifyEmail } from "@/lib/auth";
 import { useAuth } from "@/lib/auth-context";
 import { authErrorText, useAuthCopy } from "@/components/auth/auth-copy";

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router";
 import api from "@/lib/api";
 import type { AuthContextValue } from "@/lib/auth-context";
 import AppLayout from "@/components/layout/AppLayout";
