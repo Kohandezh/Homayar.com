@@ -213,7 +213,10 @@ def test_the_access_log_of_a_real_server_has_templates_not_tokens(settings, capf
         )
     )
     access_logger = logging.getLogger(ACCESS_LOGGER)
-    access_logger.disabled = False  # Alembic's fileConfig in other tests disables it
+    saved = access_logger.disabled, access_logger.level
+    access_logger.disabled = False
+    access_logger.setLevel(logging.INFO)  # uvicorn configures it so in production
+    assert access_logger.isEnabledFor(logging.INFO)
     access_logger.addHandler(capture)
     try:
         with _app_client(settings) as client:
@@ -230,6 +233,8 @@ def test_the_access_log_of_a_real_server_has_templates_not_tokens(settings, capf
                 http.get(f"{base}/no-such/{_SHARE_TOKEN}", headers=headers)
     finally:
         access_logger.removeHandler(capture)
+        access_logger.disabled, level = saved
+        access_logger.setLevel(level)
     assert len(lines) == 3, lines
     assert '"GET /api/v1/shares/{share_token} HTTP/1.1"' in lines[0]
     assert '"GET /healthz HTTP/1.1"' in lines[1]
@@ -494,3 +499,20 @@ def test_a_formatting_error_never_raises_from_the_handler(monkeypatch):
         )
     )
     assert line["message"] == "[unformattable record]" and line["error_type"] == "ValueError"
+
+
+def test_in_process_migrations_leave_the_logging_configuration_alone(settings):
+    # alembic.ini's root level (WARNING) and console handler must not replace the
+    # configuration of the process that runs the migrations (PR #66 CI: an Alembic
+    # test silenced uvicorn's INFO access lines for every later test).
+    from alembic import command
+    from alembic.config import Config
+
+    from backend.tests.test_observability_metrics import HOMAYAR_ROOT
+
+    root = logging.getLogger()
+    before = (root.level, list(root.handlers))
+    config = Config(str(HOMAYAR_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(HOMAYAR_ROOT / "backend" / "migrations"))
+    command.heads(config)  # loads env.py without touching a database
+    assert (root.level, list(root.handlers)) == before

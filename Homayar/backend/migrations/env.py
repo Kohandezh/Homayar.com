@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from logging.config import fileConfig
 
 from alembic import context
@@ -14,9 +15,10 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-if config.config_file_name is not None:
-    # Keep existing loggers (the app's "homayar" logger) enabled when Alembic runs
-    # in-process (migrate job, tests).
+# Only when nothing configured logging yet (the alembic CLI). When the app or the test
+# suite has (in-process migrations), alembic.ini's root level (WARNING) and console
+# handler would replace that configuration for the rest of the process.
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
