@@ -67,9 +67,11 @@ here is a target for the drill to measure, never an estimate taken from a script
   privileged break-glass credential; the backup tool's credential never has
   `s3:BypassGovernanceRetention`. An intruder on the application host can therefore not
   destroy locked copies before their retention ends. Deletions made after a backup still win,
-  because every restore replays the tombstone journal before use. Known limit: the tool sets no
-  per-object retention, so monthly sets are locked only for the default period. A directory
-  off-site target has no such protection. Prune counts versions that are still locked, never as
+  because every restore replays the tombstone journal before use. The default covers the daily
+  window; prune extends each monthly set's GOVERNANCE retention (`s3:PutObjectRetention`, never
+  shortened) to the earliest day the 30 daily + 12 monthly retention could expire it, so a
+  monthly set is locked for as long as it is kept. A directory off-site target has no such
+  protection. Prune counts versions that are still locked, never as
   failures, and retries them on later runs.
 
 ## 4. Backup scope
