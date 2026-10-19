@@ -24,7 +24,7 @@ Catalog categories (`AUDIT_EVENT_CATALOG`):
 
 | Category | Examples |
 | --- | --- |
-| `security` | `auth.login` (success and failure), `auth.logout`, `auth.refresh_replay_detected`, password reset, OTP, Google sign-in, API key created/revoked |
+| `security` | `auth.login` (success), `auth.login_failed` (refused), `auth.logout`, `auth.refresh_replay_detected`, password reset, OTP, Google sign-in, API key created/revoked |
 | `access` | member invitations, role changes, removals, teams and assignments, organization grants and scopes, share links |
 | `privacy_access` | `transcript.original_accessed`, `pii.revealed`, `subject.exported`, `meeting.exported`, `meeting.share_accessed` |
 | `configuration` | `workspace.settings.updated`, `ai_policy.updated`, `model_manifest.registered`, service locations, voice nodes |
@@ -92,7 +92,7 @@ NULL) are never returned to a tenant.
   delivery of the path that wrote it (`best_effort` or `transactional`).
 - An event type missing from `AUDIT_EVENT_CATALOG` is logged once as
   `AUDIT_EVENT_UNCATALOGUED`; the write still happens.
-- **Personal data note**: the `target_id` of a failed `auth.login` (the first 16 characters of
+- **Personal data note**: the `target_id` of `auth.login_failed` (the first 16 characters of
   the identifier's keyed hash) is a pseudonym. It is personal data under the privacy rules: it
   links attempts on one identifier and is covered by subject-access and erasure requests like
   any other identifier.

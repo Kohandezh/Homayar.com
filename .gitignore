@@ -46,7 +46,7 @@ next-env.d.ts
 
 # local tooling / caches
 # Claude Code: .claude/ is shared in git. Only per-machine files stay out.
-.claude/settings.local.json
+.claude/settings.local.json*
 .claude/scheduled_tasks.lock
 .claude/.cc-writes/
 .claude/worktrees/
