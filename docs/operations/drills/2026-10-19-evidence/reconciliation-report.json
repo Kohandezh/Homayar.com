@@ -1,0 +1,159 @@
+{
+  "backup_created_at": "2026-10-19T09:09:31.983615+00:00",
+  "backup_id": "20261019T090931Z-8ab9f925",
+  "checks": {
+    "marker": {
+      "details": {
+        "state": "loaded"
+      },
+      "status": "PASS"
+    },
+    "non_resurrection": {
+      "details": {
+        "active_share_links": [],
+        "alive": [],
+        "content_rows": [],
+        "held_for_review": [],
+        "journaled": 5,
+        "object_bytes_left": []
+      },
+      "status": "PASS"
+    },
+    "objects": {
+      "details": {
+        "accepted_missing": null,
+        "backup_integrity": "complete",
+        "content_mismatch": 0,
+        "content_mismatch_keys": [],
+        "content_verified": 364,
+        "deleted_after_snapshot": [],
+        "orphan_keys": [],
+        "orphans": 0,
+        "referenced": 384,
+        "removal_failed_keys": [],
+        "removed_again": 0,
+        "required": 364,
+        "required_missing": 0,
+        "required_missing_keys": [],
+        "stored": 364
+      },
+      "status": "PASS"
+    },
+    "post_backup_state": {
+      "details": {
+        "counts_before": {
+          "active_api_keys": 4,
+          "active_share_links": 8,
+          "pending_invitations": 0
+        },
+        "note": "revocations, password changes and sign-outs made after the backup are not journaled and are not replayed; rotate JWT_SECRET to end every session and review API keys and share links with the owner",
+        "share_links_revoked": 0
+      },
+      "status": "WARN"
+    },
+    "rls_behavior": {
+      "details": {
+        "own_meetings_visible": 120,
+        "problems": [],
+        "tables_checked": 48,
+        "tenants": 4,
+        "tenants_checked": 4
+      },
+      "status": "PASS"
+    },
+    "rls_structure": {
+      "details": {
+        "policy_tables": 48,
+        "problems": []
+      },
+      "status": "PASS"
+    },
+    "schema": {
+      "details": {
+        "code": [
+          "d8a2f4c6b1e3"
+        ],
+        "database": [
+          "d8a2f4c6b1e3"
+        ]
+      },
+      "status": "PASS"
+    },
+    "secrets": {
+      "details": {
+        "mismatched": [],
+        "pii_key_ids_missing": []
+      },
+      "status": "PASS"
+    },
+    "tenant_boundaries": {
+      "details": {
+        "foreign_keys_verified_at_load": true,
+        "per_tenant_tables_verified_at_load": 46,
+        "problems": [],
+        "tenant_foreign_keys_checked": 77
+      },
+      "status": "PASS"
+    },
+    "tombstones": {
+      "details": {
+        "journal_identity": "anchored",
+        "journal_identity_details": {
+          "records": 5,
+          "records_of_tenants_unknown_to_backup": 0,
+          "tenants_unknown_to_backup": 0
+        },
+        "journal_records": 5,
+        "journal_records_at_backup": 2,
+        "owner_override_no_journal": null,
+        "replay": {
+          "already_tombstoned": 2,
+          "jobs_cancelled": 0,
+          "meeting_absent": 0,
+          "purges_completed": 5,
+          "purges_reopened": 2,
+          "reapplied": 3,
+          "records": 5,
+          "rejected_lines": 0,
+          "unknown_keys_failed": 0,
+          "unknown_keys_removed": 0
+        },
+        "stale_or_foreign_journal": [],
+        "verify": {
+          "alive": 0,
+          "purges_failed": 0,
+          "purges_open": 0,
+          "records": 5,
+          "rejected_lines": 0
+        }
+      },
+      "status": "PASS"
+    }
+  },
+  "finished_at": "2026-10-19T09:14:05.334018+00:00",
+  "kind": "homayar-reconciliation/1",
+  "mac": "fe278d49aabeeea48f8b6808b420d178b54988a737dddf479ffb46f019fd8583",
+  "manifest_mac": "8fa988f13d59c3e352dc48751a1a04c559e19450e301d59c0c4a031fcbefaae2",
+  "owner_overrides": {},
+  "staging_database": "homayar_restoring",
+  "started_at": "2026-10-19T09:13:58.239584+00:00",
+  "status": "PASS",
+  "statuses": {
+    "marker": "PASS",
+    "non_resurrection": "PASS",
+    "objects": "PASS",
+    "post_backup_state": "WARN",
+    "rls_behavior": "PASS",
+    "rls_structure": "PASS",
+    "schema": "PASS",
+    "secrets": "PASS",
+    "tenant_boundaries": "PASS",
+    "tombstones": "PASS"
+  },
+  "timings_seconds": {
+    "integrity": 1.141,
+    "reconcile": 4.669,
+    "tombstones": 1.237,
+    "total": 7.094
+  }
+}

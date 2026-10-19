@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-19T09:08:48Z",
+  "deleted_before_backup": [
+    {
+      "tenant": 2,
+      "meeting_id": "c426a4cd-ad71-4a31-b01f-5a977330c6a6"
+    },
+    {
+      "tenant": 3,
+      "meeting_id": "d077535d-5189-43ef-b9a1-0a43d291764d"
+    }
+  ]
+}
