@@ -34,6 +34,7 @@ from backend.observability.audit_sink import (
     record_from_row,
     verify_sink,
 )
+from backend.services.audit_event_types import lookup_audit_event_type
 from backend.services.audit_service import REDACTED, record_audit_event
 from backend.tests._database import (
     configured_database_url,
@@ -116,14 +117,18 @@ def _seed(
     workspace_id: str | None = None,
     **fields: object,
 ) -> str:
+    """One event of a registered type, written with that type's registered target type."""
     from backend.database.relational import get_session_factory
     from backend.database.tenant_context import bind_tenant_context
 
+    registered = lookup_audit_event_type(event_type)
+    assert registered is not None, event_type
+    assert fields.setdefault("target_type", registered.target_type) == registered.target_type
     with get_session_factory()() as db:
         if workspace_id:
             bind_tenant_context(db, workspace_id=workspace_id)
         event = record_audit_event(
-            db, event_type=event_type, workspace_id=workspace_id, settings=settings, **fields
+            db, event_type=registered, workspace_id=workspace_id, settings=settings, **fields
         )
         db.commit()
         return event.id
@@ -184,7 +189,7 @@ def test_export_then_verify_is_clean(sink_settings: Settings):
     )
 
     assert _export(sink_settings).exported == 0  # nothing new: the watermark moves only
-    later = _seed(sink_settings, "team.deleted")
+    later = _seed(sink_settings, "team.updated")
     second = _export(sink_settings)
     assert (second.exported, second.segment, second.last_seq) == (1, 2, total + 1)
     report = verify_sink(sink_settings)
@@ -637,7 +642,7 @@ def test_sink_lines_hold_only_what_audit_events_holds(
         sink_settings,
         "pii.revealed",
         ip_address=CLIENT_IP,
-        target_type="redaction",
+        target_type="meeting",
         target_id="r-1",
         details={"reason": f"caller {PHONE}, {EMAIL}", "token": JWT_LIKE, "note": JWT_LIKE},
     )
