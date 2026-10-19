@@ -261,24 +261,55 @@ def test_an_unexpected_access_record_shape_keeps_no_path():
 # --- Celery ------------------------------------------------------------------------------
 
 
-def test_celery_workers_keep_the_scrubbed_json_logging():
+@pytest.fixture
+def celery_logging_restored():
+    """Run Celery's worker logging set-up, then restore every bit of global state it touches.
+
+    setup_logging_subsystem marks logging as set up (per app and class-wide), replaces the
+    root handlers and exports _MP_FORK_* variables; left behind, a later in-process test
+    worker (test_queue_routing) never finishes starting.
+    """
+    import os
+
+    from celery.app.log import Logging
+
     from backend.celery_app import celery_app
 
-    celery_app.log.already_setup = False
-    celery_app.log.setup_logging_subsystem(loglevel=logging.INFO)  # what a worker does
     root = logging.getLogger()
-    assert [type(handler.formatter) for handler in root.handlers] == [JSONFormatter]
+    saved = (
+        celery_app.log.already_setup,
+        Logging._setup,
+        list(root.handlers),
+        root.level,
+        {k: v for k, v in os.environ.items() if k.startswith("_MP_FORK_")},
+    )
+    celery_app.log.already_setup = False
+    try:
+        celery_app.log.setup_logging_subsystem(loglevel=logging.INFO)  # what a worker does
+        yield celery_app
+    finally:
+        celery_app.log.already_setup, Logging._setup, handlers, level, env = saved
+        root.handlers = handlers
+        root.setLevel(level)
+        for key in [k for k in os.environ if k.startswith("_MP_FORK_")]:
+            del os.environ[key]
+        os.environ.update(env)
 
 
-def test_a_failed_celery_task_logs_its_summary_not_its_sql_or_pii(capfd):
-    from backend.celery_app import celery_app
+def test_celery_workers_keep_the_scrubbed_json_logging(celery_logging_restored):
+    root = logging.getLogger()
+    formatters = [type(handler.formatter) for handler in root.handlers]
+    assert JSONFormatter in formatters  # pytest's capture handlers may sit beside it
+    assert not any(cls.__module__.startswith("celery") for cls in formatters)
+
+
+def test_a_failed_celery_task_logs_its_summary_not_its_sql_or_pii(capfd, celery_logging_restored):
+    celery_app = celery_logging_restored
 
     @celery_app.task(name="homayar.tests.explode_integrity")
     def explode_integrity():
         raise _integrity_error()
 
-    celery_app.log.already_setup = False
-    celery_app.log.setup_logging_subsystem(loglevel=logging.INFO)
     trace_logger = logging.getLogger("celery.app.trace")
     trace_logger.disabled = False  # Alembic's fileConfig in other tests disables it
     capfd.readouterr()
@@ -410,3 +441,56 @@ def test_websocket_handshake_lines_never_carry_the_path():
         ServerLogFilter().filter(record)
         assert _SHARE_TOKEN not in record.getMessage()
         assert '"WebSocket [path]"' in record.getMessage()
+
+
+def test_formatting_a_record_never_emits_a_warning_that_would_be_logged_again():
+    # A Celery worker routes warnings into logging (captureWarnings); a formatter that
+    # warns (datetime.utcnow on Python 3.12) then recurses until the worker thread dies,
+    # and an in-process test worker never finishes starting (PR #66 CI hang).
+    import warnings
+
+    record = logging.LogRecord("homayar", logging.INFO, __file__, 1, "ready", (), None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning raised while formatting fails the test
+        line = json.loads(JSONFormatter().format(record))
+    assert line["timestamp"].endswith("Z") and "T" in line["timestamp"]
+
+
+def test_a_record_logged_while_formatting_gets_a_minimal_line_not_recursion(monkeypatch):
+    from backend.services import logging_service
+
+    formatter = JSONFormatter()
+    nested: list[str] = []
+    original = logging_service.safe_message
+
+    def logging_while_formatting(record):
+        nested.append(
+            formatter.format(
+                logging.LogRecord(
+                    "py.warnings", logging.WARNING, __file__, 1, "a warning", (), None
+                )
+            )
+        )
+        return original(record)
+
+    monkeypatch.setattr(logging_service, "safe_message", logging_while_formatting)
+    line = json.loads(
+        formatter.format(logging.LogRecord("homayar", logging.INFO, __file__, 1, "ready", (), None))
+    )
+    assert line["message"] == "ready"
+    assert json.loads(nested[0])["message"] == "[nested record]"
+
+
+def test_a_formatting_error_never_raises_from_the_handler(monkeypatch):
+    from backend.services import logging_service
+
+    def broken(record):
+        raise ValueError("scrubber failed")
+
+    monkeypatch.setattr(logging_service, "safe_message", broken)
+    line = json.loads(
+        JSONFormatter().format(
+            logging.LogRecord("homayar", logging.INFO, __file__, 1, "x", (), None)
+        )
+    )
+    assert line["message"] == "[unformattable record]" and line["error_type"] == "ValueError"

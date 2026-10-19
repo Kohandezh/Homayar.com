@@ -47,6 +47,14 @@ class AccessLogFilter(logging.Filter):
         self._routes = routes
 
     def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            return self._filter(record)
+        except Exception:  # noqa: BLE001 - a filter must never raise into the server
+            record.msg, record.args = "[unfilterable record]", ()
+            record.exc_info = record.exc_text = None
+            return True
+
+    def _filter(self, record: logging.LogRecord) -> bool:
         args = record.args
         if isinstance(args, tuple) and len(args) == 5:
             client, method, path, version, status = args

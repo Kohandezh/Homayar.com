@@ -4,8 +4,9 @@ import json
 import logging
 import re
 import sys
+import threading
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 
 from backend.observability.correlation import CorrelationLogFilter
 from backend.observability.scrub import diagnostic_text
@@ -159,6 +160,14 @@ class ServerLogFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            return self._filter(record)
+        except Exception:  # noqa: BLE001 - a filter must never raise into the server
+            record.msg, record.args = "[unfilterable record]", ()
+            record.exc_info = record.exc_text = None
+            return True
+
+    def _filter(self, record: logging.LogRecord) -> bool:
         if '"WebSocket %s"' in str(record.msg) and isinstance(record.args, tuple):
             # uvicorn's handshake line carries the raw path and query string; the
             # app serves no WebSocket route, so the path is never worth keeping.
@@ -194,6 +203,9 @@ def install_server_log_filter() -> None:
             server_logger.addFilter(ServerLogFilter())
 
 
+_FORMATTING = threading.local()
+
+
 class JSONFormatter(logging.Formatter):
     """One JSON object per record.
 
@@ -204,8 +216,32 @@ class JSONFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
+        # A record emitted while formatting (a warning routed into logging, an error in a
+        # scrubber) gets a minimal line instead of recursing (PR #66 CI hang).
+        if getattr(_FORMATTING, "active", False):
+            return json.dumps(
+                {"level": record.levelname, "logger": record.name, "message": "[nested record]"}
+            )
+        _FORMATTING.active = True
+        try:
+            return self._format(record)
+        except Exception as exc:  # noqa: BLE001 - a log line must never raise
+            return json.dumps(
+                {
+                    "level": record.levelname,
+                    "logger": record.name,
+                    "message": "[unformattable record]",
+                    "error_type": type(exc).__name__,
+                }
+            )
+        finally:
+            _FORMATTING.active = False
+
+    def _format(self, record: logging.LogRecord) -> str:
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            # Not datetime.utcnow(): it warns on Python 3.12, and with warnings captured
+            # into logging (a Celery worker) every record would log another (recursion).
+            "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
             "level": record.levelname,
             "logger": record.name,
             "message": safe_message(record),
