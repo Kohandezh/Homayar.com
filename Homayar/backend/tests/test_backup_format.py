@@ -345,9 +345,13 @@ class _FakeS3:
     def head_object(self, Bucket, Key, ChecksumMode=None):  # noqa: N803
         import hashlib
 
+        from botocore.exceptions import ClientError
+
         from backend.backup import replicate
 
         self._deny("head_object", Key)
+        if (Bucket, Key) not in self.objects:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
         data = self.objects[(Bucket, Key)]
         head = {"ContentLength": len(data), "ETag": f'"{hashlib.sha256(data).hexdigest()[:32]}"'}
         if self.checksums and ChecksumMode == "ENABLED":
@@ -364,7 +368,11 @@ class _FakeS3:
     def get_object(self, Bucket, Key):  # noqa: N803
         import io
 
+        from botocore.exceptions import ClientError
+
         self._deny("get_object", Key)
+        if (Bucket, Key) not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
         self.reads[Key] = self.reads.get(Key, 0) + 1
         return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
 
@@ -1330,3 +1338,97 @@ def test_s3_prune_reports_legal_holds_apart_from_retention_dates(tmp_path):
     assert result["versions_locked"] == len(old_keys) and result["errors"] == []
     assert result["legal_holds"] == 1
     assert result["locked_until"] == s3.lock_until.isoformat()  # a date, never "legal-hold"
+
+
+def _unmarked_s3_copies(root: Path, s3: _FakeS3, *backup_ids: str) -> None:
+    """Verified root sets copied to s3://offsite/p before markers were carried."""
+    from backend.backup.replicate import replicate_to_s3
+
+    for backup_id in backup_ids:
+        source = _offsite_source(root, backup_id, full=True, verified=True)
+        replicate_to_s3(source, "s3://offsite/p", client=s3)
+    for backup_id in backup_ids:
+        del s3.objects[("offsite", f"p/{backup_id}.verified")]
+
+
+def test_a_rejected_backfill_candidate_is_reported_and_not_downloaded_every_night(tmp_path):
+    from backend.backup.replicate import replicate_to_s3
+
+    root = tmp_path / "root"
+    corrupt, gone, new = (
+        "20261014T020000Z-0000000a",
+        "20261015T020000Z-0000000b",
+        "20261017T020000Z-0000000c",
+    )
+    s3 = _FakeS3(checksums=False)  # no store checksum: the backfill must read back
+    _unmarked_s3_copies(root, s3, corrupt, gone)
+    data_key = f"p/{corrupt}/db/meetings.copy.enc"
+    good = s3.objects[("offsite", data_key)]
+    s3.objects[("offsite", data_key)] = bytes([good[0] ^ 1]) + good[1:]  # same size, bit rot
+    del s3.objects[("offsite", f"p/{gone}/db/meetings.copy.enc")]
+    s3.reads.clear()
+
+    source = _offsite_source(root, new, full=True, verified=True)
+    first = replicate_to_s3(source, "s3://offsite/p", client=s3)
+    rejected = [
+        {"backup_id": corrupt, "reason": "copy_checksum_mismatch: meetings.copy.enc"},
+        {"backup_id": gone, "reason": "missing: db/meetings.copy.enc"},
+    ]
+    assert first["status"] == "copied" and first["backfilled_markers"] == []
+    assert first["backfill_rejected"] == rejected and first["backfill_errors"] == []
+    assert s3.reads.get(data_key) == 1
+    assert not s3.reads.get(f"p/{gone}/catalog.json.enc")  # a missing object: HEAD only
+
+    # The next nights report the same rejections without downloading the copy again.
+    for _ in range(2):
+        again = replicate_to_s3(source, "s3://offsite/p", client=s3)
+        assert again["backfill_rejected"] == rejected
+    assert s3.reads.get(data_key) == 1
+
+    # A copy uploaded again (new ETags) is checked afresh and gets its marker.
+    s3.objects[("offsite", data_key)] = good
+    fixed = replicate_to_s3(source, "s3://offsite/p", client=s3)
+    assert fixed["backfilled_markers"] == [corrupt]
+    assert ("offsite", f"p/{corrupt}.verified") in s3.objects
+
+
+def test_a_network_error_in_the_backfill_never_fails_the_copy_or_the_gauge(
+    tmp_path, monkeypatch, capsys
+):
+    from botocore.exceptions import ReadTimeoutError, ResponseStreamingError
+
+    from backend.backup import replicate
+    from backend.backup.__main__ import main as cli
+
+    root = tmp_path / "root"
+    old, other, new = (
+        "20261014T020000Z-0000000a",
+        "20261015T020000Z-0000000b",
+        "20261017T020000Z-0000000c",
+    )
+    s3 = _FakeS3(checksums=False)
+    _unmarked_s3_copies(root, s3, old, other)
+    s3.raising = {
+        ("get_object", f"p/{old}/db/meetings.copy.enc"): ReadTimeoutError(endpoint_url="s3"),
+        ("head_object", f"p/{other}/catalog.json.enc"): ResponseStreamingError(error="reset"),
+    }
+    _offsite_source(root, new, full=True, verified=True)
+    textfile = tmp_path / "collector" / "homayar_backup.prom"
+    monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
+    monkeypatch.setattr(replicate, "s3_client", lambda env=None: s3)
+
+    assert cli(["--root", str(root), "replicate", new, "s3://offsite/p"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "copied" and report["backfilled_markers"] == []
+    assert report["backfill_errors"] == [
+        {"backup_id": old, "error": "ReadTimeoutError"},
+        {"backup_id": other, "error": "ResponseStreamingError"},
+    ]
+    assert report["backfill_rejected"] == []  # a transient error is not a verdict
+    assert ("offsite", f"p/{new}.verified") in s3.objects
+    assert "offsite" in metrics.read_values(textfile)  # the gauge moved
+
+    # The next run, with the network back, backfills both.
+    s3.raising = {}
+    assert cli(["--root", str(root), "replicate", new, "s3://offsite/p"]) == 0
+    assert json.loads(capsys.readouterr().out)["backfilled_markers"] == [old, other]

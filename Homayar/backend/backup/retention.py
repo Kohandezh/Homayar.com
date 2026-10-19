@@ -128,6 +128,8 @@ def prune(
             for backup_id in expired:
                 shutil.rmtree(sets[backup_id])
                 verified_marker(root, backup_id).unlink(missing_ok=True)
+                # The off-site backfill's record of a rejected copy (replicate.py).
+                (root / "sets" / f"{backup_id}.offsite-rejected").unlink(missing_ok=True)
             if locked:
                 for name in stale:
                     shutil.rmtree(root / "sets" / name)

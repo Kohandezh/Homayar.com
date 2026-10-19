@@ -229,12 +229,13 @@ def _composite_sha256(path: Path, parts: int) -> str:
     return f"{base64.b64encode(hashlib.sha256(digests).digest()).decode()}-{parts}"
 
 
-def _verify_s3_copy(client, bucket: str, key: str, path: Path, size: int, sha256: str) -> str:
-    """Prove the stored object is the local file, by SHA-256.
+def _checked_head(
+    client, bucket: str, key: str, path: Path, size: int, sha256: str
+) -> tuple[bool, dict]:
+    """HEAD the stored object: refuse a size or store-checksum mismatch.
 
-    The store's own checksum is used when it reports one we can reproduce
-    (``checksum``); otherwise the object is read back and hashed
-    (``download``).  Any mismatch refuses the copy.
+    Returns whether the store's own checksum proved the object (one we can
+    reproduce), and the HEAD response.
     """
     name = key.rsplit("/", 1)[-1]
     head = client.head_object(Bucket=bucket, Key=key, ChecksumMode="ENABLED")
@@ -244,18 +245,35 @@ def _verify_s3_copy(client, bucket: str, key: str, path: Path, size: int, sha256
     if remote and "-" not in remote:
         if remote != base64.b64encode(bytes.fromhex(sha256)).decode():
             raise BackupInvalid("copy_checksum_mismatch", name)
-        return "checksum"
+        return True, head
     if remote:
         parts = remote.rsplit("-", 1)[1]
         if parts.isdigit() and int(parts) == math.ceil(size / _PART_SIZE):
             if remote == _composite_sha256(path, int(parts)):
-                return "checksum"
+                return True, head
+    return False, head
+
+
+def _read_back(client, bucket: str, key: str, sha256: str) -> None:
     digest = hashlib.sha256()
     body = client.get_object(Bucket=bucket, Key=key)["Body"]
     for block in iter(lambda: body.read(1024 * 1024), b""):
         digest.update(block)
     if digest.hexdigest() != sha256:
-        raise BackupInvalid("copy_checksum_mismatch", name)
+        raise BackupInvalid("copy_checksum_mismatch", key.rsplit("/", 1)[-1])
+
+
+def _verify_s3_copy(client, bucket: str, key: str, path: Path, size: int, sha256: str) -> str:
+    """Prove the stored object is the local file, by SHA-256.
+
+    The store's own checksum is used when it reports one we can reproduce
+    (``checksum``); otherwise the object is read back and hashed
+    (``download``).  Any mismatch refuses the copy.
+    """
+    proved, _ = _checked_head(client, bucket, key, path, size, sha256)
+    if proved:
+        return "checksum"
+    _read_back(client, bucket, key, sha256)
     return "download"
 
 
@@ -293,7 +311,7 @@ def replicate_to_s3(set_dir: Path, destination: str, *, client=None) -> dict[str
         "files": len(manifest["files"]),
         "bytes": sum(entry["size"] for entry in manifest["files"]),
         "verified_by": verified_by,
-        "backfilled_markers": _backfill_s3_markers(client, bucket, prefix, source),
+        **_backfill_s3_markers(client, bucket, prefix, source),
     }
 
 
@@ -306,41 +324,148 @@ def _put_marker(client, bucket: str, prefix: str, backup_id: str) -> None:
     )
 
 
-def _backfill_s3_markers(client, bucket: str, prefix: str, source: Path) -> list[str]:
+_REJECTED_SUFFIX = ".offsite-rejected"
+_MISSING_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
+
+
+def _backfill_s3_markers(client, bucket: str, prefix: str, source: Path) -> dict[str, Any]:
     """Carry the verified marker to copies made before markers were carried,
     when the copy's sealed manifest is byte-identical to the verified root
     set's and every file it lists is stored with its size and SHA-256 (read
-    back when the store reports no usable checksum)."""
+    back when the store reports no usable checksum).
+
+    Best effort: it runs after the new set is copied and verified, so a
+    failure here never fails the copy (nor keeps the CLI from moving the
+    off-site gauge).  A candidate that does not qualify is reported in
+    ``backfill_rejected`` with the reason; a call that fails (a network
+    error, a denied request) is reported in ``backfill_errors`` and the
+    candidate is tried again on the next run.
+    """
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    result: dict[str, Any] = {
+        "backfilled_markers": [],
+        "backfill_rejected": [],
+        "backfill_errors": [],
+    }
     verified = _root_verified(source)
     if not verified:
-        return []
+        return result
     destination = f"s3://{bucket}/{prefix}" if prefix else f"s3://{bucket}"
-    candidates = set(list_s3_sets(destination, client=client)) & set(verified)
-    backfilled = []
-    for backup_id in sorted(candidates - _s3_markers(bucket, prefix, client)):
-        body = client.get_object(Bucket=bucket, Key=_s3_key(prefix, backup_id, MANIFEST_NAME))
-        if body["Body"].read() != (verified[backup_id] / MANIFEST_NAME).read_bytes():
+    try:
+        candidates = set(list_s3_sets(destination, client=client)) & set(verified)
+        candidates -= _s3_markers(bucket, prefix, client)
+    except (BotoCoreError, ClientError) as exc:
+        result["backfill_errors"].append({"step": "list", "error": _error_code(exc)})
+        return result
+    for backup_id in sorted(candidates):
+        try:
+            reason = _backfill_rejection(client, bucket, prefix, verified[backup_id], destination)
+            if reason is None:
+                _put_marker(client, bucket, prefix, backup_id)
+        except (BotoCoreError, ClientError) as exc:
+            result["backfill_errors"].append({"backup_id": backup_id, "error": _error_code(exc)})
             continue
-        if not _s3_copy_complete(client, bucket, prefix, verified[backup_id]):
-            continue
-        _put_marker(client, bucket, prefix, backup_id)
-        backfilled.append(backup_id)
-    return backfilled
+        if reason is None:
+            result["backfilled_markers"].append(backup_id)
+        else:
+            result["backfill_rejected"].append({"backup_id": backup_id, "reason": reason})
+    return result
 
 
-def _s3_copy_complete(client, bucket: str, prefix: str, set_dir: Path) -> bool:
+def _rejection_record(set_dir: Path) -> Path:
+    return set_dir.parent / f"{set_dir.name}{_REJECTED_SUFFIX}"
+
+
+def _remembered_rejection(set_dir: Path, destination: str, etags: dict[str, str]) -> str | None:
+    """The reason a read-back already rejected these very objects (same ETags)."""
+    try:
+        record = json.loads(_rejection_record(set_dir).read_text(encoding="utf-8"))
+        entry = record[destination]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if isinstance(entry, dict) and entry.get("etags") == etags:
+        return str(entry.get("reason"))
+    return None
+
+
+def _remember_rejection(
+    set_dir: Path, destination: str, reason: str, etags: dict[str, str]
+) -> None:
+    """Record a read-back rejection beside the root set, so the same objects
+    are not downloaded again every night.  Best effort; removed with the set."""
+    path = _rejection_record(set_dir)
+    try:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(record, dict):
+                record = {}
+        except (OSError, ValueError):
+            record = {}
+        record[destination] = {
+            "reason": reason,
+            "etags": etags,
+            "at": datetime.now(UTC).isoformat(),
+        }
+        path.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _backfill_rejection(
+    client, bucket: str, prefix: str, set_dir: Path, destination: str
+) -> str | None:
+    """None when the off-site copy is proven complete, else why it is rejected.
+
+    Every object is first checked by HEAD (presence, size and the store's
+    checksum when it has one we can reproduce), so a missing or truncated
+    copy is rejected without downloading anything.  Only then are the
+    objects without a usable store checksum read back, and a rejection found
+    that way is remembered with the objects' ETags: the same objects are not
+    downloaded again on later runs, while a copy that is uploaded again
+    (new ETags) is checked afresh.  Network and permission errors propagate.
+    """
     from botocore.exceptions import ClientError
 
     manifest = read_manifest(set_dir)
+    backup_id = manifest["backup_id"]
+    try:
+        stored = client.get_object(Bucket=bucket, Key=_s3_key(prefix, backup_id, MANIFEST_NAME))
+    except ClientError as exc:
+        if _error_code(exc) in _MISSING_CODES:
+            return f"missing: {MANIFEST_NAME}"
+        raise
+    if stored["Body"].read() != (set_dir / MANIFEST_NAME).read_bytes():
+        return "manifest_differs: the copy's manifest is not the verified set's"
+    unproven: list[dict] = []
+    etags: dict[str, str] = {}
     for entry in manifest["files"]:
-        key = _s3_key(prefix, manifest["backup_id"], entry["name"])
+        key = _s3_key(prefix, backup_id, entry["name"])
         try:
-            _verify_s3_copy(
+            proved, head = _checked_head(
                 client, bucket, key, set_dir / entry["name"], entry["size"], entry["sha256"]
             )
-        except (BackupInvalid, ClientError, KeyError):
-            return False
-    return True
+        except BackupInvalid as exc:
+            return str(exc)
+        except ClientError as exc:
+            if _error_code(exc) in _MISSING_CODES:
+                return f"missing: {entry['name']}"
+            raise
+        etags[entry["name"]] = str(head.get("ETag", ""))
+        if not proved:
+            unproven.append(entry)
+    if not unproven:
+        return None
+    remembered = _remembered_rejection(set_dir, destination, etags)
+    if remembered is not None:
+        return remembered
+    for entry in unproven:
+        try:
+            _read_back(client, bucket, _s3_key(prefix, backup_id, entry["name"]), entry["sha256"])
+        except BackupInvalid as exc:
+            _remember_rejection(set_dir, destination, str(exc), etags)
+            return str(exc)
+    return None
 
 
 def list_s3_sets(destination: str, *, client=None) -> list[str]:
@@ -437,7 +562,8 @@ _NO_LOCK_CODES = frozenset(
 
 
 def _error_code(exc: Exception) -> str:
-    return str(getattr(exc, "response", {}).get("Error", {}).get("Code", "")) or type(exc).__name__
+    response = getattr(exc, "response", None) or {}
+    return str(response.get("Error", {}).get("Code", "")) or type(exc).__name__
 
 
 def _set_of(prefix: str, key: str) -> str | None:
