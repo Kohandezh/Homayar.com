@@ -33,7 +33,7 @@ SNAPSHOT_PATH = Path(__file__).with_name("ingestion-v1.openapi.json")
 WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 
 # The major number follows the /api/v1 prefix. Additive change: bump the minor.
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -89,6 +89,13 @@ OPERATION_NOTES: dict[tuple[str, str], str] = {
     ("get", "/api/v1/meetings/{meeting_id}/job"): (
         "The meeting's latest processing job. Poll it after an upload until `state` is "
         "`completed`, `failed`, `cancelled` or `dead_letter`."
+    ),
+    ("get", "/api/v1/meetings/{meeting_id}/transcript"): (
+        "Since 1.1.0: `speaker_key` (repeatable), `start_ms` and `end_ms` filter the "
+        "segments. A window whose `end_ms` is not after `start_ms` is "
+        "`422 invalid_time_range`. `filters` echoes the filter, `total_segments` counts the "
+        "revision before filtering, and `completeness` names what is missing from the "
+        "meeting's results."
     ),
 }
 

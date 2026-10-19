@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 from backend.database.saas_models import EvidenceStatus, MeetingStatus
-from backend.schemas.meetings import MeetingQualityResponse
+from backend.schemas.meetings import MeetingQualityResponse, ReportCompleteness
 
 OUTCOME_EXPLICIT = "explicit"
 OUTCOME_INFERRED = "inferred"
@@ -127,6 +127,25 @@ def is_report_complete(
         and not quality.analysis_stale
         and not quality.is_mock
         and unsupported == 0
+    )
+
+
+def meeting_completeness(
+    *, status: MeetingStatus, quality: MeetingQualityResponse, unsupported: int = 0
+) -> ReportCompleteness:
+    """The one completeness object of a meeting (report, transcript, playback).
+
+    The transcript and playback descriptor carry no findings, so they pass
+    ``unsupported=0`` and never show ``unsupported_findings``.
+    """
+    return ReportCompleteness(
+        is_complete=is_report_complete(status=status, quality=quality, unsupported=unsupported),
+        notices=completeness_notices(status=status, quality=quality, unsupported=unsupported),
+        meeting_status=status.value,
+        transcription=quality.transcription,
+        speaker_attribution=quality.speaker_attribution,
+        analysis=quality.analysis,
+        evidence=quality.evidence,
     )
 
 

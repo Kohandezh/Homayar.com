@@ -14,7 +14,7 @@ from pydantic import (
 )
 
 from backend.database.saas_models import ActionStatus
-from backend.schemas.meetings import MeetingQualityResponse
+from backend.schemas.meetings import MeetingQualityResponse, ReportCompleteness
 
 
 class SpeakerResponse(BaseModel):
@@ -104,6 +104,15 @@ class ContentRedactionInfo(BaseModel):
     policy_digest: str
 
 
+class TranscriptFilters(BaseModel):
+    """The speaker and time filter a transcript response applied (HOM-60)."""
+
+    # Sorted and de-duplicated; empty when no speaker filter was given.
+    speaker_keys: list[str] = Field(default_factory=list)
+    start_ms: int | None = None
+    end_ms: int | None = None
+
+
 class TranscriptResponse(BaseModel):
     meeting_id: str
     language: str
@@ -115,6 +124,13 @@ class TranscriptResponse(BaseModel):
     view: Literal["original", "redacted"] = "original"
     privacy_enforced: bool = False
     redaction: TranscriptRedactionInfo | None = None
+    # HOM-60 navigation: set by the transcript and correction routes, null on
+    # a share (no new data on the share surface).  ``speakers`` stays the
+    # meeting's full list under any filter; ``total_segments`` counts the
+    # revision before filtering.
+    filters: TranscriptFilters | None = None
+    total_segments: int | None = None
+    completeness: ReportCompleteness | None = None
 
 
 class PiiRevealRequest(BaseModel):

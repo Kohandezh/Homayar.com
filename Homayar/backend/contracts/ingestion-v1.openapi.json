@@ -1742,6 +1742,53 @@
         "title": "RecordingResponse",
         "type": "object"
       },
+      "ReportCompleteness": {
+        "description": "What is missing from a meeting's results: one rule for every read that\ncarries it (HOM-59, HOM-60).",
+        "properties": {
+          "analysis": {
+            "title": "Analysis",
+            "type": "string"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "is_complete": {
+            "title": "Is Complete",
+            "type": "boolean"
+          },
+          "meeting_status": {
+            "title": "Meeting Status",
+            "type": "string"
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "speaker_attribution": {
+            "title": "Speaker Attribution",
+            "type": "string"
+          },
+          "transcription": {
+            "title": "Transcription",
+            "type": "string"
+          }
+        },
+        "required": [
+          "is_complete",
+          "notices",
+          "meeting_status",
+          "transcription",
+          "speaker_attribution",
+          "analysis",
+          "evidence"
+        ],
+        "title": "ReportCompleteness",
+        "type": "object"
+      },
       "SpeakerResponse": {
         "properties": {
           "confidence": {
@@ -2079,6 +2126,42 @@
         "title": "SummaryResponse",
         "type": "object"
       },
+      "TranscriptFilters": {
+        "description": "The speaker and time filter a transcript response applied (HOM-60).",
+        "properties": {
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Ms"
+          },
+          "speaker_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Speaker Keys",
+            "type": "array"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms"
+          }
+        },
+        "title": "TranscriptFilters",
+        "type": "object"
+      },
       "TranscriptRedactionInfo": {
         "description": "The redacted version a response was rendered from (WP07-T06).\n\n``id`` is ``None`` when the version was computed for a share view (share\nsessions never write); the texts are identical to the persisted version\nof the same policy digest.",
         "properties": {
@@ -2130,6 +2213,26 @@
       },
       "TranscriptResponse": {
         "properties": {
+          "completeness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportCompleteness"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "language": {
             "title": "Language",
             "type": "string"
@@ -2176,6 +2279,17 @@
             },
             "title": "Speakers",
             "type": "array"
+          },
+          "total_segments": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Segments"
           },
           "view": {
             "default": "original",
@@ -2919,7 +3033,7 @@
   "info": {
     "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
     "title": "Homayar Ingestion API",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4435,6 +4549,7 @@
     },
     "/api/v1/meetings/{meeting_id}/transcript": {
       "get": {
+        "description": "The segments of one revision, optionally only those of some speakers\nthat overlap ``[start_ms, end_ms)`` (HOM-60); ``speakers`` stays the\nmeeting's full list and ``total_segments`` the unfiltered count.\n\nSince 1.1.0: `speaker_key` (repeatable), `start_ms` and `end_ms` filter the segments. A window whose `end_ms` is not after `start_ms` is `422 invalid_time_range`. `filters` echoes the filter, `total_segments` counts the revision before filtering, and `completeness` names what is missing from the meeting's results.",
         "operationId": "get_transcript_api_v1_meetings__meeting_id__transcript_get",
         "parameters": [
           {
@@ -4484,6 +4599,68 @@
               ],
               "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
               "title": "View"
+            }
+          },
+          {
+            "description": "Keep the segments of these speakers (repeatable, at most 20).",
+            "in": "query",
+            "name": "speaker_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Keep the segments of these speakers (repeatable, at most 20).",
+              "title": "Speaker Key"
+            }
+          },
+          {
+            "description": "Keep the segments that end after this time.",
+            "in": "query",
+            "name": "start_ms",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Keep the segments that end after this time.",
+              "title": "Start Ms"
+            }
+          },
+          {
+            "description": "Keep the segments that start before this time.",
+            "in": "query",
+            "name": "end_ms",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Keep the segments that start before this time.",
+              "title": "End Ms"
             }
           },
           {
