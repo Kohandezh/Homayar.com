@@ -9,18 +9,22 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 
 import api from "@/lib/api";
 import { apiErrorInfo } from "@/lib/api-errors";
-import { filenameFromContentDisposition, platformQueryKeys } from "@/lib/platform-api";
+import { filenameFromContentDisposition, platformQueryKeys, revokeShare } from "@/lib/platform-api";
 import type { DownloadPayload } from "@/types/platform";
 import type {
+  AdminShareListParams,
+  AdminShareListResponse,
   LegalHoldListParams,
   LegalHoldListResponse,
   MediaObject,
   MediaObjectListResponse,
   PlaceLegalHoldInput,
+  ShareStatus,
   SubjectExportInput,
 } from "@/types/privacy";
 
 export const LEGAL_HOLD_PAGE_SIZE = 50;
+export const SHARE_PAGE_SIZE = 50;
 const EXPORT_FALLBACK_FILENAME = "homayar-subject-export.json";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -29,10 +33,16 @@ export const privacyQueryKeys = {
   legalHolds: (dueBefore: string | undefined) =>
     [...platformQueryKeys.admin(), "legal-holds", { due_before: dueBefore ?? null }] as const,
   meetingMedia: (meetingId: string) => [...platformQueryKeys.meeting(meetingId), "media"] as const,
+  sharesRoot: () => [...platformQueryKeys.admin(), "shares"] as const,
+  shares: (status: ShareStatus | undefined) =>
+    [...platformQueryKeys.admin(), "shares", { status: status ?? null }] as const,
 };
 
 /** The register filter: every hold, holds due now, or holds due within 30 days. */
 export type LegalHoldFilter = "all" | "review_due" | "due_30_days";
+
+/** The shared-links filter: one status, or every link. */
+export type ShareFilter = "all" | ShareStatus;
 
 /** The `due_before` value of a filter, from the moment it was chosen. */
 export function dueBeforeFor(filter: LegalHoldFilter, now: Date = new Date()): string | undefined {
@@ -142,6 +152,61 @@ export function useMeetingMedia(meetingId: string) {
   return useQuery({
     queryKey: privacyQueryKeys.meetingMedia(meetingId),
     queryFn: ({ signal }) => listMeetingMedia(meetingId, signal),
+  });
+}
+
+/** One page of the workspace's share links, newest first (owner only). */
+export async function listAdminShares(
+  params: AdminShareListParams,
+  signal?: AbortSignal,
+): Promise<AdminShareListResponse> {
+  const response = await api.get<AdminShareListResponse>("/admin/shares", {
+    params,
+    ...(signal ? { signal } : {}),
+  });
+  return response.data;
+}
+
+export function useAdminShares(status: ShareStatus | undefined) {
+  return useInfiniteQuery({
+    queryKey: privacyQueryKeys.shares(status),
+    queryFn: ({ pageParam, signal }) =>
+      listAdminShares(
+        {
+          limit: SHARE_PAGE_SIZE,
+          ...(status ? { status } : {}),
+          ...(pageParam ? { cursor: pageParam } : {}),
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+  });
+}
+
+/** After a link changes, the register and the meeting's own share list are read again. */
+async function refreshShares(
+  queryClient: ReturnType<typeof useQueryClient>,
+  meetingId: string,
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: privacyQueryKeys.sharesRoot() }),
+    queryClient.invalidateQueries({ queryKey: platformQueryKeys.shares(meetingId) }),
+  ]);
+}
+
+export function useRevokeAdminShare() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ meetingId, shareId }: { meetingId: string; shareId: string }) =>
+      revokeShare(meetingId, shareId),
+    onSuccess: (_result, variables) => refreshShares(queryClient, variables.meetingId),
+    onError: (error, variables) => {
+      // Gone on the server: the register on screen is stale.
+      const code = apiErrorInfo(error).code;
+      if (code === "share_not_found" || code === "meeting_not_found")
+        void refreshShares(queryClient, variables.meetingId);
+    },
   });
 }
 

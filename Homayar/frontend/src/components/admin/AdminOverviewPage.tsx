@@ -6,6 +6,7 @@ import QuotaCard from "@/components/admin/overview/QuotaCard";
 import RecentActivityCard from "@/components/admin/overview/RecentActivityCard";
 import SystemStatusChip from "@/components/admin/overview/SystemStatusChip";
 import VoiceCapacityCard from "@/components/admin/overview/VoiceCapacityCard";
+import VoicemailCard from "@/components/admin/overview/VoicemailCard";
 import { PageHeader } from "@/components/platform/Ui";
 import { useI18n } from "@/lib/i18n-context";
 import { useCan } from "@/lib/use-can";
@@ -32,6 +33,7 @@ export default function AdminOverviewPage() {
         {canReadMeetings && <ProcessingCard />}
         {canReadMeetings && <NeedsAttentionCard />}
         {canReadMeetings && <VoiceCapacityCard />}
+        {canReadMeetings && <VoicemailCard />}
         {has("billing:read") && <QuotaCard />}
         {has("billing:read") && <PlanCard />}
         {has("member:read") && <MembersCard />}

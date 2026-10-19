@@ -30,7 +30,7 @@ import shutil
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -56,7 +56,7 @@ from backend.backup.manifest import (
     sets_dir,
     write_manifest,
 )
-from backend.backup.objects import backup_objects, collect_references
+from backend.backup.objects import LOSS_REASONS, backup_objects, collect_references
 from backend.backup.release import code_heads, release_metadata
 from backend.services.tombstone_journal import journal_for
 from backend.storage import ObjectStorage
@@ -181,8 +181,13 @@ def _journal_watermark(settings: Any) -> dict[str, Any]:
 
 
 _MEDIA_REMOVAL_STATES = {"DELETED", "DELETION_PENDING"}
+# The snapshot already shows the row still needed the bytes, so a removal now
+# recorded on it was committed after the snapshot; its timestamp (set by the
+# application's clock) only has to be plausible, within this tolerance.
+_CLOCK_SKEW = timedelta(minutes=15)
 _SOURCE_LABEL = {"media_object": "media", "recording": "recording", "checkpoint": "checkpoint"}
-# Per source: the table, and how its LIVE row says the bytes were removed and when.
+# Per source: the table, and how its LIVE row says the bytes were removed and when
+# (the middle column is the media state or the checkpoint's invalidation reason).
 _LIVE_ROW_QUERIES = {
     "media_object": (
         "media_objects",
@@ -195,7 +200,7 @@ _LIVE_ROW_QUERIES = {
     ),
     "checkpoint": (
         "stage_checkpoints",
-        "SELECT artifact_key, state, object_deleted_at FROM stage_checkpoints "
+        "SELECT artifact_key, invalidation_reason, object_deleted_at FROM stage_checkpoints "
         "WHERE artifact_key = ANY(%s)",
     ),
 }
@@ -229,10 +234,14 @@ def _live_rows(
 
 def _removed_after(source: str, row: dict[str, Any], snapshot_time: datetime) -> bool:
     removed_at = row["removed_at"]
-    if removed_at is None or removed_at <= snapshot_time:
+    if removed_at is None or removed_at <= snapshot_time - _CLOCK_SKEW:
         return False
     if source == "media_object":
         return str(row["state"]).upper() in _MEDIA_REMOVAL_STATES
+    if source == "checkpoint":
+        # The sweep also marks an artifact the application found missing or
+        # corrupt as deleted: that is a recorded loss, not a removal.
+        return str(row["state"] or "").lower() not in LOSS_REASONS
     return True
 
 
@@ -249,8 +258,9 @@ def classify_missing(
     processing" in between explains an absent object.  Only the row that set
     the expectation can explain it (a key shared with another table never
     borrows that table's state), a legally held object is never explained,
-    and the removal must be dated after the snapshot.  Everything else is
-    unexplained loss.
+    and the removal must be dated after the snapshot (within a small clock-skew
+    tolerance).  A checkpoint the application invalidated as missing or
+    corrupt is a loss even once swept.  Everything else is unexplained loss.
     """
     reasons: dict[str, str] = {}
     for key in keys:

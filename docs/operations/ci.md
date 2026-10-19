@@ -6,9 +6,11 @@
 | --- | --- |
 | Website | frozen pnpm install in `website/`, lint, Next.js build, Cloudflare Workers build (`pnpm build:cf`) |
 | Product console | frozen npm install, nested lint, `/app/` build, declared test script and tests |
-| Backend | frozen uv environment, single Alembic head, upgrade/check/current-head, pytest |
+| Product console end-to-end | PostgreSQL and Redis services, frozen uv environment, `alembic upgrade head`, demo seed, the API on `127.0.0.1:8001`, then the full Playwright suite (`npm run test:e2e`) in Chromium |
+| Backend | locked uv environment (`uv sync --locked`), single Alembic head, upgrade/check/current-head, pytest |
+| Release manifest | manifest of the commit generated twice and byte-compared, API image built with the commit's release arguments, its `build-info.json` and OCI labels verified against the manifest, `homayar_build_info` read from the running image, manifest uploaded as the `release-manifest` artifact ([release.md](release.md)) |
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
-| Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) and the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`) |
+| Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`), and promtool on the alert rules, their unit tests and the example Prometheus configuration (`infra/observability/prometheus`, HOM-126) |
 
 The product source is tracked in this repository under `Homayar/`
 ([ADR 0033](../architecture/decisions/0033-product-source-in-this-repository.md), which
@@ -38,7 +40,11 @@ the suite stop with a usage error instead of skipping them when either binary is
 version follows the distribution's security updates rather than an exact pin; the job log records
 it. Locally, without the variable, the suite still skips the marker when the binaries are absent.
 The pytest summary (`-rs`) lists every remaining skip with its reason: the opt-in `live_s3` tests
-without a bucket, the Padyar AI Gateway tests without a contract, and SQLite-only tests.
+without a bucket, the Padyar AI Gateway tests without a contract, SQLite-only tests, and the three
+promtool cases of `test_alert_rules.py` (`check-rules`, `test-rules`, `check-config`), because the
+backend job has no `prom/prometheus` image. The *Container configuration* job runs the same three
+promtool commands and is the gate for the alert rules; do not drop its steps because pytest seems
+to cover them.
 
 The backend job may run for 40 minutes. The test step alone took about 22 minutes on `2f5f666`,
 which left too little room under the earlier 25-minute limit.
@@ -64,6 +70,22 @@ re-run that passes is not a diagnosis.
 Backend CI uses only isolated PostgreSQL and Redis service containers. It sets test mode and
 mock-provider permission explicitly; it does not call email, SMS, OAuth, ASR, diarization,
 LLM, S3, Neo4j, or other live providers.
+
+The console end-to-end job (`console-e2e`, HOM-224) runs the Playwright suite in
+`Homayar/frontend/e2e` against a real backend inside the runner. It starts PostgreSQL and Redis
+as service containers, installs the backend with `uv sync --frozen`, runs `alembic upgrade head`
+and the demo seed (`python -m backend.database.demo_seed`), and starts the API on
+`127.0.0.1:8001` in the background. The API sends mail to the SMTP sink that Playwright starts
+(`SMTP_HOST=127.0.0.1`, `SMTP_PORT` equal to `E2E_SMTP_PORT`); the invitation flow needs it.
+Then `npm run test:e2e` runs with `CI=true`, and Playwright starts the Vite dev server itself.
+The job uses only local-only test values (`ci-only-...`) and mock providers, and no secret. The
+seed prints the demo logins with their password, so the job drops all of the seed's standard
+output, not only the login lines; errors still show. On failure, and also when the job is
+cancelled (for example by its 15-minute timeout), the job prints the last 200 lines of the API
+log and uploads the artifact
+`console-e2e-report` (the HTML report and `test-results/` with traces, screenshots and videos,
+kept 7 days). The job may run for 15 minutes. To reproduce it locally, follow the "CI" section of
+`Homayar/frontend/e2e/README.md`.
 
 The console lane fails when `Homayar/frontend/package.json` has no `test` script. The backend
 lane fails when Alembic configuration is absent, more than one migration head exists, schema

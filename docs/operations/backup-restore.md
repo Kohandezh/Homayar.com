@@ -2,8 +2,12 @@
 
 Objectives, scope and limits: [`disaster-recovery-objectives.md`](disaster-recovery-objectives.md)
 (provisional owner defaults: RPO 24 h, RTO 8 h, 30 daily + 12 monthly, one encrypted copy off
-the application host). Design: ADR 0035. Restore drill (HOM-118): pending; its record will be
-linked here once it exists.
+the application host). Design: ADR 0035. Restore drill (HOM-118):
+[`drills/2026-10-19-restore-drill.md`](drills/2026-10-19-restore-drill.md), run on `main`
+`91a760c`. It measured the RTO for the drilled scope (116.1 s on one local Docker host;
+detection, provisioning, secret retrieval and image pulls excluded). It did **not**
+demonstrate the RPO. Earlier run on `b9836ae`:
+[`drills/2026-10-18-restore-drill.md`](drills/2026-10-18-restore-drill.md).
 
 PostgreSQL is the transactional source of truth; MinIO holds recordings, derived media and stage
 artifacts. Redis is ephemeral and Neo4j is a rebuildable projection; neither is backed up. The
@@ -42,12 +46,43 @@ on every restore.
    `/offsite`), so a direct `replicate` does not catch a host path nested in the backup root.
    The copy never needs the key.
 
-   The tool does not make off-site copies immutable (**open owner decision AppVision D15**,
-   pending): the
-   application host holds the credentials that write and prune them. Recommended: S3 versioning
-   plus object lock (compliance mode) on the off-site bucket, and expiry by bucket lifecycle
-   rules or a job on the off-site side instead of `prune --destination` from the application
-   host.
+   **Immutability: AppVision D15, DECIDED 2026-10-18 by the owner.** The S3 off-site bucket uses
+   Object Lock in **GOVERNANCE** mode, with retention matching the backup retention. Shortening
+   or removing a lock needs a separate, privileged break-glass credential that holds
+   `s3:BypassGovernanceRetention`, kept outside the application host and used only in an
+   emergency. A deletion made after a backup is still honoured, because every restore replays
+   the tombstone journal before the data is used. Bucket settings:
+
+   - Object Lock is enabled **when the bucket is created** (it cannot be added later on most
+     stores). This turns on versioning, and versioning must stay on.
+   - Retention is a bucket default rule (GOVERNANCE, 30 days, matching the 30-day daily window),
+     or per-object retention set by the store. The tool sets no per-object retention, so a
+     monthly set is locked only for the default period, not for the full 12 months it is kept.
+     A lock longer than the retention is safe: prune counts those versions and retries them
+     later (see below).
+   - The backup tool's credential **never** has `s3:BypassGovernanceRetention`.
+
+   **S3 permissions** the off-site credential needs, on the bucket (`arn:aws:s3:::BUCKET`) and
+   its objects under the prefix (`arn:aws:s3:::BUCKET/PREFIX/*`):
+
+   | Step | Actions |
+   |---|---|
+   | `replicate` | `s3:PutObject`, `s3:GetObject` (checksum HEAD and read-back), `s3:ListBucket` (verified-marker backfill) |
+   | `fetch` | `s3:GetObject`, `s3:ListBucket` |
+   | `prune --destination s3://…` | `s3:ListBucket`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketMultipartUploads`, `s3:AbortMultipartUpload`, `s3:GetBucketVersioning`; in a versioned bucket also `s3:ListBucketVersions`, `s3:DeleteObjectVersion`, `s3:GetBucketObjectLockConfiguration`, `s3:GetObjectRetention`, `s3:GetObjectLegalHold` |
+   | never | `s3:BypassGovernanceRetention` (only the separately held break-glass credential) |
+
+   A prune whose credential lacks a listing permission still applies the retention, reports
+   each denied call in `errors` and exits non-zero at the end, so the nightly run fails
+   visibly. When it cannot read the bucket's versioning (`versioning: "unknown"`) it never
+   sweeps versions. A refused version delete counts in `versions_locked` only when the bucket has
+   Object Lock and that version has an unexpired retention or a legal hold (`locked_until`
+   reports the latest date). That key keeps its delete marker, so the expired set stays hidden,
+   and prune retries it once the newest marker is older than 24 hours, until the lock expires.
+   Every other refusal (for example a missing `s3:DeleteObjectVersion`) counts in
+   `versions_failed` and fails the run. Versions left with no current data are swept on a later
+   run only after the 24-hour grace period, and never while the set has a current version, so a
+   copy that is being uploaded again is not touched.
 4. **Tombstone journal**: bind `TOMBSTONE_JOURNAL_PATH` to a host directory outside the
    PostgreSQL and MinIO failure domains and replicate it continuously off the host (rsync/zfs
    send/object replication). Never restore it from an older copy; keep its files at least as long
@@ -133,7 +168,8 @@ cannot run underneath; a lock wait over 60 s fails the run), reads the catalog a
 rows in that snapshot (`COPY (SELECT …)`, so partitioned tables work), copies the objects of the
 snapshot's tenants, explains a required object it did not find only by the row that set the
 expectation, when that row was deleted or marked for deletion after the snapshot (a legally held
-object is never explained), fingerprints the tombstone journal, writes the encrypted
+object, including the stage outputs a hold keeps for a deleted meeting, is never explained, and a
+checkpoint found missing or corrupt by the application stays a loss), fingerprints the tombstone journal, writes the encrypted
 catalog and the sealed manifest, fsyncs and renames `sets/.partial-<id>` to `sets/<id>`. It
 moves no gauge. The database connection must be a superuser or `BYPASSRLS` role (the bundled
 `POSTGRES_USER` is); a role subject to RLS is refused.
@@ -152,8 +188,8 @@ Other commands (all through `docker compose ... --profile onprem --profile ops r
 | --- | --- |
 | `list` | complete sets and interrupted partials |
 | `verify [ID] [--no-key]` | full check (MAC, checksums, decryption), then marks the set verified and moves the gauges; `--no-key` = checksums only (at an off-site copy), marks nothing |
-| `prune [--dry-run] [--destination DIR\|s3://…]` | retention (see the objectives, §3.1) of the root or an off-site copy; removes stale partials and manifest-less S3 copies older than 24 h |
-| `replicate ID s3://…` or `replicate ID /offsite` | off-site copy, verified before it is renamed into place (directory: needs `.homayar-offsite`) |
+| `prune [--dry-run] [--destination DIR\|s3://…]` | retention (see the objectives, §3.1) of the root or an off-site copy, preferring full verified sets; removes stale partials, manifest-less S3 copies and interrupted multipart uploads older than 24 h; in a versioned bucket also each removed set's versions right after the set, and versions an earlier interrupted prune left (`leftover_sets`); a partial copy with a live multipart upload is not stale. Counts `versions_locked` (object lock) and `versions_failed`; listing or delete errors are reported in `errors` and exit 1 after the run |
+| `replicate ID s3://…` or `replicate ID /offsite` | off-site copy, every file verified by SHA-256 (directory: re-hashed before the rename; S3: the store's SHA-256 checksum, else read back) before the `offsite` gauge moves; carries the set's verified marker, and backfills it for earlier copies whose manifest is byte-identical to a verified root set (`backfilled_markers`) (directory: needs `.homayar-offsite`) |
 | `fetch ID s3://…` | pull an off-site copy back into `BACKUP_ROOT`, checksums verified before it is renamed into place |
 | `retired` / `drop-retired NAME --confirm NAME [--live-db NAME]` | databases a promotion replaced, each with a 7-day `drop_after` deadline and flagged `overdue` past it; drop them by that deadline (operator-enforced: nothing drops them or alerts). `drop-retired` refuses the live database, a `restoring` database, a name not of the form `<live>_retired_<ts>` and a database with open sessions, whatever its comment says |
 
@@ -226,7 +262,7 @@ Owner decisions the report may ask for (they are recorded in the sealed report):
 | --- | --- | --- |
 | `REVIEW_REQUIRED` (held conversation in the journal) | `--accept-held REF` | the hold in the backup was released before the deletion; decide with the owner, then delete again after promotion if needed |
 | `FAIL` objects (required object missing or corrupt) | `--accept-missing REF` | accept losing or keeping damaged bytes (rows stay; the media is flagged by the reconciliation sweep) |
-| `FAIL` tombstones, no journal files at all | `--accept-no-journal REF` | the only owner override for the journal, usable whether or not the backup recorded tombstones; it is recorded in the sealed report and the restore timeline. Deletions after the backup come back and must be repeated by the owner |
+| `FAIL` tombstones, no evidence (no journal files, files without records, or records only of tenants the backup does not know) | `--accept-no-journal REF` | the only owner override for the journal; it is recorded in the sealed report and the restore timeline. Any replica present is still replayed (unknown tenants are skipped); with no replica, deletions after the backup come back and must be repeated by the owner. A replica that holds records of tenants created after the backup **and** of known tenants passes without it |
 | `FAIL` tombstones, stale or foreign replica | none | cannot be accepted: mount the current replica, or remove it and decide on `--accept-no-journal` |
 | revocations after the backup | `--revoke-share-links` | revoke every share link of the restored data (owners re-share) |
 

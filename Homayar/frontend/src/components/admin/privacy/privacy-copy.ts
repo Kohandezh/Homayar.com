@@ -5,7 +5,8 @@
  */
 import type { ErrorCodeMessages } from "@/lib/error-messages";
 import type { Lang } from "@/lib/i18n-context";
-import type { LegalHoldFilter } from "@/lib/privacy-api";
+import type { LegalHoldFilter, ShareFilter } from "@/lib/privacy-api";
+import type { ShareAudience, ShareStatus } from "@/types/privacy";
 
 const EN = {
     eyebrow: "Administration",
@@ -64,6 +65,55 @@ const EN = {
     loadMore: "Load more",
     loadMoreFailed: "More holds could not be loaded. Try again.",
     holdsFailed: "The legal holds could not be refreshed. The list may be out of date.",
+
+    sharesHeading: "Shared links",
+    sharesFilterLabel: "Filter shared links",
+    shareFilters: {
+      active: "Active",
+      expired: "Expired",
+      revoked: "Revoked",
+      all: "All links",
+    } satisfies Record<ShareFilter, string>,
+    emptyShares: {
+      active: "No link is shared right now.",
+      expired: "No link has expired.",
+      revoked: "No link has been revoked.",
+      all: "No conversation has been shared.",
+    } satisfies Record<ShareFilter, string>,
+    sharesTable: "Shared links of the workspace",
+    shareColumns: {
+      meeting: "Conversation",
+      kind: "Kind",
+      status: "Status",
+      createdBy: "Created by",
+      createdAt: "Created",
+      expiresAt: "Expires",
+      opened: "Opened",
+      actions: "Actions",
+    },
+    audiences: {
+      link: "Public link",
+      workspace: "Organization members",
+      recipients: "Named recipients",
+    } satisfies Record<ShareAudience, string>,
+    shareStatuses: {
+      active: "Active",
+      expired: "Expired",
+      revoked: "Revoked",
+    } satisfies Record<ShareStatus, string>,
+    neverExpires: "Never",
+    revoke: "Revoke",
+    sharesLoadMoreFailed: "More links could not be loaded. Try again.",
+    sharesFailed: "The shared links could not be refreshed. The list may be out of date.",
+    shareListChanged: "The list changed. Choose the filter again.",
+
+    revokeShareHeading: "Revoke this link?",
+    revokeShareBody: "People who have the link can no longer open it. This cannot be undone.",
+    revokeLink: "Revoke link",
+    revoking: "Revoking",
+    shareRevoked: "Link revoked.",
+    shareRevokeFailed: "Revoking the link failed.",
+    shareNotFound: "This link no longer exists. The list has been refreshed.",
 
     auditHeading: "Audit history",
     auditIntro: "Each link opens the audit log filtered to one kind of event.",
@@ -187,6 +237,55 @@ const FA: PrivacyCopy = {
     loadMoreFailed: "موارد بیشتر دریافت نشد. دوباره تلاش کنید.",
     holdsFailed: "فهرست توقیف‌های قانونی به‌روز نشد. ممکن است فهرست قدیمی باشد.",
 
+    sharesHeading: "لینک‌های اشتراک",
+    sharesFilterLabel: "فیلتر لینک‌های اشتراک",
+    shareFilters: {
+      active: "فعال",
+      expired: "منقضی‌شده",
+      revoked: "لغوشده",
+      all: "همهٔ لینک‌ها",
+    } satisfies Record<ShareFilter, string>,
+    emptyShares: {
+      active: "الان هیچ لینکی به اشتراک گذاشته نشده است.",
+      expired: "هیچ لینکی منقضی نشده است.",
+      revoked: "هیچ لینکی لغو نشده است.",
+      all: "هیچ گفتگویی به اشتراک گذاشته نشده است.",
+    } satisfies Record<ShareFilter, string>,
+    sharesTable: "لینک‌های اشتراک فضای کاری",
+    shareColumns: {
+      meeting: "گفت‌وگو",
+      kind: "نوع",
+      status: "وضعیت",
+      createdBy: "سازنده",
+      createdAt: "زمان ساخت",
+      expiresAt: "انقضا",
+      opened: "بازدید",
+      actions: "عملیات",
+    },
+    audiences: {
+      link: "لینک عمومی",
+      workspace: "اعضای سازمان",
+      recipients: "گیرندگان مشخص",
+    } satisfies Record<ShareAudience, string>,
+    shareStatuses: {
+      active: "فعال",
+      expired: "منقضی‌شده",
+      revoked: "لغوشده",
+    } satisfies Record<ShareStatus, string>,
+    neverExpires: "بدون انقضا",
+    revoke: "لغو",
+    sharesLoadMoreFailed: "لینک‌های بیشتر دریافت نشد. دوباره تلاش کنید.",
+    sharesFailed: "فهرست لینک‌های اشتراک به‌روز نشد. ممکن است فهرست قدیمی باشد.",
+    shareListChanged: "فهرست تغییر کرده است. فیلتر را دوباره انتخاب کنید.",
+
+    revokeShareHeading: "این لینک لغو شود؟",
+    revokeShareBody: "کسانی که لینک را دارند دیگر نمی‌توانند آن را باز کنند. این کار برگشت‌پذیر نیست.",
+    revokeLink: "لغو لینک",
+    revoking: "در حال لغو",
+    shareRevoked: "لینک لغو شد.",
+    shareRevokeFailed: "لغو لینک ناموفق بود.",
+    shareNotFound: "این لینک دیگر وجود ندارد. فهرست به‌روز شد.",
+
     auditHeading: "سابقه در گزارش رویدادها",
     auditIntro: "هر پیوند، گزارش رویدادها را برای یک نوع رویداد باز می‌کند.",
     auditExports: "سابقهٔ خروجی‌ها",
@@ -277,5 +376,13 @@ export const HOLD_ERROR_CODES: ErrorCodeMessages = {
   permission_denied: {
     en: "Only the workspace owner can do this.",
     fa: "فقط مالک فضای کاری می‌تواند این کار را انجام دهد.",
+  },
+};
+
+/** Texts for the shared-links card's list errors (HOM-259). */
+export const SHARE_ERROR_CODES: ErrorCodeMessages = {
+  invalid_cursor: {
+    en: EN.shareListChanged,
+    fa: FA.shareListChanged,
   },
 };

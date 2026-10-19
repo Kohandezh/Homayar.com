@@ -1,0 +1,5 @@
+# HELP homayar_backup_last_success_timestamp_seconds Unix time of the last successful Homayar backup per target.
+# TYPE homayar_backup_last_success_timestamp_seconds gauge
+homayar_backup_last_success_timestamp_seconds{target="postgres"} 1792406751.779
+homayar_backup_last_success_timestamp_seconds{target="objects"} 1792406751.779
+homayar_backup_last_success_timestamp_seconds{target="offsite"} 1792406751.779

@@ -61,6 +61,7 @@ from backend.backup.logical import (
     with_database,
 )
 from backend.backup.manifest import BackupInvalid, check_manifest_mac, read_manifest
+from backend.backup.objects import LOSS_REASONS
 from backend.backup.release import code_heads
 from backend.backup.restore import (
     RestoreRefused,
@@ -380,21 +381,45 @@ def _references(connection) -> dict[str, dict[str, Any]]:
                 "sha256": sha256,
             }
     if "stage_checkpoints" in present:
-        for key, workspace_id, meeting_id, state, removed, sha256 in connection.execute(
-            "SELECT artifact_key, workspace_id, meeting_id, state, object_deleted_at IS NOT NULL, "
-            "artifact_sha256 FROM stage_checkpoints"
-        ):
-            expectation = (
-                "gone"
-                if removed
-                else ("required" if str(state).upper() == "PUBLISHED" else "optional")
-            )
+        held_meetings = {
+            ref["meeting_id"] for ref in refs.values() if ref.get("held") and ref["meeting_id"]
+        }
+        query = (
+            "SELECT c.artifact_key, c.workspace_id, c.meeting_id, c.state, "
+            "c.object_deleted_at IS NOT NULL, c.artifact_sha256, c.invalidation_reason, "
+            "m.id IS NULL OR m.deleted_at IS NOT NULL "
+            "FROM stage_checkpoints c LEFT JOIN meetings m ON m.id = c.meeting_id"
+            if "meetings" in present
+            else "SELECT artifact_key, workspace_id, meeting_id, state, "
+            "object_deleted_at IS NOT NULL, artifact_sha256, invalidation_reason, false "
+            "FROM stage_checkpoints"
+        )
+        for (
+            key,
+            workspace_id,
+            meeting_id,
+            state,
+            removed,
+            sha256,
+            reason,
+            meeting_deleted,
+        ) in connection.execute(query):
+            held = meeting_id in held_meetings and str(reason or "").lower() not in LOSS_REASONS
+            if removed:
+                expectation = "gone"
+            elif str(state).upper() == "PUBLISHED":
+                expectation = "required"
+            elif held and meeting_deleted and str(state).upper() == "INVALIDATED":
+                expectation = "required"  # a legal hold keeps a deleted meeting's outputs
+            else:
+                expectation = "optional"
             if key not in refs or expectation == "required":
                 refs[key] = {
                     "workspace_id": workspace_id,
                     "meeting_id": meeting_id,
                     "expectation": expectation,
                     "sha256": sha256,
+                    "held": held and expectation == "required",
                 }
     return refs
 
@@ -683,38 +708,57 @@ def report_digest(path: Path) -> str:
 
 def _journal_identity(
     journal: Any, watermark: dict[str, Any], workspaces: list[str]
-) -> tuple[list[str], str]:
+) -> tuple[list[str], str, dict[str, int]]:
     """Positive evidence that the replica is THIS deployment's journal, at
     least as new as the backup.
 
-    The backup fingerprinted every journal file (name, size, SHA-256 of its
-    content then); the files are append-only, so the replica must hold each
-    one with the same first ``size`` bytes.  A backup taken before the first
-    deletion has no fingerprint: the replica is then only accepted if all of
-    its records belong to tenants of the restored database ("unanchored").
+    ``anchored``: the backup fingerprinted the journal files (name, size,
+    SHA-256 of their content then); they are append-only, so the replica must
+    hold each one with the same first ``size`` bytes.  A file that was empty
+    at backup time proves nothing, so it only has to be present.
+
+    ``unanchored``: no non-empty file existed at backup time; the replica is
+    accepted on records of tenants the restored database knows.  Records of
+    tenants created after the backup are expected there and skipped by the
+    replay (their data is not in the restore).
+
+    ``none``: no evidence at all (no records, or only records of tenants the
+    backup does not know, i.e. possibly another deployment's journal).  The
+    caller fails it unless the owner accepts it explicitly.
     """
     problems: list[str] = []
     present = {path.name: path for path in journal.files()}
     recorded = watermark.get("files")
-    if isinstance(recorded, list) and recorded:
-        for entry in recorded:
-            path = present.get(entry["name"])
-            if path is None:
-                problems.append(f"{entry['name']}: missing (stale or foreign replica)")
-                continue
-            with open(path, "rb") as handle:
-                prefix = handle.read(int(entry["size"]))
-            if len(prefix) < int(entry["size"]):
-                problems.append(f"{entry['name']}: shorter than at backup time (stale replica)")
-            elif hashlib.sha256(prefix).hexdigest() != entry["sha256"]:
-                problems.append(f"{entry['name']}: differs from the backup's journal")
-        return problems, "anchored"
+    entries = recorded if isinstance(recorded, list) else []
+    anchors = 0
+    for entry in entries:
+        path = present.get(entry["name"])
+        if path is None:
+            problems.append(f"{entry['name']}: missing (stale or foreign replica)")
+            continue
+        size = int(entry["size"])
+        if size <= 0:
+            continue
+        anchors += 1
+        with open(path, "rb") as handle:
+            prefix = handle.read(size)
+        if len(prefix) < size:
+            problems.append(f"{entry['name']}: shorter than at backup time (stale replica)")
+        elif hashlib.sha256(prefix).hexdigest() != entry["sha256"]:
+            problems.append(f"{entry['name']}: differs from the backup's journal")
     records, _ = journal.read()
     known = set(workspaces)
-    foreign = sorted({r.workspace_id for r in records} - known)
-    if foreign:
-        problems.append(f"records of {len(foreign)} tenant(s) unknown to this backup")
-    return problems, "unanchored"
+    unknown = [r for r in records if r.workspace_id not in known]
+    info = {
+        "records": len(records),
+        "records_of_tenants_unknown_to_backup": len(unknown),
+        "tenants_unknown_to_backup": len({r.workspace_id for r in unknown}),
+    }
+    if anchors:
+        return problems, "anchored", info
+    if len(unknown) < len(records):
+        return problems, "unanchored", info
+    return problems, "none", info
 
 
 def reconcile_restore(
@@ -856,10 +900,14 @@ def _reconcile_locked(
             owner_override_no_journal=accept_no_journal,
         )
     else:
-        identity_problems, anchoring = _journal_identity(journal, watermark, workspaces)
+        identity_problems, anchoring, identity = _journal_identity(journal, watermark, workspaces)
         records, _ = journal.read()
         latest = max((r.tombstoned_at for r in records), default=None)
         stale = list(identity_problems)
+        if anchoring == "none" and not accept_no_journal:
+            # Empty files, or only tenants this backup does not know: nothing
+            # shows that this is the deployment's journal.
+            stale.append("no evidence that this is this deployment's journal")
         if len(records) < int(watermark.get("records") or 0):
             stale.append("fewer records than at backup time")
         recorded_latest = watermark.get("latest_tombstoned_at")
@@ -882,6 +930,8 @@ def _reconcile_locked(
         checks["tombstones"] = _check(
             "FAIL" if failed else "PASS",
             journal_identity=anchoring,
+            journal_identity_details=identity,
+            owner_override_no_journal=accept_no_journal if anchoring == "none" else None,
             replay=replay,
             verify=verified,
             journal_records=len(records),

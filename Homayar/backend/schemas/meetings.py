@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import (
     AliasChoices,
@@ -227,6 +228,43 @@ class MeetingQualityResponse(BaseModel):
     is_mock: bool
     degradations: list[DegradationResponse] = Field(default_factory=list)
     usage: UsageStateResponse | None = None
+
+
+class ReportCompleteness(BaseModel):
+    """What is missing from a meeting's results: one rule for every read that
+    carries it (HOM-59, HOM-60)."""
+
+    is_complete: bool
+    notices: list[str]
+    meeting_status: str
+    transcription: str
+    speaker_attribution: str
+    analysis: str
+    evidence: str
+
+
+class PlaybackResponse(BaseModel):
+    """An authorized, time-ranged way to play a meeting's recording (HOM-60).
+
+    ``media_url`` is the inline playback route, authorized on every request
+    (every ``Range`` request too), so it carries no token.  ``url`` adds a W3C
+    Media Fragment ``#t=<start>,<end>`` in seconds.  No storage location is
+    ever part of the body.
+    """
+
+    meeting_id: str
+    media_url: str
+    url: str
+    start_ms: int
+    end_ms: int | None
+    duration_ms: int | None
+    content_type: str
+    size_bytes: int
+    accept_ranges: Literal["bytes"] = "bytes"
+    completeness: ReportCompleteness
+    privacy_enforced: bool
+    # Audio is never masked; the console says so next to the player.
+    audio_redacted: Literal[False] = False
 
 
 class MeetingDetailResponse(MeetingResponse):

@@ -115,6 +115,141 @@ jobs:
       - name: Run tests
         run: npm test
 
+  console-e2e:
+    name: Product console end-to-end tests
+    runs-on: ubuntu-24.04
+    # HOM-224 caps the job at 15 minutes.
+    timeout-minutes: 15
+    needs: source-contract
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: homayar_e2e
+          POSTGRES_USER: homayar_e2e
+          POSTGRES_PASSWORD: ci-only-postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "test \"$(cat /proc/1/comm)\" = postgres && pg_isready -U homayar_e2e -d homayar_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    # One environment for the migration, the demo seed and the API, so all three
+    # use the same database. Everything stays on 127.0.0.1 with mock providers.
+    env:
+      ENVIRONMENT: test
+      DEPLOYMENT_MODE: onprem
+      DATABASE_URL: postgresql+psycopg://homayar_e2e:ci-only-postgres@127.0.0.1:5432/homayar_e2e
+      REDIS_URL: redis://127.0.0.1:6379/0
+      JWT_SECRET: ci-only-jwt-secret-000000000000000000000000
+      TOKEN_PEPPER: ci-only-token-pepper-000000000000000000000
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_ROOT: /tmp/homayar-e2e-objects
+      UPLOAD_DIR: /tmp/homayar-e2e-uploads
+      UPLOAD_QUARANTINE_DIR: /tmp/homayar-e2e-quarantine
+      # No Celery worker runs here, so jobs run inside the API process.
+      TASKS_EAGER: "true"
+      ALLOW_MOCK_PROVIDERS: "true"
+      AUTO_CREATE_SCHEMA: "false"
+      ENABLE_NEO4J_PROJECTION: "false"
+      NEO4J_URI: bolt://127.0.0.1:1
+      FRONTEND_URL: http://localhost:4173/app
+      E2E_PORT: "4173"
+      E2E_API_URL: http://127.0.0.1:8001
+      E2E_SMTP_PORT: "1025"
+    defaults:
+      run:
+        working-directory: Homayar
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
+      - name: Install uv
+        run: python -m pip install "uv==${UV_VERSION}"
+
+      - name: Install locked backend dependencies
+        run: uv sync --frozen
+
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+
+      # The seed prints every demo login with its password, so its output goes to
+      # /dev/null. Errors still reach the log on stderr, and no pipe hides the
+      # seed's exit code.
+      - name: Seed the demo workspace
+        run: uv run python -m backend.database.demo_seed > /dev/null
+
+      - name: Start the API
+        env:
+          # Playwright starts an SMTP sink on this port (e2e/smtp-sink.ts). With no
+          # mail server the backend revokes each new invitation and answers 503.
+          SMTP_HOST: 127.0.0.1
+          SMTP_PORT: "${{ env.E2E_SMTP_PORT }}"
+        run: |
+          nohup uv run uvicorn backend.main:app --host 127.0.0.1 --port 8001 > "${RUNNER_TEMP}/api.log" 2>&1 &
+          curl --fail --silent --output /dev/null --retry 120 --retry-all-errors --retry-delay 1 http://127.0.0.1:8001/readyz ||
+            { echo 'The API did not answer /readyz within 120 seconds.' >&2; exit 1; }
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "${{ env.NODE_VERSION }}"
+          cache: npm
+          cache-dependency-path: Homayar/frontend/package-lock.json
+
+      - name: Install console dependencies
+        working-directory: Homayar/frontend
+        run: npm ci
+
+      # The browser download is keyed on the lock file, which pins the Playwright
+      # version. The system libraries still install on every run.
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('Homayar/frontend/package-lock.json') }}
+
+      - name: Install Chromium for Playwright
+        working-directory: Homayar/frontend
+        run: npx playwright install --with-deps chromium
+
+      # Playwright starts the Vite dev server itself (playwright.config.ts). CI=true
+      # gives one retry and forbids `test.only`.
+      - name: Run end-to-end tests
+        working-directory: Homayar/frontend
+        run: npm run test:e2e
+
+      # Also when the 15-minute timeout cancels the job, when the report matters most.
+      - name: Show the end of the API log
+        if: failure() || cancelled()
+        run: tail -n 200 "${RUNNER_TEMP}/api.log" || true
+
+      - name: Upload the Playwright report
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: console-e2e-report
+          path: |
+            Homayar/frontend/playwright-report/
+            Homayar/frontend/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   linear-agent:
     name: Linear agent typecheck, lint, and tests
     runs-on: ubuntu-24.04
@@ -233,8 +368,9 @@ jobs:
       - name: Install uv
         run: python -m pip install "uv==${UV_VERSION}"
 
+      # --locked also refuses a uv.lock that is stale against pyproject.toml (HOM-28).
       - name: Install locked dependencies
-        run: uv sync --frozen
+        run: uv sync --locked
 
       - name: Validate and apply migrations
         run: uv run ../infra/ci/check-migrations.sh backend
@@ -300,6 +436,37 @@ jobs:
           -color=false
           .github/workflows/ci.yml
           .github/workflows/release-website.yml
+
+      # HOM-126: the alert rules and their unit tests (docs/operations/alerts.md).
+      - name: Check Prometheus alert rules
+        run: >-
+          docker run --rm
+          --network none
+          --entrypoint promtool
+          --volume "${PWD}/infra/observability/prometheus:/rules:ro"
+          --workdir /rules/tests
+          prom/prometheus:v3.5.0
+          check rules /rules/homayar.rules.yml
+
+      - name: Unit-test Prometheus alert rules
+        run: >-
+          docker run --rm
+          --network none
+          --entrypoint promtool
+          --volume "${PWD}/infra/observability/prometheus:/rules:ro"
+          --workdir /rules/tests
+          prom/prometheus:v3.5.0
+          test rules homayar.rules.test.yml
+
+      - name: Check example Prometheus configuration
+        run: >-
+          docker run --rm
+          --network none
+          --entrypoint promtool
+          --volume "${PWD}/infra/observability/prometheus:/rules:ro"
+          --workdir /rules/tests
+          prom/prometheus:v3.5.0
+          check config --syntax-only /rules/prometheus.example.yml
 
       - name: Validate on-prem Compose profile
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem config --quiet
@@ -457,3 +624,96 @@ jobs:
           infra/docker/console-web.Dockerfile
           infra/docker/api.Dockerfile
           infra/docker/egress-proxy.Dockerfile
+
+  # HOM-28/HOM-29 (ADR 0036 decision 5): the manifest of this commit is reproducible, the API
+  # image built from it carries the same identity, and the manifest is kept as an artifact.
+  release-manifest:
+    name: Release manifest and build identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: source-contract
+    env:
+      SOURCE_SHA: "${{ github.sha }}"
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The manifest reads every input from Git objects at the commit.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
+      - name: Generate the release manifest twice and compare
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "${RUNNER_TEMP}/release"
+          python infra/release/release_manifest.py generate --rev "${SOURCE_SHA}" --output "${RUNNER_TEMP}/release/first.json"
+          python infra/release/release_manifest.py generate --rev "${SOURCE_SHA}" --output "${RUNNER_TEMP}/release/second.json"
+          cmp "${RUNNER_TEMP}/release/first.json" "${RUNNER_TEMP}/release/second.json"
+
+      - name: Build the API image with release arguments
+        run: |
+          set -Eeuo pipefail
+          python infra/release/release_manifest.py build-args --rev "${SOURCE_SHA}" --output "${RUNNER_TEMP}/release/build-args.txt"
+          cat "${RUNNER_TEMP}/release/build-args.txt"
+          grep --quiet --line-regexp "SOURCE_SHA=${SOURCE_SHA}" "${RUNNER_TEMP}/release/build-args.txt"
+          grep --quiet --line-regexp "SOURCE_DATE_EPOCH=$(git show --no-patch --format=%ct "${SOURCE_SHA}")" "${RUNNER_TEMP}/release/build-args.txt"
+          build_args=()
+          while IFS= read -r build_arg; do
+            build_args+=(--build-arg "${build_arg}")
+          done < "${RUNNER_TEMP}/release/build-args.txt"
+          docker build --file infra/docker/api.Dockerfile "${build_args[@]}" --tag homayar-ci/api:release .
+
+      - name: Verify the image against the manifest
+        env:
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: |
+          set -Eeuo pipefail
+          container="$(docker create homayar-ci/api:release)"
+          docker cp "${container}:/app/build-info.json" "${RUNNER_TEMP}/release/build-info.json"
+          docker rm "${container}" >/dev/null
+          docker inspect --format '{{json .Config.Labels}}' homayar-ci/api:release > "${RUNNER_TEMP}/release/image-labels.json"
+          image_id="$(docker inspect --format '{{.Id}}' homayar-ci/api:release)"
+          python infra/release/release_manifest.py generate --rev "${SOURCE_SHA}" \
+            --image "api=${image_id}" --validation "ci=${RUN_URL}" \
+            --output "${RUNNER_TEMP}/release/release-manifest.json"
+          python infra/release/release_manifest.py verify \
+            --manifest "${RUNNER_TEMP}/release/release-manifest.json" \
+            --build-info "${RUNNER_TEMP}/release/build-info.json" \
+            --image-labels "${RUNNER_TEMP}/release/image-labels.json"
+
+      - name: Read the build identity from the running API
+        run: |
+          set -Eeuo pipefail
+          cleanup() {
+            docker rm --force homayar-ci-release-api >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --detach --name homayar-ci-release-api \
+            --read-only --tmpfs /tmp:rw,noexec,nosuid,size=128m \
+            --tmpfs /app/logs:rw,noexec,nosuid,size=32m \
+            --env ENVIRONMENT=development \
+            --env DEPLOYMENT_MODE=onprem \
+            --env DATABASE_URL=sqlite:////tmp/homayar-ci.db \
+            --env AUTO_CREATE_SCHEMA=true \
+            --publish 127.0.0.1:3801:8000 homayar-ci/api:release
+          curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 http://127.0.0.1:3801/healthz >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:3801/metrics > "${RUNNER_TEMP}/release/metrics.txt"
+          grep '^homayar_build_info{' "${RUNNER_TEMP}/release/metrics.txt"
+          grep '^homayar_build_info{' "${RUNNER_TEMP}/release/metrics.txt" | grep --quiet --fixed-strings "source_sha=\"${SOURCE_SHA}\""
+          docker exec homayar-ci-release-api python -m backend.observability.release show
+
+      - name: Upload the release manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-manifest
+          path: |
+            ${{ runner.temp }}/release/release-manifest.json
+            ${{ runner.temp }}/release/build-info.json
+            ${{ runner.temp }}/release/image-labels.json
+            ${{ runner.temp }}/release/build-args.txt
+          if-no-files-found: error
+          retention-days: 90
