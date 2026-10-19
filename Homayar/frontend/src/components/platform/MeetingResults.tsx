@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Clipboard, Eye, EyeOff, FileDown, History, Link2, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { apiErrorInfo } from "@/lib/api-errors";
 import { useI18n } from "@/lib/i18n-context";
 import { formatDate, formatDuration, formatNumber } from "@/lib/format";
+import { shortcutTargetBlocked } from "@/lib/keyboard";
+import { parseTimecodeToMs } from "@/lib/time-range";
 import {
   platformQueryKeys,
   saveDownload,
@@ -12,6 +14,7 @@ import {
   useCreateAction,
   useCreateShare,
   useDeleteAction,
+  useFilteredTranscript,
   useMeetingExport,
   useOriginalTranscript,
   useRenameSpeaker,
@@ -31,6 +34,7 @@ import type {
   MeetingExportFormat,
   Transcript,
   TranscriptCorrectionEdit,
+  TranscriptFilters,
   TranscriptSegment,
 } from "@/types/platform";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "@/components/platform/Ui";
@@ -66,6 +70,9 @@ function SpeakerEditor({ name, label, saveLabel, onSave }: { name: string; label
   );
 }
 
+/** One shared empty list, so hooks that depend on the turns stay stable before a load. */
+const NO_SEGMENTS: TranscriptSegment[] = [];
+
 /** The segment playing at `atMs`: the one containing it, else the last one started before it. */
 function segmentAt(segments: TranscriptSegment[], atMs: number): TranscriptSegment | null {
   let before: TranscriptSegment | null = null;
@@ -79,15 +86,34 @@ function segmentAt(segments: TranscriptSegment[], atMs: number): TranscriptSegme
 /**
  * The advanced panels of a meeting (transcript, action items, share links,
  * export). The call report above them replaces the old summary tab.
+ *
+ * HOM-247: when the page passes a playable audio (`canPlay`), each turn can
+ * start playback, the turn at the audio's position is marked, and the
+ * speaker/time filters are applied by the server on the current view.
  */
 export default function MeetingResults({
   meeting,
   atMs = null,
   open = null,
+  canPlay = false,
+  playbackMs = null,
+  onPlayFrom,
+  onSeek,
+  getPositionMs,
 }: {
   meeting: MeetingDetail;
   atMs?: number | null;
   open?: ResultsOpenRequest | null;
+  /** Whether the page has a working audio element for this meeting. */
+  canPlay?: boolean;
+  /** Where the audio is, in milliseconds; null until the person plays or seeks. */
+  playbackMs?: number | null;
+  /** Seek, play, and write `?at=` (the page's one play entry point). */
+  onPlayFrom?: (startMs: number) => void;
+  /** Seek without playing (the N and P keys). */
+  onSeek?: (ms: number) => void;
+  /** The audio's live position, read when N or P is pressed; null without audio. */
+  getPositionMs?: () => number | null;
 }) {
   const { lang } = useI18n();
   const copy = RESULTS_COPY[lang];
@@ -97,7 +123,6 @@ export default function MeetingResults({
   const tabs = availableTabs(can.manageShares);
   const [tab, setTab] = useState<ResultsTab>(() => (open ? resolvePanel(open.panel, tabs) : "transcript"));
   const [exportFormat, setExportFormat] = useState<MeetingExportFormat>("txt");
-  const [speakerFilter, setSpeakerFilter] = useState("");
   const [focusSegment, setFocusSegment] = useState<string | null>(open?.segmentId ?? null);
   const [originalMode, setOriginalMode] = useState<"off" | "confirm" | "on">("off");
   const [revealed, setRevealed] = useState<Record<string, string>>({});
@@ -121,10 +146,32 @@ export default function MeetingResults({
   const [savedRevision, setSavedRevision] = useState<{ sequence: number; revisionNumber: number } | null>(null);
   const [viewingRevisionId, setViewingRevisionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // HOM-247: server-side filters over the current view. The speaker select
+  // applies at once; the time range applies through its Apply button, so its
+  // draft text and its applied range are kept apart.
+  const [speakerFilter, setSpeakerFilter] = useState("");
+  const [rangeFromText, setRangeFromText] = useState("");
+  const [rangeToText, setRangeToText] = useState("");
+  const [appliedRange, setAppliedRange] = useState<{ startMs: number | null; endMs: number | null } | null>(null);
+  const [rangeError, setRangeError] = useState<"format" | "order" | null>(null);
+  const [followAudio, setFollowAudio] = useState(true);
+  const followedTurn = useRef<string | null>(null);
 
   const transcript = useTranscript(meetingId);
   const oldRevision = useTranscriptRevision(meetingId, viewingRevisionId);
   const original = useOriginalTranscript(originalMode === "on" ? meetingId : null);
+  // Filters live only on the current view: an old revision or the audited
+  // original is read only, and both reset them on entry.
+  const viewingCurrentView = originalMode !== "on" && viewingRevisionId === null;
+  const filters: TranscriptFilters | null =
+    viewingCurrentView && (speakerFilter !== "" || appliedRange !== null)
+      ? {
+          speakerKeys: speakerFilter !== "" ? [speakerFilter] : [],
+          startMs: appliedRange?.startMs ?? null,
+          endMs: appliedRange?.endMs ?? null,
+        }
+      : null;
+  const filteredTranscript = useFilteredTranscript(meetingId, filters);
   const actions = useActions(meetingId);
   const shares = useShares(can.manageShares ? meetingId : null);
   const meetingExport = useMeetingExport();
@@ -140,11 +187,14 @@ export default function MeetingResults({
   const redacted = transcript.data?.privacy_enforced === true && transcript.data.view === "redacted";
   const showingOriginal = originalMode === "on" && Boolean(original.data);
   const viewingOldRevision = viewingRevisionId !== null;
-  const shown: Transcript | undefined = viewingOldRevision
+  // The view the person chose, before any filter: it decides loading, empty
+  // and the toolbar. `shown` is what the turn list draws.
+  const baseView: Transcript | undefined = viewingOldRevision
     ? oldRevision.data
     : showingOriginal
       ? original.data
       : transcript.data;
+  const shown: Transcript | undefined = filters ? filteredTranscript.data : baseView;
   const redaction = transcript.data?.redaction ?? null;
   const canReveal = redacted && !showingOriginal && !viewingOldRevision && can.readOriginalTranscript && Boolean(redaction?.id && redaction.mapping_retained);
   // Corrections go over the revision the person is looking at: only the
@@ -157,7 +207,7 @@ export default function MeetingResults({
   if (atMs !== null && atMs !== appliedAt && transcript.data) {
     const target = segmentAt(transcript.data.segments, atMs);
     setAppliedAt(atMs);
-    setSpeakerFilter("");
+    resetFilters();
     setTab("transcript");
     setFocusSegment(target?.id ?? null);
     setAtOutcome(target ? "found" : "missing");
@@ -169,8 +219,8 @@ export default function MeetingResults({
   if (open && open.seq !== appliedOpen) {
     setAppliedOpen(open.seq);
     setTab(resolvePanel(open.panel, tabs));
+    resetFilters();
     if (open.segmentId) {
-      setSpeakerFilter("");
       setFocusSegment(open.segmentId);
       setViewingRevisionId(null);
     }
@@ -202,6 +252,44 @@ export default function MeetingResults({
     tabRefs.current[resolvePanel(open.panel, availableTabs(can.manageShares))]?.focus();
   }, [appliedOpen, open, can.manageShares]);
 
+  /** Back to the whole current view: no speaker, no time range, no draft text. */
+  function resetFilters() {
+    setSpeakerFilter("");
+    setRangeFromText("");
+    setRangeToText("");
+    setAppliedRange(null);
+    setRangeError(null);
+  }
+
+  /** The time form applies on submit; a bad entry shows why and sends nothing. */
+  function applyTimeRange(event: FormEvent) {
+    event.preventDefault();
+    const fromText = rangeFromText.trim();
+    const toText = rangeToText.trim();
+    const startMs = fromText ? parseTimecodeToMs(fromText) : null;
+    const endMs = toText ? parseTimecodeToMs(toText) : null;
+    if ((fromText && startMs === null) || (toText && endMs === null)) {
+      setRangeError("format");
+      return;
+    }
+    if (startMs !== null && endMs !== null && endMs <= startMs) {
+      setRangeError("order");
+      return;
+    }
+    setRangeError(null);
+    setAppliedRange(startMs === null && endMs === null ? null : { startMs, endMs });
+    leaveEditMode();
+  }
+
+  /** A turn's text plays from its start, unless the click was on a control or ended a text selection. */
+  function playFromText(event: MouseEvent<HTMLElement>, segment: TranscriptSegment) {
+    if (!canPlay || !onPlayFrom) return;
+    if (event.target instanceof Element && event.target.closest("button, a, input, textarea, select, form")) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    onPlayFrom(segment.start_ms);
+  }
+
   function hideOriginal() {
     setOriginalMode("off");
     queryClient.removeQueries({ queryKey: platformQueryKeys.transcriptOriginal(meetingId) });
@@ -218,11 +306,12 @@ export default function MeetingResults({
     setHistoryOpen(false);
     setViewingRevisionId(revisionId);
     leaveEditMode();
+    resetFilters();
     if (originalMode !== "off") hideOriginal();
   }
 
   function showSegment(segmentId: string) {
-    setSpeakerFilter("");
+    resetFilters();
     setTab("transcript");
     setFocusSegment(segmentId);
     setViewingRevisionId(null);
@@ -254,6 +343,7 @@ export default function MeetingResults({
     setEditingSegmentId(null);
     correct.reset();
     void queryClient.invalidateQueries({ queryKey: platformQueryKeys.transcript(meetingId), exact: true });
+    void queryClient.invalidateQueries({ queryKey: platformQueryKeys.transcriptFilteredRoot(meetingId) });
   }
 
   function onTabKey(event: KeyboardEvent<HTMLButtonElement>) {
@@ -312,13 +402,55 @@ export default function MeetingResults({
   );
   const originalError = original.isError ? apiErrorInfo(original.error).code : null;
   const revealCode = reveal.isError ? apiErrorInfo(reveal.error).code : null;
-  const segments = (shown?.segments ?? []).filter((segment) => !speakerFilter || segment.speaker_key === speakerFilter);
-  // The edit is alive only while its segment is on screen: a speaker-filter
-  // change or a refetched revision (new segment ids) ends it silently, so a
-  // vanished segment can never block every Edit button.
+  // The server filters the current view (HOM-247); the list shows its answer as is.
+  const segments = shown?.segments ?? NO_SEGMENTS;
+  const totalTurns = filteredTranscript.data?.total_segments ?? transcript.data?.segments.length ?? 0;
+  const currentTurn = playbackMs !== null ? segmentAt(segments, playbackMs) : null;
+  // The edit is alive only while its segment is on screen: a filter change or
+  // a refetched revision (new segment ids) ends it silently, so a vanished
+  // segment can never block every Edit button.
   const editingSegment = editingSegmentId === null
     ? null
     : (segments.find((segment) => segment.id === editingSegmentId) ?? null);
+
+  // Follow the audio (HOM-247): when the current turn changes, bring it into
+  // view with the smallest scroll. Focus never moves, and an open correction
+  // or reveal form keeps the list where the person left it.
+  const currentTurnId = currentTurn?.id ?? null;
+  const followPaused = editingSegment !== null || revealTarget !== null;
+  useEffect(() => {
+    if (currentTurnId === followedTurn.current) return;
+    followedTurn.current = currentTurnId;
+    if (currentTurnId === null || !followAudio || tab !== "transcript" || followPaused) return;
+    document.getElementById(`segment-${currentTurnId}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [currentTurnId, followAudio, tab, followPaused]);
+
+  // N and P (HOM-247) move between the turns on screen. They seek without
+  // playing, and like the page keys they leave fields and dialogs alone.
+  const turnKeysOn = canPlay && tab === "transcript" && segments.length > 0;
+  useEffect(() => {
+    if (!turnKeysOn || !onSeek) return;
+    const seek = onSeek;
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.code !== "KeyN" && event.code !== "KeyP") return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (shortcutTargetBlocked(event.target)) return;
+      // The live time, not the last media event: two quick presses walk two
+      // turns. Before any play or seek there is still no current turn.
+      const liveMs = playbackMs === null ? null : (getPositionMs?.() ?? playbackMs);
+      const current = liveMs !== null ? segmentAt(segments, liveMs) : null;
+      const index = current ? segments.indexOf(current) : -1;
+      const target = event.code === "KeyN"
+        ? segments[index + 1]
+        : segments[Math.max(index - 1, 0)];
+      // N on the last turn has nowhere to go.
+      if (!target) return;
+      event.preventDefault();
+      seek(target.start_ms);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [turnKeysOn, onSeek, getPositionMs, segments, playbackMs]);
   const operationError =
     meetingExport.error ?? createAction.error ?? updateAction.error ?? deleteAction.error ?? renameSpeaker.error ?? createShare.error ?? revokeShare.error;
 
@@ -378,6 +510,7 @@ export default function MeetingResults({
                           // The two read-only views exclude each other.
                           setViewingRevisionId(null);
                           leaveEditMode();
+                          resetFilters();
                         }}
                         autoFocus
                       >
@@ -425,28 +558,77 @@ export default function MeetingResults({
                 error={viewingOldRevision ? oldRevision.error : transcript.error}
                 fallback={copy.transcript.failed}
               />
-            ) : !shown?.segments.length ? (
+            ) : !baseView?.segments.length ? (
               <EmptyState label={copy.transcript.empty} />
             ) : (
               <>
+                {/* The toolbar stays mounted while a filtered read loads or fails: the
+                    select keeps focus, and a failed filter can still be cleared. */}
                 <div className="transcript-toolbar">
-                  <label>
-                    <span>{copy.transcript.speakerFilter}</span>
-                    <select
-                      value={speakerFilter}
-                      onChange={(event) => {
-                        setSpeakerFilter(event.target.value);
-                        // Filtering swaps the turns on screen, so an open form
-                        // would be editing a turn that is no longer shown.
-                        leaveEditMode();
-                      }}
-                    >
-                      <option value="">{copy.transcript.allSpeakers}</option>
-                      {shown.speakers.map((speaker) => (
-                        <option key={speaker.id} value={speaker.speaker_key}>{speaker.display_name ?? speaker.speaker_key}</option>
-                      ))}
-                    </select>
-                  </label>
+                  {/* Filters belong to the current view; the two read-only views show every turn. */}
+                  {viewingCurrentView && (
+                    <label>
+                      <span>{copy.transcript.speakerFilter}</span>
+                      <select
+                        value={speakerFilter}
+                        onChange={(event) => {
+                          setSpeakerFilter(event.target.value);
+                          // Filtering swaps the turns on screen, so an open form
+                          // would be editing a turn that is no longer shown.
+                          leaveEditMode();
+                        }}
+                      >
+                        <option value="">{copy.transcript.allSpeakers}</option>
+                        {baseView.speakers.map((speaker) => (
+                          <option key={speaker.id} value={speaker.speaker_key}>{speaker.display_name ?? speaker.speaker_key}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {viewingCurrentView && (
+                    <form className="transcript-time-filter" onSubmit={applyTimeRange} noValidate>
+                      <label>
+                        <span>{copy.transcript.timeFrom}</span>
+                        <input
+                          className="platform-input"
+                          value={rangeFromText}
+                          onChange={(event) => setRangeFromText(event.target.value)}
+                          inputMode="numeric"
+                          dir="ltr"
+                          placeholder="0:00"
+                        />
+                      </label>
+                      <label>
+                        <span>{copy.transcript.timeTo}</span>
+                        <input
+                          className="platform-input"
+                          value={rangeToText}
+                          onChange={(event) => setRangeToText(event.target.value)}
+                          inputMode="numeric"
+                          dir="ltr"
+                          placeholder="1:05"
+                        />
+                      </label>
+                      <button type="submit" className="platform-button">{copy.transcript.applyTimeRange}</button>
+                      {rangeError && (
+                        <p role="alert" className="transcript-time-error">
+                          {rangeError === "format" ? copy.transcript.timeInvalid : copy.transcript.timeOrder}
+                        </p>
+                      )}
+                    </form>
+                  )}
+                  {filters && (
+                    <button type="button" className="platform-button" onClick={resetFilters}>
+                      <X size={15} aria-hidden="true" />
+                      {copy.transcript.clearFilters}
+                    </button>
+                  )}
+                  {canPlay && (
+                    <label className="transcript-follow">
+                      <input type="checkbox" checked={followAudio} onChange={(event) => setFollowAudio(event.target.checked)} />
+                      <span>{copy.transcript.followAudio}</span>
+                    </label>
+                  )}
                   {Object.keys(revealed).length > 0 && (
                     <button type="button" className="platform-button" onClick={() => setRevealed({})}>
                       <EyeOff size={15} aria-hidden="true" />
@@ -459,9 +641,9 @@ export default function MeetingResults({
                   </button>
                 </div>
                 {/* The rename forms edit the current view; an old revision is read only. */}
-                {can.updateMeeting && !viewingOldRevision && shown.speakers.length > 0 && (
+                {can.updateMeeting && !viewingOldRevision && baseView.speakers.length > 0 && (
                   <div className="meeting-speaker-list" aria-label={copy.transcript.speakers}>
-                    {shown.speakers.map((speaker) => {
+                    {baseView.speakers.map((speaker) => {
                       const name = speaker.display_name ?? speaker.speaker_key;
                       return (
                         <SpeakerEditor
@@ -475,18 +657,43 @@ export default function MeetingResults({
                     })}
                   </div>
                 )}
+                {/* Only the turn list waits for, or fails with, the filtered read. */}
+                {filters && filteredTranscript.isLoading ? (
+                  <LoadingState label={copy.loading} />
+                ) : filters && filteredTranscript.isError ? (
+                  <ErrorState error={filteredTranscript.error} fallback={copy.transcript.failed} />
+                ) : (
+                <>
+                {filters && (
+                  <p className="content-view-note" role="status">
+                    {copy.transcript.showing(formatNumber(segments.length, lang), formatNumber(totalTurns, lang))}
+                  </p>
+                )}
+                {filters && segments.length === 0 && <EmptyState label={copy.transcript.noMatches} />}
                 <div className="meeting-segments">
                   {segments.map((segment) => (
                     <article
                       id={`segment-${segment.id}`}
                       key={segment.id}
-                      className="meeting-segment"
+                      className={segment.id === currentTurnId ? "meeting-segment is-playing" : "meeting-segment"}
+                      aria-current={segment.id === currentTurnId ? "true" : undefined}
                       tabIndex={-1}
                       data-sequence={segment.sequence}
                     >
                       <div>
                         <strong dir="auto">{segment.speaker_name}</strong>
-                        <time dir="ltr">{formatDuration(segment.start_ms / 1000, lang)}</time>
+                        {canPlay && onPlayFrom ? (
+                          <button
+                            type="button"
+                            className="segment-play"
+                            onClick={() => onPlayFrom(segment.start_ms)}
+                            aria-label={copy.transcript.playFrom(formatDuration(segment.start_ms / 1000, lang))}
+                          >
+                            <time dir="ltr">{formatDuration(segment.start_ms / 1000, lang)}</time>
+                          </button>
+                        ) : (
+                          <time dir="ltr">{formatDuration(segment.start_ms / 1000, lang)}</time>
+                        )}
                         {canEditSegments && editingSegment === null && (
                           <button
                             type="button"
@@ -502,7 +709,7 @@ export default function MeetingResults({
                       {canEditSegments && editingSegment?.id === segment.id ? (
                         <TranscriptCorrectionForm
                           segment={segment}
-                          speakers={shown.speakers}
+                          speakers={baseView.speakers}
                           isPending={correct.isPending}
                           error={correct.error}
                           onSave={(correction) => submitCorrection(segment, correction)}
@@ -511,7 +718,11 @@ export default function MeetingResults({
                         />
                       ) : (
                         <>
-                          <p dir="auto">
+                          <p
+                            dir="auto"
+                            className={canPlay ? "segment-text is-playable" : undefined}
+                            onClick={(event) => playFromText(event, segment)}
+                          >
                             <MaskedText
                               text={segment.text}
                               copy={copy}
@@ -552,6 +763,8 @@ export default function MeetingResults({
                     </article>
                   ))}
                 </div>
+                </>
+                )}
               </>
             )}
           </div>

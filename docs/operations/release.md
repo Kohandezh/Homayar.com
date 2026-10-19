@@ -101,8 +101,8 @@ image id, because CI does not push images.
     python -m backend.observability.release show
   ```
 
-  Save that output as `build-info.json` and run `verify` against the release manifest to prove
-  the running container is the release.
+  Save that output as `build-info.json` and run `verify` against the release manifest to check
+  that the running container matches the release it describes.
 * The image labels: `docker inspect --format '{{json .Config.Labels}}' <image>`.
 
 ## What is and is not reproducible

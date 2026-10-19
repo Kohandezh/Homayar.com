@@ -64,6 +64,78 @@ This ADR is extended section by section as each Lane D change lands.
   migration for later if scrapes get slow).
 * The `recovery` scope now has a second, read-only consumer; its policy is unchanged.
 
+## Decision 4 — Alerting (HOM-126)
+
+1. **Rules live in the repository, tested.** `infra/observability/prometheus/homayar.rules.yml`
+   holds the recording and alerting rules; `tests/homayar.rules.test.yml` gives every alert a
+   promtool case where it fires on its failure and one where it stays silent in a normal state,
+   with inputs shaped like the real exposition (a labelled child appears at its first value,
+   `homayar_jobs_failed_15m` only while failed jobs exist, a vanished series is marked stale).
+   `prometheus.example.yml` names the two scrape jobs the rules depend on (`homayar-api`,
+   `homayar-node`). The *Container configuration* CI job runs `promtool check rules`,
+   `promtool test rules` and `promtool check config --syntax-only` (`prom/prometheus:v3.5.0`,
+   read-only mount, no network). `backend/tests/test_alert_rules.py` ties the rules to the code:
+   every series a rule queries has a sample in a real `/metrics` scrape (HELP/TYPE lines alone do
+   not count), or is a recording rule, the backup contract below or a Prometheus/node_exporter
+   series; every label value a rule matches is one the code emits; the job names are the example
+   configuration's; its `scrape_timeout` exceeds two source deadlines; and every alert has
+   `severity` `warning` or `critical`, a `summary` and a `runbook` anchor that is a section of
+   [alerts.md](../../operations/alerts.md).
+2. **Only alerts with a producer.** An alert ships with the code that emits its series. The
+   audit-write, failed-login, refresh-replay and audit-sink alerts move to HOM-114 and HOM-115,
+   which add their emitters. A counter an alert reads with `increase()` or `rate()` exists at 0
+   before its first event (the collection-error counters are created at start-up), because
+   Prometheus does not treat a new series as starting from 0 and would miss that event.
+3. **Aggregation.** Every API replica reports the same scrape-time state, so rules aggregate it
+   with `max()` (`min()` for ages and the schema check) instead of `sum()`; a promtool case with
+   two replicas proves nothing is counted twice. In-process counters (HTTP requests, collection
+   errors) are per API container and are summed. That holds only when the container's uvicorn
+   workers share `PROMETHEUS_MULTIPROC_DIR` (Decision 1). Otherwise each scrape reaches another
+   worker and every drop looks like a reset. `homayar:api_counter_resets_15m:max` detects that
+   (more than two resets in 15 minutes); the rate-based alerts leave such a target out and
+   `HomayarApiCountersInconsistent` reports it.
+4. **Sweeps: warn early, page when nothing explains it.** Staleness is
+   `clamp_min(3 × interval, 240)` plus one minute: the 30-second dispatch sweep warns within
+   about 5 minutes of its last success (WP20 F78), a 15-minute sweep after about 46 minutes.
+   Sweeps share the `processing` queue with meeting jobs and expire after one interval, so busy
+   workers delay them; that is a warning. `HomayarPeriodicSweepStopped` pages only when the
+   staleness persists while no job runs on a live worker, or exceeds 2 h 15 min (longer than one
+   job attempt can hold a slot), and never while due jobs wait or PostgreSQL is down. Those
+   causes have their own alerts. There is no "failed twice in a row" alert: the heartbeat keeps
+   only the latest run, and the timestamps cannot tell two failures from one failure after a
+   skipped run. A sweep that keeps failing is stale after three intervals.
+5. **Backup contract with Lane C.** The backup tooling writes
+   `homayar_backup_last_success_timestamp_seconds{target="postgres"|"objects"|"offsite"}` (Unix
+   seconds of the last successful backup of that target) to a node_exporter textfile. A target
+   pages critical when its timestamp is older than 26 hours (RPO 24 hours plus 2 hours' margin;
+   a promtool case pins the boundary) or when it is missing for an hour while node_exporter
+   reads the file. An exporter that is down or cannot read the file is its own critical alert,
+   so "freshness unknown" and "never ran" are told apart.
+6. **Severity.** `critical` means data or the whole service is at risk now, or a safety signal
+   is blind: database, Redis, object storage, the API scrape or its target, sweeps stopped, a
+   stalled queue, missing media, failed purges, the tombstone journal behind, backups too old,
+   missing or unobservable. `warning` means degraded or needing attention within hours.
+
+### Not covered
+
+* Alertmanager routing, receivers, inhibition and silences are per installation; the rules carry
+  `severity` only. The expressions themselves keep one cause to one page where the code allows
+  it: the sweep alerts are silent while PostgreSQL is down (and cannot be evaluated while Redis
+  is), and the collection-error alert while a dependency is down.
+* Workers have no scrape endpoint: a live but stuck worker shows only as queue latency, expired
+  leases and stale sweeps.
+* `HomayarMissingMediaObjects` counts the objects a reconciliation run newly flagged and resolves
+  at the next run; no series reports the rows currently flagged missing.
+* The retention, media and artifact sweeps visit at most their batch size of workspaces per run,
+  always the same first ones by id, so their alerts cannot see the others (the runbook says how
+  to size the batches until the sweeps page through all workspaces).
+* A route's 5xx counter appears at its first value, so `rate()` misses the first 5xx of each
+  route and container; negligible for a ratio over 10 minutes at 0.2 requests/s or more.
+* No latency or SLO burn-rate alerts (no SLO is agreed yet), no host, disk, certificate,
+  PostgreSQL or Redis internals (node_exporter and database exporters bring their own rules).
+* Sweep ages compare worker timestamps with Prometheus time: clock skew beyond a minute
+  distorts them (hosts run NTP).
+
 ## Decision 5 — Reproducible build and release manifest (HOM-28, HOM-29)
 
 1. **Every input of a release comes from Git objects at one commit.**
@@ -83,7 +155,7 @@ This ADR is extended section by section as each Lane D change lands.
    `manifest_sha256` covers the canonical body: an integrity checksum, not proof of authorship
    (it is unkeyed; manifests and images are not signed and carry no provenance attestation).
    Validation links with credentials, a query or a fragment are refused; no environment variable, `.env` content or Git identity is recorded.
-3. **The image proves what it was built from.** Build arguments `SOURCE_SHA`,
+3. **The image records what it was built from, and `verify` checks that it matches.** Build arguments `SOURCE_SHA`,
    `SOURCE_DATE_EPOCH`, `SOURCE_DATE`, `RELEASE_VERSION` and `RELEASE_PROFILE` (which must agree
    with `INSTALL_AI_LOCAL`) come from `release_manifest.py build-args`. The image writes
    `/app/build-info.json` from its own files (lock and pyproject copies in

@@ -437,6 +437,37 @@ jobs:
           .github/workflows/ci.yml
           .github/workflows/release-website.yml
 
+      # HOM-126: the alert rules and their unit tests (docs/operations/alerts.md).
+      - name: Check Prometheus alert rules
+        run: >-
+          docker run --rm
+          --network none
+          --entrypoint promtool
+          --volume "${PWD}/infra/observability/prometheus:/rules:ro"
+          --workdir /rules/tests
+          prom/prometheus:v3.5.0
+          check rules /rules/homayar.rules.yml
+
+      - name: Unit-test Prometheus alert rules
+        run: >-
+          docker run --rm
+          --network none
+          --entrypoint promtool
+          --volume "${PWD}/infra/observability/prometheus:/rules:ro"
+          --workdir /rules/tests
+          prom/prometheus:v3.5.0
+          test rules homayar.rules.test.yml
+
+      - name: Check example Prometheus configuration
+        run: >-
+          docker run --rm
+          --network none
+          --entrypoint promtool
+          --volume "${PWD}/infra/observability/prometheus:/rules:ro"
+          --workdir /rules/tests
+          prom/prometheus:v3.5.0
+          check config --syntax-only /rules/prometheus.example.yml
+
       - name: Validate on-prem Compose profile
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem config --quiet
 
