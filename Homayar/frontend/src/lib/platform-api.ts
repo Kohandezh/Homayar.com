@@ -43,6 +43,7 @@ import type {
   MeetingSummary,
   MemberListResponse,
   PiiRevealResponse,
+  PlaybackDescriptor,
   PlanCatalogResponse,
   ReadinessResponse,
   ProcessingJob,
@@ -59,6 +60,7 @@ import type {
   UpdateTeamInput,
   Transcript,
   TranscriptCorrectionInput,
+  TranscriptFilters,
   TranscriptRevisionListResponse,
   TranscriptSpeaker,
   TranscriptView,
@@ -167,6 +169,18 @@ export const platformQueryKeys = {
     ["platform", "meetings", meetingId, "transcript", "revision", revisionId] as const,
   evidence: (meetingId: string) =>
     ["platform", "meetings", meetingId, "evidence"] as const,
+  /** The playback descriptor (HOM-247); answers whether and how the recording plays. */
+  playback: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "playback"] as const,
+  /**
+   * The server-filtered transcript (HOM-247). Deliberately not under the
+   * `transcript(id)` prefix: prefix invalidation must never re-read the
+   * audited original, and a filtered read is not an audited view.
+   */
+  transcriptFilteredRoot: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "transcript-filtered"] as const,
+  transcriptFiltered: (meetingId: string, filters: unknown) =>
+    ["platform", "meetings", meetingId, "transcript-filtered", filters] as const,
   summary: (meetingId: string) =>
     ["platform", "meetings", meetingId, "summary"] as const,
   report: (meetingId: string) =>
@@ -347,18 +361,36 @@ export function saveDownload(payload: DownloadPayload): void {
   URL.revokeObjectURL(url);
 }
 
+/** The playback descriptor of one meeting's recording (HOM-247). */
+export async function getPlayback(meetingId: string): Promise<PlaybackDescriptor> {
+  const response = await api.get<PlaybackDescriptor>(`/meetings/${meetingId}/playback`);
+  return response.data;
+}
+
 export async function getTranscript(
   meetingId: string,
   view?: TranscriptView,
   revisionId?: string,
+  filters?: TranscriptFilters | null,
 ): Promise<Transcript> {
   const path = `/meetings/${meetingId}/transcript`;
-  const params: { view?: TranscriptView; revision_id?: string } = {};
+  const params: {
+    view?: TranscriptView;
+    revision_id?: string;
+    speaker_key?: string[];
+    start_ms?: number;
+    end_ms?: number;
+  } = {};
   if (view) params.view = view;
   if (revisionId) params.revision_id = revisionId;
+  if (filters) {
+    if (filters.speakerKeys.length > 0) params.speaker_key = filters.speakerKeys;
+    if (filters.startMs !== null) params.start_ms = filters.startMs;
+    if (filters.endMs !== null) params.end_ms = filters.endMs;
+  }
   // No params, no config: the call shape existing callers and tests rely on.
   const response = Object.keys(params).length
-    ? await api.get<Transcript>(path, { params })
+    ? await api.get<Transcript>(path, filters ? { params, paramsSerializer: { indexes: null } } : { params })
     : await api.get<Transcript>(path);
   return response.data;
 }
@@ -760,6 +792,8 @@ export function useReplayJob() {
 export function forgetMeetingContent(queryClient: QueryClient, meetingId: string) {
   for (const key of [
     platformQueryKeys.transcript(meetingId),
+    platformQueryKeys.transcriptFilteredRoot(meetingId),
+    platformQueryKeys.playback(meetingId),
     platformQueryKeys.summary(meetingId),
     platformQueryKeys.actions(meetingId),
     platformQueryKeys.shares(meetingId),
@@ -857,6 +891,37 @@ export function useTranscript(meetingId: string | null | undefined) {
 }
 
 /**
+ * The playback descriptor (HOM-247). A 404/410 answer is final (the recording
+ * is gone), so it is never retried; the page shows its own wording for it.
+ */
+export function usePlayback(meetingId: string | null | undefined) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.playback(id),
+    queryFn: () => getPlayback(id),
+    enabled: Boolean(meetingId),
+    retry: false,
+    // A focus refetch can only replace a working player with an error.
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * The server-filtered transcript (HOM-247): speaker keys and a time range,
+ * applied by the API. Enabled only with filters; the previous answer stays on
+ * screen while the next one loads.
+ */
+export function useFilteredTranscript(meetingId: string | null | undefined, filters: TranscriptFilters | null) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.transcriptFiltered(id, filters),
+    queryFn: () => getTranscript(id, undefined, undefined, filters ?? undefined),
+    enabled: Boolean(meetingId) && filters !== null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
  * The original transcript under an enforced redaction policy. Every fetch is
  * an audited read (transcript.original_accessed), so it is fetched once per
  * explicit request, never refetched in the background, and dropped from the
@@ -930,6 +995,10 @@ export function useCorrectTranscript() {
         queryClient.invalidateQueries({
           queryKey: platformQueryKeys.transcript(variables.meetingId),
           exact: true,
+        }),
+        // A corrected turn may join or leave the filtered view (HOM-247).
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcriptFilteredRoot(variables.meetingId),
         }),
         queryClient.invalidateQueries({
           queryKey: platformQueryKeys.transcriptRevisions(variables.meetingId),
@@ -1025,6 +1094,10 @@ export function useRenameSpeaker() {
         queryClient.invalidateQueries({
           queryKey: platformQueryKeys.transcript(variables.meetingId),
           exact: true,
+        }),
+        // A renamed speaker may move turns in the filtered view (HOM-247).
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcriptFilteredRoot(variables.meetingId),
         }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.report(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),

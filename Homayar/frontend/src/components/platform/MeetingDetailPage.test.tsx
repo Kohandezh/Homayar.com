@@ -5,6 +5,7 @@ import api from "@/lib/api";
 import MeetingDetailPage from "@/components/platform/MeetingDetailPage";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";
 import { callReport, reviewActions } from "@/test/fixtures-report";
+import { playbackDescriptor } from "@/test/fixtures-playback";
 import type { CallReportResponse, MeetingDetail, Transcript } from "@/types/platform";
 
 const T = "2026-09-24T12:00:00Z";
@@ -59,6 +60,8 @@ function renderDetail(
   const get = vi.spyOn(api, "get").mockImplementation(async (url: string) => {
     if (url === "/meetings/m-1") return okResponse(meeting);
     if (url === "/meetings/m-1/report") return report() as never;
+    // HOM-247: the player plays only after the playback descriptor answers.
+    if (url === "/meetings/m-1/playback") return okResponse(playbackDescriptor());
     if (url === "/meetings/m-1/transcript") return okResponse(TRANSCRIPT);
     if (url === "/meetings/m-1/actions") return okResponse([]);
     if (url === "/meetings/m-1/shares") return okResponse([]);
@@ -85,7 +88,8 @@ describe("MeetingDetailPage playback and ?at=", () => {
   it("plays through the workspace-scoped route with no credential in the URL (gap G11)", async () => {
     renderDetail("/meetings/m-1");
     const audio = (await screen.findByLabelText("Recording", { selector: "audio" })) as HTMLAudioElement;
-    expect(audio.getAttribute("src")).toBe("/api/v1/workspaces/ws-1/meetings/m-1/recording");
+    // SPEC Amendment A1: the descriptor's media_url, resolved against the API origin.
+    expect(audio.getAttribute("src")).toBe("http://localhost:3000/api/v1/workspaces/ws-1/meetings/m-1/recording");
     expect(audio.getAttribute("src")).not.toMatch(/token|key|sig/i);
     expect(audio).toHaveAttribute("preload", "none");
     fireEvent.error(audio);
@@ -95,7 +99,8 @@ describe("MeetingDetailPage playback and ?at=", () => {
   it("cues the player for a valid ?at= and reports an invalid one instead of guessing (QA Q-01)", async () => {
     const first = renderDetail("/meetings/m-1?at=15000");
     expect(await screen.findByText(/Opened at 0:15\./)).toBeInTheDocument();
-    expect(screen.getByText(/The player is set to this time/)).toBeInTheDocument();
+    // HOM-247 turn 2, item 4: "Opened at" shows at once; this ending follows when the playback descriptor answers.
+    expect(await screen.findByText(/The player is set to this time/)).toBeInTheDocument();
     expect(screen.getByLabelText("Recording", { selector: "audio" })).toHaveAttribute("preload", "metadata");
     first.unmount();
     vi.restoreAllMocks();

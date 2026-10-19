@@ -1291,3 +1291,17 @@ button.pii-placeholder:focus-visible { outline: 2px solid #147d6f; outline-offse
 .content-view-note { margin: 0 0 0.6rem; color: #52625e; font-size: 0.72rem; line-height: 1.6; }
 .meeting-player { display: grid; gap: 0.5rem; margin-bottom: 1rem; padding: 0.75rem 1rem; }
 .meeting-player audio { width: 100%; }
+/* HOM-247: synced playback. Logical properties, so the layout mirrors on the RTL page. */
+.player-notices { display: grid; gap: 0.25rem; margin: 0; padding-inline-start: 1.1rem; color: #7a4b16; font-size: 0.74rem; }
+.playback-shortcuts { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-block: -0.4rem 1rem; color: #53645f; font-size: 0.72rem; }
+.playback-shortcuts > div { display: inline-flex; align-items: center; gap: 0.35rem; }
+.playback-shortcuts kbd { min-inline-size: 1.4rem; padding: 0.05rem 0.35rem; border: 1px solid #c9d5d1; border-block-end-width: 2px; border-radius: 4px; background: #f7faf9; color: #293d37; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; text-align: center; }
+.transcript-time-filter { display: flex; flex-wrap: wrap; align-items: end; gap: 0.5rem; }
+.transcript-time-filter .platform-input { inline-size: 6rem; }
+.transcript-time-error { flex-basis: 100%; margin: 0; color: #8f3526; font-size: 0.74rem; }
+.transcript-follow { display: inline-flex !important; align-items: center; gap: 0.35rem; }
+.segment-play { padding: 0 0.25rem; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.segment-play:hover time, .segment-play:focus-visible time { color: #147d6f; text-decoration: underline; }
+.segment-play:focus-visible { outline: 2px solid #147d6f; outline-offset: 1px; }
+.meeting-segment p.is-playable { cursor: pointer; }
+.meeting-segment.is-playing { border-inline-start-color: #147d6f; background: #eef7f5; }
