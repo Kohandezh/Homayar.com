@@ -63,7 +63,8 @@ on every restore.
      after the set's month, plus the 30-day daily window (`monthly_locked_until` reports it per
      set). It is never shortened, and a COMPLIANCE lock is left alone (`retention_kept`). So the
      lock never outlives the retention, and prune can delete the set once the policy expires it.
-     A lock that is still longer (a lowered `--monthly`, a bucket default above 30 days, a set
+     When daily backups were missed, a monthly set is kept past that date; prune then leaves its
+     lock as it is (`retention_past_due`), since S3 refuses a past date. A lock that is still longer (a lowered `--monthly`, a bucket default above 30 days, a set
      that stops being its month's representative) is safe: prune counts those versions and
      retries them later (see below).
    - The backup tool's credential **never** has `s3:BypassGovernanceRetention`.

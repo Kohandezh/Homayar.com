@@ -753,7 +753,9 @@ def monthly_lock_until(backup_id: str, *, daily: int, monthly: int) -> datetime:
     leaves the daily window ``daily`` days later (with a set every day;
     missing days only delay the expiry).  So the lock never outlives the
     retention: the prune can always delete the set once the policy expires
-    it, and the lock ends at most a day before that.
+    it, and the lock ends at most a day before that.  When daily backups were
+    missed the set is kept past this date; prune then leaves its lock alone
+    (``retention_past_due``) instead of extending it.
     """
     from backend.backup.retention import backup_time
 
@@ -871,6 +873,7 @@ def prune_s3(
         "legal_holds": 0,
         "retention_extended": 0,
         "retention_kept": 0,
+        "retention_past_due": 0,
     }
     purged: set[str] = set()
 
@@ -910,6 +913,11 @@ def prune_s3(
         if lock:
             for backup_id in sorted(monthly_sets):
                 until = monthly_lock_until(backup_id, daily=daily, monthly=monthly)
+                if until <= now:
+                    # Missed daily backups keep the set past its earliest expiry: a
+                    # lock now would outlive the retention (and S3 refuses a past date).
+                    counts["retention_past_due"] += 1
+                    continue
                 keys = [item["Key"] for item in groups.get(backup_id, [])]
                 if backup_id in markers:
                     keys.append(_marker_key(prefix, backup_id))
@@ -960,6 +968,7 @@ def prune_s3(
         else {},
         "retention_extended": counts["retention_extended"],
         "retention_kept": counts["retention_kept"],
+        "retention_past_due": counts["retention_past_due"],
         "leftover_sets": leftovers,
         "errors": errors,
     }

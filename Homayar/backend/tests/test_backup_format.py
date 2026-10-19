@@ -429,6 +429,8 @@ class _FakeS3:
 
         self._deny("put_object_retention")
         assert Retention["Mode"] == "GOVERNANCE"
+        if Retention["RetainUntilDate"] <= datetime.now(UTC):  # S3: must be in the future
+            raise ClientError({"Error": {"Code": "InvalidArgument"}}, "PutObjectRetention")
         current = self.retention.get(Key, self.lock_until if Key in self.locked else None)
         if current is not None and Retention["RetainUntilDate"] < current:
             # Shortening GOVERNANCE retention needs s3:BypassGovernanceRetention.
@@ -1516,3 +1518,27 @@ def backup_time_of(backup_id: str) -> datetime:
     from backend.backup.retention import backup_time
 
     return backup_time(backup_id).replace(hour=0, minute=0, second=0)
+
+
+def test_a_monthly_set_kept_past_its_lock_date_after_missed_days_is_not_an_error(tmp_path):
+    from backend.backup.replicate import monthly_lock_until, prune_s3, replicate_to_s3
+
+    root = tmp_path / "root"
+    september, yesterday, today = (
+        "20260915T020000Z-0000000a",
+        "20261017T020000Z-0000000b",
+        "20261018T020000Z-0000000c",
+    )
+    s3 = _FakeS3(versioning="Enabled")
+    for backup_id in (september, yesterday, today):
+        replicate_to_s3(
+            _offsite_source(root, backup_id, full=True, verified=True), "s3://offsite/p", client=s3
+        )
+    s3.object_lock = True
+    # No October set older than the daily window (missed days): September is
+    # still kept, past the earliest day the retention could have expired it.
+    assert monthly_lock_until(september, daily=2, monthly=1) <= datetime.now(UTC)
+    result = prune_s3("s3://offsite/p", daily=2, monthly=1, client=s3)
+    assert september in result["kept"] and result["errors"] == []
+    assert result["retention_past_due"] == 1 and result["retention_extended"] == 0
+    assert not s3.retention
