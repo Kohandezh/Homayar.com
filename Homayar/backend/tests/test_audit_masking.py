@@ -130,8 +130,8 @@ def test_masking_happens_before_the_cap(client, settings):
 def test_ids_inside_free_text_and_plain_reasons_are_untouched(client, settings):
     from backend.database.relational import get_session_factory
 
-    # A fixed id: about 0.2% of random UUIDs hold a digit run the detector reads as personal
-    # data, which made this test fail at random.
+    # An id with no digit run the detector reads as personal data. About 0.16% of random
+    # UUIDs have one; that known limitation is pinned in the next test.
     plain = "retry after 3f2b9c1e-7a4d-4e8b-b5c6-d1e2f3a4b5c6 (job 1234)"
     with get_session_factory()() as db:
         record_audit_event(db, event_type="meeting.purge_completed",
@@ -169,3 +169,25 @@ def test_subject_export_reason_is_masked_end_to_end(client, email_outbox):
     assert response.status_code == 200, response.text
     reason = _stored("subject.exported").details["reason"]
     assert reason == "request from [EMAIL_1] about [PHONE_1]"
+
+
+# A real UUID whose tail the text PII detector reads as an IBAN (found by sampling).
+DIGIT_RUN_ID = "d88254d9-fb20-4523-b551-96ce12626b0f"
+
+
+def test_an_id_with_a_digit_run_is_masked_in_free_text_but_kept_in_an_id_key(client, settings):
+    # Known limitation (fails closed): masking is on for every free-text value, so an id
+    # embedded in a reason can be partly masked; a structured *_id key is never masked.
+    from backend.database.relational import get_session_factory
+
+    with get_session_factory()() as db:
+        record_audit_event(
+            db, event_type="meeting.purge_completed",
+            details={"reason": f"retry after {DIGIT_RUN_ID}", "meeting_id": DIGIT_RUN_ID},
+            settings=settings,
+        )
+        db.commit()
+    details = _stored("meeting.purge_completed").details
+    assert details["reason"] != f"retry after {DIGIT_RUN_ID}"
+    assert "[IBAN_1]" in details["reason"]
+    assert details["meeting_id"] == DIGIT_RUN_ID

@@ -54,6 +54,9 @@ arrive they need catalogue entries (the coverage test enforces it).
   exempt.
   The match is on substrings, so keys such as `ip_address` or `scorecard_*` are masked too:
   this fails closed (masked, never leaked) and is intended.
+  An id embedded in a free-text reason can be partly masked when it contains a digit run the
+  detector reads as personal data (about 0.16% of random UUIDs; fails closed); a structured
+  `*_id` key is never masked.
 
 ## Delivery and failure behaviour
 
