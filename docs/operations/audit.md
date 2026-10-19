@@ -129,7 +129,11 @@ SELECT pg_has_role('<application login>', 'homayar_audit_reader', 'MEMBER');  --
 ### Migration `e6c3a9f1d4b8`
 
 * Upgrade: revokes `UPDATE`, `DELETE` on `audit_events` from `homayar_app`, creates the
-  reader role (idempotent), its grants and its policy. No data changes. Creating the
+  reader role (idempotent), its grants and its policy. No data changes. A role of that
+  name that already exists is made inert: `NOLOGIN` without a password, no role attribute,
+  a member of no role, and `homayar_app` no member of it; if that is not possible (an
+  indirect membership path from `homayar_app`, or a change the migration role may not
+  make) the upgrade fails with "homayar_audit_reader is not inert". Creating the
   role needs `CREATEROLE`, as for `homayar_app`; if the migration role does not have it,
   a DBA creates the role first:
   `CREATE ROLE homayar_audit_reader NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;`
@@ -137,4 +141,6 @@ SELECT pg_has_role('<application login>', 'homayar_audit_reader', 'MEMBER');  --
   on the cluster still grants it anything and the migration role may drop roles
   (otherwise the role stays, `NOLOGIN` and without privileges in this database), and
   gives `homayar_app` back `UPDATE` and `DELETE`. The previous application never updates
-  or deletes audit rows, so it runs on either schema.
+  or deletes audit rows, so it runs on either schema. A deeper downgrade applies the rule
+  again once it passes `b9e4f2a6c8d3` (and at `f1b6d8e4a2c7`, `d7f3a1c9e2b4`): those
+  downgrades, like every older upgrade, run the current `apply_row_level_security`.

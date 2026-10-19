@@ -17,7 +17,10 @@ PostgreSQL only (SQLite has no roles; the ORM guard in ``audit_service`` covers 
   ``audit_events`` only, plus the policy ``homayar_audit_export FOR SELECT TO
   homayar_audit_reader USING (true)``.  The tenant policy and its WITH CHECK are
   unchanged.  ``homayar_app`` is not a member, so no application session can
-  ``SET ROLE`` to it.
+  ``SET ROLE`` to it.  A role of that name that already exists is made inert (no
+  LOGIN or password, no role attribute, no membership either way); if it cannot be
+  (an indirect membership path from ``homayar_app``, or a change the migration role
+  may not make), the upgrade fails instead of continuing.
 
 Creating the role needs CREATEROLE, as for ``homayar_app``; a migration role without
 it needs both roles created by a DBA first (``docs/operations/audit.md``).
@@ -27,6 +30,11 @@ no other database on the cluster still grants it anything and the migration role
 drop roles (otherwise the role stays, NOLOGIN and without privileges here), and gives
 ``homayar_app`` back UPDATE and DELETE on ``audit_events``. The previous
 application never updates or deletes audit rows, so it runs on either schema.
+A deeper downgrade re-applies the rule once it passes ``b9e4f2a6c8d3`` (and again
+at ``f1b6d8e4a2c7`` and ``d7f3a1c9e2b4``): their downgrades, like every older upgrade,
+call ``apply_row_level_security`` from the current code, which revokes UPDATE and
+DELETE on ``audit_events`` and installs the reader role again.  Between
+``d8a2f4c6b1e3`` and ``b9e4f2a6c8d3`` the table stays writable, as at those revisions.
 """
 
 from __future__ import annotations

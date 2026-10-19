@@ -33,6 +33,7 @@ from backend.tests.conftest import login_user, register_user
 
 APP_LOGIN = "homayar_audit_app_probe"
 READER_LOGIN = "homayar_audit_reader_probe"
+HOP_ROLE = "homayar_audit_reader_hop_probe"
 HEAD_REVISION = "e6c3a9f1d4b8"
 PREVIOUS_REVISION = "d8a2f4c6b1e3"
 
@@ -349,3 +350,116 @@ def test_migration_downgrade_and_upgrade_round_trip(client, monkeypatch, setting
             assert db.scalar(text("SELECT version_num FROM alembic_version")) == HEAD_REVISION
     finally:
         reset_settings_cache()
+
+
+# --- a pre-existing reader role is made inert, or refused ------------------------------------
+
+
+def _reader_state() -> dict[str, object]:
+    with inspection_session_factory()() as db:
+        row = db.execute(
+            text(
+                "SELECT rolcanlogin OR rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole "
+                "AS privileged, rolcanlogin AS can_login, "
+                "(SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) AS member_of, "
+                "pg_has_role(:app, r.rolname, 'MEMBER') AS app_reaches "
+                "FROM pg_roles r WHERE r.rolname = :reader"
+            ),
+            {"app": APP_ROLE, "reader": AUDIT_READER_ROLE},
+        ).one()
+        return dict(row._mapping)
+
+
+INERT = {"privileged": False, "can_login": False, "member_of": 0, "app_reaches": False}
+
+
+def _apply_as_owner() -> None:
+    from backend.database.rls import apply_row_level_security
+
+    with inspection_session_factory()() as db:
+        try:
+            apply_row_level_security(db.connection())
+        except Exception:
+            db.rollback()
+            raise
+        db.commit()
+
+
+@pytest.fixture
+def restore_reader():
+    """The reader role is cluster-wide: leave it inert whatever the test did to it."""
+    yield
+    _admin(f"DROP ROLE IF EXISTS {HOP_ROLE}")
+    _apply_as_owner()
+    assert _reader_state() == INERT
+
+
+@pytest.mark.postgres
+def test_the_migration_makes_a_pre_created_reader_inert(
+    client, monkeypatch, settings: Settings, restore_reader
+):
+    _requires_postgres()
+    from alembic import command
+    from alembic.config import Config
+
+    from backend.config import reset_settings_cache
+    from backend.observability.release import PROJECT_ROOT
+
+    monkeypatch.setenv("DATABASE_URL", settings.database_url)
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    reset_settings_cache()
+    try:
+        config = Config(str(PROJECT_ROOT / "alembic.ini"))
+        command.stamp(config, "head")
+        command.downgrade(config, PREVIOUS_REVISION)
+        # A DBA pre-created the role as a login inside the application role (the role may
+        # also survive the downgrade, when another database on the cluster still uses it).
+        password = secrets.token_urlsafe(18)  # throwaway; the role ends up NOLOGIN
+        with inspection_session_factory()() as db:
+            exists = db.execute(
+                text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": AUDIT_READER_ROLE}
+            ).first()
+        if exists:
+            _admin(
+                f"ALTER ROLE {AUDIT_READER_ROLE} LOGIN PASSWORD '{password}' CREATEDB CREATEROLE",
+                f"GRANT {APP_ROLE} TO {AUDIT_READER_ROLE}",
+            )
+        else:
+            _admin(
+                f"CREATE ROLE {AUDIT_READER_ROLE} LOGIN PASSWORD '{password}' CREATEDB "
+                f"CREATEROLE IN ROLE {APP_ROLE}"
+            )
+        assert _reader_state() == {
+            "privileged": True,
+            "can_login": True,
+            "member_of": 1,
+            "app_reaches": False,
+        }
+        command.upgrade(config, "head")
+    finally:
+        reset_settings_cache()
+    assert _reader_state() == INERT
+    with inspection_session_factory()() as db:
+        assert not db.execute(
+            text("SELECT pg_has_role(:reader, :app, 'MEMBER')"),
+            {"reader": AUDIT_READER_ROLE, "app": APP_ROLE},
+        ).scalar_one()
+
+
+@pytest.mark.postgres
+def test_the_application_role_never_reaches_the_reader(client, restore_reader):
+    _requires_postgres()
+    _admin(f"GRANT {AUDIT_READER_ROLE} TO {APP_ROLE}")
+    assert _reader_state()["app_reaches"] is True
+    _apply_as_owner()  # a direct membership is revoked
+    assert _reader_state() == INERT
+
+    # An indirect path cannot be cut safely here: the upgrade refuses instead.
+    _admin(
+        f"DROP ROLE IF EXISTS {HOP_ROLE}",
+        f"CREATE ROLE {HOP_ROLE} NOLOGIN",
+        f"GRANT {AUDIT_READER_ROLE} TO {HOP_ROLE}",
+        f"GRANT {HOP_ROLE} TO {APP_ROLE}",
+    )
+    with pytest.raises(DBAPIError, match="homayar_audit_reader is not inert"):
+        _apply_as_owner()
