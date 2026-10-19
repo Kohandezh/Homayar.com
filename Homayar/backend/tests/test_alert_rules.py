@@ -215,6 +215,10 @@ def _vocabulary(
         "homayar:metrics_collection_errors:increase15m",
     ):
         return exposition.values("homayar_metrics_collection_errors_total", "source")
+    if label == "reason" and metric == "homayar_auth_failures_total":
+        return exposition.values(metric, "reason")  # every reason is exported at 0 (HOM-114)
+    if label == "delivery" and metric == "homayar_audit_write_failures_total":
+        return exposition.values(metric, "delivery")
     if label == "target" and metric in EXTERNAL_METRICS:
         return set(BACKUP_TARGETS)
     if label == "job" and metric in EXTERNAL_SERIES:
