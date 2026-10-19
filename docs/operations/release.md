@@ -127,7 +127,7 @@ Not pinned (recorded as such under `reproducibility.not_pinned` in every manifes
   `ffmpeg`, `libgomp1`, `libmagic1`, `libpq5`): they come from the Debian archive on the day of
   the build;
 * file timestamps and layer digests;
-* the base images of `console-web`, `public-web` and `egress-proxy` (tags; the manifest records
+* the base images of `console-web` and `egress-proxy` (tags; the manifest records
   them with `pinned_by_digest: false`);
 * signatures and provenance: the manifest and images are not signed and carry no provenance
   attestation, and the image ids recorded by CI are local ids, not registry digests.

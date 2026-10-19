@@ -58,7 +58,6 @@ DEPENDENCY_FILES = {
     "pyproject": PYPROJECT,
     "backend_requirements": "Homayar/backend/requirements.txt",
     "console_package_lock": "Homayar/frontend/package-lock.json",
-    "public_web_pnpm_lock": "pnpm-lock.yaml",
     "website_pnpm_lock": "website/pnpm-lock.yaml",
 }
 # Image -> Dockerfile; its build context filter is "<Dockerfile>.dockerignore".
@@ -66,7 +65,6 @@ IMAGES = {
     "api": API_DOCKERFILE,
     "console-web": "infra/docker/console-web.Dockerfile",
     "egress-proxy": "infra/docker/egress-proxy.Dockerfile",
-    "public-web": "infra/docker/public-web.Dockerfile",
 }
 # Code the API image ships, relative to PRODUCT_DIR (api.Dockerfile.dockerignore); the
 # same rule as backend.observability.release.is_shipped, which hashes the image's copy.
