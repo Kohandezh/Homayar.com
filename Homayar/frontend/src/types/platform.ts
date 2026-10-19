@@ -322,6 +322,46 @@ export interface Transcript {
   view?: TranscriptView;
   privacy_enforced?: boolean;
   redaction?: TranscriptRedaction | null;
+  /** The filters the server applied, present only when the request had any (HOM-247). */
+  filters?: TranscriptResponseFilters | null;
+  /** Segments before filtering, present only on a filtered response (HOM-247). */
+  total_segments?: number | null;
+  /** Same object as the playback descriptor's (HOM-247). */
+  completeness?: ReportCompleteness | null;
+}
+
+/** What GET /meetings/{id}/transcript echoes about the filters it applied (HOM-247). */
+export interface TranscriptResponseFilters {
+  speaker_keys?: string[] | null;
+  start_ms?: number | null;
+  end_ms?: number | null;
+}
+
+/** Client-side transcript filters (HOM-247): sent as repeatable `speaker_key` plus the range. */
+export interface TranscriptFilters {
+  speakerKeys: string[];
+  startMs: number | null;
+  endMs: number | null;
+}
+
+/**
+ * GET /meetings/{id}/playback (HOM-247): what the server says about playing a
+ * meeting's recording. `media_url` is the source the player uses; `url` also
+ * carries a media-fragment cue and is never the element source.
+ */
+export interface PlaybackDescriptor {
+  meeting_id: string;
+  media_url: string;
+  url: string;
+  start_ms: number;
+  end_ms: number | null;
+  duration_ms: number | null;
+  content_type: string;
+  size_bytes: number;
+  accept_ranges: string;
+  completeness: ReportCompleteness;
+  privacy_enforced: boolean;
+  audio_redacted: boolean;
 }
 
 /** POST /meetings/{id}/transcript/redactions/{redaction_id}/reveal (owner, audited). */

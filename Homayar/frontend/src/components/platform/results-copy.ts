@@ -36,6 +36,17 @@ export interface ResultsCopy {
     classes: Record<string, string>;
     atFound: (time: string) => string;
     atMissing: string;
+    /** HOM-247: synced playback and server-side filters. */
+    playFrom: (time: string) => string;
+    followAudio: string;
+    timeFrom: string;
+    timeTo: string;
+    applyTimeRange: string;
+    timeInvalid: string;
+    timeOrder: string;
+    clearFilters: string;
+    showing: (count: string, total: string) => string;
+    noMatches: string;
   };
   correction: {
     editTurn: (time: string) => string;
@@ -159,6 +170,16 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
       },
       atFound: (time) => `Showing the transcript segment at ${time}.`,
       atMissing: "No transcript segment was found at the requested time.",
+      playFrom: (time) => `Play from ${time}`,
+      followAudio: "Follow the audio",
+      timeFrom: "From",
+      timeTo: "To",
+      applyTimeRange: "Apply time range",
+      timeInvalid: "Enter a time like 1:05.",
+      timeOrder: "The end time must be after the start time.",
+      clearFilters: "Clear filters",
+      showing: (count, total) => `Showing ${count} of ${total} turns`,
+      noMatches: "No turns match these filters.",
     },
     correction: {
       editTurn: (time) => `Edit turn at ${time}`,
@@ -298,6 +319,16 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
       },
       atFound: (time) => `بخش متن در زمان ${time} نمایش داده شده است.`,
       atMissing: "در زمان درخواستی بخشی از متن پیدا نشد.",
+      playFrom: (time) => `پخش از ${time}`,
+      followAudio: "دنبال کردن صدا",
+      timeFrom: "از",
+      timeTo: "تا",
+      applyTimeRange: "اعمال بازهٔ زمانی",
+      timeInvalid: "زمانی مثل ۱:۰۵ وارد کنید.",
+      timeOrder: "زمان پایان باید بعد از زمان شروع باشد.",
+      clearFilters: "پاک کردن فیلترها",
+      showing: (count, total) => `نمایش ${count} از ${total} بخش`,
+      noMatches: "بخشی با این فیلترها پیدا نشد.",
     },
     correction: {
       editTurn: (time) => `ویرایش بخش در ${time}`,

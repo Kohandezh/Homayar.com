@@ -1,6 +1,6 @@
 import { AxiosError, AxiosHeaders, type AxiosResponse } from "axios";
 import { createElement, type ReactNode } from "react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import {
   PLATFORM_POLL_INTERVAL_MS,
   acceptInvitation,
+  forgetMeetingContent,
   assignTeamMember,
   changeMemberRole,
   createAction,
@@ -23,6 +24,7 @@ import {
   getMeetingCounts,
   getMeetingJob,
   getMeetingSummary,
+  getPlayback,
   getPlanCatalog,
   getReadiness,
   getSharedMeeting,
@@ -61,6 +63,8 @@ import {
   useTeam,
   useTeams,
   useUpdateTeam,
+  usePlayback,
+  useRenameSpeaker,
 } from "@/lib/platform-api";
 import { testQueryClient, apiError } from "@/test/fixtures";
 import type {
@@ -383,6 +387,121 @@ describe("meeting intelligence and sharing API", () => {
     expect(get).toHaveBeenNthCalledWith(1, "/meetings/meeting-1/shares");
     expect(get).toHaveBeenNthCalledWith(2, "/shares/share-token");
     expect(remove).toHaveBeenCalledWith("/meetings/meeting-1/shares/share-1");
+  });
+});
+
+describe("playback and filtered transcript API (HOM-247)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reads the playback descriptor with no params and no config", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse({}));
+    await getPlayback("meeting-1");
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith("/meetings/meeting-1/playback");
+  });
+
+  it("sends transcript filters as repeatable keys with no indexes", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse({}));
+
+    await getTranscript("meeting-1");
+    expect(get).toHaveBeenNthCalledWith(1, "/meetings/meeting-1/transcript");
+
+    await getTranscript("meeting-1", undefined, undefined, {
+      speakerKeys: ["a", "b"],
+      startMs: 1000,
+      endMs: 5000,
+    });
+    expect(get).toHaveBeenNthCalledWith(2, "/meetings/meeting-1/transcript", {
+      params: { speaker_key: ["a", "b"], start_ms: 1000, end_ms: 5000 },
+      paramsSerializer: { indexes: null },
+    });
+
+    // A filter without a speaker key sends only the range keys that are set.
+    await getTranscript("meeting-1", undefined, undefined, { speakerKeys: [], startMs: 65000, endMs: null });
+    expect(get).toHaveBeenNthCalledWith(3, "/meetings/meeting-1/transcript", {
+      params: { start_ms: 65000 },
+      paramsSerializer: { indexes: null },
+    });
+  });
+
+  it("keeps the filtered transcript key outside the transcript prefix", () => {
+    expect(platformQueryKeys.playback("meeting-1")).toEqual(["platform", "meetings", "meeting-1", "playback"]);
+    const filters = { speakerKeys: ["S2"], startMs: null, endMs: null };
+    expect(platformQueryKeys.transcriptFiltered("meeting-1", filters)).toEqual([
+      "platform",
+      "meetings",
+      "meeting-1",
+      "transcript-filtered",
+      filters,
+    ]);
+    const filtered = platformQueryKeys.transcriptFiltered("meeting-1", filters);
+    const original = platformQueryKeys.transcriptOriginal("meeting-1");
+    // Prefix invalidation of transcript(id) must never re-read the audited original.
+    expect(filtered.slice(0, original.length)).not.toEqual(original);
+  });
+
+  it("forgets the filtered transcripts and the playback descriptor with the meeting's content", () => {
+    const queryClient = testQueryClient();
+    const filtered = platformQueryKeys.transcriptFiltered("meeting-1", { speakerKeys: ["S2"], startMs: null, endMs: null });
+    queryClient.setQueryData(filtered, { segments: [] });
+    queryClient.setQueryData(platformQueryKeys.playback("meeting-1"), { media_url: "/x" });
+    queryClient.setQueryData(platformQueryKeys.playback("meeting-2"), { media_url: "/y" });
+    forgetMeetingContent(queryClient, "meeting-1");
+    expect(queryClient.getQueryData(filtered)).toBeUndefined();
+    expect(queryClient.getQueryData(platformQueryKeys.playback("meeting-1"))).toBeUndefined();
+    // Another meeting's descriptor stays.
+    expect(queryClient.getQueryData(platformQueryKeys.playback("meeting-2"))).toEqual({ media_url: "/y" });
+  });
+
+  it("invalidates the filtered transcripts after a speaker rename", async () => {
+    vi.spyOn(api, "patch").mockResolvedValue(axiosResponse({}));
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const rename = renderHook(() => useRenameSpeaker(), { wrapper });
+    await act(async () => {
+      await rename.result.current.mutateAsync({ meetingId: "meeting-1", speakerId: "sp-1", displayName: "Customer" });
+    });
+    const filteredRoot = JSON.stringify(["platform", "meetings", "meeting-1", "transcript-filtered"]);
+    expect(invalidate.mock.calls.some((call) => JSON.stringify(call[0]?.queryKey) === filteredRoot)).toBe(true);
+  });
+
+  it("does not read the playback descriptor again on window focus (turn 2, item 2)", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(axiosResponse({ media_url: "/x" }));
+    // Stale at once, so only the hook's own option can stop a focus refetch.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => usePlayback("meeting-1"), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    });
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    focusManager.setFocused(undefined);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a 410 playback answer", async () => {
+    const get = vi.spyOn(api, "get").mockRejectedValue(apiError(410, "recording_retention_expired"));
+    // A client that would retry, so only the hook's own `retry: false` stops it.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 2, retryDelay: 1 } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => usePlayback("meeting-1"), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isError).toBe(true), { timeout: 4_000 });
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+    // Without an id nothing is asked.
+    renderHook(() => usePlayback(null), { wrapper });
+    expect(get).toHaveBeenCalledTimes(1);
   });
 });
 
