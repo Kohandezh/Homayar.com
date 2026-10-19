@@ -339,14 +339,45 @@ def ensure_app_role_statements(role: str = APP_ROLE) -> list[str]:
     ]
 
 
-def audit_reader_statements(role: str = AUDIT_READER_ROLE) -> list[str]:
-    """Create the sink reader role, its SELECT grant and its read-only policy."""
+def audit_reader_statements(
+    role: str = AUDIT_READER_ROLE, *, app_role: str = APP_ROLE
+) -> list[str]:
+    """Create the sink reader role, its SELECT grant and its read-only policy.
+
+    A role of that name that already exists (pre-created by a DBA, or left by an
+    earlier install) is made inert: ``NOLOGIN`` without a password, no superuser,
+    ``BYPASSRLS``, ``CREATEDB`` or ``CREATEROLE``, a member of no role (it would
+    inherit that role's privileges), and ``app_role`` is no member of it.  Only the
+    changes it needs are issued, so a migration role without SUPERUSER runs this
+    when nothing is wrong; a change it may not make fails the migration.  The last
+    statement refuses to continue while the role is not inert (an indirect path from
+    ``app_role`` included).
+    """
     role = validate_role_name(role)
+    app_role = validate_role_name(app_role)
     return [
         (
-            "DO $$ BEGIN "
-            f"IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN "
+            "DO $$ DECLARE reader pg_roles%ROWTYPE; grant_row record; BEGIN "
+            f"SELECT * INTO reader FROM pg_roles WHERE rolname = '{role}'; "
+            "IF NOT FOUND THEN "
             f"CREATE ROLE {role} NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; "
+            "ELSE "
+            "IF reader.rolcanlogin OR reader.rolcreatedb OR reader.rolcreaterole THEN "
+            f"ALTER ROLE {role} NOLOGIN NOCREATEDB NOCREATEROLE PASSWORD NULL; "
+            "END IF; "
+            f"IF reader.rolsuper THEN ALTER ROLE {role} NOSUPERUSER; END IF; "
+            f"IF reader.rolbypassrls THEN ALTER ROLE {role} NOBYPASSRLS; END IF; "
+            # every membership grant of the reader, and of app_role in the reader,
+            # with the grantor PostgreSQL recorded for it
+            "FOR grant_row IN SELECT g.rolname AS granted, r.rolname AS member, "
+            "o.rolname AS grantor FROM pg_auth_members m "
+            "JOIN pg_roles g ON g.oid = m.roleid JOIN pg_roles r ON r.oid = m.member "
+            "JOIN pg_roles o ON o.oid = m.grantor "
+            f"WHERE r.rolname = '{role}' OR (g.rolname = '{role}' AND r.rolname = '{app_role}') "
+            "LOOP "
+            "EXECUTE format('REVOKE %I FROM %I GRANTED BY %I', "
+            "grant_row.granted, grant_row.member, grant_row.grantor); "
+            "END LOOP; "
             "END IF; END $$;"
         ),
         f"GRANT USAGE ON SCHEMA public TO {role}",
@@ -355,6 +386,18 @@ def audit_reader_statements(role: str = AUDIT_READER_ROLE) -> list[str]:
         f"DROP POLICY IF EXISTS {AUDIT_READER_POLICY} ON {AUDIT_TABLE}",
         f"CREATE POLICY {AUDIT_READER_POLICY} ON {AUDIT_TABLE} AS PERMISSIVE FOR SELECT "
         f"TO {role} USING (true)",
+        (
+            "DO $$ BEGIN "
+            f"IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}' AND (rolcanlogin "
+            "OR rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)) "
+            "OR EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member "
+            f"WHERE r.rolname = '{role}') "
+            f"OR pg_has_role('{app_role}', '{role}', 'MEMBER') THEN "
+            f"RAISE EXCEPTION '{role} is not inert: it can log in, holds a role attribute, is "
+            f"a member of another role, or {app_role} reaches it through a membership; "
+            "remove that before this migration (docs/operations/audit.md#the-audit-reader-role)'; "
+            "END IF; END $$;"
+        ),
     ]
 
 
@@ -449,7 +492,7 @@ def apply_row_level_security(connection: Connection, *, role: str = APP_ROLE) ->
         ).scalar_one():
             connection.execute(text(f"REVOKE UPDATE, DELETE ON {table} FROM {role}"))
     if AUDIT_TABLE in tables:
-        for statement in audit_reader_statements():
+        for statement in audit_reader_statements(app_role=role):
             connection.execute(text(statement))
 
 
