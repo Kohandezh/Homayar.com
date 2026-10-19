@@ -30,6 +30,7 @@ settings, which the invitation flow still needs.
 | --- | --- |
 | `admin-overview.spec.ts` | An owner signs in and `/admin` shows every card with real numbers. |
 | `processing.spec.ts` | An owner filters `/admin/processing` by state, reads a dead-letter job's drawer (failure, timeline, policy) and sees the failed jobs offer no replay. |
+| `ingestions.spec.ts` | An owner reads the real `/admin/ingestions` (table or empty state); with the ledger mocked: paging by cursor, the state filter, the source filter reaching the server, the rejected row's reason, the duplicate row's earlier ingestion and the meeting link, and no hash in the page. Persian is right to left; a member gets `No access` with no list request. |
 | `usage.spec.ts` | An owner reads `/admin/usage` (subscription, quota meters, event history with filter and paging, plan catalog with no prices) in `en` and `fa`, and a member gets `No access`. |
 | `members.spec.ts` | An owner changes a member's role, removes the member, invites them back, and the invited account accepts. |
 | `teams.spec.ts` | An owner reads the seeded teams with their member counts and the record-scope banner, opens `Sales`, renames and re-renames `Support`, deactivates and reactivates it, assigns the viewer to `Sales` and revokes the assignment. The page is right to left in Persian, and a member sees no write control. |
