@@ -425,6 +425,7 @@ def test_placeholders_written_back_keep_the_originals(client, email_outbox, monk
         f"{base}/transcript/corrections",
         json={
             "base_revision_id": shown["revision"]["id"],
+            "reason": "confirm the number",
             "edits": [{"segment_id": first["id"], "text": first["text"] + " (تأیید شد)"}],
         },
         headers=_headers(tenant),

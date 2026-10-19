@@ -396,7 +396,7 @@ def correct_transcript(
             ],
             actor_user_id=context.actor.user.id,
             now=datetime.now(UTC),
-            note=payload.note,
+            note=payload.reason,
         )
     except TranscriptError as exc:
         db.rollback()
@@ -418,6 +418,7 @@ def correct_transcript(
             "parent_revision_id": revision.parent_revision_id,
             "source": revision.source.value,
             "reason": revision.reason,
+            "correction_reason": payload.reason[:120],
             "segments_changed": changed,
             "segment_count": revision.segment_count,
         },
