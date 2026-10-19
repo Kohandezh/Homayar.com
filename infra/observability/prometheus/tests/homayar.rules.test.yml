@@ -1008,3 +1008,114 @@ tests:
       - eval_time: 30m
         alertname: HomayarLoginFailureSpike
         exp_alerts: []
+
+  # --- protected audit sink (HOM-115): the operator's export and verify heartbeats ---------
+  # Exports succeed every minute until 30m, then fail: the last success stays at 1800 s.
+  - interval: 1m
+    input_series:
+      - series: 'homayar_periodic_task_last_run_timestamp_seconds{task="audit_export",instance="api-1",job="homayar-api"}'
+        values: '0+60x200'
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="audit_export",instance="api-1",job="homayar-api"}'
+        values: '0+60x30 1800x170'
+      - series: 'homayar_periodic_task_last_failure_timestamp_seconds{task="audit_export",instance="api-1",job="homayar-api"}'
+        values: '_x31 1860+60x169'
+      - series: 'homayar_dependency_up{dependency="redis",instance="api-1",job="homayar-api"}'
+        values: '1x200'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HomayarAuditExportStale
+        exp_alerts: []
+      - eval_time: 140m  # last success 1 h 50 min ago
+        alertname: HomayarAuditExportStale
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: HomayarAuditExportStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The protected audit sink has not exported for 2 hours"
+              description: "No successful audit_export run for 2 h, a failing first export, or no export heartbeat at all."
+              runbook: docs/operations/alerts.md#homayarauditexportstale
+
+  # The first export keeps failing (refused for want of the legacy-row review): no success yet.
+  - interval: 1m
+    input_series:
+      - series: 'homayar_periodic_task_last_run_timestamp_seconds{task="audit_export",instance="api-1",job="homayar-api"}'
+        values: '60+60x40'
+      - series: 'homayar_periodic_task_last_failure_timestamp_seconds{task="audit_export",instance="api-1",job="homayar-api"}'
+        values: '60+60x40'
+      - series: 'homayar_dependency_up{dependency="redis",instance="api-1",job="homayar-api"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 10m  # pending
+        alertname: HomayarAuditExportStale
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HomayarAuditExportStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The protected audit sink has not exported for 2 hours"
+              description: "No successful audit_export run for 2 h, a failing first export, or no export heartbeat at all."
+              runbook: docs/operations/alerts.md#homayarauditexportstale
+
+  # No export heartbeat at all; then Redis, where heartbeats live, goes down.
+  - interval: 1m
+    input_series:
+      - series: 'homayar_dependency_up{dependency="redis",instance="api-1",job="homayar-api"}'
+        values: '1x25 0x35'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HomayarAuditExportStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The protected audit sink has not exported for 2 hours"
+              description: "No successful audit_export run for 2 h, a failing first export, or no export heartbeat at all."
+              runbook: docs/operations/alerts.md#homayarauditexportstale
+      - eval_time: 50m  # Redis down: HomayarRedisUnavailable names the cause
+        alertname: HomayarAuditExportStale
+        exp_alerts: []
+      - eval_time: 50m  # verify never ran: nothing to report
+        alertname: HomayarAuditSinkVerificationFailed
+        exp_alerts: []
+
+  # Verify succeeds every minute until 10m, then fails from 11m on.
+  - interval: 1m
+    input_series:
+      - series: 'homayar_periodic_task_last_success_timestamp_seconds{task="audit_verify",instance="api-1",job="homayar-api"}'
+        values: '0+60x10 600x30'
+      - series: 'homayar_periodic_task_last_failure_timestamp_seconds{task="audit_verify",instance="api-1",job="homayar-api"}'
+        values: '_x11 660+60x29'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HomayarAuditSinkVerificationFailed
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: HomayarAuditSinkVerificationFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "The protected audit sink failed verification"
+              description: "The last audit_verify run failed: possible tampering with the sink or audit_events, or verify could not run."
+              runbook: docs/operations/alerts.md#homayarauditsinkverificationfailed
+
+  # Verify has never succeeded.
+  - interval: 1m
+    input_series:
+      - series: 'homayar_periodic_task_last_failure_timestamp_seconds{task="audit_verify",instance="api-1",job="homayar-api"}'
+        values: '300x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HomayarAuditSinkVerificationFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "The protected audit sink failed verification"
+              description: "The last audit_verify run failed: possible tampering with the sink or audit_events, or verify could not run."
+              runbook: docs/operations/alerts.md#homayarauditsinkverificationfailed

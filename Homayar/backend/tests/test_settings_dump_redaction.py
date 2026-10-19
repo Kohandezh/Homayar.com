@@ -21,6 +21,9 @@ def _secret_values() -> dict[str, str]:
     values = {name: f"{MARK}-{name}-0123456789abcdef0123456789" for name in SECRET_FIELDS}
     values["database_url"] = f"postgresql+psycopg://user:{MARK}@db.example.invalid/homayar"
     values["redis_url"] = f"redis://:{MARK}@redis.example.invalid:6379/0"
+    values["audit_export_database_url"] = (
+        f"postgresql+psycopg://audit_exporter:{MARK}@db.example.invalid/homayar"
+    )
     values["pii_mapping_keys"] = ""  # keep key-ring validation out of scope; covered as empty
     return values
 
@@ -31,7 +34,8 @@ def settings() -> Settings:
 
 
 def test_secret_field_list_is_complete() -> None:
-    assert len(SECRET_FIELDS) == 16  # + METRICS_BEARER_TOKEN (HOM-113)
+    # + METRICS_BEARER_TOKEN (HOM-113), AUDIT_SINK_HMAC_KEY, AUDIT_EXPORT_DATABASE_URL (HOM-115)
+    assert len(SECRET_FIELDS) == 18
 
 
 def test_model_dump_redacts_every_secret(settings: Settings) -> None:

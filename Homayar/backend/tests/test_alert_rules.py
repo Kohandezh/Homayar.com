@@ -187,8 +187,8 @@ def _vocabulary(
     metric: str, label: str, matchers: dict[str, list[str]], exposition: Exposition
 ) -> set[str] | None:
     if label == "task":
-        # The operator jobs' alerts arrive with their producer (HOM-115).
-        return set(heartbeats.PERIODIC_TASKS)
+        # The periodic sweeps and the audit sink's operator jobs (audit_export, audit_verify).
+        return set(heartbeats.KNOWN_TASKS)
     if label == "field" and metric == "homayar_periodic_task_result":
         tasks = matchers.get("task") or []
         assert tasks, f"{metric} matches field without naming its task"

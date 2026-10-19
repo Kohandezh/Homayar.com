@@ -34,6 +34,9 @@ Rows are append-only for the application (HOM-115): the ORM refuses to flush a
 changed or deleted ``AuditEvent`` and refuses ORM ``UPDATE``/``DELETE``
 statements on the table, and on PostgreSQL the application role holds no
 ``UPDATE`` or ``DELETE`` privilege on it (``backend.database.rls.APPEND_ONLY_TABLES``).
+The protected sink (``backend.observability.audit_sink``) exports rows into a hash
+chain kept outside the application's reach and detects rows changed, deleted or
+back-dated by anyone else (tamper-evident, not tamper-proof).
 """
 
 from __future__ import annotations

@@ -39,6 +39,8 @@ SECRET_FIELDS = (
     "neo4j_password",
     "sentry_dsn",
     "metrics_bearer_token",
+    "audit_sink_hmac_key",
+    "audit_export_database_url",
 )
 
 MARK = "Qz7fake"
@@ -63,6 +65,11 @@ FAKE_SECRETS: dict[str, str] = {
     "neo4j_password": f"fake-neo4j-password-{MARK}",
     "sentry_dsn": f"https://fakepublickey{MARK}@sentry.example.invalid/7",
     "metrics_bearer_token": f"fake-metrics-bearer-token-{MARK}-0123456789",
+    "audit_sink_hmac_key": f"fake-audit-sink-hmac-key-{MARK}-0123456789",
+    "audit_export_database_url": (
+        f"postgresql+psycopg://audit_exporter:fake-export-password-{MARK}"
+        "@db.example.invalid/homayar?sslmode=verify-full"
+    ),
 }
 # Settings a secret needs to validate (PII keys need their active key id).
 COMPANIONS: dict[str, dict[str, object]] = {

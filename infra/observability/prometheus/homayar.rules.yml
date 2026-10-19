@@ -8,8 +8,8 @@
 # single-region deployment; change them per installation in a copy of this file, keeping the
 # promtool tests in step.
 #
-# Only alerts whose series the code emits today are here. The audit-write, login, refresh
-# replay and audit-sink alerts arrive with their producers (HOM-114, HOM-115).
+# Only alerts whose series the code emits today are here. The audit-sink alerts read the
+# heartbeats of the operator's exporter (python -m backend.observability.audit_sink, HOM-115).
 #
 # Validate: promtool check rules infra/observability/prometheus/homayar.rules.yml
 # Test:     promtool test rules infra/observability/prometheus/tests/homayar.rules.test.yml
@@ -391,6 +391,52 @@ groups:
           summary: "More than 50 failed logins in 10 minutes"
           description: "Possible credential stuffing or a broken client. auth.login_failed events carry only an identifier-hash prefix."
           runbook: docs/operations/alerts.md#homayarloginfailurespike
+
+      # Protected audit sink (HOM-115): the operator's export and verify runs report through
+      # the heartbeat store as tasks audit_export and audit_verify (no beat interval). The
+      # thresholds assume the documented 15-minute export schedule.
+      - alert: HomayarAuditExportStale
+        # No success for 2 h, a first export that keeps failing (for example refused for want of
+        # the legacy-row review), or no export heartbeat at all: the sink is falling behind the
+        # table and back-dated or erased rows go undetected. Silent while Redis, where the
+        # heartbeats live, is down (HomayarRedisUnavailable names that).
+        expr: |
+          max(
+            time() - max(homayar_periodic_task_last_success_timestamp_seconds{task="audit_export"}) > 7200
+            or (
+              max(homayar_periodic_task_last_failure_timestamp_seconds{task="audit_export"})
+                unless on () max(homayar_periodic_task_last_success_timestamp_seconds{task="audit_export"})
+            )
+            or absent(homayar_periodic_task_last_run_timestamp_seconds{task="audit_export"})
+          )
+          unless on () (max(homayar_dependency_up{dependency="redis"}) == 0)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The protected audit sink has not exported for 2 hours"
+          description: "No successful audit_export run for 2 h, a failing first export, or no export heartbeat at all."
+          runbook: docs/operations/alerts.md#homayarauditexportstale
+
+      - alert: HomayarAuditSinkVerificationFailed
+        # The last verify run failed: verify found a problem (an altered or missing record, a row
+        # changed, deleted or back-dated in the database) or could not run. A verify that has
+        # never succeeded counts as failed.
+        expr: |
+          (
+            max(homayar_periodic_task_last_failure_timestamp_seconds{task="audit_verify"})
+              > max(homayar_periodic_task_last_success_timestamp_seconds{task="audit_verify"})
+          )
+          or (
+            max(homayar_periodic_task_last_failure_timestamp_seconds{task="audit_verify"})
+              unless on () max(homayar_periodic_task_last_success_timestamp_seconds{task="audit_verify"})
+          )
+        labels:
+          severity: critical
+        annotations:
+          summary: "The protected audit sink failed verification"
+          description: "The last audit_verify run failed: possible tampering with the sink or audit_events, or verify could not run."
+          runbook: docs/operations/alerts.md#homayarauditsinkverificationfailed
 
 
   # Contract with the backup tooling (Lane C, ADR 0035): it writes

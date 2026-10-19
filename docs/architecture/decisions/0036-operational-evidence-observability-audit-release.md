@@ -117,11 +117,48 @@ sink verifier reports it as `accepted_erasure`.
    set, so a scope that unlocked every tenant's audit rows would be reachable from any
    request handler; a role membership is not. `homayar_app` and the application's login
    are never members; the exporter logs in with its own login that is
-   (`AUDIT_EXPORT_DATABASE_URL`). The tenant policy is unchanged.
+   (`AUDIT_EXPORT_DATABASE_URL`). The tenant policy is unchanged. A role of that name that
+   already exists is made inert by the migration (or the migration fails), and the exporter
+   checks it again before every run.
 3. **Tamper-evident, not tamper-proof.** The owner and a superuser can still change
    rows. The append-only rule removes the application's ability to rewrite history;
    detecting a change made by anyone else is the protected sink's job. No document may
    describe either layer as immutable.
+4. **A hash-chained sink outside the application's reach.** An operator job
+   (`python -m backend.observability.audit_sink export`) appends settled rows
+   (`AUDIT_EXPORT_SETTLE_SECONDS`) to write-once JSON-lines segments in `AUDIT_SINK_DIR`,
+   each record chained with HMAC-SHA256 under `AUDIT_SINK_HMAC_KEY` (required outside
+   test and development; held by the operator, not by the application). `verify` checks
+   the chain and compares every exported row with the database: `record_altered`,
+   `sequence_gap`, `row_changed`, `row_deleted` and `unexported_row` are failures.
+   We chose files the operator controls over a second database table (which the same
+   owner could rewrite) and over an external log service (a new dependency for both
+   deployment profiles); write-once storage for the directory is the deployment's choice.
+5. **Expected changes are notices, never hidden.** A `NULL` reference left by a deleted
+   workspace or user is `referential_null`. An owner-approved erasure is recorded *in the
+   chain* (`record-erasure --event-id --approval`, an approval reference and no free text)
+   before the DBA runs it as the table owner, and every later `verify` reports it as
+   `accepted_erasure`. Recording it in the chain, not in a side file, means a writer of
+   the sink without the key cannot forge an erasure to hide a deletion. The exported copy
+   stays in its segment; it holds only the masked row.
+6. **The head is anchored outside the sink.** `HEAD.json` carries an HMAC of its fields
+   under the sink key, which binds the export watermark (not part of the chain); `verify`
+   also refuses a watermark before the last export window. Cutting the newest segments
+   together with `HEAD.json` (or restoring an older valid copy) is still invisible to the
+   sink alone, so every export and verify prints
+   `head_hash` and `last_seq`, and the heartbeat keeps `last_seq`; the runbook asks the
+   operator to keep that copy. Sink segments are kept for as long as the rows (no audit
+   retention purge exists); pruning needs a checkpoint procedure that is not built.
+7. **The first export is gated on a legacy-row review**, decided (owner, 2026-10-18).
+   Rows written before HOM-114 masking may hold unmasked free text, and an
+   exported copy cannot be removed from a write-once segment. In staging and production
+   the first export into an empty sink therefore refuses to run until it is given the
+   approval reference of that review (`export --legacy-review <ref>`); the reference is
+   record 1 of the chain (HMAC-covered, so a writer of the sink without the key cannot
+   forge it), copied into the first manifest and `HEAD.json`, and reported by every
+   `verify`. A recording into an empty sink by `record-erasure` is refused there for the
+   same reason. We rejected a boolean setting: it records neither who acknowledged the
+   review nor when. Test and development are not gated.
 
 ### Consequences
 
@@ -130,6 +167,12 @@ sink verifier reports it as `accepted_erasure`.
 * Deleting a user or a workspace leaves its audit rows with a `NULL` reference.
 * Granting the reader role to a login is a privileged act: it reads every tenant's
   audit rows. Only the exporter's login holds it.
+* The operator runs and schedules export and verify (heartbeats `audit_export` /
+  `audit_verify`, alerted by `HomayarAuditExportStale` and
+  `HomayarAuditSinkVerificationFailed` in the Decision 4 rules); a change by the table owner
+  is detected at the next `verify`, not prevented, and a change made before a row's first
+  export is not detected.
+* `verify` is linear in the number of events; acceptable at current volumes.
 
 ## Decision 4 — Alerting (HOM-126)
 

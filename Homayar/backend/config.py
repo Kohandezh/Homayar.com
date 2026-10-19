@@ -44,6 +44,8 @@ SECRET_FIELDS: tuple[str, ...] = (
     "neo4j_password",
     "sentry_dsn",
     "metrics_bearer_token",
+    "audit_sink_hmac_key",
+    "audit_export_database_url",
 )
 
 # Serialized form of a non-empty secret setting (HOM-160).
@@ -678,6 +680,18 @@ class Settings(BaseSettings):
     metrics_allow_unauthenticated: bool = False
     # Scrape-time state (queue, outbox, providers, dependencies) is cached this long.
     metrics_cache_seconds: int = 15
+    # Protected audit sink (HOM-115, ADR 0036), read only by the operator's exporter
+    # `python -m backend.observability.audit_sink export|verify|record-erasure`, never by
+    # the API or workers. AUDIT_SINK_DIR is a location the application containers do not
+    # mount. AUDIT_SINK_HMAC_KEY (at least 32 characters) keys the hash chain; required
+    # outside test/development, and kept with the operator, not in the application's
+    # secrets. AUDIT_EXPORT_DATABASE_URL logs in as the exporter's own role, a member of
+    # homayar_audit_reader and never of homayar_app. Events younger than
+    # AUDIT_EXPORT_SETTLE_SECONDS wait for the next export so a late commit is not skipped.
+    audit_sink_dir: str = ""
+    audit_sink_hmac_key: SecretSetting = ""
+    audit_export_database_url: SecretSetting = ""
+    audit_export_settle_seconds: int = 600
     billing_provider: str = "manual"
 
     def __init__(self, **values: Any) -> None:
@@ -832,6 +846,10 @@ class Settings(BaseSettings):
             raise ValueError("METRICS_BEARER_TOKEN must be at least 32 characters")
         if not 0 <= self.metrics_cache_seconds <= 300:
             raise ValueError("METRICS_CACHE_SECONDS must be between 0 and 300")
+        if self.audit_sink_hmac_key and len(self.audit_sink_hmac_key.strip()) < 32:
+            raise ValueError("AUDIT_SINK_HMAC_KEY must be at least 32 characters")
+        if not 60 <= self.audit_export_settle_seconds <= 86400:
+            raise ValueError("AUDIT_EXPORT_SETTLE_SECONDS must be between 60 and 86400")
         if (
             self.metrics_allow_unauthenticated
             and self.deployment_mode == "cloud"
@@ -901,6 +919,16 @@ class Settings(BaseSettings):
                 self.redis_allow_insecure_transport,
                 _redis_transport(self.redis_url),
             )
+            if self.audit_export_database_url:
+                # The audit exporter's own login (HOM-115) follows the same hop rule.
+                plaintext_hops += self._check_transport(
+                    "audit_export_postgresql",
+                    "AUDIT_EXPORT_DATABASE_URL",
+                    "sslmode=require, verify-ca or verify-full",
+                    "DATABASE_ALLOW_INSECURE_TRANSPORT",
+                    self.database_allow_insecure_transport,
+                    _postgres_transport(self.audit_export_database_url),
+                )
             if self.enable_neo4j_projection:
                 plaintext_hops += self._check_transport(
                     "neo4j",

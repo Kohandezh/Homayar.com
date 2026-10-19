@@ -16,9 +16,8 @@ the *Container configuration* job.
 Thresholds are defaults; tune them per installation in a copy of the rules file and keep the
 tests in step.
 
-Only alerts whose series the code emits today are here. Alerts on audit-write failures, failed
-logins, refresh-token replay and the protected audit sink arrive with their producers (HOM-114,
-HOM-115).
+Only alerts whose series the code emits today are here. The protected audit sink's alerts read
+the heartbeats its operator job reports (`audit_export`, `audit_verify`; HOM-115).
 
 First response for any alert: note the time, the release (`homayar_build_info`), the
 schema state (`homayar_schema_up_to_date`) and the correlation ids involved; preserve logs
@@ -312,3 +311,41 @@ More than 50 refused logins in 10 minutes for 10 minutes. Look at `auth.login_fa
 (only an identifier-hash prefix is stored) and the proxy's request rate per client address.
 Rate-limit or block at the proxy for credential stuffing; check a client release if one
 identifier fails repeatedly.
+
+## HomayarAuditExportStale
+
+The protected audit sink ([audit.md](audit.md#protected-audit-sink)) has not had a successful
+export for 2 hours, its first export keeps failing, or no export has ever reported a heartbeat
+(the operator job `python -m backend.observability.audit_sink export` is not scheduled). Until it
+runs again, rows written since the last export have no independent copy, and a row changed,
+deleted or back-dated by the table owner in that window cannot be detected. The threshold
+assumes the 15-minute schedule of the [export runbook](audit.md#export-runbook).
+
+1. On the operator's host, run the export by hand and read its last line on stderr (exit 2 is a
+   configuration error or a refusal; the message names the cause, never a URL or key):
+   `AUDIT_EXPORT_DATABASE_URL`, `AUDIT_SINK_HMAC_KEY`, `AUDIT_SINK_DIR`, the exporter's login and
+   `homayar_audit_reader` ([exporter setup](audit.md#exporter-setup)).
+2. A refused first export in staging or production needs the
+   [legacy-row review](audit.md#legacy-row-review) and its approval reference
+   (`export --legacy-review <ref>`).
+3. `another export or erasure record is running`: a stuck run holds `.lock`; find and stop it.
+   `HEAD.json fails its MAC` or a manifest without its segment: run `verify --sink-only` and
+   follow [verification findings](audit.md#verification-findings) before exporting again.
+4. Check the scheduler on the operator's host (cron or timer) and that `REDIS_URL` there points
+   at the deployment's Redis, or the heartbeat never reaches `/metrics`.
+
+## HomayarAuditSinkVerificationFailed
+
+The last `python -m backend.observability.audit_sink verify` run failed: it found a problem or
+could not run. Treat it as a possible security incident until the report says otherwise.
+
+1. Run `verify` again on the operator's host and keep its JSON report; it lists each problem with
+   its kind, sequence number and event id, never a value.
+2. Act on each kind as [verification findings](audit.md#verification-findings) says: an altered,
+   missing or reordered record, a `HEAD.json` changed without the key, a row changed, deleted or
+   back-dated in `audit_events`. Compare with the sink's backup copy (`verify --sink-only`) to
+   tell which side changed, and preserve both before changing anything.
+3. Exit 2 (configuration: key, sink directory, exporter login, `homayar_audit_reader` not inert)
+   is not tampering: fix the setup and run `verify` again.
+4. The alert clears when a `verify` run succeeds. Accepted erasures and deleted workspaces are
+   notices, not failures; they never raise this alert.

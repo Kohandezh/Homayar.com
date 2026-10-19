@@ -123,8 +123,8 @@ Scope: HOM-115 (owner decision 2026-10-17, option B). Migration `e6c3a9f1d4b8`
   stays (event, target, time, outcome, correlation id) and only loses the reference.
 * **What it does not stop.** The table owner (the migration role) and a superuser can
   still change or delete rows. The append-only rule closes the application's paths;
-  detecting changes made outside them is the job of the protected sink. Neither is
-  cryptographic immutability.
+  detecting changes made outside them is the job of the
+  [protected audit sink](#protected-audit-sink). Neither is cryptographic immutability.
 * **It needs the recommended runtime login.** The rule holds when `DATABASE_URL` logs in
   as a role `IN ROLE homayar_app` ([deployment](deployment.md#database-roles-and-row-level-security)).
   With the other shape (the owner's login plus `DATABASE_APP_ROLE=homayar_app`) the
@@ -175,3 +175,223 @@ SELECT pg_has_role('<application login>', 'homayar_audit_reader', 'MEMBER');  --
   or deletes audit rows, so it runs on either schema. A deeper downgrade applies the rule
   again once it passes `b9e4f2a6c8d3` (and at `f1b6d8e4a2c7`, `d7f3a1c9e2b4`): those
   downgrades, like every older upgrade, run the current `apply_row_level_security`.
+
+## Protected audit sink
+
+Scope: HOM-115 (WP20-T03). Code: `Homayar/backend/observability/audit_sink.py`. Decision:
+[ADR 0036](../architecture/decisions/0036-operational-evidence-observability-audit-release.md),
+Decision 3.
+
+The sink is an independent copy of `audit_events` that the application cannot reach: a
+hash chain of JSON lines in a directory the API and worker containers do not mount (a
+separate host or volume, ideally write-once storage). `verify` recomputes the chain and
+compares it with the database, so a row changed, deleted or back-dated by the table owner
+or a superuser becomes visible. It is **tamper-evident, not tamper-proof**: whoever holds
+both write access to the sink and the HMAC key can rewrite it undetected (see
+[Sink limits](#sink-limits)).
+
+```
+AUDIT_SINK_DIR/
+  HEAD.json                        last_seq, head_hash, watermark, segments, algorithm, key_id,
+                                   legacy_review, mac (HMAC of the other fields under the key)
+  segments/00000001.jsonl          one record per line, mode 0440, never rewritten
+  segments/00000001.manifest.json  file sha256, first/last seq, counts, window, prev/head hash
+```
+
+A record is `{"seq", "type", "row" | "erasure", "prev", "hash"}`: `seq` counts from 1 with
+no gap, `row` holds the audit row's columns exactly as stored (`id`, `occurred_at`,
+`event_type`, `actor_user_id`, `workspace_id`, `target_type`, `target_id`, `outcome`,
+`request_id`, `ip_hash`, `details`), `hash = HMAC-SHA256(key, prev || "\n" || record)`.
+The sink therefore holds nothing the table does not hold: free text was already masked at
+write time, IPs are hashes, secrets are `[redacted]`.
+
+### Sink settings
+
+| Setting | Meaning |
+| --- | --- |
+| `AUDIT_SINK_DIR` | the sink directory (on the operator's host or volume) |
+| `AUDIT_SINK_HMAC_KEY` | secret, at least 32 characters; keys the chain. Required outside test/development. Kept with the operator (secret store, `AUDIT_SINK_HMAC_KEY_FILE`), never in the application's secrets |
+| `AUDIT_EXPORT_DATABASE_URL` | secret; the exporter's own login (`homayar_audit_exporter`), a member of `homayar_audit_reader`. Production: TLS as for `DATABASE_URL` (HOM-161, opt-out `DATABASE_ALLOW_INSECURE_TRANSPORT` on-premise only) |
+| `AUDIT_EXPORT_SETTLE_SECONDS` | 60 to 86400, default 600: events younger than this wait for the next export, so a transaction that commits late is not skipped. Must exceed the longest transaction plus the clock skew between application hosts and the database |
+| `REDIS_URL` | where the [heartbeats](#sink-heartbeats) go (the deployment's Redis, the one the API reads) |
+
+### Exporter setup
+
+1. Create the exporter's login (once per cluster, see [The audit reader role](#the-audit-reader-role)).
+2. On the operator's host: a checkout or image of the same release, and an environment
+   with the settings above. The exporter loads the normal settings, so in production it
+   also needs `ENVIRONMENT=production`, `DATABASE_URL` set to the exporter's URL and its
+   own random `JWT_SECRET` / `TOKEN_PEPPER` (it issues nothing): never the application's.
+3. Create `AUDIT_SINK_DIR` owned by the operator's user, mode `0750`; back it up to a
+   second location after each export (the backup inherits the same protection rules).
+
+The exporter refuses to run (exit 2, one line on stderr, no URL or key) when the login is
+not a member of `homayar_audit_reader`, is a superuser or has `BYPASSRLS`, or can become
+`homayar_app`; when `homayar_audit_reader` itself is not inert (it can log in, holds a role
+attribute, is a member of a role, or `homayar_app` reaches it); and when
+`AUDIT_EXPORT_DATABASE_URL` is empty on PostgreSQL. A `HEAD.json` that fails its MAC stops
+export and `record-erasure` too (run `verify`). It reads with
+`SET ROLE homayar_audit_reader` in read-only transactions.
+
+### Export runbook
+
+```bash
+python -m backend.observability.audit_sink export
+# the first export into an empty sink, staging and production only:
+python -m backend.observability.audit_sink export --legacy-review <approval reference>
+```
+
+Before the first export, do the one-off [legacy-row review](#legacy-row-review): decided
+(owner, 2026-10-18). In staging and production the first export
+into an empty sink refuses to run (exit 2, nothing written) until it is given the review's
+approval reference with `--legacy-review`; later exports need nothing and refuse the flag.
+Test and development are not gated.
+
+Run it from `Homayar/` on a schedule (every 15 minutes is a good default; the window is
+`[watermark, now - AUDIT_EXPORT_SETTLE_SECONDS)` by `occurred_at`, read by the database
+clock). It appends one segment with every settled event since the watermark and prints
+`{"exported", "segment", "last_seq", "watermark", "head_hash"}`. Only one export or erasure
+record runs at a time (`.lock`); a second one exits 2. An export interrupted between its
+steps is finished by the next run (the manifest is written before the segment is renamed
+into place, and `HEAD.json` last). Record `head_hash` and `last_seq` somewhere the sink's
+writer cannot change (the heartbeat, the scheduler's log, a ticket): that is the
+independent copy of the head that [Sink limits](#sink-limits) relies on.
+
+### Legacy-row review
+
+**Decided (owner, 2026-10-18):** keep the `--legacy-review` gate. Audit rows written before
+HOM-114 masking must be reviewed before the first export in staging or production.
+
+Rows written before the HOM-114 release (the *masking cut-over*: when that release was
+deployed) went in without write-time masking, so their free-text values (`reason`,
+`*_reason`, `name`, `external_event_id`, `source_provider`) may hold personal data. Once
+exported, a row's copy stays in its write-once segment (see the
+[erasure procedure](#erasure-procedure)), so the review comes first:
+
+1. List the candidate rows through the exporter's login, as `homayar_audit_reader` (it sees
+   every tenant; the table owner sees only platform rows unless it binds a workspace):
+
+   ```sql
+   BEGIN;
+   SET LOCAL ROLE homayar_audit_reader;
+   SELECT id, occurred_at, event_type, workspace_id, details
+   FROM audit_events
+   WHERE occurred_at < '<masking cut-over, UTC>'
+     AND EXISTS (
+       SELECT 1 FROM json_object_keys(details) AS k
+       WHERE k IN ('reason', 'name', 'external_event_id', 'source_provider')
+          OR k LIKE '%\_reason'
+     )
+   ORDER BY occurred_at, id;
+   ROLLBACK;
+   ```
+
+2. The owner decides, row by row or as a whole, what may be exported, and approves it under
+   one reference (ticket or change id; letters, digits and `._:/#-`).
+3. Rows that must not reach the sink are erased by the DBA with step 3 of the
+   [erasure procedure](#erasure-procedure), before the first export. They never reach the
+   sink, so there is no `record-erasure` for them (in staging and production it is refused
+   on an empty sink); the approval reference documents them.
+4. Run the first export with `--legacy-review <reference>`. The reference becomes record 1
+   of the chain (`type: legacy_review`, with the environment and the time), is copied into
+   the first manifest and `HEAD.json`, and every `verify` reports it as `legacy_review`
+   (a copy that disagrees with the chain is `manifest_mismatch` / `head_mismatch`).
+
+### Verify runbook
+
+```bash
+python -m backend.observability.audit_sink verify              # chain and database
+python -m backend.observability.audit_sink verify --sink-only  # chain only (offline copy)
+```
+
+Run `verify` after each export or at least daily, and `--sink-only` on every backup copy.
+Exit 0: no problem (notices may be listed); 1: at least one problem; 2: configuration
+error. The JSON report lists `problems` and `notices` with the kind, `seq` and event id,
+never a value, and `legacy_review` (the acknowledged [legacy-row review](#legacy-row-review),
+or `null`).
+
+### Verification findings
+
+| Kind | Where | Meaning | Action |
+| --- | --- | --- | --- |
+| `record_altered` | problem | a line's hash does not match (edited, inserted, forged) | security incident: compare with the backup copy, find who wrote the sink |
+| `sequence_gap` | problem | a line was removed or lines were reordered | as above |
+| `record_duplicated` | problem | an event id appears twice | as above |
+| `segment_missing`, `segment_file_changed`, `manifest_mismatch` | problem | a segment or manifest is missing or disagrees with its file | as above; restore from the backup copy |
+| `head_mismatch` | problem | `HEAD.json` disagrees with the chain, fails its MAC (changed without the key), has a watermark before the last export window, or a segment exists beyond it | after a crash: run `export` once (it finishes the interrupted segment); otherwise as above |
+| `head_missing`, `key_mismatch` | problem | no `HEAD.json`; or the configured key (or its absence) is not the sink's (`key_id` differs) | check `AUDIT_SINK_DIR` and `AUDIT_SINK_HMAC_KEY` |
+| `row_changed` | problem | an exported row differs in the database (the detail names the columns) | security incident: the table owner or a superuser changed history |
+| `row_deleted` | problem | an exported row is gone from the database without a recorded erasure | as above |
+| `unexported_row` | problem | a row older than the watermark never reached the sink (inserted late or back-dated) | as above; or raise `AUDIT_EXPORT_SETTLE_SECONDS` if a long transaction committed late |
+| `referential_null` | notice | only `workspace_id` / `actor_user_id` became `NULL`: the workspace or user was deleted (`ON DELETE SET NULL`) | none |
+| `accepted_erasure` | notice | an [erasure](#erasure-procedure) recorded in the chain; the detail says `deleted`, `changed:<columns>`, `row unchanged` (not yet run), `never exported` or `recorded` (`--sink-only`) | check it matches an approval |
+
+Notices are listed and counted (`accepted_erasures`, `referential_nulls` in the heartbeat),
+never hidden.
+
+### Erasure procedure
+
+Owner decision 2026-10-17 (option B): the application never changes or deletes audit rows.
+A historical row may be erased only by this procedure, run as the **table owner**:
+
+1. The owner approves the erasure of named event ids, with a reference (ticket or change
+   id, for example `CHG-2026-0042`; letters, digits and `._:/#-`, no free text).
+2. The operator records it in the chain **before** the database change:
+   `python -m backend.observability.audit_sink record-erasure --event-id <id> --approval <ref>`
+   (one call per event id; a chained record, so it cannot be forged without the key).
+3. The DBA, connected as the table owner, removes or edits the row in one transaction.
+   The policies are `FORCE`d, so the owner binds the row's workspace first (not needed for
+   a platform row, `workspace_id IS NULL`):
+
+   ```sql
+   BEGIN;
+   SELECT set_config('homayar.workspace_id', '<workspace id of the row>', true);
+   DELETE FROM audit_events WHERE id = '<event id>';   -- exactly one row
+   COMMIT;
+   ```
+
+4. The operator runs `verify`: the row is reported as `accepted_erasure` (a notice), the
+   run passes, and the notice stays in every later report.
+
+The exported copy stays in its sink segment (segments are write-once). It holds only what
+the row held after write-time masking; removing it means rebuilding the chain from segment
+1 and is an owner decision outside this procedure. Rows recorded before HOM-114 masking can
+hold unmasked free text: the [legacy-row review](#legacy-row-review) handles them before
+the first export.
+
+### Sink retention
+
+`audit_events` has no retention purge, so neither has the sink: keep every segment and its
+manifest. `verify` always starts at segment 1, and a deleted segment is `segment_missing`
+by design. When the owner sets an audit retention period, pruning old segments needs a
+checkpoint procedure (an anchored head at the cut), which is not built. Keep at least one
+backup copy of the sink on separate storage and verify it with `--sink-only`.
+
+### Sink heartbeats
+
+Each run writes the operator heartbeat hash `homayar:obs:sweep:audit_export` or
+`homayar:obs:sweep:audit_verify` in Redis (best effort, as for the sweeps): `last_run`,
+`last_success` or `last_failure`, `last_duration_seconds`, `last_error_type` and the
+counters (`exported`, `last_seq` for export; `records`, `erasures`, `segments`, `last_seq`,
+`problems`, `notices`, `accepted_erasures`, `referential_nulls`, `legacy_reviewed` for a
+passing verify). A refused first export records `last_failure` on `audit_export`. A
+failing verify records `last_failure` with `last_error_type=AuditSinkError`. `/metrics`
+exports them as `homayar_periodic_task_last_success_timestamp_seconds{task="audit_export"}`
+(and `..._last_failure_...`, `..._last_run_...`, `homayar_periodic_task_result{task,field}`).
+Two alerts read them: [HomayarAuditExportStale](alerts.md#homayarauditexportstale) (no
+successful export for 2 hours, a failing first export, or no export heartbeat at all; the
+threshold assumes the 15-minute schedule) and
+[HomayarAuditSinkVerificationFailed](alerts.md#homayarauditsinkverificationfailed) (the last
+`verify` failed).
+
+### Sink limits
+
+* A writer of the sink who also holds `AUDIT_SINK_HMAC_KEY` can rewrite the chain.
+* Cutting the newest segments together with `HEAD.json` (and the database rows they hold)
+  is invisible to the sink alone; compare `head_hash` / `last_seq` with the independent
+  copy recorded after each export. `HEAD.json` carries a MAC, so it cannot be edited without
+  the key (its watermark is not in the chain), but an older valid copy can be put back.
+* The table owner can change a row before its first export: the window (the settle
+  period plus the export interval) is short, but it is not zero.
+* `verify` reads the whole sink and every row older than the watermark: fine at current
+  volumes, linear in the number of events.
