@@ -1,0 +1,238 @@
+{
+  "achieved_rto_seconds": 378.144,
+  "backup": {
+    "backup_sh_seconds": 201.425,
+    "end": "2026-10-18T04:56:33.450339+00:00",
+    "offsite_s3_seconds": 72.413,
+    "snapshot_time": "2026-10-18T04:56:05.180304+00:00",
+    "start": "2026-10-18T04:56:04.936706+00:00",
+    "tool_seconds": {
+      "database": 1.563,
+      "objects": 26.915,
+      "total": 28.515
+    }
+  },
+  "backup_id": "20261018T045604Z-594e6854",
+  "data": {
+    "database_rows": 4955,
+    "object_bytes": 447545248,
+    "objects": 384,
+    "set_bytes_encrypted": 450046149,
+    "tables": 61,
+    "tenants": 4
+  },
+  "data_loss_window_seconds": 318.902,
+  "non_resurrection": {
+    "active_share_links": [],
+    "alive": [],
+    "content_rows": [],
+    "held_for_review": [],
+    "journaled": 3,
+    "object_bytes_left": []
+  },
+  "post_backup_state": {
+    "counts_before": {
+      "active_api_keys": 4,
+      "active_share_links": 8,
+      "pending_invitations": 0
+    },
+    "note": "revocations, password changes and sign-outs made after the backup are not journaled and are not replayed; rotate JWT_SECRET to end every session and review API keys and share links with the owner",
+    "share_links_revoked": 0
+  },
+  "reconciliation_status": "PASS",
+  "reconciliation_statuses": {
+    "marker": "PASS",
+    "non_resurrection": "PASS",
+    "objects": "PASS",
+    "post_backup_state": "WARN",
+    "rls_behavior": "PASS",
+    "rls_structure": "PASS",
+    "schema": "PASS",
+    "secrets": "PASS",
+    "tenant_boundaries": "PASS",
+    "tombstones": "PASS"
+  },
+  "recovery": {
+    "failure_at": "2026-10-18T05:01:24.082000+00:00",
+    "fetch_seconds": 28.419,
+    "ingress_seconds": 15.985,
+    "ready_at": "2026-10-18T05:07:48.199000+00:00",
+    "reconciliation_seconds": {
+      "integrity": 1.56,
+      "reconcile": 0.465,
+      "tombstones": 1.527,
+      "total": 3.645
+    },
+    "restore_isolated_seconds": 330.78,
+    "restore_phases_seconds": {
+      "app": 134.0,
+      "load": 70.0,
+      "promote": 36.0,
+      "reconcile": 16.0,
+      "restore": 329.0,
+      "stores": 42.0,
+      "verify": 31.0
+    },
+    "smoke_seconds": 2.496,
+    "t0_decision": "2026-10-18T05:01:30.055000+00:00"
+  },
+  "restore_gate": {
+    "journal_records": 3,
+    "journal_records_at_backup": 0,
+    "probes": [
+      {
+        "command": "restore 20261018T045604Z-594e6854 --staging-db homayar_gateprobe --no-objects --work-dir /backups/restores/20261018T045604Z-594e6854-gate-probe",
+        "exit": 0,
+        "expected_exit": 0,
+        "ok": true,
+        "output": {
+          "backup_id": "20261018T045604Z-594e6854",
+          "staging_database": "homayar_gateprobe",
+          "status": "loaded",
+          "storage_target": null
+        },
+        "probe": "staging_restore_db_only"
+      },
+      {
+        "command": "gate --live-db homayar_gateprobe",
+        "exit": 1,
+        "expected_exit": 1,
+        "ok": true,
+        "output": {
+          "gate": "closed",
+          "marker": {
+            "at": "2026-10-18T05:08:29.391439+00:00",
+            "backup_id": "20261018T045604Z-594e6854",
+            "state": "loaded"
+          }
+        },
+        "probe": "gate_closed_before_reconcile"
+      },
+      {
+        "command": "promote 20261018T045604Z-594e6854 --staging-db homayar_gateprobe --live-db homayar_gateprobe_live --work-dir /backups/restores/20261018T045604Z-594e6854-gate-probe",
+        "exit": 1,
+        "expected_exit": 1,
+        "ok": true,
+        "output": {
+          "error": "report_unreadable",
+          "message": "/backups/restores/20261018T045604Z-594e6854-gate-probe/reconciliation-report.json"
+        },
+        "probe": "promote_refused_without_report"
+      },
+      {
+        "command": "promote 20261018T045604Z-594e6854 --staging-db homayar_gateprobe --live-db homayar_gateprobe_live",
+        "exit": 1,
+        "expected_exit": 1,
+        "ok": true,
+        "output": {
+          "error": "report_mismatch",
+          "message": "the report belongs to another staging database"
+        },
+        "probe": "promote_refused_with_other_databases_pass"
+      },
+      {
+        "command": "gate --live-db homayar",
+        "exit": 0,
+        "expected_exit": 0,
+        "ok": true,
+        "output": {
+          "backup_id": "20261018T045604Z-594e6854",
+          "gate": "open"
+        },
+        "probe": "live_gate_open_after_promote"
+      }
+    ],
+    "probes_all_as_expected": true,
+    "reconcile_end_before_promote_start": true,
+    "staging_state_before_reconcile": "loaded",
+    "tombstone_replay": {
+      "already_tombstoned": 0,
+      "jobs_cancelled": 0,
+      "meeting_absent": 0,
+      "purges_completed": 3,
+      "purges_reopened": 0,
+      "reapplied": 3,
+      "records": 3,
+      "rejected_lines": 0,
+      "unknown_keys_failed": 0,
+      "unknown_keys_removed": 0
+    },
+    "tombstone_verify": {
+      "alive": 0,
+      "purges_failed": 0,
+      "purges_open": 0,
+      "records": 3,
+      "rejected_lines": 0
+    }
+  },
+  "rpo_note": "measured window = failure time - snapshot time of the last backup; with the daily schedule the worst case is the schedule interval plus one backup duration",
+  "rpo_target_seconds": 86400,
+  "rto_met": true,
+  "rto_target_seconds": 28800,
+  "smoke_checks": [
+    {
+      "check": "tenant 0 signs in and lists conversations",
+      "detail": "28 listed",
+      "ok": true
+    },
+    {
+      "check": "tenant 1 signs in and lists conversations",
+      "detail": "29 listed",
+      "ok": true
+    },
+    {
+      "check": "tenant 2 signs in and lists conversations",
+      "detail": "30 listed",
+      "ok": true
+    },
+    {
+      "check": "tenant 3 signs in and lists conversations",
+      "detail": "30 listed",
+      "ok": true
+    },
+    {
+      "check": "deleted conversation 24e61c94 stays deleted",
+      "detail": "404",
+      "ok": true
+    },
+    {
+      "check": "deleted conversation 46e64a72 stays deleted",
+      "detail": "404",
+      "ok": true
+    },
+    {
+      "check": "deleted conversation 1a0b1460 stays deleted",
+      "detail": "404",
+      "ok": true
+    },
+    {
+      "check": "kept conversation is served to its tenant",
+      "detail": "200",
+      "ok": true
+    },
+    {
+      "check": "another tenant cannot read it",
+      "detail": "404",
+      "ok": true
+    },
+    {
+      "check": "kept recording is delivered (200 or presigned redirect)",
+      "detail": "307",
+      "ok": true
+    },
+    {
+      "check": "post-backup upload is absent (inside the RPO window)",
+      "detail": "404",
+      "ok": true
+    }
+  ],
+  "smoke_observations": {
+    "post_backup_revoked_share": {
+      "active_again": true,
+      "listed": true,
+      "revoked_at_after_restore": null,
+      "share_id": "a8ce8321-6651-4fa5-8cb7-99cef0278d5c"
+    }
+  },
+  "smoke_passed": true
+}

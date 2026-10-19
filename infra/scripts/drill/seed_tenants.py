@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 
@@ -26,11 +27,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sample-rate", type=int, default=48_000)
     args = parser.parse_args(argv)
 
+    # stdout carries only the result: the application logs to stdout (a lease
+    # warning under load once broke tenants.json), so point fd 1 at stderr
+    # while seeding and write the result to the saved descriptor.
+    result_fd = os.dup(1)
+    os.dup2(2, 1)
+
     from backend.config import Settings
     from backend.database import demo_seed
 
     settings = Settings()
     demo_seed.SAMPLE_RATE_HZ = args.sample_rate
+    # The demo seed fills one workspace per database and passes fixed job keys
+    # ("demo-seed-meeting-01"); job and usage-reservation keys are unique across
+    # the database (the API scopes them per workspace), so prefix them per tenant.
+    upload = demo_seed._upload
+
+    def tenant_upload(*args, idempotency_key: str, **kwargs):
+        prefixed = f"{demo_seed.DEMO_ORGANIZATION_SLUG}:{idempotency_key}"
+        return upload(*args, idempotency_key=prefixed, **kwargs)
+
+    demo_seed._upload = tenant_upload
     tenants = []
     for index in range(args.tenants):
         demo_seed.DEMO_ORGANIZATION_SLUG = f"drill-org-{index:02d}"
@@ -47,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
         print(f"seeded tenant {index}: {result.meeting_count} meetings", file=sys.stderr)
-    print(json.dumps({"tenants": tenants, "password": demo_seed.DEMO_PASSWORD}))
+    sys.stdout.flush()
+    with os.fdopen(result_fd, "w") as result:
+        result.write(json.dumps({"tenants": tenants, "password": demo_seed.DEMO_PASSWORD}) + "\n")
     return 0
 
 

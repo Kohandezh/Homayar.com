@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-18T19:53:08Z",
+  "deleted": [
+    {
+      "tenant": 0,
+      "meeting_id": "c006b031-2001-4049-ae05-def7aa667cb6"
+    },
+    {
+      "tenant": 0,
+      "meeting_id": "7a1d6efd-bf1c-4e1b-a2a2-6c79e2d0e3b5"
+    },
+    {
+      "tenant": 1,
+      "meeting_id": "90407d22-fbb3-4eef-9258-314c718c4c71"
+    }
+  ],
+  "revoked_share": {
+    "tenant": 1,
+    "meeting_id": "efe01b7e-bfed-4ea7-bd74-e1af229f2dca",
+    "share_id": "80d030d4-b99f-43b8-bcc0-2228d278b3f2"
+  },
+  "deleted_before_backup": [
+    {
+      "tenant": 2,
+      "meeting_id": "7dc28694-9012-40b6-8f36-2b9c941d2197"
+    },
+    {
+      "tenant": 3,
+      "meeting_id": "ad5c5a6a-1f9d-45c3-80e5-2cb4d0cf7878"
+    }
+  ],
+  "kept": {
+    "tenant": 0,
+    "meeting_id": "f8515ad1-1bc7-4e16-8730-9cbc682cf601"
+  },
+  "created_after_backup": {
+    "tenant": 0,
+    "meeting_id": "048bd91f-5289-487f-b27a-b9086f6157ea"
+  }
+}

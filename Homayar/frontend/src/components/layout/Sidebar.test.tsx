@@ -110,7 +110,7 @@ describe("Sidebar navigation", () => {
     expect(adminLabels()).toEqual(["Members"]);
     owner.unmount();
     renderSidebar(workspace("viewer", ["workspace:manage", "admin:*"]));
-    expect(adminLabels()).toEqual(["Admin overview", "Settings", "Processing", "AI policy", "Locations"]);
+    expect(adminLabels()).toEqual(["Admin overview", "Settings", "Processing", "Ingestions", "AI policy", "Locations"]);
   });
 
   it("drops the Administration group when no admin entry is visible", () => {

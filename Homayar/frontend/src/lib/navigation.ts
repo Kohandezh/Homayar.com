@@ -3,6 +3,7 @@ import {
   AudioLines,
   BrainCircuit,
   Gauge,
+  Inbox,
   KeyRound,
   LayoutDashboard,
   LockKeyhole,
@@ -14,6 +15,7 @@ import {
   ShieldCheck,
   UserCog,
   Users,
+  Voicemail,
   type LucideIcon,
 } from "lucide-react";
 import type { Permission } from "@/lib/roles";
@@ -40,6 +42,7 @@ export interface AdminNavEntry extends MainNavEntry {
 export const MAIN_NAV: readonly MainNavEntry[] = [
   { path: "/", label: { fa: "نمای کلی", en: "Overview" }, icon: LayoutDashboard },
   { path: "/meetings", label: { fa: "جلسه‌ها", en: "Meetings" }, icon: AudioLines },
+  { path: "/voicemails", label: { fa: "پیام‌های صوتی", en: "Voicemail" }, icon: Voicemail },
   { path: "/search", label: { fa: "جست‌وجو", en: "Search" }, icon: Search },
 ];
 
@@ -57,6 +60,7 @@ export const ADMIN_NAV = [
   { path: "/admin/audit", label: { fa: "گزارش رویدادها", en: "Audit log" }, icon: ScrollText, permission: "audit:read" },
   { path: "/admin/usage", label: { fa: "مصرف", en: "Usage" }, icon: Gauge, permission: "billing:read" },
   { path: "/admin/processing", label: { fa: "پردازش", en: "Processing" }, icon: Activity, permission: "workspace:manage" },
+  { path: "/admin/ingestions", label: { fa: "ورودی‌ها", en: "Ingestions" }, icon: Inbox, permission: "workspace:manage" },
   { path: "/admin/api-keys", label: { fa: "کلیدهای API", en: "API keys" }, icon: KeyRound, permission: "api_key:manage" },
   { path: "/admin/ai-policy", label: { fa: "سیاست هوش مصنوعی", en: "AI policy" }, icon: BrainCircuit, permission: "workspace:manage" },
   { path: "/admin/privacy", label: { fa: "حریم خصوصی", en: "Privacy" }, icon: LockKeyhole, permission: "pii:original_access" },

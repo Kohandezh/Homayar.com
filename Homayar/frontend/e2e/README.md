@@ -30,6 +30,7 @@ settings, which the invitation flow still needs.
 | --- | --- |
 | `admin-overview.spec.ts` | An owner signs in and `/admin` shows every card with real numbers. |
 | `processing.spec.ts` | An owner filters `/admin/processing` by state, reads a dead-letter job's drawer (failure, timeline, policy) and sees the failed jobs offer no replay. |
+| `ingestions.spec.ts` | An owner reads the real `/admin/ingestions` (table or empty state); with the ledger mocked: paging by cursor, the state filter, the source filter reaching the server, the rejected row's reason, the duplicate row's earlier ingestion and the meeting link, and no hash in the page. Persian is right to left; a member gets `No access` with no list request. |
 | `usage.spec.ts` | An owner reads `/admin/usage` (subscription, quota meters, event history with filter and paging, plan catalog with no prices) in `en` and `fa`, and a member gets `No access`. |
 | `members.spec.ts` | An owner changes a member's role, removes the member, invites them back, and the invited account accepts. |
 | `teams.spec.ts` | An owner reads the seeded teams with their member counts and the record-scope banner, opens `Sales`, renames and re-renames `Support`, deactivates and reactivates it, assigns the viewer to `Sales` and revokes the assignment. The page is right to left in Persian, and a member sees no write control. |
@@ -39,9 +40,14 @@ settings, which the invitation flow still needs.
 | `ai-policy.spec.ts` | An owner edits `/admin/ai-policy` with a preset that differs from the current policy, sees the saved version in `Version history` and compares it; an admin reads the policy and history with no edit controls; the page is right to left in Persian. |
 | `api-keys.spec.ts` | An owner reads the seeded key, creates one whose secret shows exactly once and revokes it through the confirm dialog; the page is right to left in Persian and a member is blocked. |
 | `privacy.spec.ts` | An owner places a legal hold on a seeded meeting from its `Data and retention` panel, finds it on `/admin/privacy` under `All holds` and `Due in 30 days` (not `Review due`), releases it from the register, and downloads a data subject export after the warning; an admin gets `No access` and sees no data panel on the meeting. |
+| `shared-links.spec.ts` | An owner creates a workspace share through the API, finds it on `/admin/privacy` under `Active` (the token is never on the page), cancels and then confirms `Revoke`, and sees the revoked row under `Revoked` with no Revoke button; the card is right to left in Persian. |
 | `voice-operations.spec.ts` | The demo owner (not a platform operator) sees `0 / 200` on the `Voice capacity` card, no `Voice operations` link, and `No access` on `/admin/voice` with no capacity request. With `/auth/me` changed to `system_role: "operator"` and every voice request mocked, the owner drains and resumes nodes through the confirm dialog; any unmocked API write is aborted in the browser, so nothing is written to the backend. |
+| `voicemails.spec.ts` | The owner reads the real, empty `/voicemails` inbox and the `Voicemail` card's empty text on `/admin`. With every voicemail request mocked (the seed has none), the owner filters by priority, opens a row, reads the transcript and the follow-up action, and marks it handled through to `Reopen`; the Persian page is right to left, and a viewer gets no write control. Any unmocked API write is aborted in the browser. |
 | `language-direction.spec.ts` | The language switch flips the page between `dir="rtl"` (fa) and `dir="ltr"` (en), and the choice survives a reload. |
 | `organization.spec.ts` | Read only. The owner picks the demo organization in the sidebar switcher and reads the overview (30 meetings for the workspace), the members table (the owner row has no row action), the workspaces table and the empty scope grants page; one page is right to left in Persian. A member, who belongs to no organization, sees no switcher and gets `No access` on the organization URL. Any organization request that is not a GET is aborted in the browser and fails the test. |
+| `call-report.spec.ts` | Read only. The owner opens a completed meeting (found through `GET /meetings?status=completed`, no fixed id) and reads the call report: the five sections in order, the `mock_analysis` notice, a `Play evidence at` button that sets `?at=` and moves the audio to that time without opening the advanced area, and `Show in transcript` opening the transcript. A failed meeting says its report is incomplete; the viewer sees `Correct transcript` disabled with its reason; the Persian page is right to left. Any meeting request that is not a GET is aborted in the browser and fails the test. |
+| `playback.spec.ts` | Read only. The owner opens a completed meeting (found through `GET /meetings?status=completed`, no fixed id), sees the `Keyboard shortcuts` list, opens `Transcript and tools`, plays from a turn's `Play from m:ss` (the audio moves to that time and `?at=` is set), seeks to another turn and sees it marked `aria-current`, toggles play with `K`, filters by speaker (the request carries `speaker_key` and every turn shown is that speaker's) and by a time range (`start_ms` and `end_ms`), and gets the alert for an inverted range. The Persian page is right to left with Persian shortcut labels. With the playback route answered `410` and `404` in the browser, the matching message shows and there is no `<audio>`. Any meeting request that is not a GET is aborted in the browser and fails the test. |
+| `transcript-correction.spec.ts` | The owner corrects one turn's text of `Quarterly pricing review #8` (found by title through `GET /meetings?status=completed&limit=50`) with a reason, sees `Saved as revision N` (N read from the API first, never assumed), walks `Revision history` (source, `You`, the reason, `Current`), views the previous revision read-only and comes back, and the call report shows `Based on an earlier transcript`. A speaker move sends only the new speaker and shows it on the segment; a viewer gets no `Edit turn at` but opens the history; the Persian page is right to left with Persian labels. |
 | `organization-writes.spec.ts` | With the real owner session and a mocked organization API: add an analyst with a validity window, change the end date, revoke; create a workspace; add a member to a workspace; add and revoke a scope grant; an administrator gets no `Administrator` role to grant. Each test asserts that no organization request reached the real API. |
 
 Add a file here as each new admin page lands.
@@ -121,6 +127,8 @@ hooks, which run even when a step fails:
   reads "Custom, version N" for good: the API has no way back to version 0,
   the built-in default.
 * `api-keys.spec.ts`, in `afterEach` (A2): revokes the exact key the spec created, by name, asserting each DELETE answers 204 or 404; still-active `e2e key ...` keys older than ten minutes are swept as crashed-run leftovers; the seeded `CRM integration (demo)` key is never touched.
+* `shared-links.spec.ts`, in `afterEach`: revokes over the API (with the same owner session) only the share this run created on `Customer portal login issue #10`, by its id, asserting the DELETE answers 204 or 404. The route is idempotent, so a share the test already revoked answers 204 again. Seeded shares are never touched. A revoked share stays in the list under Revoked as history; the API has no way to delete it. The audit log keeps the `meeting.share_created` and `meeting.share_revoked` events of every run.
+* `transcript-correction.spec.ts`, in `afterEach`: for every correction the run made on `Quarterly pricing review #8`, posts one more correction over the API (same owner session, the fresh current revision as base) that puts each touched segment's text and speaker back, then re-reads the transcript and asserts every touched segment is exactly as it started. Transcript revisions are immutable, so the restore appends new revisions and the history of that meeting grows by a few rows per run; the API has no way to remove them. No other meeting is touched.
 
 Re-running the seed is **not** a repair. `_ensure_workspace` returns an
 existing workspace untouched (`backend/database/demo_seed.py`), so `make
@@ -181,7 +189,41 @@ All optional; the defaults match `make backend` and `make demo-seed`.
 
 ## CI
 
-There is no CI job yet. It needs a runner that can start PostgreSQL, run the
-migrations and the demo seed, and start the backend; that is a separate
-ticket. Everything the job would need is already here: `npm run test:e2e`,
-with `CI=true` for one retry and `forbidOnly`.
+The `console-e2e` job in `.github/workflows/ci.yml` (HOM-224) runs the full
+suite on every pull request and every push to `main`. Inside the runner it:
+
+1. starts PostgreSQL and Redis as service containers;
+2. installs the backend with `uv sync --frozen`, runs `alembic upgrade head`
+   and the demo seed. The seed prints the demo logins with their password, so
+   the job drops all of the seed's standard output. Errors still show;
+3. starts the API on `127.0.0.1:8001`, with `SMTP_HOST=127.0.0.1` and
+   `SMTP_PORT` set to `E2E_SMTP_PORT`, and waits for `/readyz`;
+4. runs `npm run test:e2e` with `CI=true` (one retry, no `test.only`).
+   Playwright starts the dev server and the SMTP sink itself.
+
+Everything runs on `127.0.0.1` with mock providers. No shared backend is used,
+and no secret is needed.
+
+When the job fails, and also when it is cancelled (for example by its
+15-minute timeout), it prints the last 200 lines of the API log and uploads
+the artifact `console-e2e-report` (kept 7 days). It holds `playwright-report/`
+and `test-results/` (traces, screenshots, videos). Download it from the run's
+Summary page, unzip it, and open the report with
+`npx playwright show-report playwright-report`.
+
+To reproduce the job locally, start PostgreSQL and Redis, export the job's
+`env` values (point the URLs at your ports), and run the same steps:
+
+```bash
+cd Homayar
+uv sync --frozen
+uv run alembic upgrade head
+uv run python -m backend.database.demo_seed
+SMTP_HOST=127.0.0.1 SMTP_PORT=1025 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8001 &
+cd frontend
+npm ci
+npx playwright install chromium
+CI=true npm run test:e2e
+```
+
+Use a fresh database: the suite changes the demo workspace (see "Cleanup").

@@ -59,9 +59,12 @@ migration slot), and CI must run the tests without new tooling.
 9. **Positive evidence for the deletion journal.** The backup fingerprints every tombstone
    journal file (name, size, SHA-256); the files are append-only, so reconcile requires the
    replica to hold each with the same leading bytes (else stale or foreign: FAIL, not
-   acceptable). A backup taken before the first deletion only accepts a replica whose records
-   all belong to its tenants. An absent or empty journal never passes on its own; the single
-   override, `--accept-no-journal REF`, is recorded in the sealed report.
+   acceptable); a file that was empty at backup time only has to be present. Without such an
+   anchor (a backup taken before the first deletion), the evidence is a record of a tenant the
+   backup knows; records of tenants created after the backup are expected and skipped by the
+   replay. A replica with no evidence (no journal, no records, or only unknown tenants) never
+   passes on its own; the single override, `--accept-no-journal REF`, is recorded in the sealed
+   report, and a replica that is present is still replayed.
 10. **Reconcile is bound to what restore verified.** Restore records the manifest MAC in its
     state and in the staging marker; reconcile re-checks the MAC and requires the same one.
     Restore, reconcile and promote hold a PostgreSQL advisory lock per staging database, marker
@@ -69,8 +72,10 @@ migration slot), and CI must run the tests without new tooling.
     Staging names must contain `restoring`; the live and source names are refused by name.
 11. **Content, not just presence.** Reconcile re-hashes every required object in the target
     store against its restored row. The backup explains an object missing at copy time only by
-    the row that set its expectation, deleted or marked for deletion after the snapshot; a
-    legally held object is never explained (neither at backup nor at reconcile). Unexplained
+    the row that set its expectation, deleted or marked for deletion after the snapshot (with a
+    15-minute clock-skew tolerance); a legally held object, including the stage outputs a hold
+    keeps for a deleted meeting, is never explained (neither at backup nor at reconcile), and a
+    checkpoint the application found missing or corrupt stays a loss once swept. Unexplained
     loss or mismatching bytes mark the set's object copy `degraded`
     (kept, but the `objects` gauge does not move and the scheduled run fails).
 12. **Gauges follow verification.** Only a deep `verify` moves `postgres`/`objects` and only a
@@ -79,8 +84,13 @@ migration slot), and CI must run the tests without new tooling.
     attestation, since the tool cannot see the medium (`backup.sh` checks the host paths).
     A gauge that cannot be written never stops verify, the off-site copy or prune: the step
     exits 4, the run finishes and exits 4, and the stale or missing gauge raises the alert.
-13. **Retention prefers full verified sets** per bucket, and the 12 monthly sets lie beyond the
-    30-day window; manifest-less S3 copies are swept after 24 h.
+13. **Retention prefers full verified sets** per bucket, in the root and in every off-site copy
+    (the copy carries the verified marker), and the 12 monthly sets lie beyond the 30-day window;
+    manifest-less S3 copies and interrupted multipart uploads are swept after 24 h, and a
+    versioned bucket loses each removed set's versions right after the set, plus versions an
+    interrupted prune left (object-locked versions expire with the lock; unknown versioning is
+    never swept; denied listings fail the run at the end). An S3 copy counts only once each
+    file's SHA-256 is confirmed.
 14. **Retired databases carry an operator-enforced deadline.** Promote renames the live-name
     database it replaces and marks it `homayar-retired` with a 7-day `drop_after` in the rename
     transaction, then drops it only if it holds no relation (judged on the retired database).
@@ -100,7 +110,11 @@ migration slot), and CI must run the tests without new tooling.
   and covered by `JWT_SECRET` rotation, `--revoke-share-links` and owner decisions.
 - Losing the backup key loses the sets; the key needs an escrow outside every backup location.
 - The legacy scripts remain only for reading old sets.
-- The application host can still delete off-site copies; immutability (object lock,
-  off-site-side expiry) is **open owner decision AppVision D15** (pending).
+- Immutability is **AppVision D15, DECIDED 2026-10-18**: S3 Object Lock in GOVERNANCE mode with
+  retention matching the backup retention, and a separately held break-glass credential for
+  bypass (never the tool's credential). Prune treats a refused version delete as locked only
+  when the bucket has Object Lock and that version has retention or a legal hold, and retries
+  it later. Monthly sets are locked only for the default period (the tool sets no per-object
+  retention), and directory off-site targets stay deletable from the host.
 - Deletions newer than the journal replica's last sync are lost on a restore; the journal
   replication interval needs its own alert.

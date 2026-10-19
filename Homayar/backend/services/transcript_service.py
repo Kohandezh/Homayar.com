@@ -12,7 +12,7 @@ schema, so a summary or AI action item can always be traced to its inputs.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -130,6 +130,29 @@ def segments_of(db: Session, revision: TranscriptRevision) -> list[TranscriptSeg
             .order_by(TranscriptSegment.sequence.asc())
         )
     )
+
+
+def filter_segments(
+    segments: Sequence[TranscriptSegment],
+    *,
+    speaker_keys: Collection[str],
+    start_ms: int | None,
+    end_ms: int | None,
+) -> list[TranscriptSegment]:
+    """The segments of a speaker set that overlap ``[start_ms, end_ms)`` (HOM-60).
+
+    Filters combine with AND and the input order is kept.  An empty speaker
+    set and a missing bound filter nothing; a segment that starts before
+    ``start_ms`` and ends after it overlaps the window, one that ends exactly
+    at ``start_ms`` or starts exactly at ``end_ms`` does not.
+    """
+    return [
+        segment
+        for segment in segments
+        if (not speaker_keys or segment.speaker_key in speaker_keys)
+        and (start_ms is None or segment.end_ms > start_ms)
+        and (end_ms is None or segment.start_ms < end_ms)
+    ]
 
 
 def current_segments_clause(workspace_id: str):
@@ -367,9 +390,14 @@ def correct_revision(
     and segment count are preserved so audio offsets stay valid.  The base must
     be the current revision (``409 revision_stale`` otherwise), every edit must
     name a segment of that base and a speaker known to the meeting, and at
-    least one edit must change something.  Returns the new revision, its
-    segments and the number of segments that differ from the base.
+    least one edit must change something.  ``note`` is the person's reason for
+    the correction and is required (``422 reason_required`` when blank).
+    Returns the new revision, its segments and the number of segments that
+    differ from the base.
     """
+    note = " ".join((note or "").split())
+    if not note:
+        raise TranscriptError("reason_required", "A reason for the correction is required")
     if not edits:
         raise TranscriptError("no_changes", "No transcript edits were provided")
     if len(edits) > MAX_CORRECTION_EDITS:

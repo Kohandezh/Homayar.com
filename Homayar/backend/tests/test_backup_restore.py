@@ -132,6 +132,13 @@ def _backup(settings, tmp_path: Path, **kwargs) -> dict:
     )
 
 
+def _row(database_url: str, statement: str, params: tuple = ()) -> tuple:
+    with connect(database_url) as connection:
+        row = connection.execute(statement, params).fetchone()
+        connection.rollback()
+    return tuple(row)
+
+
 def _scalar(database_url: str, statement: str, params: tuple = ()):
     with connect(database_url) as connection:
         value = connection.execute(statement, params).fetchone()[0]
@@ -1089,6 +1096,56 @@ def test_reconciliation_refuses_an_empty_or_stale_tombstone_journal(
     assert report["checks"]["tombstones"]["details"]["replay"]["reapplied"] == 1
 
 
+def test_a_young_deployment_replays_its_journal_with_tenants_created_after_the_backup(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases
+):
+    _patch_media(monkeypatch)
+    known = _tenant(client, email_outbox, "bk-young-a")
+    accepted = _upload(client, known, key="bk-young-a-1")
+    assert accepted.status_code == 202, accepted.text
+    known_meeting = accepted.json()["meeting"]["id"]
+    _stamp_head(settings.database_url)
+    manifest = _backup(settings, tmp_path)  # before the first deletion: nothing to anchor
+    assert manifest["tombstone_journal"]["records"] == 0
+    assert not manifest["tombstone_journal"]["files"]
+    _delete(client, known, known_meeting)
+    newcomer = _tenant(client, email_outbox, "bk-young-new")  # signed up after the backup
+    late = _upload(client, newcomer, key="bk-young-new-1")
+    assert late.status_code == 202, late.text
+    _delete(client, newcomer, late.json()["meeting"]["id"])
+    staging, _ = _names("young", databases)
+    _, target_settings, storage = _restore(settings, tmp_path, manifest["path"], staging)
+
+    def run(directory: Path, **kwargs):
+        view = target_settings.model_copy(update={"tombstone_journal_dir": str(directory)})
+        return _reconcile(manifest["path"], staging, view, storage, tmp_path, **kwargs)
+
+    blank = tmp_path / "blank-replica"
+    blank.mkdir()
+    (blank / "tombstones-20261018.jsonl").write_text("\n")  # e.g. a failed append
+    report = run(blank)
+    tombstones = report["checks"]["tombstones"]["details"]
+    assert report["statuses"]["tombstones"] == "FAIL"
+    assert tombstones["journal_identity"] == "none" and tombstones["stale_or_foreign_journal"]
+    accepted_blank = run(blank, accept_no_journal="OWNER-BLANK-1")
+    assert accepted_blank["statuses"]["tombstones"] == "PASS"
+    details = accepted_blank["checks"]["tombstones"]["details"]
+    assert details["owner_override_no_journal"] == "OWNER-BLANK-1"
+
+    report = run(Path(settings.tombstone_journal_dir))
+    tombstones = report["checks"]["tombstones"]["details"]
+    assert report["statuses"]["tombstones"] == "PASS", tombstones
+    assert tombstones["journal_identity"] == "unanchored"
+    assert tombstones["journal_identity_details"]["tenants_unknown_to_backup"] == 1
+    assert tombstones["replay"]["reapplied"] == 1  # the known tenant's deletion comes back
+    assert tombstones["owner_override_no_journal"] is None
+    assert not _scalar(
+        with_database(_admin(), staging),
+        "SELECT deleted_at IS NULL FROM meetings WHERE id = %s",
+        (known_meeting,),
+    )
+
+
 def test_bytes_copied_after_the_snapshot_of_a_later_deleted_conversation_are_removed(
     client, email_outbox, monkeypatch, settings, tmp_path, databases
 ):
@@ -1191,6 +1248,16 @@ def test_lost_bytes_of_a_held_conversation_are_never_explained_as_a_deletion(
         (key,),
     )
     (Path(settings.storage_local_root) / key).unlink()  # the held bytes are lost
+    # The deleted meeting's checkpoints are invalidated, but the hold keeps their
+    # bytes: losing one is a loss too (HOM-214), not an optional object.
+    artifact, reason = _row(
+        _admin(),
+        "SELECT artifact_key, invalidation_reason FROM stage_checkpoints "
+        "WHERE meeting_id = %s AND object_deleted_at IS NULL ORDER BY id LIMIT 1",
+        (meeting,),
+    )
+    assert reason == "meeting_deleted"
+    (Path(settings.storage_local_root) / artifact).unlink()
     _stamp_head(settings.database_url)
 
     root = tmp_path / "backups"
@@ -1208,8 +1275,8 @@ def test_lost_bytes_of_a_held_conversation_are_never_explained_as_a_deletion(
     backup_id = json.loads(output)["backup_id"]
     set_dir = Path(json.loads(output)["path"])
     catalog = load_catalog(set_dir, read_manifest(set_dir), KEY)
-    assert key in catalog["objects"]["missing_unexplained"]
-    assert key not in {item["key"] for item in catalog["objects"]["missing_explained"]}
+    assert {key, artifact} <= set(catalog["objects"]["missing_unexplained"])
+    assert not catalog["objects"]["missing_explained"]
     assert cli(["--root", str(root), "verify", backup_id]) == 0
     assert set(read_values(textfile)) == {"postgres"}  # the objects gauge stays stale
 
@@ -1220,7 +1287,7 @@ def test_lost_bytes_of_a_held_conversation_are_never_explained_as_a_deletion(
     )
     details = report["checks"]["objects"]["details"]
     assert report["statuses"]["objects"] == "FAIL" and report["status"] == "FAIL"
-    assert key in details["required_missing_keys"]
+    assert {key, artifact} <= set(details["required_missing_keys"])
     assert details["deleted_after_snapshot"] == []
 
 
