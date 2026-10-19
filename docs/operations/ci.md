@@ -9,7 +9,7 @@
 | Product console end-to-end | PostgreSQL and Redis services, frozen uv environment, `alembic upgrade head`, demo seed, the API on `127.0.0.1:8001`, then the full Playwright suite (`npm run test:e2e`) in Chromium |
 | Backend | frozen uv environment, single Alembic head, upgrade/check/current-head, pytest |
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
-| Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) and the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`) |
+| Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`), and promtool on the alert rules, their unit tests and the example Prometheus configuration (`infra/observability/prometheus`, HOM-126) |
 
 The product source is tracked in this repository under `Homayar/`
 ([ADR 0033](../architecture/decisions/0033-product-source-in-this-repository.md), which
@@ -39,7 +39,11 @@ the suite stop with a usage error instead of skipping them when either binary is
 version follows the distribution's security updates rather than an exact pin; the job log records
 it. Locally, without the variable, the suite still skips the marker when the binaries are absent.
 The pytest summary (`-rs`) lists every remaining skip with its reason: the opt-in `live_s3` tests
-without a bucket, the Padyar AI Gateway tests without a contract, and SQLite-only tests.
+without a bucket, the Padyar AI Gateway tests without a contract, SQLite-only tests, and the three
+promtool cases of `test_alert_rules.py` (`check-rules`, `test-rules`, `check-config`), because the
+backend job has no `prom/prometheus` image. The *Container configuration* job runs the same three
+promtool commands and is the gate for the alert rules; do not drop its steps because pytest seems
+to cover them.
 
 The backend job may run for 40 minutes. The test step alone took about 22 minutes on `2f5f666`,
 which left too little room under the earlier 25-minute limit.

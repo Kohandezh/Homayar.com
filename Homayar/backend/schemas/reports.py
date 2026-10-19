@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from backend.schemas.insights import ContentRedactionInfo
-from backend.schemas.meetings import MeetingQualityResponse
+from backend.schemas.meetings import MeetingQualityResponse, ReportCompleteness
 
 EvidenceStatusLiteral = Literal["sufficient", "partial", "insufficient"]
 OutcomeState = Literal["explicit", "inferred", "not_stated", "unavailable"]
@@ -108,16 +108,6 @@ class ReviewActionResponse(BaseModel):
     action: str
     available: bool
     reason: str | None
-
-
-class ReportCompleteness(BaseModel):
-    is_complete: bool
-    notices: list[str]
-    meeting_status: str
-    transcription: str
-    speaker_attribution: str
-    analysis: str
-    evidence: str
 
 
 class CallReportResponse(BaseModel):

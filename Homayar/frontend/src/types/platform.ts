@@ -271,6 +271,30 @@ export interface TranscriptRedaction {
 
 export type TranscriptView = "original" | "redacted";
 
+/** GET /meetings/{id}/transcript/revisions: newest first, the API's order (HOM-246). */
+export interface TranscriptRevisionListResponse {
+  meeting_id: string;
+  current_revision_id: string | null;
+  items: TranscriptRevision[];
+}
+
+/** One edit of POST /meetings/{id}/transcript/corrections: only the fields that changed. */
+export interface TranscriptCorrectionEdit {
+  segment_id: string;
+  /** 1 to 8000 characters; sent only when the text changed. */
+  text?: string;
+  /** A speaker key known for this meeting; sent only when the speaker changed. */
+  speaker_key?: string;
+}
+
+export interface TranscriptCorrectionInput {
+  /** The revision the person saw while editing; a stale base is refused with 409. */
+  base_revision_id: string;
+  /** The person's reason, 3 to 500 characters after whitespace is collapsed. */
+  reason: string;
+  edits: TranscriptCorrectionEdit[];
+}
+
 /**
  * The view a summary, action item or evidence response was rendered in
  * (gap G10). `redaction` is present only for a redacted view: the texts went
@@ -298,6 +322,46 @@ export interface Transcript {
   view?: TranscriptView;
   privacy_enforced?: boolean;
   redaction?: TranscriptRedaction | null;
+  /** The filters the server applied, present only when the request had any (HOM-247). */
+  filters?: TranscriptResponseFilters | null;
+  /** Segments before filtering, present only on a filtered response (HOM-247). */
+  total_segments?: number | null;
+  /** Same object as the playback descriptor's (HOM-247). */
+  completeness?: ReportCompleteness | null;
+}
+
+/** What GET /meetings/{id}/transcript echoes about the filters it applied (HOM-247). */
+export interface TranscriptResponseFilters {
+  speaker_keys?: string[] | null;
+  start_ms?: number | null;
+  end_ms?: number | null;
+}
+
+/** Client-side transcript filters (HOM-247): sent as repeatable `speaker_key` plus the range. */
+export interface TranscriptFilters {
+  speakerKeys: string[];
+  startMs: number | null;
+  endMs: number | null;
+}
+
+/**
+ * GET /meetings/{id}/playback (HOM-247): what the server says about playing a
+ * meeting's recording. `media_url` is the source the player uses; `url` also
+ * carries a media-fragment cue and is never the element source.
+ */
+export interface PlaybackDescriptor {
+  meeting_id: string;
+  media_url: string;
+  url: string;
+  start_ms: number;
+  end_ms: number | null;
+  duration_ms: number | null;
+  content_type: string;
+  size_bytes: number;
+  accept_ranges: string;
+  completeness: ReportCompleteness;
+  privacy_enforced: boolean;
+  audio_redacted: boolean;
 }
 
 /** POST /meetings/{id}/transcript/redactions/{redaction_id}/reveal (owner, audited). */
@@ -392,6 +456,100 @@ export interface EvidenceRef {
   start_ms: number;
   end_ms: number;
   evidence_type: "turn_reference" | "human";
+}
+
+/** An evidence ref in the call report, resolved to its transcript text (WP12-T02). */
+export interface ReportEvidenceRef extends EvidenceRef {
+  is_current_revision: boolean;
+  text: string;
+}
+
+export interface ReportKeyPoint {
+  index: number;
+  category: string | null;
+  text: string;
+  confidence: number | null;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export interface ReportSummary {
+  overview: string;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+  key_points: ReportKeyPoint[];
+  topics: string[];
+  sentiment: string | null;
+  analysis_run_id: string | null;
+  provider: string;
+  model: string;
+}
+
+export interface ReportDecision {
+  text: string;
+  key_point_index: number | null;
+  confidence: number | null;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export type ReportOutcomeState = "explicit" | "inferred" | "not_stated" | "unavailable";
+
+export interface ReportFinding {
+  finding_type: "summary" | "insight" | "action_item";
+  finding_id: string | null;
+  finding_index: number | null;
+  category: string | null;
+  text: string;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export interface ReportFindingCounts {
+  total: number;
+  supported: number;
+  unsupported: number;
+  sufficient: number;
+  partial: number;
+  insufficient: number;
+}
+
+export type ReviewActionKey = "correct_transcript" | "rename_speaker" | "edit_action_items" | "share" | "export";
+
+export interface ReportReviewAction {
+  action: ReviewActionKey;
+  available: boolean;
+  /** `permission_denied`, `no_transcript` or `no_speakers`; null exactly when available. */
+  reason: string | null;
+}
+
+export interface ReportCompleteness {
+  is_complete: boolean;
+  /** Notice codes in the API's fixed order; empty exactly when is_complete. */
+  notices: string[];
+  meeting_status: MeetingStatus;
+  transcription: TranscriptionState;
+  speaker_attribution: SpeakerAttributionState;
+  analysis: AnalysisState;
+  evidence: EvidenceStatus;
+}
+
+/** GET /meetings/{id}/report: the call report for every readable meeting (WP12-T02, HOM-59). */
+export interface CallReportResponse {
+  meeting_id: string;
+  report_version: 1;
+  summary: ReportSummary | null;
+  outcome: { state: ReportOutcomeState; decisions: ReportDecision[] };
+  qa: { quality: MeetingQuality; findings: ReportFinding[]; counts: ReportFindingCounts };
+  review_actions: ReportReviewAction[];
+  completeness: ReportCompleteness;
+  view: TranscriptView;
+  privacy_enforced: boolean;
+  redaction: ContentRedaction | null;
 }
 
 export type ActionPriority = "low" | "medium" | "high";

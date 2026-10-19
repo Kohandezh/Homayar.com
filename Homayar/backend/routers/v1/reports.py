@@ -36,7 +36,6 @@ from backend.routers.v1.insights import (
 from backend.schemas.meetings import MeetingQualityResponse
 from backend.schemas.reports import (
     CallReportResponse,
-    ReportCompleteness,
     ReportDecision,
     ReportEvidenceRef,
     ReportFinding,
@@ -55,11 +54,10 @@ from backend.services.evidence_service import (
     list_evidence,
 )
 from backend.services.report_service import (
-    completeness_notices,
     evidence_status_of,
     finding_counts,
-    is_report_complete,
     is_supported,
+    meeting_completeness,
     outcome_state,
     review_action_reason,
 )
@@ -340,18 +338,8 @@ def get_call_report(
         ),
         qa=ReportQA(quality=quality, findings=findings, counts=ReportFindingCounts(**counts)),
         review_actions=_review_actions(context, quality),
-        completeness=ReportCompleteness(
-            is_complete=is_report_complete(
-                status=meeting.status, quality=quality, unsupported=unsupported
-            ),
-            notices=completeness_notices(
-                status=meeting.status, quality=quality, unsupported=unsupported
-            ),
-            meeting_status=meeting.status.value,
-            transcription=quality.transcription,
-            speaker_attribution=quality.speaker_attribution,
-            analysis=quality.analysis,
-            evidence=quality.evidence,
+        completeness=meeting_completeness(
+            status=meeting.status, quality=quality, unsupported=unsupported
         ),
         **_view_fields(meeting_view_),
     )

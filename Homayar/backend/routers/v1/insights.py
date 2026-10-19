@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import StringConstraints
 from sqlalchemy import String, cast, exists, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -46,6 +47,7 @@ from backend.schemas.insights import (
     SpeakerUpdateRequest,
     SummaryResponse,
     TranscriptCorrectionRequest,
+    TranscriptFilters,
     TranscriptRedactionInfo,
     TranscriptResponse,
     TranscriptRevisionListResponse,
@@ -78,6 +80,7 @@ from backend.services.export_service import (
 )
 from backend.services.meeting_service import latest_job_for_meeting
 from backend.services.quality_service import assess_meeting
+from backend.services.report_service import meeting_completeness
 from backend.services.transcript_service import (
     SegmentEdit,
     TranscriptError,
@@ -85,6 +88,7 @@ from backend.services.transcript_service import (
     current_analysis_run,
     current_revision,
     current_segments_clause,
+    filter_segments,
     list_revisions,
     revision_by_id,
     segments_of,
@@ -101,6 +105,12 @@ _VIEW_QUERY = Query(
         "pii:original_access and is audited."
     ),
 )
+SpeakerKey = Annotated[str, StringConstraints(min_length=1, max_length=64)]
+
+
+def invalid_time_range(message: str = "end_ms must be greater than start_ms") -> HTTPException:
+    """A time window that selects nothing (HOM-60)."""
+    return HTTPException(status_code=422, detail={"code": "invalid_time_range", "message": message})
 
 
 def _meeting_or_404(db: Session, *, context: WorkspaceContext, meeting_id: str) -> Meeting:
@@ -199,12 +209,35 @@ def _transcript_response(
     meeting: Meeting,
     view: MeetingView,
     revision: TranscriptRevision | None = None,
+    filters: TranscriptFilters | None = None,
 ) -> TranscriptResponse:
     """The segments of one revision — the current one unless asked otherwise —
-    in the caller's view (original or redacted)."""
+    in the caller's view (original or redacted).
+
+    With ``filters`` (HOM-60 navigation, possibly empty) only the matching
+    segments are returned, and ``filters``, ``total_segments`` and
+    ``completeness`` are set; without it (a share, an export) they stay
+    null.  A filter only drops whole segments, so it never shows a text the
+    unfiltered response would not.
+    """
     if revision is None:
         revision = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     segments = segments_of(db, revision) if revision is not None else []
+    navigation: dict[str, object] = {}
+    if filters is not None:
+        navigation = {
+            "filters": filters,
+            "total_segments": len(segments),
+            "completeness": meeting_completeness(
+                status=meeting.status, quality=_quality(db, meeting)
+            ),
+        }
+        segments = filter_segments(
+            segments,
+            speaker_keys=frozenset(filters.speaker_keys),
+            start_ms=filters.start_ms,
+            end_ms=filters.end_ms,
+        )
     speakers = list(
         db.scalars(
             select(MeetingSpeaker)
@@ -240,6 +273,7 @@ def _transcript_response(
         view=view.policy.view,
         privacy_enforced=view.policy.enforced,
         redaction=_redaction_info(view, revision),
+        **navigation,
     )
 
 
@@ -297,10 +331,24 @@ def get_transcript(
     request: Request,
     revision_id: str | None = Query(default=None, min_length=1, max_length=36),
     view: ViewParam | None = _VIEW_QUERY,
+    speaker_key: list[SpeakerKey] | None = Query(
+        default=None,
+        max_length=20,
+        description="Keep the segments of these speakers (repeatable, at most 20).",
+    ),
+    start_ms: int | None = Query(
+        default=None, ge=0, description="Keep the segments that end after this time."
+    ),
+    end_ms: int | None = Query(
+        default=None, ge=1, description="Keep the segments that start before this time."
+    ),
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TranscriptResponse:
+    """The segments of one revision, optionally only those of some speakers
+    that overlap ``[start_ms, end_ms)`` (HOM-60); ``speakers`` stays the
+    meeting's full list and ``total_segments`` the unfiltered count."""
     meeting = _meeting_or_404(
         db,
         context=context,
@@ -316,6 +364,9 @@ def get_transcript(
                 status_code=404,
                 detail={"code": "revision_not_found", "message": "Transcript revision not found"},
             )
+    # Before the view: a refused window writes no original-access audit row.
+    if start_ms is not None and end_ms is not None and end_ms <= start_ms:
+        raise invalid_time_range()
     meeting_view_ = meeting_view(
         db,
         context=context,
@@ -325,7 +376,12 @@ def get_transcript(
         request=request,
         surface="transcript",
     )
-    response = _transcript_response(db, meeting=meeting, view=meeting_view_, revision=revision)
+    filters = TranscriptFilters(
+        speaker_keys=sorted(set(speaker_key or ())), start_ms=start_ms, end_ms=end_ms
+    )
+    response = _transcript_response(
+        db, meeting=meeting, view=meeting_view_, revision=revision, filters=filters
+    )
     db.commit()  # a first redacted version or an original-access audit
     return response
 
@@ -424,7 +480,9 @@ def correct_transcript(
         },
         settings=settings,
     )
-    response = _transcript_response(db, meeting=meeting, view=view, revision=revision)
+    response = _transcript_response(
+        db, meeting=meeting, view=view, revision=revision, filters=TranscriptFilters()
+    )
     db.commit()
     return response
 

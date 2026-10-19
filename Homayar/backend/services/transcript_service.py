@@ -12,7 +12,7 @@ schema, so a summary or AI action item can always be traced to its inputs.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -130,6 +130,29 @@ def segments_of(db: Session, revision: TranscriptRevision) -> list[TranscriptSeg
             .order_by(TranscriptSegment.sequence.asc())
         )
     )
+
+
+def filter_segments(
+    segments: Sequence[TranscriptSegment],
+    *,
+    speaker_keys: Collection[str],
+    start_ms: int | None,
+    end_ms: int | None,
+) -> list[TranscriptSegment]:
+    """The segments of a speaker set that overlap ``[start_ms, end_ms)`` (HOM-60).
+
+    Filters combine with AND and the input order is kept.  An empty speaker
+    set and a missing bound filter nothing; a segment that starts before
+    ``start_ms`` and ends after it overlaps the window, one that ends exactly
+    at ``start_ms`` or starts exactly at ``end_ms`` does not.
+    """
+    return [
+        segment
+        for segment in segments
+        if (not speaker_keys or segment.speaker_key in speaker_keys)
+        and (start_ms is None or segment.end_ms > start_ms)
+        and (end_ms is None or segment.start_ms < end_ms)
+    ]
 
 
 def current_segments_clause(workspace_id: str):
