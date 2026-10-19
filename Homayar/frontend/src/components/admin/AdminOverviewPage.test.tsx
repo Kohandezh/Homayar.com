@@ -12,6 +12,7 @@ import {
   useReadiness,
 } from "@/lib/platform-api";
 import { useVoiceCapacity } from "@/lib/voice-api";
+import { useVoicemailAnalytics } from "@/lib/voicemail-api";
 import { formatAudioSeconds, formatDate } from "@/lib/format";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, networkError, renderConsole } from "@/test/fixtures";
 import type {
@@ -24,6 +25,7 @@ import type {
   MeetingStatus,
   WorkspaceInvitation,
 } from "@/types/platform";
+import type { VoicemailAnalytics } from "@/types/voicemail";
 
 vi.mock("@/lib/platform-api", () => ({
   useMeetings: vi.fn(),
@@ -38,6 +40,10 @@ vi.mock("@/lib/platform-api", () => ({
 
 vi.mock("@/lib/voice-api", () => ({
   useVoiceCapacity: vi.fn(),
+}));
+
+vi.mock("@/lib/voicemail-api", () => ({
+  useVoicemailAnalytics: vi.fn(),
 }));
 
 const T = "2026-09-24T12:00:00Z";
@@ -160,6 +166,22 @@ function auditEvent(id: string, eventType: string): AuditEvent {
   };
 }
 
+/** A full GET /voicemails/analytics answer. */
+function voicemailAnalytics(): VoicemailAnalytics {
+  return {
+    received_from: T,
+    received_to: T,
+    total: 1,
+    by_category: { billing: 1 },
+    by_priority: { urgent: 1 },
+    by_status: { classified: 1 },
+    by_follow_up_state: { pending: 1 },
+    by_day: [{ day: "2026-10-18", count: 1 }],
+    followed_up: 0,
+    median_follow_up_seconds: null,
+  };
+}
+
 interface Answers {
   /** GET /meetings/counts, the Processing card's primary source. */
   processing: QueryState;
@@ -173,6 +195,7 @@ interface Answers {
   audit: QueryState;
   readiness: QueryState;
   voice: QueryState;
+  voicemailAnalytics: QueryState;
 }
 
 const ALL_DATA: Answers = {
@@ -204,6 +227,7 @@ const ALL_DATA: Answers = {
   }),
   readiness: ok({ status: "ready", checks: { database: "ready", redis: "ready" } }),
   voice: ok({ workspace: { workspace_id: "ws-1", held: 0, limit: 200 } }),
+  voicemailAnalytics: ok(voicemailAnalytics()),
 };
 
 function answer(overrides: Partial<Answers> = {}) {
@@ -220,6 +244,7 @@ function answer(overrides: Partial<Answers> = {}) {
   vi.mocked(useAuditEvents).mockReturnValue(answers.audit as never);
   vi.mocked(useReadiness).mockReturnValue(answers.readiness as never);
   vi.mocked(useVoiceCapacity).mockReturnValue(answers.voice as never);
+  vi.mocked(useVoicemailAnalytics).mockReturnValue(answers.voicemailAnalytics as never);
 }
 
 function renderPage(lang: "fa" | "en" = "en", permissions?: string[]) {
@@ -232,8 +257,8 @@ function renderPage(lang: "fa" | "en" = "en", permissions?: string[]) {
   });
 }
 
-const CARD_NAMES_EN = ["Processing", "Needs attention", "Voice capacity", "Quota", "Plan", "Members", "Recent activity"];
-const CARD_NAMES_FA = ["پردازش", "نیازمند بررسی", "ظرفیت تماس صوتی", "سهمیه", "طرح اشتراک", "اعضا", "رویدادهای اخیر"];
+const CARD_NAMES_EN = ["Processing", "Needs attention", "Voice capacity", "Voicemail", "Quota", "Plan", "Members", "Recent activity"];
+const CARD_NAMES_FA = ["پردازش", "نیازمند بررسی", "ظرفیت تماس صوتی", "پیام‌های صوتی", "سهمیه", "طرح اشتراک", "اعضا", "رویدادهای اخیر"];
 
 function region(name: string) {
   return screen.getByRole("region", { name });
@@ -456,6 +481,7 @@ describe("AdminOverviewPage states", () => {
       audit: pending(),
       readiness: pending(),
       voice: pending(),
+      voicemailAnalytics: pending(),
     });
     renderPage("en");
     for (const name of CARD_NAMES_EN) {
@@ -480,6 +506,7 @@ describe("AdminOverviewPage states", () => {
       audit: failed(),
       readiness: failed(networkError()),
       voice: failed(),
+      voicemailAnalytics: failed(),
     });
     renderPage("en");
     expect(screen.getByRole("heading", { level: 1, name: "Admin overview" })).toBeInTheDocument();
@@ -585,14 +612,14 @@ describe("AdminOverviewPage system status chip", () => {
     expect(chip.closest("section")).toBeNull();
     expect(screen.queryByText(/Degraded/)).not.toBeInTheDocument();
     expect(screen.queryByText("System ready")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("region")).toHaveLength(7);
+    expect(screen.getAllByRole("region")).toHaveLength(8);
   });
 });
 
 describe("AdminOverviewPage permissions", () => {
   it("renders only the cards the workspace may read and never asks for the others", () => {
     renderPage("en", ["workspace:manage", "meeting:read"]);
-    expect(screen.getAllByRole("region")).toHaveLength(3);
+    expect(screen.getAllByRole("region")).toHaveLength(4);
     expect(region("Processing")).toBeInTheDocument();
     expect(region("Needs attention")).toBeInTheDocument();
     expect(region("Voice capacity")).toBeInTheDocument();
