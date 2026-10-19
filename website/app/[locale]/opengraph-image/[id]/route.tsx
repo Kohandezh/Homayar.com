@@ -1,9 +1,8 @@
 import { ImageResponse } from "next/og";
 import { getDictionary } from "@/i18n";
-import { isLocale, type Locale } from "@/lib/i18n";
+import { isLocale, locales, type Locale } from "@/lib/i18n";
 
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+export const dynamicParams = false;
 
 const W = 1200;
 const H = 630;
@@ -34,18 +33,16 @@ function wave() {
   return pts.join("");
 }
 
-async function localeOf(params: Promise<{ locale: string }>): Promise<Locale> {
+export function generateStaticParams() {
+  return locales.map((locale) => ({ locale, id: "brand" }));
+}
+
+async function localeOf(params: Promise<{ locale: string; id: string }>): Promise<Locale> {
   const { locale } = await params;
   return isLocale(locale) ? locale : "fa";
 }
 
-export async function generateImageMetadata({ params }: { params: Promise<{ locale: string }> }) {
-  const locale = await localeOf(params);
-  const dict = await getDictionary(locale);
-  return [{ id: "brand", size, contentType, alt: `${dict.brand}: ${dict.tagline}` }];
-}
-
-export default async function Image({ params }: { params: Promise<{ locale: string }>; id: string }) {
+export async function GET(_request: Request, { params }: { params: Promise<{ locale: string; id: string }> }) {
   const locale = await localeOf(params);
   const dict = await getDictionary(locale);
   const bars = [
@@ -79,6 +76,6 @@ export default async function Image({ params }: { params: Promise<{ locale: stri
         <div style={{ position: "absolute", right: 72, bottom: 78, fontSize: 24, color: "#22bec6", display: "flex" }}>{locale === "fa" ? "FA" : "EN"}</div>
       </div>
     ),
-    { ...size },
+    { width: W, height: H },
   );
 }
