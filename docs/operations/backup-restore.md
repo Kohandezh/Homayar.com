@@ -2,8 +2,11 @@
 
 Objectives, scope and limits: [`disaster-recovery-objectives.md`](disaster-recovery-objectives.md)
 (provisional owner defaults: RPO 24 h, RTO 8 h, 30 daily + 12 monthly, one encrypted copy off
-the application host). Design: ADR 0035. Restore drill (HOM-118): pending; its record will be
-linked here once it exists.
+the application host). Design: ADR 0035. Restore drill (HOM-118):
+[`drills/2026-10-18-restore-drill.md`](drills/2026-10-18-restore-drill.md), run on `b9836ae`.
+It measured the RTO for the drilled scope (237.1 s on one local Docker host; detection,
+provisioning, secret retrieval and image pulls excluded). It did **not** demonstrate the RPO.
+A re-run on current `main` is pending.
 
 PostgreSQL is the transactional source of truth; MinIO holds recordings, derived media and stage
 artifacts. Redis is ephemeral and Neo4j is a rebuildable projection; neither is backed up. The
