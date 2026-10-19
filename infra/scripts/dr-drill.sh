@@ -66,14 +66,32 @@ cleanup() {
   local rc=$?
   trap - EXIT
   if [[ "${DRILL_KEEP:-0}" != "1" ]]; then
+    # By label, not `compose down`: the compose file needs per-project variables
+    # (BACKUP_ROOT, ports, ...) that are not set here.
+    local project label ids
     for project in "${PROD}" "${RESTORE}"; do
-      docker compose --project-name "${project}" --file "${COMPOSE_FILE}" \
-        --env-file "${DRILL_DIR}/drill.env" --profile onprem --profile ops --profile migrate \
-        down --volumes --remove-orphans >/dev/null 2>&1 || true
+      label="label=com.docker.compose.project=${project}"
+      ids="$(docker ps -aq --filter "${label}")"
+      [[ -z "${ids}" ]] || docker rm -f ${ids} >/dev/null 2>&1 || true
+      ids="$(docker volume ls -q --filter "${label}")"
+      [[ -z "${ids}" ]] || docker volume rm -f ${ids} >/dev/null 2>&1 || true
+      ids="$(docker network ls -q --filter "${label}")"
+      [[ -z "${ids}" ]] || docker network rm ${ids} >/dev/null 2>&1 || true
     done
     docker rm -f "${OFFSITE}" >/dev/null 2>&1 || true
     rm -f "${DRILL_DIR}/drill.env" "${DRILL_DIR}/backup.key" "${DRILL_DIR}/offsite.env"
-    printf 'cleanup: drill projects, off-site stand-in and secret files removed\n' >&2
+    ids=""
+    for project in "${PROD}" "${RESTORE}"; do
+      label="label=com.docker.compose.project=${project}"
+      ids+="$(docker ps -aq --filter "${label}")$(docker volume ls -q --filter "${label}")"
+      ids+="$(docker network ls -q --filter "${label}")"
+    done
+    if [[ -n "${ids}" ]]; then
+      printf 'ERROR: cleanup left containers, volumes or networks of the drill projects\n' >&2
+      (( rc != 0 )) || rc=1
+    else
+      printf 'cleanup: drill projects, off-site stand-in and secret files removed\n' >&2
+    fi
   else
     printf 'cleanup skipped (DRILL_KEEP=1): projects, %s and secret files remain\n' "${OFFSITE}" >&2
   fi
