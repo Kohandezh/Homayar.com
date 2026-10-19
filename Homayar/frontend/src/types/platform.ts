@@ -394,6 +394,100 @@ export interface EvidenceRef {
   evidence_type: "turn_reference" | "human";
 }
 
+/** An evidence ref in the call report, resolved to its transcript text (WP12-T02). */
+export interface ReportEvidenceRef extends EvidenceRef {
+  is_current_revision: boolean;
+  text: string;
+}
+
+export interface ReportKeyPoint {
+  index: number;
+  category: string | null;
+  text: string;
+  confidence: number | null;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export interface ReportSummary {
+  overview: string;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+  key_points: ReportKeyPoint[];
+  topics: string[];
+  sentiment: string | null;
+  analysis_run_id: string | null;
+  provider: string;
+  model: string;
+}
+
+export interface ReportDecision {
+  text: string;
+  key_point_index: number | null;
+  confidence: number | null;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export type ReportOutcomeState = "explicit" | "inferred" | "not_stated" | "unavailable";
+
+export interface ReportFinding {
+  finding_type: "summary" | "insight" | "action_item";
+  finding_id: string | null;
+  finding_index: number | null;
+  category: string | null;
+  text: string;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export interface ReportFindingCounts {
+  total: number;
+  supported: number;
+  unsupported: number;
+  sufficient: number;
+  partial: number;
+  insufficient: number;
+}
+
+export type ReviewActionKey = "correct_transcript" | "rename_speaker" | "edit_action_items" | "share" | "export";
+
+export interface ReportReviewAction {
+  action: ReviewActionKey;
+  available: boolean;
+  /** `permission_denied`, `no_transcript` or `no_speakers`; null exactly when available. */
+  reason: string | null;
+}
+
+export interface ReportCompleteness {
+  is_complete: boolean;
+  /** Notice codes in the API's fixed order; empty exactly when is_complete. */
+  notices: string[];
+  meeting_status: MeetingStatus;
+  transcription: TranscriptionState;
+  speaker_attribution: SpeakerAttributionState;
+  analysis: AnalysisState;
+  evidence: EvidenceStatus;
+}
+
+/** GET /meetings/{id}/report: the call report for every readable meeting (WP12-T02, HOM-59). */
+export interface CallReportResponse {
+  meeting_id: string;
+  report_version: 1;
+  summary: ReportSummary | null;
+  outcome: { state: ReportOutcomeState; decisions: ReportDecision[] };
+  qa: { quality: MeetingQuality; findings: ReportFinding[]; counts: ReportFindingCounts };
+  review_actions: ReportReviewAction[];
+  completeness: ReportCompleteness;
+  view: TranscriptView;
+  privacy_enforced: boolean;
+  redaction: ContentRedaction | null;
+}
+
 export type ActionPriority = "low" | "medium" | "high";
 export type ActionStatus = "open" | "in_progress" | "done" | "cancelled";
 

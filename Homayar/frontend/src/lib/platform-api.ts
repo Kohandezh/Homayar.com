@@ -19,6 +19,7 @@ import type {
   AuditEventListResponse,
   AuditEventTypeListResponse,
   BillingUsageResponse,
+  CallReportResponse,
   CreateActionInput,
   CreatedApiKey,
   CreatedShareLink,
@@ -27,7 +28,6 @@ import type {
   CreateTeamInput,
   CurrentSubscriptionResponse,
   DownloadPayload,
-  EvidenceListResponse,
   InvitationAcceptedResponse,
   InvitationListResponse,
   InviteMemberInput,
@@ -161,6 +161,8 @@ export const platformQueryKeys = {
     ["platform", "meetings", meetingId, "evidence"] as const,
   summary: (meetingId: string) =>
     ["platform", "meetings", meetingId, "summary"] as const,
+  report: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "report"] as const,
   actions: (meetingId: string) =>
     ["platform", "meetings", meetingId, "actions"] as const,
   shares: (meetingId: string) =>
@@ -343,11 +345,6 @@ export async function getTranscript(meetingId: string, view?: TranscriptView): P
   return response.data;
 }
 
-export async function getEvidence(meetingId: string): Promise<EvidenceListResponse> {
-  const response = await api.get<EvidenceListResponse>(`/meetings/${meetingId}/evidence`);
-  return response.data;
-}
-
 /** Decrypts one redacted value; owner only, reason required, audited as pii.revealed. */
 export async function revealRedactedValue(
   meetingId: string,
@@ -364,6 +361,11 @@ export async function revealRedactedValue(
 
 export async function getMeetingSummary(meetingId: string): Promise<MeetingSummary> {
   const response = await api.get<MeetingSummary>(`/meetings/${meetingId}/summary`);
+  return response.data;
+}
+
+export async function getMeetingReport(meetingId: string): Promise<CallReportResponse> {
+  const response = await api.get<CallReportResponse>(`/meetings/${meetingId}/report`);
   return response.data;
 }
 
@@ -619,6 +621,7 @@ async function invalidateMeetingIntelligence(
 ): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: platformQueryKeys.actions(meetingId) }),
+    queryClient.invalidateQueries({ queryKey: platformQueryKeys.report(meetingId) }),
     queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),
   ]);
 }
@@ -722,6 +725,7 @@ export function forgetMeetingContent(queryClient: QueryClient, meetingId: string
     platformQueryKeys.shares(meetingId),
     platformQueryKeys.meetingJob(meetingId),
     platformQueryKeys.evidence(meetingId),
+    platformQueryKeys.report(meetingId),
   ]) {
     queryClient.removeQueries({ queryKey: key });
   }
@@ -833,15 +837,6 @@ export function useOriginalTranscript(meetingId: string | null | undefined) {
   });
 }
 
-export function useEvidence(meetingId: string | null | undefined) {
-  const id = meetingIdOrEmpty(meetingId);
-  return useQuery({
-    queryKey: platformQueryKeys.evidence(id),
-    queryFn: () => getEvidence(id),
-    enabled: Boolean(meetingId),
-  });
-}
-
 /** Reveals are never cached: the value lives only in the caller's component state. */
 export function useRevealValue() {
   return useMutation({
@@ -864,6 +859,15 @@ export function useMeetingSummary(meetingId: string | null | undefined) {
   return useQuery({
     queryKey: platformQueryKeys.summary(id),
     queryFn: () => getMeetingSummary(id),
+    enabled: Boolean(meetingId),
+  });
+}
+
+export function useMeetingReport(meetingId: string | null | undefined) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.report(id),
+    queryFn: () => getMeetingReport(id),
     enabled: Boolean(meetingId),
   });
 }
@@ -933,6 +937,7 @@ export function useRenameSpeaker() {
           queryKey: platformQueryKeys.transcript(variables.meetingId),
           exact: true,
         }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.report(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),
       ]);
     },

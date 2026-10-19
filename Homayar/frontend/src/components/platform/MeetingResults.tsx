@@ -11,9 +11,7 @@ import {
   useCreateAction,
   useCreateShare,
   useDeleteAction,
-  useEvidence,
   useMeetingExport,
-  useMeetingSummary,
   useOriginalTranscript,
   useRenameSpeaker,
   useRevealValue,
@@ -27,22 +25,30 @@ import { statusLabel } from "@/lib/status-labels";
 import type {
   ActionPriority,
   ActionStatus,
-  EvidenceSpan,
   MeetingDetail,
   MeetingExportFormat,
-  SummaryInsight,
   Transcript,
   TranscriptSegment,
 } from "@/types/platform";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "@/components/platform/Ui";
-import { PROCESSING_COPY } from "@/components/platform/processing-copy";
+import { EvidenceBadge } from "@/components/platform/CallReport";
 import MaskedText from "@/components/platform/MaskedText";
-import { RESULTS_COPY, type ResultsCopy, type ResultsTab } from "@/components/platform/results-copy";
+import { RESULTS_COPY, type ResultsTab } from "@/components/platform/results-copy";
 
-type Lang = "fa" | "en";
+function availableTabs(manageShares: boolean): ResultsTab[] {
+  return manageShares ? ["transcript", "actions", "shares", "export"] : ["transcript", "actions", "export"];
+}
 
-function EvidenceBadge({ status, copy, lang }: { status: string; copy: ResultsCopy; lang: Lang }) {
-  return <StatusBadge status={`evidence-${status}`} label={`${copy.summary.evidence}: ${statusLabel(status, lang)}`} />;
+/** The requested panel, or the first tab when this role has no such tab. */
+function resolvePanel(panel: ResultsTab, tabs: ResultsTab[]): ResultsTab {
+  return tabs.includes(panel) ? panel : tabs[0];
+}
+
+/** A request from the page to show one panel, applied once per `seq`. */
+export interface ResultsOpenRequest {
+  panel: ResultsTab;
+  segmentId: string | null;
+  seq: number;
 }
 
 function SpeakerEditor({ name, label, saveLabel, onSave }: { name: string; label: string; saveLabel: string; onSave: (value: string) => void }) {
@@ -52,50 +58,6 @@ function SpeakerEditor({ name, label, saveLabel, onSave }: { name: string; label
       <input value={value} onChange={(event) => setValue(event.target.value)} maxLength={160} aria-label={label} />
       <button className="platform-icon-button" aria-label={saveLabel}><Check size={14} aria-hidden="true" /></button>
     </form>
-  );
-}
-
-function SummaryList({
-  title,
-  items,
-  evidence,
-  copy,
-  lang,
-  onShowSegment,
-}: {
-  title: string;
-  items: SummaryInsight[];
-  evidence: Map<string, EvidenceSpan>;
-  copy: ResultsCopy;
-  lang: Lang;
-  onShowSegment: (segmentId: string) => void;
-}) {
-  if (!items.length) return null;
-  return (
-    <section className="meeting-key-points">
-      <h2>{title}</h2>
-      {items.map((point, index) => {
-        const spans = (point.evidence_ids ?? []).map((id) => evidence.get(id)).filter((span): span is EvidenceSpan => Boolean(span));
-        const current = spans.find((span) => span.is_current_revision);
-        return (
-          <article key={`${point.category ?? "item"}-${index}`} className="platform-surface">
-            {point.category && <span>{point.category}</span>}
-            <p dir="auto"><MaskedText text={point.description ?? ""} copy={copy} revealed={{}} /></p>
-            <div className="summary-item-meta">
-              {point.evidence_status && <EvidenceBadge status={point.evidence_status} copy={copy} lang={lang} />}
-              {current ? (
-                <button type="button" className="platform-link-button" onClick={() => onShowSegment(current.segment_id)}>
-                  <Link2 size={13} aria-hidden="true" />
-                  {copy.summary.showSource}
-                </button>
-              ) : spans.length ? (
-                <small>{copy.summary.earlierRevision}</small>
-              ) : null}
-            </div>
-          </article>
-        );
-      })}
-    </section>
   );
 }
 
@@ -109,16 +71,29 @@ function segmentAt(segments: TranscriptSegment[], atMs: number): TranscriptSegme
   return before;
 }
 
-export default function MeetingResults({ meeting, atMs = null }: { meeting: MeetingDetail; atMs?: number | null }) {
+/**
+ * The advanced panels of a meeting (transcript, action items, share links,
+ * export). The call report above them replaces the old summary tab.
+ */
+export default function MeetingResults({
+  meeting,
+  atMs = null,
+  open = null,
+}: {
+  meeting: MeetingDetail;
+  atMs?: number | null;
+  open?: ResultsOpenRequest | null;
+}) {
   const { lang } = useI18n();
   const copy = RESULTS_COPY[lang];
   const can = useCan();
   const queryClient = useQueryClient();
   const meetingId = meeting.id;
-  const [tab, setTab] = useState<ResultsTab>("summary");
+  const tabs = availableTabs(can.manageShares);
+  const [tab, setTab] = useState<ResultsTab>(() => (open ? resolvePanel(open.panel, tabs) : "transcript"));
   const [exportFormat, setExportFormat] = useState<MeetingExportFormat>("txt");
   const [speakerFilter, setSpeakerFilter] = useState("");
-  const [focusSegment, setFocusSegment] = useState<string | null>(null);
+  const [focusSegment, setFocusSegment] = useState<string | null>(open?.segmentId ?? null);
   const [originalMode, setOriginalMode] = useState<"off" | "confirm" | "on">("off");
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [revealTarget, setRevealTarget] = useState<{ segmentId: string; placeholder: string } | null>(null);
@@ -132,11 +107,10 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
   const tabRefs = useRef<Partial<Record<ResultsTab, HTMLButtonElement | null>>>({});
   const [appliedAt, setAppliedAt] = useState<number | null>(null);
   const [atOutcome, setAtOutcome] = useState<"found" | "missing" | null>(null);
+  const [appliedOpen, setAppliedOpen] = useState<number | null>(open?.seq ?? null);
 
   const transcript = useTranscript(meetingId);
   const original = useOriginalTranscript(originalMode === "on" ? meetingId : null);
-  const summary = useMeetingSummary(meetingId);
-  const evidence = useEvidence(meetingId);
   const actions = useActions(meetingId);
   const shares = useShares(can.manageShares ? meetingId : null);
   const meetingExport = useMeetingExport();
@@ -148,13 +122,11 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
   const revokeShare = useRevokeShare();
   const reveal = useRevealValue();
 
-  const tabs: ResultsTab[] = can.manageShares ? ["summary", "transcript", "actions", "shares"] : ["summary", "transcript", "actions"];
   const redacted = transcript.data?.privacy_enforced === true && transcript.data.view === "redacted";
   const showingOriginal = originalMode === "on" && Boolean(original.data);
   const shown: Transcript | undefined = showingOriginal ? original.data : transcript.data;
   const redaction = transcript.data?.redaction ?? null;
   const canReveal = redacted && !showingOriginal && can.readOriginalTranscript && Boolean(redaction?.id && redaction.mapping_retained);
-  const evidenceById = new Map((evidence.data?.items ?? []).map((span) => [span.id, span]));
 
   // A search result's `?at=` (QA Q-01): open the transcript at the segment
   // playing at that time, once per distinct time (back/forward re-applies).
@@ -165,6 +137,16 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
     setTab("transcript");
     setFocusSegment(target?.id ?? null);
     setAtOutcome(target ? "found" : "missing");
+  }
+
+  // A review action or "Show in transcript" from the call report.
+  if (open && open.seq !== appliedOpen) {
+    setAppliedOpen(open.seq);
+    setTab(resolvePanel(open.panel, tabs));
+    if (open.segmentId) {
+      setSpeakerFilter("");
+      setFocusSegment(open.segmentId);
+    }
   }
 
   // Originals and revealed values never outlive the view that asked for them.
@@ -179,7 +161,13 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
     const element = document.getElementById(`segment-${focusSegment}`);
     element?.scrollIntoView?.({ block: "center" });
     element?.focus();
-  }, [focusSegment, tab, shown]);
+  }, [focusSegment, tab, shown, appliedOpen]);
+
+  // A review action lands on its tab, so keyboard users start there.
+  useEffect(() => {
+    if (appliedOpen === null || !open || open.seq !== appliedOpen || open.segmentId) return;
+    tabRefs.current[resolvePanel(open.panel, availableTabs(can.manageShares))]?.focus();
+  }, [appliedOpen, open, can.manageShares]);
 
   function hideOriginal() {
     setOriginalMode("off");
@@ -240,18 +228,12 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
     );
   }
 
-  const summaryMissing = summary.isError && apiErrorInfo(summary.error).code === "summary_not_ready";
   // Each tab states the view of its own response (gap G10), never the
   // transcript's.
-  const summaryView = summary.data?.view ?? null;
-  const summaryEnforced = summary.data?.privacy_enforced === true;
   const actionsRedacted = (actions.data ?? []).some((action) => action.view === "redacted");
   const actionsOriginalEnforced = (actions.data ?? []).some(
     (action) => action.view === "original" && action.privacy_enforced === true,
   );
-  const analysisReason = meeting.quality?.degradations.find((item) => item.stage === "intelligence")?.reason
-    ?? meeting.latest_job?.stages.find((run) => run.stage === "intelligence" && run.reason_code)?.reason_code
-    ?? null;
   const originalError = original.isError ? apiErrorInfo(original.error).code : null;
   const revealCode = reveal.isError ? apiErrorInfo(reveal.error).code : null;
   const segments = (shown?.segments ?? []).filter((segment) => !speakerFilter || segment.speaker_key === speakerFilter);
@@ -260,55 +242,6 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
 
   return (
     <div className="meeting-results">
-      {redacted && (
-        <section className="privacy-notice" aria-label={copy.transcript.privacyTitle}>
-          <ShieldCheck size={16} aria-hidden="true" />
-          <div>
-            <p>
-              {copy.transcript.masked(
-                formatNumber(redaction?.entity_count ?? 0, lang),
-                (redaction?.classes ?? []).map((value) => copy.transcript.classes[value] ?? value).join(lang === "fa" ? "، " : ", "),
-              )}
-            </p>
-            <p>{copy.transcript.maskedLimits}</p>
-            {can.readOriginalTranscript && originalMode === "off" && (
-              <button type="button" className="platform-button" onClick={() => setOriginalMode("confirm")}>
-                <Eye size={15} aria-hidden="true" />
-                {copy.transcript.showOriginal}
-              </button>
-            )}
-            {originalMode === "confirm" && (
-              <div className="privacy-confirm" role="alertdialog" aria-label={copy.transcript.showOriginal}>
-                <p>{copy.transcript.confirmOriginal}</p>
-                <button
-                  type="button"
-                  className="platform-button platform-button-primary"
-                  onClick={() => { setOriginalMode("on"); setTab("transcript"); }}
-                  autoFocus
-                >
-                  {copy.transcript.confirmOriginalAction}
-                </button>
-                <button type="button" className="platform-button" onClick={() => setOriginalMode("off")}>{copy.transcript.cancel}</button>
-              </div>
-            )}
-            {showingOriginal && (
-              <div className="privacy-original" role="status">
-                <p>{copy.transcript.viewingOriginal}</p>
-                <button type="button" className="platform-button" onClick={hideOriginal}>
-                  <EyeOff size={15} aria-hidden="true" />
-                  {copy.transcript.hideOriginal}
-                </button>
-              </div>
-            )}
-            {originalError && (
-              <p role="alert" className="privacy-error">
-                {originalError === "original_access_denied" ? copy.transcript.originalDenied : copy.transcript.originalFailed}
-              </p>
-            )}
-          </div>
-        </section>
-      )}
-
       <div className="meeting-detail-toolbar">
         <div className="meeting-tabs" role="tablist" aria-label={copy.tabList}>
           {tabs.map((item) => (
@@ -329,69 +262,59 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
             </button>
           ))}
         </div>
-        <div className="meeting-export-control">
-          <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as MeetingExportFormat)} aria-label={copy.exportFormat}>
-            <option value="txt">TXT</option>
-            <option value="json">JSON</option>
-            <option value="srt">SRT</option>
-            <option value="vtt">VTT</option>
-          </select>
-          <button
-            type="button"
-            className="platform-icon-button"
-            onClick={() => meetingExport.mutate({ meetingId, format: exportFormat }, { onSuccess: saveDownload })}
-            disabled={meetingExport.isPending}
-            title={copy.exportAction}
-            aria-label={copy.exportAction}
-          >
-            <FileDown size={15} aria-hidden="true" />
-          </button>
-        </div>
       </div>
 
       <div id={`meeting-panel-${tab}`} role="tabpanel" aria-labelledby={`meeting-tab-${tab}`} tabIndex={0} className="meeting-tab-panel">
-        {tab === "summary" && (
-          <div className="meeting-summary-view">
-            {summary.isLoading ? (
-              <LoadingState label={copy.loading} />
-            ) : summaryMissing ? (
-              <div className="platform-state platform-empty-state" role="status">
-                <span>
-                  {copy.summary.notReady}{" "}
-                  {analysisReason && copy.summary.unavailableBecause(PROCESSING_COPY[lang].reasons[analysisReason] ?? analysisReason)}
-                </span>
-              </div>
-            ) : summary.isError ? (
-              <ErrorState error={summary.error} fallback={copy.summary.failed} />
-            ) : summary.data ? (
-              <>
-                <section className="platform-surface meeting-summary-overview">
-                  <h2>
-                    {copy.summary.overview}
-                    {summary.data.evidence_status && <EvidenceBadge status={summary.data.evidence_status} copy={copy} lang={lang} />}
-                  </h2>
-                  {summaryView === "redacted" && <p className="content-view-note">{copy.contentView.summaryRedacted}</p>}
-                  {summaryView === "original" && summaryEnforced && <p className="content-view-note">{copy.contentView.summaryOriginal}</p>}
-                  {summary.data.analysis_run?.input_view === "redacted" && (
-                    <p className="content-view-note">{copy.contentView.analysisOnRedacted}</p>
-                  )}
-                  <p dir="auto"><MaskedText text={summary.data.overview} copy={copy} revealed={{}} /></p>
-                  {summary.data.analysis_run?.is_mock && <p className="meeting-stage-mock">{copy.summary.mock}</p>}
-                  {summary.data.topics.length > 0 && (
-                    <div className="meeting-topics" aria-label={copy.summary.topics}>
-                      {summary.data.topics.map((topic) => <span key={topic} dir="auto">{topic}</span>)}
-                    </div>
-                  )}
-                </section>
-                <SummaryList title={copy.summary.decisions} items={summary.data.decisions} evidence={evidenceById} copy={copy} lang={lang} onShowSegment={showSegment} />
-                <SummaryList title={copy.summary.keyPoints} items={summary.data.key_points} evidence={evidenceById} copy={copy} lang={lang} onShowSegment={showSegment} />
-              </>
-            ) : null}
-          </div>
-        )}
-
         {tab === "transcript" && (
           <div className="meeting-transcript-view">
+            {redacted && (
+              <section className="privacy-notice" aria-label={copy.transcript.privacyTitle}>
+                <ShieldCheck size={16} aria-hidden="true" />
+                <div>
+                  <p>
+                    {copy.transcript.masked(
+                      formatNumber(redaction?.entity_count ?? 0, lang),
+                      (redaction?.classes ?? []).map((value) => copy.transcript.classes[value] ?? value).join(lang === "fa" ? "، " : ", "),
+                    )}
+                  </p>
+                  <p>{copy.transcript.maskedLimits}</p>
+                  {can.readOriginalTranscript && originalMode === "off" && (
+                    <button type="button" className="platform-button" onClick={() => setOriginalMode("confirm")}>
+                      <Eye size={15} aria-hidden="true" />
+                      {copy.transcript.showOriginal}
+                    </button>
+                  )}
+                  {originalMode === "confirm" && (
+                    <div className="privacy-confirm" role="alertdialog" aria-label={copy.transcript.showOriginal}>
+                      <p>{copy.transcript.confirmOriginal}</p>
+                      <button
+                        type="button"
+                        className="platform-button platform-button-primary"
+                        onClick={() => { setOriginalMode("on"); setTab("transcript"); }}
+                        autoFocus
+                      >
+                        {copy.transcript.confirmOriginalAction}
+                      </button>
+                      <button type="button" className="platform-button" onClick={() => setOriginalMode("off")}>{copy.transcript.cancel}</button>
+                    </div>
+                  )}
+                  {showingOriginal && (
+                    <div className="privacy-original" role="status">
+                      <p>{copy.transcript.viewingOriginal}</p>
+                      <button type="button" className="platform-button" onClick={hideOriginal}>
+                        <EyeOff size={15} aria-hidden="true" />
+                        {copy.transcript.hideOriginal}
+                      </button>
+                    </div>
+                  )}
+                  {originalError && (
+                    <p role="alert" className="privacy-error">
+                      {originalError === "original_access_denied" ? copy.transcript.originalDenied : copy.transcript.originalFailed}
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
             {atOutcome && appliedAt !== null && (
               <p className="content-view-note" role="status">
                 {atOutcome === "found" ? copy.transcript.atFound(formatDuration(appliedAt / 1000, lang)) : copy.transcript.atMissing}
@@ -509,7 +432,7 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
                         <div>
                           <strong dir="auto"><MaskedText text={action.description} copy={copy} revealed={{}} /></strong>
                           {action.assignee_text && <span dir="auto"><MaskedText text={action.assignee_text} copy={copy} revealed={{}} /></span>}
-                          {action.evidence_status && <EvidenceBadge status={action.evidence_status} copy={copy} lang={lang} />}
+                          {action.evidence_status && <EvidenceBadge status={action.evidence_status} lang={lang} />}
                         </div>
                       </div>
                       <div className="action-controls">
@@ -534,6 +457,31 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "export" && (
+          <div className="meeting-export-view">
+            <div className="meeting-export-control platform-surface">
+              <label>
+                <span>{copy.exportFormat}</span>
+                <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as MeetingExportFormat)}>
+                  <option value="txt">TXT</option>
+                  <option value="json">JSON</option>
+                  <option value="srt">SRT</option>
+                  <option value="vtt">VTT</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="platform-button"
+                onClick={() => meetingExport.mutate({ meetingId, format: exportFormat }, { onSuccess: saveDownload })}
+                disabled={meetingExport.isPending}
+              >
+                <FileDown size={15} aria-hidden="true" />
+                {copy.exportAction}
+              </button>
+            </div>
           </div>
         )}
 
