@@ -24,7 +24,7 @@ import json
 import math
 import os
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -741,6 +741,59 @@ def _purge_set(
         _delete_versions(client, bucket, items, lock, counts, errors)
 
 
+def monthly_lock_until(backup_id: str, *, daily: int, monthly: int) -> datetime:
+    """How long Object Lock keeps a monthly set (AppVision D15): the earliest
+    day the retention could expire it.
+
+    A set of month M stays a monthly set until each of the ``monthly``
+    newer months has a set older than the daily window.  Month M +
+    ``monthly`` has one at the earliest on its first day, and that set
+    leaves the daily window ``daily`` days later (with a set every day;
+    missing days only delay the expiry).  So the lock never outlives the
+    retention: the prune can always delete the set once the policy expires
+    it, and the lock ends at most a day before that.
+    """
+    from backend.backup.retention import backup_time
+
+    moment = backup_time(backup_id)
+    months = moment.year * 12 + moment.month - 1 + monthly
+    first = datetime(months // 12, months % 12 + 1, 1, tzinfo=UTC)
+    return first + timedelta(days=daily)
+
+
+def _extend_retention(
+    client, bucket: str, key: str, until: datetime, counts: dict[str, Any], errors: list[str]
+) -> None:
+    """Extend the current version's GOVERNANCE retention to ``until``, never
+    shortening it (that would need ``s3:BypassGovernanceRetention``, which
+    the backup credential never has) and never touching another mode."""
+    from botocore.exceptions import ClientError
+
+    try:
+        current = client.get_object_retention(Bucket=bucket, Key=key).get("Retention", {})
+    except ClientError as exc:
+        if _error_code(exc) not in _NO_LOCK_CODES:
+            if f"get_object_retention: {_error_code(exc)}" not in errors:
+                errors.append(f"get_object_retention: {_error_code(exc)}")
+            return
+        current = {}
+    if current.get("Mode") not in (None, "GOVERNANCE"):
+        counts["retention_kept"] += 1  # COMPLIANCE: not the tool's to change
+        return
+    if current.get("RetainUntilDate") is not None and current["RetainUntilDate"] >= until:
+        counts["retention_kept"] += 1
+        return
+    try:
+        client.put_object_retention(
+            Bucket=bucket, Key=key, Retention={"Mode": "GOVERNANCE", "RetainUntilDate": until}
+        )
+    except ClientError as exc:
+        if f"put_object_retention: {_error_code(exc)}" not in errors:
+            errors.append(f"put_object_retention: {_error_code(exc)}")
+        return
+    counts["retention_extended"] += 1
+
+
 def prune_s3(
     destination: str,
     *,
@@ -766,8 +819,14 @@ def prune_s3(
     version deletes do not stop the prune: they are reported in ``errors``
     and the CLI exits non-zero at the end.  A bucket whose versioning cannot
     be read is never swept.
+
+    With Object Lock (AppVision D15), every object of a set kept as a
+    monthly set gets its GOVERNANCE retention extended to
+    ``monthly_lock_until`` (``s3:PutObjectRetention``): the bucket default
+    covers the daily window only.  Retention is never shortened; a denied
+    extension is reported in ``errors`` and fails the run.
     """
-    from backend.backup.retention import retained
+    from backend.backup.retention import retained, retained_monthly
 
     bucket, prefix = parse_s3(destination)
     client = client or s3_client()
@@ -780,6 +839,7 @@ def prune_s3(
         if backup_id in markers and _s3_set_is_full(client, bucket, prefix, backup_id)
     }
     keep = retained(sets, daily=daily, monthly=monthly, qualifying=qualifying)
+    monthly_sets = retained_monthly(sets, daily=daily, monthly=monthly, qualifying=qualifying)
     expired = sorted(set(sets) - keep)
     now = datetime.now(UTC)
     uploads, live, uploads_listed = _uploads(
@@ -807,6 +867,8 @@ def prune_s3(
         "failed": 0,
         "locked_until": None,
         "legal_holds": 0,
+        "retention_extended": 0,
+        "retention_kept": 0,
     }
     purged: set[str] = set()
 
@@ -843,6 +905,14 @@ def prune_s3(
         for backup_id in orphan_markers:
             client.delete_object(Bucket=bucket, Key=_marker_key(prefix, backup_id))
             purge(backup_id)
+        if lock:
+            for backup_id in sorted(monthly_sets):
+                until = monthly_lock_until(backup_id, daily=daily, monthly=monthly)
+                keys = [item["Key"] for item in groups.get(backup_id, [])]
+                if backup_id in markers:
+                    keys.append(_marker_key(prefix, backup_id))
+                for key in keys:
+                    _extend_retention(client, bucket, key, until, counts, errors)
     # Versions an earlier, interrupted prune (or a lock) left behind: sets with
     # no current data at all whose newest delete marker is older than the
     # grace period, neither kept nor in progress.  Only the versions listed
@@ -879,6 +949,15 @@ def prune_s3(
         "locked_until": counts["locked_until"] and counts["locked_until"].isoformat(),
         "legal_holds": counts["legal_holds"],
         "versions_failed": counts["failed"],
+        # D15: monthly sets are locked until the retention could expire them.
+        "monthly_locked_until": {
+            backup_id: monthly_lock_until(backup_id, daily=daily, monthly=monthly).isoformat()
+            for backup_id in sorted(monthly_sets)
+        }
+        if lock
+        else {},
+        "retention_extended": counts["retention_extended"],
+        "retention_kept": counts["retention_kept"],
         "leftover_sets": leftovers,
         "errors": errors,
     }

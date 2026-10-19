@@ -1432,3 +1432,78 @@ def test_a_network_error_in_the_backfill_never_fails_the_copy_or_the_gauge(
     s3.raising = {}
     assert cli(["--root", str(root), "replicate", new, "s3://offsite/p"]) == 0
     assert json.loads(capsys.readouterr().out)["backfilled_markers"] == [old, other]
+
+
+def test_s3_prune_locks_monthly_sets_for_their_whole_retention_never_shorter(tmp_path):
+    from backend.backup.replicate import monthly_lock_until, prune_s3, replicate_to_s3
+
+    root = tmp_path / "root"
+    august, september, yesterday, today = (
+        "20260815T020000Z-0000000a",
+        "20260915T020000Z-0000000b",
+        "20261017T020000Z-0000000c",
+        "20261018T020000Z-0000000d",
+    )
+    s3 = _FakeS3(versioning="Enabled")
+    for backup_id in (august, september, yesterday, today):
+        replicate_to_s3(
+            _offsite_source(root, backup_id, full=True, verified=True), "s3://offsite/p", client=s3
+        )
+    s3.object_lock = True  # D15; the bucket default (30 d) covers the daily window only
+    longer = datetime(2030, 1, 1, tzinfo=UTC)
+    s3.retention[f"p/{august}/catalog.json.enc"] = longer  # never shortened
+
+    result = prune_s3("s3://offsite/p", daily=2, monthly=12, client=s3)
+    until = datetime(2027, 9, 3, tzinfo=UTC)  # 1 Sep 2027 (Sep + 12 months) + 2 daily days
+    assert monthly_lock_until(september, daily=2, monthly=12) == until
+    assert result["monthly_locked_until"] == {
+        august: datetime(2027, 8, 3, tzinfo=UTC).isoformat(),
+        september: until.isoformat(),
+    }
+    assert result["errors"] == [] and result["expired"] == []
+    september_keys = [k for _, k in s3.objects if k.startswith(f"p/{september}")]
+    assert len(september_keys) == 4  # two files, the manifest and the verified marker
+    assert all(s3.retention[k] == until for k in september_keys)
+    assert s3.retention[f"p/{august}/catalog.json.enc"] == longer
+    assert result["retention_extended"] == 7 and result["retention_kept"] == 1
+    assert not [k for k in s3.retention if k.startswith((f"p/{yesterday}", f"p/{today}"))]
+
+    # Idempotent: a later run finds every lock long enough.
+    again = prune_s3("s3://offsite/p", daily=2, monthly=12, client=s3)
+    assert again["retention_extended"] == 0 and again["retention_kept"] == 8
+
+    # A credential without s3:PutObjectRetention fails the run visibly.
+    s3.retention.clear()
+    s3.denied = {"put_object_retention"}
+    denied = prune_s3("s3://offsite/p", daily=2, monthly=12, client=s3)
+    assert denied["errors"] == ["put_object_retention: AccessDenied"]
+
+    # Without Object Lock on the bucket nothing is locked.
+    s3.denied = set()
+    s3.object_lock = False
+    unlocked = prune_s3("s3://offsite/p", daily=2, monthly=12, client=s3)
+    assert unlocked["monthly_locked_until"] == {} and not s3.retention
+
+
+@pytest.mark.parametrize(("daily", "monthly"), [(30, 12), (2, 12), (1, 3), (30, 1)])
+def test_a_monthly_lock_never_outlives_the_retention_that_keeps_the_set(daily, monthly):
+    from backend.backup.replicate import monthly_lock_until
+
+    start = datetime(2026, 9, 1, 2, tzinfo=UTC)
+    ids = [(start + timedelta(days=n)).strftime("%Y%m%dT%H%M%SZ") + f"-{n:08x}" for n in range(460)]
+    september = ids[29]  # 30 Sep 2026: September's monthly set
+    until = monthly_lock_until(september, daily=daily, monthly=monthly)
+    for n in range(30, len(ids)):
+        if september not in retained(ids[: n + 1], daily=daily, monthly=monthly):
+            expired_on = backup_time_of(ids[n])
+            break
+    else:
+        raise AssertionError("September never expired")
+    assert until <= expired_on  # the prune can always delete it once the policy lets go
+    assert expired_on - until < timedelta(days=1)  # and the lock is as long as it can be
+
+
+def backup_time_of(backup_id: str) -> datetime:
+    from backend.backup.retention import backup_time
+
+    return backup_time(backup_id).replace(hour=0, minute=0, second=0)
