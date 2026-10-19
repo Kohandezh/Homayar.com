@@ -181,7 +181,41 @@ All optional; the defaults match `make backend` and `make demo-seed`.
 
 ## CI
 
-There is no CI job yet. It needs a runner that can start PostgreSQL, run the
-migrations and the demo seed, and start the backend; that is a separate
-ticket. Everything the job would need is already here: `npm run test:e2e`,
-with `CI=true` for one retry and `forbidOnly`.
+The `console-e2e` job in `.github/workflows/ci.yml` (HOM-224) runs the full
+suite on every pull request and every push to `main`. Inside the runner it:
+
+1. starts PostgreSQL and Redis as service containers;
+2. installs the backend with `uv sync --frozen`, runs `alembic upgrade head`
+   and the demo seed. The seed prints the demo logins with their password, so
+   the job drops all of the seed's standard output. Errors still show;
+3. starts the API on `127.0.0.1:8001`, with `SMTP_HOST=127.0.0.1` and
+   `SMTP_PORT` set to `E2E_SMTP_PORT`, and waits for `/readyz`;
+4. runs `npm run test:e2e` with `CI=true` (one retry, no `test.only`).
+   Playwright starts the dev server and the SMTP sink itself.
+
+Everything runs on `127.0.0.1` with mock providers. No shared backend is used,
+and no secret is needed.
+
+When the job fails, and also when it is cancelled (for example by its
+15-minute timeout), it prints the last 200 lines of the API log and uploads
+the artifact `console-e2e-report` (kept 7 days). It holds `playwright-report/`
+and `test-results/` (traces, screenshots, videos). Download it from the run's
+Summary page, unzip it, and open the report with
+`npx playwright show-report playwright-report`.
+
+To reproduce the job locally, start PostgreSQL and Redis, export the job's
+`env` values (point the URLs at your ports), and run the same steps:
+
+```bash
+cd Homayar
+uv sync --frozen
+uv run alembic upgrade head
+uv run python -m backend.database.demo_seed
+SMTP_HOST=127.0.0.1 SMTP_PORT=1025 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8001 &
+cd frontend
+npm ci
+npx playwright install chromium
+CI=true npm run test:e2e
+```
+
+Use a fresh database: the suite changes the demo workspace (see "Cleanup").
