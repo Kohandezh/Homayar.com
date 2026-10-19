@@ -1,4 +1,4 @@
-export type ResultsTab = "summary" | "transcript" | "actions" | "shares";
+export type ResultsTab = "transcript" | "actions" | "shares" | "export";
 
 export interface ResultsCopy {
   tabs: Record<ResultsTab, string>;
@@ -6,19 +6,6 @@ export interface ResultsCopy {
   exportFormat: string;
   exportAction: string;
   loading: string;
-  summary: {
-    overview: string;
-    decisions: string;
-    keyPoints: string;
-    topics: string;
-    evidence: string;
-    showSource: string;
-    earlierRevision: string;
-    notReady: string;
-    unavailableBecause: (reason: string) => string;
-    failed: string;
-    mock: string;
-  };
   transcript: {
     empty: string;
     failed: string;
@@ -51,9 +38,6 @@ export interface ResultsCopy {
     atMissing: string;
   };
   contentView: {
-    summaryRedacted: string;
-    summaryOriginal: string;
-    analysisOnRedacted: string;
     actionsRedacted: string;
     actionsOriginal: string;
   };
@@ -96,24 +80,11 @@ export interface ResultsCopy {
 
 export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
   en: {
-    tabs: { summary: "Summary", transcript: "Transcript", actions: "Action items", shares: "Share links" },
+    tabs: { transcript: "Transcript", actions: "Action items", shares: "Share links", export: "Export" },
     tabList: "Meeting results",
     exportFormat: "Export format",
-    exportAction: "Export",
+    exportAction: "Download export",
     loading: "Loading",
-    summary: {
-      overview: "Summary",
-      decisions: "Decisions",
-      keyPoints: "Key points",
-      topics: "Topics",
-      evidence: "Evidence",
-      showSource: "Show in transcript",
-      earlierRevision: "cites an earlier transcript revision",
-      notReady: "No summary is available for this meeting.",
-      unavailableBecause: (reason) => `The analysis is not available: ${reason}`,
-      failed: "The summary could not be loaded.",
-      mock: "Produced by a test (mock) provider — not a real analysis.",
-    },
     transcript: {
       empty: "The transcript is empty.",
       failed: "The transcript could not be loaded.",
@@ -163,9 +134,6 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
       atMissing: "No transcript segment was found at the requested time.",
     },
     contentView: {
-      summaryRedacted: "This summary is shown with personal data masked by the same detector as the transcript (structured data only).",
-      summaryOriginal: "This summary is shown without masking.",
-      analysisOnRedacted: "The analysis was produced from the masked transcript.",
       actionsRedacted: "These action items are shown with personal data masked by the same detector as the transcript (structured data only).",
       actionsOriginal: "These action items are shown without masking.",
     },
@@ -211,24 +179,11 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
     operationFailed: "The requested operation failed.",
   },
   fa: {
-    tabs: { summary: "خلاصه", transcript: "متن گفت‌وگو", actions: "اقدام‌ها", shares: "لینک‌های اشتراک" },
+    tabs: { transcript: "متن گفت‌وگو", actions: "اقدام‌ها", shares: "لینک‌های اشتراک", export: "خروجی" },
     tabList: "نتایج جلسه",
     exportFormat: "قالب خروجی",
-    exportAction: "دریافت خروجی",
+    exportAction: "دریافت فایل خروجی",
     loading: "در حال بارگذاری",
-    summary: {
-      overview: "خلاصه",
-      decisions: "تصمیم‌ها",
-      keyPoints: "نکات کلیدی",
-      topics: "موضوع‌ها",
-      evidence: "شواهد",
-      showSource: "نمایش در متن",
-      earlierRevision: "به نسخهٔ قبلی متن اشاره دارد",
-      notReady: "برای این جلسه خلاصه‌ای در دسترس نیست.",
-      unavailableBecause: (reason) => `تحلیل در دسترس نیست: ${reason}`,
-      failed: "خلاصه دریافت نشد.",
-      mock: "توسط ارائه‌دهندهٔ آزمایشی (mock) تولید شده است — تحلیل واقعی نیست.",
-    },
     transcript: {
       empty: "متن گفت‌وگو خالی است.",
       failed: "متن گفت‌وگو دریافت نشد.",
@@ -278,9 +233,6 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
       atMissing: "در زمان درخواستی بخشی از متن پیدا نشد.",
     },
     contentView: {
-      summaryRedacted: "این خلاصه با پوشاندن داده‌های شخصی توسط همان تشخیص‌دهندهٔ متن نمایش داده می‌شود (فقط داده‌های ساخت‌یافته).",
-      summaryOriginal: "این خلاصه بدون پوشش نمایش داده می‌شود.",
-      analysisOnRedacted: "تحلیل روی متن پوشانده‌شده انجام شده است.",
       actionsRedacted: "این اقدام‌ها با پوشاندن داده‌های شخصی توسط همان تشخیص‌دهندهٔ متن نمایش داده می‌شوند (فقط داده‌های ساخت‌یافته).",
       actionsOriginal: "این اقدام‌ها بدون پوشش نمایش داده می‌شوند.",
     },

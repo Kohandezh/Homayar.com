@@ -125,6 +125,8 @@ test("an owner places a legal hold, finds it in the register, releases it and ex
   const meetingId = await meetingIdByTitle(page);
   await page.goto(consolePath(`/meetings/${meetingId}`));
   await expect(page.getByRole("heading", { level: 1, name: MEETING_TITLE })).toBeVisible();
+  // The data panel sits in the advanced area below the call report (HOM-245).
+  await page.getByRole("button", { name: "Transcript and tools" }).click();
   const panel = page.getByRole("region", { name: "Data and retention" });
   await expect(panel.getByRole("grid", { name: "Stored recordings" })).toBeVisible();
   await panel.getByRole("button", { name: "Place legal hold" }).click();
