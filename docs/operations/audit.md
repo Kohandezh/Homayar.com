@@ -377,9 +377,12 @@ counters (`exported`, `last_seq` for export; `records`, `erasures`, `segments`, 
 passing verify). A refused first export records `last_failure` on `audit_export`. A
 failing verify records `last_failure` with `last_error_type=AuditSinkError`. `/metrics`
 exports them as `homayar_periodic_task_last_success_timestamp_seconds{task="audit_export"}`
-(and `..._last_failure_...`, `..._last_run_...`, `homayar_periodic_task_result{task,field}`);
-there is no beat interval for operator jobs, so the alert thresholds belong to the
-schedule the operator chose.
+(and `..._last_failure_...`, `..._last_run_...`, `homayar_periodic_task_result{task,field}`).
+Two alerts read them: [HomayarAuditExportStale](alerts.md#homayarauditexportstale) (no
+successful export for 2 hours, a failing first export, or no export heartbeat at all; the
+threshold assumes the 15-minute schedule) and
+[HomayarAuditSinkVerificationFailed](alerts.md#homayarauditsinkverificationfailed) (the last
+`verify` failed).
 
 ### Sink limits
 

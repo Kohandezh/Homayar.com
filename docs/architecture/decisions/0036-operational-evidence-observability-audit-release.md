@@ -168,8 +168,10 @@ sink verifier reports it as `accepted_erasure`.
 * Granting the reader role to a login is a privileged act: it reads every tenant's
   audit rows. Only the exporter's login holds it.
 * The operator runs and schedules export and verify (heartbeats `audit_export` /
-  `audit_verify`); a change by the table owner is detected at the next `verify`, not
-  prevented, and a change made before a row's first export is not detected.
+  `audit_verify`, alerted by `HomayarAuditExportStale` and
+  `HomayarAuditSinkVerificationFailed` in the Decision 4 rules); a change by the table owner
+  is detected at the next `verify`, not prevented, and a change made before a row's first
+  export is not detected.
 * `verify` is linear in the number of events; acceptable at current volumes.
 
 ## Decision 4 — Alerting (HOM-126)
