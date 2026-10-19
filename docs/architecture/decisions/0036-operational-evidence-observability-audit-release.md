@@ -108,7 +108,9 @@ sink verifier reports it as `accepted_erasure`.
    set, so a scope that unlocked every tenant's audit rows would be reachable from any
    request handler; a role membership is not. `homayar_app` and the application's login
    are never members; the exporter logs in with its own login that is
-   (`AUDIT_EXPORT_DATABASE_URL`). The tenant policy is unchanged.
+   (`AUDIT_EXPORT_DATABASE_URL`). The tenant policy is unchanged. A role of that name that
+   already exists is made inert by the migration (or the migration fails), and the exporter
+   checks it again before every run.
 3. **Tamper-evident, not tamper-proof.** The owner and a superuser can still change
    rows. The append-only rule removes the application's ability to rewrite history;
    detecting a change made by anyone else is the protected sink's job. No document may
@@ -130,8 +132,11 @@ sink verifier reports it as `accepted_erasure`.
    `accepted_erasure`. Recording it in the chain, not in a side file, means a writer of
    the sink without the key cannot forge an erasure to hide a deletion. The exported copy
    stays in its segment; it holds only the masked row.
-6. **The head is anchored outside the sink.** Cutting the newest segments together with
-   `HEAD.json` is invisible to the sink alone, so every export and verify prints
+6. **The head is anchored outside the sink.** `HEAD.json` carries an HMAC of its fields
+   under the sink key, which binds the export watermark (not part of the chain); `verify`
+   also refuses a watermark before the last export window. Cutting the newest segments
+   together with `HEAD.json` (or restoring an older valid copy) is still invisible to the
+   sink alone, so every export and verify prints
    `head_hash` and `last_seq`, and the heartbeat keeps `last_seq`; the runbook asks the
    operator to keep that copy. Sink segments are kept for as long as the rows (no audit
    retention purge exists); pruning needs a checkpoint procedure that is not built.

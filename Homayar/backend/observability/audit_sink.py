@@ -105,6 +105,7 @@ EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,36}$")
 # An approval is a reference (ticket, change id), never free text.
 APPROVAL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/#-]{2,79}$")
 KEY_ID_LABEL = b"homayar-audit-sink/key-id/v1"
+HEAD_MAC_LABEL = "HEAD.json"
 UNKEYED_ENVIRONMENTS = frozenset({"test", "development"})
 # Where the first export into an empty sink needs the legacy-row review acknowledged.
 LEGACY_REVIEW_ENVIRONMENTS = frozenset({"staging", "production"})
@@ -179,23 +180,26 @@ class Head:
     algorithm: str = "sha256"
     key_id: str | None = None
     legacy_review: dict[str, str] | None = None  # copy of the chain's record 1, if any
+    mac: str | None = None  # as read from HEAD.json
 
-    def to_json(self) -> str:
-        return (
-            canonical(
-                {
-                    "format": SINK_FORMAT,
-                    "last_seq": self.last_seq,
-                    "head_hash": self.head_hash,
-                    "watermark": self.watermark,
-                    "segments": self.segments,
-                    "algorithm": self.algorithm,
-                    "key_id": self.key_id,
-                    "legacy_review": self.legacy_review,
-                }
-            )
-            + "\n"
-        )
+    def fields(self) -> dict[str, Any]:
+        return {
+            "format": SINK_FORMAT,
+            "last_seq": self.last_seq,
+            "head_hash": self.head_hash,
+            "watermark": self.watermark,
+            "segments": self.segments,
+            "algorithm": self.algorithm,
+            "key_id": self.key_id,
+            "legacy_review": self.legacy_review,
+        }
+
+    def expected_mac(self, chain: Chain) -> str:
+        """Binds every field, the watermark included (it is not in the chain), to the key."""
+        return chain.link(HEAD_MAC_LABEL, canonical(self.fields()))
+
+    def to_json(self, chain: Chain) -> str:
+        return canonical({**self.fields(), "mac": self.expected_mac(chain)}) + "\n"
 
 
 def _segments_dir(sink: Path) -> Path:
@@ -225,6 +229,7 @@ def read_head(sink: Path) -> Head | None:
         algorithm=str(data.get("algorithm", "sha256")),
         key_id=data.get("key_id"),
         legacy_review=data.get("legacy_review"),
+        mac=data.get("mac"),
     )
 
 
@@ -294,11 +299,17 @@ def _sink_lock(sink: Path) -> Iterator[None]:
 
 def _open_head(sink: Path, chain: Chain) -> Head:
     """The committed head, after finishing an export interrupted between its steps."""
-    head = read_head(sink) or Head(algorithm=chain.algorithm, key_id=chain.key_id)
+    stored = read_head(sink)
+    head = stored or Head(algorithm=chain.algorithm, key_id=chain.key_id)
     if head.algorithm != chain.algorithm or head.key_id != chain.key_id:
         raise AuditSinkError(
             f"The sink chain uses {head.algorithm} with key id {head.key_id}; the configured "
             f"AUDIT_SINK_HMAC_KEY gives {chain.algorithm} with key id {chain.key_id}"
+        )
+    if stored is not None and stored.mac != stored.expected_mac(chain):
+        raise AuditSinkError(
+            "HEAD.json fails its MAC (changed without the key); the sink needs an "
+            "operator's inspection: run verify"
         )
     segment, manifest_path, partial = _segment_paths(sink, head.segments + 1)
     if not manifest_path.is_file():
@@ -328,7 +339,7 @@ def _open_head(sink: Path, chain: Chain) -> Head:
         key_id=chain.key_id,
         legacy_review=manifest.get("legacy_review") or head.legacy_review,
     )
-    _replace(sink / "HEAD.json", head.to_json())
+    _replace(sink / "HEAD.json", head.to_json(chain))
     return head
 
 
@@ -373,7 +384,7 @@ def _append_segment(
         partial.unlink()
         if window is not None:
             head.watermark = window[1]
-            _replace(sink / "HEAD.json", head.to_json())
+            _replace(sink / "HEAD.json", head.to_json(chain))
         return head, counts
     manifest = {
         "format": SINK_FORMAT,
@@ -406,7 +417,7 @@ def _append_segment(
         key_id=chain.key_id,
         legacy_review=review or head.legacy_review,
     )
-    _replace(sink / "HEAD.json", new_head.to_json())
+    _replace(sink / "HEAD.json", new_head.to_json(chain))
     return new_head, counts
 
 
@@ -439,8 +450,9 @@ def export_engine(settings: Settings) -> Engine:
 
 
 def assert_reader_identity(session: Session) -> None:
-    """Refuse to read unless this is the reader role, reached from a login that is
-    neither a superuser nor able to become the application role."""
+    """Refuse to read unless this is the reader role, inert (``NOLOGIN``, no role
+    attribute, a member of no role, unreachable from the application role), reached
+    from a login that is neither a superuser nor able to become the application role."""
     if session.get_bind().dialect.name != "postgresql":
         return
     row = session.execute(
@@ -456,6 +468,23 @@ def assert_reader_identity(session: Session) -> None:
     ).one()
     if row.acting_role != AUDIT_READER_ROLE:
         raise AuditSinkError(f"The audit export must run as {AUDIT_READER_ROLE}")
+    reader = session.execute(
+        text(
+            "SELECT r.rolcanlogin OR r.rolsuper OR r.rolbypassrls OR r.rolcreatedb "
+            "OR r.rolcreaterole AS privileged, "
+            "EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = r.oid) AS member_of, "
+            "EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :app) "
+            "AND pg_has_role(:app, r.rolname, 'MEMBER') AS app_reaches "
+            "FROM pg_roles r WHERE r.rolname = :reader"
+        ),
+        {"app": APP_ROLE, "reader": AUDIT_READER_ROLE},
+    ).one()
+    if reader.privileged or reader.member_of or reader.app_reaches:
+        raise AuditSinkError(
+            f"{AUDIT_READER_ROLE} is not inert: it can log in, holds a role attribute, is a "
+            f"member of another role, or {APP_ROLE} reaches it; upgrade the schema again or "
+            "fix the role (docs/operations/audit.md#the-audit-reader-role)"
+        )
     if row.privileged or row.app_member:
         raise AuditSinkError(
             f"The audit export login must not be a superuser, have BYPASSRLS or be a "
@@ -753,7 +782,11 @@ def _read_sink(sink: Path, chain: Chain, report: VerifyReport) -> _SinkContents:
             )
         )
         return contents
-    previous, expected_seq = GENESIS, 1
+    if head.mac != head.expected_mac(chain):
+        report.problems.append(
+            Finding("head_mismatch", detail="HEAD.json fails its MAC (changed without the key)")
+        )
+    previous, expected_seq, last_window_end = GENESIS, 1, None
     for number in range(1, head.segments + 1):
         segment, manifest_path, _ = _segment_paths(sink, number)
         if not segment.is_file() or not manifest_path.is_file():
@@ -761,6 +794,8 @@ def _read_sink(sink: Path, chain: Chain, report: VerifyReport) -> _SinkContents:
             return contents
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         report.segments += 1
+        if manifest.get("window_end"):
+            last_window_end = manifest["window_end"]
         if manifest.get("prev_head") != previous or manifest.get("first_seq") != expected_seq:
             report.problems.append(Finding("manifest_mismatch", detail=f"segment {number}"))
         if manifest.get("file_sha256") != _sha256_file(segment):
@@ -820,6 +855,12 @@ def _read_sink(sink: Path, chain: Chain, report: VerifyReport) -> _SinkContents:
         report.problems.append(
             Finding("head_mismatch", detail="HEAD.json disagrees with the chain")
         )
+    if last_window_end is not None and not _not_before(head.watermark, last_window_end):
+        # Exports with no new rows move the watermark past the last window; nothing moves
+        # it back.
+        report.problems.append(
+            Finding("head_mismatch", detail="HEAD.json watermark is before the last export window")
+        )
     extra = [path for path in _segment_paths(sink, head.segments + 1)[:2] if path.exists()]
     if extra:
         report.problems.append(
@@ -830,6 +871,15 @@ def _read_sink(sink: Path, chain: Chain, report: VerifyReport) -> _SinkContents:
             )
         )
     return contents
+
+
+def _not_before(watermark: str | None, window_end: str) -> bool:
+    try:
+        return watermark is not None and datetime.fromisoformat(
+            watermark
+        ) >= datetime.fromisoformat(window_end)
+    except ValueError:
+        return False
 
 
 def _changed(row: dict[str, Any], stored: dict[str, Any]) -> list[str]:

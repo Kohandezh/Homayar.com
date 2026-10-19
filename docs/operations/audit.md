@@ -161,7 +161,8 @@ both write access to the sink and the HMAC key can rewrite it undetected (see
 
 ```
 AUDIT_SINK_DIR/
-  HEAD.json                        last_seq, head_hash, watermark, segments, algorithm, key_id
+  HEAD.json                        last_seq, head_hash, watermark, segments, algorithm, key_id,
+                                   legacy_review, mac (HMAC of the other fields under the key)
   segments/00000001.jsonl          one record per line, mode 0440, never rewritten
   segments/00000001.manifest.json  file sha256, first/last seq, counts, window, prev/head hash
 ```
@@ -195,7 +196,10 @@ write time, IPs are hashes, secrets are `[redacted]`.
 
 The exporter refuses to run (exit 2, one line on stderr, no URL or key) when the login is
 not a member of `homayar_audit_reader`, is a superuser or has `BYPASSRLS`, or can become
-`homayar_app`, and when `AUDIT_EXPORT_DATABASE_URL` is empty on PostgreSQL. It reads with
+`homayar_app`; when `homayar_audit_reader` itself is not inert (it can log in, holds a role
+attribute, is a member of a role, or `homayar_app` reaches it); and when
+`AUDIT_EXPORT_DATABASE_URL` is empty on PostgreSQL. A `HEAD.json` that fails its MAC stops
+export and `record-erasure` too (run `verify`). It reads with
 `SET ROLE homayar_audit_reader` in read-only transactions.
 
 ### Export runbook
@@ -283,7 +287,7 @@ or `null`).
 | `sequence_gap` | problem | a line was removed or lines were reordered | as above |
 | `record_duplicated` | problem | an event id appears twice | as above |
 | `segment_missing`, `segment_file_changed`, `manifest_mismatch` | problem | a segment or manifest is missing or disagrees with its file | as above; restore from the backup copy |
-| `head_mismatch` | problem | `HEAD.json` disagrees with the chain, or a segment exists beyond it | after a crash: run `export` once (it finishes the interrupted segment); otherwise as above |
+| `head_mismatch` | problem | `HEAD.json` disagrees with the chain, fails its MAC (changed without the key), has a watermark before the last export window, or a segment exists beyond it | after a crash: run `export` once (it finishes the interrupted segment); otherwise as above |
 | `head_missing`, `key_mismatch` | problem | no `HEAD.json`; or the configured key (or its absence) is not the sink's (`key_id` differs) | check `AUDIT_SINK_DIR` and `AUDIT_SINK_HMAC_KEY` |
 | `row_changed` | problem | an exported row differs in the database (the detail names the columns) | security incident: the table owner or a superuser changed history |
 | `row_deleted` | problem | an exported row is gone from the database without a recorded erasure | as above |
@@ -351,7 +355,8 @@ schedule the operator chose.
 * A writer of the sink who also holds `AUDIT_SINK_HMAC_KEY` can rewrite the chain.
 * Cutting the newest segments together with `HEAD.json` (and the database rows they hold)
   is invisible to the sink alone; compare `head_hash` / `last_seq` with the independent
-  copy recorded after each export.
+  copy recorded after each export. `HEAD.json` carries a MAC, so it cannot be edited without
+  the key (its watermark is not in the chain), but an older valid copy can be put back.
 * The table owner can change a row before its first export: the window (the settle
   period plus the export interval) is short, but it is not zero.
 * `verify` reads the whole sink and every row older than the watermark: fine at current

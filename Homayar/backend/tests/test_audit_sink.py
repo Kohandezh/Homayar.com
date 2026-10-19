@@ -570,6 +570,63 @@ def test_the_exporter_refuses_to_run_as_the_application_role(sink_settings: Sett
     assert verify_sink(sink_settings).ok
 
 
+def test_head_json_is_bound_to_the_key(sink_settings: Settings):
+    _seed(sink_settings)
+    _export(sink_settings)
+    head_path = _sink(sink_settings) / "HEAD.json"
+    original = head_path.read_text("utf-8")
+
+    # A writer of the sink without the key rolls the watermark back (it is not chained).
+    head = json.loads(original)
+    head["watermark"] = "2000-01-01T00:00:00+00:00"
+    head_path.write_text(json.dumps(head), encoding="utf-8")
+    details = [
+        f.detail
+        for f in verify_sink(sink_settings, against_database=False).problems
+        if f.kind == "head_mismatch"
+    ]
+    assert any("MAC" in detail for detail in details)
+    with pytest.raises(AuditSinkError, match="MAC"):
+        _export(sink_settings)
+
+    # With a valid MAC (a key holder's own edit) a watermark moved back is still caught.
+    chain = audit_sink.Chain(sink_settings.audit_sink_hmac_key)
+    head_path.write_text(audit_sink.read_head(_sink(sink_settings)).to_json(chain), "utf-8")
+    details = [
+        f.detail
+        for f in verify_sink(sink_settings, against_database=False).problems
+        if f.kind == "head_mismatch"
+    ]
+    assert details == ["HEAD.json watermark is before the last export window"]
+
+    head_path.write_text(original, encoding="utf-8")
+    assert verify_sink(sink_settings).ok
+    assert _export(sink_settings).exported == 0  # nothing new; the watermark moves on
+
+
+@pytest.mark.postgres
+def test_the_exporter_refuses_a_reader_role_that_is_not_inert(sink_settings: Settings):
+    if not _postgres():
+        pytest.skip("needs PostgreSQL roles")
+    _seed(sink_settings)
+    _export(sink_settings)
+    for broken, restore in (
+        (f"ALTER ROLE {AUDIT_READER_ROLE} LOGIN", f"ALTER ROLE {AUDIT_READER_ROLE} NOLOGIN"),
+        (f"ALTER ROLE {AUDIT_READER_ROLE} CREATEDB", f"ALTER ROLE {AUDIT_READER_ROLE} NOCREATEDB"),
+        (f"GRANT {AUDIT_READER_ROLE} TO {APP_ROLE}", f"REVOKE {AUDIT_READER_ROLE} FROM {APP_ROLE}"),
+        (f"GRANT {APP_ROLE} TO {AUDIT_READER_ROLE}", f"REVOKE {APP_ROLE} FROM {AUDIT_READER_ROLE}"),
+    ):
+        _dba(broken)
+        try:
+            with pytest.raises(AuditSinkError, match="is not inert"):
+                _export(sink_settings)
+            with pytest.raises(AuditSinkError, match="is not inert"):
+                verify_sink(sink_settings)
+        finally:
+            _dba(restore)
+    assert verify_sink(sink_settings).ok
+
+
 # --- content -------------------------------------------------------------------------------
 
 
