@@ -40,7 +40,15 @@ here is a target for the drill to measure, never an estimate taken from a script
   newest qualifying set of the month (else its newest). History therefore reaches about
   12 months beyond the 30 days, not 12 months counted from today.
 - The newest set is always kept. Interrupted (`.partial-*`) sets are removed after 6 h; S3 copies
-  without a manifest (interrupted uploads or prunes) after 24 h.
+  without a manifest (interrupted uploads or prunes) and interrupted multipart uploads after 24 h.
+- Off-site copies follow the same choice: the copy of a deep-verified set carries its verified
+  marker (`sets/<id>.verified` in a directory, `<prefix>/<id>.verified` in S3), so off-site
+  retention prefers the same full verified sets (copies made before markers were carried get one
+  when their manifest is byte-identical to a verified root set). In a versioned bucket, prune
+  deletes each removed set's versions and delete markers right after the set, and also sweeps
+  versions an earlier interrupted prune left; versions an object lock still protects expire with
+  the lock, so keep the lock period within the retention. A bucket whose versioning setting the
+  credential cannot read is never swept, and any denied listing fails the run after it finishes.
 
 ### 3.2 Off-site copies
 
@@ -52,12 +60,16 @@ here is a target for the drill to measure, never an estimate taken from a script
   compares the host paths, refuses an off-site path inside the backup root (or containing it)
   and warns when both share a filesystem; the operator confirms the medium with
   `df -P "$BACKUP_ROOT" "$BACKUP_OFFSITE_PATH"`. The tool alone sees only container paths.
-- **Immutability is not provided by the tool** (**open owner decision AppVision D15**, pending):
-  the application
-  host holds the credentials that write and prune off-site copies, so an intruder on that host
-  can delete them. Recommended: S3 versioning plus object lock (compliance mode) on the off-site
-  bucket, and expiry by bucket lifecycle rules or by a job on the off-site side rather than by
-  `prune` from the application host.
+- **Immutability: AppVision D15, DECIDED 2026-10-18 by the owner.** The S3 off-site bucket uses
+  Object Lock in GOVERNANCE mode, enabled when the bucket is created (versioning on), with a
+  default retention that matches the backup retention. Bypassing it needs a separately held,
+  privileged break-glass credential; the backup tool's credential never has
+  `s3:BypassGovernanceRetention`. An intruder on the application host can therefore not
+  destroy locked copies before their retention ends. Deletions made after a backup still win,
+  because every restore replays the tombstone journal before use. Known limit: the tool sets no
+  per-object retention, so monthly sets are locked only for the default period. A directory
+  off-site target has no such protection. Prune counts versions that are still locked, never as
+  failures, and retries them on later runs.
 
 ## 4. Backup scope
 
@@ -68,11 +80,14 @@ Included in every set (one exported `REPEATABLE READ READ ONLY` snapshot, taken 
   partitioned tables), the Alembic revision, the sequences, per-table and per-tenant row counts.
 - **Object storage:** every object under the tenant prefix of every tenant in the snapshot,
   copied through the application's storage interface, with a SHA-256 per object and the
-  database's expectation for it (`required` / `optional` / `gone`). Objects are copied after the
+  database's expectation for it (`required` / `optional` / `gone`); the stage outputs a legal
+  hold keeps for a deleted meeting are `required` and held. Objects are copied after the
   snapshot. A required object missing at copy time is explained only by the row that set the
   expectation, when that row was removed, deleted or marked for deletion after the snapshot
-  (e.g. a purge or "delete audio after processing"); another table's row with the same key never
-  explains it, and a legally held object is never explained. An
+  (e.g. a purge or "delete audio after processing"; the removal time may precede the snapshot
+  by at most 15 minutes of clock skew, since the snapshot already shows the row live); another
+  table's row with the same key never explains it, a legally held object is never explained,
+  and a checkpoint the application found missing or corrupt stays a loss even once swept. An
   unexplained missing object, or bytes that do not match their row, mark the set's object copy
   `degraded`: the set is still kept (its database part is good), but the `objects` freshness
   gauge does not move and `backup.sh` exits non-zero.
@@ -133,7 +148,9 @@ Excluded on purpose (recorded in every manifest under `excluded`):
     - every `meeting_id` / `organization_id` link agrees on the tenant;
     - every object key sits under its own tenant prefix;
   - the journal replica is this deployment's journal and at least as new as the backup (§2,
-    ADR 0035);
+    ADR 0035): it matches the backup's fingerprint of the journal files, or, if the backup
+    predates every deletion, holds records of tenants the backup knows (records of tenants
+    created later are skipped by the replay);
   - every journaled deletion is re-applied: its content rows, active share links and bytes are
     gone;
   - every required object is present and hashes to its restored row's SHA-256.
