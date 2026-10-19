@@ -114,7 +114,9 @@ migration slot), and CI must run the tests without new tooling.
   retention matching the backup retention, and a separately held break-glass credential for
   bypass (never the tool's credential). Prune treats a refused version delete as locked only
   when the bucket has Object Lock and that version has retention or a legal hold, and retries
-  it later. Monthly sets are locked only for the default period (the tool sets no per-object
-  retention), and directory off-site targets stay deletable from the host.
+  it later. The bucket default covers the daily window; prune extends the GOVERNANCE retention
+  of every object of each monthly set to the earliest day the retention could expire it
+  (`s3:PutObjectRetention`, never shortened, never with the bypass), so the lock lasts as long
+  as the set is kept and never longer. Directory off-site targets stay deletable from the host.
 - Deletions newer than the journal replica's last sync are lost on a restore; the journal
   replication interval needs its own alert.

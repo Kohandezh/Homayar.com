@@ -33,7 +33,31 @@ def retained(
     monthly: int = DEFAULT_MONTHLY,
     qualifying: set[str] | None = None,
 ) -> set[str]:
-    """Sets kept by the policy.
+    """Sets kept by the policy (see ``_retained``)."""
+    keep, _ = _retained(backup_ids, daily=daily, monthly=monthly, qualifying=qualifying)
+    return keep
+
+
+def retained_monthly(
+    backup_ids: list[str],
+    *,
+    daily: int = DEFAULT_DAILY,
+    monthly: int = DEFAULT_MONTHLY,
+    qualifying: set[str] | None = None,
+) -> set[str]:
+    """The kept sets that only the monthly rule keeps (older than the daily window)."""
+    _, monthly_sets = _retained(backup_ids, daily=daily, monthly=monthly, qualifying=qualifying)
+    return monthly_sets
+
+
+def _retained(
+    backup_ids: list[str],
+    *,
+    daily: int,
+    monthly: int,
+    qualifying: set[str] | None,
+) -> tuple[set[str], set[str]]:
+    """Sets kept by the policy, and those of them kept as monthly sets.
 
     * daily: the last ``daily`` UTC days that have a set keep one set each;
     * monthly: the last ``monthly`` months OLDER than the daily window keep
@@ -45,7 +69,7 @@ def retained(
     * the newest set is always kept.
     """
     if not backup_ids:
-        return set()
+        return set(), set()
     good = set(backup_ids) if qualifying is None else set(qualifying) & set(backup_ids)
     ordered = sorted(backup_ids, key=lambda b: (backup_time(b), b), reverse=True)
 
@@ -69,8 +93,10 @@ def retained(
         moment = backup_time(backup_id)
         if moment < window_start:
             months.setdefault(moment.strftime("%Y-%m"), []).append(backup_id)
-    keep.update(representative(months[month]) for month in sorted(months, reverse=True)[:monthly])
-    return keep
+    monthly_sets = {
+        representative(months[month]) for month in sorted(months, reverse=True)[:monthly]
+    }
+    return keep | monthly_sets, monthly_sets - keep
 
 
 def verified_marker(root: Path, backup_id: str) -> Path:
@@ -128,6 +154,8 @@ def prune(
             for backup_id in expired:
                 shutil.rmtree(sets[backup_id])
                 verified_marker(root, backup_id).unlink(missing_ok=True)
+                # The off-site backfill's record of a rejected copy (replicate.py).
+                (root / "sets" / f"{backup_id}.offsite-rejected").unlink(missing_ok=True)
             if locked:
                 for name in stale:
                     shutil.rmtree(root / "sets" / name)
