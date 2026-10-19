@@ -58,6 +58,8 @@ import type {
   AssignTeamMemberInput,
   UpdateTeamInput,
   Transcript,
+  TranscriptCorrectionInput,
+  TranscriptRevisionListResponse,
   TranscriptSpeaker,
   TranscriptView,
   UpdateActionFields,
@@ -157,6 +159,12 @@ export const platformQueryKeys = {
   /** Audited original under an enforced redaction policy; never kept after use. */
   transcriptOriginal: (meetingId: string) =>
     ["platform", "meetings", meetingId, "transcript", "original"] as const,
+  /** The immutable revision list (HOM-246); fetched while the history drawer is open. */
+  transcriptRevisions: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "transcript", "revisions"] as const,
+  /** One exact revision, read only (HOM-246); revisions never change once written. */
+  transcriptRevision: (meetingId: string, revisionId: string) =>
+    ["platform", "meetings", meetingId, "transcript", "revision", revisionId] as const,
   evidence: (meetingId: string) =>
     ["platform", "meetings", meetingId, "evidence"] as const,
   summary: (meetingId: string) =>
@@ -339,9 +347,41 @@ export function saveDownload(payload: DownloadPayload): void {
   URL.revokeObjectURL(url);
 }
 
-export async function getTranscript(meetingId: string, view?: TranscriptView): Promise<Transcript> {
+export async function getTranscript(
+  meetingId: string,
+  view?: TranscriptView,
+  revisionId?: string,
+): Promise<Transcript> {
   const path = `/meetings/${meetingId}/transcript`;
-  const response = view ? await api.get<Transcript>(path, { params: { view } }) : await api.get<Transcript>(path);
+  const params: { view?: TranscriptView; revision_id?: string } = {};
+  if (view) params.view = view;
+  if (revisionId) params.revision_id = revisionId;
+  // No params, no config: the call shape existing callers and tests rely on.
+  const response = Object.keys(params).length
+    ? await api.get<Transcript>(path, { params })
+    : await api.get<Transcript>(path);
+  return response.data;
+}
+
+/** Every revision of one meeting's transcript, newest first (HOM-246). */
+export async function listTranscriptRevisions(
+  meetingId: string,
+): Promise<TranscriptRevisionListResponse> {
+  const response = await api.get<TranscriptRevisionListResponse>(
+    `/meetings/${meetingId}/transcript/revisions`,
+  );
+  return response.data;
+}
+
+/** One correction over the base revision; the answer is the new current transcript. */
+export async function correctTranscript(
+  meetingId: string,
+  input: TranscriptCorrectionInput,
+): Promise<Transcript> {
+  const response = await api.post<Transcript>(
+    `/meetings/${meetingId}/transcript/corrections`,
+    input,
+  );
   return response.data;
 }
 
@@ -854,6 +894,55 @@ export function useRevealValue() {
   });
 }
 
+/** The revision list of one meeting, asked for only while a view shows it. */
+export function useTranscriptRevisions(meetingId: string | null | undefined, options?: { enabled?: boolean }) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.transcriptRevisions(id),
+    queryFn: () => listTranscriptRevisions(id),
+    enabled: Boolean(meetingId) && options?.enabled !== false,
+  });
+}
+
+/** One exact revision, read only; immutable, so it is never invalidated. */
+export function useTranscriptRevision(meetingId: string | null | undefined, revisionId: string | null) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.transcriptRevision(id, revisionId ?? ""),
+    queryFn: () => getTranscript(id, undefined, revisionId ?? undefined),
+    enabled: Boolean(meetingId) && revisionId !== null,
+  });
+}
+
+/**
+ * One correction creates a new current revision, so everything read from the
+ * transcript is out of date: the transcript itself (exact, so the audited
+ * original is never re-read in the background), the revision list, the call
+ * report with its stale markers, and every result derived from the meeting.
+ */
+export function useCorrectTranscript() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ meetingId, input }: { meetingId: string; input: TranscriptCorrectionInput }) =>
+      correctTranscript(meetingId, input),
+    onSuccess: async (_transcript, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcript(variables.meetingId),
+          exact: true,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcriptRevisions(variables.meetingId),
+        }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.summary(variables.meetingId) }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.evidence(variables.meetingId) }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meeting(variables.meetingId) }),
+        invalidateMeetingIntelligence(queryClient, variables.meetingId),
+      ]);
+    },
+  });
+}
+
 export function useMeetingSummary(meetingId: string | null | undefined) {
   const id = meetingIdOrEmpty(meetingId);
   return useQuery({
@@ -1018,8 +1107,8 @@ export function useUsageEvents(params: UsageEventListParams = {}) {
   });
 }
 
-export function useMembers() {
-  return useQuery({ queryKey: platformQueryKeys.members(), queryFn: listMembers });
+export function useMembers(enabled = true) {
+  return useQuery({ queryKey: platformQueryKeys.members(), queryFn: listMembers, enabled });
 }
 
 export function useInvitations() {

@@ -86,6 +86,11 @@ function findingTypeLabel(finding: ReportFinding, copy: ReportCopy) {
   return copy.qa.types[finding.finding_type] ?? finding.finding_type;
 }
 
+/** An item whose analysis read an earlier transcript revision (HOM-246). */
+function StaleMarker({ copy }: { copy: ReportCopy }) {
+  return <strong className="call-report-stale">{copy.staleMarker}</strong>;
+}
+
 /**
  * The call report of one meeting (WP12-T02): completeness notices, summary,
  * outcome, evidence-backed QA findings and the review actions, in that order.
@@ -121,6 +126,9 @@ export default function CallReport({
   const supportedFindings = qa.findings.filter((finding) => finding.supported && finding.evidence.length > 0);
   const analysisReason = qa.quality.degradations.find((item) => item.stage === "intelligence")?.reason ?? null;
   const evidence = { canPlay, copy, lang, onPlay, onShowSegment };
+  // HOM-246: the analysis read an earlier revision of the transcript.
+  const analysisStale = qa.quality.analysis_stale === true;
+  const citesOldRevision = (refs: ReportEvidenceRef[]) => refs.some((ref) => ref.is_current_revision === false);
 
   return (
     <div className="call-report">
@@ -143,6 +151,7 @@ export default function CallReport({
               <EvidenceBadge status={summary.evidence_status} lang={lang} />
               {!summary.supported && <strong className="call-report-unsupported">{copy.summary.notSupported}</strong>}
               {summary.sentiment && <span>{copy.summary.sentiment}: <bdi dir="auto">{summary.sentiment}</bdi></span>}
+              {analysisStale && <StaleMarker copy={copy} />}
             </div>
             {summary.topics.length > 0 && (
               <div className="meeting-topics" aria-label={copy.summary.topics}>
@@ -170,6 +179,7 @@ export default function CallReport({
                 <div className="summary-item-meta">
                   <EvidenceBadge status={decision.evidence_status} lang={lang} />
                   {!decision.supported && <strong className="call-report-unsupported">{copy.outcome.noEvidence}</strong>}
+                  {(analysisStale || citesOldRevision(decision.evidence)) && <StaleMarker copy={copy} />}
                 </div>
                 {decision.supported && <EvidenceList refs={decision.evidence} {...evidence} />}
               </li>
@@ -192,6 +202,7 @@ export default function CallReport({
                 <div className="summary-item-meta">
                   <span className="call-report-type" dir="auto">{findingTypeLabel(finding, copy)}</span>
                   <EvidenceBadge status={finding.evidence_status} lang={lang} />
+                  {(analysisStale || citesOldRevision(finding.evidence)) && <StaleMarker copy={copy} />}
                 </div>
                 <p dir="auto"><MaskedText text={finding.text} copy={resultsCopy} revealed={{}} /></p>
                 <EvidenceList refs={finding.evidence} {...evidence} />

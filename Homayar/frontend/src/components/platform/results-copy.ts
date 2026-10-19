@@ -37,6 +37,33 @@ export interface ResultsCopy {
     atFound: (time: string) => string;
     atMissing: string;
   };
+  correction: {
+    editTurn: (time: string) => string;
+    turnText: string;
+    speaker: string;
+    reasonLabel: string;
+    reasonHint: string;
+    save: string;
+    savedAsRevision: (revision: string) => string;
+    reloadTranscript: string;
+    errors: Record<string, string>;
+    failed: string;
+  };
+  revisions: {
+    title: string;
+    current: string;
+    close: string;
+    label: (revision: string) => string;
+    sources: Record<"asr" | "correction" | "backfill", string>;
+    you: string;
+    system: string;
+    unknownMember: string;
+    view: (revision: string) => string;
+    backToCurrent: string;
+    viewingRevision: (revision: string) => string;
+    empty: string;
+    failed: string;
+  };
   contentView: {
     actionsRedacted: string;
     actionsOriginal: string;
@@ -132,6 +159,46 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
       },
       atFound: (time) => `Showing the transcript segment at ${time}.`,
       atMissing: "No transcript segment was found at the requested time.",
+    },
+    correction: {
+      editTurn: (time) => `Edit turn at ${time}`,
+      turnText: "Turn text",
+      speaker: "Speaker",
+      reasonLabel: "Reason for the correction",
+      reasonHint: "Required. 3 to 500 characters.",
+      save: "Save correction",
+      savedAsRevision: (revision) => `Saved as revision ${revision}.`,
+      reloadTranscript: "Reload transcript",
+      errors: {
+        revision_stale: "The transcript changed since it was loaded. Reload it and make the correction again.",
+        reason_required: "Enter a reason.",
+        no_changes: "The correction changes nothing; edit the text or the speaker.",
+        invalid_text: "The text is empty or longer than 8000 characters.",
+        invalid_speaker: "That speaker is not known for this meeting.",
+        invalid_segment: "This segment is not in the loaded transcript; reload the transcript.",
+        duplicate_edit: "The same segment was sent twice; reload the transcript and try again.",
+        permission_denied: "Your role cannot correct the transcript.",
+      },
+      failed: "The correction could not be saved.",
+    },
+    revisions: {
+      title: "Revision history",
+      current: "Current",
+      close: "Close revision history",
+      label: (revision) => `Revision ${revision}`,
+      sources: {
+        asr: "Automatic transcription",
+        correction: "Correction",
+        backfill: "Backfill",
+      },
+      you: "You",
+      system: "System",
+      unknownMember: "Unknown member",
+      view: (revision) => `View revision ${revision}`,
+      backToCurrent: "Back to current",
+      viewingRevision: (revision) => `You are viewing revision ${revision}. It is read only.`,
+      empty: "No transcript revisions yet.",
+      failed: "The revisions could not be loaded.",
     },
     contentView: {
       actionsRedacted: "These action items are shown with personal data masked by the same detector as the transcript (structured data only).",
@@ -231,6 +298,46 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
       },
       atFound: (time) => `بخش متن در زمان ${time} نمایش داده شده است.`,
       atMissing: "در زمان درخواستی بخشی از متن پیدا نشد.",
+    },
+    correction: {
+      editTurn: (time) => `ویرایش بخش در ${time}`,
+      turnText: "متن بخش",
+      speaker: "گوینده",
+      reasonLabel: "دلیل اصلاح",
+      reasonHint: "الزامی. ۳ تا ۵۰۰ نویسه.",
+      save: "ذخیرهٔ اصلاح",
+      savedAsRevision: (revision) => `به‌عنوان نسخهٔ ${revision} ذخیره شد.`,
+      reloadTranscript: "بارگذاری دوبارهٔ متن",
+      errors: {
+        revision_stale: "متن از زمان بارگذاری تغییر کرده است. آن را دوباره بارگذاری کنید و اصلاح را دوباره انجام دهید.",
+        reason_required: "دلیلی وارد کنید.",
+        no_changes: "این اصلاح چیزی را تغییر نمی‌دهد؛ متن یا گوینده را تغییر دهید.",
+        invalid_text: "متن خالی است یا از ۸۰۰۰ نویسه بلندتر است.",
+        invalid_speaker: "این گوینده برای این جلسه شناخته نشده است.",
+        invalid_segment: "این بخش در متن بارگذاری‌شده نیست؛ متن را دوباره بارگذاری کنید.",
+        duplicate_edit: "یک بخش دو بار ارسال شده است؛ متن را دوباره بارگذاری کنید و دوباره تلاش کنید.",
+        permission_denied: "نقش شما اجازهٔ اصلاح متن را ندارد.",
+      },
+      failed: "اصلاح ذخیره نشد.",
+    },
+    revisions: {
+      title: "تاریخچهٔ نسخه‌ها",
+      current: "فعلی",
+      close: "بستن تاریخچهٔ نسخه‌ها",
+      label: (revision) => `نسخهٔ ${revision}`,
+      sources: {
+        asr: "تبدیل گفتار به متن خودکار",
+        correction: "اصلاح",
+        backfill: "بازسازی سیستمی",
+      },
+      you: "شما",
+      system: "سیستم",
+      unknownMember: "عضو ناشناس",
+      view: (revision) => `مشاهدهٔ نسخهٔ ${revision}`,
+      backToCurrent: "بازگشت به نسخهٔ فعلی",
+      viewingRevision: (revision) => `در حال مشاهدهٔ نسخهٔ ${revision} هستید. فقط خواندنی است.`,
+      empty: "هنوز نسخه‌ای ثبت نشده است.",
+      failed: "نسخه‌ها دریافت نشد.",
     },
     contentView: {
       actionsRedacted: "این اقدام‌ها با پوشاندن داده‌های شخصی توسط همان تشخیص‌دهندهٔ متن نمایش داده می‌شوند (فقط داده‌های ساخت‌یافته).",
