@@ -24,6 +24,7 @@ group_eval_order:
   - homayar-availability
   - homayar-processing
   - homayar-retention
+  - homayar-security
   - homayar-backup
 
 tests:
@@ -1016,3 +1017,68 @@ tests:
               summary: "No backup has reported a success for 26 hours"
               description: "node_exporter is healthy but the backup textfile holds no target: the first backup never succeeded, or backups are not scheduled."
               runbook: docs/operations/alerts.md#homayarbackuptooold
+
+  # --- security (HOM-114): counters start at 0, so the first event fires -----------------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_audit_write_failures_total{delivery="transactional",instance="api-1",job="homayar-api"}'
+        values: '0x10 1x20'
+      - series: 'homayar_audit_write_failures_total{delivery="best_effort",instance="api-1",job="homayar-api"}'
+        values: '0x30'
+      - series: 'homayar_auth_failures_total{reason="refresh_replay",instance="api-1",job="homayar-api"}'
+        values: '0x10 1x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HomayarAuditWriteFailures
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: HomayarAuditWriteFailures
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              delivery: transactional
+            exp_annotations:
+              summary: "Audit events could not be written (transactional)"
+              description: "transactional: the audited operation was refused (a login fails closed). best_effort: a refused attempt happened without its audit row."
+              runbook: docs/operations/alerts.md#homayarauditwritefailures
+      - eval_time: 5m
+        alertname: HomayarRefreshTokenReplay
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: HomayarRefreshTokenReplay
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "A refresh token was replayed; its session has been revoked"
+              description: "A used refresh token came back: a likely stolen session. The audit event auth.refresh_replay_detected names the user and session."
+              runbook: docs/operations/alerts.md#homayarrefreshtokenreplay
+
+  - interval: 1m
+    input_series:
+      - series: 'homayar_auth_failures_total{reason="invalid_credentials",instance="api-1",job="homayar-api"}'
+        values: '0+10x40'
+      - series: 'homayar_auth_failures_total{reason="invalid_credentials",instance="api-2",job="homayar-api"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 8m  # above the threshold, still pending
+        alertname: HomayarLoginFailureSpike
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: HomayarLoginFailureSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "More than 50 failed logins in 10 minutes"
+              description: "Possible credential stuffing or a broken client. auth.login_failed events carry only an identifier-hash prefix."
+              runbook: docs/operations/alerts.md#homayarloginfailurespike
+
+  - interval: 1m
+    input_series:
+      - series: 'homayar_auth_failures_total{reason="invalid_credentials",instance="api-1",job="homayar-api"}'
+        values: '0+2x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HomayarLoginFailureSpike
+        exp_alerts: []

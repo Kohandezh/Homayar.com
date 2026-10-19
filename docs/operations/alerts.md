@@ -300,3 +300,29 @@ either broken or unknown:
   not mute a missing target in another's file.
 
 Then follow [backup-restore.md](backup-restore.md).
+
+## HomayarAuditWriteFailures
+
+An audit row could not be written (`homayar_audit_write_failures_total{delivery}`, HOM-114).
+`transactional`: the operation being audited was rolled back and the caller got an error. A
+successful login fails closed this way (owner decision 2026-10-18). `best_effort`: a refused
+attempt (a failed login, a refresh-token replay) happened without its row.
+
+1. Check the API logs for `AUDIT_WRITE_FAILED` and database errors (SQLSTATE, constraint).
+2. Check PostgreSQL: disk, connection limits, `audit_events` privileges (after HOM-115 the
+   application may only INSERT and SELECT).
+3. Once writes succeed, the alert clears after 10 minutes; nothing needs replaying.
+
+## HomayarRefreshTokenReplay
+
+A refresh token that was already used came back. The session was revoked in the same request
+(the revocation commits before the audit row). Treat it as a likely stolen session: find the
+`auth.refresh_replay_detected` audit event (actor and `login_session` target), contact the
+user, and review their other sessions and recent activity.
+
+## HomayarLoginFailureSpike
+
+More than 50 refused logins in 10 minutes for 10 minutes. Look at `auth.login_failed` events
+(only an identifier-hash prefix is stored) and the proxy's request rate per client address.
+Rate-limit or block at the proxy for credential stuffing; check a client release if one
+identifier fails repeatedly.

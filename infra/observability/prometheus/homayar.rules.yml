@@ -350,6 +350,51 @@ groups:
           description: "A restore made now could resurrect deleted conversations."
           runbook: docs/operations/alerts.md#homayartombstonejournalbacklog
 
+  - name: homayar-security
+    # HOM-114: the counters exist at 0 from start-up, so increase() sees the first event.
+    # Targets whose counters jump between workers are left out, as for the error rate.
+    rules:
+      - alert: HomayarAuditWriteFailures
+        expr: |
+          sum by (delivery) (
+            increase(homayar_audit_write_failures_total[10m])
+              unless on (instance, job) (homayar:api_counter_resets_15m:max > 2)
+          ) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit events could not be written ({{ $labels.delivery }})"
+          description: "transactional: the audited operation was refused (a login fails closed). best_effort: a refused attempt happened without its audit row."
+          runbook: docs/operations/alerts.md#homayarauditwritefailures
+
+      - alert: HomayarRefreshTokenReplay
+        expr: |
+          sum(
+            increase(homayar_auth_failures_total{reason="refresh_replay"}[15m])
+              unless on (instance, job) (homayar:api_counter_resets_15m:max > 2)
+          ) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "A refresh token was replayed; its session has been revoked"
+          description: "A used refresh token came back: a likely stolen session. The audit event auth.refresh_replay_detected names the user and session."
+          runbook: docs/operations/alerts.md#homayarrefreshtokenreplay
+
+      - alert: HomayarLoginFailureSpike
+        expr: |
+          sum(
+            increase(homayar_auth_failures_total{reason="invalid_credentials"}[10m])
+              unless on (instance, job) (homayar:api_counter_resets_15m:max > 2)
+          ) > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 50 failed logins in 10 minutes"
+          description: "Possible credential stuffing or a broken client. auth.login_failed events carry only an identifier-hash prefix."
+          runbook: docs/operations/alerts.md#homayarloginfailurespike
+
+
   # Contract with the backup tooling (Lane C, ADR 0035): it writes
   # homayar_backup_last_success_timestamp_seconds{target="postgres"|"objects"|"offsite"} to a
   # node_exporter textfile (HOMAYAR_BACKUP_TEXTFILE). RPO is 24 h; a target pages when its last

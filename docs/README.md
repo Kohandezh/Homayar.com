@@ -14,6 +14,7 @@
 - [Existing CI notes](operations/ci.md)
 - [Existing health/recovery notes](operations/health-and-recovery.md)
 - [Observability: metrics, correlation ids, heartbeats](operations/observability.md)
+- [Audit trail: event model, delivery, protection](operations/audit.md)
 - [Alert runbook](operations/alerts.md), [Prometheus alert rules](../infra/observability/prometheus/homayar.rules.yml) (promtool-tested) and [example scrape configuration](../infra/observability/prometheus/prometheus.example.yml)
 - [Existing pricing research](market/pricing-benchmark.md)
 

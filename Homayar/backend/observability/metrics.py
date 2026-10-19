@@ -105,6 +105,14 @@ DISPATCH_STATES = ("pending", "published", "failed", "cancelled")
 PROVIDER_STAGES = ("asr", "diarization", "intelligence", "tts", "other")
 QUANTILES = (("0.5", 0.5), ("0.95", 0.95), ("1", 1.0))
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
+AUTH_FAILURE_REASONS = (
+    "invalid_credentials",
+    "invalid_refresh",
+    "refresh_replay",
+    "csrf_failed",
+    "other",
+)
+AUDIT_WRITE_DELIVERIES = ("transactional", "best_effort", "other")
 
 METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST
 
@@ -145,6 +153,22 @@ COLLECTION_ERRORS = Counter(
 # treat a new series as starting from 0, so increase() would miss the first event.
 for _source in COLLECTION_SOURCES:
     COLLECTION_ERRORS.labels(_source)
+AUTH_FAILURES = Counter(
+    "homayar_auth_failures",
+    "Rejected authentication attempts by bounded reason.",
+    ("reason",),
+    registry=_COUNTER_REGISTRY,
+)
+for _reason in AUTH_FAILURE_REASONS:
+    AUTH_FAILURES.labels(_reason)
+AUDIT_WRITE_FAILURES = Counter(
+    "homayar_audit_write_failures",
+    "Audit events that could not be written (delivery: transactional or best_effort).",
+    ("delivery",),
+    registry=_COUNTER_REGISTRY,
+)
+for _delivery in AUDIT_WRITE_DELIVERIES:
+    AUDIT_WRITE_FAILURES.labels(_delivery)
 
 
 def metrics_access(settings: Settings) -> Literal["disabled", "token", "open"]:
@@ -207,6 +231,18 @@ def observe_http(method: str, route: str, status_code: int, seconds: float) -> N
         HTTP_DURATION.labels(method, route).observe(max(0.0, seconds))
 
     guarded_write(write)
+
+
+def observe_auth_failure(reason: str) -> None:
+    label = reason if reason in AUTH_FAILURE_REASONS else "other"
+    guarded_write(lambda: AUTH_FAILURES.labels(label).inc())
+
+
+def observe_audit_write_failure(delivery: str) -> None:
+    # Called from the engine's error hook: a metrics failure must not replace the
+    # database error the caller is about to see.
+    label = delivery if delivery in AUDIT_WRITE_DELIVERIES else "other"
+    guarded_write(lambda: AUDIT_WRITE_FAILURES.labels(label).inc())
 
 
 def failure_category(failure_class: str | None, failure_code: str | None) -> str:
