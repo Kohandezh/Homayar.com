@@ -7,7 +7,10 @@ started without ``--queues`` still consumes it; deployment commands pass
 ``--queues processing`` anyway so the subscription is visible in process lists.
 """
 
+import logging
+
 from celery import Celery
+from celery.signals import setup_logging as celery_setup_logging
 from kombu import Queue
 
 from backend.config import get_settings
@@ -74,8 +77,7 @@ def make_celery() -> Celery:
         # (``backend.jobs.recovery``) and does not wait for this timeout, and a
         # late redelivery meets the lease and is inert either way.
         broker_transport_options={
-            "visibility_timeout": settings.job_attempt_timeout_seconds
-            + TIME_LIMIT_GRACE_SECONDS,
+            "visibility_timeout": settings.job_attempt_timeout_seconds + TIME_LIMIT_GRACE_SECONDS,
         },
         # Periodic recovery (needs one beat scheduler: ``celery -A
         # backend.celery_app beat`` or the compose ``scheduler`` service):
@@ -87,20 +89,26 @@ def make_celery() -> Celery:
             "dispatch-outbox-sweep": {
                 "task": DISPATCH_SWEEP_TASK,
                 "schedule": float(settings.dispatch_sweep_interval_seconds),
-                "options": {"queue": PROCESSING_QUEUE, "expires":
-                    float(settings.dispatch_sweep_interval_seconds)},
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.dispatch_sweep_interval_seconds),
+                },
             },
             "voice-recovery": {
                 "task": VOICE_RECOVERY_TASK,
                 "schedule": float(settings.voice_node_heartbeat_ttl_seconds),
-                "options": {"queue": PROCESSING_QUEUE, "expires":
-                    float(settings.voice_node_heartbeat_ttl_seconds)},
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.voice_node_heartbeat_ttl_seconds),
+                },
             },
             "job-lease-recovery": {
                 "task": LEASE_RECOVERY_TASK,
                 "schedule": float(settings.job_recovery_sweep_interval_seconds),
-                "options": {"queue": PROCESSING_QUEUE, "expires":
-                    float(settings.job_recovery_sweep_interval_seconds)},
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.job_recovery_sweep_interval_seconds),
+                },
             },
             # - usage reconciliation (WP06-T06) releases orphaned reservations
             #   and reports counter drift. Without beat run
@@ -108,8 +116,10 @@ def make_celery() -> Celery:
             "usage-reconciliation": {
                 "task": USAGE_RECONCILIATION_TASK,
                 "schedule": float(settings.usage_reconciliation_interval_seconds),
-                "options": {"queue": PROCESSING_QUEUE, "expires":
-                    float(settings.usage_reconciliation_interval_seconds)},
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.usage_reconciliation_interval_seconds),
+                },
             },
             # - artifact cleanup (WP06-T03) removes objects of never-published
             #   or invalidated stage checkpoints after the grace period.
@@ -117,8 +127,10 @@ def make_celery() -> Celery:
             "stage-artifact-cleanup": {
                 "task": ARTIFACT_CLEANUP_TASK,
                 "schedule": float(settings.job_artifact_sweep_interval_seconds),
-                "options": {"queue": PROCESSING_QUEUE, "expires":
-                    float(settings.job_artifact_sweep_interval_seconds)},
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.job_artifact_sweep_interval_seconds),
+                },
             },
             # - media reconciliation (WP05-T04) retries pending deletions,
             #   reports or removes orphan objects and flags missing ones.
@@ -126,8 +138,10 @@ def make_celery() -> Celery:
             "media-reconciliation": {
                 "task": MEDIA_RECONCILIATION_TASK,
                 "schedule": float(settings.media_reconciliation_interval_seconds),
-                "options": {"queue": PROCESSING_QUEUE, "expires":
-                    float(settings.media_reconciliation_interval_seconds)},
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.media_reconciliation_interval_seconds),
+                },
             },
             # - retention purge (WP07-T03) tombstones expired conversations
             #   and drives every durable purge (content, bytes, receipts).
@@ -135,12 +149,30 @@ def make_celery() -> Celery:
             "retention-purge": {
                 "task": RETENTION_PURGE_TASK,
                 "schedule": float(settings.retention_purge_interval_seconds),
-                "options": {"queue": PROCESSING_QUEUE, "expires":
-                    float(settings.retention_purge_interval_seconds)},
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.retention_purge_interval_seconds),
+                },
             },
         },
     )
     return celery
+
+
+@celery_setup_logging.connect
+def use_homayar_logging(loglevel: int | str | None = None, **_options: object) -> None:
+    """Keep Homayar's JSON logging in workers and beat (log privacy).
+
+    With no receiver on this signal a worker replaces the root handlers with
+    Celery's own, which print a failed task's full traceback and the
+    exception's text (SQL, bound parameters, psycopg DETAIL). With one, Celery
+    leaves logging alone: every celery.* record reaches the scrubbed JSON
+    handler, which writes the exception summary and no traceback.
+    """
+    from backend.services.logging_service import setup_logging
+
+    level = logging.getLevelName(loglevel) if isinstance(loglevel, int) else loglevel
+    setup_logging(level if isinstance(level, str) and level else "INFO")
 
 
 celery_app = make_celery()

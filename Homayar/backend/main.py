@@ -22,6 +22,7 @@ from backend.database.relational import (
     session_scope,
 )
 from backend.database.rls import assert_production_posture, describe_current_role
+from backend.observability.access_log import install_access_log_filter
 from backend.observability.correlation import correlation_scope, request_correlation_id
 from backend.observability.metrics import (
     METRICS_CONTENT_TYPE,
@@ -381,6 +382,8 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             ),
         )
 
+    # uvicorn's access log: the route template, never the raw path or query string.
+    install_access_log_filter(app.router.routes)
     return app
 
 

@@ -46,7 +46,16 @@ abandoned attempt (`category="worker_lost"`) by the lease-recovery sweep. Their 
   starts (tmpfs or a fresh container filesystem). In this mode the per-process `process_*`
   series are not exported. Without the variable a single process serves its own counters.
 * A metric write that fails (full or missing directory) never fails the request it counts:
-  it is logged as `METRICS_WRITE_FAILED error_type=…` at most once a minute.
+  it is logged as `METRICS_WRITE_FAILED error_type=…` at most once a minute. One failure
+  cannot be caught: the counter files are memory-mapped, and a page fault on a tmpfs with no
+  space left raises `SIGBUS`, which kills the worker (uvicorn starts a new one). The
+  directory's tmpfs is its own and nothing else writes there, and the files use a few KiB of
+  their 32 MB, so it fills only if the mount is misconfigured: keep it a dedicated tmpfs.
+* Files of a worker that exited are kept on purpose. `prometheus_client`'s
+  `mark_process_dead` only removes *live-gauge* files, and this registry has no gauges in
+  multiprocess mode (the scrape-time state is computed per scrape); deleting a dead worker's
+  counter files would make the summed counters go backwards, which Prometheus reads as a
+  reset. They disappear with the tmpfs when the container restarts.
 * On-premise (`compose.onprem.yaml`) passes the same `METRICS_*` settings (plus the
   on-premise-only `METRICS_ALLOW_UNAUTHENTICATED`) and the same dedicated
   `/run/homayar-metrics` tmpfs. The opt-in `monitoring` profile adds `node-exporter`,
@@ -139,19 +148,37 @@ warning; the Redis-down alert covers it).
 
 JSON lines on stdout with `correlation_id` (also on the `UNHANDLED_ERROR` line of a 500).
 The message passes through two scrubbers, and is cut at 2000 characters only afterwards
+(input beyond 16000 characters is not examined; at that boundary the half token and any
+credential that starts in the last kilobyte are dropped, so a quoted value split by the
+bound cannot survive)
 (`backend/observability/scrub.py`): credentials (`Authorization`/`Cookie` header values,
 bearer and basic credentials, JWTs, Homayar and provider API keys, `password=`/`token=`-style
 pairs in `key=value`, JSON and Python-repr spelling, every secret setting name of
 `config.SECRET_FIELDS`, URL passwords and DSN users), then personal data (phone, e-mail,
 national ID, bank card, IBAN, postal code become `[PHONE_1]`-style placeholders). A database
 exception is logged by its classes, SQLSTATE and constraint/table/column only, never by its
-text (which quotes the statement, bound parameters and psycopg's `DETAIL` row values); other
-exception texts pass through the same scrubbers. `UNHANDLED_ERROR` names the route template,
+text (which quotes the statement, bound parameters and psycopg's `DETAIL` row values). Any
+other exception is summarised by its class and bounded fields only (`code=`, `errno=`, the
+class of an explicit `raise … from` cause): exception texts repeat what the failing code
+had in hand (validation input, wrapped errors). Only the types in
+`logging_service.SAFE_MESSAGE_TYPES` (today `ProviderError`, whose message is public by
+contract, and the row-level-security posture error) add their scrubbed message. An
+exception passed as a message argument (`"failed: %s", exc`) is replaced by the same
+summary. `UNHANDLED_ERROR` names the route template,
 never the raw path (share and invitation tokens live in paths). No traceback is written.
 uvicorn writes its own line for an exception that escaped the app (`Exception in ASGI
 application`, logger `uvicorn.error`, uvicorn's plain-text handler); a filter on uvicorn's
 loggers scrubs that record the same way, replaces the traceback with the exception summary
 and adds `request_id=`, so the line can be matched to the `UNHANDLED_ERROR` record.
 This is defence in depth: code still must not log headers, bodies, transcripts or settings.
-Known gap outside the application: uvicorn's access log and the proxy's access log print
-raw request paths (follow-up recorded in the PR).
+uvicorn's access log (`uvicorn.access`) writes the route template instead of the raw path
+and drops the query string (`backend/observability/access_log.py`): share and invitation
+tokens live in paths. A path that matches no route is written as `unmatched`.
+
+Celery workers and beat keep this logging: a receiver on Celery's `setup_logging` signal
+installs the JSON handler, so Celery does not install its own (which prints the full
+traceback of a failed task). A task failure (`celery.app.trace`, "raised unexpected") is
+written with the exception summary in its message and `exception` field, and no traceback.
+
+Known gap outside the application: the nginx proxy's access log still prints raw request
+paths.

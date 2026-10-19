@@ -50,7 +50,10 @@ This ADR is extended section by section as each Lane D change lands.
    SQLSTATE and constraint only; the 500 log line names the route template, not the raw path.
    uvicorn's own record of an exception that escaped the app goes through the same scrubbing,
    without a traceback, and carries the request id. Text is cut to its length limit only after
-   scrubbing. It is defence in depth, not permission to log sensitive data.
+   scrubbing. An exception is logged by its class and bounded fields, never its text, unless its
+   type is on a short allow-list; uvicorn's access log names the route template, never the raw
+   path; Celery workers keep the same JSON handler (no task-failure tracebacks). It is defence
+   in depth, not permission to log sensitive data.
 
 ### Consequences
 

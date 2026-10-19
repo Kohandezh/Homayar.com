@@ -775,7 +775,7 @@ def test_unhandled_errors_log_the_route_template_and_correlation_without_pii(set
     rendered = json.dumps(line)
     for leaked in (_SHARE_TOKEN, _EMAIL, _PHONE):
         assert leaked not in rendered
-    assert "[EMAIL_1]" in line["exception"] and "[PHONE_1]" in line["exception"]
+    assert line["exception"] == "RuntimeError"  # an exception's text is never logged
 
 
 @pytest.mark.parametrize(
@@ -867,13 +867,13 @@ def test_a_failing_metric_write_never_fails_the_request(client, monkeypatch, cap
 
 
 @contextmanager
-def _uvicorn(app) -> Iterator[int]:
+def _uvicorn(app, *, access_log: bool = False) -> Iterator[int]:
     """The app behind a real uvicorn server on a free loopback port."""
     import uvicorn
 
     server = uvicorn.Server(
         uvicorn.Config(
-            app, host="127.0.0.1", port=0, lifespan="off", log_config=None, access_log=False
+            app, host="127.0.0.1", port=0, lifespan="off", log_config=None, access_log=access_log
         )
     )
     thread = threading.Thread(target=server.run, daemon=True)
