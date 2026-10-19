@@ -497,6 +497,7 @@ def test_a_correction_after_analysis_marks_the_report_stale(
         headers=_write_headers(client, workspace_id),
         json={
             "base_revision_id": transcript["revision"]["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": transcript["segments"][1]["id"], "text": "متن اصلاح‌شده"}],
         },
     )
@@ -549,6 +550,7 @@ def test_review_actions_match_what_each_endpoint_allows(
                 f"{base}/transcript/corrections",
                 json={
                     "base_revision_id": current["revision"]["id"],
+                    "reason": "fix the wording",
                     "edits": [{"segment_id": current["segments"][0]["id"], "text": f"{name} x"}],
                 },
             )
