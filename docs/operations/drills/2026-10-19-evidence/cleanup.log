@@ -1,0 +1,7 @@
+cleanup: drill projects, off-site stand-in and its volume, secret files removed
+checked_at 2026-10-19T10:55:01Z
+homayar-drill-prod containers 0 volumes 0 networks 0
+homayar-drill-restore containers 0 volumes 0 networks 0
+homayar-drill-offsite containers 0
+homayar-drill-offsite-data volume absent
+anonymous volumes created since run start (10:43Z) 0
