@@ -279,7 +279,12 @@ class _FakeS3:
     AccessDenied but carry no lock (a missing permission), keys in
     ``failing`` fail with another error; operations in ``denied`` answer
     AccessDenied; ``multipart`` reports a composite checksum (``-N``) for an
-    object larger than one part, as S3 does for a multipart upload.
+    object larger than one part, as S3 does for a multipart upload.  Keys in
+    ``held`` carry a legal hold; ``retention`` holds per-object GOVERNANCE
+    retain-until dates set with ``put_object_retention`` (never shortened
+    without the bypass, as S3 refuses); ``raising`` maps an operation and key
+    to an exception it raises (a network error, say); ``reads`` counts
+    ``get_object`` calls per key.
     """
 
     def __init__(
@@ -299,16 +304,22 @@ class _FakeS3:
         self.failing: set[str] = set()
         self.denied: set[str] = set()
         self.multipart = multipart
+        self.held: set[str] = set()
+        self.retention: dict[str, datetime] = {}
+        self.raising: dict[tuple[str, str], Exception] = {}
+        self.reads: dict[str, int] = {}
 
     def _version_id(self) -> str:
         self.serial = getattr(self, "serial", 0) + 1
         return f"v{self.serial}"
 
-    def _deny(self, operation: str) -> None:
+    def _deny(self, operation: str, key: str = "") -> None:
         from botocore.exceptions import ClientError
 
         if operation in self.denied:
             raise ClientError({"Error": {"Code": "AccessDenied"}}, operation)
+        if (operation, key) in self.raising:
+            raise self.raising[(operation, key)]
 
     def _store(self, bucket, key, data: bytes) -> None:
         self.objects[(bucket, key)] = data
@@ -336,8 +347,9 @@ class _FakeS3:
 
         from backend.backup import replicate
 
+        self._deny("head_object", Key)
         data = self.objects[(Bucket, Key)]
-        head = {"ContentLength": len(data)}
+        head = {"ContentLength": len(data), "ETag": f'"{hashlib.sha256(data).hexdigest()[:32]}"'}
         if self.checksums and ChecksumMode == "ENABLED":
             part = replicate._PART_SIZE
             if self.multipart and len(data) > part:
@@ -352,6 +364,8 @@ class _FakeS3:
     def get_object(self, Bucket, Key):  # noqa: N803
         import io
 
+        self._deny("get_object", Key)
+        self.reads[Key] = self.reads.get(Key, 0) + 1
         return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
 
     def download_file(self, bucket, key, filename):
@@ -376,15 +390,21 @@ class _FakeS3:
         if Key in self.locked and not version["marker"]:  # a lock protects versions, not markers
             if self.lock_until > datetime.now(UTC):
                 raise ClientError({"Error": {"Code": "AccessDenied"}}, "DeleteObject")
+        retained_until = self.retention.get(Key, datetime.min.replace(tzinfo=UTC))
+        if not version["marker"] and (Key in self.held or retained_until > datetime.now(UTC)):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "DeleteObject")
         if Key in self.unpermitted:
             raise ClientError({"Error": {"Code": "AccessDenied"}}, "DeleteObject")
         if Key in self.failing:
             raise ClientError({"Error": {"Code": "InternalError"}}, "DeleteObject")
         self.versions = [v for v in self.versions if v["VersionId"] != VersionId]
 
-    def get_object_retention(self, Bucket, Key, VersionId):  # noqa: N803
+    def get_object_retention(self, Bucket, Key, VersionId=None):  # noqa: N803
         from botocore.exceptions import ClientError
 
+        self._deny("get_object_retention")
+        if Key in self.retention:
+            return {"Retention": {"Mode": "GOVERNANCE", "RetainUntilDate": self.retention[Key]}}
         if Key not in self.locked:
             raise ClientError({"Error": {"Code": "NoSuchObjectLockConfiguration"}}, "Get")
         return {"Retention": {"Mode": "GOVERNANCE", "RetainUntilDate": self.lock_until}}
@@ -396,9 +416,22 @@ class _FakeS3:
             raise ClientError({"Error": {"Code": "ObjectLockConfigurationNotFoundError"}}, "Get")
         return {"ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}}
 
+    def put_object_retention(self, Bucket, Key, Retention):  # noqa: N803
+        from botocore.exceptions import ClientError
+
+        self._deny("put_object_retention")
+        assert Retention["Mode"] == "GOVERNANCE"
+        current = self.retention.get(Key, self.lock_until if Key in self.locked else None)
+        if current is not None and Retention["RetainUntilDate"] < current:
+            # Shortening GOVERNANCE retention needs s3:BypassGovernanceRetention.
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "PutObjectRetention")
+        self.retention[Key] = Retention["RetainUntilDate"]
+
     def get_object_legal_hold(self, Bucket, Key, VersionId):  # noqa: N803
         from botocore.exceptions import ClientError
 
+        if Key in self.held:
+            return {"LegalHold": {"Status": "ON"}}
         raise ClientError({"Error": {"Code": "NoSuchObjectLockConfiguration"}}, "Get")
 
     def get_bucket_versioning(self, Bucket):  # noqa: N803
@@ -1277,3 +1310,23 @@ def test_stale_partials_are_kept_when_uploads_cannot_be_listed(tmp_path):
     assert result["stale_partials"] == []
     assert ("offsite", f"p/{writing}/catalog.json.enc") in s3.objects
     assert result["errors"] == ["list_multipart_uploads: AccessDenied"]
+
+
+def test_s3_prune_reports_legal_holds_apart_from_retention_dates(tmp_path):
+    from backend.backup.replicate import prune_s3, replicate_to_s3
+
+    root = tmp_path / "root"
+    old, new = "20261015T020000Z-0000000a", "20261017T020000Z-0000000b"
+    s3 = _FakeS3(versioning="Enabled")
+    for backup_id in (old, new):
+        replicate_to_s3(
+            _offsite_source(root, backup_id, full=True, verified=True), "s3://offsite/p", client=s3
+        )
+    s3.object_lock = True
+    old_keys = sorted(k for _, k in s3.objects if k.startswith(f"p/{old}/"))
+    s3.held = {old_keys[0]}  # a legal hold on one object
+    s3.locked = set(old_keys[1:])  # GOVERNANCE retention on the others
+    result = prune_s3("s3://offsite/p", daily=1, monthly=0, client=s3)
+    assert result["versions_locked"] == len(old_keys) and result["errors"] == []
+    assert result["legal_holds"] == 1
+    assert result["locked_until"] == s3.lock_until.isoformat()  # a date, never "legal-hold"

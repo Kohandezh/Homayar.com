@@ -515,16 +515,19 @@ def _versions(client, bucket: str, key_prefix: str, errors: list[str]) -> list[d
     return found
 
 
-def _lock_until(client, bucket: str, item: dict, now: datetime, errors: list[str]) -> str | None:
+_LEGAL_HOLD = "legal-hold"
+
+
+def _lock_until(client, bucket: str, item: dict, now: datetime, errors: list[str]) -> Any:
     """Whether an object lock still protects this version: its retain-until date
-    ("legal-hold" for a legal hold), or None when it does not (or cannot be read)."""
+    (``_LEGAL_HOLD`` for a legal hold), or None when it does not (or cannot be read)."""
     from botocore.exceptions import ClientError
 
     key, version = item["Key"], item["VersionId"]
     try:
         hold = client.get_object_legal_hold(Bucket=bucket, Key=key, VersionId=version)
         if hold.get("LegalHold", {}).get("Status") == "ON":
-            return "legal-hold"
+            return _LEGAL_HOLD
     except ClientError as exc:
         if _error_code(exc) not in _NO_LOCK_CODES:
             errors.append(f"get_object_legal_hold: {_error_code(exc)}")
@@ -537,7 +540,7 @@ def _lock_until(client, bucket: str, item: dict, now: datetime, errors: list[str
         return None
     until = retention.get("Retention", {}).get("RetainUntilDate")
     if until is not None and until > now:
-        return until.isoformat()
+        return until
     return None
 
 
@@ -580,9 +583,13 @@ def _delete_versions(
                 if lock and code in _LOCK_CODES
                 else None
             )
-            if until is not None:
+            if until == _LEGAL_HOLD:
                 counts["locked"] += 1
-                counts["locked_until"] = max(counts.get("locked_until") or until, until)
+                counts["legal_holds"] += 1
+            elif until is not None:
+                counts["locked"] += 1
+                latest = counts["locked_until"]
+                counts["locked_until"] = until if latest is None else max(latest, until)
             else:
                 counts["failed"] += 1
                 if f"delete_object_version: {code}" not in errors:
@@ -668,7 +675,13 @@ def prune_s3(
     # to read the setting) is reported and fails the run instead.
     versioned = versioning in {"Enabled", "Suspended"}
     lock = versioned and _object_lock(client, bucket, errors)
-    counts: dict[str, Any] = {"deleted": 0, "locked": 0, "failed": 0, "locked_until": None}
+    counts: dict[str, Any] = {
+        "deleted": 0,
+        "locked": 0,
+        "failed": 0,
+        "locked_until": None,
+        "legal_holds": 0,
+    }
     purged: set[str] = set()
 
     def purge(backup_id: str) -> None:
@@ -736,7 +749,9 @@ def prune_s3(
         "object_lock": lock,
         "versions_deleted": counts["deleted"],
         "versions_locked": counts["locked"],
-        "locked_until": counts["locked_until"],
+        # The latest retain-until date of a refused version; legal holds have no date.
+        "locked_until": counts["locked_until"] and counts["locked_until"].isoformat(),
+        "legal_holds": counts["legal_holds"],
         "versions_failed": counts["failed"],
         "leftover_sets": leftovers,
         "errors": errors,
