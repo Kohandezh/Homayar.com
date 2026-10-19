@@ -1,16 +1,24 @@
-import { AxiosError, AxiosHeaders, type AxiosResponse } from "axios";
+import { AxiosError, AxiosHeaders, type AxiosRequestConfig, type AxiosResponse } from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { createElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 import { apiErrorInfo } from "@/lib/api-errors";
+import { apiError } from "@/test/fixtures";
 import {
   dueBeforeFor,
   exportSubjectData,
+  listAdminShares,
   listLegalHolds,
   listMeetingMedia,
   placeMeetingLegalHold,
   releaseLegalHold,
   reviewAtFromDay,
+  useAdminShares,
+  useRevokeAdminShare,
 } from "@/lib/privacy-api";
 import { okResponse } from "@/test/fixtures";
 
@@ -119,5 +127,93 @@ describe("privacy API", () => {
 
   it("sends the chosen day at midnight UTC with a Z", () => {
     expect(reviewAtFromDay("2027-01-16")).toBe("2027-01-16T00:00:00.000Z");
+  });
+
+  it("lists the workspace's share links with the chosen params", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue(okResponse({ items: [], next_cursor: null }));
+    await listAdminShares({ status: "active", limit: 50, cursor: "c-2" });
+    expect(get).toHaveBeenCalledWith("/admin/shares", {
+      params: { status: "active", limit: 50, cursor: "c-2" },
+    });
+  });
+
+  it("reads pages through useAdminShares: the status only when chosen, the cursor only from page two", async () => {
+    const get = vi.spyOn(api, "get").mockImplementation(
+      async (_url: string, config?: AxiosRequestConfig) => {
+        const cursor = (config?.params as { cursor?: string } | undefined)?.cursor;
+        return okResponse(
+          cursor === "c-2" ? { items: [], next_cursor: null } : { items: [], next_cursor: "c-2" },
+        );
+      },
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useAdminShares("revoked"), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    });
+    await act(async () => {
+      await hook.result.current.fetchNextPage();
+    });
+    expect(get).toHaveBeenNthCalledWith(
+      1,
+      "/admin/shares",
+      expect.objectContaining({ params: { limit: 50, status: "revoked" } }),
+    );
+    expect(get).toHaveBeenNthCalledWith(
+      2,
+      "/admin/shares",
+      expect.objectContaining({ params: { limit: 50, status: "revoked", cursor: "c-2" } }),
+    );
+    expect(get).toHaveBeenCalledTimes(2);
+
+    const unfiltered = renderHook(() => useAdminShares(undefined), { wrapper });
+    await act(async () => {
+      await vi.waitFor(() => expect(unfiltered.result.current.isSuccess).toBe(true));
+    });
+    expect(get).toHaveBeenLastCalledWith("/admin/shares", expect.objectContaining({ params: { limit: 50 } }));
+  });
+
+  it("revokes through the meeting route and refreshes the register and the meeting's shares", async () => {
+    const remove = vi.spyOn(api, "delete").mockResolvedValue(okResponse(undefined, 204));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useRevokeAdminShare(), { wrapper });
+    await act(async () => {
+      await hook.result.current.mutateAsync({ meetingId: "meeting-1", shareId: "share-1" });
+    });
+
+    expect(remove).toHaveBeenCalledWith("/meetings/meeting-1/shares/share-1");
+    const invalidations = invalidate.mock.calls.map((call) => JSON.stringify(call[0]?.queryKey));
+    expect(invalidations).toContain(JSON.stringify(["platform", "admin", "shares"]));
+    expect(invalidations).toContain(JSON.stringify(["platform", "meetings", "meeting-1", "shares"]));
+  });
+
+  it("refreshes the lists on a 404 too, because the register is stale", async () => {
+    vi.spyOn(api, "delete").mockRejectedValue(apiError(404, "share_not_found"));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const hook = renderHook(() => useRevokeAdminShare(), { wrapper });
+    await act(async () => {
+      await hook.result.current
+        .mutateAsync({ meetingId: "meeting-1", shareId: "share-1" })
+        .catch((caught: unknown) => caught);
+    });
+    await act(async () => {
+      await vi.waitFor(() => expect(hook.result.current.error).not.toBeNull());
+    });
+
+    expect(apiErrorInfo(hook.result.current.error).code).toBe("share_not_found");
+    const invalidations = invalidate.mock.calls.map((call) => JSON.stringify(call[0]?.queryKey));
+    expect(invalidations).toContain(JSON.stringify(["platform", "admin", "shares"]));
+    expect(invalidations).toContain(JSON.stringify(["platform", "meetings", "meeting-1", "shares"]));
   });
 });
