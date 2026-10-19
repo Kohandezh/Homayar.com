@@ -213,6 +213,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/meetings/{meeting_id}/job | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/recording | meeting:read |
 | GET | /api/v1/workspaces/{workspace_id}/meetings/{meeting_id}/recording | meeting:read |
+| GET | /api/v1/meetings/{meeting_id}/playback | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/transcript | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/transcript/revisions | meeting:read |
 | POST | /api/v1/meetings/{meeting_id}/transcript/corrections | meeting:update +csrf |
@@ -227,6 +228,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/media/{media_id}/legal-hold | legal_hold:manage +csrf |
 | POST | /api/v1/media/{media_id}/legal-hold/release | legal_hold:manage +csrf |
 | GET | /api/v1/meetings/{meeting_id}/summary | meeting:read |
+| GET | /api/v1/meetings/{meeting_id}/report | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/actions | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/export | meeting:read |
 | POST | /api/v1/meetings/{meeting_id}/transcript/redactions/{redaction_id}/reveal | pii:original_access +csrf |

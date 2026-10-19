@@ -9,7 +9,8 @@ keys that pass the tenant-prefix validation are ever read or written.
 Expectations per referenced key:
 
 * ``required`` – a live row needs the bytes (active, retention-pending or
-  held media; published checkpoints; live pre-ledger recordings);
+  held media; published checkpoints; the kept outputs of a deleted meeting
+  under legal hold; live pre-ledger recordings);
 * ``optional`` – the bytes may legitimately be gone (deletion pending,
   unpublished checkpoints, deleted pre-ledger recordings);
 * ``gone`` – the row says the bytes were removed.
@@ -38,6 +39,9 @@ from backend.storage.base import ObjectNotFoundError, tenant_prefix
 ARTIFACT_CONTENT_TYPE = "application/json"
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 _RANK = {"gone": 0, "optional": 1, "required": 2}
+# Checkpoints the application itself found missing or corrupt: a recorded
+# loss, never an expectation and never an intended deletion.
+LOSS_REASONS = frozenset({"artifact_missing", "artifact_corrupt"})
 _MEDIA_EXPECTATION = {
     "ACTIVE": "required",
     "RETENTION_PENDING": "required",
@@ -118,14 +122,45 @@ def collect_references(snapshot: Snapshot) -> dict[str, dict[str, Any]]:
                 },
             )
     if _table_exists(snapshot, "stage_checkpoints"):
-        for key, workspace_id, sha256, size, state, removed in snapshot.query(
-            "SELECT artifact_key, workspace_id, artifact_sha256, artifact_size_bytes, state, "
-            "object_deleted_at IS NOT NULL FROM stage_checkpoints"
-        ):
+        held_meetings = (
+            {
+                row[0]
+                for row in snapshot.query(
+                    "SELECT DISTINCT meeting_id FROM media_objects "
+                    "WHERE lifecycle_state = 'LEGAL_HOLD' AND meeting_id IS NOT NULL"
+                )
+            }
+            if _table_exists(snapshot, "media_objects")
+            else set()
+        )
+        columns = (
+            "SELECT c.artifact_key, c.workspace_id, c.artifact_sha256, c.artifact_size_bytes, "
+            "c.state, c.object_deleted_at IS NOT NULL, c.meeting_id, c.invalidation_reason, "
+        )
+        query = (
+            columns + "m.id IS NULL OR m.deleted_at IS NOT NULL "
+            "FROM stage_checkpoints c LEFT JOIN meetings m ON m.id = c.meeting_id"
+            if _table_exists(snapshot, "meetings")
+            else columns + "false FROM stage_checkpoints c"
+        )
+        for (
+            key,
+            workspace_id,
+            sha256,
+            size,
+            state,
+            removed,
+            meeting_id,
+            reason,
+            meeting_deleted,
+        ) in snapshot.query(query):
+            held = meeting_id in held_meetings and str(reason or "").lower() not in LOSS_REASONS
             if removed:
                 expectation = "gone"
             elif str(state).upper() == "PUBLISHED":
                 expectation = "required"
+            elif held and meeting_deleted and str(state).upper() == "INVALIDATED":
+                expectation = "required"  # a legal hold keeps a deleted meeting's outputs
             else:
                 expectation = "optional"
             _merge(
@@ -138,6 +173,7 @@ def collect_references(snapshot: Snapshot) -> dict[str, dict[str, Any]]:
                     "expectation": expectation,
                     "content_type": ARTIFACT_CONTENT_TYPE,
                     "source": "checkpoint",
+                    "held": held and expectation == "required",
                 },
             )
     return references

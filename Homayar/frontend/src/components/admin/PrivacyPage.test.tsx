@@ -75,8 +75,10 @@ function mockPrivacyApi() {
     failCursor: null as string | null,
     exportResult: null as unknown,
     releaseError: null as unknown,
+    sharesError: null as unknown,
   };
   const registerParams: Record<string, unknown>[] = [];
+  const shareParams: Record<string, unknown>[] = [];
   const get = vi.spyOn(api, "get").mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
     if (url === "/admin/legal-holds") {
       const params = (config?.params ?? {}) as Record<string, unknown>;
@@ -85,6 +87,12 @@ function mockPrivacyApi() {
       if (state.failCursor !== null && params.cursor === state.failCursor) throw apiError(500, "internal_error");
       const cursor = typeof params.cursor === "string" ? params.cursor : "first";
       return okResponse(state.pages[cursor] ?? { items: [], next_cursor: null });
+    }
+    if (url === "/admin/shares") {
+      const params = (config?.params ?? {}) as Record<string, unknown>;
+      shareParams.push(params);
+      if (state.sharesError) throw state.sharesError;
+      return okResponse({ items: [], next_cursor: null });
     }
     if (url === "/members") return okResponse(MEMBERS);
     throw apiError(404, "not_found");
@@ -106,7 +114,7 @@ function mockPrivacyApi() {
     }
     throw apiError(404, "not_found");
   });
-  return { state, get, post, registerParams };
+  return { state, get, post, registerParams, shareParams };
 }
 
 function ownerAuth(role: WorkspaceRole = "owner") {
@@ -641,6 +649,23 @@ describe("PrivacyPage audit links and language", () => {
       "href",
       "/admin/audit?event_type=media.legal_hold_released",
     );
+  });
+
+  it("shows the shared-links card between the holds register and the audit links", async () => {
+    const { shareParams } = mockPrivacyApi();
+    renderPage();
+
+    const links = await screen.findByRole("region", { name: "Shared links" }, LOAD);
+    expect(links).toBeInTheDocument();
+    await waitFor(() => expect(shareParams).toHaveLength(1), LOAD);
+    expect(shareParams[0]).toEqual({ status: "active", limit: 50 });
+    const headings = await screen.findAllByRole("heading", { level: 2 });
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "Data subject export",
+      "Legal holds",
+      "Shared links",
+      "Audit history",
+    ]);
   });
 
   it("speaks Persian", async () => {

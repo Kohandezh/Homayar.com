@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { Disclosure } from "@heroui/react";
 import { ArrowLeft, Check, Download, Pencil, Trash2, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
@@ -10,18 +11,24 @@ import { apiErrorInfo } from "@/lib/api-errors";
 import { useCan } from "@/lib/use-can";
 import {
   forgetMeetingContent,
+  platformQueryKeys,
   saveDownload,
   useDeleteMeeting,
   useDownloadRecording,
   useMeeting,
+  useMeetingReport,
+  useMeetingSummary,
   useUpdateMeetingTitle,
 } from "@/lib/platform-api";
 import { ErrorState, LoadingState, PageHeader, StatusBadge } from "@/components/platform/Ui";
+import CallReport from "@/components/platform/CallReport";
 import MeetingDataPanel from "@/components/platform/MeetingDataPanel";
-import MeetingResults from "@/components/platform/MeetingResults";
+import MeetingResults, { type ResultsOpenRequest } from "@/components/platform/MeetingResults";
 import ProcessingStatus from "@/components/platform/ProcessingStatus";
-import { QualityPanel } from "@/components/platform/QualityPanel";
 import { PROCESSING_COPY } from "@/components/platform/processing-copy";
+import { REPORT_COPY } from "@/components/platform/report-copy";
+import type { ResultsTab } from "@/components/platform/results-copy";
+import type { CallReportResponse } from "@/types/platform";
 
 const COPY = {
   en: {
@@ -94,6 +101,12 @@ function parseAt(raw: string | null, durationSeconds: number): { atMs: number | 
   return { atMs: value, invalid: false };
 }
 
+/** A body that is not a call report (a proxy page, a wrong route) shows the error state, never a crash. */
+function isCallReport(value: unknown): value is CallReportResponse {
+  const report = value as Partial<CallReportResponse> | null | undefined;
+  return Boolean(report && report.report_version === 1 && report.qa && report.outcome && report.completeness && Array.isArray(report.review_actions));
+}
+
 /**
  * Inline playback through the workspace-scoped route (gap G11): the session
  * cookie authenticates and the path names the workspace, so a native
@@ -105,14 +118,16 @@ function RecordingPlayer({
   meetingId,
   atMs,
   lang,
+  audioRef,
 }: {
   workspaceId: string;
   meetingId: string;
   atMs: number | null;
   lang: "fa" | "en";
+  /** Owned by the page, so the call report's evidence buttons can seek and play. */
+  audioRef: RefObject<HTMLAudioElement | null>;
 }) {
   const copy = COPY[lang];
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [failed, setFailed] = useState(false);
   const src = `${API_BASE_URL}/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/recording`;
 
@@ -125,7 +140,7 @@ function RecordingPlayer({
     if (audio.readyState >= 1) cue();
     else audio.addEventListener("loadedmetadata", cue, { once: true });
     return () => audio.removeEventListener("loadedmetadata", cue);
-  }, [atMs, src]);
+  }, [atMs, src, audioRef]);
 
   return (
     <section className="meeting-player platform-surface" aria-label={copy.player}>
@@ -158,8 +173,22 @@ export default function MeetingDetailPage() {
   const [searchParams] = useSearchParams();
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState("");
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [openRequest, setOpenRequest] = useState<ResultsOpenRequest | null>(null);
+  const [openedForAt, setOpenedForAt] = useState<number | null>(null);
+  // The last evidence start played on this mount. Kept in memory, not in the
+  // history entry, so a reload or Back to the page opens the transcript again.
+  const [playedAt, setPlayedAt] = useState<number | null>(null);
 
   const meeting = useMeeting(meetingId);
+  // Asked once the meeting is known to exist, so a deleted one costs no extra request.
+  const report = useMeetingReport(meeting.data ? meetingId : null);
+  const reportData = isCallReport(report.data) ? report.data : null;
+  // The report has no analysis input view; the summary says whether the
+  // analysis read the masked transcript (gap G10). Asked only when it matters.
+  const summary = useMeetingSummary(reportData?.privacy_enforced && reportData.summary ? meetingId : null);
+  const reportCopy = REPORT_COPY[lang];
   const processingCopy = PROCESSING_COPY[lang];
   const meetingStatus = meeting.isError ? apiErrorInfo(meeting.error).status : null;
   const meetingGone = meetingStatus === 404 || meetingStatus === 410;
@@ -172,6 +201,16 @@ export default function MeetingDetailPage() {
   useEffect(() => {
     if (meetingGone) forgetMeetingContent(queryClient, meetingId);
   }, [meetingGone, meetingId, queryClient]);
+
+  // The meeting query polls while it processes; the report follows its status.
+  const status = meeting.data?.status;
+  const seenStatus = useRef(status);
+  useEffect(() => {
+    if (status === undefined || seenStatus.current === status) return;
+    const first = seenStatus.current === undefined;
+    seenStatus.current = status;
+    if (!first) void queryClient.invalidateQueries({ queryKey: platformQueryKeys.report(meetingId) });
+  }, [status, meetingId, queryClient]);
 
   if (meeting.isLoading) return <LoadingState label={copy.loading} />;
   if (meetingGone) {
@@ -189,6 +228,38 @@ export default function MeetingDetailPage() {
   const current = meeting.data;
   const hasResults = current.status === "completed" || current.status === "partial";
   const { atMs, invalid: atInvalid } = parseAt(searchParams.get("at"), current.duration_seconds);
+  const canHold = can.has("legal_hold:manage");
+  const canPlay = Boolean(current.recording && workspace);
+  // An evidence play button sets `?at=` too, but only a navigation to `?at=`
+  // (a pasted link, a search result, a reload, Back) opens the transcript.
+  const fromPlay = atMs !== null && atMs === playedAt;
+  const navigatedAt = fromPlay ? null : atMs;
+  if (navigatedAt !== null && navigatedAt !== openedForAt && hasResults) {
+    setOpenedForAt(navigatedAt);
+    setAdvancedOpen(true);
+  }
+
+  function toggleAdvanced(open: boolean) {
+    setAdvancedOpen(open);
+    // Reopening with the trigger starts fresh, not on the last requested tab.
+    if (!open) setOpenRequest(null);
+  }
+
+  function openPanel(panel: ResultsTab, segmentId: string | null = null) {
+    setAdvancedOpen(true);
+    setOpenRequest((previous) => ({ panel, segmentId, seq: (previous?.seq ?? 0) + 1 }));
+  }
+
+  function playEvidence(startMs: number) {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = startMs / 1000;
+      // A refused play (autoplay rules) still leaves the player cued.
+      void audio.play()?.catch(() => undefined);
+    }
+    setPlayedAt(startMs);
+    navigate({ pathname: location.pathname, search: `?at=${startMs}` }, { replace: true });
+  }
 
   function saveTitle(event: FormEvent) {
     event.preventDefault();
@@ -276,17 +347,56 @@ export default function MeetingDetailPage() {
         </p>
       )}
       {current.recording && workspace && (
-        <RecordingPlayer key={`${workspace.id}:${meetingId}`} workspaceId={workspace.id} meetingId={meetingId} atMs={atMs} lang={lang} />
+        <RecordingPlayer
+          key={`${workspace.id}:${meetingId}`}
+          workspaceId={workspace.id}
+          meetingId={meetingId}
+          atMs={atMs}
+          lang={lang}
+          audioRef={audioRef}
+        />
       )}
 
-      {current.quality && <QualityPanel quality={current.quality} />}
+      {report.isLoading ? (
+        <LoadingState label={reportCopy.loading} />
+      ) : report.isError || (report.data !== undefined && !reportData) ? (
+        <ErrorState error={report.error} fallback={reportCopy.failed} />
+      ) : reportData ? (
+        <CallReport
+          report={reportData}
+          canPlay={canPlay}
+          panelsAvailable={hasResults}
+          analysisOnRedacted={
+            reportData.privacy_enforced && reportData.summary !== null && summary.data?.analysis_run?.input_view === "redacted"
+          }
+          onPlay={playEvidence}
+          onShowSegment={(segmentId) => openPanel("transcript", segmentId)}
+          onOpenPanel={(panel) => openPanel(panel)}
+        />
+      ) : null}
 
       {uploadReplay && <p className="meeting-stage-runs-note" role="status">{processingCopy.uploadReplay}</p>}
       <ProcessingStatus meeting={current} canReplay={can.manageWorkspace} />
 
-      {hasResults && <MeetingResults meeting={current} atMs={atMs} />}
-
-      {can.has("legal_hold:manage") && <MeetingDataPanel meetingId={meetingId} />}
+      {(hasResults || canHold) && (
+        <Disclosure className="meeting-advanced" isExpanded={advancedOpen} onExpandedChange={toggleAdvanced}>
+          <Disclosure.Heading>
+            <Disclosure.Trigger className="platform-button meeting-advanced-trigger">
+              {reportCopy.advanced}
+              <Disclosure.Indicator />
+            </Disclosure.Trigger>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            {/* Mounted only while open: nothing below is fetched or shown before the user asks. */}
+            {advancedOpen && (
+              <div className="meeting-advanced-body">
+                {hasResults && <MeetingResults meeting={current} atMs={navigatedAt} open={openRequest} />}
+                {canHold && <MeetingDataPanel meetingId={meetingId} />}
+              </div>
+            )}
+          </Disclosure.Content>
+        </Disclosure>
+      )}
 
       {operationError && <ErrorState error={operationError} fallback={copy.operationFailed} />}
     </section>

@@ -8,6 +8,10 @@ Two delivery shapes, chosen by the storage backend:
 * presigned redirect (S3-compatible storage): the URL is scoped to exactly
   one object and expires after ``ttl_seconds``; access issued before a
   revocation remains valid until that expiry (expiry-bounded revocation).
+
+Before either shape, every route that sends recording bytes checks that the
+recording may be played at all (HOM-60): it exists, its media object is live,
+and its retention has not expired.
 """
 
 from __future__ import annotations
@@ -15,12 +19,16 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import HTTPException
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
+from sqlalchemy.orm import Session
 
-from backend.database.saas_models import Recording
+from backend.database.saas_models import Meeting, Recording, Workspace
+from backend.services.media_lifecycle_service import LIVE_STATES
+from backend.services.retention_policy import is_expiry_due, is_retention_expired
 from backend.storage import ObjectNotFoundError, ObjectStorage
 
 CHUNK_BYTES = 1024 * 1024
@@ -92,6 +100,49 @@ def _iter_reader(reader, *, remaining: int | None) -> Iterator[bytes]:
             yield chunk
     finally:
         reader.close()
+
+
+def ensure_recording_playable(
+    db: Session,
+    *,
+    workspace: Workspace,
+    meeting: Meeting,
+    recording: Recording | None,
+    now: datetime,
+) -> Recording:
+    """The one playability rule of the workspace recording routes (HOM-60).
+
+    In order: no recording or a deleted one is ``404``; a media object that
+    is being deleted (not live) is ``404``; a conversation the retention
+    sweep would expire now is ``410``.  A legal hold or a running job keeps
+    the recording playable, exactly as it keeps the sweep away.  Needs the
+    tenant-bound session of a workspace request.
+    """
+    if recording is None or recording.deleted_at is not None:
+        raise _recording_not_found()
+    media = recording.media_object
+    if media is not None and media.lifecycle_state not in LIVE_STATES:
+        raise _recording_not_found()
+    if is_retention_expired(db, workspace=workspace, meeting=meeting, now=now):
+        raise _retention_expired()
+    return recording
+
+
+def ensure_shared_recording_playable(
+    *, workspace: Workspace, meeting: Meeting, recording: Recording | None, now: datetime
+) -> Recording:
+    """The playability rule of the share route, for every audience (HOM-60).
+
+    A share session cannot read jobs or media objects (row-level security),
+    so it fails closed: a due expiry is ``410`` even under a legal hold or a
+    running job.  The media lifecycle state is not visible here; a deleted
+    original also sets ``recording.deleted_at``, which is checked.
+    """
+    if recording is None or recording.deleted_at is not None:
+        raise _recording_not_found()
+    if is_expiry_due(workspace, meeting, now=now):
+        raise _retention_expired()
+    return recording
 
 
 def _content_disposition(recording: Recording, disposition: str = "attachment") -> str:
@@ -169,4 +220,11 @@ def _recording_not_found() -> HTTPException:
     return HTTPException(
         status_code=404,
         detail={"code": "recording_not_found", "message": "Recording not found"},
+    )
+
+
+def _retention_expired() -> HTTPException:
+    return HTTPException(
+        status_code=410,
+        detail={"code": "recording_retention_expired", "message": "Recording retention expired"},
     )

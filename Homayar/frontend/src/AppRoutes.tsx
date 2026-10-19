@@ -22,6 +22,7 @@ const OverviewPage = lazy(() => import("@/components/platform/OverviewPage"));
 const MeetingsPage = lazy(() => import("@/components/platform/MeetingsPage"));
 const MeetingDetailPage = lazy(() => import("@/components/platform/MeetingDetailPage"));
 const SearchPage = lazy(() => import("@/components/platform/SearchPage"));
+const VoicemailsPage = lazy(() => import("@/components/voicemail/VoicemailsPage"));
 const InvitationAcceptPage = lazy(() => import("@/components/platform/InvitationAcceptPage"));
 const SharedMeetingPage = lazy(() => import("@/components/platform/SharedMeetingPage"));
 
@@ -106,6 +107,7 @@ export function AppRoutes() {
           <Route index element={<OverviewPage />} />
           <Route path="meetings" element={<MeetingsPage />} />
           <Route path="meetings/:meetingId" element={<MeetingDetailPage />} />
+          <Route path="voicemails" element={<VoicemailsPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="invitations/accept" element={<InvitationAcceptPage />} />
           {ADMIN_NAV.map((entry) => (

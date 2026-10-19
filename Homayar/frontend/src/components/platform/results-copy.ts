@@ -1,4 +1,4 @@
-export type ResultsTab = "summary" | "transcript" | "actions" | "shares";
+export type ResultsTab = "transcript" | "actions" | "shares" | "export";
 
 export interface ResultsCopy {
   tabs: Record<ResultsTab, string>;
@@ -6,19 +6,6 @@ export interface ResultsCopy {
   exportFormat: string;
   exportAction: string;
   loading: string;
-  summary: {
-    overview: string;
-    decisions: string;
-    keyPoints: string;
-    topics: string;
-    evidence: string;
-    showSource: string;
-    earlierRevision: string;
-    notReady: string;
-    unavailableBecause: (reason: string) => string;
-    failed: string;
-    mock: string;
-  };
   transcript: {
     empty: string;
     failed: string;
@@ -50,10 +37,34 @@ export interface ResultsCopy {
     atFound: (time: string) => string;
     atMissing: string;
   };
+  correction: {
+    editTurn: (time: string) => string;
+    turnText: string;
+    speaker: string;
+    reasonLabel: string;
+    reasonHint: string;
+    save: string;
+    savedAsRevision: (revision: string) => string;
+    reloadTranscript: string;
+    errors: Record<string, string>;
+    failed: string;
+  };
+  revisions: {
+    title: string;
+    current: string;
+    close: string;
+    label: (revision: string) => string;
+    sources: Record<"asr" | "correction" | "backfill", string>;
+    you: string;
+    system: string;
+    unknownMember: string;
+    view: (revision: string) => string;
+    backToCurrent: string;
+    viewingRevision: (revision: string) => string;
+    empty: string;
+    failed: string;
+  };
   contentView: {
-    summaryRedacted: string;
-    summaryOriginal: string;
-    analysisOnRedacted: string;
     actionsRedacted: string;
     actionsOriginal: string;
   };
@@ -96,24 +107,11 @@ export interface ResultsCopy {
 
 export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
   en: {
-    tabs: { summary: "Summary", transcript: "Transcript", actions: "Action items", shares: "Share links" },
+    tabs: { transcript: "Transcript", actions: "Action items", shares: "Share links", export: "Export" },
     tabList: "Meeting results",
     exportFormat: "Export format",
-    exportAction: "Export",
+    exportAction: "Download export",
     loading: "Loading",
-    summary: {
-      overview: "Summary",
-      decisions: "Decisions",
-      keyPoints: "Key points",
-      topics: "Topics",
-      evidence: "Evidence",
-      showSource: "Show in transcript",
-      earlierRevision: "cites an earlier transcript revision",
-      notReady: "No summary is available for this meeting.",
-      unavailableBecause: (reason) => `The analysis is not available: ${reason}`,
-      failed: "The summary could not be loaded.",
-      mock: "Produced by a test (mock) provider — not a real analysis.",
-    },
     transcript: {
       empty: "The transcript is empty.",
       failed: "The transcript could not be loaded.",
@@ -162,10 +160,47 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
       atFound: (time) => `Showing the transcript segment at ${time}.`,
       atMissing: "No transcript segment was found at the requested time.",
     },
+    correction: {
+      editTurn: (time) => `Edit turn at ${time}`,
+      turnText: "Turn text",
+      speaker: "Speaker",
+      reasonLabel: "Reason for the correction",
+      reasonHint: "Required. 3 to 500 characters.",
+      save: "Save correction",
+      savedAsRevision: (revision) => `Saved as revision ${revision}.`,
+      reloadTranscript: "Reload transcript",
+      errors: {
+        revision_stale: "The transcript changed since it was loaded. Reload it and make the correction again.",
+        reason_required: "Enter a reason.",
+        no_changes: "The correction changes nothing; edit the text or the speaker.",
+        invalid_text: "The text is empty or longer than 8000 characters.",
+        invalid_speaker: "That speaker is not known for this meeting.",
+        invalid_segment: "This segment is not in the loaded transcript; reload the transcript.",
+        duplicate_edit: "The same segment was sent twice; reload the transcript and try again.",
+        permission_denied: "Your role cannot correct the transcript.",
+      },
+      failed: "The correction could not be saved.",
+    },
+    revisions: {
+      title: "Revision history",
+      current: "Current",
+      close: "Close revision history",
+      label: (revision) => `Revision ${revision}`,
+      sources: {
+        asr: "Automatic transcription",
+        correction: "Correction",
+        backfill: "Backfill",
+      },
+      you: "You",
+      system: "System",
+      unknownMember: "Unknown member",
+      view: (revision) => `View revision ${revision}`,
+      backToCurrent: "Back to current",
+      viewingRevision: (revision) => `You are viewing revision ${revision}. It is read only.`,
+      empty: "No transcript revisions yet.",
+      failed: "The revisions could not be loaded.",
+    },
     contentView: {
-      summaryRedacted: "This summary is shown with personal data masked by the same detector as the transcript (structured data only).",
-      summaryOriginal: "This summary is shown without masking.",
-      analysisOnRedacted: "The analysis was produced from the masked transcript.",
       actionsRedacted: "These action items are shown with personal data masked by the same detector as the transcript (structured data only).",
       actionsOriginal: "These action items are shown without masking.",
     },
@@ -211,24 +246,11 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
     operationFailed: "The requested operation failed.",
   },
   fa: {
-    tabs: { summary: "خلاصه", transcript: "متن گفت‌وگو", actions: "اقدام‌ها", shares: "لینک‌های اشتراک" },
+    tabs: { transcript: "متن گفت‌وگو", actions: "اقدام‌ها", shares: "لینک‌های اشتراک", export: "خروجی" },
     tabList: "نتایج جلسه",
     exportFormat: "قالب خروجی",
-    exportAction: "دریافت خروجی",
+    exportAction: "دریافت فایل خروجی",
     loading: "در حال بارگذاری",
-    summary: {
-      overview: "خلاصه",
-      decisions: "تصمیم‌ها",
-      keyPoints: "نکات کلیدی",
-      topics: "موضوع‌ها",
-      evidence: "شواهد",
-      showSource: "نمایش در متن",
-      earlierRevision: "به نسخهٔ قبلی متن اشاره دارد",
-      notReady: "برای این جلسه خلاصه‌ای در دسترس نیست.",
-      unavailableBecause: (reason) => `تحلیل در دسترس نیست: ${reason}`,
-      failed: "خلاصه دریافت نشد.",
-      mock: "توسط ارائه‌دهندهٔ آزمایشی (mock) تولید شده است — تحلیل واقعی نیست.",
-    },
     transcript: {
       empty: "متن گفت‌وگو خالی است.",
       failed: "متن گفت‌وگو دریافت نشد.",
@@ -277,10 +299,47 @@ export const RESULTS_COPY: Record<"fa" | "en", ResultsCopy> = {
       atFound: (time) => `بخش متن در زمان ${time} نمایش داده شده است.`,
       atMissing: "در زمان درخواستی بخشی از متن پیدا نشد.",
     },
+    correction: {
+      editTurn: (time) => `ویرایش بخش در ${time}`,
+      turnText: "متن بخش",
+      speaker: "گوینده",
+      reasonLabel: "دلیل اصلاح",
+      reasonHint: "الزامی. ۳ تا ۵۰۰ نویسه.",
+      save: "ذخیرهٔ اصلاح",
+      savedAsRevision: (revision) => `به‌عنوان نسخهٔ ${revision} ذخیره شد.`,
+      reloadTranscript: "بارگذاری دوبارهٔ متن",
+      errors: {
+        revision_stale: "متن از زمان بارگذاری تغییر کرده است. آن را دوباره بارگذاری کنید و اصلاح را دوباره انجام دهید.",
+        reason_required: "دلیلی وارد کنید.",
+        no_changes: "این اصلاح چیزی را تغییر نمی‌دهد؛ متن یا گوینده را تغییر دهید.",
+        invalid_text: "متن خالی است یا از ۸۰۰۰ نویسه بلندتر است.",
+        invalid_speaker: "این گوینده برای این جلسه شناخته نشده است.",
+        invalid_segment: "این بخش در متن بارگذاری‌شده نیست؛ متن را دوباره بارگذاری کنید.",
+        duplicate_edit: "یک بخش دو بار ارسال شده است؛ متن را دوباره بارگذاری کنید و دوباره تلاش کنید.",
+        permission_denied: "نقش شما اجازهٔ اصلاح متن را ندارد.",
+      },
+      failed: "اصلاح ذخیره نشد.",
+    },
+    revisions: {
+      title: "تاریخچهٔ نسخه‌ها",
+      current: "فعلی",
+      close: "بستن تاریخچهٔ نسخه‌ها",
+      label: (revision) => `نسخهٔ ${revision}`,
+      sources: {
+        asr: "تبدیل گفتار به متن خودکار",
+        correction: "اصلاح",
+        backfill: "بازسازی سیستمی",
+      },
+      you: "شما",
+      system: "سیستم",
+      unknownMember: "عضو ناشناس",
+      view: (revision) => `مشاهدهٔ نسخهٔ ${revision}`,
+      backToCurrent: "بازگشت به نسخهٔ فعلی",
+      viewingRevision: (revision) => `در حال مشاهدهٔ نسخهٔ ${revision} هستید. فقط خواندنی است.`,
+      empty: "هنوز نسخه‌ای ثبت نشده است.",
+      failed: "نسخه‌ها دریافت نشد.",
+    },
     contentView: {
-      summaryRedacted: "این خلاصه با پوشاندن داده‌های شخصی توسط همان تشخیص‌دهندهٔ متن نمایش داده می‌شود (فقط داده‌های ساخت‌یافته).",
-      summaryOriginal: "این خلاصه بدون پوشش نمایش داده می‌شود.",
-      analysisOnRedacted: "تحلیل روی متن پوشانده‌شده انجام شده است.",
       actionsRedacted: "این اقدام‌ها با پوشاندن داده‌های شخصی توسط همان تشخیص‌دهندهٔ متن نمایش داده می‌شوند (فقط داده‌های ساخت‌یافته).",
       actionsOriginal: "این اقدام‌ها بدون پوشش نمایش داده می‌شوند.",
     },
