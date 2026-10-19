@@ -135,8 +135,8 @@ sink verifier reports it as `accepted_erasure`.
    `head_hash` and `last_seq`, and the heartbeat keeps `last_seq`; the runbook asks the
    operator to keep that copy. Sink segments are kept for as long as the rows (no audit
    retention purge exists); pruning needs a checkpoint procedure that is not built.
-7. **The first export is gated on a legacy-row review (PROPOSED, pending the owner's
-   decision).** Rows written before HOM-114 masking may hold unmasked free text, and an
+7. **The first export is gated on a legacy-row review**, decided (owner, 2026-10-18).
+   Rows written before HOM-114 masking may hold unmasked free text, and an
    exported copy cannot be removed from a write-once segment. In staging and production
    the first export into an empty sink therefore refuses to run until it is given the
    approval reference of that review (`export --legacy-review <ref>`); the reference is

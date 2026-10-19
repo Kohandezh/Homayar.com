@@ -200,8 +200,8 @@ python -m backend.observability.audit_sink export
 python -m backend.observability.audit_sink export --legacy-review <approval reference>
 ```
 
-Before the first export, do the one-off [legacy-row review](#legacy-row-review)
-(**PROPOSED**, pending the owner's decision). In staging and production the first export
+Before the first export, do the one-off [legacy-row review](#legacy-row-review): decided
+(owner, 2026-10-18). In staging and production the first export
 into an empty sink refuses to run (exit 2, nothing written) until it is given the review's
 approval reference with `--legacy-review`; later exports need nothing and refuse the flag.
 Test and development are not gated.
@@ -218,9 +218,8 @@ independent copy of the head that [Sink limits](#sink-limits) relies on.
 
 ### Legacy-row review
 
-**PROPOSED — pending the owner's decision** on exporting audit rows written before HOM-114
-masking. Until the owner decides, treat this as the required one-off step before the first
-export in staging or production.
+**Decided (owner, 2026-10-18):** keep the `--legacy-review` gate. Audit rows written before
+HOM-114 masking must be reviewed before the first export in staging or production.
 
 Rows written before the HOM-114 release (the *masking cut-over*: when that release was
 deployed) went in without write-time masking, so their free-text values (`reason`,

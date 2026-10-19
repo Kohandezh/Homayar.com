@@ -557,9 +557,9 @@ def _check_legacy_review(settings: Settings, sink: Path, legacy_review: str | No
     """Whether this export records the legacy-row review; refuses before any write.
 
     The first export into an empty sink in staging or production needs the review
-    acknowledged by an approval reference (PROPOSED, pending the owner's decision on
-    exporting rows written before HOM-114 masking).  Later exports need nothing, and
-    the reference cannot be recorded twice.
+    acknowledged by an approval reference: rows written before HOM-114 masking are
+    reviewed before the first export, decided (owner, 2026-10-18).  Later exports
+    need nothing, and the reference cannot be recorded twice.
     """
     if legacy_review is not None and not APPROVAL_PATTERN.fullmatch(legacy_review):
         raise AuditSinkError(

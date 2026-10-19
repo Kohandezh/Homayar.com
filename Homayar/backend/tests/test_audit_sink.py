@@ -424,7 +424,7 @@ def test_an_unkeyed_chain_is_refused_outside_test_and_development(sink_settings:
         verify_sink(staging)
 
 
-# --- the legacy-row review gate (PROPOSED, pending the owner's decision) -------------------
+# --- the legacy-row review gate, decided (owner, 2026-10-18) -------------------------------
 
 
 def _settled_now(settings: Settings):
