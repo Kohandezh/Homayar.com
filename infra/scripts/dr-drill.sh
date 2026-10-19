@@ -42,6 +42,16 @@ OFFSITE=homayar-drill-offsite
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ ! -e "${DRILL_DIR}" || -z "$(ls -A "${DRILL_DIR}")" ]] || die "DRILL_DIR must be new or empty"
+# Refuse leftovers of an earlier run: `up -d` and restore-isolated.sh would
+# silently reuse an existing volume (old data, old staging database).
+leftovers=""
+for project in "${PROD}" "${RESTORE}"; do
+  leftovers+="$(docker ps -aq --filter "label=com.docker.compose.project=${project}")"
+  leftovers+="$(docker volume ls -q --filter "label=com.docker.compose.project=${project}")"
+  leftovers+="$(docker network ls -q --filter "label=com.docker.compose.project=${project}")"
+done
+leftovers+="$(docker ps -aq --filter "name=^${OFFSITE}$")"
+[[ -z "${leftovers}" ]] || die "leftovers of an earlier drill (containers, volumes or networks of ${PROD}, ${RESTORE} or ${OFFSITE}); remove them first"
 mkdir -p "${DRILL_DIR}"/{backups,offsite-dir,journal,journal-replica,restore-backups,evidence,logs}
 # node_exporter textfile directory of the "production" host: outside BACKUP_ROOT,
 # owned by BACKUP_UID:BACKUP_GID (this user), 0755. Set for every backup-tool run:
@@ -49,6 +59,28 @@ mkdir -p "${DRILL_DIR}"/{backups,offsite-dir,journal,journal-replica,restore-bac
 mkdir -p "${DRILL_DIR}/node-exporter-textfile"
 chmod 0755 "${DRILL_DIR}/node-exporter-textfile"
 DRILL_DIR="$(cd -- "${DRILL_DIR}" && pwd -P)"
+# On every exit (success, failure, ^C): remove both projects with their volumes,
+# the off-site stand-in and the drill's secret files. DRILL_KEEP=1 keeps them
+# for debugging (then remove them by hand). Evidence and logs stay.
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  if [[ "${DRILL_KEEP:-0}" != "1" ]]; then
+    for project in "${PROD}" "${RESTORE}"; do
+      docker compose --project-name "${project}" --file "${COMPOSE_FILE}" \
+        --env-file "${DRILL_DIR}/drill.env" --profile onprem --profile ops --profile migrate \
+        down --volumes --remove-orphans >/dev/null 2>&1 || true
+    done
+    docker rm -f "${OFFSITE}" >/dev/null 2>&1 || true
+    rm -f "${DRILL_DIR}/drill.env" "${DRILL_DIR}/backup.key" "${DRILL_DIR}/offsite.env"
+    printf 'cleanup: drill projects, off-site stand-in and secret files removed\n' >&2
+  else
+    printf 'cleanup skipped (DRILL_KEEP=1): projects, %s and secret files remain\n' "${OFFSITE}" >&2
+  fi
+  exit "${rc}"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 E="${DRILL_DIR}/evidence"
 TIMELINE="${E}/drill-timeline.log"
 LOGS="${DRILL_DIR}/logs"
@@ -92,18 +124,30 @@ compose_for() {  # project, then compose arguments
   docker compose --project-name "${project}" --env-file "${DRILL_DIR}/drill.env" --file "${COMPOSE_FILE}" "$@"
 }
 collect_logs() {  # file prefix, then the compose wrapper (prod / restore_env)
-  local prefix="$1" service
+  local prefix="$1" service services
   shift
-  for service in $("$@" --profile onprem config --services); do
+  # The service list is the expected log set: leak_scan.py --expect-logs fails
+  # when it is missing, empty or a listed log was not written.
+  services="$("$@" --profile onprem config --services)" || die "no service list for ${prefix} logs"
+  [[ -n "${services}" ]] || die "empty service list for ${prefix} logs"
+  printf '%s\n' "${services}" > "${LOGS}/${prefix}.services"
+  for service in ${services}; do
     "$@" --profile onprem logs --no-color --timestamps "${service}" \
       > "${LOGS}/${prefix}-${service}.log" 2>&1 || true
   done
 }
 wait_healthy() {  # compose wrapper, seconds: every service with a health check is healthy
-  local wrapper="$1" deadline pending
+  local wrapper="$1" deadline pending stopped
   deadline=$(( $(date +%s) + $2 ))
   while :; do
-    pending="$("${wrapper}" --profile onprem ps --format '{{.Service}} {{.Health}}' |
+    # --all: a service that exited must not count as healthy. Only the one-shot
+    # services may have exited, and only with exit code 0.
+    stopped="$("${wrapper}" --profile onprem ps --all --format '{{.Service}} {{.State}} {{.ExitCode}}' |
+      awk -v oneshot=" ${DRILL_ONESHOT_SERVICES:-minio-bootstrap migrate} " '
+        $2 != "running" && !(index(oneshot, " " $1 " ") && $2 == "exited" && $3 == "0") {
+          printf "%s(%s %s) ", $1, $2, $3 }')"
+    [[ -z "${stopped}" ]] || die "services not running: ${stopped}"
+    pending="$("${wrapper}" --profile onprem ps --all --format '{{.Service}} {{.Health}}' |
       awk '$2 != "" && $2 != "healthy" { printf "%s(%s) ", $1, $2 }')"
     [[ -n "${pending}" ]] || return 0
     (( $(date +%s) < deadline )) || die "not healthy after $2 s: ${pending}"
@@ -122,7 +166,6 @@ docker run --rm --entrypoint python "${API_IMAGE}" -m backend.backup keygen dril
 chmod 0600 "${DRILL_DIR}/backup.key"
 
 # --- off-site stand-in (another "host": own container and volume) ----------------
-docker rm -f "${OFFSITE}" >/dev/null 2>&1 || true
 offsite_secret="$(rand)"
 # The secret goes through an env file, never on a command line (argv is visible).
 printf 'MINIO_ROOT_USER=offsite\nMINIO_ROOT_PASSWORD=%s\n' "${offsite_secret}" > "${DRILL_DIR}/offsite.env"
@@ -294,6 +337,7 @@ mark leakage_scan START
 leak_rc=0
 "${PY}" "${SCRIPT_DIR}/drill/leak_scan.py" --root "${DRILL_DIR}" --env drill.env --key backup.key \
   --demo-seed "${REPO_ROOT}/Homayar/backend/database/demo_seed.py" \
+  --expect-logs logs prod restore --expect-files logs/console.log logs/offsite-minio.log \
   --exclude drill.env backup.key offsite.env evidence/tenants.json --out evidence/leakage-scan.json \
   logs evidence restore-backups/restores restore-backups/metrics gate-probes.stderr probe.out ||
   leak_rc=$?
