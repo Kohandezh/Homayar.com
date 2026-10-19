@@ -1,14 +1,14 @@
 import { Suspense, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import api from "@/lib/api";
 import { AuthContext, useAuth } from "@/lib/auth-context";
 import { ADMIN_PAGES } from "@/components/admin/admin-pages";
 import { ADMIN_NAV } from "@/lib/navigation";
 import { AppRoutes } from "@/AppRoutes";
-import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";
-import type { AuthWorkspace, WorkspaceRole } from "@/types/auth";
+import { FIXTURE_OPERATOR, FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";
+import type { AuthUser, AuthWorkspace, WorkspaceRole } from "@/types/auth";
 
 const T = "2026-09-24T12:00:00Z";
 
@@ -136,12 +136,111 @@ describe("admin route guard", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Privacy" })).toBeInTheDocument();
   });
 
+  it("opens the API keys page for owners and administrators, who then request the key list", async () => {
+    for (const role of ["owner", "admin"] as const) {
+      const get = pendingReads();
+      const view = renderApp("/admin/api-keys", workspace(role));
+      expect(await screen.findByRole("heading", { level: 1, name: "API keys" })).toBeInTheDocument();
+      expect(requestedUrls(get).some((url) => url.startsWith("/api-keys"))).toBe(true);
+      view.unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("blocks the API keys page for members and viewers, and an owner whose permissions lack api_key:manage, with no request", async () => {
+    for (const selected of [workspace("member"), workspace("viewer"), workspace("owner", ["meeting:read", "member:read"])]) {
+      const get = pendingReads();
+      const view = renderApp("/admin/api-keys", selected);
+      expect(await screen.findByRole("heading", { level: 1, name: "No access" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "API keys" })).not.toBeInTheDocument();
+      expect(requestedUrls(get).filter((url) => url.startsWith("/api-keys"))).toEqual([]);
+      view.unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("says no access in Persian", async () => {
     pendingReads();
     renderApp("/admin/settings", workspace("viewer"), "fa");
     expect(await screen.findByRole("heading", { level: 1, name: "دسترسی ندارید" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "بازگشت به نمای کلی" })).toHaveAttribute("href", "/");
   });
+});
+
+describe("voice operations route (operator only)", () => {
+  // The lazy page can take more than 1 s to load on a loaded machine, and
+  // each case renders the routes up to three times.
+  const LOAD = { timeout: 5000 };
+  const SLOW = 20_000;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A user object as the server could send it, including values the type does not allow. */
+  function withSystemRole(systemRole: unknown): AuthUser {
+    return { ...FIXTURE_USER, system_role: systemRole } as AuthUser;
+  }
+
+  function renderVoice(user: AuthUser, selected: AuthWorkspace = workspace("admin"), lang: "fa" | "en" = "en") {
+    window.localStorage.removeItem("homayar_lang");
+    return renderConsole(
+      <Suspense fallback={<p>Loading page</p>}>
+        <AppRoutes />
+        <LocationProbe />
+      </Suspense>,
+      { route: "/admin/voice", lang, auth: { status: "authenticated", user, workspace: selected, workspaces: [selected] } },
+    );
+  }
+
+  async function expectOpens(user: AuthUser, selected: AuthWorkspace) {
+    const get = pendingReads();
+    const view = renderVoice(user, selected);
+    expect(await screen.findByRole("heading", { level: 1, name: "Voice operations" }, LOAD)).toBeInTheDocument();
+    expect(requestedUrls(get)).toContain("/voice/capacity");
+    expect(screen.getByRole("link", { name: "Voice operations" })).toBeInTheDocument();
+    view.unmount();
+    vi.restoreAllMocks();
+  }
+
+  async function expectBlocked(user: AuthUser, selected: AuthWorkspace) {
+    const get = pendingReads();
+    const view = renderVoice(user, selected);
+    expect(await screen.findByRole("heading", { level: 1, name: "No access" }, LOAD)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Voice operations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Voice operations" })).not.toBeInTheDocument();
+    expect(location()).toBe("/admin/voice");
+    expect(requestedUrls(get)).not.toContain("/voice/capacity");
+    view.unmount();
+    vi.restoreAllMocks();
+  }
+
+  it("mounts the page for an admin who is a platform operator", async () => {
+    await expectOpens(FIXTURE_OPERATOR, workspace("admin"));
+    await expectOpens(FIXTURE_OPERATOR, workspace("owner"));
+  }, SLOW);
+
+  // Each deny case is the allow case above with one field changed.
+  it.each([
+    ["user", withSystemRole("user")],
+    ["missing", FIXTURE_USER],
+    ["Operator (other case)", withSystemRole("Operator")],
+  ])("shows no access, with no capacity request, to an admin whose system_role is %s", async (_label, user) => {
+    await expectOpens(FIXTURE_OPERATOR, workspace("admin"));
+    await expectBlocked(user, workspace("admin"));
+  }, SLOW);
+
+  it("shows no access to an operator whose workspace role lacks workspace:manage", async () => {
+    await expectOpens(FIXTURE_OPERATOR, workspace("admin"));
+    await expectBlocked(FIXTURE_OPERATOR, workspace("member"));
+    await expectBlocked(FIXTURE_OPERATOR, workspace("owner", ["meeting:read", "member:read"]));
+  }, SLOW);
+
+  it("names the page in Persian for an operator", async () => {
+    pendingReads();
+    renderVoice(FIXTURE_OPERATOR, workspace("admin"), "fa");
+    expect(await screen.findByRole("heading", { level: 1, name: "عملیات صوتی" }, LOAD)).toBeInTheDocument();
+  }, SLOW);
 });
 
 describe("admin pages", () => {
@@ -177,6 +276,13 @@ describe("admin pages", () => {
     renderApp("/admin/usage", workspace("member"));
     expect(await screen.findByRole("heading", { level: 1, name: "No access" })).toBeInTheDocument();
     for (const url of billingUrls) expect(requestedUrls(memberGet)).not.toContain(url);
+  });
+
+  it("renders the teams page behind its route, not the coming-soon placeholder", async () => {
+    pendingReads();
+    renderApp("/admin/teams");
+    expect(await screen.findByRole("heading", { level: 1, name: "Teams" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
   });
 
   it("shows the shared coming-soon page for every admin path without a page, in both languages", async () => {

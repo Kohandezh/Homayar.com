@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Button, Drawer } from "@heroui/react";
 import { RotateCcw } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "@/components/platform/Ui";
 import { PROCESSING_COPY } from "@/components/platform/processing-copy";

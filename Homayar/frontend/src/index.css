@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "./theme.css";
-@import "shadcn/tailwind.css";
 
 /*
  * HeroUI owns the shared theme names (--background, --foreground, --accent,
@@ -1044,20 +1043,37 @@
 .meeting-export-control { display: flex; align-items: center; gap: 0.35rem; }
 .meeting-export-control select { height: 34px; border: 1px solid #d7e0dd; border-radius: 6px; background: #fff; color: #344640; padding: 0 0.45rem; font-size: 0.7rem; }
 
-.meeting-summary-view,
 .meeting-transcript-view,
 .meeting-actions-view,
 .meeting-shares-view { min-height: 300px; }
-.meeting-summary-overview { padding: 1.1rem; }
-.meeting-summary-overview h2,
-.meeting-key-points h2 { margin: 0 0 0.7rem; color: #263a35; font-size: 0.86rem; }
-.meeting-summary-overview p { margin: 0; color: #3f514c; font-size: 0.85rem; line-height: 1.9; }
 .meeting-topics { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.9rem; }
 .meeting-topics span { padding: 0.25rem 0.5rem; border-radius: 999px; background: #e7f1ee; color: #23695e; font-size: 0.66rem; }
-.meeting-key-points { margin-top: 1rem; }
-.meeting-key-points > article { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 0.8rem; margin-bottom: 0.5rem; padding: 0.8rem; }
-.meeting-key-points article span { color: #b25941; font-size: 0.68rem; font-weight: 700; }
-.meeting-key-points article p { margin: 0; color: #42534f; font-size: 0.78rem; line-height: 1.6; }
+
+/* Call report (WP12-T02, HOM-245) */
+.call-report { display: grid; gap: 0.75rem; margin-bottom: 1rem; }
+.call-report-section { padding: 1.1rem; }
+.call-report-section h2 { margin: 0 0 0.7rem; color: #263a35; font-size: 0.86rem; }
+.call-report-section p { margin: 0 0 0.5rem; color: #3f514c; font-size: 0.82rem; line-height: 1.8; }
+.call-report-section ul { margin: 0; padding: 0; list-style: none; }
+.call-report-notices li { padding: 0.35rem 0; color: #7a4b16; font-size: 0.78rem; }
+.call-report-items { display: grid; gap: 0.6rem; }
+.call-report-items > li { padding: 0.75rem; border: 1px solid #e1e9e6; border-radius: 8px; }
+.call-report-type { color: #b25941; font-size: 0.68rem; font-weight: 700; }
+.call-report-unsupported,
+.call-report-reason { color: #943a34; font-size: 0.72rem; }
+.call-report-stale { color: #7a4b16; font-size: 0.72rem; }
+.call-report-outcome-inferred { color: #7a4b16; font-weight: 700; }
+.call-report-counts { color: #52625e; }
+.call-report-evidence { display: grid; gap: 0.45rem; margin-top: 0.5rem !important; padding-inline-start: 0.75rem !important; border-inline-start: 2px solid #d7e0dd; }
+.call-report-evidence q { color: #42534f; font-size: 0.78rem; }
+.call-report-evidence .summary-item-meta { font-size: 0.7rem; color: #667772; }
+.call-report-actions { display: grid; gap: 0.5rem; }
+.call-report-actions li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+.meeting-advanced { margin-top: 1rem; }
+.meeting-advanced-trigger { display: inline-flex; align-items: center; gap: 0.4rem; }
+.meeting-advanced-body { display: grid; gap: 1rem; margin-top: 0.75rem; }
+.meeting-export-view .meeting-export-control { padding: 1rem; flex-wrap: wrap; }
+.meeting-export-view label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: #53645f; }
 
 .meeting-speaker-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.8rem; }
 .meeting-speaker-list form { display: grid; grid-template-columns: minmax(90px, 150px) 36px; gap: 0.3rem; }
@@ -1122,14 +1138,13 @@
   .action-controls { width: 100%; justify-content: flex-end; }
   .share-create-row { align-items: stretch; flex-direction: column; }
   .share-row { grid-template-columns: 1fr auto; }
-  .meeting-key-points > article { grid-template-columns: 1fr; }
 }
 
 /* Quality, coverage and degradation (WP04-T06) */
 .meeting-quality { margin-bottom: 1rem; }
 .meeting-quality .meeting-facts { margin-bottom: 0.5rem; }
 .meeting-quality-notes { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin: 0 0 0.5rem; padding: 0; list-style: none; color: #74837f; font-size: 0.72rem; }
-.meeting-summary-overview h2 .platform-status, .meeting-key-points article .platform-status, .action-main .platform-status { margin-inline-start: 0.5rem; }
+.action-main .platform-status { margin-inline-start: 0.5rem; }
 
 /* Upload panel (Session B) */
 .upload-panel { display: grid; gap: 0.75rem; margin-bottom: 1rem; padding: 1rem; }
@@ -1228,6 +1243,23 @@ button.pii-placeholder:focus-visible { outline: 2px solid #147d6f; outline-offse
 .transcript-toolbar label { display: grid; gap: 0.25rem; font-size: 0.75rem; color: #53645f; }
 .meeting-segment:focus { outline: 3px solid rgba(22, 136, 120, 0.3); outline-offset: 2px; }
 .meeting-segment p { overflow-wrap: anywhere; }
+.segment-saved-note { margin: 0.35rem 0 0; color: #176f64; font-size: 0.72rem; font-weight: 600; }
+.segment-edit-form { display: grid; gap: 0.5rem; margin-top: 0.5rem; padding: 0.7rem; border: 1px solid #d7e0dd; border-radius: 8px; background: #f7faf9; }
+.segment-edit-field { display: grid; gap: 0.25rem; font-size: 0.72rem; color: #53645f; }
+.segment-edit-form textarea { min-width: 0; border: 1px solid #d7e0dd; border-radius: 6px; background: #fff; color: #344640; padding: 0.4rem 0.55rem; font-size: 0.8rem; font-family: inherit; line-height: 1.7; }
+.segment-edit-form select { height: 34px; border: 1px solid #d7e0dd; border-radius: 6px; background: #fff; color: #344640; padding: 0 0.45rem; font-size: 0.74rem; }
+.segment-edit-hint { color: #75857f; font-size: 0.66rem; }
+.segment-edit-actions { display: flex; gap: 0.5rem; }
+.segment-edit-error { display: grid; gap: 0.4rem; justify-items: start; margin: 0; color: #943a34; font-size: 0.74rem; }
+.transcript-revision-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; margin: 0 0 0.6rem; padding: 0.6rem 0.75rem; border: 1px solid #e1d5b8; border-radius: 8px; background: #fdf9ee; color: #7a4b16; font-size: 0.75rem; }
+.revision-list { display: grid; gap: 0.6rem; margin: 0; padding: 0; list-style: none; }
+.revision-row { display: grid; gap: 0.35rem; padding: 0.6rem 0; border-bottom: 1px solid #e5ecea; }
+.revision-row:last-child { border-bottom: 0; }
+.revision-row-head { display: flex; align-items: center; gap: 0.5rem; }
+.revision-row-head strong { color: #293d37; font-size: 0.8rem; }
+.revision-current-badge { padding: 0.15rem 0.45rem; border-radius: 999px; background: #e2f0ed; color: #176f64; font-size: 0.62rem; font-weight: 700; }
+.revision-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; color: #667772; font-size: 0.7rem; }
+.revision-note { margin: 0; color: #42534f; font-size: 0.74rem; line-height: 1.7; overflow-wrap: anywhere; }
 .summary-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .summary-item-meta small { color: #7a8b86; }
 .platform-link-button {
@@ -1259,3 +1291,17 @@ button.pii-placeholder:focus-visible { outline: 2px solid #147d6f; outline-offse
 .content-view-note { margin: 0 0 0.6rem; color: #52625e; font-size: 0.72rem; line-height: 1.6; }
 .meeting-player { display: grid; gap: 0.5rem; margin-bottom: 1rem; padding: 0.75rem 1rem; }
 .meeting-player audio { width: 100%; }
+/* HOM-247: synced playback. Logical properties, so the layout mirrors on the RTL page. */
+.player-notices { display: grid; gap: 0.25rem; margin: 0; padding-inline-start: 1.1rem; color: #7a4b16; font-size: 0.74rem; }
+.playback-shortcuts { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-block: -0.4rem 1rem; color: #53645f; font-size: 0.72rem; }
+.playback-shortcuts > div { display: inline-flex; align-items: center; gap: 0.35rem; }
+.playback-shortcuts kbd { min-inline-size: 1.4rem; padding: 0.05rem 0.35rem; border: 1px solid #c9d5d1; border-block-end-width: 2px; border-radius: 4px; background: #f7faf9; color: #293d37; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; text-align: center; }
+.transcript-time-filter { display: flex; flex-wrap: wrap; align-items: end; gap: 0.5rem; }
+.transcript-time-filter .platform-input { inline-size: 6rem; }
+.transcript-time-error { flex-basis: 100%; margin: 0; color: #8f3526; font-size: 0.74rem; }
+.transcript-follow { display: inline-flex !important; align-items: center; gap: 0.35rem; }
+.segment-play { padding: 0 0.25rem; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.segment-play:hover time, .segment-play:focus-visible time { color: #147d6f; text-decoration: underline; }
+.segment-play:focus-visible { outline: 2px solid #147d6f; outline-offset: 1px; }
+.meeting-segment p.is-playable { cursor: pointer; }
+.meeting-segment.is-playing { border-inline-start-color: #147d6f; background: #eef7f5; }

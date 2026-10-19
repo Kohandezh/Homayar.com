@@ -213,6 +213,7 @@ def test_correction_after_analysis_marks_the_analysis_stale(
         headers=_write_headers(client, workspace_id),
         json={
             "base_revision_id": transcript["revision"]["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": transcript["segments"][0]["id"], "text": "متن اصلاح‌شده"}],
         },
     )

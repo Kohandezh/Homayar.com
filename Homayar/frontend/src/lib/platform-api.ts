@@ -9,25 +9,32 @@ import { isAxiosError, type AxiosResponse } from "axios";
 
 import api, { API_BASE_URL } from "@/lib/api";
 import { apiErrorInfo } from "@/lib/api-errors";
+import { NONTERMINAL_MEETING_STATUSES as NONTERMINAL_STATUSES } from "@/lib/status-labels";
 import type {
   ActionItem,
   AdminJobListParams,
   AdminJobListResponse,
+  ApiKeyListResponse,
   AuditEventListParams,
   AuditEventListResponse,
+  AuditEventTypeListResponse,
   BillingUsageResponse,
+  CallReportResponse,
   CreateActionInput,
+  CreatedApiKey,
   CreatedShareLink,
+  CreateApiKeyInput,
   CreateShareInput,
+  CreateTeamInput,
   CurrentSubscriptionResponse,
   DownloadPayload,
-  EvidenceListResponse,
   InvitationAcceptedResponse,
   InvitationListResponse,
   InviteMemberInput,
   JobReplayResponse,
   JobState,
   Meeting,
+  MeetingCountsResponse,
   MeetingDetail,
   MeetingExportFormat,
   MeetingListParams,
@@ -36,6 +43,7 @@ import type {
   MeetingSummary,
   MemberListResponse,
   PiiRevealResponse,
+  PlaybackDescriptor,
   PlanCatalogResponse,
   ReadinessResponse,
   ProcessingJob,
@@ -44,7 +52,16 @@ import type {
   SearchResponse,
   ShareLink,
   SharedMeeting,
+  Team,
+  TeamAssignment,
+  TeamDetail,
+  TeamListResponse,
+  AssignTeamMemberInput,
+  UpdateTeamInput,
   Transcript,
+  TranscriptCorrectionInput,
+  TranscriptFilters,
+  TranscriptRevisionListResponse,
   TranscriptSpeaker,
   TranscriptView,
   UpdateActionFields,
@@ -134,6 +151,8 @@ export const platformQueryKeys = {
   meetingLists: () => ["platform", "meetings", "list"] as const,
   meetingList: (params: MeetingListParams) =>
     ["platform", "meetings", "list", params] as const,
+  /** Server-side per-status totals (GET /meetings/counts), under the meetings() prefix. */
+  meetingCounts: () => ["platform", "meetings", "counts"] as const,
   meeting: (meetingId: string) => ["platform", "meetings", meetingId] as const,
   meetingJob: (meetingId: string) =>
     ["platform", "meetings", meetingId, "job"] as const,
@@ -142,10 +161,30 @@ export const platformQueryKeys = {
   /** Audited original under an enforced redaction policy; never kept after use. */
   transcriptOriginal: (meetingId: string) =>
     ["platform", "meetings", meetingId, "transcript", "original"] as const,
+  /** The immutable revision list (HOM-246); fetched while the history drawer is open. */
+  transcriptRevisions: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "transcript", "revisions"] as const,
+  /** One exact revision, read only (HOM-246); revisions never change once written. */
+  transcriptRevision: (meetingId: string, revisionId: string) =>
+    ["platform", "meetings", meetingId, "transcript", "revision", revisionId] as const,
   evidence: (meetingId: string) =>
     ["platform", "meetings", meetingId, "evidence"] as const,
+  /** The playback descriptor (HOM-247); answers whether and how the recording plays. */
+  playback: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "playback"] as const,
+  /**
+   * The server-filtered transcript (HOM-247). Deliberately not under the
+   * `transcript(id)` prefix: prefix invalidation must never re-read the
+   * audited original, and a filtered read is not an audited view.
+   */
+  transcriptFilteredRoot: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "transcript-filtered"] as const,
+  transcriptFiltered: (meetingId: string, filters: unknown) =>
+    ["platform", "meetings", meetingId, "transcript-filtered", filters] as const,
   summary: (meetingId: string) =>
     ["platform", "meetings", meetingId, "summary"] as const,
+  report: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "report"] as const,
   actions: (meetingId: string) =>
     ["platform", "meetings", meetingId, "actions"] as const,
   shares: (meetingId: string) =>
@@ -163,16 +202,21 @@ export const platformQueryKeys = {
   usageEventsRoot: () => ["platform", "billing", "usage-events"] as const,
   members: () => ["platform", "members"] as const,
   invitations: () => ["platform", "members", "invitations"] as const,
+  teams: () => ["platform", "teams"] as const,
+  /** The prefix above also matches this key, so one invalidation refreshes both. */
+  team: (id: string) => ["platform", "teams", id] as const,
   admin: () => ["platform", "admin"] as const,
   auditEvents: (params: AuditEventListParams) =>
     ["platform", "admin", "audit-events", params] as const,
   auditEventsRoot: () => ["platform", "admin", "audit-events"] as const,
+  auditEventTypes: () => ["platform", "admin", "audit-event-types"] as const,
   adminJobs: (params: AdminJobListParams) =>
     ["platform", "admin", "jobs", params] as const,
   adminJobsRoot: () => ["platform", "admin", "jobs"] as const,
   jobPolicySnapshots: (jobId: string) =>
     ["platform", "admin", "jobs", jobId, "policy-snapshots"] as const,
   workspaceSettings: () => ["platform", "admin", "workspace-settings"] as const,
+  apiKeys: () => ["platform", "admin", "api-keys"] as const,
   readiness: () => ["platform", "readiness"] as const,
 };
 
@@ -181,6 +225,11 @@ export async function listMeetings(
   signal?: AbortSignal,
 ): Promise<MeetingListResponse> {
   const response = await api.get<MeetingListResponse>("/meetings", signal ? { params, signal } : { params });
+  return response.data;
+}
+
+export async function getMeetingCounts(signal?: AbortSignal): Promise<MeetingCountsResponse> {
+  const response = await api.get<MeetingCountsResponse>("/meetings/counts", signal ? { signal } : undefined);
   return response.data;
 }
 
@@ -312,14 +361,59 @@ export function saveDownload(payload: DownloadPayload): void {
   URL.revokeObjectURL(url);
 }
 
-export async function getTranscript(meetingId: string, view?: TranscriptView): Promise<Transcript> {
-  const path = `/meetings/${meetingId}/transcript`;
-  const response = view ? await api.get<Transcript>(path, { params: { view } }) : await api.get<Transcript>(path);
+/** The playback descriptor of one meeting's recording (HOM-247). */
+export async function getPlayback(meetingId: string): Promise<PlaybackDescriptor> {
+  const response = await api.get<PlaybackDescriptor>(`/meetings/${meetingId}/playback`);
   return response.data;
 }
 
-export async function getEvidence(meetingId: string): Promise<EvidenceListResponse> {
-  const response = await api.get<EvidenceListResponse>(`/meetings/${meetingId}/evidence`);
+export async function getTranscript(
+  meetingId: string,
+  view?: TranscriptView,
+  revisionId?: string,
+  filters?: TranscriptFilters | null,
+): Promise<Transcript> {
+  const path = `/meetings/${meetingId}/transcript`;
+  const params: {
+    view?: TranscriptView;
+    revision_id?: string;
+    speaker_key?: string[];
+    start_ms?: number;
+    end_ms?: number;
+  } = {};
+  if (view) params.view = view;
+  if (revisionId) params.revision_id = revisionId;
+  if (filters) {
+    if (filters.speakerKeys.length > 0) params.speaker_key = filters.speakerKeys;
+    if (filters.startMs !== null) params.start_ms = filters.startMs;
+    if (filters.endMs !== null) params.end_ms = filters.endMs;
+  }
+  // No params, no config: the call shape existing callers and tests rely on.
+  const response = Object.keys(params).length
+    ? await api.get<Transcript>(path, filters ? { params, paramsSerializer: { indexes: null } } : { params })
+    : await api.get<Transcript>(path);
+  return response.data;
+}
+
+/** Every revision of one meeting's transcript, newest first (HOM-246). */
+export async function listTranscriptRevisions(
+  meetingId: string,
+): Promise<TranscriptRevisionListResponse> {
+  const response = await api.get<TranscriptRevisionListResponse>(
+    `/meetings/${meetingId}/transcript/revisions`,
+  );
+  return response.data;
+}
+
+/** One correction over the base revision; the answer is the new current transcript. */
+export async function correctTranscript(
+  meetingId: string,
+  input: TranscriptCorrectionInput,
+): Promise<Transcript> {
+  const response = await api.post<Transcript>(
+    `/meetings/${meetingId}/transcript/corrections`,
+    input,
+  );
   return response.data;
 }
 
@@ -339,6 +433,11 @@ export async function revealRedactedValue(
 
 export async function getMeetingSummary(meetingId: string): Promise<MeetingSummary> {
   const response = await api.get<MeetingSummary>(`/meetings/${meetingId}/summary`);
+  return response.data;
+}
+
+export async function getMeetingReport(meetingId: string): Promise<CallReportResponse> {
+  const response = await api.get<CallReportResponse>(`/meetings/${meetingId}/report`);
   return response.data;
 }
 
@@ -478,10 +577,58 @@ export async function removeMember(membershipId: string): Promise<void> {
   await api.delete(`/members/${membershipId}`);
 }
 
+export async function listTeams(signal?: AbortSignal): Promise<TeamListResponse> {
+  const response = signal ? await api.get<TeamListResponse>("/teams", { signal }) : await api.get<TeamListResponse>("/teams");
+  return response.data;
+}
+
+export async function getTeam(teamId: string, signal?: AbortSignal): Promise<TeamDetail> {
+  const path = `/teams/${teamId}`;
+  const response = signal ? await api.get<TeamDetail>(path, { signal }) : await api.get<TeamDetail>(path);
+  return response.data;
+}
+
+export async function createTeam(input: CreateTeamInput): Promise<Team> {
+  const response = await api.post<Team>("/teams", { name: input.name });
+  return response.data;
+}
+
+export async function updateTeam(teamId: string, patch: UpdateTeamInput): Promise<Team> {
+  const response = await api.patch<Team>(`/teams/${teamId}`, patch);
+  return response.data;
+}
+
+export async function assignTeamMember(teamId: string, input: AssignTeamMemberInput): Promise<TeamAssignment> {
+  // The date keys are absent, not null, when no period was chosen.
+  const body = {
+    user_id: input.user_id,
+    role: input.role,
+    ...(input.valid_from !== undefined ? { valid_from: input.valid_from } : {}),
+    ...(input.valid_until !== undefined ? { valid_until: input.valid_until } : {}),
+  };
+  const response = await api.post<TeamAssignment>(`/teams/${teamId}/assignments`, body);
+  return response.data;
+}
+
+export async function revokeTeamAssignment(teamId: string, assignmentId: string): Promise<void> {
+  await api.delete(`/teams/${teamId}/assignments/${assignmentId}`);
+}
+
 export async function listAuditEvents(
   params: AuditEventListParams = {},
 ): Promise<AuditEventListResponse> {
   const response = await api.get<AuditEventListResponse>("/admin/audit-events", { params });
+  return response.data;
+}
+
+/** The catalog behind the audit event-type filter (GET /admin/audit-event-types). */
+export async function listAuditEventTypes(
+  signal?: AbortSignal,
+): Promise<AuditEventTypeListResponse> {
+  const path = "/admin/audit-event-types";
+  const response = signal
+    ? await api.get<AuditEventTypeListResponse>(path, { signal })
+    : await api.get<AuditEventTypeListResponse>(path);
   return response.data;
 }
 
@@ -521,6 +668,21 @@ export async function updateWorkspaceSettings(
   return response.data;
 }
 
+export async function listApiKeys(signal?: AbortSignal): Promise<ApiKeyListResponse> {
+  const config = signal ? { signal } : undefined;
+  const response = await api.get<ApiKeyListResponse>("/api-keys", config);
+  return response.data;
+}
+
+export async function createApiKey(input: CreateApiKeyInput): Promise<CreatedApiKey> {
+  const response = await api.post<CreatedApiKey>("/api-keys", input);
+  return response.data;
+}
+
+export async function revokeApiKey(keyId: string): Promise<void> {
+  await api.delete(`/api-keys/${encodeURIComponent(keyId)}`);
+}
+
 function meetingIdOrEmpty(meetingId: string | null | undefined): string {
   return meetingId ?? "";
 }
@@ -531,20 +693,40 @@ async function invalidateMeetingIntelligence(
 ): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: platformQueryKeys.actions(meetingId) }),
+    queryClient.invalidateQueries({ queryKey: platformQueryKeys.report(meetingId) }),
     queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),
   ]);
 }
 
-export function useMeetings(params: MeetingListParams = {}) {
+export function useMeetings(params: MeetingListParams = {}, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: platformQueryKeys.meetingList(params),
     queryFn: ({ signal }) => listMeetings(params, signal),
+    enabled: options?.enabled,
     refetchInterval: (query) => {
       if (query.state.status === "error") return pollDelayAfterError(query.state.error);
       const active = query.state.data?.items.filter((meeting) => meetingRefetchInterval(meeting) !== false) ?? [];
       if (!active.length) return false;
       const signature = active.map((meeting) => `${meeting.id}:${meeting.status}`).join(",");
       return pollDelay(unchangedFor(`list:${JSON.stringify(params)}`, signature));
+    },
+  });
+}
+
+export function useMeetingCounts() {
+  return useQuery({
+    queryKey: platformQueryKeys.meetingCounts(),
+    queryFn: ({ signal }) => getMeetingCounts(signal),
+    // A 404 (older backend without the endpoint) is not retried, so the sample fallback is not delayed.
+    retry: (failureCount, error) => pollDelayAfterError(error) !== false && failureCount < 1,
+    refetchInterval: (query) => {
+      if (query.state.status === "error") return pollDelayAfterError(query.state.error);
+      const counts = query.state.data?.counts;
+      if (!counts) return false;
+      let inProgress = 0;
+      for (const status of NONTERMINAL_STATUSES) inProgress += counts[status] ?? 0;
+      if (inProgress <= 0) return false;
+      return pollDelay(unchangedFor("counts", JSON.stringify(counts)));
     },
   });
 }
@@ -593,6 +775,7 @@ export function useReplayJob() {
         // flag change, on the meeting page and in the admin list.
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingJob(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingCounts() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.adminJobsRoot() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.billing() }),
       ]);
@@ -609,11 +792,14 @@ export function useReplayJob() {
 export function forgetMeetingContent(queryClient: QueryClient, meetingId: string) {
   for (const key of [
     platformQueryKeys.transcript(meetingId),
+    platformQueryKeys.transcriptFilteredRoot(meetingId),
+    platformQueryKeys.playback(meetingId),
     platformQueryKeys.summary(meetingId),
     platformQueryKeys.actions(meetingId),
     platformQueryKeys.shares(meetingId),
     platformQueryKeys.meetingJob(meetingId),
     platformQueryKeys.evidence(meetingId),
+    platformQueryKeys.report(meetingId),
   ]) {
     queryClient.removeQueries({ queryKey: key });
   }
@@ -640,6 +826,7 @@ export function useUploadMeeting() {
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingCounts() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.billingUsage() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.usageEventsRoot() }),
       ]);
@@ -659,6 +846,7 @@ export function useUpdateMeetingTitle() {
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingCounts() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),
       ]);
     },
@@ -674,6 +862,7 @@ export function useDeleteMeeting() {
       queryClient.removeQueries({ queryKey: platformQueryKeys.meeting(meetingId), exact: true });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingLists() }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meetingCounts() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.billing() }),
       ]);
@@ -702,6 +891,37 @@ export function useTranscript(meetingId: string | null | undefined) {
 }
 
 /**
+ * The playback descriptor (HOM-247). A 404/410 answer is final (the recording
+ * is gone), so it is never retried; the page shows its own wording for it.
+ */
+export function usePlayback(meetingId: string | null | undefined) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.playback(id),
+    queryFn: () => getPlayback(id),
+    enabled: Boolean(meetingId),
+    retry: false,
+    // A focus refetch can only replace a working player with an error.
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * The server-filtered transcript (HOM-247): speaker keys and a time range,
+ * applied by the API. Enabled only with filters; the previous answer stays on
+ * screen while the next one loads.
+ */
+export function useFilteredTranscript(meetingId: string | null | undefined, filters: TranscriptFilters | null) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.transcriptFiltered(id, filters),
+    queryFn: () => getTranscript(id, undefined, undefined, filters ?? undefined),
+    enabled: Boolean(meetingId) && filters !== null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
  * The original transcript under an enforced redaction policy. Every fetch is
  * an audited read (transcript.original_accessed), so it is fetched once per
  * explicit request, never refetched in the background, and dropped from the
@@ -722,15 +942,6 @@ export function useOriginalTranscript(meetingId: string | null | undefined) {
   });
 }
 
-export function useEvidence(meetingId: string | null | undefined) {
-  const id = meetingIdOrEmpty(meetingId);
-  return useQuery({
-    queryKey: platformQueryKeys.evidence(id),
-    queryFn: () => getEvidence(id),
-    enabled: Boolean(meetingId),
-  });
-}
-
 /** Reveals are never cached: the value lives only in the caller's component state. */
 export function useRevealValue() {
   return useMutation({
@@ -748,11 +959,73 @@ export function useRevealValue() {
   });
 }
 
+/** The revision list of one meeting, asked for only while a view shows it. */
+export function useTranscriptRevisions(meetingId: string | null | undefined, options?: { enabled?: boolean }) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.transcriptRevisions(id),
+    queryFn: () => listTranscriptRevisions(id),
+    enabled: Boolean(meetingId) && options?.enabled !== false,
+  });
+}
+
+/** One exact revision, read only; immutable, so it is never invalidated. */
+export function useTranscriptRevision(meetingId: string | null | undefined, revisionId: string | null) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.transcriptRevision(id, revisionId ?? ""),
+    queryFn: () => getTranscript(id, undefined, revisionId ?? undefined),
+    enabled: Boolean(meetingId) && revisionId !== null,
+  });
+}
+
+/**
+ * One correction creates a new current revision, so everything read from the
+ * transcript is out of date: the transcript itself (exact, so the audited
+ * original is never re-read in the background), the revision list, the call
+ * report with its stale markers, and every result derived from the meeting.
+ */
+export function useCorrectTranscript() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ meetingId, input }: { meetingId: string; input: TranscriptCorrectionInput }) =>
+      correctTranscript(meetingId, input),
+    onSuccess: async (_transcript, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcript(variables.meetingId),
+          exact: true,
+        }),
+        // A corrected turn may join or leave the filtered view (HOM-247).
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcriptFilteredRoot(variables.meetingId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcriptRevisions(variables.meetingId),
+        }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.summary(variables.meetingId) }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.evidence(variables.meetingId) }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.meeting(variables.meetingId) }),
+        invalidateMeetingIntelligence(queryClient, variables.meetingId),
+      ]);
+    },
+  });
+}
+
 export function useMeetingSummary(meetingId: string | null | undefined) {
   const id = meetingIdOrEmpty(meetingId);
   return useQuery({
     queryKey: platformQueryKeys.summary(id),
     queryFn: () => getMeetingSummary(id),
+    enabled: Boolean(meetingId),
+  });
+}
+
+export function useMeetingReport(meetingId: string | null | undefined) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.report(id),
+    queryFn: () => getMeetingReport(id),
     enabled: Boolean(meetingId),
   });
 }
@@ -822,6 +1095,11 @@ export function useRenameSpeaker() {
           queryKey: platformQueryKeys.transcript(variables.meetingId),
           exact: true,
         }),
+        // A renamed speaker may move turns in the filtered view (HOM-247).
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcriptFilteredRoot(variables.meetingId),
+        }),
+        queryClient.invalidateQueries({ queryKey: platformQueryKeys.report(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),
       ]);
     },
@@ -902,8 +1180,8 @@ export function useUsageEvents(params: UsageEventListParams = {}) {
   });
 }
 
-export function useMembers() {
-  return useQuery({ queryKey: platformQueryKeys.members(), queryFn: listMembers });
+export function useMembers(enabled = true) {
+  return useQuery({ queryKey: platformQueryKeys.members(), queryFn: listMembers, enabled });
 }
 
 export function useInvitations() {
@@ -970,6 +1248,66 @@ export function useRemoveMember() {
   });
 }
 
+export function useTeams() {
+  return useQuery({
+    queryKey: platformQueryKeys.teams(),
+    queryFn: ({ signal }) => listTeams(signal),
+  });
+}
+
+/** One team with its assignments; disabled until a team is actually opened. */
+export function useTeam(teamId: string | null | undefined) {
+  const id = teamId ?? "";
+  return useQuery({
+    queryKey: platformQueryKeys.team(id),
+    queryFn: ({ signal }) => getTeam(id, signal),
+    enabled: Boolean(teamId),
+  });
+}
+
+/**
+ * Every team mutation invalidates the whole `teams` prefix on settle: the
+ * list, each team's assignments and the member counts all come from it.
+ */
+function useInvalidateTeamsOnSettle() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: platformQueryKeys.teams() });
+}
+
+export function useCreateTeam() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: createTeam,
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useUpdateTeam() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, patch }: { teamId: string; patch: UpdateTeamInput }) => updateTeam(teamId, patch),
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useAssignTeamMember() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, input }: { teamId: string; input: AssignTeamMemberInput }) =>
+      assignTeamMember(teamId, input),
+    onSettled: invalidateTeams,
+  });
+}
+
+export function useRevokeTeamAssignment() {
+  const invalidateTeams = useInvalidateTeamsOnSettle();
+  return useMutation({
+    mutationFn: ({ teamId, assignmentId }: { teamId: string; assignmentId: string }) =>
+      revokeTeamAssignment(teamId, assignmentId),
+    onSettled: invalidateTeams,
+  });
+}
+
 export function useAuditEvents(params: AuditEventListParams = {}) {
   return useQuery({
     queryKey: platformQueryKeys.auditEvents(params),
@@ -977,6 +1315,19 @@ export function useAuditEvents(params: AuditEventListParams = {}) {
     // Paging keeps the current page (and the focused button) while the next
     // one loads (QA S-01).
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * The catalog behind the event-type filter. It changes only with a backend
+ * release, so it is read once per session, not once per page visit.
+ */
+export function useAuditEventTypes() {
+  return useQuery({
+    queryKey: platformQueryKeys.auditEventTypes(),
+    queryFn: ({ signal }) => listAuditEventTypes(signal),
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 }
 
@@ -1013,6 +1364,44 @@ export function useUpdateWorkspaceSettings() {
     mutationFn: updateWorkspaceSettings,
     onSuccess: (settings) => {
       queryClient.setQueryData(platformQueryKeys.workspaceSettings(), settings);
+    },
+  });
+}
+
+export function useApiKeys() {
+  return useQuery({
+    queryKey: platformQueryKeys.apiKeys(),
+    queryFn: ({ signal }) => listApiKeys(signal),
+  });
+}
+
+/**
+ * The 201 answer holds the one and only copy of the raw key, so the mutation
+ * is dropped from the cache at once (`gcTime: 0` plus `reset()` when the
+ * modal closes) and its success only invalidates the list; the key itself is
+ * never written into any query, the way `useRevealValue` never caches a
+ * revealed value.
+ */
+export function useCreateApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createApiKey,
+    gcTime: 0,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: platformQueryKeys.apiKeys() });
+    },
+  });
+}
+
+export function useRevokeApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: revokeApiKey,
+    // Also on a 404: the key is gone on the server, so the list must not keep
+    // showing it as active (the same reason the member mutations invalidate
+    // onSettled).
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: platformQueryKeys.apiKeys() });
     },
   });
 }

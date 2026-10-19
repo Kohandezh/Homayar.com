@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
-from backend.database.saas_models import JobState
+from backend.database.saas_models import JobState, ShareAudience
 from backend.jobs.outbox import dispatch_job
 from backend.jobs.replay import ReplayRefused, replay_dead_letter_job
 from backend.schemas.admin import (
@@ -15,8 +15,14 @@ from backend.schemas.admin import (
     AdminJobResponse,
     AdminJobStateCounts,
     AdminJobSummaryResponse,
+    AdminLegalHoldListResponse,
+    AdminLegalHoldResponse,
+    AdminShareListResponse,
+    AdminShareResponse,
     AuditEventListResponse,
     AuditEventResponse,
+    AuditEventTypeListResponse,
+    AuditEventTypeResponse,
     JobReplayResponse,
     WorkspaceSettingsResponse,
     WorkspaceSettingsUpdateRequest,
@@ -33,6 +39,11 @@ from backend.services.admin_jobs_service import (
     list_workspace_jobs,
     summarize_workspace_jobs,
 )
+from backend.services.admin_legal_holds_service import (
+    InvalidDueBefore,
+    InvalidLegalHoldCursor,
+    list_workspace_legal_holds,
+)
 from backend.services.admin_service import (
     InvalidAuditCursor,
     InvalidAuditRange,
@@ -43,6 +54,12 @@ from backend.services.admin_service import (
     sanitize_audit_details,
     update_workspace_settings,
 )
+from backend.services.admin_shares_service import (
+    InvalidShareCursor,
+    ShareStatus,
+    list_workspace_shares,
+)
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -122,6 +139,61 @@ def list_audit_events(
     )
 
 
+@router.get("/audit-event-types", response_model=AuditEventTypeListResponse)
+def list_audit_event_types(
+    context: WorkspaceContext = Depends(require_audit_admin_context),
+) -> AuditEventTypeListResponse:
+    # The catalog is static; the workspace context only applies the access
+    # rules of GET /admin/audit-events.
+    return AuditEventTypeListResponse(
+        items=[
+            AuditEventTypeResponse(
+                event_type=member.value,
+                group=member.group,
+                target_type=member.target_type,
+            )
+            for member in sorted(AuditEventType, key=lambda member: member.value)
+        ]
+    )
+
+
+@router.get("/shares", response_model=AdminShareListResponse)
+def list_shares(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
+    status: ShareStatus | None = Query(default=None),
+    audience: ShareAudience | None = Query(default=None),
+    context: WorkspaceContext = Depends(require_workspace_admin_context),
+    db: Session = Depends(get_db),
+) -> AdminShareListResponse:
+    """Every share link of the workspace, newest first (HOM-192).
+
+    ``status`` is ``revoked`` when the link was revoked, else ``expired`` when
+    ``expires_at`` has passed, else ``active``. Filters combine with AND.
+    Shares of soft-deleted meetings are left out. The token, its hash, the
+    share URL and recipient addresses are never returned.
+    """
+    try:
+        page = list_workspace_shares(
+            db,
+            workspace_id=context.workspace.id,
+            limit=limit,
+            cursor=cursor,
+            status=status,
+            audience=audience,
+        )
+    except InvalidShareCursor as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_cursor", "message": str(exc)},
+        ) from exc
+
+    return AdminShareListResponse(
+        items=[AdminShareResponse.model_validate(row) for row in page.rows],
+        next_cursor=page.next_cursor,
+    )
+
+
 @router.get("/workspace-settings", response_model=WorkspaceSettingsResponse)
 def read_workspace_settings(
     context: WorkspaceContext = Depends(require_workspace_admin_context),
@@ -169,7 +241,7 @@ def patch_workspace_settings(
 
     record_audit_event(
         db,
-        event_type="workspace.settings.updated",
+        event_type=AuditEventType.WORKSPACE_SETTINGS_UPDATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="workspace",
@@ -298,4 +370,57 @@ def replay_job(
         replay=result.replay,
         max_replays=settings.job_max_replays,
         dispatch=outcome.state,
+    )
+
+
+@router.get("/legal-holds", response_model=AdminLegalHoldListResponse)
+def list_legal_holds(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
+    due_before: datetime | None = Query(default=None),
+    context: WorkspaceContext = Depends(require_permission(Permission.LEGAL_HOLD_MANAGE)),
+    db: Session = Depends(get_db),
+) -> AdminLegalHoldListResponse:
+    """The workspace's media objects on legal hold, review due first (HOM-192).
+
+    ``due_before`` keeps holds whose review date is on or before it; a value
+    without a time zone is read as UTC. Holds of deleted conversations and of
+    objects without a meeting are listed too (``meeting_title`` is then the
+    stored title, or null without a meeting row). Owner only:
+    ``legal_hold:manage`` is never an API-key scope. A read, not audited.
+    """
+    try:
+        page = list_workspace_legal_holds(
+            db,
+            workspace_id=context.workspace.id,
+            limit=limit,
+            cursor=cursor,
+            due_before=due_before,
+        )
+    except InvalidDueBefore as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_due_before", "message": str(exc)},
+        ) from exc
+    except InvalidLegalHoldCursor as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_cursor", "message": str(exc)},
+        ) from exc
+
+    return AdminLegalHoldListResponse(
+        items=[
+            AdminLegalHoldResponse(
+                media_id=row.media.id,
+                kind=row.media.kind,
+                meeting_id=row.media.meeting_id,
+                meeting_title=row.meeting_title,
+                reason=row.media.legal_hold_reason,
+                placed_by_user_id=row.media.legal_hold_by_user_id,
+                placed_at=row.media.legal_hold_at,
+                review_at=row.media.legal_hold_review_at,
+            )
+            for row in page.rows
+        ],
+        next_cursor=page.next_cursor,
     )

@@ -1,26 +1,37 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState, type AudioHTMLAttributes, type FormEvent, type RefObject } from "react";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { Disclosure } from "@heroui/react";
 import { ArrowLeft, Check, Download, Pencil, Trash2, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { API_BASE_URL } from "@/lib/api";
 import { formatDate, formatDuration, languageName } from "@/lib/format";
 import { apiErrorInfo } from "@/lib/api-errors";
+import { shortcutTargetBlocked } from "@/lib/keyboard";
 import { useCan } from "@/lib/use-can";
 import {
   forgetMeetingContent,
+  platformQueryKeys,
   saveDownload,
   useDeleteMeeting,
   useDownloadRecording,
   useMeeting,
+  useMeetingReport,
+  useMeetingSummary,
+  usePlayback,
   useUpdateMeetingTitle,
 } from "@/lib/platform-api";
 import { ErrorState, LoadingState, PageHeader, StatusBadge } from "@/components/platform/Ui";
-import MeetingResults from "@/components/platform/MeetingResults";
+import CallReport from "@/components/platform/CallReport";
+import MeetingDataPanel from "@/components/platform/MeetingDataPanel";
+import MeetingResults, { type ResultsOpenRequest } from "@/components/platform/MeetingResults";
+import PlaybackShortcuts from "@/components/platform/PlaybackShortcuts";
 import ProcessingStatus from "@/components/platform/ProcessingStatus";
-import { QualityPanel } from "@/components/platform/QualityPanel";
 import { PROCESSING_COPY } from "@/components/platform/processing-copy";
+import { REPORT_COPY } from "@/components/platform/report-copy";
+import type { ResultsTab } from "@/components/platform/results-copy";
+import type { CallReportResponse, ReportCompleteness } from "@/types/platform";
 
 const COPY = {
   en: {
@@ -43,6 +54,10 @@ const COPY = {
     playerNote: "Streamed from the server; access is checked again on every request. The audio is not masked.",
     playerUnavailable: "The recording cannot be played (it may have been deleted, or your access or session changed).",
     noRecording: "This meeting has no playable recording.",
+    loadingRecording: "Loading the recording",
+    recordingRetention: "This recording is no longer available. The workspace retention period has passed.",
+    recordingDeleting: "This recording is being deleted and can no longer be played.",
+    recordingStatus: "Recording and transcript status",
     atInvalid: "The requested time is not valid for this meeting; the meeting opens from the start.",
     atOpened: (time: string) => `Opened at ${time}.`,
     atPlayer: "The player is set to this time (press play to listen).",
@@ -67,6 +82,10 @@ const COPY = {
     playerNote: "از سرور پخش می‌شود و در هر درخواست دسترسی دوباره بررسی می‌شود. فایل صوتی پوشانده نمی‌شود.",
     playerUnavailable: "فایل صوتی پخش نشد (ممکن است حذف شده باشد یا دسترسی یا نشست شما تغییر کرده باشد).",
     noRecording: "این جلسه فایل صوتی قابل پخش ندارد.",
+    loadingRecording: "در حال دریافت فایل صوتی",
+    recordingRetention: "این فایل صوتی دیگر در دسترس نیست. دورهٔ نگهداری فضای کاری گذشته است.",
+    recordingDeleting: "این فایل صوتی در حال حذف است و دیگر قابل پخش نیست.",
+    recordingStatus: "وضعیت فایل صوتی و متن",
     atInvalid: "زمان درخواستی برای این جلسه معتبر نیست؛ جلسه از ابتدا باز شد.",
     atOpened: (time: string) => `جلسه در زمان ${time} باز شد.`,
     atPlayer: "پخش‌کننده روی همین زمان قرار گرفته است (برای شنیدن، پخش را بزنید).",
@@ -93,28 +112,52 @@ function parseAt(raw: string | null, durationSeconds: number): { atMs: number | 
   return { atMs: value, invalid: false };
 }
 
+/** A body that is not a call report (a proxy page, a wrong route) shows the error state, never a crash. */
+function isCallReport(value: unknown): value is CallReportResponse {
+  const report = value as Partial<CallReportResponse> | null | undefined;
+  return Boolean(report && report.report_version === 1 && report.qa && report.outcome && report.completeness && Array.isArray(report.review_actions));
+}
+
 /**
  * Inline playback through the workspace-scoped route (gap G11): the session
  * cookie authenticates and the path names the workspace, so a native
  * <audio> element (which cannot send X-Workspace-ID) plays the right
  * workspace's recording, and every Range request is authorized again.
+ *
+ * HOM-247: the element's source is the playback descriptor's `media_url`,
+ * resolved against the API origin. The descriptor decides whether an audio
+ * element exists at all: 404/410 answers replace it with their own wording.
  */
+/** What the playback descriptor allows the `Recording` section to show (HOM-247). */
+type PlayerState = "loading" | "ready" | "retention" | "deleting" | "unavailable";
+
 function RecordingPlayer({
-  workspaceId,
-  meetingId,
+  state,
+  src,
+  completeness,
   atMs,
   lang,
+  audioRef,
+  onFailed,
+  audioEvents,
 }: {
-  workspaceId: string;
-  meetingId: string;
+  state: PlayerState;
+  /** The descriptor's `media_url`, resolved against the API origin; null until it loads. */
+  src: string | null;
+  completeness: ReportCompleteness | null;
   atMs: number | null;
   lang: "fa" | "en";
+  /** Owned by the page, so the call report's evidence buttons can seek and play. */
+  audioRef: RefObject<HTMLAudioElement | null>;
+  /** The element could not load the media: the page stops offering play buttons. */
+  onFailed: () => void;
+  /** The page's listeners, which keep the transcript in step with the audio. */
+  audioEvents: Pick<AudioHTMLAttributes<HTMLAudioElement>, "onPlay" | "onPause" | "onSeeked" | "onTimeUpdate">;
 }) {
   const copy = COPY[lang];
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [failed, setFailed] = useState(false);
-  const src = `${API_BASE_URL}/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/recording`;
 
+  // The element mounts only once the descriptor loads, so the cue waits for
+  // `src` too: a `?at=` link still lands on its time.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || atMs === null) return;
@@ -124,23 +167,39 @@ function RecordingPlayer({
     if (audio.readyState >= 1) cue();
     else audio.addEventListener("loadedmetadata", cue, { once: true });
     return () => audio.removeEventListener("loadedmetadata", cue);
-  }, [atMs, src]);
+  }, [atMs, src, state, audioRef]);
+
+  const statusText = {
+    loading: copy.loadingRecording,
+    retention: copy.recordingRetention,
+    deleting: copy.recordingDeleting,
+    unavailable: copy.playerUnavailable,
+    ready: null,
+  }[state];
 
   return (
     <section className="meeting-player platform-surface" aria-label={copy.player}>
-      {failed ? (
-        <p className="m-0 text-sm text-text-secondary" role="status">{copy.playerUnavailable}</p>
+      {statusText !== null || src === null ? (
+        <p className="m-0 text-sm text-text-secondary" role="status">{statusText ?? copy.playerUnavailable}</p>
       ) : (
         <audio
           ref={audioRef}
           controls
           preload={atMs === null ? "none" : "metadata"}
           src={src}
-          onError={() => setFailed(true)}
+          onError={onFailed}
+          {...audioEvents}
           aria-label={copy.player}
         />
       )}
       <p className="m-0 text-xs text-text-muted">{copy.playerNote}</p>
+      {completeness?.is_complete === false && (
+        <ul className="player-notices" aria-label={copy.recordingStatus}>
+          {completeness.notices.map((code) => (
+            <li key={code}>{REPORT_COPY[lang].notices[code] ?? code}</li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -157,8 +216,24 @@ export default function MeetingDetailPage() {
   const [searchParams] = useSearchParams();
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState("");
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [openRequest, setOpenRequest] = useState<ResultsOpenRequest | null>(null);
+  const [openedForAt, setOpenedForAt] = useState<number | null>(null);
+  // The last evidence start played on this mount. Kept in memory, not in the
+  // history entry, so a reload or Back to the page opens the transcript again.
+  const [playedAt, setPlayedAt] = useState<number | null>(null);
 
   const meeting = useMeeting(meetingId);
+  // Asked once the meeting is known to exist, so a deleted one costs no extra request.
+  const report = useMeetingReport(meeting.data ? meetingId : null);
+  const reportData = isCallReport(report.data) ? report.data : null;
+  // The report has no analysis input view; the summary says whether the
+  // analysis read the masked transcript (gap G10). Asked only when it matters.
+  const summary = useMeetingSummary(reportData?.privacy_enforced && reportData.summary ? meetingId : null);
+  // HOM-247: the playback descriptor, asked only when a recording can play.
+  const playback = usePlayback(meeting.data?.recording && workspace ? meetingId : null);
+  const reportCopy = REPORT_COPY[lang];
   const processingCopy = PROCESSING_COPY[lang];
   const meetingStatus = meeting.isError ? apiErrorInfo(meeting.error).status : null;
   const meetingGone = meetingStatus === 404 || meetingStatus === 410;
@@ -171,6 +246,96 @@ export default function MeetingDetailPage() {
   useEffect(() => {
     if (meetingGone) forgetMeetingContent(queryClient, meetingId);
   }, [meetingGone, meetingId, queryClient]);
+
+  // The meeting query polls while it processes; the report follows its status.
+  const status = meeting.data?.status;
+  const seenStatus = useRef(status);
+  useEffect(() => {
+    if (status === undefined || seenStatus.current === status) return;
+    const first = seenStatus.current === undefined;
+    seenStatus.current = status;
+    if (!first) {
+      void queryClient.invalidateQueries({ queryKey: platformQueryKeys.report(meetingId) });
+      // The player's completeness notices follow the status too (HOM-247).
+      void queryClient.invalidateQueries({ queryKey: platformQueryKeys.playback(meetingId) });
+    }
+  }, [status, meetingId, queryClient]);
+
+  // HOM-247: the recording's source comes from the playback descriptor. A
+  // media error is kept per source, so another meeting starts clean.
+  const mediaSrc = playback.data
+    ? new URL(playback.data.media_url, new URL(API_BASE_URL, window.location.origin)).toString()
+    : null;
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const audioFailed = mediaSrc !== null && failedSrc === mediaSrc;
+  // 404 and 410 mean the recording is gone, even after a first good answer.
+  // Any other error ends playback only when nothing was loaded: a failed
+  // background refetch must not take away a player that works.
+  const playbackStatus = playback.isError ? apiErrorInfo(playback.error).status : null;
+  const playerState =
+    playbackStatus === 410 ? "retention"
+    : playbackStatus === 404 ? "deleting"
+    : (playback.isError && !playback.data) || audioFailed ? "unavailable"
+    : mediaSrc === null ? "loading"
+    : "ready";
+
+  // Where the audio is, in milliseconds. It stays null until the first play
+  // or seek, so no transcript turn is marked before the person listens, and
+  // it belongs to one source, so another meeting starts unmarked.
+  const [position, setPosition] = useState<{ src: string; ms: number } | null>(null);
+  const playbackMs = position !== null && position.src === mediaSrc ? position.ms : null;
+  /** `start`: a play or a seek may begin tracking; time updates only continue it. */
+  function notePosition(start: boolean) {
+    const audio = audioRef.current;
+    if (!audio || mediaSrc === null) return;
+    const ms = audio.currentTime * 1000;
+    setPosition((previous) => (start || previous?.src === mediaSrc ? { src: mediaSrc, ms } : previous));
+  }
+  const audioEvents = {
+    onPlay: () => notePosition(true),
+    onSeeked: () => notePosition(true),
+    onPause: () => notePosition(false),
+    onTimeUpdate: () => notePosition(false),
+  };
+
+  /** The audio's live position, read at the moment a key needs it (N and P). */
+  function positionMs(): number | null {
+    const audio = audioRef.current;
+    return audio ? audio.currentTime * 1000 : null;
+  }
+
+  /** Seeks without playing (N and P in the transcript) and without touching ?at=. */
+  function seekTo(ms: number) {
+    const audio = audioRef.current;
+    if (audio) audio.currentTime = ms / 1000;
+  }
+
+  // K, J and L are page keys (HOM-247). They match the physical key, so a
+  // Persian layout works too, and they do nothing while a field or a dialog
+  // has focus, or when no player is on screen.
+  const durationMs = playback.data?.duration_ms ?? null;
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.code !== "KeyK" && event.code !== "KeyJ" && event.code !== "KeyL") return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (shortcutTargetBlocked(event.target)) return;
+      const audio = audioRef.current;
+      if (!audio) return;
+      event.preventDefault();
+      if (event.code === "KeyK") {
+        if (audio.paused) void audio.play()?.catch(() => undefined);
+        else audio.pause();
+        return;
+      }
+      const delta = event.code === "KeyJ" ? -5 : 5;
+      const duration = Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration
+        : durationMs !== null ? durationMs / 1000 : Infinity;
+      audio.currentTime = Math.min(Math.max(audio.currentTime + delta, 0), duration);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [durationMs]);
 
   if (meeting.isLoading) return <LoadingState label={copy.loading} />;
   if (meetingGone) {
@@ -188,6 +353,40 @@ export default function MeetingDetailPage() {
   const current = meeting.data;
   const hasResults = current.status === "completed" || current.status === "partial";
   const { atMs, invalid: atInvalid } = parseAt(searchParams.get("at"), current.duration_seconds);
+  const canHold = can.has("legal_hold:manage");
+  // HOM-247: play buttons exist only while the audio element is on screen.
+  const canPlay = Boolean(current.recording && workspace) && playerState === "ready";
+  // An evidence play button sets `?at=` too, but only a navigation to `?at=`
+  // (a pasted link, a search result, a reload, Back) opens the transcript.
+  const fromPlay = atMs !== null && atMs === playedAt;
+  const navigatedAt = fromPlay ? null : atMs;
+  if (navigatedAt !== null && navigatedAt !== openedForAt && hasResults) {
+    setOpenedForAt(navigatedAt);
+    setAdvancedOpen(true);
+  }
+
+  function toggleAdvanced(open: boolean) {
+    setAdvancedOpen(open);
+    // Reopening with the trigger starts fresh, not on the last requested tab.
+    if (!open) setOpenRequest(null);
+  }
+
+  function openPanel(panel: ResultsTab, segmentId: string | null = null) {
+    setAdvancedOpen(true);
+    setOpenRequest((previous) => ({ panel, segmentId, seq: (previous?.seq ?? 0) + 1 }));
+  }
+
+  /** One entry point for every "play from here": evidence buttons and transcript turns (HOM-247). */
+  function playFrom(startMs: number) {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = startMs / 1000;
+      // A refused play (autoplay rules) still leaves the player cued.
+      void audio.play()?.catch(() => undefined);
+    }
+    setPlayedAt(startMs);
+    navigate({ pathname: location.pathname, search: `?at=${startMs}` }, { replace: true });
+  }
 
   function saveTitle(event: FormEvent) {
     event.preventDefault();
@@ -271,19 +470,78 @@ export default function MeetingDetailPage() {
       {atMs !== null && (
         <p className="meeting-stage-runs-note" role="status">
           {copy.atOpened(formatDuration(atMs / 1000, lang))}
-          {` ${current.recording && workspace ? copy.atPlayer : copy.noRecording}`}
+          {/* While the descriptor loads it is not known whether the player holds this time: say nothing more yet. */}
+          {canPlay ? ` ${copy.atPlayer}` : playerState === "loading" && current.recording && workspace ? "" : ` ${copy.noRecording}`}
         </p>
       )}
       {current.recording && workspace && (
-        <RecordingPlayer key={`${workspace.id}:${meetingId}`} workspaceId={workspace.id} meetingId={meetingId} atMs={atMs} lang={lang} />
+        <>
+          <RecordingPlayer
+            key={`${workspace.id}:${meetingId}`}
+            state={playerState}
+            src={mediaSrc}
+            completeness={playback.data?.completeness ?? null}
+            atMs={atMs}
+            lang={lang}
+            audioRef={audioRef}
+            onFailed={() => setFailedSrc(mediaSrc)}
+            audioEvents={audioEvents}
+          />
+          {canPlay && <PlaybackShortcuts lang={lang} />}
+        </>
       )}
 
-      {current.quality && <QualityPanel quality={current.quality} />}
+      {report.isLoading ? (
+        <LoadingState label={reportCopy.loading} />
+      ) : report.isError || (report.data !== undefined && !reportData) ? (
+        <ErrorState error={report.error} fallback={reportCopy.failed} />
+      ) : reportData ? (
+        <CallReport
+          report={reportData}
+          canPlay={canPlay}
+          panelsAvailable={hasResults}
+          analysisOnRedacted={
+            reportData.privacy_enforced && reportData.summary !== null && summary.data?.analysis_run?.input_view === "redacted"
+          }
+          onPlay={playFrom}
+          onShowSegment={(segmentId) => openPanel("transcript", segmentId)}
+          onOpenPanel={(panel) => openPanel(panel)}
+        />
+      ) : null}
 
       {uploadReplay && <p className="meeting-stage-runs-note" role="status">{processingCopy.uploadReplay}</p>}
       <ProcessingStatus meeting={current} canReplay={can.manageWorkspace} />
 
-      {hasResults && <MeetingResults meeting={current} atMs={atMs} />}
+      {(hasResults || canHold) && (
+        <Disclosure className="meeting-advanced" isExpanded={advancedOpen} onExpandedChange={toggleAdvanced}>
+          <Disclosure.Heading>
+            <Disclosure.Trigger className="platform-button meeting-advanced-trigger">
+              {reportCopy.advanced}
+              <Disclosure.Indicator />
+            </Disclosure.Trigger>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            {/* Mounted only while open: nothing below is fetched or shown before the user asks. */}
+            {advancedOpen && (
+              <div className="meeting-advanced-body">
+                {hasResults && (
+                  <MeetingResults
+                    meeting={current}
+                    atMs={navigatedAt}
+                    open={openRequest}
+                    canPlay={canPlay}
+                    playbackMs={playbackMs}
+                    onPlayFrom={playFrom}
+                    onSeek={seekTo}
+                    getPositionMs={positionMs}
+                  />
+                )}
+                {canHold && <MeetingDataPanel meetingId={meetingId} />}
+              </div>
+            )}
+          </Disclosure.Content>
+        </Disclosure>
+      )}
 
       {operationError && <ErrorState error={operationError} fallback={copy.operationFailed} />}
     </section>

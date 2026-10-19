@@ -15,7 +15,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -33,6 +33,8 @@ from backend.database.saas_models import (
 from backend.jobs.failures import MEETING_DELETED, cancel_job
 from backend.jobs.outbox import cancel_dispatch, dispatch_job
 from backend.media import MediaValidationError, MediaValidationPolicy, validate_media_upload
+from backend.privacy.transcript_view import choose_view
+from backend.routers.v1.insights import _quality, invalid_time_range
 from backend.schemas.ingestions import IngestionResponse
 from backend.schemas.meetings import (
     JobResponse,
@@ -40,11 +42,13 @@ from backend.schemas.meetings import (
     LegalHoldRequest,
     MediaObjectListResponse,
     MediaObjectResponse,
+    MeetingCountsResponse,
     MeetingDetailResponse,
     MeetingListResponse,
     MeetingQualityResponse,
     MeetingResponse,
     MeetingUpdateRequest,
+    PlaybackResponse,
     RecordingResponse,
     UploadAcceptedResponse,
     UsageResponse,
@@ -57,6 +61,7 @@ from backend.security.context import (
     require_write_permission,
 )
 from backend.security.idempotency import scoped_idempotency_key, validate_idempotency_key
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.conversation_purge_service import (
     REASON_MEETING_DELETED,
@@ -64,7 +69,7 @@ from backend.services.conversation_purge_service import (
     run_purge_attempt,
     tombstone_meeting,
 )
-from backend.services.download_service import deliver_recording
+from backend.services.download_service import deliver_recording, ensure_recording_playable
 from backend.services.entitlement_service import (
     QuotaExceededError,
     get_usage_snapshot,
@@ -103,6 +108,7 @@ from backend.services.meeting_service import (
 )
 from backend.services.quality_service import assess_meeting
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
+from backend.services.report_service import meeting_completeness
 from backend.services.team_service import validate_agent_attribution, validate_team_attribution
 from backend.services.tombstone_journal import (
     JOURNAL_INLINE_LIMIT,
@@ -581,7 +587,7 @@ async def upload_meeting(
             usage = get_usage_snapshot(db, workspace_id, "audio_seconds")
             record_audit_event(
                 db,
-                event_type="meeting.uploaded",
+                event_type=AuditEventType.MEETING_UPLOADED,
                 actor_user_id=context.actor.user.id,
                 workspace_id=workspace_id,
                 target_type="meeting",
@@ -710,6 +716,27 @@ def list_meetings(
     )
 
 
+# Declared before /meetings/{meeting_id}, so "counts" is never read as a meeting id.
+@router.get("/meetings/counts", response_model=MeetingCountsResponse)
+def count_meetings(
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+) -> MeetingCountsResponse:
+    rows = db.execute(
+        select(Meeting.status, func.count())
+        .where(
+            Meeting.workspace_id == context.workspace.id,
+            Meeting.deleted_at.is_(None),
+            context.record_access.meeting_clause(),
+        )
+        .group_by(Meeting.status)
+    ).all()
+    counts = {status.value: 0 for status in MeetingStatus}
+    for status, count in rows:
+        counts[status.value] = int(count)
+    return MeetingCountsResponse(counts=counts, total=sum(counts.values()))
+
+
 @router.get("/meetings/{meeting_id}", response_model=MeetingDetailResponse)
 def get_meeting(
     meeting_id: str,
@@ -799,7 +826,7 @@ def update_meeting(
         )
     record_audit_event(
         db,
-        event_type="meeting.updated",
+        event_type=AuditEventType.MEETING_UPDATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="meeting",
@@ -858,7 +885,7 @@ def delete_meeting(
     )
     record_audit_event(
         db,
-        event_type="meeting.deleted",
+        event_type=AuditEventType.MEETING_DELETED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="meeting",
@@ -1095,12 +1122,13 @@ def download_recording(
         context=context,
         meeting_id=meeting_id,
     )
-    recording: Recording | None = meeting.recording
-    if recording is None or recording.deleted_at is not None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "recording_not_found", "message": "Recording not found"},
-        )
+    recording = ensure_recording_playable(
+        db,
+        workspace=context.workspace,
+        meeting=meeting,
+        recording=meeting.recording,
+        now=datetime.now(UTC),
+    )
 
     return deliver_recording(
         storage=create_object_storage(settings),
@@ -1130,12 +1158,13 @@ def play_recording(
     and expires after ``STORAGE_PRESIGN_TTL_SECONDS`` (expiry-bounded, as for
     downloads)."""
     meeting = _get_meeting(db, context=context, meeting_id=meeting_id)
-    recording: Recording | None = meeting.recording
-    if recording is None or recording.deleted_at is not None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "recording_not_found", "message": "Recording not found"},
-        )
+    recording = ensure_recording_playable(
+        db,
+        workspace=context.workspace,
+        meeting=meeting,
+        recording=meeting.recording,
+        now=datetime.now(UTC),
+    )
     return deliver_recording(
         storage=create_object_storage(settings),
         workspace_id=context.workspace.id,
@@ -1143,4 +1172,91 @@ def play_recording(
         range_header=request.headers.get("range"),
         presign_ttl_seconds=settings.storage_presign_ttl_seconds,
         disposition="inline",
+    )
+
+
+def _seconds(ms: int) -> str:
+    """Milliseconds as seconds: at most 3 decimals, no trailing zeros or dot."""
+    return f"{ms // 1000}.{ms % 1000:03d}".rstrip("0").rstrip(".")
+
+
+def _media_fragment(start_ms: int, end_ms: int | None) -> str:
+    """A W3C Media Fragment, ``#t=<start>`` or ``#t=<start>,<end>`` in seconds.
+
+    Always written, also for the whole recording, so the client never has
+    to special-case a missing fragment."""
+    fragment = f"#t={_seconds(start_ms)}"
+    return fragment if end_ms is None else f"{fragment},{_seconds(end_ms)}"
+
+
+def _playback_duration_ms(recording: Recording, meeting: Meeting) -> int | None:
+    seconds = recording.duration_seconds or meeting.duration_seconds
+    return seconds * 1000 if seconds else None
+
+
+def _playback_window(
+    *, start_ms: int, end_ms: int | None, duration_ms: int | None
+) -> tuple[int, int | None]:
+    """The window to play: a known duration clamps ``end_ms`` and fills a
+    missing one; a window that selects nothing is ``422 invalid_time_range``."""
+    if end_ms is not None and end_ms <= start_ms:
+        raise invalid_time_range()
+    if duration_ms is None:
+        return start_ms, end_ms
+    if start_ms >= duration_ms:
+        raise invalid_time_range("start_ms must be before the end of the recording")
+    return start_ms, duration_ms if end_ms is None else min(end_ms, duration_ms)
+
+
+@router.get("/meetings/{meeting_id}/playback", response_model=PlaybackResponse)
+def get_playback(
+    meeting_id: str,
+    request: Request,
+    start_ms: int = Query(default=0, ge=0, description="Start of the window to play."),
+    end_ms: int | None = Query(
+        default=None, ge=1, description="End of the window; default: the end of the recording."
+    ),
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+) -> PlaybackResponse:
+    """How to play a time window of the recording next to its transcript (HOM-60).
+
+    ``media_url`` is the inline playback route, authorized again on every
+    request (every ``Range`` request too), so it needs no token; ``url``
+    adds the window as a Media Fragment.  The recording must be playable
+    (the same rule as the recording routes).  Audio is never masked, and
+    this read never asks for the original transcript, so it never writes an
+    original-access audit row and never answers 403 for the view."""
+    meeting = _get_meeting(db, context=context, meeting_id=meeting_id)
+    recording = ensure_recording_playable(
+        db,
+        workspace=context.workspace,
+        meeting=meeting,
+        recording=meeting.recording,
+        now=datetime.now(UTC),
+    )
+    duration_ms = _playback_duration_ms(recording, meeting)
+    start_ms, end_ms = _playback_window(start_ms=start_ms, end_ms=end_ms, duration_ms=duration_ms)
+    media_url = str(
+        request.app.url_path_for(
+            "play_recording", workspace_id=context.workspace.id, meeting_id=meeting.id
+        )
+    )
+    # requested=None never raises: the default view needs no permission.
+    policy = choose_view(
+        context.workspace,
+        requested=None,
+        may_read_original=context.has(Permission.PII_ORIGINAL_ACCESS),
+    )
+    return PlaybackResponse(
+        meeting_id=meeting.id,
+        media_url=media_url,
+        url=media_url + _media_fragment(start_ms, end_ms),
+        start_ms=start_ms,
+        end_ms=end_ms,
+        duration_ms=duration_ms,
+        content_type=recording.media_type,
+        size_bytes=recording.size_bytes,
+        completeness=meeting_completeness(status=meeting.status, quality=_quality(db, meeting)),
+        privacy_enforced=policy.enforced,
     )

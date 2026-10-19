@@ -46,7 +46,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
-pythonpath = ["."]
+pythonpath = [".", "sdk/python"]
 addopts = "--strict-markers --disable-warnings"
 markers = [
   "postgres: exercises a PostgreSQL-only guarantee; skipped unless TEST_DATABASE_URL is set",

@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet, useLocation } from "react-router";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { ADMIN_NAV } from "@/lib/navigation";
@@ -8,6 +8,7 @@ import AdminGuard from "@/components/layout/AdminGuard";
 import AuthLayout from "@/components/auth/AuthLayout";
 import ComingSoonPage from "@/components/admin/ComingSoonPage";
 import { ADMIN_PAGES } from "@/components/admin/admin-pages";
+import OrgGuard from "@/components/org/OrgGuard";
 
 const LoginPage = lazy(() => import("@/components/auth/LoginPage"));
 const RegisterPage = lazy(() => import("@/components/auth/RegisterPage"));
@@ -21,8 +22,14 @@ const OverviewPage = lazy(() => import("@/components/platform/OverviewPage"));
 const MeetingsPage = lazy(() => import("@/components/platform/MeetingsPage"));
 const MeetingDetailPage = lazy(() => import("@/components/platform/MeetingDetailPage"));
 const SearchPage = lazy(() => import("@/components/platform/SearchPage"));
+const VoicemailsPage = lazy(() => import("@/components/voicemail/VoicemailsPage"));
 const InvitationAcceptPage = lazy(() => import("@/components/platform/InvitationAcceptPage"));
 const SharedMeetingPage = lazy(() => import("@/components/platform/SharedMeetingPage"));
+
+const OrgOverviewPage = lazy(() => import("@/components/org/OrgOverviewPage"));
+const OrgMembersPage = lazy(() => import("@/components/org/OrgMembersPage"));
+const OrgWorkspacesPage = lazy(() => import("@/components/org/OrgWorkspacesPage"));
+const OrgScopeGrantsPage = lazy(() => import("@/components/org/OrgScopeGrantsPage"));
 
 function RequireAuth() {
   const { status, retrySession } = useAuth();
@@ -100,6 +107,7 @@ export function AppRoutes() {
           <Route index element={<OverviewPage />} />
           <Route path="meetings" element={<MeetingsPage />} />
           <Route path="meetings/:meetingId" element={<MeetingDetailPage />} />
+          <Route path="voicemails" element={<VoicemailsPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="invitations/accept" element={<InvitationAcceptPage />} />
           {ADMIN_NAV.map((entry) => (
@@ -107,12 +115,30 @@ export function AppRoutes() {
               key={entry.path}
               path={entry.path}
               element={
-                <AdminGuard permission={entry.permission}>
+                <AdminGuard entry={entry}>
                   <AdminPage entry={entry} />
                 </AdminGuard>
               }
             />
           ))}
+          {/* Organization pages: guarded by the org role from GET /organizations/{id}, not by the workspace. */}
+          <Route path="org" element={<Navigate to="/" replace />} />
+          <Route
+            path="org/:organizationId"
+            element={<OrgGuard permission="organization:analytics:read"><OrgOverviewPage /></OrgGuard>}
+          />
+          <Route
+            path="org/:organizationId/members"
+            element={<OrgGuard permission="organization:member:read"><OrgMembersPage /></OrgGuard>}
+          />
+          <Route
+            path="org/:organizationId/workspaces"
+            element={<OrgGuard permission="organization:workspace:read"><OrgWorkspacesPage /></OrgGuard>}
+          />
+          <Route
+            path="org/:organizationId/scope-grants"
+            element={<OrgGuard permission="organization:member:read"><OrgScopeGrantsPage /></OrgGuard>}
+          />
         </Route>
       </Route>
 

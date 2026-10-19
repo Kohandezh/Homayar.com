@@ -197,6 +197,11 @@ export interface MeetingListParams {
   status?: MeetingStatus;
 }
 
+export interface MeetingCountsResponse {
+  counts: Record<MeetingStatus, number>;
+  total: number;
+}
+
 export interface UploadMeetingInput {
   file: File;
   idempotencyKey: string;
@@ -266,6 +271,30 @@ export interface TranscriptRedaction {
 
 export type TranscriptView = "original" | "redacted";
 
+/** GET /meetings/{id}/transcript/revisions: newest first, the API's order (HOM-246). */
+export interface TranscriptRevisionListResponse {
+  meeting_id: string;
+  current_revision_id: string | null;
+  items: TranscriptRevision[];
+}
+
+/** One edit of POST /meetings/{id}/transcript/corrections: only the fields that changed. */
+export interface TranscriptCorrectionEdit {
+  segment_id: string;
+  /** 1 to 8000 characters; sent only when the text changed. */
+  text?: string;
+  /** A speaker key known for this meeting; sent only when the speaker changed. */
+  speaker_key?: string;
+}
+
+export interface TranscriptCorrectionInput {
+  /** The revision the person saw while editing; a stale base is refused with 409. */
+  base_revision_id: string;
+  /** The person's reason, 3 to 500 characters after whitespace is collapsed. */
+  reason: string;
+  edits: TranscriptCorrectionEdit[];
+}
+
 /**
  * The view a summary, action item or evidence response was rendered in
  * (gap G10). `redaction` is present only for a redacted view: the texts went
@@ -293,6 +322,46 @@ export interface Transcript {
   view?: TranscriptView;
   privacy_enforced?: boolean;
   redaction?: TranscriptRedaction | null;
+  /** The filters the server applied, present only when the request had any (HOM-247). */
+  filters?: TranscriptResponseFilters | null;
+  /** Segments before filtering, present only on a filtered response (HOM-247). */
+  total_segments?: number | null;
+  /** Same object as the playback descriptor's (HOM-247). */
+  completeness?: ReportCompleteness | null;
+}
+
+/** What GET /meetings/{id}/transcript echoes about the filters it applied (HOM-247). */
+export interface TranscriptResponseFilters {
+  speaker_keys?: string[] | null;
+  start_ms?: number | null;
+  end_ms?: number | null;
+}
+
+/** Client-side transcript filters (HOM-247): sent as repeatable `speaker_key` plus the range. */
+export interface TranscriptFilters {
+  speakerKeys: string[];
+  startMs: number | null;
+  endMs: number | null;
+}
+
+/**
+ * GET /meetings/{id}/playback (HOM-247): what the server says about playing a
+ * meeting's recording. `media_url` is the source the player uses; `url` also
+ * carries a media-fragment cue and is never the element source.
+ */
+export interface PlaybackDescriptor {
+  meeting_id: string;
+  media_url: string;
+  url: string;
+  start_ms: number;
+  end_ms: number | null;
+  duration_ms: number | null;
+  content_type: string;
+  size_bytes: number;
+  accept_ranges: string;
+  completeness: ReportCompleteness;
+  privacy_enforced: boolean;
+  audio_redacted: boolean;
 }
 
 /** POST /meetings/{id}/transcript/redactions/{redaction_id}/reveal (owner, audited). */
@@ -387,6 +456,100 @@ export interface EvidenceRef {
   start_ms: number;
   end_ms: number;
   evidence_type: "turn_reference" | "human";
+}
+
+/** An evidence ref in the call report, resolved to its transcript text (WP12-T02). */
+export interface ReportEvidenceRef extends EvidenceRef {
+  is_current_revision: boolean;
+  text: string;
+}
+
+export interface ReportKeyPoint {
+  index: number;
+  category: string | null;
+  text: string;
+  confidence: number | null;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export interface ReportSummary {
+  overview: string;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+  key_points: ReportKeyPoint[];
+  topics: string[];
+  sentiment: string | null;
+  analysis_run_id: string | null;
+  provider: string;
+  model: string;
+}
+
+export interface ReportDecision {
+  text: string;
+  key_point_index: number | null;
+  confidence: number | null;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export type ReportOutcomeState = "explicit" | "inferred" | "not_stated" | "unavailable";
+
+export interface ReportFinding {
+  finding_type: "summary" | "insight" | "action_item";
+  finding_id: string | null;
+  finding_index: number | null;
+  category: string | null;
+  text: string;
+  evidence_status: EvidenceStatus;
+  supported: boolean;
+  evidence: ReportEvidenceRef[];
+}
+
+export interface ReportFindingCounts {
+  total: number;
+  supported: number;
+  unsupported: number;
+  sufficient: number;
+  partial: number;
+  insufficient: number;
+}
+
+export type ReviewActionKey = "correct_transcript" | "rename_speaker" | "edit_action_items" | "share" | "export";
+
+export interface ReportReviewAction {
+  action: ReviewActionKey;
+  available: boolean;
+  /** `permission_denied`, `no_transcript` or `no_speakers`; null exactly when available. */
+  reason: string | null;
+}
+
+export interface ReportCompleteness {
+  is_complete: boolean;
+  /** Notice codes in the API's fixed order; empty exactly when is_complete. */
+  notices: string[];
+  meeting_status: MeetingStatus;
+  transcription: TranscriptionState;
+  speaker_attribution: SpeakerAttributionState;
+  analysis: AnalysisState;
+  evidence: EvidenceStatus;
+}
+
+/** GET /meetings/{id}/report: the call report for every readable meeting (WP12-T02, HOM-59). */
+export interface CallReportResponse {
+  meeting_id: string;
+  report_version: 1;
+  summary: ReportSummary | null;
+  outcome: { state: ReportOutcomeState; decisions: ReportDecision[] };
+  qa: { quality: MeetingQuality; findings: ReportFinding[]; counts: ReportFindingCounts };
+  review_actions: ReportReviewAction[];
+  completeness: ReportCompleteness;
+  view: TranscriptView;
+  privacy_enforced: boolean;
+  redaction: ContentRedaction | null;
 }
 
 export type ActionPriority = "low" | "medium" | "high";
@@ -579,6 +742,64 @@ export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
 export type AssignableWorkspaceRole = Exclude<WorkspaceRole, "owner">;
 export type InvitationStatus = "pending" | "accepted" | "revoked" | "expired";
 
+/** The roles a person can hold inside a team (backend/schemas/teams.py). */
+export type TeamRole = "supervisor" | "agent";
+
+export interface Team {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+}
+
+export interface TeamListResponse {
+  items: Team[];
+  total: number;
+}
+
+/**
+ * One assignment of a person to a team. Revoked and ended rows stay in the
+ * list as history; `is_effective` is the server's word for "counts now".
+ */
+export interface TeamAssignment {
+  id: string;
+  team_id: string;
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  role: TeamRole;
+  valid_from: IsoDateTime;
+  valid_until: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
+  is_effective: boolean;
+  created_at: IsoDateTime;
+}
+
+export interface TeamDetail extends Team {
+  assignments: TeamAssignment[];
+}
+
+export interface CreateTeamInput {
+  name: string;
+}
+
+/** Exactly one field: a rename or an activation change, never both. */
+export type UpdateTeamInput = { name: string } | { is_active: boolean };
+
+/**
+ * `valid_from`/`valid_until` are sent only when set; the keys are absent
+ * otherwise, because the server treats null and an ISO date differently.
+ */
+export interface AssignTeamMemberInput {
+  user_id: string;
+  role: TeamRole;
+  valid_from?: string;
+  valid_until?: string;
+}
+
 export interface WorkspaceMember {
   id: string;
   user_id: string;
@@ -653,6 +874,17 @@ export interface AuditEventListParams {
   occurred_before?: IsoDateTime;
 }
 
+/** One entry of the event-type catalog (GET /admin/audit-event-types). */
+export interface AuditEventTypeEntry {
+  event_type: string;
+  group: string;
+  target_type: string | null;
+}
+
+export interface AuditEventTypeListResponse {
+  items: AuditEventTypeEntry[];
+}
+
 /**
  * One processing job in the administrator's list
  * (GET /admin/jobs, backend/schemas/admin.py AdminJobResponse). Metadata
@@ -709,6 +941,40 @@ export interface RunPolicySnapshot {
 export interface RunPolicySnapshotListResponse {
   job_id: string;
   items: RunPolicySnapshot[];
+}
+
+/**
+ * One API key of the workspace (GET /api-keys, backend/schemas/api_keys.py).
+ * The raw key itself travels only in `CreatedApiKey`, once, at creation.
+ */
+export interface ApiKey {
+  id: string;
+  name: string;
+  /** 8 hex characters; the raw key was `hk_<key_prefix>.<secret>`. */
+  key_prefix: string;
+  scopes: string[];
+  expires_at: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
+  last_used_at: IsoDateTime | null;
+  created_by_user_id: string;
+  created_at: IsoDateTime;
+}
+
+export interface ApiKeyListResponse {
+  /** Newest first, in server order. */
+  items: ApiKey[];
+}
+
+/** POST /api-keys input: name 1..160 chars, 1..16 scopes, days up to 365. */
+export interface CreateApiKeyInput {
+  name: string;
+  scopes: string[];
+  expires_in_days: number;
+}
+
+/** The 201 answer: the key's own fields plus the raw key, shown only once. */
+export interface CreatedApiKey extends ApiKey {
+  key: string;
 }
 
 /**

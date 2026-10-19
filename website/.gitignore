@@ -5,3 +5,8 @@ next-env.d.ts
 *.tsbuildinfo
 .env*.local
 .next-check
+
+# OpenNext and Wrangler build output, local state, and local secrets
+.open-next
+.wrangler
+.dev.vars*

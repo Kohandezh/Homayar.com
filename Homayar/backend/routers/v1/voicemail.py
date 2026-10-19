@@ -38,6 +38,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import QuotaExceededError
 from backend.services.ingestion_service import IngestionIdentity, audit_rejection
@@ -399,7 +400,7 @@ def update_voicemail_route(
         )
     record_audit_event(
         db,
-        event_type="voicemail.updated",
+        event_type=AuditEventType.VOICEMAIL_UPDATED,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
         target_type="voicemail",

@@ -1,0 +1,222 @@
+{
+  "kind": "homayar-drill-leakage-scan/1",
+  "at": "2026-10-19T10:50:31Z",
+  "clean": true,
+  "missing": [],
+  "categories": {
+    "POSTGRES_PASSWORD": 0,
+    "REDIS_PASSWORD": 0,
+    "JWT_SECRET": 0,
+    "TOKEN_PEPPER": 0,
+    "MINIO_ROOT_PASSWORD": 0,
+    "STORAGE_SECRET_KEY": 0,
+    "backup_key": 0,
+    "offsite_secret": 0,
+    "demo_password": 0,
+    "transcript": 0
+  },
+  "patterns_per_category": {
+    "POSTGRES_PASSWORD": 1,
+    "REDIS_PASSWORD": 1,
+    "JWT_SECRET": 1,
+    "TOKEN_PEPPER": 1,
+    "MINIO_ROOT_PASSWORD": 1,
+    "STORAGE_SECRET_KEY": 1,
+    "backup_key": 3,
+    "offsite_secret": 1,
+    "demo_password": 1,
+    "transcript": 124
+  },
+  "transcript_phrases": 43,
+  "files_scanned": 45,
+  "bytes_scanned": 349837,
+  "excluded": [
+    "backup.key",
+    "drill.env",
+    "evidence/tenants.json",
+    "offsite.env"
+  ],
+  "matches": [],
+  "files": [
+    {
+      "file": "logs/console.log",
+      "bytes": 36486
+    },
+    {
+      "file": "logs/offsite-minio.log",
+      "bytes": 492
+    },
+    {
+      "file": "logs/prod-api.log",
+      "bytes": 9337
+    },
+    {
+      "file": "logs/prod-console-web.log",
+      "bytes": 2272
+    },
+    {
+      "file": "logs/prod-minio-bootstrap.log",
+      "bytes": 739
+    },
+    {
+      "file": "logs/prod-minio.log",
+      "bytes": 954
+    },
+    {
+      "file": "logs/prod-postgres.log",
+      "bytes": 5730
+    },
+    {
+      "file": "logs/prod-proxy.log",
+      "bytes": 11974
+    },
+    {
+      "file": "logs/prod-redis.log",
+      "bytes": 3279
+    },
+    {
+      "file": "logs/prod-scheduler.log",
+      "bytes": 5390
+    },
+    {
+      "file": "logs/prod-worker.log",
+      "bytes": 88258
+    },
+    {
+      "file": "logs/prod.services",
+      "bytes": 76
+    },
+    {
+      "file": "logs/restore-api.log",
+      "bytes": 6017
+    },
+    {
+      "file": "logs/restore-console-web.log",
+      "bytes": 568
+    },
+    {
+      "file": "logs/restore-minio-bootstrap.log",
+      "bytes": 739
+    },
+    {
+      "file": "logs/restore-minio.log",
+      "bytes": 954
+    },
+    {
+      "file": "logs/restore-postgres.log",
+      "bytes": 6666
+    },
+    {
+      "file": "logs/restore-proxy.log",
+      "bytes": 6360
+    },
+    {
+      "file": "logs/restore-redis.log",
+      "bytes": 2167
+    },
+    {
+      "file": "logs/restore-scheduler.log",
+      "bytes": 2355
+    },
+    {
+      "file": "logs/restore-worker.log",
+      "bytes": 14500
+    },
+    {
+      "file": "logs/restore.services",
+      "bytes": 76
+    },
+    {
+      "file": "evidence/backup.out",
+      "bytes": 1853
+    },
+    {
+      "file": "evidence/changes.json",
+      "bytes": 896
+    },
+    {
+      "file": "evidence/drill-timeline.log",
+      "bytes": 1405
+    },
+    {
+      "file": "evidence/fetch.json",
+      "bytes": 229
+    },
+    {
+      "file": "evidence/gate-probes.jsonl",
+      "bytes": 1666
+    },
+    {
+      "file": "evidence/homayar_backup.prom",
+      "bytes": 410
+    },
+    {
+      "file": "evidence/manifest.json",
+      "bytes": 106329
+    },
+    {
+      "file": "evidence/offsite-s3.json",
+      "bytes": 272
+    },
+    {
+      "file": "evidence/pre-backup-changes.json",
+      "bytes": 250
+    },
+    {
+      "file": "evidence/reconciliation-report.json",
+      "bytes": 4169
+    },
+    {
+      "file": "evidence/restore-isolated.out",
+      "bytes": 7615
+    },
+    {
+      "file": "evidence/restore-state.json",
+      "bytes": 1037
+    },
+    {
+      "file": "evidence/restore-timeline.log",
+      "bytes": 464
+    },
+    {
+      "file": "evidence/smoke.json",
+      "bytes": 1836
+    },
+    {
+      "file": "evidence/summary.json",
+      "bytes": 7327
+    },
+    {
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/metrics/.homayar_backup.prom.lock",
+      "bytes": 0
+    },
+    {
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/metrics/homayar_backup.prom",
+      "bytes": 331
+    },
+    {
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/reconciliation-report.json",
+      "bytes": 4169
+    },
+    {
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/restore-state.json",
+      "bytes": 1037
+    },
+    {
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/timeline.log",
+      "bytes": 464
+    },
+    {
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1-gate-probe/restore-state.json",
+      "bytes": 996
+    },
+    {
+      "file": "gate-probes.stderr",
+      "bytes": 1628
+    },
+    {
+      "file": "probe.out",
+      "bytes": 65
+    }
+  ]
+}

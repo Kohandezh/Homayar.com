@@ -38,6 +38,7 @@ from backend.security.context import (
     require_csrf,
 )
 from backend.security.tokens import parse_refresh_session_id, token_digest
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event, record_audit_event_best_effort
 from backend.services.auth_service import (
     AuthenticationError,
@@ -299,7 +300,7 @@ def login(
         # Refused attempt (HOM-114): no raw identifier, only its peppered digest prefix.
         record_audit_event_best_effort(
             db,
-            event_type="auth.login",
+            event_type=AuditEventType.AUTH_LOGIN_FAILED,
             outcome="failure",
             target_type="login_identifier",
             target_id=identifier_key[:16],
@@ -321,7 +322,7 @@ def login(
     )
     record_audit_event(
         db,
-        event_type="auth.login",
+        event_type=AuditEventType.AUTH_LOGIN,
         actor_user_id=user.id,
         target_type="user",
         target_id=user.id,
@@ -361,15 +362,17 @@ def refresh(
         db.commit()
     except RefreshTokenReplayError as exc:
         observe_auth_failure("refresh_replay")
-        # A replayed refresh token revokes its session (security event, HOM-114);
-        # the audit row commits together with the revocation.
+        # A replayed refresh token revokes its session (security event, HOM-114).
+        # The revocation commits first, so a failing audit write can never undo it.
         session_id = parse_refresh_session_id(refresh_token)
         session = db.get(LoginSession, session_id) if session_id else None
-        record_audit_event(
+        actor_user_id = session.user_id if session is not None else None
+        db.commit()
+        record_audit_event_best_effort(
             db,
-            event_type="auth.refresh_replay_detected",
+            event_type=AuditEventType.AUTH_REFRESH_REPLAY_DETECTED,
             outcome="denied",
-            actor_user_id=session.user_id if session is not None else None,
+            actor_user_id=actor_user_id,
             target_type="login_session",
             target_id=session_id,
             request_id=getattr(request.state, "request_id", None),
@@ -377,8 +380,6 @@ def refresh(
             details={"session_revoked": session is not None},
             settings=settings,
         )
-        # Persist the revocation before rejecting the replayed token.
-        db.commit()
         _clear_session_cookies(response, settings)
         raise HTTPException(
             status_code=401,
@@ -420,7 +421,7 @@ def logout(
                 revoke_session(db, session_id)
                 record_audit_event(
                     db,
-                    event_type="auth.logout",
+                    event_type=AuditEventType.AUTH_LOGOUT,
                     actor_user_id=session.user_id,
                     target_type="login_session",
                     target_id=session_id,
@@ -645,7 +646,7 @@ def otp_request(
         # Nothing is committed: the challenge that was never delivered cannot
         # be verified and does not start a resend cooldown.
         db.rollback()
-        logger.error("OTP_DELIVERY_FAILED error_type=%s", exc)
+        logger.error("OTP_DELIVERY_FAILED error_type=%s", type(exc).__name__)
         raise HTTPException(
             status_code=503,
             detail={"code": "otp_delivery_failed", "message": "The code could not be sent"},

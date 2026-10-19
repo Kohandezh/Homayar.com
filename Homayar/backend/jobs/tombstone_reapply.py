@@ -50,6 +50,7 @@ from backend.database.tenant_context import bind_tenant_context
 from backend.jobs.failures import MEETING_DELETED, cancel_job
 from backend.jobs.leases import database_now
 from backend.jobs.outbox import cancel_dispatch
+from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.conversation_purge_service import (
     ACTIVE_JOB_STATES,
@@ -148,7 +149,7 @@ def _reapply_one(
             )
             record_audit_event(
                 db,
-                event_type="meeting.tombstone_reapplied",
+                event_type=AuditEventType.MEETING_TOMBSTONE_REAPPLIED,
                 workspace_id=record.workspace_id,
                 target_type="meeting",
                 target_id=meeting.id,

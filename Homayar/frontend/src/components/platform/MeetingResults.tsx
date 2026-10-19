@@ -1,25 +1,28 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Clipboard, Eye, EyeOff, FileDown, Link2, Plus, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, Clipboard, Eye, EyeOff, FileDown, History, Link2, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { apiErrorInfo } from "@/lib/api-errors";
 import { useI18n } from "@/lib/i18n-context";
 import { formatDate, formatDuration, formatNumber } from "@/lib/format";
+import { shortcutTargetBlocked } from "@/lib/keyboard";
+import { parseTimecodeToMs } from "@/lib/time-range";
 import {
   platformQueryKeys,
   saveDownload,
   useActions,
+  useCorrectTranscript,
   useCreateAction,
   useCreateShare,
   useDeleteAction,
-  useEvidence,
+  useFilteredTranscript,
   useMeetingExport,
-  useMeetingSummary,
   useOriginalTranscript,
   useRenameSpeaker,
   useRevealValue,
   useRevokeShare,
   useShares,
   useTranscript,
+  useTranscriptRevision,
   useUpdateAction,
 } from "@/lib/platform-api";
 import { useCan } from "@/lib/use-can";
@@ -27,22 +30,34 @@ import { statusLabel } from "@/lib/status-labels";
 import type {
   ActionPriority,
   ActionStatus,
-  EvidenceSpan,
   MeetingDetail,
   MeetingExportFormat,
-  SummaryInsight,
   Transcript,
+  TranscriptCorrectionEdit,
+  TranscriptFilters,
   TranscriptSegment,
 } from "@/types/platform";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "@/components/platform/Ui";
-import { PROCESSING_COPY } from "@/components/platform/processing-copy";
+import { EvidenceBadge } from "@/components/platform/CallReport";
 import MaskedText from "@/components/platform/MaskedText";
-import { RESULTS_COPY, type ResultsCopy, type ResultsTab } from "@/components/platform/results-copy";
+import TranscriptCorrectionForm, { type SegmentCorrection } from "@/components/platform/TranscriptCorrectionForm";
+import TranscriptRevisionsDrawer from "@/components/platform/TranscriptRevisionsDrawer";
+import { RESULTS_COPY, type ResultsTab } from "@/components/platform/results-copy";
 
-type Lang = "fa" | "en";
+function availableTabs(manageShares: boolean): ResultsTab[] {
+  return manageShares ? ["transcript", "actions", "shares", "export"] : ["transcript", "actions", "export"];
+}
 
-function EvidenceBadge({ status, copy, lang }: { status: string; copy: ResultsCopy; lang: Lang }) {
-  return <StatusBadge status={`evidence-${status}`} label={`${copy.summary.evidence}: ${statusLabel(status, lang)}`} />;
+/** The requested panel, or the first tab when this role has no such tab. */
+function resolvePanel(panel: ResultsTab, tabs: ResultsTab[]): ResultsTab {
+  return tabs.includes(panel) ? panel : tabs[0];
+}
+
+/** A request from the page to show one panel, applied once per `seq`. */
+export interface ResultsOpenRequest {
+  panel: ResultsTab;
+  segmentId: string | null;
+  seq: number;
 }
 
 function SpeakerEditor({ name, label, saveLabel, onSave }: { name: string; label: string; saveLabel: string; onSave: (value: string) => void }) {
@@ -55,49 +70,8 @@ function SpeakerEditor({ name, label, saveLabel, onSave }: { name: string; label
   );
 }
 
-function SummaryList({
-  title,
-  items,
-  evidence,
-  copy,
-  lang,
-  onShowSegment,
-}: {
-  title: string;
-  items: SummaryInsight[];
-  evidence: Map<string, EvidenceSpan>;
-  copy: ResultsCopy;
-  lang: Lang;
-  onShowSegment: (segmentId: string) => void;
-}) {
-  if (!items.length) return null;
-  return (
-    <section className="meeting-key-points">
-      <h2>{title}</h2>
-      {items.map((point, index) => {
-        const spans = (point.evidence_ids ?? []).map((id) => evidence.get(id)).filter((span): span is EvidenceSpan => Boolean(span));
-        const current = spans.find((span) => span.is_current_revision);
-        return (
-          <article key={`${point.category ?? "item"}-${index}`} className="platform-surface">
-            {point.category && <span>{point.category}</span>}
-            <p dir="auto"><MaskedText text={point.description ?? ""} copy={copy} revealed={{}} /></p>
-            <div className="summary-item-meta">
-              {point.evidence_status && <EvidenceBadge status={point.evidence_status} copy={copy} lang={lang} />}
-              {current ? (
-                <button type="button" className="platform-link-button" onClick={() => onShowSegment(current.segment_id)}>
-                  <Link2 size={13} aria-hidden="true" />
-                  {copy.summary.showSource}
-                </button>
-              ) : spans.length ? (
-                <small>{copy.summary.earlierRevision}</small>
-              ) : null}
-            </div>
-          </article>
-        );
-      })}
-    </section>
-  );
-}
+/** One shared empty list, so hooks that depend on the turns stay stable before a load. */
+const NO_SEGMENTS: TranscriptSegment[] = [];
 
 /** The segment playing at `atMs`: the one containing it, else the last one started before it. */
 function segmentAt(segments: TranscriptSegment[], atMs: number): TranscriptSegment | null {
@@ -109,16 +83,47 @@ function segmentAt(segments: TranscriptSegment[], atMs: number): TranscriptSegme
   return before;
 }
 
-export default function MeetingResults({ meeting, atMs = null }: { meeting: MeetingDetail; atMs?: number | null }) {
+/**
+ * The advanced panels of a meeting (transcript, action items, share links,
+ * export). The call report above them replaces the old summary tab.
+ *
+ * HOM-247: when the page passes a playable audio (`canPlay`), each turn can
+ * start playback, the turn at the audio's position is marked, and the
+ * speaker/time filters are applied by the server on the current view.
+ */
+export default function MeetingResults({
+  meeting,
+  atMs = null,
+  open = null,
+  canPlay = false,
+  playbackMs = null,
+  onPlayFrom,
+  onSeek,
+  getPositionMs,
+}: {
+  meeting: MeetingDetail;
+  atMs?: number | null;
+  open?: ResultsOpenRequest | null;
+  /** Whether the page has a working audio element for this meeting. */
+  canPlay?: boolean;
+  /** Where the audio is, in milliseconds; null until the person plays or seeks. */
+  playbackMs?: number | null;
+  /** Seek, play, and write `?at=` (the page's one play entry point). */
+  onPlayFrom?: (startMs: number) => void;
+  /** Seek without playing (the N and P keys). */
+  onSeek?: (ms: number) => void;
+  /** The audio's live position, read when N or P is pressed; null without audio. */
+  getPositionMs?: () => number | null;
+}) {
   const { lang } = useI18n();
   const copy = RESULTS_COPY[lang];
   const can = useCan();
   const queryClient = useQueryClient();
   const meetingId = meeting.id;
-  const [tab, setTab] = useState<ResultsTab>("summary");
+  const tabs = availableTabs(can.manageShares);
+  const [tab, setTab] = useState<ResultsTab>(() => (open ? resolvePanel(open.panel, tabs) : "transcript"));
   const [exportFormat, setExportFormat] = useState<MeetingExportFormat>("txt");
-  const [speakerFilter, setSpeakerFilter] = useState("");
-  const [focusSegment, setFocusSegment] = useState<string | null>(null);
+  const [focusSegment, setFocusSegment] = useState<string | null>(open?.segmentId ?? null);
   const [originalMode, setOriginalMode] = useState<"off" | "confirm" | "on">("off");
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [revealTarget, setRevealTarget] = useState<{ segmentId: string; placeholder: string } | null>(null);
@@ -132,11 +137,41 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
   const tabRefs = useRef<Partial<Record<ResultsTab, HTMLButtonElement | null>>>({});
   const [appliedAt, setAppliedAt] = useState<number | null>(null);
   const [atOutcome, setAtOutcome] = useState<"found" | "missing" | null>(null);
+  const [appliedOpen, setAppliedOpen] = useState<number | null>(open?.seq ?? null);
+  // HOM-246: one segment's inline correction, its saved note, the read-only
+  // old revision the tab may show, and the history drawer. The saved note
+  // follows the turn's `sequence`: a correction creates a new revision whose
+  // segments have new ids, so the id would no longer match.
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [savedRevision, setSavedRevision] = useState<{ sequence: number; revisionNumber: number } | null>(null);
+  const [viewingRevisionId, setViewingRevisionId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // HOM-247: server-side filters over the current view. The speaker select
+  // applies at once; the time range applies through its Apply button, so its
+  // draft text and its applied range are kept apart.
+  const [speakerFilter, setSpeakerFilter] = useState("");
+  const [rangeFromText, setRangeFromText] = useState("");
+  const [rangeToText, setRangeToText] = useState("");
+  const [appliedRange, setAppliedRange] = useState<{ startMs: number | null; endMs: number | null } | null>(null);
+  const [rangeError, setRangeError] = useState<"format" | "order" | null>(null);
+  const [followAudio, setFollowAudio] = useState(true);
+  const followedTurn = useRef<string | null>(null);
 
   const transcript = useTranscript(meetingId);
+  const oldRevision = useTranscriptRevision(meetingId, viewingRevisionId);
   const original = useOriginalTranscript(originalMode === "on" ? meetingId : null);
-  const summary = useMeetingSummary(meetingId);
-  const evidence = useEvidence(meetingId);
+  // Filters live only on the current view: an old revision or the audited
+  // original is read only, and both reset them on entry.
+  const viewingCurrentView = originalMode !== "on" && viewingRevisionId === null;
+  const filters: TranscriptFilters | null =
+    viewingCurrentView && (speakerFilter !== "" || appliedRange !== null)
+      ? {
+          speakerKeys: speakerFilter !== "" ? [speakerFilter] : [],
+          startMs: appliedRange?.startMs ?? null,
+          endMs: appliedRange?.endMs ?? null,
+        }
+      : null;
+  const filteredTranscript = useFilteredTranscript(meetingId, filters);
   const actions = useActions(meetingId);
   const shares = useShares(can.manageShares ? meetingId : null);
   const meetingExport = useMeetingExport();
@@ -147,24 +182,48 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
   const createShare = useCreateShare();
   const revokeShare = useRevokeShare();
   const reveal = useRevealValue();
+  const correct = useCorrectTranscript();
 
-  const tabs: ResultsTab[] = can.manageShares ? ["summary", "transcript", "actions", "shares"] : ["summary", "transcript", "actions"];
   const redacted = transcript.data?.privacy_enforced === true && transcript.data.view === "redacted";
   const showingOriginal = originalMode === "on" && Boolean(original.data);
-  const shown: Transcript | undefined = showingOriginal ? original.data : transcript.data;
+  const viewingOldRevision = viewingRevisionId !== null;
+  // The view the person chose, before any filter: it decides loading, empty
+  // and the toolbar. `shown` is what the turn list draws.
+  const baseView: Transcript | undefined = viewingOldRevision
+    ? oldRevision.data
+    : showingOriginal
+      ? original.data
+      : transcript.data;
+  const shown: Transcript | undefined = filters ? filteredTranscript.data : baseView;
   const redaction = transcript.data?.redaction ?? null;
-  const canReveal = redacted && !showingOriginal && can.readOriginalTranscript && Boolean(redaction?.id && redaction.mapping_retained);
-  const evidenceById = new Map((evidence.data?.items ?? []).map((span) => [span.id, span]));
+  const canReveal = redacted && !showingOriginal && !viewingOldRevision && can.readOriginalTranscript && Boolean(redaction?.id && redaction.mapping_retained);
+  // Corrections go over the revision the person is looking at: only the
+  // current revision of the normal (not audited original) view is editable.
+  const baseRevision = transcript.data?.revision ?? null;
+  const canEditSegments = can.updateMeeting && !showingOriginal && !viewingOldRevision && baseRevision?.is_current === true;
 
   // A search result's `?at=` (QA Q-01): open the transcript at the segment
   // playing at that time, once per distinct time (back/forward re-applies).
   if (atMs !== null && atMs !== appliedAt && transcript.data) {
     const target = segmentAt(transcript.data.segments, atMs);
     setAppliedAt(atMs);
-    setSpeakerFilter("");
+    resetFilters();
     setTab("transcript");
     setFocusSegment(target?.id ?? null);
     setAtOutcome(target ? "found" : "missing");
+    // The `?at=` time is of the current transcript, so the current view opens.
+    setViewingRevisionId(null);
+  }
+
+  // A review action or "Show in transcript" from the call report.
+  if (open && open.seq !== appliedOpen) {
+    setAppliedOpen(open.seq);
+    setTab(resolvePanel(open.panel, tabs));
+    resetFilters();
+    if (open.segmentId) {
+      setFocusSegment(open.segmentId);
+      setViewingRevisionId(null);
+    }
   }
 
   // Originals and revealed values never outlive the view that asked for them.
@@ -174,22 +233,117 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
     };
   }, [meetingId, queryClient]);
 
+  // Focus the requested segment by id, or the turn a correction was saved for
+  // by `sequence`: a correction creates a new revision whose segments have new
+  // ids, so the id the editor knew may no longer be on the page.
   useEffect(() => {
-    if (!focusSegment || tab !== "transcript") return;
-    const element = document.getElementById(`segment-${focusSegment}`);
-    element?.scrollIntoView?.({ block: "center" });
-    element?.focus();
-  }, [focusSegment, tab, shown]);
+    if (tab !== "transcript") return;
+    const element =
+      (focusSegment ? document.getElementById(`segment-${focusSegment}`) : null)
+      ?? (savedRevision ? document.querySelector(`[data-sequence="${savedRevision.sequence}"]`) : null);
+    if (!element) return;
+    element.scrollIntoView?.({ block: "center" });
+    element.focus();
+  }, [focusSegment, tab, shown, appliedOpen, savedRevision]);
+
+  // A review action lands on its tab, so keyboard users start there.
+  useEffect(() => {
+    if (appliedOpen === null || !open || open.seq !== appliedOpen || open.segmentId) return;
+    tabRefs.current[resolvePanel(open.panel, availableTabs(can.manageShares))]?.focus();
+  }, [appliedOpen, open, can.manageShares]);
+
+  /** Back to the whole current view: no speaker, no time range, no draft text. */
+  function resetFilters() {
+    setSpeakerFilter("");
+    setRangeFromText("");
+    setRangeToText("");
+    setAppliedRange(null);
+    setRangeError(null);
+  }
+
+  /** The time form applies on submit; a bad entry shows why and sends nothing. */
+  function applyTimeRange(event: FormEvent) {
+    event.preventDefault();
+    const fromText = rangeFromText.trim();
+    const toText = rangeToText.trim();
+    const startMs = fromText ? parseTimecodeToMs(fromText) : null;
+    const endMs = toText ? parseTimecodeToMs(toText) : null;
+    if ((fromText && startMs === null) || (toText && endMs === null)) {
+      setRangeError("format");
+      return;
+    }
+    if (startMs !== null && endMs !== null && endMs <= startMs) {
+      setRangeError("order");
+      return;
+    }
+    setRangeError(null);
+    setAppliedRange(startMs === null && endMs === null ? null : { startMs, endMs });
+    leaveEditMode();
+  }
+
+  /** A turn's text plays from its start, unless the click was on a control or ended a text selection. */
+  function playFromText(event: MouseEvent<HTMLElement>, segment: TranscriptSegment) {
+    if (!canPlay || !onPlayFrom) return;
+    if (event.target instanceof Element && event.target.closest("button, a, input, textarea, select, form")) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    onPlayFrom(segment.start_ms);
+  }
 
   function hideOriginal() {
     setOriginalMode("off");
     queryClient.removeQueries({ queryKey: platformQueryKeys.transcriptOriginal(meetingId) });
   }
 
+  /** The inline edit form never outlives the view it was opened in. */
+  function leaveEditMode() {
+    setEditingSegmentId(null);
+    correct.reset();
+  }
+
+  /** An old revision is read only: no edit form, no audited original on top of it. */
+  function viewRevision(revisionId: string) {
+    setHistoryOpen(false);
+    setViewingRevisionId(revisionId);
+    leaveEditMode();
+    resetFilters();
+    if (originalMode !== "off") hideOriginal();
+  }
+
   function showSegment(segmentId: string) {
-    setSpeakerFilter("");
+    resetFilters();
     setTab("transcript");
     setFocusSegment(segmentId);
+    setViewingRevisionId(null);
+  }
+
+  /** One correction over the base revision (HOM-246); only changed fields are sent. */
+  function submitCorrection(segment: TranscriptSegment, correction: SegmentCorrection) {
+    if (!baseRevision) return;
+    const edit: TranscriptCorrectionEdit = { segment_id: segment.id };
+    if (correction.text !== undefined) edit.text = correction.text;
+    if (correction.speaker_key !== undefined) edit.speaker_key = correction.speaker_key;
+    correct.mutate(
+      {
+        meetingId,
+        input: { base_revision_id: baseRevision.id, reason: correction.reason, edits: [edit] },
+      },
+      {
+        onSuccess: (result) => {
+          setEditingSegmentId(null);
+          correct.reset();
+          setSavedRevision({ sequence: segment.sequence, revisionNumber: result.revision?.revision_number ?? 0 });
+        },
+      },
+    );
+  }
+
+  /** The revision_stale way out: drop the form and read the changed transcript. */
+  function reloadTranscript() {
+    setEditingSegmentId(null);
+    correct.reset();
+    void queryClient.invalidateQueries({ queryKey: platformQueryKeys.transcript(meetingId), exact: true });
+    void queryClient.invalidateQueries({ queryKey: platformQueryKeys.transcriptFilteredRoot(meetingId) });
   }
 
   function onTabKey(event: KeyboardEvent<HTMLButtonElement>) {
@@ -240,75 +394,68 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
     );
   }
 
-  const summaryMissing = summary.isError && apiErrorInfo(summary.error).code === "summary_not_ready";
   // Each tab states the view of its own response (gap G10), never the
   // transcript's.
-  const summaryView = summary.data?.view ?? null;
-  const summaryEnforced = summary.data?.privacy_enforced === true;
   const actionsRedacted = (actions.data ?? []).some((action) => action.view === "redacted");
   const actionsOriginalEnforced = (actions.data ?? []).some(
     (action) => action.view === "original" && action.privacy_enforced === true,
   );
-  const analysisReason = meeting.quality?.degradations.find((item) => item.stage === "intelligence")?.reason
-    ?? meeting.latest_job?.stages.find((run) => run.stage === "intelligence" && run.reason_code)?.reason_code
-    ?? null;
   const originalError = original.isError ? apiErrorInfo(original.error).code : null;
   const revealCode = reveal.isError ? apiErrorInfo(reveal.error).code : null;
-  const segments = (shown?.segments ?? []).filter((segment) => !speakerFilter || segment.speaker_key === speakerFilter);
+  // The server filters the current view (HOM-247); the list shows its answer as is.
+  const segments = shown?.segments ?? NO_SEGMENTS;
+  const totalTurns = filteredTranscript.data?.total_segments ?? transcript.data?.segments.length ?? 0;
+  const currentTurn = playbackMs !== null ? segmentAt(segments, playbackMs) : null;
+  // The edit is alive only while its segment is on screen: a filter change or
+  // a refetched revision (new segment ids) ends it silently, so a vanished
+  // segment can never block every Edit button.
+  const editingSegment = editingSegmentId === null
+    ? null
+    : (segments.find((segment) => segment.id === editingSegmentId) ?? null);
+
+  // Follow the audio (HOM-247): when the current turn changes, bring it into
+  // view with the smallest scroll. Focus never moves, and an open correction
+  // or reveal form keeps the list where the person left it.
+  const currentTurnId = currentTurn?.id ?? null;
+  const followPaused = editingSegment !== null || revealTarget !== null;
+  useEffect(() => {
+    if (currentTurnId === followedTurn.current) return;
+    followedTurn.current = currentTurnId;
+    if (currentTurnId === null || !followAudio || tab !== "transcript" || followPaused) return;
+    document.getElementById(`segment-${currentTurnId}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [currentTurnId, followAudio, tab, followPaused]);
+
+  // N and P (HOM-247) move between the turns on screen. They seek without
+  // playing, and like the page keys they leave fields and dialogs alone.
+  const turnKeysOn = canPlay && tab === "transcript" && segments.length > 0;
+  useEffect(() => {
+    if (!turnKeysOn || !onSeek) return;
+    const seek = onSeek;
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.code !== "KeyN" && event.code !== "KeyP") return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (shortcutTargetBlocked(event.target)) return;
+      // The live time, not the last media event: two quick presses walk two
+      // turns. Before any play or seek there is still no current turn.
+      const liveMs = playbackMs === null ? null : (getPositionMs?.() ?? playbackMs);
+      const current = liveMs !== null ? segmentAt(segments, liveMs) : null;
+      const index = current ? segments.indexOf(current) : -1;
+      const target = event.code === "KeyN"
+        ? segments[index + 1]
+        : segments[Math.max(index - 1, 0)];
+      // N on the last turn has nowhere to go.
+      if (!target) return;
+      event.preventDefault();
+      seek(target.start_ms);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [turnKeysOn, onSeek, getPositionMs, segments, playbackMs]);
   const operationError =
     meetingExport.error ?? createAction.error ?? updateAction.error ?? deleteAction.error ?? renameSpeaker.error ?? createShare.error ?? revokeShare.error;
 
   return (
     <div className="meeting-results">
-      {redacted && (
-        <section className="privacy-notice" aria-label={copy.transcript.privacyTitle}>
-          <ShieldCheck size={16} aria-hidden="true" />
-          <div>
-            <p>
-              {copy.transcript.masked(
-                formatNumber(redaction?.entity_count ?? 0, lang),
-                (redaction?.classes ?? []).map((value) => copy.transcript.classes[value] ?? value).join(lang === "fa" ? "، " : ", "),
-              )}
-            </p>
-            <p>{copy.transcript.maskedLimits}</p>
-            {can.readOriginalTranscript && originalMode === "off" && (
-              <button type="button" className="platform-button" onClick={() => setOriginalMode("confirm")}>
-                <Eye size={15} aria-hidden="true" />
-                {copy.transcript.showOriginal}
-              </button>
-            )}
-            {originalMode === "confirm" && (
-              <div className="privacy-confirm" role="alertdialog" aria-label={copy.transcript.showOriginal}>
-                <p>{copy.transcript.confirmOriginal}</p>
-                <button
-                  type="button"
-                  className="platform-button platform-button-primary"
-                  onClick={() => { setOriginalMode("on"); setTab("transcript"); }}
-                  autoFocus
-                >
-                  {copy.transcript.confirmOriginalAction}
-                </button>
-                <button type="button" className="platform-button" onClick={() => setOriginalMode("off")}>{copy.transcript.cancel}</button>
-              </div>
-            )}
-            {showingOriginal && (
-              <div className="privacy-original" role="status">
-                <p>{copy.transcript.viewingOriginal}</p>
-                <button type="button" className="platform-button" onClick={hideOriginal}>
-                  <EyeOff size={15} aria-hidden="true" />
-                  {copy.transcript.hideOriginal}
-                </button>
-              </div>
-            )}
-            {originalError && (
-              <p role="alert" className="privacy-error">
-                {originalError === "original_access_denied" ? copy.transcript.originalDenied : copy.transcript.originalFailed}
-              </p>
-            )}
-          </div>
-        </section>
-      )}
-
       <div className="meeting-detail-toolbar">
         <div className="meeting-tabs" role="tablist" aria-label={copy.tabList}>
           {tabs.map((item) => (
@@ -329,102 +476,174 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
             </button>
           ))}
         </div>
-        <div className="meeting-export-control">
-          <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as MeetingExportFormat)} aria-label={copy.exportFormat}>
-            <option value="txt">TXT</option>
-            <option value="json">JSON</option>
-            <option value="srt">SRT</option>
-            <option value="vtt">VTT</option>
-          </select>
-          <button
-            type="button"
-            className="platform-icon-button"
-            onClick={() => meetingExport.mutate({ meetingId, format: exportFormat }, { onSuccess: saveDownload })}
-            disabled={meetingExport.isPending}
-            title={copy.exportAction}
-            aria-label={copy.exportAction}
-          >
-            <FileDown size={15} aria-hidden="true" />
-          </button>
-        </div>
       </div>
 
       <div id={`meeting-panel-${tab}`} role="tabpanel" aria-labelledby={`meeting-tab-${tab}`} tabIndex={0} className="meeting-tab-panel">
-        {tab === "summary" && (
-          <div className="meeting-summary-view">
-            {summary.isLoading ? (
-              <LoadingState label={copy.loading} />
-            ) : summaryMissing ? (
-              <div className="platform-state platform-empty-state" role="status">
-                <span>
-                  {copy.summary.notReady}{" "}
-                  {analysisReason && copy.summary.unavailableBecause(PROCESSING_COPY[lang].reasons[analysisReason] ?? analysisReason)}
-                </span>
-              </div>
-            ) : summary.isError ? (
-              <ErrorState error={summary.error} fallback={copy.summary.failed} />
-            ) : summary.data ? (
-              <>
-                <section className="platform-surface meeting-summary-overview">
-                  <h2>
-                    {copy.summary.overview}
-                    {summary.data.evidence_status && <EvidenceBadge status={summary.data.evidence_status} copy={copy} lang={lang} />}
-                  </h2>
-                  {summaryView === "redacted" && <p className="content-view-note">{copy.contentView.summaryRedacted}</p>}
-                  {summaryView === "original" && summaryEnforced && <p className="content-view-note">{copy.contentView.summaryOriginal}</p>}
-                  {summary.data.analysis_run?.input_view === "redacted" && (
-                    <p className="content-view-note">{copy.contentView.analysisOnRedacted}</p>
-                  )}
-                  <p dir="auto"><MaskedText text={summary.data.overview} copy={copy} revealed={{}} /></p>
-                  {summary.data.analysis_run?.is_mock && <p className="meeting-stage-mock">{copy.summary.mock}</p>}
-                  {summary.data.topics.length > 0 && (
-                    <div className="meeting-topics" aria-label={copy.summary.topics}>
-                      {summary.data.topics.map((topic) => <span key={topic} dir="auto">{topic}</span>)}
-                    </div>
-                  )}
-                </section>
-                <SummaryList title={copy.summary.decisions} items={summary.data.decisions} evidence={evidenceById} copy={copy} lang={lang} onShowSegment={showSegment} />
-                <SummaryList title={copy.summary.keyPoints} items={summary.data.key_points} evidence={evidenceById} copy={copy} lang={lang} onShowSegment={showSegment} />
-              </>
-            ) : null}
-          </div>
-        )}
-
         {tab === "transcript" && (
           <div className="meeting-transcript-view">
+            {redacted && (
+              <section className="privacy-notice" aria-label={copy.transcript.privacyTitle}>
+                <ShieldCheck size={16} aria-hidden="true" />
+                <div>
+                  <p>
+                    {copy.transcript.masked(
+                      formatNumber(redaction?.entity_count ?? 0, lang),
+                      (redaction?.classes ?? []).map((value) => copy.transcript.classes[value] ?? value).join(lang === "fa" ? "، " : ", "),
+                    )}
+                  </p>
+                  <p>{copy.transcript.maskedLimits}</p>
+                  {can.readOriginalTranscript && originalMode === "off" && !viewingOldRevision && (
+                    <button type="button" className="platform-button" onClick={() => setOriginalMode("confirm")}>
+                      <Eye size={15} aria-hidden="true" />
+                      {copy.transcript.showOriginal}
+                    </button>
+                  )}
+                  {originalMode === "confirm" && (
+                    <div className="privacy-confirm" role="alertdialog" aria-label={copy.transcript.showOriginal}>
+                      <p>{copy.transcript.confirmOriginal}</p>
+                      <button
+                        type="button"
+                        className="platform-button platform-button-primary"
+                        onClick={() => {
+                          setOriginalMode("on");
+                          setTab("transcript");
+                          // The two read-only views exclude each other.
+                          setViewingRevisionId(null);
+                          leaveEditMode();
+                          resetFilters();
+                        }}
+                        autoFocus
+                      >
+                        {copy.transcript.confirmOriginalAction}
+                      </button>
+                      <button type="button" className="platform-button" onClick={() => setOriginalMode("off")}>{copy.transcript.cancel}</button>
+                    </div>
+                  )}
+                  {showingOriginal && (
+                    <div className="privacy-original" role="status">
+                      <p>{copy.transcript.viewingOriginal}</p>
+                      <button type="button" className="platform-button" onClick={hideOriginal}>
+                        <EyeOff size={15} aria-hidden="true" />
+                        {copy.transcript.hideOriginal}
+                      </button>
+                    </div>
+                  )}
+                  {originalError && (
+                    <p role="alert" className="privacy-error">
+                      {originalError === "original_access_denied" ? copy.transcript.originalDenied : copy.transcript.originalFailed}
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
             {atOutcome && appliedAt !== null && (
               <p className="content-view-note" role="status">
                 {atOutcome === "found" ? copy.transcript.atFound(formatDuration(appliedAt / 1000, lang)) : copy.transcript.atMissing}
               </p>
             )}
-            {transcript.isLoading || (originalMode === "on" && original.isLoading) ? (
+            {viewingOldRevision && oldRevision.data?.revision && (
+              <div className="transcript-revision-banner" role="status">
+                <p className="m-0">
+                  {copy.revisions.viewingRevision(formatNumber(oldRevision.data.revision.revision_number, lang))}
+                </p>
+                <button type="button" className="platform-button" onClick={() => setViewingRevisionId(null)}>
+                  {copy.revisions.backToCurrent}
+                </button>
+              </div>
+            )}
+            {transcript.isLoading || (originalMode === "on" && original.isLoading) || (viewingOldRevision && oldRevision.isLoading) ? (
               <LoadingState label={copy.loading} />
-            ) : transcript.isError ? (
-              <ErrorState error={transcript.error} fallback={copy.transcript.failed} />
-            ) : !shown?.segments.length ? (
+            ) : transcript.isError || (viewingOldRevision && oldRevision.isError) ? (
+              <ErrorState
+                error={viewingOldRevision ? oldRevision.error : transcript.error}
+                fallback={copy.transcript.failed}
+              />
+            ) : !baseView?.segments.length ? (
               <EmptyState label={copy.transcript.empty} />
             ) : (
               <>
+                {/* The toolbar stays mounted while a filtered read loads or fails: the
+                    select keeps focus, and a failed filter can still be cleared. */}
                 <div className="transcript-toolbar">
-                  <label>
-                    <span>{copy.transcript.speakerFilter}</span>
-                    <select value={speakerFilter} onChange={(event) => setSpeakerFilter(event.target.value)}>
-                      <option value="">{copy.transcript.allSpeakers}</option>
-                      {shown.speakers.map((speaker) => (
-                        <option key={speaker.id} value={speaker.speaker_key}>{speaker.display_name ?? speaker.speaker_key}</option>
-                      ))}
-                    </select>
-                  </label>
+                  {/* Filters belong to the current view; the two read-only views show every turn. */}
+                  {viewingCurrentView && (
+                    <label>
+                      <span>{copy.transcript.speakerFilter}</span>
+                      <select
+                        value={speakerFilter}
+                        onChange={(event) => {
+                          setSpeakerFilter(event.target.value);
+                          // Filtering swaps the turns on screen, so an open form
+                          // would be editing a turn that is no longer shown.
+                          leaveEditMode();
+                        }}
+                      >
+                        <option value="">{copy.transcript.allSpeakers}</option>
+                        {baseView.speakers.map((speaker) => (
+                          <option key={speaker.id} value={speaker.speaker_key}>{speaker.display_name ?? speaker.speaker_key}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {viewingCurrentView && (
+                    <form className="transcript-time-filter" onSubmit={applyTimeRange} noValidate>
+                      <label>
+                        <span>{copy.transcript.timeFrom}</span>
+                        <input
+                          className="platform-input"
+                          value={rangeFromText}
+                          onChange={(event) => setRangeFromText(event.target.value)}
+                          inputMode="numeric"
+                          dir="ltr"
+                          placeholder="0:00"
+                        />
+                      </label>
+                      <label>
+                        <span>{copy.transcript.timeTo}</span>
+                        <input
+                          className="platform-input"
+                          value={rangeToText}
+                          onChange={(event) => setRangeToText(event.target.value)}
+                          inputMode="numeric"
+                          dir="ltr"
+                          placeholder="1:05"
+                        />
+                      </label>
+                      <button type="submit" className="platform-button">{copy.transcript.applyTimeRange}</button>
+                      {rangeError && (
+                        <p role="alert" className="transcript-time-error">
+                          {rangeError === "format" ? copy.transcript.timeInvalid : copy.transcript.timeOrder}
+                        </p>
+                      )}
+                    </form>
+                  )}
+                  {filters && (
+                    <button type="button" className="platform-button" onClick={resetFilters}>
+                      <X size={15} aria-hidden="true" />
+                      {copy.transcript.clearFilters}
+                    </button>
+                  )}
+                  {canPlay && (
+                    <label className="transcript-follow">
+                      <input type="checkbox" checked={followAudio} onChange={(event) => setFollowAudio(event.target.checked)} />
+                      <span>{copy.transcript.followAudio}</span>
+                    </label>
+                  )}
                   {Object.keys(revealed).length > 0 && (
                     <button type="button" className="platform-button" onClick={() => setRevealed({})}>
                       <EyeOff size={15} aria-hidden="true" />
                       {copy.transcript.hideValue}
                     </button>
                   )}
+                  <button type="button" className="platform-button" onClick={() => setHistoryOpen(true)}>
+                    <History size={15} aria-hidden="true" />
+                    {copy.revisions.title}
+                  </button>
                 </div>
-                {can.updateMeeting && shown.speakers.length > 0 && (
+                {/* The rename forms edit the current view; an old revision is read only. */}
+                {can.updateMeeting && !viewingOldRevision && baseView.speakers.length > 0 && (
                   <div className="meeting-speaker-list" aria-label={copy.transcript.speakers}>
-                    {shown.speakers.map((speaker) => {
+                    {baseView.speakers.map((speaker) => {
                       const name = speaker.display_name ?? speaker.speaker_key;
                       return (
                         <SpeakerEditor
@@ -438,21 +657,86 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
                     })}
                   </div>
                 )}
+                {/* Only the turn list waits for, or fails with, the filtered read. */}
+                {filters && filteredTranscript.isLoading ? (
+                  <LoadingState label={copy.loading} />
+                ) : filters && filteredTranscript.isError ? (
+                  <ErrorState error={filteredTranscript.error} fallback={copy.transcript.failed} />
+                ) : (
+                <>
+                {filters && (
+                  <p className="content-view-note" role="status">
+                    {copy.transcript.showing(formatNumber(segments.length, lang), formatNumber(totalTurns, lang))}
+                  </p>
+                )}
+                {filters && segments.length === 0 && <EmptyState label={copy.transcript.noMatches} />}
                 <div className="meeting-segments">
                   {segments.map((segment) => (
-                    <article id={`segment-${segment.id}`} key={segment.id} className="meeting-segment" tabIndex={-1}>
+                    <article
+                      id={`segment-${segment.id}`}
+                      key={segment.id}
+                      className={segment.id === currentTurnId ? "meeting-segment is-playing" : "meeting-segment"}
+                      aria-current={segment.id === currentTurnId ? "true" : undefined}
+                      tabIndex={-1}
+                      data-sequence={segment.sequence}
+                    >
                       <div>
                         <strong dir="auto">{segment.speaker_name}</strong>
-                        <time dir="ltr">{formatDuration(segment.start_ms / 1000, lang)}</time>
+                        {canPlay && onPlayFrom ? (
+                          <button
+                            type="button"
+                            className="segment-play"
+                            onClick={() => onPlayFrom(segment.start_ms)}
+                            aria-label={copy.transcript.playFrom(formatDuration(segment.start_ms / 1000, lang))}
+                          >
+                            <time dir="ltr">{formatDuration(segment.start_ms / 1000, lang)}</time>
+                          </button>
+                        ) : (
+                          <time dir="ltr">{formatDuration(segment.start_ms / 1000, lang)}</time>
+                        )}
+                        {canEditSegments && editingSegment === null && (
+                          <button
+                            type="button"
+                            className="platform-icon-button"
+                            onClick={() => { setEditingSegmentId(segment.id); setSavedRevision(null); }}
+                            aria-label={copy.correction.editTurn(formatDuration(segment.start_ms / 1000, lang))}
+                          >
+                            <Pencil size={14} aria-hidden="true" />
+                          </button>
+                        )}
                       </div>
-                      <p dir="auto">
-                        <MaskedText
-                          text={segment.text}
-                          copy={copy}
-                          revealed={revealed}
-                          onPick={canReveal ? (placeholder) => { reveal.reset(); setRevealTarget({ segmentId: segment.id, placeholder }); } : undefined}
+                      {/* The form lives only in the view that allows editing it. */}
+                      {canEditSegments && editingSegment?.id === segment.id ? (
+                        <TranscriptCorrectionForm
+                          segment={segment}
+                          speakers={baseView.speakers}
+                          isPending={correct.isPending}
+                          error={correct.error}
+                          onSave={(correction) => submitCorrection(segment, correction)}
+                          onCancel={() => { setEditingSegmentId(null); correct.reset(); }}
+                          onReload={reloadTranscript}
                         />
-                      </p>
+                      ) : (
+                        <>
+                          <p
+                            dir="auto"
+                            className={canPlay ? "segment-text is-playable" : undefined}
+                            onClick={(event) => playFromText(event, segment)}
+                          >
+                            <MaskedText
+                              text={segment.text}
+                              copy={copy}
+                              revealed={revealed}
+                              onPick={canReveal ? (placeholder) => { reveal.reset(); setRevealTarget({ segmentId: segment.id, placeholder }); } : undefined}
+                            />
+                          </p>
+                          {savedRevision?.sequence === segment.sequence && (
+                            <p className="segment-saved-note" role="status">
+                              {copy.correction.savedAsRevision(formatNumber(savedRevision.revisionNumber, lang))}
+                            </p>
+                          )}
+                        </>
+                      )}
                       {revealTarget?.segmentId === segment.id && (
                         <form className="pii-reveal-form" onSubmit={submitReveal}>
                           <label>
@@ -479,6 +763,8 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
                     </article>
                   ))}
                 </div>
+                </>
+                )}
               </>
             )}
           </div>
@@ -509,7 +795,7 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
                         <div>
                           <strong dir="auto"><MaskedText text={action.description} copy={copy} revealed={{}} /></strong>
                           {action.assignee_text && <span dir="auto"><MaskedText text={action.assignee_text} copy={copy} revealed={{}} /></span>}
-                          {action.evidence_status && <EvidenceBadge status={action.evidence_status} copy={copy} lang={lang} />}
+                          {action.evidence_status && <EvidenceBadge status={action.evidence_status} lang={lang} />}
                         </div>
                       </div>
                       <div className="action-controls">
@@ -534,6 +820,31 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "export" && (
+          <div className="meeting-export-view">
+            <div className="meeting-export-control platform-surface">
+              <label>
+                <span>{copy.exportFormat}</span>
+                <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as MeetingExportFormat)}>
+                  <option value="txt">TXT</option>
+                  <option value="json">JSON</option>
+                  <option value="srt">SRT</option>
+                  <option value="vtt">VTT</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="platform-button"
+                onClick={() => meetingExport.mutate({ meetingId, format: exportFormat }, { onSuccess: saveDownload })}
+                disabled={meetingExport.isPending}
+              >
+                <FileDown size={15} aria-hidden="true" />
+                {copy.exportAction}
+              </button>
+            </div>
           </div>
         )}
 
@@ -586,6 +897,13 @@ export default function MeetingResults({ meeting, atMs = null }: { meeting: Meet
           </div>
         )}
       </div>
+
+      <TranscriptRevisionsDrawer
+        meetingId={meetingId}
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onViewRevision={viewRevision}
+      />
 
       {operationError && <ErrorState error={operationError} fallback={copy.operationFailed} />}
     </div>
