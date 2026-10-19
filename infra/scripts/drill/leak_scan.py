@@ -15,6 +15,12 @@ key bytes), ``offsite_secret`` ($HOMAYAR_BACKUP_S3_SECRET_KEY),
 ``demo_password`` and ``transcript`` (every scripted turn, summary, action
 and decision of ``demo_seed.SCRIPTS``, whole and as a 20-character prefix,
 raw and JSON-escaped). Exit 1 when anything matched.
+
+``--expect-logs DIR PREFIX...`` asserts the log set is complete: for each
+prefix, ``DIR/PREFIX.services`` (written by the drill's collect_logs) must
+list at least one service and ``DIR/PREFIX-<service>.log`` must exist for
+each, non-empty; ``--expect-files`` names further files that must exist. A missing log
+is reported (``missing``) and also exits 1: an unscanned log is not clean.
 """
 
 from __future__ import annotations
@@ -107,6 +113,28 @@ def _files(root: Path, targets: list[str], excluded: set[Path]) -> list[Path]:
     return files
 
 
+def _missing(root: Path, expect_logs: list[str], expect_files: list[str]) -> list[str]:
+    def absent(path: Path) -> bool:  # a log must exist and hold something
+        return not path.is_file() or path.stat().st_size == 0
+
+    missing = [f for f in expect_files if absent(root / f)]
+    if expect_logs:
+        directory, prefixes = expect_logs[0], expect_logs[1:]
+        if not prefixes:
+            raise SystemExit("--expect-logs needs a directory and at least one prefix")
+        for prefix in prefixes:
+            listing = root / directory / f"{prefix}.services"
+            services = listing.read_text().split() if listing.is_file() else []
+            if not services:
+                missing.append(str(listing.relative_to(root)))
+            missing += [
+                f"{directory}/{prefix}-{service}.log"
+                for service in services
+                if absent(root / directory / f"{prefix}-{service}.log")
+            ]
+    return missing
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
@@ -115,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--demo-seed", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--exclude", nargs="*", default=[])
+    parser.add_argument("--expect-logs", nargs="*", default=[])
+    parser.add_argument("--expect-files", nargs="*", default=[])
     parser.add_argument("targets", nargs="+")
     args = parser.parse_args(argv)
 
@@ -139,10 +169,12 @@ def main(argv: list[str] | None = None) -> int:
             if count:
                 totals[category] += count
                 matches.append({"file": relative, "category": category, "count": count})
+    missing = _missing(root, args.expect_logs, args.expect_files)
     result = {
         "kind": "homayar-drill-leakage-scan/1",
         "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "clean": not matches,
+        "clean": not matches and not missing,
+        "missing": missing,
         "categories": totals,
         "patterns_per_category": {category: len(forms) for category, forms in patterns.items()},
         "transcript_phrases": len(_phrases(Path(args.demo_seed))),
@@ -153,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         "files": scanned,
     }
     out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(json.dumps({k: result[k] for k in ("clean", "categories", "files_scanned", "matches")}))
+    print(json.dumps({k: result[k] for k in ("clean", "categories", "files_scanned", "missing", "matches")}))
     return 0 if result["clean"] else 1
 
 
