@@ -87,7 +87,7 @@ X-Webhook-Secret: ••••••••`}</pre>
       return (
         <div className="flex flex-col gap-2 text-[11px]">
           <span className="chip chip-accent !min-h-0 w-fit !px-2 !py-0.5 !text-[10px]" dir="ltr">
-            LDAP · AD
+            Google OAuth
           </span>
           <div className="flex flex-wrap gap-1.5">
             {m.roles.map((r) => (
