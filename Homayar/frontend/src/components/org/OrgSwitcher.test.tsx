@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 
 import { apiError } from "@/test/fixtures";
+import { MAIN_NAV } from "@/lib/navigation";
 import {
   LOAD,
   ORG_ID,
@@ -103,7 +104,8 @@ describe("organization switcher", { timeout: 60_000 }, () => {
     await screen.findByRole("heading", { level: 1, name: "Acme Group" }, LOAD);
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     const labels = within(nav).getAllByRole("link").map((link) => link.textContent);
-    expect(labels.slice(0, 3)).toEqual(["Overview", "Meetings", "Search"]);
+    // The switcher leaves the main navigation as MAIN_NAV defines it.
+    expect(labels.slice(0, MAIN_NAV.length)).toEqual(MAIN_NAV.map((entry) => entry.label.en));
     const admin = within(screen.getByRole("group", { name: "Administration" })).getAllByRole("link");
     expect(admin[0]).toHaveTextContent("Admin overview");
   });
