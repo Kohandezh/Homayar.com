@@ -111,10 +111,11 @@ Three alerts share this section:
   messages expire after one interval. That is expected under load and resolves when a slot
   frees.
 - `HomayarPeriodicSweepStopped` (critical): the same staleness for 10 more minutes while no job
-  runs on a live worker, or no success for more than 2 h 15 min. That is longer than one job
-  attempt can hold a slot (`JOB_ATTEMPT_TIMEOUT_SECONDS`, 7200 s, plus grace). It stays silent
-  while due jobs wait, because `HomayarQueueBacklog` / `HomayarQueueStalled` then name the cause,
-  and while PostgreSQL is down.
+  runs on a live worker and none is due, or no success for more than 2 h 15 min. That is longer
+  than one job attempt can hold a slot (`JOB_ATTEMPT_TIMEOUT_SECONDS`, 7200 s, plus grace), so it
+  pages after that even while due jobs wait: lease recovery, dispatch and purges have then been
+  stopped for hours, whatever `HomayarQueueStalled` says about the queue. It stays silent while
+  PostgreSQL is down.
 - `HomayarPeriodicSweepNeverReported` (warning): a sweep with a configured interval never
   reported a success, for 30 minutes. Silent while Redis or PostgreSQL is down.
 
@@ -268,22 +269,35 @@ report them, and the alert is silent while a dependency is down.
 ## HomayarBackupTooOld
 
 The backup tooling (Lane C) writes `homayar_backup_last_success_timestamp_seconds{target}` for
-`postgres`, `objects` and `offsite` to a node_exporter textfile (`HOMAYAR_BACKUP_TEXTFILE`,
-by default `$BACKUP_ROOT/metrics/homayar_backup.prom`). All three alerts here are critical,
-because the RPO of 24 hours is either broken or unknown:
+`postgres`, `objects` and `offsite` to `homayar_backup.prom` in node_exporter's textfile
+directory, `NODE_EXPORTER_TEXTFILE_DIR`. `backup.sh` requires that variable and refuses a
+directory inside the 0700 `BACKUP_ROOT`; Compose passes the file to the tool as
+`HOMAYAR_BACKUP_TEXTFILE`. All four alerts here are critical, because the RPO of 24 hours is
+either broken or unknown:
 
 - `HomayarBackupTooOld`: the target's last success is more than 26 hours old (RPO plus 2 hours).
-- `HomayarBackupMetricMissing`: node_exporter reads the textfile, but the target is not in it
-  for an hour. That backup never succeeded, is not scheduled (the off-site copy needs its own
+- `HomayarBackupMetricMissing`: the textfile holds other targets but not this one, for an hour.
+  That backup never succeeded, is not scheduled (the off-site copy needs its own
   `backup replicate` run), or writes to another file.
+- `HomayarBackupNeverSucceeded`: node_exporter is healthy but the textfile holds no target for
+  26 hours. The file appears with the first successful backup, so a fresh install has the RPO
+  window plus margin to make it; after that, the first backup never succeeded or none is
+  scheduled.
+- **Running without an off-site copy.** `backup.sh --no-offsite` never writes `offsite`, so
+  `HomayarBackupMetricMissing{target="offsite"}` fires permanently. The owner's RPO asks for an
+  off-host copy, so that is a deliberate, recorded exception: either add a long Alertmanager
+  silence on `alertname="HomayarBackupMetricMissing", target="offsite"` with the decision in its
+  comment, or remove the `offsite` line from the absence alert in the installation's copy of the
+  rules (and from its promtool cases).
 - `HomayarBackupExporterDown`: the backup textfile cannot reach Prometheus for 15 minutes. Either
   the `homayar-node` target is down or missing, or `node_textfile_scrape_error` is 1 because
   node_exporter cannot read the file or a directory on its way. On-premise, the `monitoring`
   compose profile runs `node-exporter` (job `homayar-node`) on `NODE_EXPORTER_TEXTFILE_DIR`, where
   `backup-tool` writes `homayar_backup.prom`, outside the 0700 backup root. Elsewhere, keep
   `HOMAYAR_BACKUP_TEXTFILE` outside that root too and start node_exporter with
-  `--collector.textfile.directory` set to the file's directory. `HomayarBackupMetricMissing` is
-  silent meanwhile.
+  `--collector.textfile.directory` set to the file's directory. The absence alerts are silent
+  only while no `homayar-node` target is healthy: with several exporters, one that is down does
+  not mute a missing target in another's file.
 
 Then follow [backup-restore.md](backup-restore.md).
 

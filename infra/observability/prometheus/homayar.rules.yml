@@ -159,18 +159,20 @@ groups:
           runbook: docs/operations/alerts.md#homayarperiodicsweepstale
 
       - alert: HomayarPeriodicSweepStopped
-        # Stale although busy workers cannot explain it: no job runs on a live worker, or the gap
-        # is longer than one job attempt can hold a slot (JOB_ATTEMPT_TIMEOUT_SECONDS 7200 s plus
-        # grace). Silent while due jobs wait (HomayarQueueBacklog names that) or PostgreSQL is down.
+        # Stale although busy workers cannot explain it: no job runs on a live worker and none is
+        # due (a backlog is HomayarQueueBacklog's), or, whatever the backlog, the gap is longer than
+        # one job attempt can hold a slot (JOB_ATTEMPT_TIMEOUT_SECONDS 7200 s plus grace): a sweep
+        # that has not run for that long is stopped even behind a queue. Silent while PostgreSQL
+        # is down.
         expr: |
           (
             (
               homayar:sweep_last_success_age_seconds:min > on (task) homayar:sweep_stale_after_seconds
                 unless on () (max(homayar_jobs{state="running"}) - max(homayar_jobs_running_lease_expired) > 0)
+                unless on () (max(homayar_jobs_queued_due) > 0)
             )
             or homayar:sweep_last_success_age_seconds:min > 8100
           )
-          unless on () (max(homayar_jobs_queued_due) > 0)
           unless on () (max(homayar_dependency_up{dependency="database"}) == 0)
         for: 10m
         labels:
@@ -397,7 +399,9 @@ groups:
   # homayar_backup_last_success_timestamp_seconds{target="postgres"|"objects"|"offsite"} to a
   # node_exporter textfile (HOMAYAR_BACKUP_TEXTFILE). RPO is 24 h; a target pages when its last
   # success is older than 26 h or when it reports nothing at all. An exporter that cannot
-  # deliver the file is its own critical alert, so "unreadable" and "never ran" differ.
+  # deliver the file is its own critical alert, so "unreadable" and "never ran" differ. A healthy
+  # exporter is a homayar-node target that is up and reads its textfiles; the absence alerts are
+  # muted only while none exists, so one exporter down does not mute another's file.
   - name: homayar-backup
     rules:
       - alert: HomayarBackupTooOld
@@ -409,23 +413,36 @@ groups:
           runbook: docs/operations/alerts.md#homayarbackuptooold
 
       - alert: HomayarBackupMetricMissing
+        # Once the file holds any target, a missing one is a backup that never succeeded or is not
+        # scheduled. Before the first success there is no file: HomayarBackupNeverSucceeded.
         expr: |
           (
             absent(homayar_backup_last_success_timestamp_seconds{target="postgres"})
             or absent(homayar_backup_last_success_timestamp_seconds{target="objects"})
             or absent(homayar_backup_last_success_timestamp_seconds{target="offsite"})
           )
-          unless on () (
-            min(up{job="homayar-node"}) == 0
-            or max(node_textfile_scrape_error{job="homayar-node"}) == 1
-            or absent(up{job="homayar-node"})
-          )
+          and on () (count(homayar_backup_last_success_timestamp_seconds) > 0)
+          unless on () absent(up{job="homayar-node"} == 1 unless on (instance) (node_textfile_scrape_error{job="homayar-node"} == 1))
         for: 1h
         labels:
           severity: critical
         annotations:
           summary: "The {{ $labels.target }} backup reports no success timestamp"
           description: "node_exporter reads the textfile, but this target is not in it: that backup never succeeded, is not scheduled, or writes another file."
+          runbook: docs/operations/alerts.md#homayarbackuptooold
+
+      - alert: HomayarBackupNeverSucceeded
+        # A fresh install has no backup file until the first success; the RPO window plus margin
+        # is its grace period, so the first night's backup does not page.
+        expr: |
+          absent(homayar_backup_last_success_timestamp_seconds)
+          unless on () absent(up{job="homayar-node"} == 1 unless on (instance) (node_textfile_scrape_error{job="homayar-node"} == 1))
+        for: 26h
+        labels:
+          severity: critical
+        annotations:
+          summary: "No backup has reported a success for 26 hours"
+          description: "node_exporter is healthy but the backup textfile holds no target: the first backup never succeeded, or backups are not scheduled."
           runbook: docs/operations/alerts.md#homayarbackuptooold
 
       - alert: HomayarBackupExporterDown

@@ -208,7 +208,7 @@ tests:
               description: "No successful run although the workers are idle, or for more than 2 h 15 min."
               runbook: docs/operations/alerts.md#homayarperiodicsweepstale
 
-  # --- due jobs wait: HomayarQueueBacklog names the cause, the sweeps do not page ----------
+  # --- due jobs wait: HomayarQueueBacklog names the cause, until no backlog explains it ------
   - interval: 5m
     input_series:
       - series: 'homayar_periodic_task_interval_seconds{task="dispatch_outbox",instance="api-1",job="homayar-api"}'
@@ -224,9 +224,21 @@ tests:
       - series: 'homayar_dependency_up{dependency="database",instance="api-1",job="homayar-api"}'
         values: '1x40'
     alert_rule_test:
-      - eval_time: 3h
+      # stale since 15m, but jobs wait: no page while one attempt could still explain it
+      - eval_time: 2h20m
         alertname: HomayarPeriodicSweepStopped
         exp_alerts: []
+      # past 2 h 15 min it pages behind the queue too
+      - eval_time: 2h40m
+        alertname: HomayarPeriodicSweepStopped
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              task: dispatch_outbox
+            exp_annotations:
+              summary: "Periodic sweep dispatch_outbox has stopped"
+              description: "No successful run although the workers are idle, or for more than 2 h 15 min."
+              runbook: docs/operations/alerts.md#homayarperiodicsweepstale
 
   # --- a PostgreSQL outage pages once, as HomayarDatabaseUnavailable (review #24) ----------
   - interval: 1m
@@ -582,6 +594,9 @@ tests:
               runbook: docs/operations/alerts.md#homayarbackuptooold
       - eval_time: 2h40m
         alertname: HomayarBackupMetricMissing
+        exp_alerts: []
+      - eval_time: 2h40m
+        alertname: HomayarBackupNeverSucceeded
         exp_alerts: []
 
   # --- the textfile cannot be read (for example a 0700 directory) ------------------------
@@ -943,6 +958,65 @@ tests:
       - eval_time: 20m
         alertname: HomayarMetricsCollectionErrors
         exp_alerts: []
+
+  # --- two exporters, one down: the healthy one's file still pages for a missing target -------
+  - interval: 5m
+    input_series:
+      - series: 'homayar_backup_last_success_timestamp_seconds{target="postgres",instance="node-1:9100",job="homayar-node"}'
+        values: '0+300x40'
+      - series: 'homayar_backup_last_success_timestamp_seconds{target="objects",instance="node-1:9100",job="homayar-node"}'
+        values: '0+300x40'
+      - series: 'up{instance="node-1:9100",job="homayar-node"}'
+        values: '1x40'
+      - series: 'node_textfile_scrape_error{instance="node-1:9100",job="homayar-node"}'
+        values: '0x40'
+      - series: 'up{instance="node-2:9100",job="homayar-node"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: HomayarBackupMetricMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              target: offsite
+            exp_annotations:
+              summary: "The offsite backup reports no success timestamp"
+              description: "node_exporter reads the textfile, but this target is not in it: that backup never succeeded, is not scheduled, or writes another file."
+              runbook: docs/operations/alerts.md#homayarbackuptooold
+      - eval_time: 2h
+        alertname: HomayarBackupExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: node-2:9100
+              job: homayar-node
+            exp_annotations:
+              summary: "node_exporter cannot deliver the backup textfile: backup freshness is unknown"
+              runbook: docs/operations/alerts.md#homayarbackuptooold
+
+  # --- fresh install: no backup file until the first success, which may take a night --------
+  - interval: 5m
+    input_series:
+      - series: 'up{instance="backup-host:9100",job="homayar-node"}'
+        values: '1x330'
+      - series: 'node_textfile_scrape_error{instance="backup-host:9100",job="homayar-node"}'
+        values: '0x330'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: HomayarBackupMetricMissing
+        exp_alerts: []
+      - eval_time: 25h
+        alertname: HomayarBackupNeverSucceeded
+        exp_alerts: []
+      - eval_time: 26h30m
+        alertname: HomayarBackupNeverSucceeded
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "No backup has reported a success for 26 hours"
+              description: "node_exporter is healthy but the backup textfile holds no target: the first backup never succeeded, or backups are not scheduled."
+              runbook: docs/operations/alerts.md#homayarbackuptooold
 
   # --- security (HOM-114): counters start at 0, so the first event fires -----------------
   - interval: 1m
