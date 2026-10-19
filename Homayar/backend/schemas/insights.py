@@ -3,7 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from backend.database.saas_models import ActionStatus
 from backend.schemas.meetings import MeetingQualityResponse
@@ -143,11 +151,25 @@ class TranscriptSegmentEditRequest(BaseModel):
 
 
 class TranscriptCorrectionRequest(BaseModel):
-    """A person's correction of the current revision: a new revision is created."""
+    """A person's correction of the current revision: a new revision is created.
+
+    ``reason`` says why the transcript was changed and is required; the older
+    name ``note`` is still accepted for it. It is stored as the revision's note.
+    """
 
     base_revision_id: str = Field(min_length=1, max_length=36)
-    note: str | None = Field(default=None, max_length=500)
+    reason: str = Field(
+        min_length=3, max_length=500, validation_alias=AliasChoices("reason", "note")
+    )
     edits: list[TranscriptSegmentEditRequest] = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 3:
+            raise ValueError("A reason is required")
+        return value
 
 
 class EvidenceRefResponse(BaseModel):

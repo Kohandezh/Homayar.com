@@ -188,6 +188,7 @@ def test_a_retention_cycle_with_a_hold_failing_storage_and_subject_exports(
         f"/api/v1/meetings/{persian}/transcript/corrections",
         json={
             "base_revision_id": shown["revision"]["id"],
+            "reason": "remove the phone number",
             "edits": [
                 {"segment_id": shown["segments"][0]["id"], "text": "لطفاً پرونده را پیگیری کنید."}
             ],

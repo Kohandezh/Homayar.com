@@ -276,6 +276,7 @@ def test_correction_creates_a_new_revision_and_leaves_the_original_untouched(
         meeting_id,
         {
             "base_revision_id": base["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": segment["id"], "text": "متن دیگر"}],
         },
     )
@@ -286,6 +287,7 @@ def test_correction_creates_a_new_revision_and_leaves_the_original_untouched(
         meeting_id,
         {
             "base_revision_id": revision["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": segment["id"], "text": "متن دیگر"}],  # of revision 1
         },
     )
@@ -297,6 +299,7 @@ def test_correction_creates_a_new_revision_and_leaves_the_original_untouched(
         meeting_id,
         {
             "base_revision_id": revision["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": new_segment["id"], "speaker_key": "speaker_9"}],
         },
     )
@@ -308,12 +311,16 @@ def test_correction_creates_a_new_revision_and_leaves_the_original_untouched(
         meeting_id,
         {
             "base_revision_id": revision["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": new_segment["id"], "text": new_segment["text"]}],
         },
     )
     assert unchanged.status_code == 422 and unchanged.json()["error"]["code"] == "no_changes"
     empty = _correct(
-        client, workspace_id, meeting_id, {"base_revision_id": revision["id"], "edits": []}
+        client,
+        workspace_id,
+        meeting_id,
+        {"base_revision_id": revision["id"], "reason": "fix the wording", "edits": []},
     )
     assert empty.status_code == 422
     assert [
@@ -329,6 +336,7 @@ def test_correction_creates_a_new_revision_and_leaves_the_original_untouched(
         headers={"X-Workspace-ID": workspace_id},
         json={
             "base_revision_id": revision["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": new_segment["id"], "text": "متن دیگر"}],
         },
     )
@@ -347,6 +355,7 @@ def test_only_the_current_revision_feeds_search_action_sources_shares_and_export
         meeting_id,
         {
             "base_revision_id": original["revision"]["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": old_segment["id"], "text": "پیگیری فاکتور انجام شود"}],
         },
     ).json()
@@ -492,7 +501,11 @@ def test_revisions_are_invisible_to_other_tenants(client, email_outbox, settings
     correction = client.post(
         f"/api/v1/meetings/{meeting_id}/transcript/corrections",
         headers=headers,
-        json={"base_revision_id": revision_id, "edits": [{"segment_id": segment_id, "text": "x"}]},
+        json={
+            "base_revision_id": revision_id,
+            "reason": "fix the wording",
+            "edits": [{"segment_id": segment_id, "text": "x"}],
+        },
     )
     assert correction.status_code == 404
     with inspection_session_factory()() as db:

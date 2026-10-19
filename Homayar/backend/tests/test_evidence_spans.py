@@ -236,6 +236,7 @@ def test_evidence_survives_correction_and_stays_bound_to_the_analysed_revision(
         headers=_write_headers(client, workspace_id),
         json={
             "base_revision_id": base_id,
+            "reason": "fix the meeting day",
             "edits": [{"segment_id": second["id"], "text": "جلسهٔ بعد را چهارشنبه می‌گذاریم"}],
         },
     )
