@@ -4669,7 +4669,7 @@ BASE_FINGERPRINTS: dict = {
         ("forgot_password", "2e9c20c4a8a294db6bb966f0"),
         ("reset_password_endpoint", "ec263f62f0d4c02df9a9af4d"),
         ("_send_asanak_code", "bc6d3d402f0c81a0128a4d0f"),
-        ("otp_request", "3e58dd35bae417845a9941eb"),
+        ("otp_request", "d656f4339ac14c193b185425"),
         ("google_start", "d14e104dc36f6d3223ce3473"),
         ("google_link_start", "82b1718e7e2f3e3ec4ba9b96"),
         ("google_callback", "1bb4860adb5475aeec5d4745"),
