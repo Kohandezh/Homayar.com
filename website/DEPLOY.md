@@ -65,11 +65,7 @@ Only one release runs at a time. A second run waits for the first one.
 
 ## Expected error lines in the logs
 
-Each request for an OG image (for example `/fa/opengraph-image/brand`) logs
-`StaticAssetsIncrementalCache: Failed to set to read-only cache`. This is expected.
-The OG image is not prerendered at build time, so the Worker renders it on every
-request. Then Next.js tries to save it in the cache, and the static assets cache is
-read-only. The image itself is correct (200, `image/png`).
+No error lines are expected for normal requests.
 
 ## www.homayar.com
 
