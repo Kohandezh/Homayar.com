@@ -71,3 +71,36 @@ export interface PlaceLegalHoldInput {
   /** ISO date and time with a zone, in the future and at most 3650 days out. */
   review_at: string;
 }
+
+/** The status of a share link: revoked wins, then expired, else active. */
+export type ShareStatus = "active" | "revoked" | "expired";
+
+/** Who can open a share link. */
+export type ShareAudience = "link" | "workspace" | "recipients";
+
+export interface AdminShareItem {
+  id: string;
+  meeting_id: string;
+  meeting_title: string;
+  /** One of ShareAudience; a newer server may send another value. */
+  audience: string;
+  /** One of ShareStatus; a newer server may send another value. */
+  status: string;
+  created_by_user_id: string;
+  created_at: IsoDateTime;
+  expires_at: IsoDateTime | null;
+  access_count: number;
+  last_accessed_at: IsoDateTime | null;
+  revoked_at: IsoDateTime | null;
+}
+
+export interface AdminShareListResponse {
+  items: AdminShareItem[];
+  next_cursor: string | null;
+}
+
+export interface AdminShareListParams {
+  status?: ShareStatus;
+  limit?: number;
+  cursor?: string;
+}
