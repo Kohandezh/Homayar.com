@@ -26,9 +26,9 @@ scrape_configs:
     static_configs:
       - targets: ["api:8000"]
 
-  # node_exporter on the host that runs the backups, started with
-  # --collector.textfile.directory set to the directory of HOMAYAR_BACKUP_TEXTFILE
-  # (by default $BACKUP_ROOT/metrics).
+  # node_exporter with the backup textfile: the on-premise compose "monitoring" profile runs it
+  # as node-exporter on NODE_EXPORTER_TEXTFILE_DIR. Elsewhere, start it with
+  # --collector.textfile.directory set to the directory of HOMAYAR_BACKUP_TEXTFILE.
   - job_name: homayar-node
     static_configs:
-      - targets: ["backup-host:9100"]
+      - targets: ["node-exporter:9100"]

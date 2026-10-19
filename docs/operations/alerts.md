@@ -37,9 +37,9 @@ other alert on the API's series is blind. Check Prometheus' *Targets* page for t
    `scrape_timeout` must stay above that; the example uses 10 s.
 3. **404**: `/metrics` is disabled. In staging and production it needs `METRICS_BEARER_TOKEN`
    (at least 32 characters) inside the API container; the startup log says
-   `METRICS_ENDPOINT_DISABLED`. `compose.cloud.yaml` passes the `METRICS_*` settings;
-   `compose.onprem.yaml` does not pass them yet (it follows with PR #42), so an on-premise
-   production install answers 404 until then.
+   `METRICS_ENDPOINT_DISABLED`. Both compose profiles pass the `METRICS_*` settings from the
+   environment, so check that the variable is set there (or, on-premise only, that
+   `METRICS_ALLOW_UNAUTHENTICATED=true` is intended).
 4. **401**: the token in Prometheus' `credentials_file` differs from the API's.
 5. **400 "Invalid host header"**: the host check (`TRUSTED_HOSTS`) answered. The API exempts
    exactly the path `/metrics` from it, so the request went somewhere else: through the public
@@ -78,7 +78,8 @@ migration job for the deployed release, or roll the image back. Never edit
 
 More than 5% of requests answered 5xx for 10 minutes (with at least 0.2 requests/s).
 Group `homayar_http_requests_total{status_class="5xx"}` by `route`, then search the API logs
-for `UNHANDLED_ERROR` and the correlation ids. Targets with inconsistent counters
+for `UNHANDLED_ERROR` and the correlation ids; uvicorn's own `Exception in ASGI application`
+line carries the same `request_id=`. Targets with inconsistent counters
 (`HomayarApiCountersInconsistent`) are left out of the ratio.
 
 ## HomayarApiCountersInconsistent
@@ -89,8 +90,12 @@ many means one of two things:
 - **Several uvicorn workers without a shared counter directory.** With `UVICORN_WORKERS` above 1,
   every worker needs `PROMETHEUS_MULTIPROC_DIR` set to the same empty, per-container directory.
   Without it each scrape reaches another worker and every drop to a smaller count looks like a
-  reset, so rates and ratios measure nothing. `compose.cloud.yaml` sets it; `compose.onprem.yaml`
-  does not yet (PR #42). Set the directory, or run one worker.
+  reset, so rates and ratios measure nothing. Both compose profiles set `/run/homayar-metrics`,
+  a 32 MB tmpfs of its own; a custom deployment needs the same. Set the directory, or run one
+  worker. A write into that directory that fails (full or missing) does not fail the request:
+  the API logs `METRICS_WRITE_FAILED error_type=…` at most once a minute, and the counters stop
+  moving. That is a log signal, not a metric: search for it whenever the request counters look
+  wrong.
 - **The API keeps restarting.** Check the container's restart count and the logs before each
   restart.
 
@@ -273,10 +278,11 @@ because the RPO of 24 hours is either broken or unknown:
   `backup replicate` run), or writes to another file.
 - `HomayarBackupExporterDown`: the backup textfile cannot reach Prometheus for 15 minutes. Either
   the `homayar-node` target is down or missing, or `node_textfile_scrape_error` is 1 because
-  node_exporter cannot read the file or a directory on its way. The tooling writes the file 0644
-  in a 0755 directory, but the default path lies inside the backup root, which it creates 0700:
-  a node_exporter that does not run as the backup user needs `HOMAYAR_BACKUP_TEXTFILE` outside
-  that root. Start node_exporter with `--collector.textfile.directory` set to the file's
-  directory. `HomayarBackupMetricMissing` is silent meanwhile.
+  node_exporter cannot read the file or a directory on its way. On-premise, the `monitoring`
+  compose profile runs `node-exporter` (job `homayar-node`) on `NODE_EXPORTER_TEXTFILE_DIR`, where
+  `backup-tool` writes `homayar_backup.prom`, outside the 0700 backup root. Elsewhere, keep
+  `HOMAYAR_BACKUP_TEXTFILE` outside that root too and start node_exporter with
+  `--collector.textfile.directory` set to the file's directory. `HomayarBackupMetricMissing` is
+  silent meanwhile.
 
 Then follow [backup-restore.md](backup-restore.md).
