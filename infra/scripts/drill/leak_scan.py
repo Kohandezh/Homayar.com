@@ -19,7 +19,7 @@ raw and JSON-escaped). Exit 1 when anything matched.
 ``--expect-logs DIR PREFIX...`` asserts the log set is complete: for each
 prefix, ``DIR/PREFIX.services`` (written by the drill's collect_logs) must
 list at least one service and ``DIR/PREFIX-<service>.log`` must exist for
-each; ``--expect-files`` names further files that must exist. A missing log
+each, non-empty; ``--expect-files`` names further files that must exist. A missing log
 is reported (``missing``) and also exits 1: an unscanned log is not clean.
 """
 
@@ -114,7 +114,10 @@ def _files(root: Path, targets: list[str], excluded: set[Path]) -> list[Path]:
 
 
 def _missing(root: Path, expect_logs: list[str], expect_files: list[str]) -> list[str]:
-    missing = [f for f in expect_files if not (root / f).is_file()]
+    def absent(path: Path) -> bool:  # a log must exist and hold something
+        return not path.is_file() or path.stat().st_size == 0
+
+    missing = [f for f in expect_files if absent(root / f)]
     if expect_logs:
         directory, prefixes = expect_logs[0], expect_logs[1:]
         if not prefixes:
@@ -127,7 +130,7 @@ def _missing(root: Path, expect_logs: list[str], expect_files: list[str]) -> lis
             missing += [
                 f"{directory}/{prefix}-{service}.log"
                 for service in services
-                if not (root / directory / f"{prefix}-{service}.log").is_file()
+                if absent(root / directory / f"{prefix}-{service}.log")
             ]
     return missing
 
