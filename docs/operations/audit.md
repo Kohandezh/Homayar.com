@@ -101,3 +101,77 @@ NULL) are never returned to a tenant.
   any other identifier.
 - Fail-closed note: a transactional audit write that fails also fails a successful login. The
   Integrator has raised this with the owner.
+
+## Protection
+
+Scope: HOM-115 (owner decision 2026-10-17, option B). Migration `e6c3a9f1d4b8`
+(`audit_events_append_only`), the one HOM-115 migration. Code:
+`Homayar/backend/database/rls.py` (`APPEND_ONLY_TABLES`, `AUDIT_READER_ROLE`,
+`audit_reader_statements`) and the ORM guard in `audit_service.py`.
+
+### Append-only for the application
+
+* **ORM guard (every database, SQLite included).** Flushing a changed or deleted
+  `AuditEvent`, or running an ORM `update(AuditEvent)` / `delete(AuditEvent)`, raises
+  `AuditImmutableError`. No application code path updates or deletes audit rows.
+* **Database privileges (PostgreSQL).** `homayar_app` holds `SELECT` and `INSERT` on
+  `audit_events` and no `UPDATE`, `DELETE` or `TRUNCATE`: raw SQL from a request
+  handler, a worker or a sweep fails with `permission denied for table audit_events`.
+  The tenant policy (`homayar_tenant_isolation`) and its `WITH CHECK` are unchanged.
+* **Deleting a workspace or a user still works.** The foreign keys keep
+  `ON DELETE SET NULL`; the referential action runs as the table owner, so the row
+  stays (event, target, time, outcome, correlation id) and only loses the reference.
+* **What it does not stop.** The table owner (the migration role) and a superuser can
+  still change or delete rows. The append-only rule closes the application's paths;
+  detecting changes made outside them is the job of the protected sink. Neither is
+  cryptographic immutability.
+* **It needs the recommended runtime login.** The rule holds when `DATABASE_URL` logs in
+  as a role `IN ROLE homayar_app` ([deployment](deployment.md#database-roles-and-row-level-security)).
+  With the other shape (the owner's login plus `DATABASE_APP_ROLE=homayar_app`) the
+  application holds the owner's credentials, and only code that keeps the role switch
+  is bound by it.
+
+### The audit reader role
+
+`homayar_audit_reader` is the only role that reads every tenant's audit rows:
+
+| Property | Value |
+| --- | --- |
+| Login | `NOLOGIN`; no superuser, `BYPASSRLS`, `CREATEDB` or `CREATEROLE` |
+| Privileges | `USAGE` on schema `public`, `SELECT` on `audit_events`, nothing else |
+| Policy | `homayar_audit_export FOR SELECT TO homayar_audit_reader USING (true)` |
+| Members | the exporter's own login only; never `homayar_app`, never the application's login |
+
+`SET ROLE` checks the memberships of the session (login) user, so the application's
+login must not be a member of `homayar_audit_reader` (and must not be a superuser,
+which can become any role). A setting such as `homayar.service_scope` that any session
+can set does not unlock other tenants: the cross-tenant view is a role, not a scope.
+
+Create the exporter's login once per cluster, as the database owner (the password comes
+from the secret store; it is never written into a file in the repository):
+
+```sql
+CREATE ROLE homayar_audit_exporter LOGIN PASSWORD :'exporter_password'
+  NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE IN ROLE homayar_audit_reader;
+-- the application's login must not be a member:
+SELECT pg_has_role('<application login>', 'homayar_audit_reader', 'MEMBER');  -- false
+```
+
+### Migration `e6c3a9f1d4b8`
+
+* Upgrade: revokes `UPDATE`, `DELETE` on `audit_events` from `homayar_app`, creates the
+  reader role (idempotent), its grants and its policy. No data changes. A role of that
+  name that already exists is made inert: `NOLOGIN` without a password, no role attribute,
+  a member of no role, and `homayar_app` no member of it; if that is not possible (an
+  indirect membership path from `homayar_app`, or a change the migration role may not
+  make) the upgrade fails with "homayar_audit_reader is not inert". Creating the
+  role needs `CREATEROLE`, as for `homayar_app`; if the migration role does not have it,
+  a DBA creates the role first:
+  `CREATE ROLE homayar_audit_reader NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;`
+* Downgrade: drops the reader policy and grants, drops the role when no other database
+  on the cluster still grants it anything and the migration role may drop roles
+  (otherwise the role stays, `NOLOGIN` and without privileges in this database), and
+  gives `homayar_app` back `UPDATE` and `DELETE`. The previous application never updates
+  or deletes audit rows, so it runs on either schema. A deeper downgrade applies the rule
+  again once it passes `b9e4f2a6c8d3` (and at `f1b6d8e4a2c7`, `d7f3a1c9e2b4`): those
+  downgrades, like every older upgrade, run the current `apply_row_level_security`.
