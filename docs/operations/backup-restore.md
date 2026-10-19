@@ -54,11 +54,17 @@ on every restore.
 
    - Object Lock is enabled **when the bucket is created** (it cannot be added later on most
      stores). This turns on versioning, and versioning must stay on.
-   - Retention is a bucket default rule (GOVERNANCE, 30 days, matching the 30-day daily window),
-     or per-object retention set by the store. The tool sets no per-object retention, so a
-     monthly set is locked only for the default period, not for the full 12 months it is kept.
-     A lock longer than the retention is safe: prune counts those versions and retries them
-     later (see below).
+   - Retention is a bucket default rule (GOVERNANCE, 30 days, matching the 30-day daily window).
+     The default covers the daily sets. For the monthly sets, `prune --destination s3://…`
+     extends the GOVERNANCE retention of every object of each set the policy keeps as a monthly
+     set (its files, manifest and verified marker) with `s3:PutObjectRetention`. The new date is
+     the earliest day the retention could expire that set: the first day of the month 12 months
+     after the set's month, plus the 30-day daily window (`monthly_locked_until` reports it per
+     set). It is never shortened, and a COMPLIANCE lock is left alone (`retention_kept`). So the
+     lock never outlives the retention, and prune can delete the set once the policy expires it.
+     A lock that is still longer (a lowered `--monthly`, a bucket default above 30 days, a set
+     that stops being its month's representative) is safe: prune counts those versions and
+     retries them later (see below).
    - The backup tool's credential **never** has `s3:BypassGovernanceRetention`.
 
    **S3 permissions** the off-site credential needs, on the bucket (`arn:aws:s3:::BUCKET`) and
@@ -68,7 +74,7 @@ on every restore.
    |---|---|
    | `replicate` | `s3:PutObject`, `s3:GetObject` (checksum HEAD and read-back), `s3:ListBucket` (verified-marker backfill) |
    | `fetch` | `s3:GetObject`, `s3:ListBucket` |
-   | `prune --destination s3://…` | `s3:ListBucket`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketMultipartUploads`, `s3:AbortMultipartUpload`, `s3:GetBucketVersioning`; in a versioned bucket also `s3:ListBucketVersions`, `s3:DeleteObjectVersion`, `s3:GetBucketObjectLockConfiguration`, `s3:GetObjectRetention`, `s3:GetObjectLegalHold` |
+   | `prune --destination s3://…` | `s3:ListBucket`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucketMultipartUploads`, `s3:AbortMultipartUpload`, `s3:GetBucketVersioning`; in a versioned bucket also `s3:ListBucketVersions`, `s3:DeleteObjectVersion`, `s3:GetBucketObjectLockConfiguration`, `s3:GetObjectRetention`, `s3:GetObjectLegalHold`; with Object Lock also `s3:PutObjectRetention` (extends the monthly sets' locks, never shortens them) |
    | never | `s3:BypassGovernanceRetention` (only the separately held break-glass credential) |
 
    A prune whose credential lacks a listing permission still applies the retention, reports
@@ -76,12 +82,15 @@ on every restore.
    visibly. When it cannot read the bucket's versioning (`versioning: "unknown"`) it never
    sweeps versions. A refused version delete counts in `versions_locked` only when the bucket has
    Object Lock and that version has an unexpired retention or a legal hold (`locked_until`
-   reports the latest date). That key keeps its delete marker, so the expired set stays hidden,
+   reports the latest retain-until date, `legal_holds` counts the versions held by a legal
+   hold, which have no date). That key keeps its delete marker, so the expired set stays hidden,
    and prune retries it once the newest marker is older than 24 hours, until the lock expires.
    Every other refusal (for example a missing `s3:DeleteObjectVersion`) counts in
    `versions_failed` and fails the run. Versions left with no current data are swept on a later
    run only after the 24-hour grace period, and never while the set has a current version, so a
-   copy that is being uploaded again is not touched.
+   copy that is being uploaded again is not touched. A denied `s3:PutObjectRetention` is
+   reported in `errors` and fails the run, because the monthly sets would then be locked only
+   for the default period.
 4. **Tombstone journal**: bind `TOMBSTONE_JOURNAL_PATH` to a host directory outside the
    PostgreSQL and MinIO failure domains and replicate it continuously off the host (rsync/zfs
    send/object replication). Never restore it from an older copy; keep its files at least as long
@@ -188,7 +197,7 @@ Other commands (all through `docker compose ... --profile onprem --profile ops r
 | `list` | complete sets and interrupted partials |
 | `verify [ID] [--no-key]` | full check (MAC, checksums, decryption), then marks the set verified and moves the gauges; `--no-key` = checksums only (at an off-site copy), marks nothing |
 | `prune [--dry-run] [--destination DIR\|s3://…]` | retention (see the objectives, §3.1) of the root or an off-site copy, preferring full verified sets; removes stale partials, manifest-less S3 copies and interrupted multipart uploads older than 24 h; in a versioned bucket also each removed set's versions right after the set, and versions an earlier interrupted prune left (`leftover_sets`); a partial copy with a live multipart upload is not stale. Counts `versions_locked` (object lock) and `versions_failed`; listing or delete errors are reported in `errors` and exit 1 after the run |
-| `replicate ID s3://…` or `replicate ID /offsite` | off-site copy, every file verified by SHA-256 (directory: re-hashed before the rename; S3: the store's SHA-256 checksum, else read back) before the `offsite` gauge moves; carries the set's verified marker, and backfills it for earlier copies whose manifest is byte-identical to a verified root set (`backfilled_markers`) (directory: needs `.homayar-offsite`) |
+| `replicate ID s3://…` or `replicate ID /offsite` | off-site copy, every file verified by SHA-256 (directory: re-hashed before the rename; S3: the store's SHA-256 checksum, else read back) before the `offsite` gauge moves; carries the set's verified marker, and backfills it for earlier copies whose manifest is byte-identical to a verified root set (`backfilled_markers`) (directory: needs `.homayar-offsite`). S3 backfill is best effort and never fails the copy or holds back the gauge: a copy that does not qualify is listed in `backfill_rejected` with the reason (checked by HEAD first; a read-back rejection is remembered in `sets/<id>.offsite-rejected` by the objects' ETags, so the same copy is not downloaded again every night), and a network or permission error in `backfill_errors` (retried next run) |
 | `fetch ID s3://…` | pull an off-site copy back into `BACKUP_ROOT`, checksums verified before it is renamed into place |
 | `retired` / `drop-retired NAME --confirm NAME [--live-db NAME]` | databases a promotion replaced, each with a 7-day `drop_after` deadline and flagged `overdue` past it; drop them by that deadline (operator-enforced: nothing drops them or alerts). `drop-retired` refuses the live database, a `restoring` database, a name not of the form `<live>_retired_<ts>` and a database with open sessions, whatever its comment says |
 
