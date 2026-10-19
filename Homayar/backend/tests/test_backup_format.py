@@ -1433,6 +1433,15 @@ def test_a_network_error_in_the_backfill_never_fails_the_copy_or_the_gauge(
     assert cli(["--root", str(root), "replicate", new, "s3://offsite/p"]) == 0
     assert json.loads(capsys.readouterr().out)["backfilled_markers"] == [old, other]
 
+    # An unreadable local root set is reported too, never a failed copy.
+    third = "20261016T020000Z-0000000d"
+    _unmarked_s3_copies(root, s3, third)
+    (root / "sets" / third / "manifest.json").write_text("{")
+    assert cli(["--root", str(root), "replicate", new, "s3://offsite/p"]) == 0
+    broken = json.loads(capsys.readouterr().out)
+    assert broken["status"] == "copied" and broken["backfilled_markers"] == []
+    assert [error["backup_id"] for error in broken["backfill_errors"]] == [third]
+
 
 def test_s3_prune_locks_monthly_sets_for_their_whole_retention_never_shorter(tmp_path):
     from backend.backup.replicate import monthly_lock_until, prune_s3, replicate_to_s3

@@ -363,8 +363,10 @@ def _backfill_s3_markers(client, bucket: str, prefix: str, source: Path) -> dict
             reason = _backfill_rejection(client, bucket, prefix, verified[backup_id], destination)
             if reason is None:
                 _put_marker(client, bucket, prefix, backup_id)
-        except (BotoCoreError, ClientError) as exc:
-            result["backfill_errors"].append({"backup_id": backup_id, "error": _error_code(exc)})
+        except (BotoCoreError, ClientError, BackupInvalid, OSError) as exc:
+            # BackupInvalid/OSError: the local root set could not be read.
+            code = exc.code if isinstance(exc, BackupInvalid) else _error_code(exc)
+            result["backfill_errors"].append({"backup_id": backup_id, "error": code})
             continue
         if reason is None:
             result["backfilled_markers"].append(backup_id)
