@@ -4,7 +4,7 @@ Version 1 · 2026-10-18 · HOM-153 (N12, reuses AppVision F79) · Status: **prov
 owner-approved defaults** (owner decision D03 still open for the final production policy).
 Implementation: ADR 0035, `Homayar/backend/backup/`, runbook
 [`backup-restore.md`](backup-restore.md). Measured drill evidence: HOM-118,
-[`drills/2026-10-19-restore-drill.md`](drills/2026-10-19-restore-drill.md) (run on `main` `935c41c`;
+[`drills/2026-10-19-restore-drill.md`](drills/2026-10-19-restore-drill.md) (run on `main` `91a760c`;
 RTO measured for the drilled scope; RPO not demonstrated; earlier run on `b9836ae`:
 [`drills/2026-10-18-restore-drill.md`](drills/2026-10-18-restore-drill.md)).
 
@@ -15,7 +15,7 @@ here is a target for the drill to measure, never an estimate taken from a script
 
 | Profile | Status | How |
 | --- | --- | --- |
-| On-prem / local Compose (`infra/compose/compose.onprem.yaml`) | Implemented and tested (unit + PostgreSQL tests); restore drill run 2026-10-19 on `main` `935c41c` (HOM-118) | `backup-tool` service, `infra/scripts/backup.sh`, `infra/scripts/restore-isolated.sh` |
+| On-prem / local Compose (`infra/compose/compose.onprem.yaml`) | Implemented and tested (unit + PostgreSQL tests); restore drill run 2026-10-19 on `main` `91a760c` (HOM-118) | `backup-tool` service, `infra/scripts/backup.sh`, `infra/scripts/restore-isolated.sh` |
 | Hosted cloud (`compose.cloud.yaml`, managed PostgreSQL / S3) | Same tool and targets; not drilled | provider snapshots/PITR may add to, never replace, this format |
 | Offline profile | Out of scope here | the tool works without egress when the off-site target is a mounted directory |
 
@@ -23,9 +23,9 @@ here is a target for the drill to measure, never an estimate taken from a script
 
 | Objective | Target | What the implementation can and cannot guarantee |
 | --- | --- | --- |
-| **RPO** | ≤ 24 h | A daily backup gives a data-loss window of up to 24 h *when every run succeeds*. The backup-age alert (Lane D, on `homayar_backup_last_success_timestamp_seconds`) fires at 26 h, so a missed or failed run is noticed about 2 h *after* the 24 h target is exceeded: the worst case is about 26 h plus the time to repair. Meeting 24 h strictly needs an alert below 24 h or a more frequent schedule (owner / Lane D decision). |
+| **RPO** | ≤ 24 h | A daily backup gives a data-loss window of up to 24 h *when every run succeeds*. The backup-age alert `HomayarBackupTooOld` (Lane D, on `homayar_backup_last_success_timestamp_seconds`; `infra/observability/prometheus/homayar.rules.yml`, merged with #47) fires at 26 h, so a missed or failed run is noticed about 2 h *after* the 24 h target is exceeded: the worst case is about 26 h plus the time to repair. Meeting 24 h strictly needs an alert below 24 h or a more frequent schedule (owner / Lane D decision). |
 | **Deletions after the backup** | re-applied before use | Every tombstone is journaled at once outside the backups (ADR 0022) and replayed from the journal **replica** before a restore can be promoted. Deletions newer than the replica's last sync are lost, so this window equals the journal replication interval. Nothing measures or alerts on replication age yet; adding a replication-age alert is recommended. |
-| **RTO** | ≤ 8 h | From the decision to restore to the first successful authenticated request on the restored system: stores up, fetch, verify, load, migrate, reconcile, promote, app ready, ingress. Measured (HOM-118, 2026-10-19, `main` `935c41c`): 172.3 s on one local Docker host with 4,925 rows / 441 MB; detection, provisioning, secrets, image pulls and DNS/TLS excluded. Provisioning a new host and restoring secrets are outside this path and must be added by the operator. |
+| **RTO** | ≤ 8 h | From the decision to restore to the first successful authenticated request on the restored system: stores up, fetch, verify, load, migrate, reconcile, promote, app ready, ingress. Measured (HOM-118, 2026-10-19, `main` `91a760c`): 116.1 s on one local Docker host with 4,901 rows / 441 MB; detection, provisioning, secrets, image pulls and DNS/TLS excluded. Provisioning a new host and restoring secrets are outside this path and must be added by the operator. |
 | **Retention** | 30 daily + 12 monthly | See §3.1. Applies to the backup root and to every off-site copy. |
 | **Off-host copy** | ≥ 1 encrypted copy outside the application host | `replicate` to an `s3://` bucket on another host (recommended) or to a mounted directory of another host or medium that carries the operator's `.homayar-offsite` marker (§3.2). |
 

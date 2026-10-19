@@ -1,6 +1,6 @@
 {
-  "backup_created_at": "2026-10-19T09:09:31.983615+00:00",
-  "backup_id": "20261019T090931Z-8ab9f925",
+  "backup_created_at": "2026-10-19T10:45:51.779392+00:00",
+  "backup_id": "20261019T104551Z-266e1eb1",
   "checks": {
     "marker": {
       "details": {
@@ -130,13 +130,13 @@
       "status": "PASS"
     }
   },
-  "finished_at": "2026-10-19T09:14:05.334018+00:00",
+  "finished_at": "2026-10-19T10:48:59.907677+00:00",
   "kind": "homayar-reconciliation/1",
-  "mac": "fe278d49aabeeea48f8b6808b420d178b54988a737dddf479ffb46f019fd8583",
-  "manifest_mac": "8fa988f13d59c3e352dc48751a1a04c559e19450e301d59c0c4a031fcbefaae2",
+  "mac": "2aacacf98b3b6145dfff1ada52dd9320adfa90dd6b157bea6b0c325d6a1c4772",
+  "manifest_mac": "54347ec076b9d854a056966a0b9086e31286a910a05a3de0194f1b7b156d15ba",
   "owner_overrides": {},
   "staging_database": "homayar_restoring",
-  "started_at": "2026-10-19T09:13:58.239584+00:00",
+  "started_at": "2026-10-19T10:48:53.710694+00:00",
   "status": "PASS",
   "statuses": {
     "marker": "PASS",
@@ -151,9 +151,9 @@
     "tombstones": "PASS"
   },
   "timings_seconds": {
-    "integrity": 1.141,
-    "reconcile": 4.669,
-    "tombstones": 1.237,
-    "total": 7.094
+    "integrity": 1.149,
+    "reconcile": 3.879,
+    "tombstones": 1.123,
+    "total": 6.197
   }
 }

@@ -1,6 +1,6 @@
 {
   "kind": "homayar-drill-leakage-scan/1",
-  "at": "2026-10-19T09:16:20Z",
+  "at": "2026-10-19T10:50:31Z",
   "clean": true,
   "missing": [],
   "categories": {
@@ -29,7 +29,7 @@
   },
   "transcript_phrases": 43,
   "files_scanned": 45,
-  "bytes_scanned": 375450,
+  "bytes_scanned": 349837,
   "excluded": [
     "backup.key",
     "drill.env",
@@ -40,7 +40,7 @@
   "files": [
     {
       "file": "logs/console.log",
-      "bytes": 36501
+      "bytes": 36486
     },
     {
       "file": "logs/offsite-minio.log",
@@ -48,11 +48,11 @@
     },
     {
       "file": "logs/prod-api.log",
-      "bytes": 10228
+      "bytes": 9337
     },
     {
       "file": "logs/prod-console-web.log",
-      "bytes": 3976
+      "bytes": 2272
     },
     {
       "file": "logs/prod-minio-bootstrap.log",
@@ -64,7 +64,7 @@
     },
     {
       "file": "logs/prod-postgres.log",
-      "bytes": 6187
+      "bytes": 5730
     },
     {
       "file": "logs/prod-proxy.log",
@@ -72,15 +72,15 @@
     },
     {
       "file": "logs/prod-redis.log",
-      "bytes": 4947
+      "bytes": 3279
     },
     {
       "file": "logs/prod-scheduler.log",
-      "bytes": 8939
+      "bytes": 5390
     },
     {
       "file": "logs/prod-worker.log",
-      "bytes": 104187
+      "bytes": 88258
     },
     {
       "file": "logs/prod.services",
@@ -88,11 +88,11 @@
     },
     {
       "file": "logs/restore-api.log",
-      "bytes": 6216
+      "bytes": 6017
     },
     {
       "file": "logs/restore-console-web.log",
-      "bytes": 852
+      "bytes": 568
     },
     {
       "file": "logs/restore-minio-bootstrap.log",
@@ -104,7 +104,7 @@
     },
     {
       "file": "logs/restore-postgres.log",
-      "bytes": 6667
+      "bytes": 6666
     },
     {
       "file": "logs/restore-proxy.log",
@@ -112,15 +112,15 @@
     },
     {
       "file": "logs/restore-redis.log",
-      "bytes": 2170
+      "bytes": 2167
     },
     {
       "file": "logs/restore-scheduler.log",
-      "bytes": 3024
+      "bytes": 2355
     },
     {
       "file": "logs/restore-worker.log",
-      "bytes": 14726
+      "bytes": 14500
     },
     {
       "file": "logs/restore.services",
@@ -128,7 +128,7 @@
     },
     {
       "file": "evidence/backup.out",
-      "bytes": 1857
+      "bytes": 1853
     },
     {
       "file": "evidence/changes.json",
@@ -152,7 +152,7 @@
     },
     {
       "file": "evidence/manifest.json",
-      "bytes": 106333
+      "bytes": 106329
     },
     {
       "file": "evidence/offsite-s3.json",
@@ -168,11 +168,11 @@
     },
     {
       "file": "evidence/restore-isolated.out",
-      "bytes": 7616
+      "bytes": 7615
     },
     {
       "file": "evidence/restore-state.json",
-      "bytes": 1038
+      "bytes": 1037
     },
     {
       "file": "evidence/restore-timeline.log",
@@ -184,31 +184,31 @@
     },
     {
       "file": "evidence/summary.json",
-      "bytes": 7337
+      "bytes": 7327
     },
     {
-      "file": "restore-backups/restores/20261019T090931Z-8ab9f925/metrics/.homayar_backup.prom.lock",
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/metrics/.homayar_backup.prom.lock",
       "bytes": 0
     },
     {
-      "file": "restore-backups/restores/20261019T090931Z-8ab9f925/metrics/homayar_backup.prom",
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/metrics/homayar_backup.prom",
       "bytes": 331
     },
     {
-      "file": "restore-backups/restores/20261019T090931Z-8ab9f925/reconciliation-report.json",
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/reconciliation-report.json",
       "bytes": 4169
     },
     {
-      "file": "restore-backups/restores/20261019T090931Z-8ab9f925/restore-state.json",
-      "bytes": 1038
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/restore-state.json",
+      "bytes": 1037
     },
     {
-      "file": "restore-backups/restores/20261019T090931Z-8ab9f925/timeline.log",
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1/timeline.log",
       "bytes": 464
     },
     {
-      "file": "restore-backups/restores/20261019T090931Z-8ab9f925-gate-probe/restore-state.json",
-      "bytes": 993
+      "file": "restore-backups/restores/20261019T104551Z-266e1eb1-gate-probe/restore-state.json",
+      "bytes": 996
     },
     {
       "file": "gate-probes.stderr",

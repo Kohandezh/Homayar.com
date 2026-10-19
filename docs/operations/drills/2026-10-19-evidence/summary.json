@@ -1,27 +1,27 @@
 {
-  "achieved_rto_seconds": 172.282,
+  "achieved_rto_seconds": 116.089,
   "backup": {
-    "backup_sh_seconds": 82.849,
-    "end": "2026-10-19T09:09:49.432578+00:00",
-    "offsite_s3_seconds": 29.136,
-    "snapshot_time": "2026-10-19T09:09:31.983615+00:00",
-    "start": "2026-10-19T09:09:31.887636+00:00",
+    "backup_sh_seconds": 36.04,
+    "end": "2026-10-19T10:45:58.509256+00:00",
+    "offsite_s3_seconds": 21.038,
+    "snapshot_time": "2026-10-19T10:45:51.779392+00:00",
+    "start": "2026-10-19T10:45:51.729664+00:00",
     "tool_seconds": {
-      "database": 1.082,
-      "objects": 16.441,
-      "total": 17.545
+      "database": 0.35,
+      "objects": 6.423,
+      "total": 6.78
     }
   },
-  "backup_id": "20261019T090931Z-8ab9f925",
+  "backup_id": "20261019T104551Z-266e1eb1",
   "data": {
-    "database_rows": 4925,
+    "database_rows": 4901,
     "object_bytes": 441205368,
     "objects": 376,
-    "set_bytes_encrypted": 443700041,
+    "set_bytes_encrypted": 443691479,
     "tables": 61,
     "tenants": 4
   },
-  "data_loss_window_seconds": 163.947,
+  "data_loss_window_seconds": 115.423,
   "non_resurrection": {
     "active_share_links": [],
     "alive": [],
@@ -53,28 +53,28 @@
     "tombstones": "PASS"
   },
   "recovery": {
-    "failure_at": "2026-10-19T09:12:15.931000+00:00",
-    "fetch_seconds": 19.26,
-    "ingress_seconds": 16.619,
-    "ready_at": "2026-10-19T09:15:12.655000+00:00",
+    "failure_at": "2026-10-19T10:47:47.202000+00:00",
+    "fetch_seconds": 11.796,
+    "ingress_seconds": 12.827,
+    "ready_at": "2026-10-19T10:49:47.073000+00:00",
     "reconciliation_seconds": {
-      "integrity": 1.141,
-      "reconcile": 4.669,
-      "tombstones": 1.237,
-      "total": 7.094
+      "integrity": 1.149,
+      "reconcile": 3.879,
+      "tombstones": 1.123,
+      "total": 6.197
     },
-    "restore_isolated_seconds": 132.767,
+    "restore_isolated_seconds": 89.72,
     "restore_phases_seconds": {
-      "app": 31.0,
-      "load": 44.0,
-      "promote": 15.0,
-      "reconcile": 16.0,
-      "restore": 132.0,
-      "stores": 15.0,
-      "verify": 11.0
+      "app": 20.0,
+      "load": 30.0,
+      "promote": 12.0,
+      "reconcile": 13.0,
+      "restore": 89.0,
+      "stores": 9.0,
+      "verify": 5.0
     },
-    "smoke_seconds": 3.242,
-    "t0_decision": "2026-10-19T09:12:20.373000+00:00"
+    "smoke_seconds": 1.53,
+    "t0_decision": "2026-10-19T10:47:50.984000+00:00"
   },
   "restore_gate": {
     "journal_identity": "anchored",
@@ -83,12 +83,12 @@
     "owner_overrides": {},
     "probes": [
       {
-        "command": "restore 20261019T090931Z-8ab9f925 --staging-db homayar_probe_restoring --no-objects --work-dir /backups/restores/20261019T090931Z-8ab9f925-gate-probe",
+        "command": "restore 20261019T104551Z-266e1eb1 --staging-db homayar_probe_restoring --no-objects --work-dir /backups/restores/20261019T104551Z-266e1eb1-gate-probe",
         "exit": 0,
         "expected_exit": 0,
         "ok": true,
         "output": {
-          "backup_id": "20261019T090931Z-8ab9f925",
+          "backup_id": "20261019T104551Z-266e1eb1",
           "staging_database": "homayar_probe_restoring",
           "status": "loaded",
           "storage_target": null
@@ -103,27 +103,27 @@
         "output": {
           "gate": "closed",
           "marker": {
-            "at": "2026-10-19T09:15:44.286111+00:00",
-            "backup_id": "20261019T090931Z-8ab9f925",
-            "manifest_mac": "8fa988f13d59c3e352dc48751a1a04c559e19450e301d59c0c4a031fcbefaae2",
+            "at": "2026-10-19T10:50:04.576165+00:00",
+            "backup_id": "20261019T104551Z-266e1eb1",
+            "manifest_mac": "54347ec076b9d854a056966a0b9086e31286a910a05a3de0194f1b7b156d15ba",
             "state": "loaded"
           }
         },
         "probe": "gate_closed_before_reconcile"
       },
       {
-        "command": "promote 20261019T090931Z-8ab9f925 --staging-db homayar_probe_restoring --live-db homayar_probe_live --work-dir /backups/restores/20261019T090931Z-8ab9f925-gate-probe",
+        "command": "promote 20261019T104551Z-266e1eb1 --staging-db homayar_probe_restoring --live-db homayar_probe_live --work-dir /backups/restores/20261019T104551Z-266e1eb1-gate-probe",
         "exit": 1,
         "expected_exit": 1,
         "ok": true,
         "output": {
           "error": "report_unreadable",
-          "message": "/backups/restores/20261019T090931Z-8ab9f925-gate-probe/reconciliation-report.json"
+          "message": "/backups/restores/20261019T104551Z-266e1eb1-gate-probe/reconciliation-report.json"
         },
         "probe": "promote_refused_without_report"
       },
       {
-        "command": "promote 20261019T090931Z-8ab9f925 --staging-db homayar_probe_restoring --live-db homayar_probe_live",
+        "command": "promote 20261019T104551Z-266e1eb1 --staging-db homayar_probe_restoring --live-db homayar_probe_live",
         "exit": 1,
         "expected_exit": 1,
         "ok": true,
@@ -139,7 +139,7 @@
         "expected_exit": 0,
         "ok": true,
         "output": {
-          "backup_id": "20261019T090931Z-8ab9f925",
+          "backup_id": "20261019T104551Z-266e1eb1",
           "gate": "open"
         },
         "probe": "live_gate_open_after_promote"
@@ -194,27 +194,27 @@
       "ok": true
     },
     {
-      "check": "deleted conversation db5160ee stays deleted",
+      "check": "deleted conversation 5c0a4eec stays deleted",
       "detail": "404",
       "ok": true
     },
     {
-      "check": "deleted conversation 7df053ad stays deleted",
+      "check": "deleted conversation 6214b1fb stays deleted",
       "detail": "404",
       "ok": true
     },
     {
-      "check": "deleted conversation 87c0cc34 stays deleted",
+      "check": "deleted conversation cf127010 stays deleted",
       "detail": "404",
       "ok": true
     },
     {
-      "check": "conversation c426a4cd deleted before the backup stays deleted",
+      "check": "conversation efff610c deleted before the backup stays deleted",
       "detail": "404",
       "ok": true
     },
     {
-      "check": "conversation d077535d deleted before the backup stays deleted",
+      "check": "conversation 3c8ba52e deleted before the backup stays deleted",
       "detail": "404",
       "ok": true
     },
@@ -244,7 +244,7 @@
       "active_again": true,
       "listed": true,
       "revoked_at_after_restore": null,
-      "share_id": "6ca20bfe-1d30-4a28-9048-07927a24971e"
+      "share_id": "81e3bcfd-b8cc-4208-a429-181ee68a7eab"
     }
   },
   "smoke_passed": true
