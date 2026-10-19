@@ -1061,6 +1061,7 @@
 .call-report-type { color: #b25941; font-size: 0.68rem; font-weight: 700; }
 .call-report-unsupported,
 .call-report-reason { color: #943a34; font-size: 0.72rem; }
+.call-report-stale { color: #7a4b16; font-size: 0.72rem; }
 .call-report-outcome-inferred { color: #7a4b16; font-weight: 700; }
 .call-report-counts { color: #52625e; }
 .call-report-evidence { display: grid; gap: 0.45rem; margin-top: 0.5rem !important; padding-inline-start: 0.75rem !important; border-inline-start: 2px solid #d7e0dd; }
@@ -1242,6 +1243,23 @@ button.pii-placeholder:focus-visible { outline: 2px solid #147d6f; outline-offse
 .transcript-toolbar label { display: grid; gap: 0.25rem; font-size: 0.75rem; color: #53645f; }
 .meeting-segment:focus { outline: 3px solid rgba(22, 136, 120, 0.3); outline-offset: 2px; }
 .meeting-segment p { overflow-wrap: anywhere; }
+.segment-saved-note { margin: 0.35rem 0 0; color: #176f64; font-size: 0.72rem; font-weight: 600; }
+.segment-edit-form { display: grid; gap: 0.5rem; margin-top: 0.5rem; padding: 0.7rem; border: 1px solid #d7e0dd; border-radius: 8px; background: #f7faf9; }
+.segment-edit-field { display: grid; gap: 0.25rem; font-size: 0.72rem; color: #53645f; }
+.segment-edit-form textarea { min-width: 0; border: 1px solid #d7e0dd; border-radius: 6px; background: #fff; color: #344640; padding: 0.4rem 0.55rem; font-size: 0.8rem; font-family: inherit; line-height: 1.7; }
+.segment-edit-form select { height: 34px; border: 1px solid #d7e0dd; border-radius: 6px; background: #fff; color: #344640; padding: 0 0.45rem; font-size: 0.74rem; }
+.segment-edit-hint { color: #75857f; font-size: 0.66rem; }
+.segment-edit-actions { display: flex; gap: 0.5rem; }
+.segment-edit-error { display: grid; gap: 0.4rem; justify-items: start; margin: 0; color: #943a34; font-size: 0.74rem; }
+.transcript-revision-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.6rem; margin: 0 0 0.6rem; padding: 0.6rem 0.75rem; border: 1px solid #e1d5b8; border-radius: 8px; background: #fdf9ee; color: #7a4b16; font-size: 0.75rem; }
+.revision-list { display: grid; gap: 0.6rem; margin: 0; padding: 0; list-style: none; }
+.revision-row { display: grid; gap: 0.35rem; padding: 0.6rem 0; border-bottom: 1px solid #e5ecea; }
+.revision-row:last-child { border-bottom: 0; }
+.revision-row-head { display: flex; align-items: center; gap: 0.5rem; }
+.revision-row-head strong { color: #293d37; font-size: 0.8rem; }
+.revision-current-badge { padding: 0.15rem 0.45rem; border-radius: 999px; background: #e2f0ed; color: #176f64; font-size: 0.62rem; font-weight: 700; }
+.revision-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; color: #667772; font-size: 0.7rem; }
+.revision-note { margin: 0; color: #42534f; font-size: 0.74rem; line-height: 1.7; overflow-wrap: anywhere; }
 .summary-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .summary-item-meta small { color: #7a8b86; }
 .platform-link-button {

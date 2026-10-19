@@ -271,6 +271,30 @@ export interface TranscriptRedaction {
 
 export type TranscriptView = "original" | "redacted";
 
+/** GET /meetings/{id}/transcript/revisions: newest first, the API's order (HOM-246). */
+export interface TranscriptRevisionListResponse {
+  meeting_id: string;
+  current_revision_id: string | null;
+  items: TranscriptRevision[];
+}
+
+/** One edit of POST /meetings/{id}/transcript/corrections: only the fields that changed. */
+export interface TranscriptCorrectionEdit {
+  segment_id: string;
+  /** 1 to 8000 characters; sent only when the text changed. */
+  text?: string;
+  /** A speaker key known for this meeting; sent only when the speaker changed. */
+  speaker_key?: string;
+}
+
+export interface TranscriptCorrectionInput {
+  /** The revision the person saw while editing; a stale base is refused with 409. */
+  base_revision_id: string;
+  /** The person's reason, 3 to 500 characters after whitespace is collapsed. */
+  reason: string;
+  edits: TranscriptCorrectionEdit[];
+}
+
 /**
  * The view a summary, action item or evidence response was rendered in
  * (gap G10). `redaction` is present only for a redacted view: the texts went

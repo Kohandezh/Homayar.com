@@ -46,6 +46,8 @@ export interface ReportCopy {
     needsResults: string;
   };
   advanced: string;
+  /** On an item whose analysis read an earlier transcript revision (HOM-246). */
+  staleMarker: string;
 }
 
 export const REPORT_COPY: Record<"fa" | "en", ReportCopy> = {
@@ -117,6 +119,7 @@ export const REPORT_COPY: Record<"fa" | "en", ReportCopy> = {
       needsResults: "This opens when the meeting has results.",
     },
     advanced: "Transcript and tools",
+    staleMarker: "Based on an earlier transcript",
   },
   fa: {
     loading: "در حال دریافت گزارش تماس",
@@ -186,5 +189,6 @@ export const REPORT_COPY: Record<"fa" | "en", ReportCopy> = {
       needsResults: "این بخش وقتی جلسه نتیجه داشته باشد باز می‌شود.",
     },
     advanced: "متن گفت‌وگو و ابزارها",
+    staleMarker: "بر پایهٔ نسخهٔ پیشین متن گفت‌وگو",
   },
 };
