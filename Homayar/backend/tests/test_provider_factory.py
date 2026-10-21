@@ -62,6 +62,28 @@ def _structured_content() -> dict[str, Any]:
                 "source_turn_indexes": [0, 1],
             }
         ],
+        "summary_fields": {
+            "purpose": {
+                "status": "not_stated",
+                "text": None,
+                "basis": None,
+                "source_turn_indexes": [],
+            },
+            "resolution": {
+                "status": "not_stated",
+                "text": None,
+                "basis": None,
+                "source_turn_indexes": [],
+            },
+            "next_steps": {
+                "status": "not_stated",
+                "text": None,
+                "basis": None,
+                "source_turn_indexes": [],
+            },
+        },
+        "decisions": [],
+        "key_moments": [],
     }
 
 
@@ -133,6 +155,28 @@ def test_openai_compatible_validates_structured_output() -> None:
                     }
                 ],
                 "insights": [],
+                "summary_fields": {
+                    "purpose": {
+                        "status": "not_stated",
+                        "text": None,
+                        "basis": None,
+                        "source_turn_indexes": [],
+                    },
+                    "resolution": {
+                        "status": "not_stated",
+                        "text": None,
+                        "basis": None,
+                        "source_turn_indexes": [],
+                    },
+                    "next_steps": {
+                        "status": "not_stated",
+                        "text": None,
+                        "basis": None,
+                        "source_turn_indexes": [],
+                    },
+                },
+                "decisions": [],
+                "key_moments": [],
             }
         ),
     ],

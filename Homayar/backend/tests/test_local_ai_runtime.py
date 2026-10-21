@@ -412,7 +412,34 @@ def test_local_llm_template_refuses_public_endpoint() -> None:
 def test_openai_compatible_adapter_talks_to_local_server_without_key() -> None:
     seen: list[httpx.Request] = []
     content = json.dumps(
-        {"summary": "خلاصه", "summary_source_turn_indexes": [], "action_items": [], "insights": []}
+        {
+            "summary": "خلاصه",
+            "summary_source_turn_indexes": [],
+            "action_items": [],
+            "insights": [],
+            "summary_fields": {
+                "purpose": {
+                    "status": "not_stated",
+                    "text": None,
+                    "basis": None,
+                    "source_turn_indexes": [],
+                },
+                "resolution": {
+                    "status": "not_stated",
+                    "text": None,
+                    "basis": None,
+                    "source_turn_indexes": [],
+                },
+                "next_steps": {
+                    "status": "not_stated",
+                    "text": None,
+                    "basis": None,
+                    "source_turn_indexes": [],
+                },
+            },
+            "decisions": [],
+            "key_moments": [],
+        }
     )
 
     def handler(request: httpx.Request) -> httpx.Response:

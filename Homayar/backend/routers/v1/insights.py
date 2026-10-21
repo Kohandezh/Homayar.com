@@ -62,6 +62,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.services.analysis_claims import claim_section
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.evidence_service import (
@@ -292,8 +293,24 @@ def _view_fields(view: MeetingView) -> dict[str, object]:
     return {"view": policy.view, "privacy_enforced": policy.enforced, "redaction": redaction}
 
 
+def _decision_point(view: MeetingView, point: object) -> object:
+    """A decision in this view, including a structured decision's owner (HOM-61)."""
+    rendered = view.point(point)
+    owner = rendered.get("owner") if isinstance(rendered, dict) else None
+    if view.redacted and isinstance(owner, dict) and isinstance(owner.get("value"), str):
+        rendered = {**rendered, "owner": {**owner, "value": view.text(owner["value"])}}
+    return rendered
+
+
 def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryResponse:
     response = SummaryResponse.model_validate(summary).model_copy(update=_view_fields(view))
+    # Structured claims (HOM-61) are stored next to the insights; the key
+    # points of /summary stay the insights only.
+    response = response.model_copy(
+        update={
+            "key_points": [point for point in response.key_points if claim_section(point) is None]
+        }
+    )
     if not view.redacted:
         return response
     return response.model_copy(
@@ -301,7 +318,7 @@ def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryRespo
             "overview": view.text(response.overview) or "",
             "topics": view.texts(response.topics),
             "key_points": [view.point(point) for point in response.key_points],
-            "decisions": [view.point(point) for point in response.decisions],
+            "decisions": [_decision_point(view, point) for point in response.decisions],
         }
     )
 

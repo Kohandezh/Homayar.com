@@ -12,12 +12,19 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from backend.providers.schemas import ClaimBasis
 from backend.schemas.insights import ContentRedactionInfo
 from backend.schemas.meetings import MeetingQualityResponse, ReportCompleteness
 
 EvidenceStatusLiteral = Literal["sufficient", "partial", "insufficient"]
 OutcomeState = Literal["explicit", "inferred", "not_stated", "unavailable"]
 FindingType = Literal["summary", "insight", "action_item"]
+# HOM-61: ``unavailable`` means there is no structured analysis to read (no
+# summary, or a summary written before structured claims existed).
+ClaimStatusLiteral = Literal["stated", "not_stated", "unavailable"]
+FindingSection = Literal[
+    "overview", "summary_field", "insight", "decision", "key_moment", "action_item"
+]
 
 
 class ReportEvidenceRef(BaseModel):
@@ -49,6 +56,36 @@ class ReportKeyPoint(BaseModel):
     evidence: list[ReportEvidenceRef]
 
 
+class ReportSummaryField(BaseModel):
+    """One structured summary field.  Only a ``stated`` field has text, a
+    basis and evidence; the other statuses carry nulls and no evidence."""
+
+    status: ClaimStatusLiteral
+    text: str | None
+    basis: ClaimBasis | None
+    evidence_status: EvidenceStatusLiteral | None
+    supported: bool | None
+    evidence: list[ReportEvidenceRef]
+
+
+class ReportSummaryFields(BaseModel):
+    purpose: ReportSummaryField
+    resolution: ReportSummaryField
+    next_steps: ReportSummaryField
+
+
+class ReportKeyMoment(BaseModel):
+    index: int  # the evidence finding_index of this moment
+    kind: str
+    text: str
+    evidence_status: EvidenceStatusLiteral
+    supported: bool
+    evidence: list[ReportEvidenceRef]
+    # From the first evidence reference; null when the moment has none.
+    start_ms: int | None
+    speaker_key: str | None
+
+
 class ReportSummary(BaseModel):
     overview: str
     evidence_status: EvidenceStatusLiteral
@@ -60,17 +97,31 @@ class ReportSummary(BaseModel):
     analysis_run_id: str | None
     provider: str
     model: str
+    fields: ReportSummaryFields
+    key_moments_status: Literal["available", "unavailable"]
+    key_moments: list[ReportKeyMoment]
+
+
+class ReportDecisionDetail(BaseModel):
+    status: ClaimStatusLiteral
+    value: str | None  # the owner, or the due date as YYYY-MM-DD
 
 
 class ReportDecision(BaseModel):
     text: str
-    # The key point this decision is (decisions are the key points of
-    # category "decision"); null when no key point matches.
+    # The key point this decision is (a legacy decision is a key point of
+    # category "decision"); null when no key point matches and for a
+    # structured decision.
     key_point_index: int | None
     confidence: float | None
     evidence_status: EvidenceStatusLiteral
     supported: bool
     evidence: list[ReportEvidenceRef]
+    # Null for a legacy decision, or for a stored basis that cannot be read;
+    # the second one never counts as explicit.
+    basis: ClaimBasis | None
+    owner: ReportDecisionDetail
+    due_date: ReportDecisionDetail
 
 
 class ReportOutcome(BaseModel):
@@ -79,14 +130,21 @@ class ReportOutcome(BaseModel):
 
 
 class ReportFinding(BaseModel):
+    # ``section`` (not ``finding_type``) tells the overview and insights apart
+    # from the new claims (HOM-61).  A claim's ``finding_index`` is its evidence
+    # index, not a position in ``summary.key_points``.
     finding_type: FindingType
     finding_id: str | None  # the action item id; null for the summary and insights
-    finding_index: int | None  # the key point index; null for the summary and actions
-    category: str | None  # insights only
+    # The evidence finding_index (the key point index of an insight); null for
+    # the overview and actions.
+    finding_index: int | None
+    category: str | None  # insights, decisions, key moments and summary field names
     text: str
     evidence_status: EvidenceStatusLiteral
     supported: bool
     evidence: list[ReportEvidenceRef]
+    section: FindingSection
+    basis: ClaimBasis | None
 
 
 class ReportFindingCounts(BaseModel):

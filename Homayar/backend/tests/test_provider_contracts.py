@@ -80,6 +80,23 @@ VALID_OUTPUT = {
             "source_turn_indexes": [0],
         }
     ],
+    "summary_fields": {
+        "purpose": {"status": "not_stated", "text": None, "basis": None, "source_turn_indexes": []},
+        "resolution": {
+            "status": "not_stated",
+            "text": None,
+            "basis": None,
+            "source_turn_indexes": [],
+        },
+        "next_steps": {
+            "status": "not_stated",
+            "text": None,
+            "basis": None,
+            "source_turn_indexes": [],
+        },
+    },
+    "decisions": [],
+    "key_moments": [],
 }
 REQUEST = IntelligenceRequest(
     transcript_text="Please call me back tomorrow.",

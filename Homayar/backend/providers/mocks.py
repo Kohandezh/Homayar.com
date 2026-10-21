@@ -19,6 +19,7 @@ from backend.providers.base import (
     text_digest,
 )
 from backend.providers.schemas import (
+    SUMMARY_FIELD_NAMES,
     ASRRequest,
     ASRResult,
     ASRSegment,
@@ -28,11 +29,14 @@ from backend.providers.schemas import (
     DiarizationStatus,
     EmailRequest,
     EmailResult,
+    ClaimStatus,
     IntelligenceRequest,
     IntelligenceResult,
     ProviderIssue,
     SMSRequest,
     SMSResult,
+    SummaryField,
+    SummaryFields,
     TTSRequest,
     TTSResult,
     TTSUsageReport,
@@ -141,6 +145,14 @@ class MockIntelligenceProvider(IntelligenceProvider):
             summary_source_turn_indexes=list(range(len(request.turns))),
             action_items=[],
             insights=[],
+            # HOM-61: a mock states nothing it cannot know, so every structured
+            # field abstains and there are no decisions or key moments.
+            summary_fields=SummaryFields(
+                **{
+                    name: SummaryField(status=ClaimStatus.NOT_STATED)
+                    for name in SUMMARY_FIELD_NAMES
+                }
+            ),
             is_mock=True,
         )
 

@@ -142,6 +142,11 @@ def _meeting_matches(db: Session, meeting: Meeting, matcher: _Matcher) -> dict[s
             for point in summary.key_points or []
             if isinstance(point, dict)
         ]
+        # A structured decision's owner is free text too (HOM-61).
+        for point in summary.decisions or []:
+            owner = point.get("owner") if isinstance(point, dict) else None
+            if isinstance(owner, dict) and isinstance(owner.get("value"), str):
+                texts.append(("decision_owner", owner["value"]))
         for kind, text in texts:
             matched = matcher.classes(text)
             if matched:
