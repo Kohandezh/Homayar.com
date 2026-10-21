@@ -21,6 +21,7 @@ from backend.config import Settings, get_settings
 from backend.database.relational import get_db
 from backend.database.saas_models import ActionItem, EvidenceSpan, Meeting, MeetingSummary
 from backend.privacy.transcript_view import MeetingView
+from backend.providers.schemas import SUMMARY_FIELD_NAMES, ClaimBasis
 from backend.routers.v1 import insights, shares
 from backend.routers.v1.insights import (
     _VIEW_QUERY,
@@ -37,16 +38,27 @@ from backend.schemas.meetings import MeetingQualityResponse
 from backend.schemas.reports import (
     CallReportResponse,
     ReportDecision,
+    ReportDecisionDetail,
     ReportEvidenceRef,
     ReportFinding,
     ReportFindingCounts,
+    ReportKeyMoment,
     ReportKeyPoint,
     ReportOutcome,
     ReportQA,
     ReportSummary,
+    ReportSummaryField,
+    ReportSummaryFields,
     ReviewActionResponse,
 )
 from backend.security.context import Permission, WorkspaceContext, require_permission
+from backend.services.analysis_claims import (
+    SECTION_DECISION,
+    SECTION_KEY_MOMENT,
+    SECTION_SUMMARY_FIELD,
+    STRUCTURED_SUMMARY_SCHEMA_VERSION,
+    claim_section,
+)
 from backend.services.evidence_service import (
     FINDING_ACTION_ITEM,
     FINDING_INSIGHT,
@@ -110,14 +122,23 @@ def _ref(span: EvidenceSpan, *, current_revision_id: str | None, view: MeetingVi
     )
 
 
-def _point_refs(point: object, spans: dict[str, EvidenceSpan], render) -> list[ReportEvidenceRef]:
-    """The citations a key point names that the evidence table holds as
-    insight spans of this meeting; any other id is dropped, never invented."""
+_BASES = frozenset(basis.value for basis in ClaimBasis)
+_UNAVAILABLE_DETAIL = ReportDecisionDetail(status="unavailable", value=None)
+
+
+def _point_refs(
+    point: object,
+    spans: dict[str, EvidenceSpan],
+    render,
+    finding_type: str = FINDING_INSIGHT,
+) -> list[ReportEvidenceRef]:
+    """The citations a key point names that the evidence table holds as spans
+    of ``finding_type`` of this meeting; any other id is dropped, never invented."""
     ids = point.get("evidence_ids") if isinstance(point, dict) else None
     refs = []
     for evidence_id in ids or []:
         span = spans.get(str(evidence_id))
-        if span is not None and span.finding_type == FINDING_INSIGHT:
+        if span is not None and span.finding_type == finding_type:
             refs.append(render(span))
     return refs
 
@@ -132,9 +153,35 @@ def _confidence(point: object) -> float | None:
     return float(value) if isinstance(value, int | float) else None
 
 
+def _basis(point: object) -> str | None:
+    value = point.get("basis") if isinstance(point, dict) else None
+    return value if value in _BASES else None
+
+
+def _detail(point: object, key: str) -> ReportDecisionDetail:
+    """A structured decision's owner or due date; anything malformed is
+    ``unavailable``, never upgraded to stated."""
+    detail = point.get(key) if isinstance(point, dict) else None
+    status = detail.get("status") if isinstance(detail, dict) else None
+    value = detail.get("value") if isinstance(detail, dict) else None
+    if status == "stated" and isinstance(value, str):
+        return ReportDecisionDetail(status="stated", value=value)
+    if status == "not_stated":
+        return ReportDecisionDetail(status="not_stated", value=None)
+    return _UNAVAILABLE_DETAIL
+
+
+def _empty_field(status: str) -> ReportSummaryField:
+    return ReportSummaryField(
+        status=status, text=None, basis=None, evidence_status=None, supported=None, evidence=[]
+    )
+
+
 def _summary_parts(
     db: Session, *, meeting: Meeting, summary: MeetingSummary, view: MeetingView, render
-) -> tuple[ReportSummary, list[ReportDecision], list[ReportFinding]]:
+) -> tuple[ReportSummary, list[ReportDecision], list[ReportFinding], list[str | None]]:
+    """The summary, the decisions, the findings, and each decision's basis as
+    the outcome rule reads it (``None`` only for a legacy decision)."""
     rendered = summary_response(summary, view)
     spans = {
         span.id: span
@@ -145,10 +192,12 @@ def _summary_parts(
             run_id=summary.analysis_run_id,
         )
     }
+    # The overview's own citations; summary field spans carry a finding_index.
     overview_refs = [
         render(span)
         for span in spans.values()
         if span.finding_type == FINDING_SUMMARY
+        and span.finding_index is None
         and summary.analysis_run_id is not None
         and span.analysis_run_id == summary.analysis_run_id
     ]
@@ -163,48 +212,147 @@ def _summary_parts(
             evidence_status=overview_status,
             supported=is_supported(overview_status, len(overview_refs)),
             evidence=overview_refs,
+            section="overview",
+            basis=None,
         )
     ]
+    structured = summary.schema_version >= STRUCTURED_SUMMARY_SCHEMA_VERSION
     key_points: list[ReportKeyPoint] = []
+    fields: dict[str, ReportSummaryField] = {}
+    moments: list[ReportKeyMoment] = []
     raw_points = list(summary.key_points or [])
-    for index, (raw, point) in enumerate(zip(raw_points, rendered.key_points, strict=True)):
-        refs = _point_refs(raw, spans, render)
-        status = evidence_status_of(raw.get("evidence_status") if isinstance(raw, dict) else None)
-        key_point = ReportKeyPoint(
-            index=index,
-            category=_text(point, "category"),
-            text=_text(point, "description") or "",
-            confidence=_confidence(raw),
-            evidence_status=status,
-            supported=is_supported(status, len(refs)),
-            evidence=refs,
-        )
-        key_points.append(key_point)
-        findings.append(
-            ReportFinding(
-                finding_type=FINDING_INSIGHT,
-                finding_id=None,
-                finding_index=index,
-                category=key_point.category,
-                text=key_point.text,
+    # Key points hold the insights and, for a structured summary, the tagged
+    # claims (HOM-61); the stored position is the evidence finding_index.
+    for index, raw in enumerate(raw_points):
+        point = view.point(raw)
+        section = claim_section(raw)
+        if section is None:
+            refs = _point_refs(raw, spans, render)
+            status = evidence_status_of(
+                raw.get("evidence_status") if isinstance(raw, dict) else None
+            )
+            key_point = ReportKeyPoint(
+                index=index,
+                category=_text(point, "category"),
+                text=_text(point, "description") or "",
+                confidence=_confidence(raw),
                 evidence_status=status,
-                supported=key_point.supported,
+                supported=is_supported(status, len(refs)),
                 evidence=refs,
             )
-        )
+            key_points.append(key_point)
+            findings.append(
+                ReportFinding(
+                    finding_type=FINDING_INSIGHT,
+                    finding_id=None,
+                    finding_index=index,
+                    category=key_point.category,
+                    text=key_point.text,
+                    evidence_status=status,
+                    supported=key_point.supported,
+                    evidence=refs,
+                    section="insight",
+                    basis=None,
+                )
+            )
+            continue
+        if not structured:
+            continue
+        status = evidence_status_of(raw.get("evidence_status"))
+        if section == SECTION_SUMMARY_FIELD:
+            name = raw.get("category")
+            if name not in SUMMARY_FIELD_NAMES or name in fields:
+                continue
+            if raw.get("status") != "stated":
+                fields[name] = _empty_field(
+                    "not_stated" if raw.get("status") == "not_stated" else "unavailable"
+                )
+                continue
+            refs = _point_refs(raw, spans, render, FINDING_SUMMARY)
+            fields[name] = ReportSummaryField(
+                status="stated",
+                text=_text(point, "description") or "",
+                basis=_basis(raw),
+                evidence_status=status,
+                supported=is_supported(status, len(refs)),
+                evidence=refs,
+            )
+            findings.append(
+                ReportFinding(
+                    finding_type=FINDING_SUMMARY,
+                    finding_id=None,
+                    finding_index=index,
+                    category=name,
+                    text=fields[name].text or "",
+                    evidence_status=status,
+                    supported=bool(fields[name].supported),
+                    evidence=refs,
+                    section="summary_field",
+                    basis=fields[name].basis,
+                )
+            )
+        elif section in (SECTION_DECISION, SECTION_KEY_MOMENT):
+            refs = _point_refs(raw, spans, render)
+            supported = is_supported(status, len(refs))
+            text = _text(point, "description") or ""
+            if section == SECTION_KEY_MOMENT:
+                first = refs[0] if refs else None
+                moments.append(
+                    ReportKeyMoment(
+                        index=index,
+                        kind=_text(point, "category") or "",
+                        text=text,
+                        evidence_status=status,
+                        supported=supported,
+                        evidence=refs,
+                        start_ms=first.start_ms if first is not None else None,
+                        speaker_key=first.speaker_key if first is not None else None,
+                    )
+                )
+            findings.append(
+                ReportFinding(
+                    finding_type=FINDING_INSIGHT,
+                    finding_id=None,
+                    finding_index=index,
+                    category=_text(point, "category"),
+                    text=text,
+                    evidence_status=status,
+                    supported=supported,
+                    evidence=refs,
+                    section=section,
+                    basis=_basis(raw) if section == SECTION_DECISION else None,
+                )
+            )
     decisions: list[ReportDecision] = []
-    # Decisions are the decision key points, copied in order: the n-th
-    # decision is the next equal key point after the previous match, so two
-    # identical decisions get their own positions.
+    outcome_basis: list[str | None] = []
+    # A decision key point (legacy, or labeled "decision" in a structured
+    # result) is copied in order: the n-th one is the next equal key point
+    # after the previous match, so two identical decisions get their own
+    # positions.  A structured decision (HOM-61) is not a visible key point.
     cursor = 0
     for raw, point in zip(summary.decisions or [], rendered.decisions, strict=True):
         refs = _point_refs(raw, spans, render)
         status = evidence_status_of(raw.get("evidence_status") if isinstance(raw, dict) else None)
-        key_point_index = next(
-            (i for i in range(cursor, len(raw_points)) if raw_points[i] == raw), None
-        )
-        if key_point_index is not None:
-            cursor = key_point_index + 1
+        is_claim = structured and claim_section(raw) == SECTION_DECISION
+        if is_claim:
+            basis = _basis(raw)
+            # A structured decision with an unreadable basis is never upgraded.
+            outcome_basis.append(basis or "inferred")
+        elif structured:
+            # An insight labeled "decision" in a structured result: the model
+            # did not mark it explicit, so it is an inferred decision.
+            basis = "inferred"
+            outcome_basis.append(basis)
+        else:
+            basis = None  # a legacy decision keeps the legacy rule
+            outcome_basis.append(None)
+        key_point_index = None
+        if not is_claim:
+            key_point_index = next(
+                (i for i in range(cursor, len(raw_points)) if raw_points[i] == raw), None
+            )
+            if key_point_index is not None:
+                cursor = key_point_index + 1
         decisions.append(
             ReportDecision(
                 text=_text(point, "description") or "",
@@ -213,6 +361,9 @@ def _summary_parts(
                 evidence_status=status,
                 supported=is_supported(status, len(refs)),
                 evidence=refs,
+                basis=basis,
+                owner=_detail(point, "owner") if is_claim else _UNAVAILABLE_DETAIL,
+                due_date=_detail(point, "due_date") if is_claim else _UNAVAILABLE_DETAIL,
             )
         )
     report_summary = ReportSummary(
@@ -226,8 +377,13 @@ def _summary_parts(
         analysis_run_id=summary.analysis_run_id,
         provider=summary.provider,
         model=summary.model,
+        fields=ReportSummaryFields(
+            **{name: fields.get(name, _empty_field("unavailable")) for name in SUMMARY_FIELD_NAMES}
+        ),
+        key_moments_status="available" if structured else "unavailable",
+        key_moments=moments,
     )
-    return report_summary, decisions, findings
+    return report_summary, decisions, findings, outcome_basis
 
 
 def _action_findings(
@@ -258,6 +414,8 @@ def _action_findings(
                 evidence_status=status,
                 supported=is_supported(status, len(refs)),
                 evidence=refs,
+                section="action_item",
+                basis=None,
             )
         )
     return findings
@@ -316,8 +474,9 @@ def get_call_report(
     report_summary = None
     decisions: list[ReportDecision] = []
     findings: list[ReportFinding] = []
+    outcome_basis: list[str | None] = []
     if summary is not None:
-        report_summary, decisions, findings = _summary_parts(
+        report_summary, decisions, findings, outcome_basis = _summary_parts(
             db, meeting=meeting, summary=summary, view=meeting_view_, render=render
         )
     findings.extend(_action_findings(db, meeting=meeting, view=meeting_view_, render=render))
@@ -333,6 +492,7 @@ def get_call_report(
             state=outcome_state(
                 has_summary=summary is not None,
                 decisions_supported=[decision.supported for decision in decisions],
+                decisions_basis=outcome_basis,
             ),
             decisions=decisions,
         ),

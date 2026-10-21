@@ -101,6 +101,28 @@ class _Transport:
             "summary_source_turn_indexes": [0],
             "action_items": [],
             "insights": [],
+            "summary_fields": {
+                "purpose": {
+                    "status": "not_stated",
+                    "text": None,
+                    "basis": None,
+                    "source_turn_indexes": [],
+                },
+                "resolution": {
+                    "status": "not_stated",
+                    "text": None,
+                    "basis": None,
+                    "source_turn_indexes": [],
+                },
+                "next_steps": {
+                    "status": "not_stated",
+                    "text": None,
+                    "basis": None,
+                    "source_turn_indexes": [],
+                },
+            },
+            "decisions": [],
+            "key_moments": [],
         }
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(output)}}]})
 

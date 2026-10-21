@@ -3,7 +3,8 @@
 Pure functions over facts the router already loaded: nothing here reads the
 database or upgrades a state.  A finding is *supported* only when its evidence
 status says it is grounded and at least one citation from the evidence table
-backs it; an outcome is *explicit* only when a decision is supported; and the
+backs it; an outcome is *explicit* only when a supported decision is explicit
+(or a legacy decision without a basis is supported); and the
 completeness notices name every reason the report is not complete.
 """
 
@@ -60,12 +61,26 @@ def is_supported(evidence_status: str, evidence_count: int) -> bool:
     return evidence_status != EvidenceStatus.INSUFFICIENT.value and evidence_count > 0
 
 
-def outcome_state(*, has_summary: bool, decisions_supported: Sequence[bool]) -> str:
+def outcome_state(
+    *,
+    has_summary: bool,
+    decisions_supported: Sequence[bool],
+    decisions_basis: Sequence[str | None] | None = None,
+) -> str:
+    """``explicit`` needs a supported decision whose basis is explicit (HOM-61).
+
+    A legacy decision has no basis (``None``) and keeps the earlier rule: it
+    counts as explicit when it is supported.
+    """
     if not has_summary:
         return OUTCOME_UNAVAILABLE
     if not decisions_supported:
         return OUTCOME_NOT_STATED
-    if any(decisions_supported):
+    basis = decisions_basis if decisions_basis is not None else [None] * len(decisions_supported)
+    if any(
+        supported and value in (None, OUTCOME_EXPLICIT)
+        for supported, value in zip(decisions_supported, basis, strict=True)
+    ):
         return OUTCOME_EXPLICIT
     return OUTCOME_INFERRED
 

@@ -127,6 +127,7 @@ from backend.services.ai_policy_service import (
     current_policy,
     record_run_snapshot,
 )
+from backend.services.analysis_claims import NO_CLAIMS, cite_claims
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import commit_usage, release_usage
@@ -983,6 +984,7 @@ def _persist_success(
         plan = EvidencePlan()
         summary_status = EvidenceStatus.INSUFFICIENT
         key_points: list[dict[str, Any]] = []
+        claims = NO_CLAIMS
         pending_actions: list[ActionItem] = []
         if intelligence is not None:
             summary_references = resolve_turn_references(
@@ -1019,6 +1021,17 @@ def _persist_success(
                         "evidence_status": references.status.value,
                     }
                 )
+            # Structured claims (HOM-61): summary fields, decisions, key moments.
+            claims = cite_claims(
+                intelligence,
+                plan=plan,
+                meeting=meeting,
+                revision=revision,
+                segments=persisted_segments,
+                first_index=len(key_points),
+                now=now,
+            )
+            key_points.extend(claims.entries)
             for action in intelligence.action_items:
                 references = resolve_turn_references(action.source_turn_indexes, persisted_segments)
                 action_id = new_id()
@@ -1090,16 +1103,14 @@ def _persist_success(
                     workspace_id=claim.workspace_id,
                     meeting_id=claim.meeting_id,
                     overview=intelligence.summary,
-                    decisions=[
-                        point for point in key_points if point["category"].casefold() == "decision"
-                    ],
+                    decisions=claims.decisions_for(key_points),
                     key_points=key_points,
                     topics=list(
                         dict.fromkeys(insight.category for insight in intelligence.insights)
                     ),
                     provider=intelligence.provider,
                     model=intelligence.model,
-                    schema_version=1,
+                    schema_version=claims.schema_version,
                     analysis_run_id=analysis_run.id,
                     evidence_status=summary_status.value,
                 )
