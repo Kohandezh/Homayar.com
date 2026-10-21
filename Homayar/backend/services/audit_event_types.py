@@ -71,6 +71,10 @@ class AuditEventType(StrEnum):
     MEETING_PURGE_COMPLETED = "meeting.purge_completed", "meeting"
     MEETING_PURGE_FAILED = "meeting.purge_failed", "meeting"
     MEETING_PURGE_REQUEUED = "meeting.purge_requeued", "meeting"
+    MEETING_RECOMPUTE_COMPLETED = "meeting.recompute.completed", "meeting"
+    MEETING_RECOMPUTE_FAILED = "meeting.recompute.failed", "meeting"
+    MEETING_RECOMPUTE_REQUESTED = "meeting.recompute.requested", "meeting"
+    MEETING_RECOMPUTE_SUPERSEDED = "meeting.recompute.superseded", "meeting"
     MEETING_RECORDING_DELETED_AFTER_PROCESSING = (
         "meeting.recording.deleted_after_processing",
         "meeting",

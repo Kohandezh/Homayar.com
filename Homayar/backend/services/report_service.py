@@ -31,6 +31,7 @@ NOTICE_TRANSCRIPT_PARTIAL = "transcript_partial"
 NOTICE_ANALYSIS_UNAVAILABLE = "analysis_unavailable"
 NOTICE_ANALYSIS_PARTIAL = "analysis_partial"
 NOTICE_ANALYSIS_STALE = "analysis_stale"
+NOTICE_ANALYSIS_RECOMPUTE_FAILED = "analysis_recompute_failed"
 NOTICE_MOCK_ANALYSIS = "mock_analysis"
 NOTICE_UNSUPPORTED_FINDINGS = "unsupported_findings"
 
@@ -125,6 +126,8 @@ def completeness_notices(
         notices.append(NOTICE_ANALYSIS_PARTIAL)
     if quality.analysis_stale:
         notices.append(NOTICE_ANALYSIS_STALE)
+    if quality.recompute_status == "failed":
+        notices.append(NOTICE_ANALYSIS_RECOMPUTE_FAILED)
     if quality.is_mock:
         notices.append(NOTICE_MOCK_ANALYSIS)
     if unsupported:

@@ -591,6 +591,18 @@ class Settings(BaseSettings):
     dispatch_retry_max_seconds: int = 600
     dispatch_sweep_interval_seconds: int = 30
     dispatch_sweep_batch_size: int = 100
+    # Analysis recompute after a transcript correction (HOM-63, ADR 0037,
+    # backend.jobs.recompute): a correction dispatches a recompute of the
+    # intelligence outputs on the corrected revision; the sweeper dispatches
+    # stale meetings again until a revision has this many failed recomputes.
+    # After that only a person can ask for another attempt.  Off turns off
+    # every automatic recompute (the correction and the sweeper); only the
+    # manual route recomputes then.
+    recompute_on_correction: bool = True
+    recompute_max_attempts: int = 3
+    recompute_sweep_interval_seconds: int = 300
+    # Manual recompute requests per workspace and minute (429 over it).
+    recompute_manual_rate_limit_per_minute: int = 10
     allow_mock_providers: bool = False
     asr_provider: str = "local_whisper"
     diarization_provider: str = "unavailable"
@@ -804,6 +816,12 @@ class Settings(BaseSettings):
             or self.dispatch_sweep_batch_size <= 0
         ):
             raise ValueError("Dispatch outbox retry and sweep settings must be positive")
+        if (
+            self.recompute_max_attempts <= 0
+            or self.recompute_sweep_interval_seconds <= 0
+            or self.recompute_manual_rate_limit_per_minute <= 0
+        ):
+            raise ValueError("Recompute attempts, sweep interval and rate limit must be positive")
         if self.database_app_role and not re.fullmatch(
             r"[a-z_][a-z0-9_]{0,62}", self.database_app_role
         ):

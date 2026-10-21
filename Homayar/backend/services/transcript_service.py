@@ -324,15 +324,21 @@ def record_analysis_run(
     input_view: str = "original",
     input_policy_digest: str | None = None,
     manifest_digest: str | None = None,
+    is_current: bool = True,
 ) -> AnalysisRun:
     """Append the current analysis run; the previous one is superseded.
 
     Prompt provenance comes from the provider's declared identity parameters
     (``prompt_version``, ``prompt_sha256``, ``output_schema_sha256``) when the
     adapter declares them; adapters that do not leave them empty rather than
-    inventing a version.
+    inventing a version.  ``is_current=False`` appends a run that replaces
+    nothing (a failed recompute, HOM-63): the current run stays current.
     """
-    previous = current_analysis_run(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    previous = (
+        current_analysis_run(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+        if is_current
+        else None
+    )
     if previous is not None:
         previous.is_current = False
         previous.superseded_at = now
@@ -366,7 +372,7 @@ def record_analysis_run(
         input_view=input_view,
         input_policy_digest=input_policy_digest,
         manifest_digest=manifest_digest,
-        is_current=True,
+        is_current=is_current,
         created_at=now,
     )
     db.add(run)

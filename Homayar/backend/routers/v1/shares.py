@@ -430,7 +430,7 @@ def access_share(
         transcript=_transcript_response(db, meeting=meeting, view=view),
         summary=summary_response(summary, view) if summary else None,
         actions=[action_response(action, view) for action in actions],
-        quality=_quality(db, meeting, with_job=False),
+        quality=_quality(db, meeting, with_job=False, settings=settings),
     )
     db.commit()
     return response
@@ -479,7 +479,7 @@ def export_share(
             actions=[_export_action(action, view) for action in actions],
             transcript_revision=_export_revision(transcript),
             summary_evidence_status=summary.evidence_status if summary else None,
-            quality=_quality(db, meeting, with_job=False).model_dump(),
+            quality=_quality(db, meeting, with_job=False, settings=settings).model_dump(),
             privacy=export_privacy(db, meeting=meeting, view=view, transcript=transcript),
         ),
         format_name,

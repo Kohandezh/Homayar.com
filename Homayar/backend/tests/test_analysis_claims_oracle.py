@@ -834,7 +834,8 @@ def test_a9_a_mock_run_reports_every_field_as_not_stated(
 def test_a10_the_openapi_contract_is_current_and_summary_keeps_its_shape():
     assert contract.main(["--check"]) == 0
     snapshot = contract.load_snapshot()
-    assert snapshot["info"]["version"] == "1.1.0"
+    # 1.2.0: HOM-63 added two optional quality fields; HOM-61 changed nothing here.
+    assert snapshot["info"]["version"] == "1.2.0"
     assert sorted(snapshot["components"]["schemas"]["SummaryResponse"]["properties"]) == [
         "analysis_run",
         "analysis_run_id",

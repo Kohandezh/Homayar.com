@@ -166,6 +166,13 @@ class TranscriptSegmentEditRequest(BaseModel):
         return self
 
 
+class AnalysisRecomputeResponse(BaseModel):
+    """Recompute status of a meeting after a manual request (HOM-63):
+    ``up_to_date``, ``pending`` or ``failed``."""
+
+    status: str
+
+
 class TranscriptCorrectionRequest(BaseModel):
     """A person's correction of the current revision: a new revision is created.
 
