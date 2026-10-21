@@ -213,6 +213,7 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     # Administrative mutations of processing
     AuditEventType.MEETING_PROCESSING_REPLAYED: "administration",
     AuditEventType.MEETING_PURGE_REQUEUED: "administration",
+    AuditEventType.REVIEW_SAMPLE_DRAWN: "administration",
     # Deletion, retention and legal hold
     AuditEventType.MEETING_DELETED: "deletion",
     AuditEventType.MEETING_RETENTION_EXPIRED: "deletion",

@@ -10,6 +10,7 @@ from backend.database.relational import get_db
 from backend.database.saas_models import JobState, ShareAudience
 from backend.jobs.outbox import dispatch_job
 from backend.jobs.replay import ReplayRefused, replay_dead_letter_job
+from backend.review_sampling import SamplingError
 from backend.schemas.admin import (
     AdminJobListResponse,
     AdminJobResponse,
@@ -27,6 +28,7 @@ from backend.schemas.admin import (
     WorkspaceSettingsResponse,
     WorkspaceSettingsUpdateRequest,
 )
+from backend.schemas.coverage import CoverageResponse, ReviewSampleRequest, ReviewSampleResponse
 from backend.schemas.meetings import JobResponse
 from backend.security.context import (
     Permission,
@@ -61,6 +63,13 @@ from backend.services.admin_shares_service import (
 )
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
+from backend.services.coverage_service import (
+    COVERAGE_VERSION,
+    CoverageWindowError,
+    compute_coverage,
+    parse_window,
+)
+from backend.services.review_sampling_service import draw_review_sample
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -72,6 +81,10 @@ require_workspace_admin_context = require_permission(Permission.WORKSPACE_MANAGE
 require_workspace_admin_write_context = require_write_permission(Permission.WORKSPACE_MANAGE)
 
 PRIVACY_POLICY_FIELDS = frozenset({"pii_redaction_enabled", "pii_redaction_classes"})
+
+
+def _window_invalid(exc: CoverageWindowError) -> HTTPException:
+    return HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)})
 
 
 def _workspace_not_found() -> HTTPException:
@@ -326,6 +339,101 @@ def summarize_jobs(
     return AdminJobSummaryResponse(
         counts=AdminJobStateCounts(**{state.value: count for state, count in counts.items()}),
         total=sum(counts.values()),
+    )
+
+
+@router.get("/coverage", response_model=CoverageResponse)
+def read_coverage(
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
+    context: WorkspaceContext = Depends(require_workspace_admin_context),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> CoverageResponse:
+    """Ingestion, processing, evaluation and review coverage (HOM-72), ``coverage/1``.
+
+    Four separate counters over the workspace's ingestion ledger rows with
+    ``from <= received_at < to`` (ISO 8601 with a timezone; default: the 30
+    days before now; at most 366 days). Each counter's denominator is the
+    previous one's numerator, and there is no blended number. Refused with
+    ``422 coverage_window_invalid``. A read, not audited.
+    """
+    try:
+        window = parse_window(from_, to)
+    except CoverageWindowError as exc:
+        raise _window_invalid(exc) from exc
+    coverage = compute_coverage(
+        db,
+        workspace_id=context.workspace.id,
+        window=window,
+        recompute_max_attempts=settings.recompute_max_attempts,
+    )
+    return CoverageResponse.model_validate(
+        {
+            "coverage_version": COVERAGE_VERSION,
+            "window": window.as_dict(),
+            "counters": coverage.counters,
+        }
+    )
+
+
+@router.post("/review-samples", response_model=ReviewSampleResponse)
+def create_review_sample(
+    payload: ReviewSampleRequest,
+    request: Request,
+    context: WorkspaceContext = Depends(require_workspace_admin_write_context),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> ReviewSampleResponse:
+    """Draw a seeded review sample (HOM-72), ``review-sampling/1``.
+
+    The population is the window's ``fully_evaluated`` meetings (the review
+    denominator of ``GET /admin/coverage``). Without ``seed``, or with
+    ``"seed": null``, the server picks one and returns it. Each scope value must
+    be ``unassigned`` or have the shape of its column: a lowercase UUID for
+    ``team_id`` and ``agent_user_id``, ``^[a-z][a-z0-9_]{0,29}$`` for ``source``,
+    ``^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})?$`` for ``language``. Each draw is
+    recorded as one ``review_sample.drawn`` audit event with the seed, the
+    versions, the window, the normalized config and the digests, enough to draw
+    it again. Refused with ``422`` and no audit event:
+    ``coverage_window_invalid``, ``seed_invalid``, ``sampling_config_invalid``
+    or ``sampling_config_empty``.
+    """
+    try:
+        sample = draw_review_sample(
+            db,
+            workspace_id=context.workspace.id,
+            raw_from=payload.from_,
+            raw_to=payload.to,
+            seed=payload.seed,
+            config=payload.config,
+            recompute_max_attempts=settings.recompute_max_attempts,
+        )
+    except CoverageWindowError as exc:
+        raise _window_invalid(exc) from exc
+    except SamplingError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
+
+    record_audit_event(
+        db,
+        event_type=AuditEventType.REVIEW_SAMPLE_DRAWN,
+        actor_user_id=context.actor.user.id,
+        workspace_id=context.workspace.id,
+        target_type="workspace",
+        target_id=context.workspace.id,
+        request_id=getattr(request.state, "request_id", None),
+        details=sample.audit_details(),
+        settings=settings,
+    )
+    db.commit()
+    return ReviewSampleResponse.model_validate(
+        {
+            "coverage_version": COVERAGE_VERSION,
+            "window": sample.window.as_dict(),
+            "draw": sample.draw.to_json(),
+        }
     )
 
 
