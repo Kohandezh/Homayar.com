@@ -7,7 +7,9 @@ HOM-52 (WP11-T02). This package defines what an analysis may say about a convers
 - the evidence each label needs;
 - explicit values for "not said" and for "the model abstains";
 - the exact shape of one extraction;
-- a pure validator that judges an extraction field by field.
+- a pure validator that judges an extraction field by field;
+- a pure, versioned policy (HOM-53) that decides what is shown, what is withheld for low
+  confidence and what goes to human review.
 
 Nothing in the backend uses it yet. HOM-53 wires it into the provider prompt and the
 pipeline. HOM-54 builds scorecards on its label ids. There is no table, no API and no
@@ -159,8 +161,8 @@ The JSON file has the full English and Persian names and one-line definitions.
   `EntityValue`. Every key is required. `confidence` may be `null`.
 - `source_turn_indexes` means what `IntelligenceResult.source_turn_indexes` means: index
   `i` is turn `i` of the request.
-- `confidence` is the model's own number, not a calibrated probability. No rule here
-  reads it.
+- `confidence` is the model's own number, not a calibrated probability. The validator
+  never reads it. Only the policy does.
 - At most 32 values per field and 64 indexes per value.
 - There is no NPS, no churn probability, no sentiment score and no free-text category.
   Such a key is an unknown key and is rejected.
@@ -235,12 +237,118 @@ Details:
 1. Pin a version as a constant: `load_taxonomy("conversation", 1)`.
 2. Ask the model for the extraction shape (`Extraction.model_json_schema()`).
 3. Call `validate_extraction` with the turns the model saw.
-4. Route accepted `critical` values to review, or apply the high-precision policy.
-5. Store `taxonomy_id`, `taxonomy_version`, `taxonomy_digest` and `validator_version`
-   with every result.
+4. Call `apply_policy` on the validator result (or `evaluate_extraction` for steps 3 and
+   4 together). It withholds low-confidence values and routes every kept `critical` value
+   to review.
+5. Store `PolicyResult.to_json()`. It carries `taxonomy_id`, `taxonomy_version`,
+   `taxonomy_digest`, `validator_version`, `policy_version` and `policy_digest`.
 6. To read an old result, call
    `load_taxonomy(taxonomy_id, taxonomy_version, expected_digest=taxonomy_digest)`. Never
    judge an old result again with a newer version.
+
+## Confidence and abstention policy
+
+```python
+result = apply_policy(validate_extraction(extraction, taxonomy, turns))
+# the same thing:
+result = evaluate_extraction(extraction, taxonomy, turns)
+```
+
+The policy reads only the validator result. It is pure and deterministic, and it never
+changes its input. It does no I/O and logs nothing. Nothing in the backend calls it yet.
+
+### Version 1
+
+`POLICY_V1` is `ExtractionPolicy(version="extraction-policy/1",
+min_confidence_explicit=0.5, min_confidence_inferred=0.7)`.
+
+`confidence` is the model's own number, not a calibrated probability. So the version 1
+thresholds are conservative placeholders. Precision is not measured yet (there is no
+adjudicated corpus), so version 1 never auto-accepts a critical value. Calibration will
+publish a new policy version. Human confirmation (accept, override) is HOM-18.
+
+### Per value
+
+These rules apply to each value of a field that the validator accepted as `stated`. They
+are the same for single-valued (intent, outcome) and multi-valued (topic, entity) fields.
+The threshold is `min_confidence_explicit` for basis `explicit` and
+`min_confidence_inferred` for basis `inferred`.
+
+| Value | Result | Disposition or reason |
+| --- | --- | --- |
+| `confidence` is `null` | withheld | `missing_confidence` |
+| `confidence` below the threshold | withheld | `below_threshold` |
+| at or above the threshold, `critical` | kept | `review_required`, review reason `critical_label` |
+| at or above the threshold, not critical | kept | `auto_accepted` |
+
+- The boundary passes: `0.5` explicit and `0.7` inferred are kept.
+- `critical` is the flag the validator copied from the pinned taxonomy. The policy never
+  decides criticality by label name.
+- A withheld value is never shown as a finding and never goes to review. It stays in the
+  result only so evaluation can count it.
+
+### Per field
+
+| Validator result | Policy verdict | Policy status | `abstain_reason` | values / withheld |
+| --- | --- | --- | --- | --- |
+| `rejected` | `rejected` | `null` | `null` | both empty |
+| `abstained`, the input status was an abstain value | `abstained` | the input status | `model` | both empty |
+| `abstained` by the validator (`contradictory_values`) | `abstained` | `contradictory` | `contradictory` | both empty |
+| `accepted`, `not_stated` | `accepted` | `not_stated` | `null` | both empty |
+| `accepted`, `stated`, at least one value kept | `accepted` | `stated` | `null` | kept and withheld, each in input order |
+| `accepted`, `stated`, every value withheld | `abstained` | `insufficient_evidence` | `low_confidence` | values empty, withheld in input order |
+
+- A field's `review_required` is true when any kept value is `review_required`.
+- `needs_review` is true when any field's `review_required` is true.
+- `valid` is the validator's `valid`. The policy never turns an invalid extraction into a
+  valid one, nor the reverse.
+
+### Version and digest
+
+- `POLICY_VERSION` is `extraction-policy/1`.
+- `policy_digest(policy)` is sha256 over the canonical JSON of the three policy fields
+  (sorted keys, no spaces, UTF-8), the same canonical form as `taxonomy_digest`.
+- A test pins `POLICY_VERSION` and `policy_digest(POLICY_V1)`. Changing a threshold
+  without a new version fails CI.
+- `apply_policy` refuses (`ValueError`) a policy with an empty version or a threshold
+  outside `[0, 1]`.
+
+### The stored shape
+
+`PolicyResult.to_json()` is plain JSON. Enum values are their strings.
+
+```json
+{
+  "policy_version": "extraction-policy/1",
+  "policy_digest": "<64 hex>",
+  "taxonomy_id": "conversation",
+  "taxonomy_version": 1,
+  "taxonomy_digest": "<64 hex>",
+  "validator_version": "analysis-taxonomy-validator/1",
+  "valid": true,
+  "needs_review": true,
+  "issues": [{"code": "unknown_key", "path": "estimated_nps"}],
+  "fields": {
+    "intent": {"verdict": "accepted", "status": "stated", "abstain_reason": null,
+               "review_required": true, "issues": [],
+               "values": [{"label": "cancel_service", "basis": "explicit",
+                           "source_turn_indexes": [0], "confidence": 0.9,
+                           "critical": true, "text": null,
+                           "disposition": "review_required",
+                           "review_reason": "critical_label"}],
+               "withheld": []},
+    "topic": {"...": "same keys"},
+    "entity": {"...": "same keys; entity values carry their text"},
+    "outcome": {"...": "same keys"}
+  }
+}
+```
+
+- `fields` always has exactly the four dimensions.
+- A withheld value has the same keys as a kept value, but `disposition` and
+  `review_reason` are replaced by `reason` (`below_threshold` or `missing_confidence`).
+- An issue has only `code` and `path`. The validator's `message` is for people and is not
+  stored. Field `issues` are the validator's field issues.
 
 ## How HOM-54 uses it
 
