@@ -33,7 +33,7 @@ SNAPSHOT_PATH = Path(__file__).with_name("ingestion-v1.openapi.json")
 WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 
 # The major number follows the /api/v1 prefix. Additive change: bump the minor.
-CONTRACT_VERSION = "1.1.0"
+CONTRACT_VERSION = "1.2.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 

@@ -228,6 +228,11 @@ class MeetingQualityResponse(BaseModel):
     is_mock: bool
     degradations: list[DegradationResponse] = Field(default_factory=list)
     usage: UsageStateResponse | None = None
+    # Recompute after a correction (HOM-63): ``up_to_date`` (not stale),
+    # ``pending`` (stale, a recompute is due) or ``failed`` (stale, the failed
+    # recomputes reached the cap; ``recompute_failure_code`` is the last reason).
+    recompute_status: str = "up_to_date"
+    recompute_failure_code: str | None = None
 
 
 class ReportCompleteness(BaseModel):

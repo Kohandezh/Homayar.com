@@ -481,7 +481,7 @@ def get_call_report(
         )
     findings.extend(_action_findings(db, meeting=meeting, view=meeting_view_, render=render))
 
-    quality = _quality(db, meeting)
+    quality = _quality(db, meeting, settings=settings)
     counts = finding_counts((finding.evidence_status, finding.supported) for finding in findings)
     unsupported = counts["unsupported"]
     response = CallReportResponse(

@@ -742,6 +742,7 @@ def get_meeting(
     meeting_id: str,
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> MeetingDetailResponse:
     meeting = _get_meeting(
         db,
@@ -763,7 +764,12 @@ def get_meeting(
         ),
         latest_job=_job_response(job),
         quality=MeetingQualityResponse.model_validate(
-            assess_meeting(db, meeting=meeting, job=job).as_dict()
+            assess_meeting(
+                db,
+                meeting=meeting,
+                job=job,
+                recompute_max_attempts=settings.recompute_max_attempts,
+            ).as_dict()
         ),
         ingestion=IngestionResponse.model_validate(ingestion) if ingestion is not None else None,
     )
@@ -1218,6 +1224,7 @@ def get_playback(
     ),
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> PlaybackResponse:
     """How to play a time window of the recording next to its transcript (HOM-60).
 
@@ -1257,6 +1264,8 @@ def get_playback(
         duration_ms=duration_ms,
         content_type=recording.media_type,
         size_bytes=recording.size_bytes,
-        completeness=meeting_completeness(status=meeting.status, quality=_quality(db, meeting)),
+        completeness=meeting_completeness(
+            status=meeting.status, quality=_quality(db, meeting, settings=settings)
+        ),
         privacy_enforced=policy.enforced,
     )

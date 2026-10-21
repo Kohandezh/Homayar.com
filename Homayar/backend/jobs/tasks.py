@@ -6,6 +6,8 @@ from backend.celery_app import (
     LEASE_RECOVERY_TASK,
     MEDIA_RECONCILIATION_TASK,
     PROCESS_MEETING_TASK,
+    RECOMPUTE_ANALYSIS_TASK,
+    RECOMPUTE_SWEEP_TASK,
     RETENTION_PURGE_TASK,
     USAGE_RECONCILIATION_TASK,
     VOICE_RECOVERY_TASK,
@@ -91,3 +93,32 @@ def run_retention_purge_task():
     from backend.jobs.retention_purge import run_retention_purge
 
     return run_with_heartbeat("retention_purge", run_retention_purge)
+
+
+@celery_app.task(
+    bind=True,
+    name=RECOMPUTE_ANALYSIS_TASK,
+    autoretry_for=(),
+    acks_late=True,
+)
+def recompute_meeting_analysis_task(
+    self, meeting_id: str, target_revision_id: str, workspace_id: str | None = None
+):
+    """Recompute one meeting's analysis on a corrected revision (HOM-63).
+
+    No broker-level retry: a failure is recorded as a failed analysis run and
+    the stale-analysis sweep dispatches again until the attempt cap.
+    """
+    from backend.jobs.recompute import run_recompute
+
+    return run_recompute(
+        meeting_id, target_revision_id, workspace_id=workspace_id, delivery=self.request.id
+    )
+
+
+@celery_app.task(name=RECOMPUTE_SWEEP_TASK, acks_late=False, ignore_result=True)
+def sweep_stale_analyses_task():
+    """Periodic recovery: dispatch a recompute for every stale meeting below the cap."""
+    from backend.jobs.recompute import sweep_stale_analyses
+
+    return run_with_heartbeat("analysis_recompute", sweep_stale_analyses)

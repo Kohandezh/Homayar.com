@@ -225,6 +225,8 @@ def test_findings_cite_authorized_turns_and_malformed_references_are_rejected(
 def test_evidence_survives_correction_and_stays_bound_to_the_analysed_revision(
     client, email_outbox, settings, monkeypatch
 ):
+    # HOM-63: this test is about the stale state, so no recompute runs.
+    monkeypatch.setattr(settings, "recompute_on_correction", False)
     _, workspace_id, meeting_id = _processed(
         client, email_outbox, settings, monkeypatch, providers=_citing_bundle()
     )

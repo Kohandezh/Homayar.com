@@ -24,6 +24,9 @@ VOICE_RECOVERY_TASK = "backend.voice.sweep_recovery"
 ARTIFACT_CLEANUP_TASK = "backend.jobs.sweep_abandoned_artifacts"
 MEDIA_RECONCILIATION_TASK = "backend.jobs.reconcile_media_objects"
 RETENTION_PURGE_TASK = "backend.jobs.run_retention_purge"
+# Analysis recompute after a transcript correction (HOM-63, ADR 0037).
+RECOMPUTE_ANALYSIS_TASK = "backend.jobs.recompute_meeting_analysis"
+RECOMPUTE_SWEEP_TASK = "backend.jobs.sweep_stale_analyses"
 # Grace between the cooperative attempt deadline and the hard kill.
 TIME_LIMIT_GRACE_SECONDS = 60
 
@@ -62,6 +65,8 @@ def make_celery() -> Celery:
             ARTIFACT_CLEANUP_TASK: {"queue": PROCESSING_QUEUE},
             MEDIA_RECONCILIATION_TASK: {"queue": PROCESSING_QUEUE},
             VOICE_RECOVERY_TASK: {"queue": PROCESSING_QUEUE},
+            RECOMPUTE_ANALYSIS_TASK: {"queue": PROCESSING_QUEUE},
+            RECOMPUTE_SWEEP_TASK: {"queue": PROCESSING_QUEUE},
         },
         # Attempt bound of last resort (WP06-T04): the soft limit raises inside
         # the task (finalised as a retryable ``attempt_timeout``); the hard
@@ -152,6 +157,17 @@ def make_celery() -> Celery:
                 "options": {
                     "queue": PROCESSING_QUEUE,
                     "expires": float(settings.retention_purge_interval_seconds),
+                },
+            },
+            # - analysis recompute sweep (HOM-63) dispatches a recompute for
+            #   every stale meeting below the failure cap (a lost dispatch).
+            #   Without beat call backend.jobs.recompute.sweep_stale_analyses()
+            "analysis-recompute-sweep": {
+                "task": RECOMPUTE_SWEEP_TASK,
+                "schedule": float(settings.recompute_sweep_interval_seconds),
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.recompute_sweep_interval_seconds),
                 },
             },
         },

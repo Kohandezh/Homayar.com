@@ -6,7 +6,9 @@ thing.  Nothing here fabricates a better state than the data supports:
 transcription is *unavailable* when no text exists, speaker attribution is at
 most *inferred* until a person verifies it (WP14), analysis is *stale* when
 the current transcript is newer than the one it read, and evidence follows
-the per-finding statuses of WP04-T03.
+the per-finding statuses of WP04-T03.  The recompute status (HOM-63, ADR 0037)
+is derived the same way: a stale analysis is *pending* until its revision has
+``recompute_max_attempts`` failed recompute runs, then *failed*.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.config import get_settings
 from backend.database.saas_models import (
     ActionItem,
     AnalysisRun,
@@ -52,6 +55,12 @@ class AnalysisState(str, enum.Enum):
     COMPLETE = "complete"
     PARTIAL = "partial"
     UNAVAILABLE = "unavailable"
+
+
+class RecomputeStatus(str, enum.Enum):
+    UP_TO_DATE = "up_to_date"  # the analysis read the current revision
+    PENDING = "pending"  # stale; a recompute is due (or running)
+    FAILED = "failed"  # stale; the failed recomputes reached the cap
 
 
 SETTLED_STAGE_STATES: frozenset[StageState] = frozenset(
@@ -88,10 +97,18 @@ class MeetingQuality:
     is_mock: bool
     degradations: list[Degradation] = field(default_factory=list)
     usage: UsageState | None = None
+    recompute_status: RecomputeStatus = RecomputeStatus.UP_TO_DATE
+    recompute_failure_code: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        for key in ("transcription", "speaker_attribution", "analysis", "evidence"):
+        for key in (
+            "transcription",
+            "speaker_attribution",
+            "analysis",
+            "evidence",
+            "recompute_status",
+        ):
             payload[key] = getattr(self, key).value
         return payload
 
@@ -140,8 +157,16 @@ def assess_quality(
     speaker_count: int,
     duration_seconds: int,
     usage: UsageState | None = None,
+    recompute_failures: int = 0,
+    recompute_failure_code: str | None = None,
+    recompute_max_attempts: int | None = None,
 ) -> MeetingQuality:
-    """Pure assessment from the parts every surface has at hand."""
+    """Pure assessment from the parts every surface has at hand.
+
+    ``recompute_failures`` counts the failed recompute runs of the current
+    revision and ``recompute_failure_code`` is the newest one's reason; without
+    ``recompute_max_attempts`` a stale analysis is never reported as failed.
+    """
     stage_list = list(stage_runs)
     by_stage = {stage: state for stage, state, _reason in stage_list}
     degradations = [
@@ -181,14 +206,18 @@ def assess_quality(
     statuses.extend(action_statuses)
     evidence = aggregate_evidence(statuses)
 
+    stale = run is not None and revision is not None and run.transcript_revision_id != revision.id
+    recompute = RecomputeStatus.UP_TO_DATE
+    if stale:
+        capped = recompute_max_attempts is not None and recompute_failures >= recompute_max_attempts
+        recompute = RecomputeStatus.FAILED if capped else RecomputeStatus.PENDING
+
     return MeetingQuality(
         transcription=transcription,
         speaker_attribution=speakers,
         analysis=analysis,
         evidence=evidence,
-        analysis_stale=(
-            run is not None and revision is not None and run.transcript_revision_id != revision.id
-        ),
+        analysis_stale=stale,
         transcript_revision_id=revision.id if revision is not None else None,
         analysed_revision_id=run.transcript_revision_id if run is not None else None,
         analysis_run_id=run.id if run is not None else None,
@@ -200,7 +229,34 @@ def assess_quality(
         ),
         degradations=degradations,
         usage=usage,
+        recompute_status=recompute,
+        recompute_failure_code=(
+            recompute_failure_code if recompute == RecomputeStatus.FAILED else None
+        ),
     )
+
+
+def failed_recomputes(
+    db: Session, *, workspace_id: str, meeting_id: str, revision_id: str
+) -> tuple[int, str | None]:
+    """How many recomputes of ``revision_id`` failed, and the newest reason.
+
+    A failed recompute is the only writer of a ``failed`` analysis run (the
+    full job ends a failed analysis stage without one), so the count is exact.
+    """
+    reasons = list(
+        db.scalars(
+            select(AnalysisRun.reason_code)
+            .where(
+                AnalysisRun.workspace_id == workspace_id,
+                AnalysisRun.meeting_id == meeting_id,
+                AnalysisRun.transcript_revision_id == revision_id,
+                AnalysisRun.state == StageState.FAILED,
+            )
+            .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
+        )
+    )
+    return len(reasons), (reasons[0] if reasons else None)
 
 
 def _latest_stage_runs(
@@ -228,10 +284,23 @@ def _usage_state(db: Session, *, job: ProcessingJob | None) -> UsageState | None
     return UsageState(state=reservation.state.value, audio_seconds=reservation.committed_value)
 
 
-def assess_meeting(db: Session, *, meeting: Meeting, job: ProcessingJob | None) -> MeetingQuality:
+def assess_meeting(
+    db: Session,
+    *,
+    meeting: Meeting,
+    job: ProcessingJob | None,
+    recompute_max_attempts: int | None = None,
+) -> MeetingQuality:
     """Assessment from persisted rows (API, shared view, exports)."""
     revision = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     run = current_analysis_run(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    failures, failure_code = 0, None
+    if revision is not None and run is not None and run.transcript_revision_id != revision.id:
+        failures, failure_code = failed_recomputes(
+            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id, revision_id=revision.id
+        )
+    if recompute_max_attempts is None:
+        recompute_max_attempts = get_settings().recompute_max_attempts
     summary_status = db.scalar(
         select(MeetingSummary.evidence_status).where(
             MeetingSummary.workspace_id == meeting.workspace_id,
@@ -272,4 +341,7 @@ def assess_meeting(db: Session, *, meeting: Meeting, job: ProcessingJob | None) 
         speaker_count=int(speaker_count or 0),
         duration_seconds=meeting.duration_seconds,
         usage=_usage_state(db, job=job),
+        recompute_failures=failures,
+        recompute_failure_code=failure_code,
+        recompute_max_attempts=recompute_max_attempts,
     )

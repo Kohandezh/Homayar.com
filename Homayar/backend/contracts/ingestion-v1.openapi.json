@@ -1532,6 +1532,22 @@
             "title": "Is Mock",
             "type": "boolean"
           },
+          "recompute_failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recompute Failure Code"
+          },
+          "recompute_status": {
+            "default": "up_to_date",
+            "title": "Recompute Status",
+            "type": "string"
+          },
           "segment_count": {
             "title": "Segment Count",
             "type": "integer"
@@ -3033,7 +3049,7 @@
   "info": {
     "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
     "title": "Homayar Ingestion API",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "openapi": "3.1.0",
   "paths": {

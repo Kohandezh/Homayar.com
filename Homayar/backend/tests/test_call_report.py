@@ -488,6 +488,8 @@ def test_a_transcript_without_speaker_rows_cannot_rename_a_speaker(
 def test_a_correction_after_analysis_marks_the_report_stale(
     client, email_outbox, settings, monkeypatch
 ):
+    # HOM-63: this test is about the stale state, so no recompute runs.
+    monkeypatch.setattr(settings, "recompute_on_correction", False)
     _, workspace_id, meeting_id = _processed(
         client, email_outbox, settings, monkeypatch, providers=_bundle(GROUNDED)
     )

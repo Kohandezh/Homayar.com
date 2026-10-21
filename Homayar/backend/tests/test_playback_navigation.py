@@ -449,6 +449,8 @@ def test_unsupported_findings_never_reach_transcript_or_playback(
 def test_a_correction_returns_the_navigation_fields_and_marks_analysis_stale(
     client, email_outbox, settings, monkeypatch
 ):
+    # HOM-63: this test is about the stale state, so no recompute runs.
+    monkeypatch.setattr(settings, "recompute_on_correction", False)
     _, workspace_id, meeting_id = _processed(
         client, email_outbox, settings, monkeypatch, providers=_bundle(GROUNDED)
     )
