@@ -1,0 +1,465 @@
+{
+  "schema": "homayar.conversation-taxonomy/1",
+  "taxonomy_id": "conversation",
+  "version": 1,
+  "notes": "Conversation taxonomy, version 1 (HOM-52, WP11-T02). Released: never edit this file. A change is a new version file with its own pinned digest.",
+  "dimensions": {
+    "intent": {
+      "name_en": "Intent",
+      "name_fa": "قصد تماس",
+      "definition": "The main reason the customer made contact. If the customer gives more than one reason, it is the first one they present as the purpose of the contact.",
+      "cardinality": "single",
+      "abstain_values": [
+        "insufficient_evidence",
+        "contradictory"
+      ],
+      "text_match": "none",
+      "labels": [
+        {
+          "id": "request_support",
+          "name_en": "Support request",
+          "name_fa": "درخواست پشتیبانی",
+          "definition": "The customer asks for help with a product or service that does not work or that they cannot use.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "report_dissatisfaction",
+          "name_en": "Complaint",
+          "name_fa": "ثبت شکایت",
+          "definition": "The customer says they are unhappy with a product, a service or how they were treated, and wants it recorded or fixed.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "purchase_inquiry",
+          "name_en": "Purchase inquiry",
+          "name_fa": "استعلام خرید",
+          "definition": "The customer asks about buying a product or service: price, availability, plans or conditions.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "resolve_billing",
+          "name_en": "Billing issue",
+          "name_fa": "مسئله صورتحساب",
+          "definition": "The customer wants a charge, an invoice, a payment or a refund checked or corrected.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "schedule_appointment",
+          "name_en": "Appointment",
+          "name_fa": "تعیین نوبت",
+          "definition": "The customer wants to book, move or cancel an appointment or a visit.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "request_callback",
+          "name_en": "Callback request",
+          "name_fa": "درخواست تماس مجدد",
+          "definition": "The customer asks to be called back later and gives no other main reason.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "cancel_service",
+          "name_en": "Cancellation request",
+          "name_fa": "درخواست لغو سرویس",
+          "definition": "The customer asks to end a subscription, a contract or a service.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        },
+        {
+          "id": "unsolicited",
+          "name_en": "Unsolicited contact",
+          "name_fa": "تماس ناخواسته",
+          "definition": "The contact is not a customer request: advertising, an automated call or a prank.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        }
+      ],
+      "retired_label_ids": []
+    },
+    "topic": {
+      "name_en": "Topic",
+      "name_fa": "موضوع",
+      "definition": "A subject the conversation discusses in substance, not only in passing.",
+      "cardinality": "multi",
+      "abstain_values": [
+        "insufficient_evidence"
+      ],
+      "text_match": "none",
+      "labels": [
+        {
+          "id": "pricing",
+          "name_en": "Pricing",
+          "name_fa": "قیمت",
+          "definition": "Prices, quotes, discounts or the cost of a plan.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "refund",
+          "name_en": "Refund",
+          "name_fa": "بازگشت وجه",
+          "definition": "Getting money back, or returning a product for money.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "invoice",
+          "name_en": "Invoice",
+          "name_fa": "فاکتور",
+          "definition": "An invoice, a bill or a receipt: its content, a copy or an error in it.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "payment",
+          "name_en": "Payment",
+          "name_fa": "پرداخت",
+          "definition": "Making a payment, a charge on a card or an account, or a failed or double payment.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "delivery",
+          "name_en": "Delivery",
+          "name_fa": "ارسال و تحویل",
+          "definition": "Shipping, delivery time, tracking, or a missing or damaged shipment.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "account_access",
+          "name_en": "Account access",
+          "name_fa": "دسترسی به حساب",
+          "definition": "Logging in, passwords, a locked account or account verification.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "connectivity",
+          "name_en": "Connectivity",
+          "name_fa": "اتصال و شبکه",
+          "definition": "Internet, network or line outages, and slow or unstable connections.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "contract",
+          "name_en": "Contract and subscription",
+          "name_fa": "قرارداد و اشتراک",
+          "definition": "Contract terms, renewal, cancellation or a change of subscription.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "installation",
+          "name_en": "Installation",
+          "name_fa": "نصب و راه‌اندازی",
+          "definition": "Installing, setting up or activating a product or a service.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "scheduling",
+          "name_en": "Scheduling",
+          "name_fa": "زمان‌بندی",
+          "definition": "Booking, moving or cancelling an appointment, a visit or a callback time.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "technical_fault",
+          "name_en": "Technical fault",
+          "name_fa": "خرابی فنی",
+          "definition": "A product, device or software that does not work, other than connectivity and account access.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        }
+      ],
+      "retired_label_ids": []
+    },
+    "entity": {
+      "name_en": "Entity",
+      "name_fa": "موجودیت",
+      "definition": "A specific item a speaker says, copied exactly from the transcript.",
+      "cardinality": "multi",
+      "abstain_values": [
+        "insufficient_evidence"
+      ],
+      "text_match": "normalized_token_span",
+      "labels": [
+        {
+          "id": "phone",
+          "name_en": "Phone number",
+          "name_fa": "شماره تلفن",
+          "definition": "A telephone number.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        },
+        {
+          "id": "national_id",
+          "name_en": "National ID",
+          "name_fa": "کد ملی",
+          "definition": "An Iranian national identification code.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        },
+        {
+          "id": "email",
+          "name_en": "Email address",
+          "name_fa": "نشانی ایمیل",
+          "definition": "An email address.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        },
+        {
+          "id": "amount",
+          "name_en": "Amount of money",
+          "name_fa": "مبلغ",
+          "definition": "A sum of money, with or without a currency word.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        },
+        {
+          "id": "date",
+          "name_en": "Date",
+          "name_fa": "تاریخ",
+          "definition": "A calendar date, or a day named relative to today such as tomorrow.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "date_range",
+          "name_en": "Date range",
+          "name_fa": "بازه زمانی",
+          "definition": "A period between two dates.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "time",
+          "name_en": "Time",
+          "name_fa": "ساعت",
+          "definition": "A time of day.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "reference_id",
+          "name_en": "Reference number",
+          "name_fa": "شماره پیگیری",
+          "definition": "An order, ticket, tracking, invoice or contract number.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        },
+        {
+          "id": "person_name",
+          "name_en": "Person name",
+          "name_fa": "نام شخص",
+          "definition": "The name of a person, as a speaker says it.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        }
+      ],
+      "retired_label_ids": []
+    },
+    "outcome": {
+      "name_en": "Resolution status",
+      "name_fa": "وضعیت حل مسئله",
+      "definition": "Where the customer's main request stands at the end of the conversation. Use the first label in this list whose definition fits.",
+      "cardinality": "single",
+      "abstain_values": [
+        "insufficient_evidence",
+        "contradictory"
+      ],
+      "text_match": "none",
+      "labels": [
+        {
+          "id": "resolved",
+          "name_en": "Resolved",
+          "name_fa": "حل شده",
+          "definition": "The main request was fully handled during the conversation, and a speaker says so.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": true,
+          "status": "active"
+        },
+        {
+          "id": "escalated",
+          "name_en": "Escalated",
+          "name_fa": "ارجاع شده",
+          "definition": "The main request was not handled here and was handed to another person, team or level.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "follow_up_scheduled",
+          "name_en": "Follow-up scheduled",
+          "name_fa": "پیگیری برنامه‌ریزی شده",
+          "definition": "The main request is not handled yet, and the speakers agreed a concrete next step such as a callback, a visit or a deadline.",
+          "allowed_basis": [
+            "explicit"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        },
+        {
+          "id": "unresolved",
+          "name_en": "Unresolved",
+          "name_fa": "حل نشده",
+          "definition": "The main request was not handled, and no hand-over and no concrete next step was agreed.",
+          "allowed_basis": [
+            "explicit",
+            "inferred"
+          ],
+          "min_source_turns": 1,
+          "critical": false,
+          "status": "active"
+        }
+      ],
+      "retired_label_ids": []
+    }
+  }
+}
