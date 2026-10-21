@@ -49,12 +49,15 @@ from backend.database.saas_models import (
     WorkspaceRole,
 )
 from backend.jobs import recompute
+from backend.jobs.checkpoints import ARTIFACT_SCHEMAS
 from backend.jobs.processor import process_job
+from backend.jobs.states import StageName
 from backend.observability.heartbeats import PERIODIC_TASKS
 from backend.providers.base import ProviderError
 from backend.providers.factory import ProviderBundle
 from backend.providers.mocks import MockASRProvider, MockIntelligenceProvider
 from backend.providers.schemas import ActionItem as ProviderActionItem
+from backend.providers.schemas import Decision, KeyMoment, SummaryField, SummaryFields
 from backend.services import transcript_service
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import AUDIT_EVENT_CATALOG
@@ -126,7 +129,9 @@ def analysis_provider(monkeypatch):
     return holder
 
 
-def _processed_meeting(client, email_outbox, settings, monkeypatch, *, key="recompute-upload"):
+def _processed_meeting(
+    client, email_outbox, settings, monkeypatch, *, key="recompute-upload", intelligence=None
+):
     credentials, workspace_id = _authenticated_workspace(client, email_outbox)
     monkeypatch.setattr(
         "backend.routers.v1.meetings.validate_media_upload",
@@ -137,7 +142,10 @@ def _processed_meeting(client, email_outbox, settings, monkeypatch, *, key="reco
     assert upload.status_code == 202, upload.text
     payload = upload.json()
     result = process_job(
-        payload["job"]["id"], worker_id="test-recompute", settings=settings, providers=_bundle()
+        payload["job"]["id"],
+        worker_id="test-recompute",
+        settings=settings,
+        providers=_bundle(intelligence),
     )
     assert result["status"] == "completed"
     return credentials, workspace_id, payload["meeting"]["id"]
@@ -467,6 +475,139 @@ def test_correction_recomputes_the_analysis_on_the_corrected_revision(
     assert completed.request_id and completed.request_id.startswith("recompute:")
     for event in events:
         assert CORRECTED_TEXT not in str(event.details) and ORIGINAL_TEXT not in str(event.details)
+
+
+class _StructuredIntelligence(MockIntelligenceProvider):
+    """A structured (HOM-61) analysis: every stated claim quotes and cites the
+    first turn, so a claim shows which revision it read."""
+
+    async def analyze(self, request):
+        result = await super().analyze(request)
+        said = request.turns[0].text
+
+        def stated() -> SummaryField:
+            return SummaryField(
+                status="stated", text=said, basis="explicit", source_turn_indexes=[0]
+            )
+
+        return result.model_copy(
+            update={
+                "summary_fields": SummaryFields(
+                    purpose=stated(),
+                    resolution=SummaryField(status="not_stated"),
+                    next_steps=stated(),
+                ),
+                "decisions": [
+                    Decision(
+                        description=f"Decided: {said}", basis="explicit", source_turn_indexes=[0]
+                    )
+                ],
+                "key_moments": [
+                    KeyMoment(
+                        kind="commitment", description=f"Promised: {said}", source_turn_indexes=[0]
+                    )
+                ],
+            }
+        )
+
+
+def _claim_refs(report: dict) -> list[dict]:
+    fields = report["summary"]["fields"].values()
+    return [
+        *(ref for field in fields for ref in field["evidence"]),
+        *(ref for decision in report["outcome"]["decisions"] for ref in decision["evidence"]),
+        *(ref for moment in report["summary"]["key_moments"] for ref in moment["evidence"]),
+    ]
+
+
+def _claims(report: dict) -> dict[str, object]:
+    """The HOM-61 shape of a report, without ids and texts."""
+    return {
+        "fields": {name: field["status"] for name, field in report["summary"]["fields"].items()},
+        "decisions": [(d["basis"], d["supported"]) for d in report["outcome"]["decisions"]],
+        "moments": [(m["kind"], m["supported"]) for m in report["summary"]["key_moments"]],
+        "findings": [
+            (f["section"], f["finding_type"], f["finding_index"]) for f in report["qa"]["findings"]
+        ],
+        "outcome": report["outcome"]["state"],
+    }
+
+
+def test_a_recompute_writes_the_full_jobs_structured_claims_on_the_corrected_revision(
+    client, email_outbox, settings, monkeypatch, analysis_provider
+):
+    """HOM-61 parity: the recompute and the full job share ``persist_analysis``,
+    so a recompute writes the same summary fields, decisions and key moments,
+    from the new run and citing only the corrected revision."""
+    analysis_provider["intelligence"] = _StructuredIntelligence(allow_mock=True)
+    _, workspace_id, meeting_id = _processed_meeting(
+        client,
+        email_outbox,
+        settings,
+        monkeypatch,
+        intelligence=_StructuredIntelligence(allow_mock=True),
+    )
+    full_job = _report(client, workspace_id, meeting_id)
+    old_run = _current_run(meeting_id)
+    assert full_job["summary"]["fields"]["purpose"]["text"] == ORIGINAL_TEXT
+    assert _claims(full_job)["fields"] == {
+        "purpose": "stated",
+        "resolution": "not_stated",
+        "next_steps": "stated",
+    }
+
+    corrected = _correct(client, workspace_id, meeting_id)
+
+    run = _current_run(meeting_id)
+    assert run.id != old_run.id and run.transcript_revision_id == corrected["id"]
+    report = _report(client, workspace_id, meeting_id)
+    assert _claims(report) == _claims(full_job)
+    summary = report["summary"]
+    assert summary["analysis_run_id"] == run.id
+    for name in ("purpose", "next_steps"):
+        field = summary["fields"][name]
+        assert (field["text"], field["basis"], field["supported"]) == (
+            CORRECTED_TEXT,
+            "explicit",
+            True,
+        )
+    assert summary["fields"]["resolution"]["evidence"] == []
+    (decision,) = report["outcome"]["decisions"]
+    assert decision["text"] == f"Decided: {CORRECTED_TEXT}" and decision["supported"] is True
+    (moment,) = summary["key_moments"]
+    assert moment["text"] == f"Promised: {CORRECTED_TEXT}" and moment["supported"] is True
+
+    # Every claim cites the corrected revision, through spans of the new run.
+    refs = _claim_refs(report)
+    assert len(refs) == 4
+    assert {ref["transcript_revision_id"] for ref in refs} == {corrected["id"]}
+    assert all(ref["is_current_revision"] for ref in refs)
+    assert all(ref["text"] == CORRECTED_TEXT for ref in refs)
+    with inspection_session_factory()() as db:
+        spans = db.scalars(select(EvidenceSpan).where(EvidenceSpan.id.in_([r["id"] for r in refs])))
+        assert {span.analysis_run_id for span in spans} == {run.id}
+        stored = db.scalar(select(MeetingSummary).where(MeetingSummary.meeting_id == meeting_id))
+        assert stored.analysis_run_id == run.id and stored.schema_version == 2
+
+    # Same provenance as the full job, except what only a job has.
+    assert (
+        run.schema_version == old_run.schema_version == ARTIFACT_SCHEMAS[StageName.INTELLIGENCE][1]
+    )
+    for column in (
+        "provider",
+        "model",
+        "prompt_version",
+        "prompt_sha256",
+        "output_schema_sha256",
+        "input_view",
+        "input_policy_digest",
+        "manifest_digest",
+        "is_mock",
+        "state",
+    ):
+        assert getattr(run, column) == getattr(old_run, column), column
+    assert (run.job_id, run.attempt, run.checkpoint_id, run.config_hash) == (None, None, None, None)
+    assert old_run.job_id and old_run.checkpoint_id
 
 
 def test_search_after_a_correction_returns_the_corrected_text(
