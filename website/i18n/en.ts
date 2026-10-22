@@ -925,6 +925,66 @@ const en = {
     cta: "Ask for a written proposal",
   },
 
+  roi: {
+    meta: {
+      title: "Review time calculator",
+      description: "Type your own numbers and count the review hours per month, today and with Homayar. Every formula is on the page, so you can check the result by hand.",
+    },
+    hero: {
+      eyebrow: "Review time calculator",
+      title: "Count your review hours",
+      text: "Type your own numbers. Every formula is shown, so you can check the result by hand.",
+    },
+    sample: "The values below are sample data, not measurements. Every value is your own estimate. Change them to your numbers.",
+    fields: {
+      agents: { label: "Agents whose calls are reviewed", hint: "", unit: "people" },
+      calls: { label: "Calls reviewed per agent each month", hint: "", unit: "calls" },
+      minutesToday: { label: "Minutes to review one call today", hint: "By listening to the recording.", unit: "minutes" },
+      minutesHomayar: { label: "Minutes to review one call with Homayar", hint: "By reading the transcript and the summary. This is your own estimate.", unit: "minutes" },
+      rate: { label: "Cost of one reviewer hour", hint: "In your own currency.", unit: "per hour" },
+    },
+    errors: {
+      whole: "Enter a whole number from 0 to 100,000.",
+      minutes: "Enter a number from 0 to 600.",
+      rate: "Enter a number from 0 to 1,000,000,000.",
+    },
+    result: {
+      title: "The result",
+      hoursUnit: "hours",
+      today: "Today",
+      withHomayar: "With Homayar",
+      gap: "Saved",
+      costUnit: "in your currency",
+      none: "With these numbers there is no review time saved.",
+      invalid: "Fix the marked field to see the result.",
+    },
+    formulas: {
+      title: "The formulas",
+      text: "Each line uses the numbers above. You can check every line with a calculator.",
+      items: {
+        T: "Reviewed calls per month",
+        H1: "Review hours per month today",
+        H2: "Review hours per month with Homayar",
+        S: "Review hours saved per month",
+        C: "Cost of the saved hours per month, at your own rate",
+      },
+      minutes: "60 is the number of minutes in one hour.",
+      rounding: "Hours and cost are rounded to one decimal place.",
+    },
+    notes: {
+      title: "What this page counts",
+      items: [
+        "Only review hours. The cost line is the saved hours times your own hourly rate. Homayar does not promise this amount.",
+        "The values filled in when the page opens are sample data. They are not measurements from any team.",
+        "Minutes to review one call with Homayar is your own estimate.",
+      ],
+    },
+    product: {
+      title: "What a reviewer gets from Homayar",
+      text: "For each call recording you upload, Homayar writes a transcript and a summary, with action items and insights linked to the transcript.",
+    },
+  },
+
   legal: {
     privacy: {
       meta: { title: "Privacy policy", description: "The Homayar privacy policy is being prepared with legal review and is not yet published." },

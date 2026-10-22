@@ -47,8 +47,20 @@ Wrap the whole page (including `<CommandCta naked />` at the end) in one element
 | Pricing | `lift` | Stands in front of an open lift shaft and looks up, then steps in and rides straight up. The lift stops at each floor, where one plan waits; the grid falls away below the higher it goes. |
 | About | `dome` | Looks up from the horizon to the night sky. Each principle is a bright star with its text under it. Scrolling pans from star to star and draws the constellation line between them; text far from the centre of the view is dimmed. After the last star the view comes back down to the horizon for the rest of the page. |
 | Contact | `beacon` | One bright beacon stands far away on the grid, in the gap between the form and the side column. Light rises along it and rings pulse out from its foot. The camera drifts slowly toward it, a little with time and more with the scroll. The form stays still, so typing is easy. |
+| Review time calculator (`/roi`) | `stacks` | Two towers of light stand on the grid at the inline-end side: today's review hours and the hours with Homayar. The dotted part above the shorter tower is the saved time; the towers follow the calculator inputs. The camera walks up to them, rises to the level where they differ, steps sideways around the gap while the formulas are read, then backs off for the call to action. It stays almost still while you type. |
 
 References the owner liked: "Active Theory" (the scroll moves the 3D world, not the page), "Lusion" (one ribbon through connected steps), "Virtually Ever After" (screens hanging in a point-cloud world), "The Shape of Intelligence" (kinetic headlines).
+
+### Review time calculator: two towers of hours
+
+The page text stays in one column at the inline-start side. The towers stand in the open space beside it (on phones, small and far behind the text).
+
+1. **Arrival.** The visitor stands on the grid at eye height. The two towers are far away: "today" on the reading-start side, "with Homayar" beside it.
+2. **The gap.** While the fields and the result are on screen, the camera walks closer and rises to the top of the shorter tower, so the dotted gap (the saved hours) is at eye level. The gap has the same footprint as the tower under it, and a bracket beside it marks its size.
+3. **Around it.** While the formulas are read, the camera steps sideways around the towers, so the gap shows its depth.
+4. **Back.** For the call to action the camera comes down to eye height and backs off.
+
+The calculator writes H1 and H2 on `[data-roi]`; the engine reads them every frame and the towers glide to the new heights. The taller tower is a fixed height once the hours reach the example value (160), so the ratio stays exact and the towers never leave the view. An invalid input lowers both towers to the floor and dims them. Without WebGL or with reduced motion the same comparison is drawn in the page as two rows of dots.
 
 ### Product: the gallery visit
 

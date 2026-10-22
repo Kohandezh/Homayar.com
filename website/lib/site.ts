@@ -18,6 +18,7 @@ export const sitePaths: string[] = [
   "/about",
   "/contact",
   "/pricing",
+  "/roi",
   "/legal/privacy",
   "/legal/terms",
   "/legal/gdpr",

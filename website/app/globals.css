@@ -1051,3 +1051,43 @@
   .console-slots { grid-template-columns: minmax(0, 1fr); }
   .chip-wrap { white-space: normal; text-align: start; }
 }
+
+/* Review time calculator (/roi), the "stacks" scene page (design-system/SCENE-RULES.md).
+   The text stays in one column at the inline-start side, so the two towers stand in the open space beside it. */
+@layer components {
+  .roi-column { max-width: 44rem; }
+  .roi-symbol { font-size: 0.75rem; font-weight: 700; color: var(--color-accent-text); }
+  .roi-input { font-variant-numeric: tabular-nums; }
+  .roi-big {
+    font-size: clamp(3.5rem, 2.5rem + 4vw, 6rem);
+    font-weight: 800;
+    line-height: 1;
+    color: var(--color-accent-text);
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 30px rgb(var(--t-glow) / 0.55), 0 0 3px var(--color-bg);
+  }
+  /* Very large results (up to 21 digits at the input bounds) break between digits instead of widening the page. */
+  .roi-big, .roi-cost { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  /* The dot glyph: the same comparison as the towers, drawn with dots. It is the fallback without WebGL. */
+  .roi-glyph { display: grid; gap: 0.75rem; }
+  .roi-glyph-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) 4.5rem; align-items: center; gap: 0.75rem; font-size: 0.875rem; }
+  .roi-glyph-label { color: var(--color-ink-2); }
+  .roi-glyph-value { text-align: end; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .roi-fill { transition: width var(--dur-base) ease-out; }
+  .roi-gap, .roi-gap-key {
+    background-image: radial-gradient(circle, transparent 1.2px, rgb(var(--t-glow) / 0.95) 1.5px, rgb(var(--t-glow) / 0.95) 2.2px, transparent 2.6px);
+    background-size: 9px 8px;
+  }
+  .roi-gap { position: absolute; inset-block: 0; transition: inset-inline-start var(--dur-base) ease-out, width var(--dur-base) ease-out; }
+  .roi-gap-key { display: inline-block; width: 18px; height: 8px; flex: none; }
+  .roi-glyph-legend { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--color-ink-2); }
+  /* One formula per line: the label, then the symbolic form and the form with the visitor's numbers. */
+  .roi-line { display: grid; gap: 0.25rem 1.5rem; padding-block: 1rem; }
+  .roi-formula, .roi-filled { justify-self: start; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .roi-formula { font-weight: 600; color: var(--color-ink-2); }
+  .roi-filled { font-size: 1.125rem; font-weight: 700; }
+  @media (min-width: 40rem) {
+    .roi-line { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); align-items: baseline; }
+    .roi-line-label { grid-column: 1 / -1; }
+  }
+}

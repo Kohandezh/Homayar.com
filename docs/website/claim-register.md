@@ -5,7 +5,7 @@
 | Ticket | HOM-266 (parent HOM-225), WP21 T01 and T02 |
 | Base commit | `37fed09` (origin/main) |
 | Date | 2026-10-19 |
-| Scope | Every page in `website/lib/site.ts` (`sitePaths`, 17 paths) in `/fa` and `/en`, plus shared chrome |
+| Scope | Every page in `website/lib/site.ts` (`sitePaths`, 18 paths) in `/fa` and `/en`, plus shared chrome |
 | Sign-off | Owner, after the draft PR |
 
 ## How this register was made
@@ -30,12 +30,12 @@
 
 | Status | Rows |
 | --- | --- |
-| `KEEP` | 150 |
+| `KEEP` | 170 |
 | `REWORD` | 112 |
 | `PLANNED` | 77 |
-| `SIMULATION` | 45 |
+| `SIMULATION` | 55 |
 | `REMOVE` | 6 |
-| **Total** | **390** |
+| **Total** | **420** |
 
 Rows that changed site text: 213. A `SIMULATION` or `PLANNED` row with no new text is labeled by another row (named in its notes).
 
@@ -447,6 +447,43 @@ Columns: **en / fa (base)** is the text at `37fed09`. **New en / New fa** is fil
 | PRI-08 | `pricing.plans[2].text` | Contract terms, private deployment and support. | شرایط قراردادی، استقرار خصوصی و پشتیبانی. | price | `PLANNED` | No owner-approved public price in the repo. The backend plan catalog has no monthly or yearly period (Homayar/backend/services/entitlement_service.py); infra/compose/compose.onprem.yaml (nginx `proxy` is the only service with `ports:`, :134); docs/operations/deployment.md:17 | Planned: contract terms, private deployment and support. | برنامه‌ریزی‌شده: شرایط قراردادی، استقرار خصوصی و پشتیبانی. |  |
 | PRI-09 | `pricing.plans[*].amount` | To be announced / To be announced / On request | به‌زودی اعلام می‌شود / به‌زودی اعلام می‌شود / با درخواست | price | `KEEP` | No owner-approved public price in the repo. The backend plan catalog has no monthly or yearly period (Homayar/backend/services/entitlement_service.py) |  |  | "To be announced" and "On request" show no amount. |
 | PRI-10 | `pricing.plans[*].name` | Monthly / Yearly / Enterprise | ماهانه / سالانه / سازمانی | price | `PLANNED` | No owner-approved public price in the repo. The backend plan catalog has no monthly or yearly period (Homayar/backend/services/entitlement_service.py) |  |  | Plan names are labeled by PRI-06..08. See OD-05. |
+
+## ROI calculator (`/roi`)
+
+Added by HOM-268 at base `e0d1edd`. The page is new, so each row puts its text in the base columns and leaves "New en" and "New fa" empty. Every example value is visitor-editable sample data and is labeled by ROI-03. The words "ROI", "revenue", "profit" and "payback" appear only in the URL path, not in the page copy or metadata.
+
+| ID | Key or file:line | en (base) | fa (base) | Category | Status | Evidence or reason | New en | New fa | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ROI-01 | `roi.meta.description` | Type your own numbers and count the review hours per month, today and with Homayar. Every formula is on the page, so you can check the result by hand. | عددهای خودتان را وارد کنید و ساعت‌های بازبینی ماهانه را، امروز و با همایار، حساب کنید. همهٔ فرمول‌ها در صفحه هست تا نتیجه را با دست بررسی کنید. | customer result | `KEEP` | The page computes the hours from the visitor's inputs (website/components/story/roi-math.ts:92-96) and shows every formula (website/components/story/RoiCalculator.tsx:38-44) |  |  | States no Homayar result. |
+| ROI-02 | `roi.hero.text` | Type your own numbers. Every formula is shown, so you can check the result by hand. | عددهای خودتان را وارد کنید. همهٔ فرمول‌ها نمایش داده می‌شوند تا بتوانید نتیجه را با دست بررسی کنید. | customer result | `KEEP` | Formulas with the visitor's numbers: website/components/story/RoiCalculator.tsx:38-44 |  |  |  |
+| ROI-03 | `roi.sample` | The values below are sample data, not measurements. Every value is your own estimate. Change them to your numbers. | مقدارهای زیر داده‌ی نمونه‌اند، نه اندازه‌گیری. هر مقدار برآورد خود شماست. آن‌ها را با عددهای خودتان عوض کنید. | customer result | `KEEP` | The sample-data label from the status legend. Rendered above the fields: website/components/story/RoiCalculator.tsx:55 |  |  | Labels ROI-11 to ROI-20. |
+| ROI-04 | `roi.fields.minutesHomayar.hint` | By reading the transcript and the summary. This is your own estimate. | با خواندن متن مکالمه و خلاصه. این برآورد خود شماست. | feature | `KEEP` | Homayar/frontend/src/components/platform/MeetingResults.tsx:151 (summary, transcript, actions and shares tabs), as in HOME-09 |  |  | Says what the reviewer reads, not how long it takes. The minutes are the visitor's estimate. |
+| ROI-05 | `roi.product.text` | For each call recording you upload, Homayar writes a transcript and a summary, with action items and insights linked to the transcript. | همایار برای هر فایل صوتی تماس که بارگذاری می‌کنید، متن مکالمه و یک خلاصه می‌نویسد، همراه با اقدام‌ها و بینش‌هایی که به متن مکالمه متصل‌اند. | feature | `KEEP` | Homayar/frontend/src/components/platform/MeetingsPage.tsx:69 (UploadPanel posts to /uploads), as in HOME-08; `LocalWhisperProvider` Homayar/backend/providers/whisper.py:22,68, as in HOME-19; `_analyze` Homayar/backend/jobs/processor.py:1655; `SYSTEM_PROMPT` Homayar/backend/providers/openai_compatible.py:27 (summary, action items, insights), as in HOME-20; Homayar/backend/jobs/processor.py:984-1050; `EvidenceStatus` Homayar/backend/database/saas_models.py:182; test Homayar/backend/tests/test_evidence_spans.py, as in HOME-05 |  |  | Same basis as the new text of HOME-20 and HOME-05. |
+| ROI-06 | `roi.formulas.items.C` | Cost of the saved hours per month, at your own rate | هزینهٔ ساعت‌های صرفه‌جویی‌شده در ماه، با نرخ خودتان | customer result | `KEEP` | C = S × W at website/components/story/roi-math.ts:96 |  |  | Also the label of the cost line in the result. Labeled as the visitor's own rate. |
+| ROI-07 | `roi.notes.items[0]` | Only review hours. The cost line is the saved hours times your own hourly rate. Homayar does not promise this amount. | فقط ساعت‌های بازبینی. خط هزینه، ساعت‌های صرفه‌جویی‌شده ضرب در نرخ ساعتی خود شماست. همایار این مبلغ را تضمین نمی‌کند. | customer result | `KEEP` | Statement about this page. C = S × W at website/components/story/roi-math.ts:96 |  |  |  |
+| ROI-08 | `roi.notes.items[1]` | The values filled in when the page opens are sample data. They are not measurements from any team. | مقدارهایی که هنگام باز شدن صفحه پر شده‌اند داده‌ی نمونه‌اند. اندازه‌گیری هیچ تیمی نیستند. | customer result | `KEEP` | Statement about this page. The example values: website/components/story/roi-math.ts:20-26 |  |  |  |
+| ROI-09 | `roi.notes.items[2]` | Minutes to review one call with Homayar is your own estimate. | دقیقه‌های بازبینی یک تماس با همایار برآورد خود شماست. | customer result | `KEEP` | Statement about this page |  |  |  |
+| ROI-10 | `roi.result.none` | With these numbers there is no review time saved. | با این عددها هیچ زمان بازبینی صرفه‌جویی نمی‌شود. | customer result | `KEEP` | S = max(0, H1 − H2) at website/components/story/roi-math.ts:95; shown when all inputs are valid and S is 0 (website/components/story/RoiCalculator.tsx:151) |  |  |  |
+| ROI-11 | example N, `website/components/story/roi-math.ts:21` | 20 | ۲۰ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | Labeled by ROI-03. |
+| ROI-12 | example K, `website/components/story/roi-math.ts:22` | 40 | ۴۰ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | Labeled by ROI-03. |
+| ROI-13 | example M1, `website/components/story/roi-math.ts:23` | 12 | ۱۲ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | Labeled by ROI-03. |
+| ROI-14 | example M2, `website/components/story/roi-math.ts:24` | 3 | ۳ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | Labeled by ROI-03 and ROI-09. |
+| ROI-15 | example W, `website/components/story/roi-math.ts:25` | 100 | ۱۰۰ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | Labeled by ROI-03. |
+| ROI-16 | example T, `website/components/story/roi-math.ts:92` | 800 | ۸۰۰ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | 20 × 40. Labeled by ROI-03. |
+| ROI-17 | example H1, `website/components/story/roi-math.ts:93` | 160 | ۱۶۰ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | 800 × 12 ÷ 60. |
+| ROI-18 | example H2, `website/components/story/roi-math.ts:94` | 40 | ۴۰ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | 800 × 3 ÷ 60. |
+| ROI-19 | example S, `website/components/story/roi-math.ts:95` | 120 | ۱۲۰ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | 160 − 40. The main result. |
+| ROI-20 | example C, `website/components/story/roi-math.ts:96` | 12,000 | ۱۲٬۰۰۰ | simulation | `SIMULATION` | visitor-editable example, not a measurement |  |  | 120 × 100. |
+| ROI-21 | formula T, `website/components/story/RoiCalculator.tsx:39` | T = N × K | T = N × K | customer result | `KEEP` | Arithmetic, computed at website/components/story/roi-math.ts:92 |  |  |  |
+| ROI-22 | formula H1, `website/components/story/RoiCalculator.tsx:40` | H1 = T × M1 ÷ 60 | H1 = T × M1 ÷ ۶۰ | customer result | `KEEP` | Arithmetic, computed at website/components/story/roi-math.ts:93 |  |  | Rounded to one decimal place. |
+| ROI-23 | formula H2, `website/components/story/RoiCalculator.tsx:41` | H2 = T × M2 ÷ 60 | H2 = T × M2 ÷ ۶۰ | customer result | `KEEP` | Arithmetic, computed at website/components/story/roi-math.ts:94 |  |  | Rounded to one decimal place. |
+| ROI-24 | formula S, `website/components/story/RoiCalculator.tsx:42` | S = H1 − H2 | S = H1 − H2 | customer result | `KEEP` | Arithmetic on the shown H1 and H2, computed at website/components/story/roi-math.ts:95 |  |  | Never below 0. When H1 < H2 the line shows `H1 − H2 < 0 → 0`. |
+| ROI-25 | formula C, `website/components/story/RoiCalculator.tsx:43` | C = S × W | C = S × W | customer result | `KEEP` | Arithmetic on the shown S, computed at website/components/story/roi-math.ts:96 |  |  |  |
+| ROI-26 | constant 60, `roi.formulas.minutes` | 60 is the number of minutes in one hour. | ۶۰ تعداد دقیقه‌های یک ساعت است. | customer result | `KEEP` | `MINUTES_PER_HOUR` website/components/story/roi-math.ts:28, used through `SIXTY` at :82 and :93-94 |  |  |  |
+| ROI-27 | bounds of N and K, `roi.errors.whole` | Enter a whole number from 0 to 100,000. | یک عدد صحیح از ۰ تا ۱۰۰٬۰۰۰ وارد کنید. | customer result | `KEEP` | Input limits website/components/story/roi-math.ts:12-13, checked at :57-62 |  |  | A limit of the calculator, not a product claim. |
+| ROI-28 | bounds of M1 and M2, `roi.errors.minutes` | Enter a number from 0 to 600. | یک عدد از ۰ تا ۶۰۰ وارد کنید. | customer result | `KEEP` | Input limits website/components/story/roi-math.ts:14-15, checked at :61-62 |  |  |  |
+| ROI-29 | bounds of W, `roi.errors.rate` | Enter a number from 0 to 1,000,000,000. | یک عدد از ۰ تا ۱٬۰۰۰٬۰۰۰٬۰۰۰ وارد کنید. | customer result | `KEEP` | Input limit website/components/story/roi-math.ts:16, checked at :61-62 |  |  |  |
+| ROI-30 | rounding, `roi.formulas.rounding` | Hours and cost are rounded to one decimal place. | ساعت‌ها و هزینه تا یک رقم اعشار گرد می‌شوند. | customer result | `KEEP` | `divHalfUp` (half-up, one decimal place, exact whole-number arithmetic in tenths) website/components/story/roi-math.ts:77, used at :93-96 |  |  | Each line uses the shown values of the lines before it. |
 
 ## Legal: privacy (`/legal/privacy`)
 
