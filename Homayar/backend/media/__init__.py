@@ -1,5 +1,17 @@
 """Secure media inspection primitives used before object publication."""
 
+from backend.media.channels import (
+    CHANNEL_INSPECTION_VERSION,
+    ChannelAnalysisPolicy,
+    ChannelAttribution,
+    ChannelInspection,
+    ChannelSignal,
+    ChannelSignalAnalysis,
+    analyze_channel_samples,
+    attribute_channels,
+    channel_inspection_record,
+    inspect_channels,
+)
 from backend.media.validation import (
     AudioStreamMetadata,
     EmptyMediaError,
@@ -33,7 +45,13 @@ from backend.media.validation import (
 )
 
 __all__ = [
+    "CHANNEL_INSPECTION_VERSION",
     "AudioStreamMetadata",
+    "ChannelAnalysisPolicy",
+    "ChannelAttribution",
+    "ChannelInspection",
+    "ChannelSignal",
+    "ChannelSignalAnalysis",
     "EmptyMediaError",
     "ExtensionContentMismatchError",
     "InvalidAudioStreamError",
@@ -61,5 +79,9 @@ __all__ = [
     "UnsupportedExtensionError",
     "UnsupportedMimeTypeError",
     "VideoStreamMetadata",
+    "analyze_channel_samples",
+    "attribute_channels",
+    "channel_inspection_record",
+    "inspect_channels",
     "validate_media_upload",
 ]

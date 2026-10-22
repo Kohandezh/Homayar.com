@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
@@ -10,6 +11,13 @@ from backend.database.relational import get_db
 from backend.database.saas_models import JobState, ShareAudience
 from backend.jobs.outbox import dispatch_job
 from backend.jobs.replay import ReplayRefused, replay_dead_letter_job
+from backend.media import MediaValidationPolicy
+from backend.media.channel_roles import (
+    InvalidChannelRoleMapping,
+    UnreadableChannelRoleMappings,
+    parse_mapping_body,
+    validate_source,
+)
 from backend.observability.system_health import SystemHealthCollector, system_health_collector
 from backend.review_sampling import SamplingError
 from backend.schemas.admin import (
@@ -25,6 +33,8 @@ from backend.schemas.admin import (
     AuditEventResponse,
     AuditEventTypeListResponse,
     AuditEventTypeResponse,
+    ChannelRoleMappingListResponse,
+    ChannelRoleMappingResponse,
     JobReplayResponse,
     WorkspaceSettingsResponse,
     WorkspaceSettingsUpdateRequest,
@@ -50,13 +60,17 @@ from backend.services.admin_legal_holds_service import (
     list_workspace_legal_holds,
 )
 from backend.services.admin_service import (
+    ChannelRoleMappingNotFound,
     InvalidAuditCursor,
     InvalidAuditRange,
     InvalidWorkspaceSettings,
     WorkspaceNotFoundError,
     get_workspace_settings,
+    list_channel_role_mappings,
     list_workspace_audit_events,
+    remove_channel_role_mapping,
     sanitize_audit_details,
+    set_channel_role_mapping,
     update_workspace_settings,
 )
 from backend.services.admin_shares_service import (
@@ -270,6 +284,169 @@ def patch_workspace_settings(
     db.commit()
     db.refresh(workspace)
     return WorkspaceSettingsResponse.model_validate(workspace)
+
+
+# --- Trusted channel-role mappings (HOM-37, ADR 0039) ----------------------------------
+# Session-only administration: workspace:manage is never an API-key scope.  The
+# mapping is the only origin of a trusted channel role; it lives in the
+# workspace settings, never in an upload, file metadata or a heuristic.
+
+
+def _invalid_mapping(exc: InvalidChannelRoleMapping) -> HTTPException:
+    # Unreadable stored settings are a conflict with the stored state (409);
+    # an invalid request is 422.
+    status_code = 409 if isinstance(exc, UnreadableChannelRoleMappings) else 422
+    return HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)})
+
+
+def _audit_mapping_change(
+    db: Session,
+    *,
+    request: Request,
+    context: WorkspaceContext,
+    settings: Settings,
+    change_kind: str,
+    source_type: str,
+    source_provider: str,
+    version: int,
+    digest: str | None,
+    channels: tuple[tuple[int, str], ...],
+    previous_version: int | None,
+    previous_digest: str | None,
+) -> None:
+    record_audit_event(
+        db,
+        event_type=AuditEventType.WORKSPACE_SETTINGS_UPDATED,
+        actor_user_id=context.actor.user.id,
+        workspace_id=context.workspace.id,
+        target_type="workspace",
+        target_id=context.workspace.id,
+        request_id=getattr(request.state, "request_id", None),
+        details={
+            "fields": "channel_role_mappings",
+            "change_kind": change_kind,
+            "source_type": source_type,
+            "source_provider": source_provider,
+            "mapping_version": version,
+            "mapping_digest": digest,
+            "previous_version": previous_version,
+            "previous_digest": previous_digest,
+            "channels": [{"channel": channel, "mapped_role": role} for channel, role in channels],
+        },
+        settings=settings,
+    )
+
+
+@router.get("/channel-role-mappings", response_model=ChannelRoleMappingListResponse)
+def list_channel_role_mappings_route(
+    context: WorkspaceContext = Depends(require_workspace_admin_context),
+    db: Session = Depends(get_db),
+) -> ChannelRoleMappingListResponse:
+    try:
+        mappings = list_channel_role_mappings(db, workspace_id=context.workspace.id)
+    except WorkspaceNotFoundError as exc:
+        raise _workspace_not_found() from exc
+    return ChannelRoleMappingListResponse(
+        items=[ChannelRoleMappingResponse.from_mapping(mapping) for mapping in mappings]
+    )
+
+
+@router.put(
+    "/channel-role-mappings/{source_type}/{source_provider}",
+    response_model=ChannelRoleMappingResponse,
+)
+def put_channel_role_mapping(
+    source_type: str,
+    source_provider: str,
+    request: Request,
+    # Any JSON value; null and an empty body arrive as None and are refused by
+    # the same rules as every other invalid body.
+    payload: Any = Body(default=None),
+    context: WorkspaceContext = Depends(require_workspace_admin_write_context),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> ChannelRoleMappingResponse:
+    max_channels = MediaValidationPolicy().max_channels
+    try:
+        validate_source(source_type, source_provider)
+        channels = parse_mapping_body(payload, max_channels=max_channels)
+        mapping, previous, changed = set_channel_role_mapping(
+            db,
+            workspace_id=context.workspace.id,
+            source_type=source_type,
+            source_provider=source_provider,
+            channels=channels,
+            actor_user_id=context.actor.user.id,
+            now=datetime.now(UTC),
+            max_channels=max_channels,
+        )
+    except InvalidChannelRoleMapping as exc:
+        raise _invalid_mapping(exc) from exc
+    except WorkspaceNotFoundError as exc:
+        raise _workspace_not_found() from exc
+    if changed:
+        _audit_mapping_change(
+            db,
+            request=request,
+            context=context,
+            settings=settings,
+            change_kind="set",
+            source_type=mapping.source_type,
+            source_provider=mapping.source_provider,
+            version=mapping.version,
+            digest=mapping.digest,
+            channels=mapping.channels,
+            previous_version=previous.version if previous else None,
+            previous_digest=previous.digest if previous else None,
+        )
+        db.commit()
+    return ChannelRoleMappingResponse.from_mapping(mapping)
+
+
+@router.delete("/channel-role-mappings/{source_type}/{source_provider}", status_code=204)
+def delete_channel_role_mapping(
+    source_type: str,
+    source_provider: str,
+    request: Request,
+    context: WorkspaceContext = Depends(require_workspace_admin_write_context),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    try:
+        validate_source(source_type, source_provider)
+        removal = remove_channel_role_mapping(
+            db,
+            workspace_id=context.workspace.id,
+            source_type=source_type,
+            source_provider=source_provider,
+            actor_user_id=context.actor.user.id,
+            now=datetime.now(UTC),
+        )
+    except InvalidChannelRoleMapping as exc:
+        raise _invalid_mapping(exc) from exc
+    except WorkspaceNotFoundError as exc:
+        raise _workspace_not_found() from exc
+    except ChannelRoleMappingNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "channel_role_mapping_not_found", "message": str(exc)},
+        ) from exc
+    _audit_mapping_change(
+        db,
+        request=request,
+        context=context,
+        settings=settings,
+        change_kind="removed",
+        source_type=removal.source_type,
+        source_provider=removal.source_provider,
+        version=removal.version,
+        digest=removal.digest,
+        channels=removal.channels,
+        previous_version=removal.previous_version,
+        previous_digest=removal.removed.digest if removal.removed else None,
+    )
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/jobs", response_model=AdminJobListResponse)

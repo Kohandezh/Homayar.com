@@ -57,6 +57,9 @@ _EXTENSION_RE = re.compile(r"^\.[a-z0-9]{1,10}$")
 _MIME_RE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$")
 _CODEC_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 _FORMAT_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+# A channel layout as ffprobe names it ("stereo", "5.1(side)", "unknown", ...).
+_CHANNEL_LAYOUT_RE = re.compile(r"^[A-Za-z0-9().+_ -]{1,120}$")
+UNKNOWN_CHANNEL_LAYOUT: Final = "unknown"
 _WINDOWS_RESERVED_NAMES: Final = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
     | {f"COM{number}" for number in range(1, 10)}
@@ -260,6 +263,10 @@ class AudioStreamMetadata:
     codec: str
     channels: int
     sample_rate_hz: int
+    # As ffprobe reports it; ``unknown`` when it reports none (16-bit PCM WAV).
+    # Never derived from the channel count.
+    channel_layout: str = UNKNOWN_CHANNEL_LAYOUT
+    duration_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -806,7 +813,7 @@ def _ensure_file_unchanged(path: Path, before: os.stat_result) -> None:
 def _build_ffprobe_command(executable: str, path: Path) -> list[str]:
     entries = (
         "format=format_name,duration:"
-        "stream=index,codec_type,codec_name,sample_rate,channels,duration:"
+        "stream=index,codec_type,codec_name,sample_rate,channels,channel_layout,duration:"
         "stream_disposition=default,attached_pic"
     )
     return [
@@ -916,7 +923,8 @@ def _metadata_from_probe(
         if index in seen_indexes:
             raise MalformedProbeOutputError()
         seen_indexes.add(index)
-        duration_candidates.append(_parse_duration(stream.get("duration")))
+        stream_duration = _parse_duration(stream.get("duration"))
+        duration_candidates.append(stream_duration)
         stream_type = stream.get("codec_type")
         codec = _parse_codec(stream.get("codec_name"))
         disposition = stream.get("disposition", {})
@@ -940,6 +948,8 @@ def _metadata_from_probe(
                     codec=codec,
                     channels=channels,
                     sample_rate_hz=sample_rate,
+                    channel_layout=_parse_channel_layout(stream.get("channel_layout")),
+                    duration_seconds=stream_duration,
                 )
             )
         elif stream_type == "video":
@@ -1018,6 +1028,16 @@ def _parse_duration(value: Any) -> float | None:
     if not math.isfinite(duration) or duration < 0:
         raise MalformedProbeOutputError()
     return duration
+
+
+def _parse_channel_layout(value: Any) -> str:
+    """The layout name as reported; ``unknown`` for a missing or odd value.
+
+    A layout never refuses media: it is reported, not validated.
+    """
+    if isinstance(value, str) and _CHANNEL_LAYOUT_RE.fullmatch(value):
+        return value
+    return UNKNOWN_CHANNEL_LAYOUT
 
 
 def _parse_nonnegative_integer(value: Any) -> int:

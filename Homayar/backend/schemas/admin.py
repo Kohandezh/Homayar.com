@@ -164,6 +164,41 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
         return value
 
 
+class ChannelRoleEntry(BaseModel):
+    channel: int
+    role: str
+
+
+class ChannelRoleMappingResponse(BaseModel):
+    """The trusted channel-to-role mapping of one ingestion source (HOM-37)."""
+
+    source_type: str
+    source_provider: str
+    version: int
+    digest: str
+    channels: list[ChannelRoleEntry]
+    updated_at: datetime
+    updated_by_user_id: str | None
+
+    @classmethod
+    def from_mapping(cls, mapping: Any) -> ChannelRoleMappingResponse:
+        return cls(
+            source_type=mapping.source_type,
+            source_provider=mapping.source_provider,
+            version=mapping.version,
+            digest=mapping.digest,
+            channels=[
+                ChannelRoleEntry(channel=channel, role=role) for channel, role in mapping.channels
+            ],
+            updated_at=mapping.updated_at,
+            updated_by_user_id=mapping.updated_by_user_id,
+        )
+
+
+class ChannelRoleMappingListResponse(BaseModel):
+    items: list[ChannelRoleMappingResponse]
+
+
 class AdminLegalHoldResponse(BaseModel):
     """One media object on legal hold in the owner's register (HOM-192).
 

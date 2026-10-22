@@ -30,7 +30,12 @@ from sqlalchemy.orm import Session
 from backend.config import Settings
 from backend.database.saas_models import IngestionRecord, ProcessingJob
 from backend.jobs.outbox import dispatch_job
-from backend.media import MediaValidationPolicy, validate_media_upload
+from backend.media import (
+    ChannelAnalysisPolicy,
+    MediaValidationPolicy,
+    inspect_channels,
+    validate_media_upload,
+)
 from backend.security.context import WorkspaceContext
 from backend.security.idempotency import scoped_idempotency_key
 from backend.security.normalization import normalize_iranian_mobile
@@ -258,6 +263,13 @@ def import_voicemail(
         ffmpeg_path=settings.ffmpeg_path,
         ffmpeg_timeout_seconds=settings.ffmpeg_timeout_seconds,
     )
+    # HOM-37: bounded, never refuses; an analysis failure is "unavailable".
+    channel_inspection = inspect_channels(
+        staged.path,
+        metadata=metadata,
+        policy=ChannelAnalysisPolicy.from_settings(settings),
+        ffmpeg_path=settings.ffmpeg_path,
+    )
     storage = create_object_storage(settings)
     with staged.path.open("rb") as source:
         stored = storage.put_stream(
@@ -303,6 +315,8 @@ def import_voicemail(
             settings=settings,
             ingestion_id=record.id,
             producer=VOICEMAIL_SOURCE_PROVIDER,
+            channel_inspection=channel_inspection,
+            source_type=VOICEMAIL_SOURCE_TYPE.value,
         )
         created.meeting.source = VOICEMAIL_MEETING_SOURCE
         db.add(
