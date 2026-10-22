@@ -172,7 +172,7 @@ const FLOOR_PERIOD = 8;
 // The floor moves this many units per viewport height of scroll.
 const FLOOR_SPEED = TUNNEL_DIST / 2.6;
 // Scenes that share one floor grid and one camera, so the floor never pops in or jumps between them.
-const FLOOR_KINDS: SceneKind[] = ["particles", "tunnel", "warp", "brain", "field", "ride", "map", "vault", "gallery", "orbit", "lift", "beacon", "dome"];
+const FLOOR_KINDS: SceneKind[] = ["particles", "tunnel", "warp", "brain", "field", "ride", "map", "vault", "gallery", "orbit", "lift", "beacon", "dome", "stacks"];
 // The brain starts to show when its section is this many screen heights below the top.
 const BRAIN_APPROACH = 2.2;
 const CRUISE: Pose = { alt: FLOOR_H - 0.6, pitch: -0.06, roll: 0, runway: 0 };
@@ -1794,6 +1794,201 @@ function makeDome(ctx: Ctx, el: HTMLElement): Unit {
   };
 }
 
+// roi: two towers of hours stand on the grid, today (H1) and with Homayar (H2). The dotted part above the shorter
+// tower is the saved time (S). The calculator writes H1 and H2 on [data-roi]; the towers follow the inputs.
+// The camera walks up to the towers, rises to the level where they differ, steps sideways around the gap and backs off.
+function makeStacks(ctx: Ctx, el: HTMLElement): Unit {
+  const scene = new Scene();
+  const mats: Mat[] = [];
+  // Looked up every frame: the engine keeps this unit across page visits, so a stored element can go stale.
+  const calc = () => (el.isConnected ? el : document.querySelector<HTMLElement>("[data-scene='stacks']"))?.querySelector<HTMLElement>("[data-roi]");
+  const floorY = -FLOOR_H;
+  const EYE = 2.4;
+  // The taller tower is MAXH units high once the hours reach REF (the example H1). Below that the towers are shorter.
+  const MAXH = 12;
+  const REF = 160;
+  const STEP = 0.5;
+  const HALF = 0.9;
+  const PLATES = Math.round(MAXH / STEP);
+  // The towers stand on the inline-end side of the screen (right in English, left in Persian), away from the text.
+  // On phones they stand in the middle, farther away and dimmer.
+  const side = ctx.rtl ? -1 : 1;
+  const phone = ctx.light;
+  const cx = phone ? 0 : side * 6;
+  const cz = phone ? -36 : -30;
+  const sky = buildSky(ctx, 149);
+  mats.push(...sky.mats);
+  const world = new Group();
+
+  const ring = (y: number, r = HALF) => [-r, y, -r, r, y, -r, r, y, -r, r, y, r, r, y, r, -r, y, r, -r, y, r, -r, y, -r];
+  const tower = (x: number, role: Role, seed: number) => {
+    const group = new Group();
+    group.position.set(x, floorY, cz);
+    // Four edges of unit height, scaled to the tower height every frame.
+    const e: number[] = [];
+    for (const [a, b] of [[-HALF, -HALF], [HALF, -HALF], [HALF, HALF], [-HALF, HALF]]) e.push(a, 0, b, a, 1, b);
+    const edgeMat = makeMat("line", role, ctx.theme, { near: 1, far: 120, opacity: 0.8 });
+    const edges = new LineSegments(geo(e), edgeMat);
+    const baseMat = makeMat("line", role, ctx.theme, { near: 1, far: 120, opacity: 0.7 });
+    const base = new LineSegments(geo([...ring(0.02), ...ring(0.02, HALF * 1.6)]), baseMat);
+    // A glowing plate every STEP units. Only the plates below the top are drawn.
+    const pp: number[] = [];
+    for (let i = 1; i <= PLATES; i++) pp.push(...ring(i * STEP));
+    const plateGeo = geo(pp);
+    const plateMat = makeMat("line", role, ctx.theme, { near: 1, far: 120, opacity: 0.45 });
+    const topMat = makeMat("line", "bright", ctx.theme, { near: 1, far: 120, opacity: 0.95 });
+    const top = new LineSegments(geo(ring(0)), topMat);
+    // Light rising inside the tower.
+    const rnd = mulberry(seed);
+    const PN = phone ? 40 : 90;
+    const seeds: number[] = [];
+    for (let i = 0; i < PN; i++) seeds.push((rnd() * 2 - 1) * HALF * 0.85, (rnd() * 2 - 1) * HALF * 0.85, rnd(), 0.04 + rnd() * 0.1);
+    const pts = new Float32Array(PN * 3);
+    const ptGeo = new BufferGeometry();
+    ptGeo.setAttribute("position", new BufferAttribute(pts, 3));
+    ptGeo.setAttribute("aColor", new Float32BufferAttribute(new Array(PN * 3).fill(1), 3));
+    ptGeo.setAttribute("aShade", new Float32BufferAttribute(new Array(PN).fill(1), 1));
+    ptGeo.setAttribute("aSize", new Float32BufferAttribute(new Array(PN).fill(1.2), 1));
+    const ptMat = makeMat("point", "bright", ctx.theme, { near: 1, far: 120, opacity: 0.8, size: 2.2, dpr: ctx.dpr });
+    group.add(base, edges, new LineSegments(plateGeo, plateMat), top, new Points(ptGeo, ptMat));
+    world.add(group);
+    mats.push(edgeMat, baseMat, plateMat, topMat, ptMat);
+    return {
+      update(h: number, t: number, a: number) {
+        edges.scale.y = Math.max(0.001, h);
+        top.position.y = h;
+        plateGeo.setDrawRange(0, Math.min(PLATES, Math.floor(h / STEP + 1e-6)) * 8);
+        for (let i = 0; i < PN; i++) {
+          pts[i * 3] = seeds[i * 4];
+          pts[i * 3 + 1] = (((seeds[i * 4 + 2] + t * seeds[i * 4 + 3]) % 1) * h);
+          pts[i * 3 + 2] = seeds[i * 4 + 1];
+        }
+        ptGeo.attributes.position.needsUpdate = true;
+        edgeMat.uniforms.uOpacity.value = 0.8 * a;
+        baseMat.uniforms.uOpacity.value = 0.7 * a;
+        plateMat.uniforms.uOpacity.value = 0.45 * a;
+        topMat.uniforms.uOpacity.value = (h > 0.05 ? 0.95 : 0) * a;
+        ptMat.uniforms.uOpacity.value = (h > 0.05 ? 0.8 : 0) * a;
+      },
+    };
+  };
+  // "Today" stands on the inline-start side of the pair, like the first line of text.
+  const xA = cx - side * 1.6;
+  const xB = cx + side * 1.6;
+  const today = tower(xA, "line", 151);
+  const homayar = tower(xB, "bright", 157);
+
+  // The saved time: a dotted outline above the "with Homayar" tower, up to the height of "today".
+  const GN = 200;
+  const gp = new Float32Array(GN * 3);
+  const gGeo = new BufferGeometry();
+  gGeo.setAttribute("position", new BufferAttribute(gp, 3));
+  gGeo.setAttribute("aColor", new Float32BufferAttribute(new Array(GN * 3).fill(1), 3));
+  gGeo.setAttribute("aShade", new Float32BufferAttribute(new Array(GN).fill(1), 1));
+  gGeo.setAttribute("aSize", new Float32BufferAttribute(new Array(GN).fill(1.4), 1));
+  const gapMat = makeMat("point", "bright", ctx.theme, { near: 1, far: 120, opacity: 0.9, size: 2.4, dpr: ctx.dpr });
+  const gapPts = new Points(gGeo, gapMat);
+  gapPts.position.set(xB, floorY, cz);
+  // A bracket just outside the "with Homayar" tower marks the size of the gap, with a tick to the tower at each end.
+  const lp = new Float32Array(3 * 6);
+  const lGeo = new BufferGeometry();
+  lGeo.setAttribute("position", new BufferAttribute(lp, 3));
+  lGeo.setAttribute("aColor", new Float32BufferAttribute(new Array(lp.length).fill(1), 3));
+  lGeo.setAttribute("aShade", new Float32BufferAttribute(new Array(lp.length / 3).fill(1), 1));
+  const levelMat = makeMat("line", "bright", ctx.theme, { near: 1, far: 120, opacity: 0.9 });
+  const levels = new LineSegments(lGeo, levelMat);
+  world.add(gapPts, levels);
+  mats.push(gapMat, levelMat);
+  scene.add(sky.group, world);
+  scene.traverse((o) => (o.frustumCulled = false));
+
+  const st = { hA: 0, hB: 0, on: 1, d: 34, theta: 0, rise: 0, x: 0, z: 0, alt: EYE };
+  let ready = false;
+  const goal = () => {
+    const box = calc();
+    const h1 = parseFloat(box?.dataset.h1 ?? "");
+    const h2 = parseFloat(box?.dataset.h2 ?? "");
+    if (!Number.isFinite(h1) || !Number.isFinite(h2)) return { hA: 0, hB: 0, on: 0.3 };
+    const scale = MAXH / Math.max(REF, h1, h2);
+    return { hA: h1 * scale, hB: h2 * scale, on: 1 };
+  };
+  return {
+    kind: "stacks",
+    scene,
+    camera: ctx.cam,
+    mats,
+    pose() {
+      const p = ctx.page;
+      const g = goal();
+      const want = {
+        ...g,
+        // On phones the camera keeps more distance, so the towers stay small behind the one column of text.
+        d: track(p, [[0, 34], [0.3, 22], [0.6, 20], [1, 30]]) * (phone ? 1.6 : 1),
+        theta: track(p, [[0, 0], [0.35, 0], [0.65, -side * 0.28], [0.9, 0]]),
+        rise: track(p, [[0, 0], [0.3, 1], [0.65, 1], [0.95, 0]]),
+      };
+      const k = ready ? 0.08 : 1;
+      ready = true;
+      st.hA += (want.hA - st.hA) * k;
+      st.hB += (want.hB - st.hB) * k;
+      st.on += (want.on - st.on) * k;
+      st.d += (want.d - st.d) * k;
+      st.theta += (want.theta - st.theta) * k;
+      st.rise += (want.rise - st.rise) * k;
+      // The camera rises to just above the top of the shorter tower, where the gap begins.
+      const gapAt = Math.max(EYE, Math.min(st.hA, st.hB) + 0.6);
+      st.alt = EYE + (gapAt - EYE) * st.rise;
+      st.x = cx + Math.sin(st.theta) * st.d;
+      st.z = cz + Math.cos(st.theta) * st.d;
+      // Look at the towers, then turn a little, so they stay on the inline-end side of the screen.
+      const yawTo = Math.atan2(-(cx - st.x), -(cz - st.z));
+      const turn = ctx.cam.aspect > 1 ? Math.atan(0.45 * Math.tan((ctx.cam.fov * Math.PI) / 360) * ctx.cam.aspect) : 0;
+      const tall = Math.max(st.hA, st.hB);
+      const lookH = tall * 0.45 + ((st.hA + st.hB) / 2 - tall * 0.45) * st.rise;
+      const pitch = Math.min(0.4, Math.max(-0.25, Math.atan2(lookH - st.alt, st.d)));
+      return { alt: st.alt, pitch, roll: 0, yaw: yawTo + side * turn, runway: 0, ground: { x: st.x, z: st.z }, view: st.alt, wind: 0, sway: 0.3, exact: true };
+    },
+    update(_p, t, alpha) {
+      world.position.set(-st.x, 0, -st.z);
+      sky.update(t, alpha);
+      const a = alpha * st.on * dim(ctx) * (phone ? 0.45 : 1);
+      today.update(st.hA, t, a);
+      homayar.update(st.hB, t, a);
+      // Gap: dotted edges of the "with Homayar" tower from its top up to the top of "today".
+      const lo = st.hB;
+      const hi = st.hA;
+      const gapOn = hi - lo > 0.05 ? 1 : 0;
+      let n = 0;
+      if (gapOn) {
+        const corners = [[-HALF, -HALF], [HALF, -HALF], [HALF, HALF], [-HALF, HALF]];
+        for (const [x, z] of corners) {
+          for (let y = lo + 0.3; y < hi && n < GN - 32; y += 0.3) gp.set([x, y, z], 3 * n++);
+        }
+        for (let c = 0; c < 4; c++) {
+          const [x0, z0] = corners[c];
+          const [x1, z1] = corners[(c + 1) % 4];
+          for (let s = 0; s < 8; s++) gp.set([x0 + ((x1 - x0) * s) / 8, hi, z0 + ((z1 - z0) * s) / 8], 3 * n++);
+        }
+      }
+      gGeo.setDrawRange(0, n);
+      gGeo.attributes.position.needsUpdate = true;
+      gapMat.uniforms.uOpacity.value = (0.75 + 0.2 * Math.sin(t * 2.4)) * gapOn * a;
+      // The bracket stands on the outer side, away from "today", at the front corner of the tower.
+      const zf = cz + HALF;
+      const xe = xB + side * HALF;
+      const xo = xB + side * (HALF + 0.3);
+      const ys = [floorY + lo, floorY + hi];
+      lp.set([xo, ys[0], zf, xo, ys[1], zf, xe, ys[0], zf, xo, ys[0], zf, xe, ys[1], zf, xo, ys[1], zf]);
+      lGeo.attributes.position.needsUpdate = true;
+      levelMat.uniforms.uOpacity.value = 0.85 * gapOn * a;
+    },
+    dispose() {
+      scene.traverse((o) => (o as Mesh).geometry?.dispose());
+      mats.forEach((m) => m.dispose());
+    },
+  };
+}
+
 // HTML hung in the 3D world. The section holds a fixed layer ([data-html-layer]) with a camera element
 // ([data-html-camera]); each piece of HTML inside it is placed at an Object3D with CSS 3D transforms that use
 // the scene camera, the method of three.js CSS3DRenderer. The text stays real, sharp HTML.
@@ -2223,7 +2418,7 @@ export function createEngine(canvas: HTMLCanvasElement, opts: { theme: Theme; li
   const unitFor = (kind: SceneKind, el: HTMLElement): Unit => {
     let u = units.get(kind);
     if (!u) {
-      u = kind === "brain" ? makeBrain(ctx) : kind === "field" ? makeDescent(ctx) : kind === "ride" ? makeRide(ctx, el) : kind === "map" ? makeMap(ctx, el) : kind === "vault" ? makeVault(ctx, el) : kind === "gallery" ? makeGallery(ctx, el) : kind === "orbit" ? makeOrbit(ctx, el) : kind === "lift" ? makeLift(ctx, el) : kind === "beacon" ? makeBeacon(ctx) : kind === "dome" ? makeDome(ctx, el) : kind === "particles" ? makeParticles(ctx, el) : kind === "warp" ? makeClimb(ctx) : makeTunnel(ctx);
+      u = kind === "brain" ? makeBrain(ctx) : kind === "field" ? makeDescent(ctx) : kind === "ride" ? makeRide(ctx, el) : kind === "map" ? makeMap(ctx, el) : kind === "vault" ? makeVault(ctx, el) : kind === "gallery" ? makeGallery(ctx, el) : kind === "orbit" ? makeOrbit(ctx, el) : kind === "lift" ? makeLift(ctx, el) : kind === "beacon" ? makeBeacon(ctx) : kind === "dome" ? makeDome(ctx, el) : kind === "stacks" ? makeStacks(ctx, el) : kind === "particles" ? makeParticles(ctx, el) : kind === "warp" ? makeClimb(ctx) : makeTunnel(ctx);
       units.set(kind, u);
     }
     return u;
