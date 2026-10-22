@@ -77,6 +77,7 @@ from backend.database import relational
 from backend.database.rls import APP_ROLE, POLICIES, POLICY_NAME
 from backend.database.saas_models import (
     ActionItem,
+    AnalysisExtraction,
     AnalysisRun,
     EvidenceSpan,
     MeetingSpeaker,
@@ -100,6 +101,7 @@ CONTENT_TABLES = tuple(
         TranscriptSegment,
         AnalysisRun,
         EvidenceSpan,
+        AnalysisExtraction,
         MeetingSummary,
         ActionItem,
         MeetingSpeaker,

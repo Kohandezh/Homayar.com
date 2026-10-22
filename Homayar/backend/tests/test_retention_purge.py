@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, func, select, text
 
 from backend.database.saas_models import (
     ActionItem,
+    AnalysisExtraction,
     AnalysisRun,
     AuditEvent,
     ConversationPurge,
@@ -82,6 +83,8 @@ CONTENT_TABLES = (
     TranscriptSegment,
     AnalysisRun,
     EvidenceSpan,
+    # Judged taxonomy extractions (HOM-53).
+    AnalysisExtraction,
     MeetingSummary,
     ActionItem,
     MeetingSpeaker,

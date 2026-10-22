@@ -439,6 +439,10 @@ def test_openai_compatible_adapter_talks_to_local_server_without_key() -> None:
             },
             "decisions": [],
             "key_moments": [],
+            "extraction": {
+                name: {"status": "not_stated", "values": []}
+                for name in ("intent", "topic", "entity", "outcome")
+            },
         }
     )
 

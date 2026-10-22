@@ -89,6 +89,10 @@ VALID_OUTPUT = {
             "source_turn_indexes": [0],
         }
     ],
+    "extraction": {
+        name: {"status": "not_stated", "values": []}
+        for name in ("intent", "topic", "entity", "outcome")
+    },
 }
 
 
@@ -304,8 +308,8 @@ def test_a_schema_2_intelligence_artifact_still_validates():
 
 
 def test_versions_are_bumped():
-    assert PROMPT_VERSION == 3
-    assert ARTIFACT_SCHEMAS[StageName.INTELLIGENCE] == (IntelligenceResult, 3)
+    assert PROMPT_VERSION == 4
+    assert ARTIFACT_SCHEMAS[StageName.INTELLIGENCE] == (IntelligenceResult, 4)
 
 
 def test_prompt_asks_for_abstention_basis_evidence_and_no_severe_allegations():

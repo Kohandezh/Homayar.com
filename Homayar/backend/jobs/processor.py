@@ -34,6 +34,7 @@ from backend.config import Settings, get_settings
 from backend.database.relational import get_session_factory
 from backend.database.saas_models import (
     ActionItem,
+    AnalysisExtraction,
     AnalysisRun,
     EvidenceStatus,
     JobState,
@@ -131,6 +132,12 @@ from backend.services.ai_policy_service import (
     record_run_snapshot,
 )
 from backend.services.analysis_claims import NO_CLAIMS, cite_claims
+from backend.services.analysis_extraction import (
+    cite_extraction,
+    extraction_audit_details,
+    extraction_reason,
+    store_extraction,
+)
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import commit_usage, release_usage
@@ -935,6 +942,8 @@ class PersistedAnalysis:
     plan: EvidencePlan
     summary_status: EvidenceStatus
     actions: list[ActionItem]
+    extraction: AnalysisExtraction | None  # None: nothing was judged
+    extraction_reason: str | None  # why there is no row; None when there is one
 
 
 def persist_analysis(
@@ -944,6 +953,7 @@ def persist_analysis(
     revision: TranscriptRevision,
     segments: Sequence[TranscriptSegment],
     intelligence: IntelligenceResult | None,
+    model_turns: Sequence[TranscriptTurn],
     state: StageState,
     reason_code: str | None,
     now: datetime,
@@ -957,7 +967,9 @@ def persist_analysis(
     one (``provenance`` is passed to ``record_analysis_run``).  Evidence
     (WP04-T03): every reference the provider offered is resolved against the
     segments of the revision it read; anything else is rejected and counted,
-    never repaired or guessed.  Runs in the caller's fenced transaction.
+    never repaired or guessed.  The taxonomy extraction (HOM-53) is judged
+    against ``model_turns``, the turns the answering model received, and gets
+    its own row next to the new run.  Runs in the caller's fenced transaction.
     """
     db.execute(
         delete(ActionItem).where(
@@ -1045,6 +1057,15 @@ def persist_analysis(
                     evidence_status=references.status.value,
                 )
             )
+    judged = cite_extraction(
+        intelligence,
+        model_turns=model_turns,
+        plan=plan,
+        meeting=meeting,
+        revision=revision,
+        segments=segments,
+        now=now,
+    )
 
     analysis_run = record_analysis_run(
         db,
@@ -1081,9 +1102,19 @@ def persist_analysis(
     for pending in pending_actions:
         pending.analysis_run_id = analysis_run.id
         db.add(pending)
+    extraction = (
+        store_extraction(db, run=analysis_run, result=judged, now=now)
+        if judged is not None
+        else None
+    )
     db.flush()
     return PersistedAnalysis(
-        run=analysis_run, plan=plan, summary_status=summary_status, actions=pending_actions
+        run=analysis_run,
+        plan=plan,
+        summary_status=summary_status,
+        actions=pending_actions,
+        extraction=extraction,
+        extraction_reason=extraction_reason(intelligence, extraction),
     )
 
 
@@ -1098,6 +1129,7 @@ def _persist_success(
     settings: Settings,
     asr_identity: ckpt.StageIdentity | None = None,
     intelligence_identity: ckpt.StageIdentity | None = None,
+    model_turns: Sequence[TranscriptTurn],
 ) -> str:
     factory = get_session_factory()
     with factory() as db:
@@ -1186,6 +1218,7 @@ def _persist_success(
             revision=revision,
             segments=persisted_segments,
             intelligence=intelligence,
+            model_turns=model_turns,
             state=(
                 intelligence_record.state if intelligence_record is not None else StageState.SKIPPED
             ),
@@ -1357,7 +1390,11 @@ def _persist_success(
             workspace_id=claim.workspace_id,
             target_type="meeting",
             target_id=claim.meeting_id,
-            details={**provider_metadata, **text_view.audit_details()},
+            details={
+                **provider_metadata,
+                **text_view.audit_details(),
+                **extraction_audit_details(persisted.extraction, persisted.extraction_reason),
+            },
             settings=settings,
         )
         db.commit()
@@ -1860,7 +1897,7 @@ def _analyze(
     policy: LeasePolicy,
     storage: ObjectStorage,
     settings: Settings,
-) -> tuple[IntelligenceResult, ckpt.StageIdentity, ClaimedJob]:
+) -> tuple[IntelligenceResult, ckpt.StageIdentity, ClaimedJob, list[TranscriptTurn]]:
     """The analysis stage over its eligible candidates in rank order (WP08-T05).
 
     Each candidate gets the text its placement permits (T03) and its own
@@ -1868,7 +1905,8 @@ def _analyze(
     reused before anything is called.  A transient failure moves to the next
     eligible candidate only when the policy approved fallback (otherwise there
     is none in the selection); permanent failures stop.  Returns the result,
-    its identity and the claim whose text policy produced it.
+    its identity, the claim whose text policy produced it and the turns that
+    candidate received (the extraction is judged against them, HOM-53).
     """
     candidates = analysis_candidates(
         selection,
@@ -1903,6 +1941,7 @@ def _analyze(
                 reused.result,
                 identity,
                 dataclasses.replace(claim, pii_classes=candidate.pii_classes),
+                candidate.request.turns,
             )
 
     candidate, result, failed = call_analysis(
@@ -1933,7 +1972,12 @@ def _analyze(
         model=result.model,
         is_mock=result.is_mock,
     )
-    return result, identity, dataclasses.replace(claim, pii_classes=candidate.pii_classes)
+    return (
+        result,
+        identity,
+        dataclasses.replace(claim, pii_classes=candidate.pii_classes),
+        candidate.request.turns,
+    )
 
 
 def process_job(
@@ -2082,6 +2126,7 @@ def process_job(
             diarization: DiarizationResult | None = None
             intelligence: IntelligenceResult | None = None
             turns: list[TranscriptTurn] = []
+            model_turns: list[TranscriptTurn] = []
             if not asr.text.strip() and not asr.segments:
                 # Silence or unintelligible audio is an honest outcome, not a
                 # worker failure: the audio was processed, nothing was found.
@@ -2165,7 +2210,7 @@ def process_job(
                         message=intelligence_decision.message,
                     )
                 else:
-                    intelligence, intelligence_identity, claim = _analyze(
+                    intelligence, intelligence_identity, claim, model_turns = _analyze(
                         claim,
                         selection=selections["intelligence"],
                         adapters=intelligence_adapters,
@@ -2194,6 +2239,7 @@ def process_job(
             settings=settings,
             asr_identity=asr_identity,
             intelligence_identity=intelligence_identity,
+            model_turns=model_turns,
         )
         heartbeat.stop()
         if result in {MeetingStatus.COMPLETED.value, MeetingStatus.PARTIAL.value}:

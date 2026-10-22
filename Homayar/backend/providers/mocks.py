@@ -153,6 +153,11 @@ class MockIntelligenceProvider(IntelligenceProvider):
                     for name in SUMMARY_FIELD_NAMES
                 }
             ),
+            # HOM-53: the same for the taxonomy extraction: every dimension not_stated.
+            extraction={
+                name: {"status": "not_stated", "values": []}
+                for name in ("intent", "topic", "entity", "outcome")
+            },
             is_mock=True,
         )
 

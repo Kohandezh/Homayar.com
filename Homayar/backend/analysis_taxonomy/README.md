@@ -234,15 +234,44 @@ Details:
 
 ## How HOM-53 uses it
 
-1. Pin a version as a constant: `load_taxonomy("conversation", 1)`.
-2. Ask the model for the extraction shape (`Extraction.model_json_schema()`).
-3. Call `validate_extraction` with the turns the model saw.
-4. Call `apply_policy` on the validator result (or `evaluate_extraction` for steps 3 and
-   4 together). It withholds low-confidence values and routes every kept `critical` value
-   to review.
-5. Store `PolicyResult.to_json()`. It carries `taxonomy_id`, `taxonomy_version`,
-   `taxonomy_digest`, `validator_version`, `policy_version` and `policy_digest`.
-6. To read an old result, call
+Only two backend modules import this package. A test pins that list.
+
+1. Pin a version as a constant: `load_taxonomy("conversation", 1)`. The provider
+   (`backend/providers/openai_compatible.py`) and the analysis stage
+   (`backend/services/analysis_extraction.py`) pin the same one. A test checks that.
+2. Ask the model for the extraction shape. The OpenAI-compatible provider adds a required
+   `extraction` key to its strict output schema (`extraction_schema`). Each label enum
+   is the list of active label ids of that dimension, read from the pinned taxonomy.
+   The provider passes the value through without judging it.
+   `IntelligenceResult.extraction` keeps it exactly as the model gave it, whatever its
+   JSON type. A server that does not enforce strict outputs may leave the key out or
+   send `null`. The parser then accepts the rest of the output and sets
+   `extraction_missing`. A missing extraction never fails the analysis. `None` without
+   `extraction_missing` means a legacy result (an old checkpoint, the demo seed, a
+   provider that is never asked).
+3. The analysis stage (`persist_analysis`, shared by the full job and the recompute)
+   calls `evaluate_extraction` with the turns the answering model received. On a
+   redacted run those turns hold placeholders, so an entity text must quote the
+   placeholder. The stored text is then never the original value.
+4. Every kept value (`auto_accepted` or `review_required`, never a withheld one) cites
+   its `source_turn_indexes` as evidence spans with `finding_type` `extraction`. Its
+   `finding_index` counts the kept values from 0 over intent, topic, entity and outcome,
+   and inside a field in the order of `to_json()`.
+5. Store `PolicyResult.to_json()` unchanged in `analysis_extractions`, one immutable
+   row per analysis run. It carries `taxonomy_id`, `taxonomy_version`,
+   `taxonomy_digest`, `validator_version`, `policy_version` and `policy_digest`. The
+   row copies them into columns, with `valid`, `needs_review` and `review_count` (the
+   kept values that need review, for the HOM-18 review list). A legacy result stores no
+   row, and so does a missing extraction (one warning log, with the meeting id only). A
+   value that is not an object (an array, a string, a number) is judged invalid and
+   stored like any invalid extraction. The table is tenant-only: entity values can be
+   personal data, so a share token never reaches a row.
+6. The completion audit events (`meeting.processing.completed`,
+   `meeting.recompute.completed`) carry `extraction_state` (`unavailable`, `invalid`,
+   `review_required` or `accepted`), `extraction_review_count` and `extraction_reason`
+   (`missing_from_output`, `not_requested`, or `null` when a row was stored). They never
+   carry a label or a text.
+7. To read an old result, call
    `load_taxonomy(taxonomy_id, taxonomy_version, expected_digest=taxonomy_digest)`. Never
    judge an old result again with a newer version.
 

@@ -33,6 +33,7 @@ from backend.database.saas_models import (
 FINDING_SUMMARY = "summary"
 FINDING_INSIGHT = "insight"
 FINDING_ACTION_ITEM = "action_item"
+FINDING_EXTRACTION = "extraction"
 EVIDENCE_TURN_REFERENCE = "turn_reference"
 EVIDENCE_HUMAN = "human"
 

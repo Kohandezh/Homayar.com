@@ -74,6 +74,8 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "transcript_text_views",
     "text_view_segments",
     "text_view_entities",
+    # Judged taxonomy extractions (HOM-53): entity values can be personal data.
+    "analysis_extractions",
     "webhook_endpoints",
     "webhook_deliveries",
     "provider_usage",
