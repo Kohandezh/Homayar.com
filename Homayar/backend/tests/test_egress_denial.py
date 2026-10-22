@@ -29,7 +29,34 @@ from backend.tests.test_provider_routing import CLOUD_EU, _manifest, _policy, _s
 
 LOCAL = "http://llm.internal:8000/v1"
 CLOUD = "https://api.cloud-llm.example/v1"
-OUTPUT = {"summary": "ok", "summary_source_turn_indexes": [], "action_items": [], "insights": []}
+OUTPUT = {
+    "summary": "ok",
+    "summary_source_turn_indexes": [],
+    "action_items": [],
+    "insights": [],
+    "summary_fields": {
+        "purpose": {
+            "status": "not_stated",
+            "text": None,
+            "basis": None,
+            "source_turn_indexes": [],
+        },
+        "resolution": {
+            "status": "not_stated",
+            "text": None,
+            "basis": None,
+            "source_turn_indexes": [],
+        },
+        "next_steps": {
+            "status": "not_stated",
+            "text": None,
+            "basis": None,
+            "source_turn_indexes": [],
+        },
+    },
+    "decisions": [],
+    "key_moments": [],
+}
 
 
 class Recorder:

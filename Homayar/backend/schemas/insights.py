@@ -3,10 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from backend.database.saas_models import ActionStatus
-from backend.schemas.meetings import MeetingQualityResponse
+from backend.schemas.meetings import MeetingQualityResponse, ReportCompleteness
 
 
 class SpeakerResponse(BaseModel):
@@ -96,6 +104,15 @@ class ContentRedactionInfo(BaseModel):
     policy_digest: str
 
 
+class TranscriptFilters(BaseModel):
+    """The speaker and time filter a transcript response applied (HOM-60)."""
+
+    # Sorted and de-duplicated; empty when no speaker filter was given.
+    speaker_keys: list[str] = Field(default_factory=list)
+    start_ms: int | None = None
+    end_ms: int | None = None
+
+
 class TranscriptResponse(BaseModel):
     meeting_id: str
     language: str
@@ -107,6 +124,13 @@ class TranscriptResponse(BaseModel):
     view: Literal["original", "redacted"] = "original"
     privacy_enforced: bool = False
     redaction: TranscriptRedactionInfo | None = None
+    # HOM-60 navigation: set by the transcript and correction routes, null on
+    # a share (no new data on the share surface).  ``speakers`` stays the
+    # meeting's full list under any filter; ``total_segments`` counts the
+    # revision before filtering.
+    filters: TranscriptFilters | None = None
+    total_segments: int | None = None
+    completeness: ReportCompleteness | None = None
 
 
 class PiiRevealRequest(BaseModel):
@@ -142,12 +166,33 @@ class TranscriptSegmentEditRequest(BaseModel):
         return self
 
 
+class AnalysisRecomputeResponse(BaseModel):
+    """Recompute status of a meeting after a manual request (HOM-63):
+    ``up_to_date``, ``pending`` or ``failed``."""
+
+    status: str
+
+
 class TranscriptCorrectionRequest(BaseModel):
-    """A person's correction of the current revision: a new revision is created."""
+    """A person's correction of the current revision: a new revision is created.
+
+    ``reason`` says why the transcript was changed and is required; the older
+    name ``note`` is still accepted for it. It is stored as the revision's note.
+    """
 
     base_revision_id: str = Field(min_length=1, max_length=36)
-    note: str | None = Field(default=None, max_length=500)
+    reason: str = Field(
+        min_length=3, max_length=500, validation_alias=AliasChoices("reason", "note")
+    )
     edits: list[TranscriptSegmentEditRequest] = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 3:
+            raise ValueError("A reason is required")
+        return value
 
 
 class EvidenceRefResponse(BaseModel):

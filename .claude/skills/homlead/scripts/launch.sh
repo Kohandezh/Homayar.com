@@ -12,6 +12,17 @@ herdr pane run "$pane" "claudepersonal" >/dev/null
 for i in $(seq 1 40); do herdr agent get "$pane" >/dev/null 2>&1 && break; sleep 2; done
 herdr agent wait "$pane" --timeout 60000 >/dev/null 2>&1 || true
 sleep 3
+status() { herdr agent get "$pane" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["agent"]["agent_status"])'; }
 herdr agent prompt "$pane" "$P" >/dev/null
 herdr agent wait "$pane" --until working --timeout 20000 >/dev/null 2>&1 || true
-herdr agent get "$pane" | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"]["agent"]["agent_status"])'
+# Sometimes the text lands in the input box but Enter is lost, or nothing lands.
+# Press Enter once, then send the prompt once more.
+if [ "$(status)" = idle ]; then
+  herdr agent send-keys "$pane" enter >/dev/null
+  herdr agent wait "$pane" --until working --timeout 15000 >/dev/null 2>&1 || true
+fi
+if [ "$(status)" = idle ]; then
+  herdr agent prompt "$pane" "$P" >/dev/null
+  herdr agent wait "$pane" --until working --timeout 20000 >/dev/null 2>&1 || true
+fi
+status

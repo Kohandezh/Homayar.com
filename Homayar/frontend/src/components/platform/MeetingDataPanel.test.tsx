@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { today } from "@internationalized/date";
@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import MeetingDetailPage from "@/components/platform/MeetingDetailPage";
 import { privacyQueryKeys } from "@/lib/privacy-api";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";
+import { callReport } from "@/test/fixtures-report";
 import type { WorkspaceRole } from "@/types/auth";
 import type { MeetingDetail } from "@/types/platform";
 import type { MediaObject } from "@/types/privacy";
@@ -67,6 +68,7 @@ function mockMeetingApi(items: MediaObject[] = [media()]) {
   const get = vi.spyOn(api, "get").mockImplementation(async (url: string) => {
     if (url === "/meetings/m-1") return okResponse(MEETING);
     if (url === "/meetings/m-1/media") return okResponse({ items: state.items });
+    if (url === "/meetings/m-1/report") return okResponse(callReport());
     throw apiError(404, "not_found");
   });
   const post = vi.spyOn(api, "post").mockImplementation(async (url: string, body: unknown) => {
@@ -103,6 +105,11 @@ function renderMeeting(role: WorkspaceRole = "owner") {
   );
 }
 
+/** The data panel sits in the closed advanced area below the call report (HOM-245). */
+async function openAdvanced() {
+  fireEvent.click(await screen.findByRole("button", { name: "Transcript and tools" }, LOAD));
+}
+
 function panel() {
   return screen.getByRole("region", { name: "Data and retention" });
 }
@@ -116,6 +123,10 @@ describe("MeetingDataPanel visibility", () => {
   it("shows the panel and reads the media list for the owner", async () => {
     const { get } = mockMeetingApi();
     renderMeeting("owner");
+    expect(await screen.findByRole("button", { name: "Transcript and tools" }, LOAD)).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "Data and retention" })).not.toBeInTheDocument();
+    expect(mediaReads(get)).toBe(0);
+    await openAdvanced();
     expect(await screen.findByRole("region", { name: "Data and retention" }, LOAD)).toBeInTheDocument();
     const table = await within(panel()).findByRole("grid", { name: "Stored recordings" }, LOAD);
     const [, row] = within(table).getAllByRole("row");
@@ -138,6 +149,7 @@ describe("MeetingDataPanel visibility", () => {
   it("shows the hold reason and review date of a held object", async () => {
     mockMeetingApi([heldMedia()]);
     renderMeeting();
+    await openAdvanced();
     const table = await within(await screen.findByRole("region", { name: "Data and retention" }, LOAD)).findByRole(
       "grid",
       { name: "Stored recordings" },
@@ -162,6 +174,7 @@ describe("MeetingDataPanel visibility", () => {
       expect(new Date("2027-01-16T00:00:00Z").getDate()).toBe(15);
       mockMeetingApi([heldMedia()]);
       renderMeeting();
+    await openAdvanced();
       const table = await within(await screen.findByRole("region", { name: "Data and retention" }, LOAD)).findByRole(
         "grid",
         { name: "Stored recordings" },
@@ -174,6 +187,7 @@ describe("MeetingDataPanel visibility", () => {
   it("disables Place legal hold when every object is deleted", async () => {
     mockMeetingApi([media({ lifecycle_state: "deleted", deleted_at: T })]);
     renderMeeting();
+    await openAdvanced();
     await within(await screen.findByRole("region", { name: "Data and retention" }, LOAD)).findByRole(
       "grid",
       { name: "Stored recordings" },
@@ -203,6 +217,7 @@ describe("MeetingDataPanel place and release", () => {
     const user = userEvent.setup();
     const { get, post } = mockMeetingApi();
     const { queryClient } = renderMeeting();
+    await openAdvanced();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const dialog = await openPlaceDialog(user);
 
@@ -232,6 +247,7 @@ describe("MeetingDataPanel place and release", () => {
     const { state } = mockMeetingApi();
     state.holdError = apiError(409, "hold_review_invalid");
     renderMeeting();
+    await openAdvanced();
     const dialog = await openPlaceDialog(user);
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "litigation");
     await user.click(within(dialog).getByRole("button", { name: "Place hold" }));
@@ -254,6 +270,7 @@ describe("MeetingDataPanel place and release", () => {
     const { state } = mockMeetingApi();
     state.holdError = error;
     renderMeeting();
+    await openAdvanced();
     const dialog = await openPlaceDialog(user);
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "litigation");
     await user.click(within(dialog).getByRole("button", { name: "Place hold" }));
@@ -267,6 +284,7 @@ describe("MeetingDataPanel place and release", () => {
     const user = userEvent.setup();
     const { get, post } = mockMeetingApi([heldMedia()]);
     renderMeeting();
+    await openAdvanced();
     await user.click(
       await screen.findByRole("button", { name: "Release" }, LOAD),
     );
@@ -286,6 +304,7 @@ describe("MeetingDataPanel place and release", () => {
     const { get, state } = mockMeetingApi([heldMedia()]);
     state.releaseError = apiError(409, "not_held");
     renderMeeting();
+    await openAdvanced();
     await user.click(
       await screen.findByRole("button", { name: "Release" }, LOAD),
     );

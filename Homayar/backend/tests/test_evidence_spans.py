@@ -158,7 +158,7 @@ def test_findings_cite_authorized_turns_and_malformed_references_are_rejected(
     # offered: summary 2, insights 1 + 1, action items 2 (dedup) + 0 = 6; rejected 7, 5, 3
     assert (run["reference_count"], run["rejected_reference_count"]) == (6, 3)
     assert (run["prompt_version"], run["prompt_sha256"]) == ("7", "ab" * 32)
-    assert run["schema_version"] == 2
+    assert run["schema_version"] == 3
     decision, risk = summary["key_points"]
     assert decision["evidence_status"] == "sufficient" and len(decision["evidence_ids"]) == 1
     assert risk["evidence_status"] == "insufficient" and risk["evidence_ids"] == []
@@ -225,6 +225,8 @@ def test_findings_cite_authorized_turns_and_malformed_references_are_rejected(
 def test_evidence_survives_correction_and_stays_bound_to_the_analysed_revision(
     client, email_outbox, settings, monkeypatch
 ):
+    # HOM-63: this test is about the stale state, so no recompute runs.
+    monkeypatch.setattr(settings, "recompute_on_correction", False)
     _, workspace_id, meeting_id = _processed(
         client, email_outbox, settings, monkeypatch, providers=_citing_bundle()
     )
@@ -236,6 +238,7 @@ def test_evidence_survives_correction_and_stays_bound_to_the_analysed_revision(
         headers=_write_headers(client, workspace_id),
         json={
             "base_revision_id": base_id,
+            "reason": "fix the meeting day",
             "edits": [{"segment_id": second["id"], "text": "جلسهٔ بعد را چهارشنبه می‌گذاریم"}],
         },
     )

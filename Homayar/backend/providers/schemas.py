@@ -170,6 +170,102 @@ class IntelligenceInsight(ProviderSchema):
     source_turn_indexes: List[int] = Field(default_factory=list)
 
 
+# Same values as the HOM-52 conversation taxonomy; HOM-53 unifies them.
+class ClaimStatus(str, Enum):
+    """Whether the call states a detail (HOM-61).  ``not_stated`` is an
+    explicit abstention: no text and no evidence, never a guess."""
+
+    STATED = "stated"
+    NOT_STATED = "not_stated"
+
+
+# Same values as the HOM-52 conversation taxonomy; HOM-53 unifies them.
+class ClaimBasis(str, Enum):
+    EXPLICIT = "explicit"  # a speaker says it
+    INFERRED = "inferred"  # the model concluded it
+
+
+# Fixed order: the provider schema, the stored claims and the report use it.
+SUMMARY_FIELD_NAMES = ("purpose", "resolution", "next_steps")
+
+
+def _non_negative(value: List[int]) -> List[int]:
+    if any(index < 0 for index in value):
+        raise ValueError("source turn indexes must be non-negative")
+    return value
+
+
+class SummaryField(ProviderSchema):
+    status: ClaimStatus
+    text: Optional[str] = Field(default=None, min_length=1, max_length=2000)
+    basis: Optional[ClaimBasis] = None
+    source_turn_indexes: List[int] = Field(default_factory=list)
+
+    @field_validator("source_turn_indexes")
+    @classmethod
+    def validate_source_indexes(cls, value: List[int]) -> List[int]:
+        return _non_negative(value)
+
+    @model_validator(mode="after")
+    def validate_status(self) -> "SummaryField":
+        if self.status == ClaimStatus.STATED:
+            if self.text is None or self.basis is None:
+                raise ValueError("a stated summary field needs text and a basis")
+        elif self.text is not None or self.basis is not None or self.source_turn_indexes:
+            raise ValueError("a not_stated summary field carries no text, basis or evidence")
+        return self
+
+
+class _DecisionDetail(ProviderSchema):
+    status: ClaimStatus = ClaimStatus.NOT_STATED
+    value: Optional[object] = None  # typed by each subclass
+
+    @model_validator(mode="after")
+    def validate_status(self) -> "_DecisionDetail":
+        stated = self.status == ClaimStatus.STATED
+        if stated != (self.value is not None):
+            raise ValueError("a stated detail needs a value; a not_stated detail has none")
+        return self
+
+
+class DecisionOwner(_DecisionDetail):
+    value: Optional[str] = Field(default=None, min_length=1, max_length=256)
+
+
+class DecisionDueDate(_DecisionDetail):
+    value: Optional[date] = None
+
+
+class SummaryFields(ProviderSchema):
+    purpose: SummaryField  # why the call happened
+    resolution: SummaryField  # how the call ended
+    next_steps: SummaryField  # what happens after the call
+
+
+class Decision(ProviderSchema):
+    description: str = Field(min_length=1, max_length=2000)
+    basis: ClaimBasis
+    owner: DecisionOwner = Field(default_factory=DecisionOwner)
+    due_date: DecisionDueDate = Field(default_factory=DecisionDueDate)
+    source_turn_indexes: List[int] = Field(default_factory=list)
+
+    @field_validator("source_turn_indexes")
+    @classmethod
+    def validate_source_indexes(cls, value: List[int]) -> List[int]:
+        return _non_negative(value)
+
+
+class KeyMoment(ProviderSchema):
+    kind: str = Field(min_length=1, max_length=64)  # e.g. commitment, objection
+    description: str = Field(min_length=1, max_length=2000)
+    source_turn_indexes: List[int] = Field(default_factory=list)
+
+    @field_validator("source_turn_indexes")
+    @classmethod
+    def validate_source_indexes(cls, value: List[int]) -> List[int]:
+        return _non_negative(value)
+
+
 class ProviderUsageReport(ProviderSchema):
     """What a provider reported about one call (WP08-T04).  A field is
     ``None`` when the provider did not report it: never an invented zero."""
@@ -191,6 +287,12 @@ class IntelligenceResult(ProviderSchema):
     issue: Optional[ProviderIssue] = None
     is_mock: bool = False
     usage: Optional[ProviderUsageReport] = None
+    # Structured claims (HOM-61). ``summary_fields`` is None for a legacy
+    # result (an artifact of schema 2 or older); a structured result always
+    # has it, even when every field is not_stated.
+    summary_fields: Optional[SummaryFields] = None
+    decisions: List[Decision] = Field(default_factory=list)
+    key_moments: List[KeyMoment] = Field(default_factory=list)
 
     @field_validator("summary_source_turn_indexes")
     @classmethod
@@ -198,6 +300,12 @@ class IntelligenceResult(ProviderSchema):
         if any(index < 0 for index in value):
             raise ValueError("summary source turn indexes must be non-negative")
         return value
+
+    @model_validator(mode="after")
+    def require_structured_summary(self) -> "IntelligenceResult":
+        if (self.decisions or self.key_moments) and self.summary_fields is None:
+            raise ValueError("decisions and key moments need summary_fields")
+        return self
 
 
 class SMSRequest(ProviderSchema):

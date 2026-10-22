@@ -194,6 +194,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | PATCH | /api/v1/admin/workspace-settings | workspace:manage +csrf |
 | GET | /api/v1/admin/jobs | workspace:manage |
 | GET | /api/v1/admin/jobs/summary | workspace:manage |
+| GET | /api/v1/admin/coverage | workspace:manage |
+| POST | /api/v1/admin/review-samples | workspace:manage +csrf |
 | POST | /api/v1/admin/jobs/{job_id}/replay | workspace:manage +csrf |
 | GET | /api/v1/admin/ai-policy | workspace:manage |
 | PUT | /api/v1/admin/ai-policy | ai_policy:manage +csrf |
@@ -213,9 +215,11 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/meetings/{meeting_id}/job | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/recording | meeting:read |
 | GET | /api/v1/workspaces/{workspace_id}/meetings/{meeting_id}/recording | meeting:read |
+| GET | /api/v1/meetings/{meeting_id}/playback | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/transcript | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/transcript/revisions | meeting:read |
 | POST | /api/v1/meetings/{meeting_id}/transcript/corrections | meeting:update +csrf |
+| POST | /api/v1/meetings/{meeting_id}/analysis/recompute | meeting:update +csrf |
 | GET | /api/v1/meetings/{meeting_id}/evidence | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/evidence/{evidence_id} | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/quality | meeting:read |
@@ -227,6 +231,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/media/{media_id}/legal-hold | legal_hold:manage +csrf |
 | POST | /api/v1/media/{media_id}/legal-hold/release | legal_hold:manage +csrf |
 | GET | /api/v1/meetings/{meeting_id}/summary | meeting:read |
+| GET | /api/v1/meetings/{meeting_id}/report | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/actions | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/export | meeting:read |
 | POST | /api/v1/meetings/{meeting_id}/transcript/redactions/{redaction_id}/reveal | pii:original_access +csrf |
@@ -360,6 +365,7 @@ Scopes an API key may carry (machine-checked against `API_KEY_SCOPES`):
 | A transcript revision and its segments are immutable once committed; a correction is a *new* revision whose parent is the revision it was made from | ORM `before_update` guards in `backend/database/saas_models.py` (`TranscriptImmutableError`), `correct_revision` in `backend/services/transcript_service.py` | `test_transcript_revisions.py` |
 | Exactly one revision per meeting is current; reads without an explicit `revision_id` serve it; search, action-item source segments and exports use only current segments | partial unique index `uq_transcript_revision_current`, `current_segments_clause` | same |
 | Corrections require `meeting:update` (+CSRF), the base must be the current revision (`409 revision_stale`), every edit must name a segment of that base and a known speaker (`422 invalid_segment` / `invalid_speaker`), and at least one edit must change something (`422 no_changes`) | route `POST /meetings/{meeting_id}/transcript/corrections`, `correct_revision` under the row lock of the current revision | same |
+| A correction dispatches a recompute of the analysis on the corrected revision (summary, AI action items, evidence, text view; never ASR, a revision, a job, a checkpoint or usage); a person asks again with `meeting:update` (+CSRF), `404` for another workspace's meeting, `200 up_to_date` and no rows when nothing is stale, `429 recompute_rate_limited` over `RECOMPUTE_MANUAL_RATE_LIMIT_PER_MINUTE` requests per workspace, and may ask after the attempt cap (ADR 0037, HOM-63) | `POST /meetings/{meeting_id}/analysis/recompute`, `backend/jobs/recompute.py` under the meeting and current-revision row locks | `test_analysis_recompute.py` |
 | Reprocessing appends a revision and never discards a person's speaker names; earlier revisions stay readable by id | `_persist_success` + `ensure_speakers` in `backend/jobs/processor.py` | same |
 | Every summary / AI action item references the analysis run (revision analysed, provider, model, prompt/schema digests, checkpoint, truthful stage state) that produced it | `AnalysisRun`, `record_analysis_run`, `analysis_run_id` on `meeting_summaries` / `action_items` | same |
 | Revisions and analysis runs are tenant rows readable through a share exactly like segments; a foreign tenant sees `404` | RLS shared-content policy (`transcript_revisions`, `analysis_runs`), `_meeting_or_404` | `test_transcript_revisions.py`, `test_row_level_security.py` |

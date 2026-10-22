@@ -22,6 +22,7 @@ from backend.database.relational import (
     session_scope,
 )
 from backend.database.rls import assert_production_posture, describe_current_role
+from backend.observability.access_log import install_access_log_filter
 from backend.observability.correlation import correlation_scope, request_correlation_id
 from backend.observability.metrics import (
     METRICS_CONTENT_TYPE,
@@ -43,6 +44,7 @@ from backend.routers.v1 import meetings as meetings_v1
 from backend.routers.v1 import members as members_v1
 from backend.routers.v1 import organizations as organizations_v1
 from backend.routers.v1 import privacy as privacy_v1
+from backend.routers.v1 import reports as reports_v1
 from backend.routers.v1 import shares as shares_v1
 from backend.routers.v1 import teams as teams_v1
 from backend.routers.v1 import voice as voice_v1
@@ -239,6 +241,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(members_v1.router, prefix=settings.api_prefix)
     app.include_router(organizations_v1.router, prefix=settings.api_prefix)
     app.include_router(privacy_v1.router, prefix=settings.api_prefix)
+    app.include_router(reports_v1.router, prefix=settings.api_prefix)
     app.include_router(shares_v1.router, prefix=settings.api_prefix)
     app.include_router(teams_v1.router, prefix=settings.api_prefix)
     app.include_router(locations_v1.router, prefix=settings.api_prefix)
@@ -379,6 +382,8 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             ),
         )
 
+    # uvicorn's access log: the route template, never the raw path or query string.
+    install_access_log_filter(app.router.routes)
     return app
 
 

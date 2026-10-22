@@ -21,11 +21,11 @@ import hashlib
 import os
 import secrets
 import tempfile
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
@@ -34,6 +34,7 @@ from backend.config import Settings, get_settings
 from backend.database.relational import get_session_factory
 from backend.database.saas_models import (
     ActionItem,
+    AnalysisRun,
     EvidenceStatus,
     JobState,
     Meeting,
@@ -44,6 +45,8 @@ from backend.database.saas_models import (
     ProviderUsage,
     Recording,
     StageState,
+    TranscriptRevision,
+    TranscriptSegment,
     TranscriptSource,
     Workspace,
     new_id,
@@ -127,6 +130,7 @@ from backend.services.ai_policy_service import (
     current_policy,
     record_run_snapshot,
 )
+from backend.services.analysis_claims import NO_CLAIMS, cite_claims
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import commit_usage, release_usage
@@ -155,7 +159,7 @@ from backend.services.transcript_service import (
     ensure_speakers,
     record_analysis_run,
 )
-from backend.speech.text_view import derive_text_view
+from backend.speech.text_view import TextViewOutcome, derive_text_view
 from backend.storage import ObjectStorage, StorageError, create_object_storage
 
 # Stage pointer written by ``_set_stage`` -> stage that was in flight.
@@ -194,6 +198,22 @@ class ProcessingError(RuntimeError):
         self.failure_class = failure_class or (
             FailureClass.TRANSIENT if retryable else FailureClass.PERMANENT
         )
+
+
+class ProviderWork(Protocol):
+    """What a provider call needs from its unit of work (a claimed job, or a
+    recompute after a correction, HOM-63): the tenant whose provider health it
+    reads and records, the deadline that bounds it and the policy it started
+    under."""
+
+    @property
+    def workspace_id(self) -> str: ...
+
+    @property
+    def deadline_at(self) -> datetime | None: ...
+
+    @property
+    def policy_fingerprint(self) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -248,7 +268,7 @@ def _policy_fingerprint(ai_policy_digest: str, pii_classes: tuple[str, ...]) -> 
     return f"{ai_policy_digest}:{','.join(pii_classes)}"
 
 
-def _ensure_policy_current(claim: ClaimedJob) -> None:
+def _ensure_policy_current(claim: ProviderWork) -> None:
     """Re-read the workspace's AI and redaction policy before a stage starts
     (WP08-T03).  A snapshot explains an attempt; it never authorizes work
     after the policy changed: the attempt ends and the next one (reusing
@@ -395,20 +415,21 @@ def _deadline_error(message: str) -> ProcessingError:
 
 
 def _run_stage[T](
-    heartbeat: LeaseHeartbeat,
+    heartbeat: LeaseHeartbeat | None,
     coroutine: Coroutine[Any, Any, T],
     policy: LeasePolicy,
     *,
     deadline_at: datetime | None = None,
 ) -> T:
     """Run one provider call under the stage timeout and the job deadline,
-    whichever comes first (WP08-T05), unless the lease is lost.
+    whichever comes first (WP08-T05), unless the lease is lost.  Work without
+    a lease (a recompute) passes no heartbeat.
 
     ``wait_for`` bounds cooperative (awaiting) providers; a provider that
     blocks the loop is bounded by the attempt deadline and the worker time
     limit instead, and its late result is rejected at the transaction boundary.
     """
-    if heartbeat.lost.is_set():
+    if heartbeat is not None and heartbeat.lost.is_set():
         coroutine.close()
         raise StaleLeaseError(heartbeat.outcome or RenewalOutcome.EXPIRED)
     timeout = policy.stage_timeout.total_seconds()
@@ -443,13 +464,13 @@ _ADMISSION_MESSAGES = {
 _FALLBACK_CODES = frozenset({"stage_timeout", CIRCUIT_OPEN, RATE_LIMITED})
 
 
-def _health_session(claim: ClaimedJob):
+def _health_session(claim: ProviderWork):
     db = get_session_factory()()
     bind_tenant_context(db, workspace_id=claim.workspace_id)
     return db
 
 
-def _admit(claim: ClaimedJob, resolved: ResolvedManifest, settings: Settings) -> Admission:
+def _admit(claim: ProviderWork, resolved: ResolvedManifest, settings: Settings) -> Admission:
     limits = parse_rate_limits(settings.provider_rate_limits)
     limit = limits.get(resolved.manifest_id) if resolved.manifest is not None else None
     with _health_session(claim) as db:
@@ -459,7 +480,7 @@ def _admit(claim: ClaimedJob, resolved: ResolvedManifest, settings: Settings) ->
 
 
 def _record_provider_outcome(
-    claim: ClaimedJob,
+    claim: ProviderWork,
     resolved: ResolvedManifest,
     settings: Settings,
     *,
@@ -484,11 +505,11 @@ def _record_provider_outcome(
 
 
 def _call_provider[T](
-    claim: ClaimedJob,
+    claim: ProviderWork,
     resolved: ResolvedManifest,
     make_call: Callable[[], Coroutine[Any, Any, T]],
     *,
-    heartbeat: LeaseHeartbeat,
+    heartbeat: LeaseHeartbeat | None,
     policy: LeasePolicy,
     settings: Settings,
 ) -> T:
@@ -628,7 +649,7 @@ def _transcript_turns(
 
 
 def _analysis_input(
-    claim: ClaimedJob, text: str, turns: list[TranscriptTurn]
+    pii_classes: Sequence[str], text: str, turns: list[TranscriptTurn]
 ) -> tuple[str, list[TranscriptTurn]]:
     """What the intelligence provider receives (WP07-T06, ADR 0024).
 
@@ -637,9 +658,9 @@ def _analysis_input(
     redacted version of the revision these turns become, so placeholders in
     the analysis output match the redacted transcript.
     """
-    if not claim.pii_classes:
+    if not pii_classes:
         return text, turns
-    classes = claim.privacy_classes
+    classes = parse_classes(pii_classes)
     pseudonymizer = Pseudonymizer()
     redacted_turns = [
         turn.model_copy(update={"text": redact(turn.text, classes, pseudonymizer=pseudonymizer)[0]})
@@ -867,6 +888,205 @@ def _identity_params(identity: ckpt.StageIdentity | None) -> dict[str, Any]:
     return dict(params) if isinstance(params, dict) else {}
 
 
+def derive_revision_views(
+    db: Session,
+    *,
+    meeting: Meeting,
+    revision: TranscriptRevision,
+    segments: Sequence[TranscriptSegment],
+    analysis_classes: Sequence[str],
+    view_classes: Sequence[str],
+    settings: Settings,
+    now: datetime,
+    job_id: str | None = None,
+    attempt: int | None = None,
+) -> TextViewOutcome:
+    """The rows derived next to a revision before it is analysed (idempotent).
+
+    Under a text policy the redacted version the analysis input corresponds to
+    (WP07-T06); always the normalised view and entities (ADR 0034), computed
+    from the workspace's reader view.  Both are new rows next to the revision,
+    never a change to it; a text-view fault is recorded, not raised.
+    """
+    if analysis_classes:
+        redact_revision(
+            db,
+            revision=revision,
+            classes=parse_classes(analysis_classes),
+            settings=settings,
+            now=now,
+        )
+    return derive_text_view(
+        db,
+        revision=revision,
+        segments=segments,
+        view_classes=parse_classes(view_classes),
+        reference_at=meeting.created_at,
+        settings=settings,
+        now=now,
+        job_id=job_id,
+        attempt=attempt,
+    )
+
+
+@dataclass
+class PersistedAnalysis:
+    run: AnalysisRun
+    plan: EvidencePlan
+    summary_status: EvidenceStatus
+    actions: list[ActionItem]
+
+
+def persist_analysis(
+    db: Session,
+    *,
+    meeting: Meeting,
+    revision: TranscriptRevision,
+    segments: Sequence[TranscriptSegment],
+    intelligence: IntelligenceResult | None,
+    state: StageState,
+    reason_code: str | None,
+    now: datetime,
+    provenance: Mapping[str, Any],
+) -> PersistedAnalysis:
+    """Replace the meeting's analysis outputs with ``intelligence`` read from
+    ``revision`` (the full job and the recompute after a correction, HOM-63).
+
+    The summary and the AI action items are replaced; a person's action items
+    stay.  The new analysis run becomes current and supersedes the previous
+    one (``provenance`` is passed to ``record_analysis_run``).  Evidence
+    (WP04-T03): every reference the provider offered is resolved against the
+    segments of the revision it read; anything else is rejected and counted,
+    never repaired or guessed.  Runs in the caller's fenced transaction.
+    """
+    db.execute(
+        delete(ActionItem).where(
+            ActionItem.meeting_id == meeting.id,
+            ActionItem.created_by == "ai",
+        )
+    )
+    db.execute(delete(MeetingSummary).where(MeetingSummary.meeting_id == meeting.id))
+
+    plan = EvidencePlan()
+    summary_status = EvidenceStatus.INSUFFICIENT
+    key_points: list[dict[str, Any]] = []
+    claims = NO_CLAIMS
+    pending_actions: list[ActionItem] = []
+    if intelligence is not None:
+        summary_references = resolve_turn_references(
+            intelligence.summary_source_turn_indexes, segments
+        )
+        summary_status = summary_references.status
+        plan.cite(
+            meeting=meeting,
+            revision=revision,
+            references=summary_references,
+            finding_type=FINDING_SUMMARY,
+            now=now,
+        )
+        for index, insight in enumerate(intelligence.insights):
+            references = resolve_turn_references(insight.source_turn_indexes, segments)
+            evidence_ids = plan.cite(
+                meeting=meeting,
+                revision=revision,
+                references=references,
+                finding_type=FINDING_INSIGHT,
+                finding_index=index,
+                confidence=insight.confidence,
+                now=now,
+            )
+            key_points.append(
+                {
+                    "category": insight.category,
+                    "description": insight.description,
+                    "confidence": insight.confidence,
+                    "source_turn_indexes": insight.source_turn_indexes,
+                    "evidence_ids": evidence_ids,
+                    "evidence_status": references.status.value,
+                }
+            )
+        # Structured claims (HOM-61): summary fields, decisions, key moments.
+        claims = cite_claims(
+            intelligence,
+            plan=plan,
+            meeting=meeting,
+            revision=revision,
+            segments=segments,
+            first_index=len(key_points),
+            now=now,
+        )
+        key_points.extend(claims.entries)
+        for action in intelligence.action_items:
+            references = resolve_turn_references(action.source_turn_indexes, segments)
+            action_id = new_id()
+            plan.cite(
+                meeting=meeting,
+                revision=revision,
+                references=references,
+                finding_type=FINDING_ACTION_ITEM,
+                finding_id=action_id,
+                now=now,
+            )
+            source_segment = references.segments[0] if references.segments else None
+            pending_actions.append(
+                ActionItem(
+                    id=action_id,
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    description=action.description,
+                    assignee_text=action.owner,
+                    due_at=_action_due_at(action.due_date),
+                    priority=action.priority.value,
+                    source_segment_id=(source_segment.id if source_segment is not None else None),
+                    source_timestamp_ms=(
+                        source_segment.start_ms if source_segment is not None else None
+                    ),
+                    created_by="ai",
+                    evidence_status=references.status.value,
+                )
+            )
+
+    analysis_run = record_analysis_run(
+        db,
+        meeting=meeting,
+        revision=revision,
+        state=state,
+        reason_code=reason_code,
+        now=now,
+        provider=intelligence.provider if intelligence is not None else None,
+        model=intelligence.model if intelligence is not None else None,
+        schema_version=ckpt.ARTIFACT_SCHEMAS[StageName.INTELLIGENCE][1],
+        is_mock=intelligence.is_mock if intelligence is not None else False,
+        reference_count=plan.reference_count,
+        rejected_reference_count=plan.rejected_reference_count,
+        **provenance,
+    )
+    plan.attach(db, analysis_run)
+    if intelligence is not None:
+        db.add(
+            MeetingSummary(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                overview=intelligence.summary,
+                decisions=claims.decisions_for(key_points),
+                key_points=key_points,
+                topics=list(dict.fromkeys(insight.category for insight in intelligence.insights)),
+                provider=intelligence.provider,
+                model=intelligence.model,
+                schema_version=claims.schema_version,
+                analysis_run_id=analysis_run.id,
+                evidence_status=summary_status.value,
+            )
+        )
+    for pending in pending_actions:
+        pending.analysis_run_id = analysis_run.id
+        db.add(pending)
+    db.flush()
+    return PersistedAnalysis(
+        run=analysis_run, plan=plan, summary_status=summary_status, actions=pending_actions
+    )
+
+
 def _persist_success(
     claim: ClaimedJob,
     *,
@@ -897,17 +1117,10 @@ def _persist_success(
                 retryable=False,
             )
 
-        # Analysis results are replaced by this outcome; transcript revisions
-        # and speaker rows are appended to (WP04-T02): earlier revisions stay
-        # readable and a person's speaker names survive reprocessing.
-        db.execute(
-            delete(ActionItem).where(
-                ActionItem.meeting_id == claim.meeting_id,
-                ActionItem.created_by == "ai",
-            )
-        )
-        db.execute(delete(MeetingSummary).where(MeetingSummary.meeting_id == claim.meeting_id))
-
+        # Analysis results are replaced by this outcome (``persist_analysis``);
+        # transcript revisions and speaker rows are appended to (WP04-T02):
+        # earlier revisions stay readable and a person's speaker names survive
+        # reprocessing.
         by_stage = {record.stage: record for record in records}
         asr_record = by_stage.get(StageName.ASR)
         intelligence_record = by_stage.get(StageName.INTELLIGENCE)
@@ -948,23 +1161,13 @@ def _persist_success(
                 is_mock=asr.is_mock or (diarization.is_mock if diarization is not None else False),
             ),
         )
-        if claim.pii_classes:
-            # The redacted version the analysis input corresponds to (WP07-T06).
-            redact_revision(
-                db,
-                revision=revision,
-                classes=claim.privacy_classes,
-                settings=settings,
-                now=now,
-            )
-        # Derived normalised view and entities (ADR 0034): new rows next to the
-        # revision, never a change to it; a fault is recorded, not raised.
-        text_view = derive_text_view(
+        text_view = derive_revision_views(
             db,
+            meeting=meeting,
             revision=revision,
             segments=persisted_segments,
-            view_classes=parse_classes(claim.view_classes),
-            reference_at=meeting.created_at,
+            analysis_classes=claim.pii_classes,
+            view_classes=claim.view_classes,
             settings=settings,
             now=now,
             job_id=job.id,
@@ -977,84 +1180,12 @@ def _persist_success(
             meeting_id=claim.meeting_id,
             labels=sorted(speaker_labels or ({UNKNOWN_SPEAKER_LABEL} if turns else set())),
         )
-        # Evidence (WP04-T03): every reference the provider offered is resolved
-        # against the segments of the revision it read; anything else is
-        # rejected and counted, never repaired or guessed.
-        plan = EvidencePlan()
-        summary_status = EvidenceStatus.INSUFFICIENT
-        key_points: list[dict[str, Any]] = []
-        pending_actions: list[ActionItem] = []
-        if intelligence is not None:
-            summary_references = resolve_turn_references(
-                intelligence.summary_source_turn_indexes, persisted_segments
-            )
-            summary_status = summary_references.status
-            plan.cite(
-                meeting=meeting,
-                revision=revision,
-                references=summary_references,
-                finding_type=FINDING_SUMMARY,
-                now=now,
-            )
-            for index, insight in enumerate(intelligence.insights):
-                references = resolve_turn_references(
-                    insight.source_turn_indexes, persisted_segments
-                )
-                evidence_ids = plan.cite(
-                    meeting=meeting,
-                    revision=revision,
-                    references=references,
-                    finding_type=FINDING_INSIGHT,
-                    finding_index=index,
-                    confidence=insight.confidence,
-                    now=now,
-                )
-                key_points.append(
-                    {
-                        "category": insight.category,
-                        "description": insight.description,
-                        "confidence": insight.confidence,
-                        "source_turn_indexes": insight.source_turn_indexes,
-                        "evidence_ids": evidence_ids,
-                        "evidence_status": references.status.value,
-                    }
-                )
-            for action in intelligence.action_items:
-                references = resolve_turn_references(action.source_turn_indexes, persisted_segments)
-                action_id = new_id()
-                plan.cite(
-                    meeting=meeting,
-                    revision=revision,
-                    references=references,
-                    finding_type=FINDING_ACTION_ITEM,
-                    finding_id=action_id,
-                    now=now,
-                )
-                source_segment = references.segments[0] if references.segments else None
-                pending_actions.append(
-                    ActionItem(
-                        id=action_id,
-                        workspace_id=claim.workspace_id,
-                        meeting_id=claim.meeting_id,
-                        description=action.description,
-                        assignee_text=action.owner,
-                        due_at=_action_due_at(action.due_date),
-                        priority=action.priority.value,
-                        source_segment_id=(
-                            source_segment.id if source_segment is not None else None
-                        ),
-                        source_timestamp_ms=(
-                            source_segment.start_ms if source_segment is not None else None
-                        ),
-                        created_by="ai",
-                        evidence_status=references.status.value,
-                    )
-                )
-
-        analysis_run = record_analysis_run(
+        persisted = persist_analysis(
             db,
             meeting=meeting,
             revision=revision,
+            segments=persisted_segments,
+            intelligence=intelligence,
             state=(
                 intelligence_record.state if intelligence_record is not None else StageState.SKIPPED
             ),
@@ -1062,52 +1193,25 @@ def _persist_success(
                 intelligence_record.reason_code if intelligence_record is not None else None
             ),
             now=now,
-            job_id=job.id,
-            attempt=job.attempt_count,
-            checkpoint_id=(
-                intelligence_record.checkpoint_id if intelligence_record is not None else None
-            ),
-            config_hash=(
-                intelligence_identity.input_hash if intelligence_identity is not None else None
-            ),
-            provider=intelligence.provider if intelligence is not None else None,
-            model=intelligence.model if intelligence is not None else None,
-            identity_params=_identity_params(intelligence_identity),
-            schema_version=ckpt.ARTIFACT_SCHEMAS[StageName.INTELLIGENCE][1],
-            is_mock=intelligence.is_mock if intelligence is not None else False,
-            reference_count=plan.reference_count,
-            rejected_reference_count=plan.rejected_reference_count,
-            input_view="redacted" if claim.pii_classes else "original",
-            input_policy_digest=claim.privacy_digest,
-            manifest_digest=(
-                intelligence_record.manifest_digest if intelligence_record is not None else None
-            ),
+            provenance={
+                "job_id": job.id,
+                "attempt": job.attempt_count,
+                "checkpoint_id": (
+                    intelligence_record.checkpoint_id if intelligence_record is not None else None
+                ),
+                "config_hash": (
+                    intelligence_identity.input_hash if intelligence_identity is not None else None
+                ),
+                "identity_params": _identity_params(intelligence_identity),
+                "input_view": "redacted" if claim.pii_classes else "original",
+                "input_policy_digest": claim.privacy_digest,
+                "manifest_digest": (
+                    intelligence_record.manifest_digest if intelligence_record is not None else None
+                ),
+            },
         )
-        plan.attach(db, analysis_run)
-        if intelligence is not None:
-            db.add(
-                MeetingSummary(
-                    workspace_id=claim.workspace_id,
-                    meeting_id=claim.meeting_id,
-                    overview=intelligence.summary,
-                    decisions=[
-                        point for point in key_points if point["category"].casefold() == "decision"
-                    ],
-                    key_points=key_points,
-                    topics=list(
-                        dict.fromkeys(insight.category for insight in intelligence.insights)
-                    ),
-                    provider=intelligence.provider,
-                    model=intelligence.model,
-                    schema_version=1,
-                    analysis_run_id=analysis_run.id,
-                    evidence_status=summary_status.value,
-                )
-            )
-        for pending in pending_actions:
-            pending.analysis_run_id = analysis_run.id
-            db.add(pending)
-        db.flush()
+        plan, analysis_run = persisted.plan, persisted.run
+        summary_status, pending_actions = persisted.summary_status, persisted.actions
 
         latency_by_stage = {record.stage: record.latency_ms or 0 for record in records}
         # Provider usage of a checkpointed stage was recorded when its
@@ -1652,6 +1756,95 @@ def _diarize(
     return diarization, sha
 
 
+@dataclass(frozen=True)
+class AnalysisCandidate:
+    """One eligible analysis adapter and the request its placement permits."""
+
+    index: int  # position in ``Selection.candidates`` and in the adapter list
+    pii_classes: tuple[str, ...]  # redaction classes of the text it receives
+    request: IntelligenceRequest
+
+    @property
+    def privacy_digest(self) -> str | None:
+        return policy_digest(parse_classes(self.pii_classes)) if self.pii_classes else None
+
+
+def analysis_candidates(
+    selection: Selection,
+    classes_for: Callable[[ResolvedManifest], tuple[str, ...]],
+    *,
+    text: str,
+    turns: list[TranscriptTurn],
+    language: str | None,
+    call_id: str,
+) -> list[AnalysisCandidate]:
+    """The analysis request of every eligible candidate, in rank order.
+
+    Each candidate gets the text its placement permits (WP08-T03): the
+    original, or the redacted text under the classes ``classes_for`` returns.
+    """
+    candidates: list[AnalysisCandidate] = []
+    for index in selection.order:
+        pii_classes = classes_for(selection.candidates[index])
+        analysis_text, analysis_turns = _analysis_input(pii_classes, text, turns)
+        candidates.append(
+            AnalysisCandidate(
+                index=index,
+                pii_classes=pii_classes,
+                request=IntelligenceRequest(
+                    transcript_text=analysis_text,
+                    turns=analysis_turns,
+                    language=language,
+                    call_id=call_id,
+                ),
+            )
+        )
+    return candidates
+
+
+def call_analysis(
+    work: ProviderWork,
+    candidates: list[AnalysisCandidate],
+    *,
+    selection: Selection,
+    adapters: list[Any],
+    heartbeat: LeaseHeartbeat | None,
+    policy: LeasePolicy,
+    settings: Settings,
+    before_fallback: Callable[[], None],
+) -> tuple[AnalysisCandidate, IntelligenceResult, list[str]]:
+    """Call the candidates in rank order until one answers (WP08-T05).
+
+    A transient failure moves to the next candidate only when there is one
+    (the selection holds fallbacks only when the policy approved them), after
+    ``before_fallback`` (the policy check); permanent failures stop.  Returns
+    the candidate that answered, its result and the codes of those that failed.
+    """
+    failed: list[str] = []
+    for position, candidate in enumerate(candidates):
+        resolved, adapter = selection.candidates[candidate.index], adapters[candidate.index]
+        try:
+            result = _call_provider(
+                work,
+                resolved,
+                lambda adapter=adapter, request=candidate.request: adapter.analyze(request),
+                heartbeat=heartbeat,
+                policy=policy,
+                settings=settings,
+            )
+        except (ProviderError, ProcessingError) as exc:
+            transient = (isinstance(exc, ProviderError) and exc.retryable) or (
+                isinstance(exc, ProcessingError) and exc.code in _FALLBACK_CODES
+            )
+            if transient and position + 1 < len(candidates):
+                failed.append(exc.code)
+                before_fallback()
+                continue
+            raise
+        return candidate, result, failed
+    raise AssertionError("an allowed analysis stage has at least one eligible candidate")
+
+
 def _analyze(
     claim: ClaimedJob,
     *,
@@ -1677,79 +1870,70 @@ def _analyze(
     is none in the selection); permanent failures stop.  Returns the result,
     its identity and the claim whose text policy produced it.
     """
-    plans: list[tuple[int, ClaimedJob, IntelligenceRequest, ckpt.StageIdentity]] = []
-    for index in selection.order:
-        candidate_claim = dataclasses.replace(
-            claim, pii_classes=classes_for(selection.candidates[index])
-        )
-        text, analysis_turns = _analysis_input(candidate_claim, asr.text, turns)
-        request = IntelligenceRequest(
-            transcript_text=text,
-            turns=analysis_turns,
-            language=asr.language,
-            call_id=claim.meeting_id,
-        )
-        identity_request: dict[str, Any] = {"language": request.language}
-        if candidate_claim.privacy_digest is not None:
+    candidates = analysis_candidates(
+        selection,
+        classes_for,
+        text=asr.text,
+        turns=turns,
+        language=asr.language,
+        call_id=claim.meeting_id,
+    )
+    identities: dict[int, ckpt.StageIdentity] = {}
+    for candidate in candidates:
+        identity_request: dict[str, Any] = {"language": candidate.request.language}
+        if candidate.privacy_digest is not None:
             # Only under a policy, so existing checkpoints keep their identity.
-            identity_request["privacy_policy"] = candidate_claim.privacy_digest
-        identity = ckpt.stage_identity(
+            identity_request["privacy_policy"] = candidate.privacy_digest
+        identities[candidate.index] = ckpt.stage_identity(
             context,
             StageName.INTELLIGENCE,
-            provider=adapters[index].identity(),
+            provider=adapters[candidate.index].identity(),
             request=identity_request,
             upstream=upstream,
         )
-        plans.append((index, candidate_claim, request, identity))
 
-    for index, candidate_claim, _request, identity in plans:
+    for candidate in candidates:
+        identity = identities[candidate.index]
         reused = ckpt.resume_stage(context, identity, storage=storage, settings=settings)
         if reused is not None:
             assert isinstance(reused.result, IntelligenceResult)
-            _use_manifest(record, selection.candidates[index])
+            _use_manifest(record, selection.candidates[candidate.index])
             _mark_reused(record, reused)
-            return reused.result, identity, candidate_claim
+            return (
+                reused.result,
+                identity,
+                dataclasses.replace(claim, pii_classes=candidate.pii_classes),
+            )
 
-    failed: list[str] = []
-    for position, (index, candidate_claim, request, identity) in enumerate(plans):
-        resolved, adapter = selection.candidates[index], adapters[index]
-        try:
-            result = _call_provider(
-                candidate_claim,
-                resolved,
-                lambda adapter=adapter, request=request: adapter.analyze(request),
-                heartbeat=heartbeat,
-                policy=policy,
-                settings=settings,
-            )
-        except (ProviderError, ProcessingError) as exc:
-            transient = (isinstance(exc, ProviderError) and exc.retryable) or (
-                isinstance(exc, ProcessingError) and exc.code in _FALLBACK_CODES
-            )
-            if transient and position + 1 < len(plans):
-                failed.append(exc.code)
-                _ensure_policy_current(claim)
-                continue
-            raise
-        _use_manifest(record, resolved)
-        record.checkpoint_id, _sha = _commit_stage(
-            context, identity, result, record=record, storage=storage, settings=settings
-        )
-        record.finish(
-            StageState.COMPLETED,
-            reason=StageReason.FALLBACK_USED if failed else None,
-            message=(
-                f"The primary analysis provider failed ({', '.join(failed)}); this result "
-                "comes from an approved same-policy fallback"
-                if failed
-                else None
-            ),
-            provider=result.provider,
-            model=result.model,
-            is_mock=result.is_mock,
-        )
-        return result, identity, candidate_claim
-    raise AssertionError("an allowed analysis stage has at least one eligible candidate")
+    candidate, result, failed = call_analysis(
+        claim,
+        candidates,
+        selection=selection,
+        adapters=adapters,
+        heartbeat=heartbeat,
+        policy=policy,
+        settings=settings,
+        before_fallback=lambda: _ensure_policy_current(claim),
+    )
+    identity = identities[candidate.index]
+    _use_manifest(record, selection.candidates[candidate.index])
+    record.checkpoint_id, _sha = _commit_stage(
+        context, identity, result, record=record, storage=storage, settings=settings
+    )
+    record.finish(
+        StageState.COMPLETED,
+        reason=StageReason.FALLBACK_USED if failed else None,
+        message=(
+            f"The primary analysis provider failed ({', '.join(failed)}); this result "
+            "comes from an approved same-policy fallback"
+            if failed
+            else None
+        ),
+        provider=result.provider,
+        model=result.model,
+        is_mock=result.is_mock,
+    )
+    return result, identity, dataclasses.replace(claim, pii_classes=candidate.pii_classes)
 
 
 def process_job(

@@ -48,7 +48,7 @@ from backend.security.context import (
 from backend.security.tokens import token_digest
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
-from backend.services.download_service import deliver_recording
+from backend.services.download_service import deliver_recording, ensure_shared_recording_playable
 from backend.services.export_service import (
     ExportSegment,
     MeetingExport,
@@ -430,7 +430,7 @@ def access_share(
         transcript=_transcript_response(db, meeting=meeting, view=view),
         summary=summary_response(summary, view) if summary else None,
         actions=[action_response(action, view) for action in actions],
-        quality=_quality(db, meeting, with_job=False),
+        quality=_quality(db, meeting, with_job=False, settings=settings),
     )
     db.commit()
     return response
@@ -479,7 +479,7 @@ def export_share(
             actions=[_export_action(action, view) for action in actions],
             transcript_revision=_export_revision(transcript),
             summary_evidence_status=summary.evidence_status if summary else None,
-            quality=_quality(db, meeting, with_job=False).model_dump(),
+            quality=_quality(db, meeting, with_job=False, settings=settings).model_dump(),
             privacy=export_privacy(db, meeting=meeting, view=view, transcript=transcript),
         ),
         format_name,
@@ -522,18 +522,19 @@ def download_shared_recording(
         operation="download",
         settings=settings,
     )
-    recording = db.scalar(
-        select(Recording).where(
-            Recording.meeting_id == grant.meeting.id,
-            Recording.workspace_id == grant.share.workspace_id,
-            Recording.deleted_at.is_(None),
-        )
+    # Before the access audit: a refused request is not counted as a download.
+    recording = ensure_shared_recording_playable(
+        workspace=grant.workspace,
+        meeting=grant.meeting,
+        recording=db.scalar(
+            select(Recording).where(
+                Recording.meeting_id == grant.meeting.id,
+                Recording.workspace_id == grant.share.workspace_id,
+                Recording.deleted_at.is_(None),
+            )
+        ),
+        now=datetime.now(UTC),
     )
-    if recording is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "recording_not_found", "message": "Recording not found"},
-        )
     range_header = request.headers.get("range")
     # One audit row per download start; range continuations are not re-counted.
     if not range_header or range_header.strip().startswith("bytes=0-"):

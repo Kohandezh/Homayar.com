@@ -1,0 +1,5243 @@
+{
+  "components": {
+    "schemas": {
+      "ActionItemResponse": {
+        "properties": {
+          "analysis_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Run Id"
+          },
+          "assignee_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Text"
+          },
+          "assignee_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee User Id"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRefResponse"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "evidence_status": {
+            "default": "insufficient",
+            "title": "Evidence Status",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "privacy_enforced": {
+            "default": false,
+            "title": "Privacy Enforced",
+            "type": "boolean"
+          },
+          "redaction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContentRedactionInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_segment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Segment Id"
+          },
+          "source_timestamp_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Timestamp Ms"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "view": {
+            "default": "original",
+            "enum": [
+              "original",
+              "redacted"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "meeting_id",
+          "description",
+          "assignee_text",
+          "assignee_user_id",
+          "due_at",
+          "priority",
+          "status",
+          "source_segment_id",
+          "source_timestamp_ms",
+          "confidence",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ActionItemResponse",
+        "type": "object"
+      },
+      "AnalysisRunResponse": {
+        "description": "Provenance of the analysis pass that produced a summary / AI actions.",
+        "properties": {
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt"
+          },
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "config_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Hash"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_policy_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Policy Digest"
+          },
+          "input_view": {
+            "default": "original",
+            "title": "Input View",
+            "type": "string"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "is_mock": {
+            "title": "Is Mock",
+            "type": "boolean"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "output_schema_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema Sha256"
+          },
+          "prompt_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Sha256"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "reference_count": {
+            "default": 0,
+            "title": "Reference Count",
+            "type": "integer"
+          },
+          "rejected_reference_count": {
+            "default": 0,
+            "title": "Rejected Reference Count",
+            "type": "integer"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "superseded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded At"
+          },
+          "transcript_revision_id": {
+            "title": "Transcript Revision Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "transcript_revision_id",
+          "job_id",
+          "attempt",
+          "checkpoint_id",
+          "stage",
+          "state",
+          "reason_code",
+          "provider",
+          "model",
+          "prompt_version",
+          "prompt_sha256",
+          "output_schema_sha256",
+          "config_hash",
+          "schema_version",
+          "is_mock",
+          "is_current",
+          "created_at",
+          "superseded_at"
+        ],
+        "title": "AnalysisRunResponse",
+        "type": "object"
+      },
+      "Body_import_voicemail_route_api_v1_voicemails_post": {
+        "properties": {
+          "caller_number": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Number"
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension"
+          },
+          "external_message_id": {
+            "pattern": "^[A-Za-z0-9._:@/+=-]{1,197}$",
+            "title": "External Message Id",
+            "type": "string"
+          },
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          },
+          "language": {
+            "default": "fa",
+            "maxLength": 12,
+            "minLength": 2,
+            "pattern": "^[A-Za-z-]+$",
+            "title": "Language",
+            "type": "string"
+          },
+          "mailbox": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mailbox"
+          },
+          "received_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Received At"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 240,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "file",
+          "external_message_id"
+        ],
+        "title": "Body_import_voicemail_route_api_v1_voicemails_post",
+        "type": "object"
+      },
+      "Body_upload_meeting_api_v1_uploads_post": {
+        "properties": {
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          },
+          "language": {
+            "default": "fa",
+            "maxLength": 12,
+            "minLength": 2,
+            "pattern": "^[A-Za-z-]+$",
+            "title": "Language",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 240,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_meeting_api_v1_uploads_post",
+        "type": "object"
+      },
+      "ContentRedactionInfo": {
+        "description": "How a summary, action item or evidence text was redacted (gap G10).\n\nPresent only when ``view == \"redacted\"``: the texts passed through the same\ndeterministic detector and classes as the transcript (placeholders share\nthe transcript's numbering).  It says nothing about identifiers the\ndetector does not cover (names, addresses) and nothing about the audio.",
+        "properties": {
+          "classes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Classes",
+            "type": "array"
+          },
+          "detector_version": {
+            "title": "Detector Version",
+            "type": "string"
+          },
+          "policy_digest": {
+            "title": "Policy Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_version",
+          "classes",
+          "policy_digest"
+        ],
+        "title": "ContentRedactionInfo",
+        "type": "object"
+      },
+      "DegradationResponse": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "state"
+        ],
+        "title": "DegradationResponse",
+        "type": "object"
+      },
+      "DispatchResponse": {
+        "description": "Outbox state of the job's broker publication (WP06-T02).",
+        "properties": {
+          "attempt_count": {
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "generation": {
+            "default": 0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "next_attempt_at": {
+            "format": "date-time",
+            "title": "Next Attempt At",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "attempt_count",
+          "max_attempts",
+          "next_attempt_at",
+          "published_at",
+          "last_error"
+        ],
+        "title": "DispatchResponse",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "description": "Stable machine-readable code.",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "description": "Optional structured context, for example validation fields."
+          },
+          "message": {
+            "description": "Human-readable text.",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Same value as the X-Request-ID response header."
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "EvidenceListResponse": {
+        "properties": {
+          "analysis_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Run Id"
+          },
+          "current_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Revision Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceSpanResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "privacy_enforced": {
+            "default": false,
+            "title": "Privacy Enforced",
+            "type": "boolean"
+          },
+          "redaction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContentRedactionInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "view": {
+            "default": "original",
+            "enum": [
+              "original",
+              "redacted"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "meeting_id",
+          "analysis_run_id",
+          "current_revision_id",
+          "items"
+        ],
+        "title": "EvidenceListResponse",
+        "type": "object"
+      },
+      "EvidenceRefResponse": {
+        "description": "A finding's citation, embedded in the finding (WP04-T03).",
+        "properties": {
+          "end_ms": {
+            "title": "End Ms",
+            "type": "integer"
+          },
+          "evidence_type": {
+            "title": "Evidence Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "segment_id": {
+            "title": "Segment Id",
+            "type": "string"
+          },
+          "speaker_key": {
+            "title": "Speaker Key",
+            "type": "string"
+          },
+          "start_ms": {
+            "title": "Start Ms",
+            "type": "integer"
+          },
+          "text_end": {
+            "title": "Text End",
+            "type": "integer"
+          },
+          "text_start": {
+            "title": "Text Start",
+            "type": "integer"
+          },
+          "transcript_revision_id": {
+            "title": "Transcript Revision Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "transcript_revision_id",
+          "segment_id",
+          "speaker_key",
+          "text_start",
+          "text_end",
+          "start_ms",
+          "end_ms",
+          "evidence_type"
+        ],
+        "title": "EvidenceRefResponse",
+        "type": "object"
+      },
+      "EvidenceSpanResponse": {
+        "description": "A citation resolved to its immutable text and audio range.",
+        "properties": {
+          "analysis_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Run Id"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "end_ms": {
+            "title": "End Ms",
+            "type": "integer"
+          },
+          "evidence_type": {
+            "title": "Evidence Type",
+            "type": "string"
+          },
+          "finding_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id"
+          },
+          "finding_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Index"
+          },
+          "finding_type": {
+            "title": "Finding Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_current_revision": {
+            "title": "Is Current Revision",
+            "type": "boolean"
+          },
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "revision_number": {
+            "title": "Revision Number",
+            "type": "integer"
+          },
+          "segment_id": {
+            "title": "Segment Id",
+            "type": "string"
+          },
+          "speaker_key": {
+            "title": "Speaker Key",
+            "type": "string"
+          },
+          "start_ms": {
+            "title": "Start Ms",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "text_end": {
+            "title": "Text End",
+            "type": "integer"
+          },
+          "text_start": {
+            "title": "Text Start",
+            "type": "integer"
+          },
+          "transcript_revision_id": {
+            "title": "Transcript Revision Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "meeting_id",
+          "analysis_run_id",
+          "transcript_revision_id",
+          "revision_number",
+          "is_current_revision",
+          "segment_id",
+          "speaker_key",
+          "finding_type",
+          "finding_id",
+          "finding_index",
+          "text_start",
+          "text_end",
+          "text",
+          "start_ms",
+          "end_ms",
+          "confidence",
+          "evidence_type",
+          "created_at"
+        ],
+        "title": "EvidenceSpanResponse",
+        "type": "object"
+      },
+      "IngestionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IngestionResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "IngestionListResponse",
+        "type": "object"
+      },
+      "IngestionResponse": {
+        "description": "One ledger row of the canonical ingestion contract (WP05-T01).",
+        "properties": {
+          "api_key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key Id"
+          },
+          "conflict_count": {
+            "default": 0,
+            "title": "Conflict Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "declared_content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Content Type"
+          },
+          "duplicate_of_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Of Id"
+          },
+          "external_event_id": {
+            "title": "External Event Id",
+            "type": "string"
+          },
+          "external_source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Source Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "last_conflict_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Conflict At"
+          },
+          "media_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Hash"
+          },
+          "media_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Size Bytes"
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
+          },
+          "organization_id": {
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "original_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Filename"
+          },
+          "payload_hash": {
+            "title": "Payload Hash",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "source_provider": {
+            "title": "Source Provider",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "organization_id",
+          "source_type",
+          "source_provider",
+          "external_event_id",
+          "payload_hash",
+          "status",
+          "received_at",
+          "created_at"
+        ],
+        "title": "IngestionResponse",
+        "type": "object"
+      },
+      "IngestionSourceType": {
+        "description": "How audio enters Homayar (WP05-T01): the capture source of an ingestion.\n\nEvery capture provider (desktop, meeting bot, telephony, upload, watcher,\nAPI) reports one of these; the adapter that delivered the event is the\n``source_provider`` string next to it.  Only ``FILE_UPLOAD`` has a\nproducer today; the others are the canonical vocabulary later providers\nmust use instead of inventing their own ledger.",
+        "enum": [
+          "file_upload",
+          "microphone",
+          "system_audio",
+          "mic_plus_system_audio",
+          "sip_voip",
+          "meeting_bot",
+          "external_recording_url",
+          "offline_folder_watcher",
+          "api",
+          "voicemail"
+        ],
+        "title": "IngestionSourceType",
+        "type": "string"
+      },
+      "JobResponse": {
+        "properties": {
+          "attempt_count": {
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deadline_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline At"
+          },
+          "dispatch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DispatchResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Class"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "failure_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Message"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_replayed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Replayed At"
+          },
+          "lease": {
+            "$ref": "#/components/schemas/LeaseResponse",
+            "readOnly": true
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "replay_count": {
+            "default": 0,
+            "title": "Replay Count",
+            "type": "integer"
+          },
+          "retry_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageRunResponse"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "stage",
+          "attempt_count",
+          "max_attempts",
+          "failure_code",
+          "failure_message",
+          "created_at",
+          "updated_at",
+          "lease"
+        ],
+        "title": "JobResponse",
+        "type": "object"
+      },
+      "LeaseResponse": {
+        "description": "Execution ownership of the current/last attempt (WP06-T04).",
+        "properties": {
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "renewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Renewed At"
+          }
+        },
+        "required": [
+          "generation",
+          "attempt_id",
+          "expires_at",
+          "renewed_at"
+        ],
+        "title": "LeaseResponse",
+        "type": "object"
+      },
+      "MeetingDetailResponse": {
+        "properties": {
+          "agent_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent User Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "ingestion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "latest_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeetingQualityResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recording": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordingResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "title",
+          "language",
+          "status",
+          "duration_seconds",
+          "source",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MeetingDetailResponse",
+        "type": "object"
+      },
+      "MeetingQualityResponse": {
+        "description": "Quality, coverage and degradation of a meeting's results (WP04-T06).",
+        "properties": {
+          "analysed_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysed Revision Id"
+          },
+          "analysis": {
+            "title": "Analysis",
+            "type": "string"
+          },
+          "analysis_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Run Id"
+          },
+          "analysis_stale": {
+            "title": "Analysis Stale",
+            "type": "boolean"
+          },
+          "degradations": {
+            "items": {
+              "$ref": "#/components/schemas/DegradationResponse"
+            },
+            "title": "Degradations",
+            "type": "array"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "is_mock": {
+            "title": "Is Mock",
+            "type": "boolean"
+          },
+          "recompute_failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recompute Failure Code"
+          },
+          "recompute_status": {
+            "default": "up_to_date",
+            "title": "Recompute Status",
+            "type": "string"
+          },
+          "segment_count": {
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "speaker_attribution": {
+            "title": "Speaker Attribution",
+            "type": "string"
+          },
+          "speaker_count": {
+            "title": "Speaker Count",
+            "type": "integer"
+          },
+          "speech_coverage_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speech Coverage Ratio"
+          },
+          "transcript_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Revision Id"
+          },
+          "transcription": {
+            "title": "Transcription",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UsageStateResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "transcription",
+          "speaker_attribution",
+          "analysis",
+          "evidence",
+          "analysis_stale",
+          "transcript_revision_id",
+          "analysed_revision_id",
+          "analysis_run_id",
+          "segment_count",
+          "speaker_count",
+          "speech_coverage_ratio",
+          "is_mock"
+        ],
+        "title": "MeetingQualityResponse",
+        "type": "object"
+      },
+      "MeetingResponse": {
+        "properties": {
+          "agent_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent User Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "title",
+          "language",
+          "status",
+          "duration_seconds",
+          "source",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MeetingResponse",
+        "type": "object"
+      },
+      "RecordingResponse": {
+        "properties": {
+          "channel_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Count"
+          },
+          "checksum_sha256": {
+            "title": "Checksum Sha256",
+            "type": "string"
+          },
+          "container_format": {
+            "title": "Container Format",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "original_filename": {
+            "title": "Original Filename",
+            "type": "string"
+          },
+          "sample_rate_hz": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Rate Hz"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "original_filename",
+          "media_type",
+          "container_format",
+          "size_bytes",
+          "checksum_sha256",
+          "duration_seconds",
+          "channel_count",
+          "sample_rate_hz"
+        ],
+        "title": "RecordingResponse",
+        "type": "object"
+      },
+      "ReportCompleteness": {
+        "description": "What is missing from a meeting's results: one rule for every read that\ncarries it (HOM-59, HOM-60).",
+        "properties": {
+          "analysis": {
+            "title": "Analysis",
+            "type": "string"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "is_complete": {
+            "title": "Is Complete",
+            "type": "boolean"
+          },
+          "meeting_status": {
+            "title": "Meeting Status",
+            "type": "string"
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "speaker_attribution": {
+            "title": "Speaker Attribution",
+            "type": "string"
+          },
+          "transcription": {
+            "title": "Transcription",
+            "type": "string"
+          }
+        },
+        "required": [
+          "is_complete",
+          "notices",
+          "meeting_status",
+          "transcription",
+          "speaker_attribution",
+          "analysis",
+          "evidence"
+        ],
+        "title": "ReportCompleteness",
+        "type": "object"
+      },
+      "SpeakerResponse": {
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "identity_type": {
+            "title": "Identity Type",
+            "type": "string"
+          },
+          "speaker_key": {
+            "title": "Speaker Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "speaker_key",
+          "display_name",
+          "identity_type",
+          "confidence"
+        ],
+        "title": "SpeakerResponse",
+        "type": "object"
+      },
+      "StageRunResponse": {
+        "description": "Typed outcome of one processing stage (WP04-T01).",
+        "properties": {
+          "attempt": {
+            "default": 0,
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "is_mock": {
+            "default": false,
+            "title": "Is Mock",
+            "type": "boolean"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "manifest_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Digest"
+          },
+          "manifest_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Id"
+          },
+          "manifest_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Version"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "reason_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Message"
+          },
+          "reused": {
+            "default": false,
+            "title": "Reused",
+            "type": "boolean"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "state"
+        ],
+        "title": "StageRunResponse",
+        "type": "object"
+      },
+      "SummaryResponse": {
+        "properties": {
+          "analysis_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisRunResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Run Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decisions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "evidence_status": {
+            "default": "insufficient",
+            "title": "Evidence Status",
+            "type": "string"
+          },
+          "key_points": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Key Points",
+            "type": "array"
+          },
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "overview": {
+            "title": "Overview",
+            "type": "string"
+          },
+          "privacy_enforced": {
+            "default": false,
+            "title": "Privacy Enforced",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "redaction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContentRedactionInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "sentiment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentiment"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "view": {
+            "default": "original",
+            "enum": [
+              "original",
+              "redacted"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "meeting_id",
+          "overview",
+          "decisions",
+          "key_points",
+          "topics",
+          "sentiment",
+          "provider",
+          "model",
+          "schema_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SummaryResponse",
+        "type": "object"
+      },
+      "TranscriptFilters": {
+        "description": "The speaker and time filter a transcript response applied (HOM-60).",
+        "properties": {
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Ms"
+          },
+          "speaker_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Speaker Keys",
+            "type": "array"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms"
+          }
+        },
+        "title": "TranscriptFilters",
+        "type": "object"
+      },
+      "TranscriptRedactionInfo": {
+        "description": "The redacted version a response was rendered from (WP07-T06).\n\n``id`` is ``None`` when the version was computed for a share view (share\nsessions never write); the texts are identical to the persisted version\nof the same policy digest.",
+        "properties": {
+          "classes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Classes",
+            "type": "array"
+          },
+          "detector_version": {
+            "title": "Detector Version",
+            "type": "string"
+          },
+          "entity_count": {
+            "title": "Entity Count",
+            "type": "integer"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "mapping_retained": {
+            "title": "Mapping Retained",
+            "type": "boolean"
+          },
+          "policy_digest": {
+            "title": "Policy Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "detector_version",
+          "classes",
+          "policy_digest",
+          "entity_count",
+          "mapping_retained"
+        ],
+        "title": "TranscriptRedactionInfo",
+        "type": "object"
+      },
+      "TranscriptResponse": {
+        "properties": {
+          "completeness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportCompleteness"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "privacy_enforced": {
+            "default": false,
+            "title": "Privacy Enforced",
+            "type": "boolean"
+          },
+          "redaction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptRedactionInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptRevisionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptSegmentResponse"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "speakers": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerResponse"
+            },
+            "title": "Speakers",
+            "type": "array"
+          },
+          "total_segments": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Segments"
+          },
+          "view": {
+            "default": "original",
+            "enum": [
+              "original",
+              "redacted"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "meeting_id",
+          "language",
+          "segments",
+          "speakers"
+        ],
+        "title": "TranscriptResponse",
+        "type": "object"
+      },
+      "TranscriptRevisionResponse": {
+        "description": "Provenance of one immutable transcript revision (WP04-T02).",
+        "properties": {
+          "asr_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asr Model"
+          },
+          "asr_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asr Provider"
+          },
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt"
+          },
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "config_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Hash"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "diarization_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diarization Provider"
+          },
+          "diarization_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diarization Status"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "is_mock": {
+            "title": "Is Mock",
+            "type": "boolean"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "parent_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Revision Id"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "revision_number": {
+            "title": "Revision Number",
+            "type": "integer"
+          },
+          "segment_count": {
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "superseded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded At"
+          }
+        },
+        "required": [
+          "id",
+          "meeting_id",
+          "revision_number",
+          "parent_revision_id",
+          "source",
+          "reason",
+          "note",
+          "language",
+          "segment_count",
+          "created_at",
+          "created_by_user_id",
+          "job_id",
+          "attempt",
+          "checkpoint_id",
+          "config_hash",
+          "asr_provider",
+          "asr_model",
+          "diarization_provider",
+          "diarization_status",
+          "is_mock",
+          "is_current",
+          "superseded_at"
+        ],
+        "title": "TranscriptRevisionResponse",
+        "type": "object"
+      },
+      "TranscriptSegmentResponse": {
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "end_ms": {
+            "title": "End Ms",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "speaker_key": {
+            "title": "Speaker Key",
+            "type": "string"
+          },
+          "speaker_name": {
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "start_ms": {
+            "title": "Start Ms",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "speaker_key",
+          "speaker_name",
+          "start_ms",
+          "end_ms",
+          "text",
+          "confidence",
+          "language"
+        ],
+        "title": "TranscriptSegmentResponse",
+        "type": "object"
+      },
+      "UploadAcceptedResponse": {
+        "properties": {
+          "idempotent_replay": {
+            "default": false,
+            "title": "Idempotent Replay",
+            "type": "boolean"
+          },
+          "ingestion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job": {
+            "$ref": "#/components/schemas/JobResponse"
+          },
+          "meeting": {
+            "$ref": "#/components/schemas/MeetingResponse"
+          },
+          "recording": {
+            "$ref": "#/components/schemas/RecordingResponse"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageResponse"
+          }
+        },
+        "required": [
+          "meeting",
+          "recording",
+          "job",
+          "usage"
+        ],
+        "title": "UploadAcceptedResponse",
+        "type": "object"
+      },
+      "UsageResponse": {
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "metric": {
+            "default": "audio_seconds",
+            "title": "Metric",
+            "type": "string"
+          },
+          "remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining"
+          },
+          "reserved": {
+            "title": "Reserved",
+            "type": "integer"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "used",
+          "reserved",
+          "remaining"
+        ],
+        "title": "UsageResponse",
+        "type": "object"
+      },
+      "UsageStateResponse": {
+        "properties": {
+          "audio_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Seconds"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "UsageStateResponse",
+        "type": "object"
+      },
+      "VoicemailImportResponse": {
+        "properties": {
+          "idempotent_replay": {
+            "title": "Idempotent Replay",
+            "type": "boolean"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "voicemail": {
+            "$ref": "#/components/schemas/VoicemailResponse"
+          }
+        },
+        "required": [
+          "voicemail",
+          "job",
+          "idempotent_replay"
+        ],
+        "title": "VoicemailImportResponse",
+        "type": "object"
+      },
+      "VoicemailResponse": {
+        "properties": {
+          "assigned_team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Team Id"
+          },
+          "assigned_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned User Id"
+          },
+          "caller_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Number"
+          },
+          "caller_number_valid": {
+            "title": "Caller Number Valid",
+            "type": "boolean"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "classification_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classification Confidence"
+          },
+          "classified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classified At"
+          },
+          "classified_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classified Revision Id"
+          },
+          "classifier_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classifier Kind"
+          },
+          "classifier_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classifier Model Id"
+          },
+          "classifier_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classifier Version"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "integer"
+          },
+          "extension": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension"
+          },
+          "external_message_id": {
+            "title": "External Message Id",
+            "type": "string"
+          },
+          "follow_up_action_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Action Id"
+          },
+          "follow_up_done_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Done At"
+          },
+          "follow_up_state": {
+            "title": "Follow Up State",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "ingestion_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingestion Id"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "mailbox": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mailbox"
+          },
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "priority_reasons": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Priority Reasons",
+            "type": "array"
+          },
+          "priority_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority Score"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "review_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Reason"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "meeting_id",
+          "ingestion_id",
+          "external_message_id",
+          "mailbox",
+          "extension",
+          "caller_number",
+          "caller_number_valid",
+          "received_at",
+          "duration_seconds",
+          "status",
+          "review_reason",
+          "category",
+          "intent",
+          "topics",
+          "priority",
+          "priority_score",
+          "priority_reasons",
+          "classification_confidence",
+          "classifier_kind",
+          "classifier_version",
+          "classifier_model_id",
+          "classified_revision_id",
+          "classified_at",
+          "follow_up_state",
+          "follow_up_action_id",
+          "follow_up_done_at",
+          "assigned_team_id",
+          "assigned_user_id",
+          "created_at"
+        ],
+        "title": "VoicemailResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
+    "title": "Homayar Ingestion API",
+    "version": "1.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/ingestions": {
+      "get": {
+        "operationId": "list_ingestion_records_api_v1_ingestions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/IngestionSourceType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "external_event_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "External Event Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "meeting_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Meeting Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Ingestion Records",
+        "tags": [
+          "ingestions"
+        ]
+      }
+    },
+    "/api/v1/ingestions/{ingestion_id}": {
+      "get": {
+        "operationId": "get_ingestion_record_api_v1_ingestions__ingestion_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ingestion_id",
+            "required": true,
+            "schema": {
+              "title": "Ingestion Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Ingestion Record",
+        "tags": [
+          "ingestions"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}": {
+      "get": {
+        "operationId": "get_meeting_api_v1_meetings__meeting_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Meeting",
+        "tags": [
+          "meetings"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}/actions": {
+      "get": {
+        "operationId": "list_actions_api_v1_meetings__meeting_id__actions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "original",
+                    "redacted"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+              "title": "View"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActionItemResponse"
+                  },
+                  "title": "Response List Actions Api V1 Meetings  Meeting Id  Actions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Actions",
+        "tags": [
+          "meeting intelligence"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}/evidence": {
+      "get": {
+        "description": "Citations of the current analysis run and of people, resolved to text and audio.",
+        "operationId": "list_meeting_evidence_api_v1_meetings__meeting_id__evidence_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "original",
+                    "redacted"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+              "title": "View"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Meeting Evidence",
+        "tags": [
+          "meeting intelligence"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}/export": {
+      "get": {
+        "operationId": "export_meeting_api_v1_meetings__meeting_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": true,
+            "schema": {
+              "enum": [
+                "txt",
+                "json",
+                "srt",
+                "vtt"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "original",
+                    "redacted"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+              "title": "View"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/x-subrip": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/vtt": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Meeting",
+        "tags": [
+          "meeting intelligence"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}/job": {
+      "get": {
+        "description": "The meeting's latest processing job. Poll it after an upload until `state` is `completed`, `failed`, `cancelled` or `dead_letter`.",
+        "operationId": "get_meeting_job_api_v1_meetings__meeting_id__job_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Meeting Job",
+        "tags": [
+          "meetings"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}/quality": {
+      "get": {
+        "description": "Quality, coverage and degradation of the meeting's results (WP04-T06).",
+        "operationId": "get_meeting_quality_api_v1_meetings__meeting_id__quality_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingQualityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Meeting Quality",
+        "tags": [
+          "meeting intelligence"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}/summary": {
+      "get": {
+        "operationId": "get_summary_api_v1_meetings__meeting_id__summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "original",
+                    "redacted"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+              "title": "View"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Summary",
+        "tags": [
+          "meeting intelligence"
+        ]
+      }
+    },
+    "/api/v1/meetings/{meeting_id}/transcript": {
+      "get": {
+        "description": "The segments of one revision, optionally only those of some speakers\nthat overlap ``[start_ms, end_ms)`` (HOM-60); ``speakers`` stays the\nmeeting's full list and ``total_segments`` the unfiltered count.\n\nSince 1.1.0: `speaker_key` (repeatable), `start_ms` and `end_ms` filter the segments. A window whose `end_ms` is not after `start_ms` is `422 invalid_time_range`. `filters` echoes the filter, `total_segments` counts the revision before filtering, and `completeness` names what is missing from the meeting's results.",
+        "operationId": "get_transcript_api_v1_meetings__meeting_id__transcript_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision Id"
+            }
+          },
+          {
+            "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "original",
+                    "redacted"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Transcript version (WP07-T06). Default: redacted when the workspace enforces redaction, otherwise original; 'original' under an enforced policy needs pii:original_access and is audited.",
+              "title": "View"
+            }
+          },
+          {
+            "description": "Keep the segments of these speakers (repeatable, at most 20).",
+            "in": "query",
+            "name": "speaker_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Keep the segments of these speakers (repeatable, at most 20).",
+              "title": "Speaker Key"
+            }
+          },
+          {
+            "description": "Keep the segments that end after this time.",
+            "in": "query",
+            "name": "start_ms",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Keep the segments that end after this time.",
+              "title": "Start Ms"
+            }
+          },
+          {
+            "description": "Keep the segments that start before this time.",
+            "in": "query",
+            "name": "end_ms",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Keep the segments that start before this time.",
+              "title": "End Ms"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Transcript",
+        "tags": [
+          "meeting intelligence"
+        ]
+      }
+    },
+    "/api/v1/uploads": {
+      "post": {
+        "description": "Accepts one recording for processing and answers `202` with the meeting, the recording and the queued job. Needs `meeting:create` and a verified owner. The `Idempotency-Key` header is required: the same key and payload replay the first answer (`idempotent_replay: true`), the same key with another payload is `409 ingestion_conflict`. Rate-limit `429` and transient `503` carry `Retry-After`.",
+        "operationId": "upload_meeting_api_v1_uploads_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_meeting_api_v1_uploads_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request, for example `invalid_idempotency_key`."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Same idempotency key or event id with a different payload (`ingestion_conflict`)."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The event was ingested before, but its conversation was deleted."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The recording is larger or longer than allowed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Meeting",
+        "tags": [
+          "meetings"
+        ]
+      }
+    },
+    "/api/v1/voicemails": {
+      "post": {
+        "description": "Imports one voicemail and answers `202` with its job. `external_message_id` is the idempotency key: the same id and payload replay, another payload is `409`.",
+        "operationId": "import_voicemail_route_api_v1_voicemails_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_voicemail_route_api_v1_voicemails_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoicemailImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Same idempotency key or event id with a different payload (`ingestion_conflict`)."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The event was ingested before, but its conversation was deleted."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The recording is larger or longer than allowed."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Voicemail Route",
+        "tags": [
+          "voicemail"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "HTTPBearer": []
+    }
+  ]
+}

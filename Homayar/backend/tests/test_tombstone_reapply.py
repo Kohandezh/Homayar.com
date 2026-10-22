@@ -34,6 +34,7 @@ from backend.database.saas_models import (
 )
 from backend.jobs.retention_purge import run_retention_purge
 from backend.jobs.tombstone_reapply import reapply_tombstones, verify_tombstones
+from backend.services.logging_service import logger as service_logger
 from backend.services.tombstone_journal import (
     TombstoneJournal,
     TombstoneRecord,
@@ -174,9 +175,14 @@ def test_deletion_is_journaled_at_once_without_content(client, email_outbox, mon
 
 
 def test_an_unwritable_journal_never_blocks_deletion_and_the_sweep_catches_up(
-    client, email_outbox, monkeypatch, settings, tmp_path, caplog
+    client, email_outbox, monkeypatch, settings, tmp_path, caplog, request
 ):
     _patch_media(monkeypatch)
+    # Alembic's fileConfig (any migration test earlier in the run) disables existing
+    # loggers: re-enable ours and capture it directly, whatever ran before.
+    monkeypatch.setattr(service_logger, "disabled", False)
+    service_logger.addHandler(caplog.handler)
+    request.addfinalizer(lambda: service_logger.removeHandler(caplog.handler))
     tenant = _tenant(client, email_outbox, "journal-late")
     accepted = _upload(client, tenant, key="journal-late-0001")
     meeting_id = accepted.json()["meeting"]["id"]

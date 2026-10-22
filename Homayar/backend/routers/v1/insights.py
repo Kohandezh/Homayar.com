@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import StringConstraints
 from sqlalchemy import String, cast, exists, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,7 @@ from backend.database.saas_models import (
     TranscriptRevision,
     TranscriptSegment,
 )
+from backend.jobs import recompute
 from backend.privacy.redaction_service import RedactionError, reveal_placeholder
 from backend.privacy.text_pii import DETECTOR_VERSION
 from backend.privacy.transcript_view import (
@@ -34,6 +36,7 @@ from backend.schemas.insights import (
     ActionItemCreateRequest,
     ActionItemResponse,
     ActionItemUpdateRequest,
+    AnalysisRecomputeResponse,
     ContentRedactionInfo,
     EvidenceListResponse,
     EvidenceSpanResponse,
@@ -46,6 +49,7 @@ from backend.schemas.insights import (
     SpeakerUpdateRequest,
     SummaryResponse,
     TranscriptCorrectionRequest,
+    TranscriptFilters,
     TranscriptRedactionInfo,
     TranscriptResponse,
     TranscriptRevisionListResponse,
@@ -60,6 +64,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.services.analysis_claims import claim_section
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.evidence_service import (
@@ -78,6 +83,8 @@ from backend.services.export_service import (
 )
 from backend.services.meeting_service import latest_job_for_meeting
 from backend.services.quality_service import assess_meeting
+from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
+from backend.services.report_service import meeting_completeness
 from backend.services.transcript_service import (
     SegmentEdit,
     TranscriptError,
@@ -85,6 +92,7 @@ from backend.services.transcript_service import (
     current_analysis_run,
     current_revision,
     current_segments_clause,
+    filter_segments,
     list_revisions,
     revision_by_id,
     segments_of,
@@ -101,6 +109,12 @@ _VIEW_QUERY = Query(
         "pii:original_access and is audited."
     ),
 )
+SpeakerKey = Annotated[str, StringConstraints(min_length=1, max_length=64)]
+
+
+def invalid_time_range(message: str = "end_ms must be greater than start_ms") -> HTTPException:
+    """A time window that selects nothing (HOM-60)."""
+    return HTTPException(status_code=422, detail={"code": "invalid_time_range", "message": message})
 
 
 def _meeting_or_404(db: Session, *, context: WorkspaceContext, meeting_id: str) -> Meeting:
@@ -199,12 +213,36 @@ def _transcript_response(
     meeting: Meeting,
     view: MeetingView,
     revision: TranscriptRevision | None = None,
+    filters: TranscriptFilters | None = None,
+    settings: Settings | None = None,
 ) -> TranscriptResponse:
     """The segments of one revision — the current one unless asked otherwise —
-    in the caller's view (original or redacted)."""
+    in the caller's view (original or redacted).
+
+    With ``filters`` (HOM-60 navigation, possibly empty) only the matching
+    segments are returned, and ``filters``, ``total_segments`` and
+    ``completeness`` are set; without it (a share, an export) they stay
+    null.  A filter only drops whole segments, so it never shows a text the
+    unfiltered response would not.
+    """
     if revision is None:
         revision = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     segments = segments_of(db, revision) if revision is not None else []
+    navigation: dict[str, object] = {}
+    if filters is not None:
+        navigation = {
+            "filters": filters,
+            "total_segments": len(segments),
+            "completeness": meeting_completeness(
+                status=meeting.status, quality=_quality(db, meeting, settings=settings)
+            ),
+        }
+        segments = filter_segments(
+            segments,
+            speaker_keys=frozenset(filters.speaker_keys),
+            start_ms=filters.start_ms,
+            end_ms=filters.end_ms,
+        )
     speakers = list(
         db.scalars(
             select(MeetingSpeaker)
@@ -240,6 +278,7 @@ def _transcript_response(
         view=view.policy.view,
         privacy_enforced=view.policy.enforced,
         redaction=_redaction_info(view, revision),
+        **navigation,
     )
 
 
@@ -258,8 +297,24 @@ def _view_fields(view: MeetingView) -> dict[str, object]:
     return {"view": policy.view, "privacy_enforced": policy.enforced, "redaction": redaction}
 
 
+def _decision_point(view: MeetingView, point: object) -> object:
+    """A decision in this view, including a structured decision's owner (HOM-61)."""
+    rendered = view.point(point)
+    owner = rendered.get("owner") if isinstance(rendered, dict) else None
+    if view.redacted and isinstance(owner, dict) and isinstance(owner.get("value"), str):
+        rendered = {**rendered, "owner": {**owner, "value": view.text(owner["value"])}}
+    return rendered
+
+
 def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryResponse:
     response = SummaryResponse.model_validate(summary).model_copy(update=_view_fields(view))
+    # Structured claims (HOM-61) are stored next to the insights; the key
+    # points of /summary stay the insights only.
+    response = response.model_copy(
+        update={
+            "key_points": [point for point in response.key_points if claim_section(point) is None]
+        }
+    )
     if not view.redacted:
         return response
     return response.model_copy(
@@ -267,7 +322,7 @@ def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryRespo
             "overview": view.text(response.overview) or "",
             "topics": view.texts(response.topics),
             "key_points": [view.point(point) for point in response.key_points],
-            "decisions": [view.point(point) for point in response.decisions],
+            "decisions": [_decision_point(view, point) for point in response.decisions],
         }
     )
 
@@ -297,10 +352,24 @@ def get_transcript(
     request: Request,
     revision_id: str | None = Query(default=None, min_length=1, max_length=36),
     view: ViewParam | None = _VIEW_QUERY,
+    speaker_key: list[SpeakerKey] | None = Query(
+        default=None,
+        max_length=20,
+        description="Keep the segments of these speakers (repeatable, at most 20).",
+    ),
+    start_ms: int | None = Query(
+        default=None, ge=0, description="Keep the segments that end after this time."
+    ),
+    end_ms: int | None = Query(
+        default=None, ge=1, description="Keep the segments that start before this time."
+    ),
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TranscriptResponse:
+    """The segments of one revision, optionally only those of some speakers
+    that overlap ``[start_ms, end_ms)`` (HOM-60); ``speakers`` stays the
+    meeting's full list and ``total_segments`` the unfiltered count."""
     meeting = _meeting_or_404(
         db,
         context=context,
@@ -316,6 +385,9 @@ def get_transcript(
                 status_code=404,
                 detail={"code": "revision_not_found", "message": "Transcript revision not found"},
             )
+    # Before the view: a refused window writes no original-access audit row.
+    if start_ms is not None and end_ms is not None and end_ms <= start_ms:
+        raise invalid_time_range()
     meeting_view_ = meeting_view(
         db,
         context=context,
@@ -325,7 +397,17 @@ def get_transcript(
         request=request,
         surface="transcript",
     )
-    response = _transcript_response(db, meeting=meeting, view=meeting_view_, revision=revision)
+    filters = TranscriptFilters(
+        speaker_keys=sorted(set(speaker_key or ())), start_ms=start_ms, end_ms=end_ms
+    )
+    response = _transcript_response(
+        db,
+        meeting=meeting,
+        view=meeting_view_,
+        revision=revision,
+        filters=filters,
+        settings=settings,
+    )
     db.commit()  # a first redacted version or an original-access audit
     return response
 
@@ -366,6 +448,9 @@ def correct_transcript(
 
     The base revision is never modified; the correction becomes the current
     revision and is audited by ids and counts (never by transcript text).
+    After the commit a recompute of the analysis on the corrected revision is
+    dispatched (HOM-63) unless ``recompute_on_correction`` is off; a failed
+    dispatch never fails the correction (the sweeper finds the meeting).
     """
     meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
     view = meeting_view(
@@ -396,7 +481,7 @@ def correct_transcript(
             ],
             actor_user_id=context.actor.user.id,
             now=datetime.now(UTC),
-            note=payload.note,
+            note=payload.reason,
         )
     except TranscriptError as exc:
         db.rollback()
@@ -418,14 +503,106 @@ def correct_transcript(
             "parent_revision_id": revision.parent_revision_id,
             "source": revision.source.value,
             "reason": revision.reason,
+            "correction_reason": payload.reason[:120],
             "segments_changed": changed,
             "segment_count": revision.segment_count,
         },
         settings=settings,
     )
-    response = _transcript_response(db, meeting=meeting, view=view, revision=revision)
+    recompute_due = settings.recompute_on_correction and recompute.record_recompute_request(
+        db,
+        meeting=meeting,
+        revision_id=revision.id,
+        trigger=recompute.TRIGGER_CORRECTION,
+        actor_user_id=context.actor.user.id,
+        request_id=getattr(request.state, "request_id", None),
+        settings=settings,
+    )
+    response = _transcript_response(
+        db,
+        meeting=meeting,
+        view=view,
+        revision=revision,
+        filters=TranscriptFilters(),
+        settings=settings,
+    )
+    revision_id, workspace_id = revision.id, meeting.workspace_id
     db.commit()
+    if recompute_due:
+        recompute.dispatch_recompute(
+            meeting_id, revision_id, workspace_id=workspace_id, settings=settings
+        )
     return response
+
+
+def _enforce_recompute_rate_limit(settings: Settings, workspace_id: str) -> None:
+    """Manual recompute requests per workspace and minute (HOM-63), like uploads."""
+    try:
+        RateLimiter(settings).hit(
+            f"recompute:workspace:{workspace_id}",
+            limit=settings.recompute_manual_rate_limit_per_minute,
+            window_seconds=60,
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "recompute_rate_limited", "message": "Too many recompute requests"},
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "rate_limiter_unavailable",
+                "message": "Recompute is temporarily unavailable",
+            },
+        ) from exc
+
+
+@router.post(
+    "/meetings/{meeting_id}/analysis/recompute",
+    response_model=AnalysisRecomputeResponse,
+    status_code=202,
+)
+def recompute_analysis(
+    meeting_id: str,
+    request: Request,
+    response: Response,
+    context: WorkspaceContext = Depends(require_write_permission(Permission.MEETING_UPDATE)),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> AnalysisRecomputeResponse:
+    """Ask again for the recompute of a stale analysis (HOM-63).
+
+    Not stale: ``200 up_to_date`` and nothing is written.  Stale: the request
+    is audited, a recompute is dispatched and ``202`` carries the recompute
+    status after the dispatch.  Allowed after ``failed``: a person may ask for
+    one more attempt beyond the sweeper's cap.  Every request counts against
+    the workspace's ``recompute_manual_rate_limit_per_minute`` (429 over it).
+    """
+    _enforce_recompute_rate_limit(settings, context.workspace.id)
+    meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
+    quality = _quality(db, meeting, settings=settings)
+    if not quality.analysis_stale or quality.transcript_revision_id is None:
+        response.status_code = 200
+        return AnalysisRecomputeResponse(status=quality.recompute_status)
+    revision_id, workspace_id = quality.transcript_revision_id, meeting.workspace_id
+    recompute.record_recompute_request(
+        db,
+        meeting=meeting,
+        revision_id=revision_id,
+        trigger=recompute.TRIGGER_MANUAL,
+        actor_user_id=context.actor.user.id,
+        request_id=getattr(request.state, "request_id", None),
+        settings=settings,
+    )
+    db.commit()
+    recompute.dispatch_recompute(
+        meeting_id, revision_id, workspace_id=workspace_id, settings=settings
+    )
+    return AnalysisRecomputeResponse(
+        status=_quality(db, meeting, settings=settings).recompute_status
+    )
 
 
 def _evidence_response(
@@ -537,13 +714,19 @@ def get_meeting_evidence(
     return response
 
 
-def _quality(db: Session, meeting: Meeting, *, with_job: bool = True) -> MeetingQualityResponse:
+def _quality(
+    db: Session,
+    meeting: Meeting,
+    *,
+    with_job: bool = True,
+    settings: Settings | None = None,
+) -> MeetingQualityResponse:
     """The meeting's quality assessment (WP04-T06).
 
     ``with_job=False`` is the share-token view: the job, its stage runs and the
     usage reservation lie outside the share ceiling (workspace-only tables),
     so a shared meeting reports the result states without stage degradations
-    or usage.
+    or usage.  ``settings`` carries the recompute attempt cap (HOM-63).
     """
     job = (
         latest_job_for_meeting(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
@@ -551,7 +734,14 @@ def _quality(db: Session, meeting: Meeting, *, with_job: bool = True) -> Meeting
         else None
     )
     return MeetingQualityResponse.model_validate(
-        assess_meeting(db, meeting=meeting, job=job).as_dict()
+        assess_meeting(
+            db,
+            meeting=meeting,
+            job=job,
+            recompute_max_attempts=(
+                settings.recompute_max_attempts if settings is not None else None
+            ),
+        ).as_dict()
     )
 
 
@@ -560,10 +750,11 @@ def get_meeting_quality(
     meeting_id: str,
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> MeetingQualityResponse:
     """Quality, coverage and degradation of the meeting's results (WP04-T06)."""
     meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
-    return _quality(db, meeting)
+    return _quality(db, meeting, settings=settings)
 
 
 @router.get("/meetings/{meeting_id}/summary", response_model=SummaryResponse)
@@ -1376,7 +1567,7 @@ def export_meeting(
             actions=[_export_action(action, meeting_view_) for action in actions],
             transcript_revision=_export_revision(transcript),
             summary_evidence_status=summary.evidence_status if summary else None,
-            quality=_quality(db, meeting).model_dump(),
+            quality=_quality(db, meeting, settings=settings).model_dump(),
             privacy=export_privacy(db, meeting=meeting, view=meeting_view_, transcript=transcript),
         ),
         format_name,

@@ -37,10 +37,14 @@ class AuditEventType(StrEnum):
     API_KEY_REVOKED = "api_key.revoked", "api_key"
     AUTH_EMAIL_VERIFIED = "auth.email_verified", "user"
     AUTH_GOOGLE_COMPLETED = "auth.google_completed", "user"
+    AUTH_LOGIN = "auth.login", "user"
+    AUTH_LOGIN_FAILED = "auth.login_failed", "login_identifier"
+    AUTH_LOGOUT = "auth.logout", "login_session"
     AUTH_OTP_REQUESTED = "auth.otp_requested", "phone"
     AUTH_OTP_VERIFIED = "auth.otp_verified", "user"
     AUTH_PASSWORD_RESET_COMPLETED = "auth.password_reset_completed", "user"
     AUTH_PASSWORD_RESET_REQUESTED = "auth.password_reset_requested", "user"
+    AUTH_REFRESH_REPLAY_DETECTED = "auth.refresh_replay_detected", "login_session"
     AUTH_REGISTER = "auth.register", "user"
     AUTH_VERIFICATION_RESENT = "auth.verification_resent", "user"
     INGESTION_ACCEPTED = "ingestion.accepted", "ingestion"
@@ -67,6 +71,10 @@ class AuditEventType(StrEnum):
     MEETING_PURGE_COMPLETED = "meeting.purge_completed", "meeting"
     MEETING_PURGE_FAILED = "meeting.purge_failed", "meeting"
     MEETING_PURGE_REQUEUED = "meeting.purge_requeued", "meeting"
+    MEETING_RECOMPUTE_COMPLETED = "meeting.recompute.completed", "meeting"
+    MEETING_RECOMPUTE_FAILED = "meeting.recompute.failed", "meeting"
+    MEETING_RECOMPUTE_REQUESTED = "meeting.recompute.requested", "meeting"
+    MEETING_RECOMPUTE_SUPERSEDED = "meeting.recompute.superseded", "meeting"
     MEETING_RECORDING_DELETED_AFTER_PROCESSING = (
         "meeting.recording.deleted_after_processing",
         "meeting",
@@ -90,6 +98,7 @@ class AuditEventType(StrEnum):
     MEMBER_INVITATION_REVOKED = "member.invitation.revoked", "workspace_invitation"
     MEMBER_REMOVED = "member.removed", "membership"
     MEMBER_ROLE_CHANGED = "member.role_changed", "membership"
+    MODEL_MANIFEST_REGISTERED = "model_manifest.registered", "model_manifest"
     ORGANIZATION_MEMBER_CHANGED = "organization.member.changed", "organization_membership"
     ORGANIZATION_MEMBER_GRANTED = "organization.member.granted", "organization_membership"
     ORGANIZATION_MEMBER_REVOKED = "organization.member.revoked", "organization_membership"
@@ -102,6 +111,7 @@ class AuditEventType(StrEnum):
     )
     ORGANIZATION_WORKSPACE_MEMBER_REMOVED = "organization.workspace.member_removed", "membership"
     PII_REVEALED = "pii.revealed", "meeting"
+    REVIEW_SAMPLE_DRAWN = "review_sample.drawn", "workspace"
     SERVICE_LOCATION_CREATED = "service_location.created", "service_location"
     SERVICE_LOCATION_DELETED = "service_location.deleted", "service_location"
     SERVICE_LOCATION_UPDATED = "service_location.updated", "service_location"

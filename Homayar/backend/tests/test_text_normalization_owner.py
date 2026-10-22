@@ -4658,9 +4658,9 @@ BASE_FINGERPRINTS: dict = {
         ("register", "18bc6b38b775adadba09cbf8"),
         ("available_auth_methods", "e4fdb700a3c39287feac91d2"),
         ("auth_methods", "02dba6ec316b12a85a623ae2"),
-        ("login", "1b66a248fd426066282336f6"),
-        ("refresh", "e238fe572e07ea712618f3eb"),
-        ("logout", "3251f225a6cd7d3183e7bf7f"),
+        ("login", "e90c1f009ca453965a4651d0"),
+        ("refresh", "a78380eb83c85dc6184c9104"),
+        ("logout", "7b9060abc5a6a05e0188652b"),
         ("me", "10962d9a986e2417d4e9ff10"),
         ("verify_email_endpoint", "b751a03b12a0b36d4f84826a"),
         ("VERIFICATION_RESEND_COOLDOWN_SECONDS", "725a6c4e41978242759d9fd0"),
@@ -4669,7 +4669,7 @@ BASE_FINGERPRINTS: dict = {
         ("forgot_password", "2e9c20c4a8a294db6bb966f0"),
         ("reset_password_endpoint", "ec263f62f0d4c02df9a9af4d"),
         ("_send_asanak_code", "bc6d3d402f0c81a0128a4d0f"),
-        ("otp_request", "3e58dd35bae417845a9941eb"),
+        ("otp_request", "d656f4339ac14c193b185425"),
         ("google_start", "d14e104dc36f6d3223ce3473"),
         ("google_link_start", "82b1718e7e2f3e3ec4ba9b96"),
         ("google_callback", "1bb4860adb5475aeec5d4745"),
@@ -4758,10 +4758,10 @@ FROZEN_FILES: dict[str, str] = {
         "6facb81af9244730d104e6e12a5bd3491141245dab66f144c38c14dd1b25053a"
     ),
     "backend/privacy/subject_export.py": (
-        "c8bc61ffe5031bad00de4c032f442fe7e414d42557a95f3d9a791e33e47ff8c4"
+        "634e68bc4bebe9c0a6d652013442e1dcc2f4b12e7742a7bee9ec4e03aed77711"
     ),
     "backend/privacy/transcript_view.py": (
-        "dff81b928b20306ade4325b794ef29e33d538486bc20f67d8183e536d303e261"
+        "7266bb290d68cd66385d365f7d5397054710878f356922f21172ccd5c14ec418"
     ),
     "backend/privacy/mapping_crypto.py": (
         "f3bea7cd866f961b03c1e342c540c2a38ccd1402cdba76fea1f4780075e9efa3"

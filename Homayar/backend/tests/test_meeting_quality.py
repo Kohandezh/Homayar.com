@@ -202,6 +202,8 @@ def test_empty_transcript_is_unavailable_everywhere(client, email_outbox, settin
 def test_correction_after_analysis_marks_the_analysis_stale(
     client, email_outbox, settings, monkeypatch
 ):
+    # HOM-63: this test is about the stale state, so no recompute runs.
+    monkeypatch.setattr(settings, "recompute_on_correction", False)
     _, workspace_id, meeting_id = _processed(
         client, email_outbox, settings, monkeypatch, providers=_citing_bundle()
     )
@@ -213,6 +215,7 @@ def test_correction_after_analysis_marks_the_analysis_stale(
         headers=_write_headers(client, workspace_id),
         json={
             "base_revision_id": transcript["revision"]["id"],
+            "reason": "fix the wording",
             "edits": [{"segment_id": transcript["segments"][0]["id"], "text": "متن اصلاح‌شده"}],
         },
     )
