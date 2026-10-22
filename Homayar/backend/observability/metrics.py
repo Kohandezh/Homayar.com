@@ -283,11 +283,16 @@ def quantile(values: list[float], q: float) -> float:
 
 @dataclass
 class Snapshot:
-    """Gauge samples of one collection: ``name -> (help, label names, samples)``."""
+    """Gauge samples of one collection: ``name -> (help, label names, samples)``.
+
+    ``facts`` carries what a source read that is not a gauge (the database's Alembic
+    revision) to the system-health summary (HOM-227); the exposition never reads it.
+    """
 
     families: dict[str, tuple[str, tuple[str, ...], list[tuple[tuple[str, ...], float]]]] = field(
         default_factory=dict
     )
+    facts: dict[str, Any] = field(default_factory=dict)
 
     def add(self, name: str, help_text: str, value: float, **labels: str) -> None:
         names = tuple(labels)
@@ -302,6 +307,7 @@ class Snapshot:
             if entry[1] != label_names:
                 raise ValueError(f"Inconsistent labels for {name}")
             entry[2].extend(samples)
+        self.facts.update(other.facts)
 
     def metric_families(self) -> Iterator[GaugeMetricFamily]:
         for name, (help_text, label_names, samples) in sorted(self.families.items()):
@@ -350,6 +356,7 @@ def collect_database(snapshot: Snapshot, factory: sessionmaker[Session]) -> bool
     if up:
         from backend.observability.release import code_migration_head
 
+        snapshot.facts["database_revision"] = revision
         head = code_migration_head()
         snapshot.add(
             "homayar_schema_up_to_date",
@@ -390,34 +397,21 @@ def collect_jobs(snapshot: Snapshot, factory: sessionmaker[Session], *, now: dat
         for state in JOB_STATES:
             snapshot.add("homayar_jobs", "Processing jobs by state.", by_state[state], state=state)
 
-        due_from = func.coalesce(ProcessingJob.retry_after, ProcessingJob.updated_at)
-        due_count, oldest_due = db.execute(
-            select(func.count(), func.min(due_from)).where(
-                ProcessingJob.state == JobState.QUEUED,
-                or_(ProcessingJob.retry_after.is_(None), ProcessingJob.retry_after <= now),
-            )
-        ).one()
+        due_count, oldest_due_age, retry_scheduled = queue_depth(db, now=now)
         snapshot.add(
             "homayar_jobs_queued_due",
             "Queued jobs whose next attempt is due now (the durable queue depth).",
-            int(due_count or 0),
+            due_count,
         )
         snapshot.add(
             "homayar_jobs_oldest_queued_due_age_seconds",
             "Age of the oldest due queued job since it became due (queue latency).",
-            _age(now, oldest_due) if due_count else 0.0,
+            oldest_due_age,
         )
         snapshot.add(
             "homayar_jobs_retry_scheduled",
             "Queued jobs waiting for a retry after a failed attempt.",
-            int(
-                db.scalar(
-                    select(func.count()).where(
-                        ProcessingJob.state == JobState.QUEUED, ProcessingJob.attempt_count > 0
-                    )
-                )
-                or 0
-            ),
+            retry_scheduled,
         )
         snapshot.add(
             "homayar_jobs_running_lease_expired",
@@ -515,6 +509,42 @@ def collect_jobs(snapshot: Snapshot, factory: sessionmaker[Session], *, now: dat
         ).all()
         db.rollback()
     _duration_quantiles(snapshot, rows)
+
+
+def queue_depth(db: Session, *, now: datetime) -> tuple[int, float, int]:
+    """Due queued jobs, the age of the oldest one since it became due, and the
+    queued jobs waiting for a retry (the durable queue of ``collect_jobs``)."""
+    from backend.database.saas_models import JobState, ProcessingJob
+
+    due_from = func.coalesce(ProcessingJob.retry_after, ProcessingJob.updated_at)
+    due_count, oldest_due = db.execute(
+        select(func.count(), func.min(due_from)).where(
+            ProcessingJob.state == JobState.QUEUED,
+            or_(ProcessingJob.retry_after.is_(None), ProcessingJob.retry_after <= now),
+        )
+    ).one()
+    retry_scheduled = db.scalar(
+        select(func.count()).where(
+            ProcessingJob.state == JobState.QUEUED, ProcessingJob.attempt_count > 0
+        )
+    )
+    return (
+        int(due_count or 0),
+        _age(now, oldest_due) if due_count else 0.0,
+        int(retry_scheduled or 0),
+    )
+
+
+def read_queue_depth(factory: sessionmaker[Session], *, now: datetime) -> tuple[int, float, int]:
+    """``queue_depth`` in a session of its own (the system-health summary, HOM-227)."""
+    from backend.database.tenant_context import SERVICE_SCOPE_RECOVERY, bind_service_scope
+
+    with factory() as db:
+        bind_service_scope(db, SERVICE_SCOPE_RECOVERY)
+        _bounded_statement_timeout(db)
+        depth = queue_depth(db, now=now)
+        db.rollback()
+    return depth
 
 
 def _duration_quantiles(snapshot: Snapshot, rows: Iterable[Any]) -> None:

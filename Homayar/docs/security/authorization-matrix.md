@@ -11,7 +11,7 @@ an explicit policy. Edit the code and this file together.
 
 | Scope | Carrier | Effective today |
 | --- | --- | --- |
-| Platform administration | `User.system_role = operator` | **Deny by default.** It grants nothing alone. The voice node routes (`POST /api/v1/voice/nodes`, `/nodes/{node_id}/heartbeat`, `/nodes/{node_id}/drain`, `POST /api/v1/voice/recover`) require it together with `workspace:manage`, from a signed-in session and never an API key (`+operator`, §6). `GET /api/v1/voice/capacity` adds deployment data for such a caller. Every other route ignores it. |
+| Platform administration | `User.system_role = operator` | **Deny by default.** It grants nothing alone. The voice node routes (`POST /api/v1/voice/nodes`, `/nodes/{node_id}/heartbeat`, `/nodes/{node_id}/drain`, `POST /api/v1/voice/recover`) require it together with `workspace:manage`, from a signed-in session and never an API key (`+operator`, §6). The second use is the read-only system-health summary `GET /api/v1/admin/system-health` (HOM-227): the same two conditions, without CSRF. `GET /api/v1/voice/capacity` adds deployment data for such a caller. Every other route ignores it. |
 | Organization administration | `OrganizationMembership` (active, unrevoked, `valid_from ≤ now < valid_until`) | Role → fixed set of *organization* permissions (§3a): membership and workspace administration, delegated installation of workspace roles, scoped aggregates/metadata. Resolved on **every** request from the path organization and server-side state; **never** confers workspace content access (§1a). |
 | Workspace membership | `Membership` (active, `valid_from ≤ now < valid_until`) | Role → fixed permission set (§3). Resolved on **every request** from the database; a still-valid session loses access on the next request after removal, deactivation or window expiry. |
 | Record ownership / team scope | `Workspace.record_scope`, `Meeting.team_id`, `Meeting.agent_user_id`, `Meeting.created_by_user_id`, effective `TeamAssignment` rows | Applies to **member** and **viewer** when `record_scope = team` (§5). Owner/admin are never record-scoped. |
@@ -28,7 +28,7 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 - **Delegated administration** installs an organization member (the caller included) in a workspace of the organization with a workspace role from §4a (never `owner`). The result is an ordinary `Membership` row: the workspace routes, §5 record scope and row-level security govern it afterwards; the workspace owner sees it in the member list; the organization route can withdraw it again. Users without an effective organization membership cannot be installed this way.
 - **Scope grants** authorize an `analyst` or `executive` for one workspace, optionally narrowed to one active team. Executives read aggregates only (`organization:analytics:read`); analysts additionally read meeting metadata (`organization:records:read`) — never transcript text, summaries, recordings or exports. Owners/admins see aggregates and metadata of every workspace of the organization. Grants to owners/admins, foreign workspaces and foreign teams are refused; revoking the membership revokes its grants.
 - Workspaces created inside an organization (`organization:workspace:create`) carry no trial subscription or entitlement; the creator becomes the workspace owner.
-- Platform administration stays separate (`User.system_role`). No organization role confers it. Only the `+operator` voice routes and the deployment data of `GET /api/v1/voice/capacity` use it (§1); everything else denies by default.
+- Platform administration stays separate (`User.system_role`). No organization role confers it. Only the `+operator` routes (the voice node routes and `GET /api/v1/admin/system-health`) and the deployment data of `GET /api/v1/voice/capacity` use it (§1); everything else denies by default.
 
 ## 2. Roles
 
@@ -150,7 +150,7 @@ Teams of another workspace or inactive teams are `422 invalid_team`; non-members
 
 Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a permission from §3, with `+csrf` when the route is a cookie-authenticated write. Workspace routes additionally require an effective membership (§1) and, where the resource is a meeting, the record predicate (§5).
 
-`+operator` additionally requires `User.system_role = "operator"` from a signed-in session (never an API key): deployment-wide voice media nodes (P0 wave).
+`+operator` additionally requires `User.system_role = "operator"` from a signed-in session (never an API key): deployment-wide voice media nodes (P0 wave) and the installation's system-health summary (HOM-227).
 
 <!-- matrix:routes:start -->
 | Method | Path | Policy |
@@ -202,6 +202,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/admin/ai-policy/versions | workspace:manage |
 | GET | /api/v1/admin/jobs/{job_id}/policy-snapshots | workspace:manage |
 | GET | /api/v1/admin/legal-holds | legal_hold:manage |
+| GET | /api/v1/admin/system-health | workspace:manage +operator |
 | GET | /api/v1/billing/plans | billing:read |
 | GET | /api/v1/billing/subscription | billing:read |
 | GET | /api/v1/billing/usage | billing:read |
@@ -513,7 +514,7 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 
 ## 8. Known gaps (tracked, not hidden)
 
-- Platform operator status is used only by the `+operator` voice node routes and the deployment data of `GET /api/v1/voice/capacity` (§1); there is still no delegated, time-bounded operator grant and no other operator action (deny). Organization administration exists since WP03-T03 (§1a, §3a, §4a; carrier `OrganizationMembership`); organization-level billing allocations, organization settings/rename routes and organization service credentials (WP03-T07) are still open; the organization share audience exists (§6a).
+- Platform operator status is used only by the `+operator` routes (the voice node routes and, as its second use, the read-only system-health summary `GET /api/v1/admin/system-health`, HOM-227) and the deployment data of `GET /api/v1/voice/capacity` (§1); there is still no delegated, time-bounded operator grant and no other operator action (deny). Organization administration exists since WP03-T03 (§1a, §3a, §4a; carrier `OrganizationMembership`); organization-level billing allocations, organization settings/rename routes and organization service credentials (WP03-T07) are still open; the organization share audience exists (§6a).
 - Share links and downloads: recipient (email/phone) and organization audiences, recipient editing and short-lived download authorization are in place (§6a); notifying recipients (email/SMS delivery of a share) has no product surface.
 - API keys: user-bound workspace keys with a fixed scope set exist (§6b, ADR 0013); service principals, organization-owned keys, rotation and per-key usage metering (WP16-T02) are open.
 - PostgreSQL row-level security (WP03-T05) is in place as a second, database-enforced layer: `backend/database/rls.py` (policies, `homayar_app` role, `FORCE`), `backend/database/tenant_context.py` (transaction-scoped context from validated state), migration `c4e8b2a7d519`, `backend/tests/test_row_level_security.py`. It does not replace this matrix: record scope (§5) and grant rules (§4) remain application decisions; RLS guarantees that a request or worker can never touch rows outside the tenant it validated.

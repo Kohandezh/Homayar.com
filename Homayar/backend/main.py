@@ -134,9 +134,9 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             # WP07-T04: without the journal a restore cannot reapply deletions
             # made after the backup (the sweep also reports journal_backlog).
             logger.warning("TOMBSTONE_JOURNAL_NOT_CONFIGURED restores may resurrect deleted data")
-        if settings.metrics_enabled:
-            # Load the Alembic scripts once now, not inside the first scrape's deadline.
-            code_migration_head()
+        # Load the Alembic scripts once now, not inside the deadline of the first
+        # /metrics scrape or system-health summary (HOM-227), with or without metrics.
+        code_migration_head()
         if settings.metrics_enabled and metrics_access(settings) == "disabled":
             # Staging/production without METRICS_BEARER_TOKEN and without the explicit
             # METRICS_ALLOW_UNAUTHENTICATED opt-out: /metrics answers 404 (HOM-113).
@@ -165,6 +165,10 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
 
             Neo4jConnection.close()
         state_collector.close()
+        # Created on the first GET /api/v1/admin/system-health (HOM-227).
+        system_health = getattr(app.state, "system_health_collector", None)
+        if system_health is not None:
+            system_health.close()
         logger.info("HOMAYAR_STOPPED")
 
     state_collector = StateCollector(settings, cache_seconds=settings.metrics_cache_seconds)

@@ -442,6 +442,19 @@ def require_write_permission(permission: Permission):
     return dependency
 
 
+def _platform_operator_only(context: WorkspaceContext) -> WorkspaceContext:
+    """Refuse an API key and any user whose ``system_role`` is not ``operator``."""
+    if context.actor.api_key is not None or context.actor.user.system_role != "operator":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "platform_operator_required",
+                "message": "Platform operator required",
+            },
+        )
+    return context
+
+
 def require_platform_operator(permission: Permission):
     """Deployment-wide infrastructure (P0 wave): a workspace permission *and*
     ``User.system_role == "operator"`` from a signed-in session.  API keys never
@@ -451,18 +464,27 @@ def require_platform_operator(permission: Permission):
     async def dependency(
         context: WorkspaceContext = Depends(write_dependency),
     ) -> WorkspaceContext:
-        if context.actor.api_key is not None or context.actor.user.system_role != "operator":
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "code": "platform_operator_required",
-                    "message": "Platform operator required",
-                },
-            )
-        return context
+        return _platform_operator_only(context)
 
     dependency.homayar_permission = permission  # type: ignore[attr-defined]
     dependency.homayar_write = True  # type: ignore[attr-defined]
+    dependency.homayar_platform = True  # type: ignore[attr-defined]
+    return dependency
+
+
+def require_platform_operator_read(permission: Permission):
+    """The read twin of ``require_platform_operator`` (HOM-227): a workspace
+    permission *and* ``User.system_role == "operator"`` from a signed-in session,
+    without CSRF (a GET).  API keys never carry platform scope."""
+    permission_dependency = require_permission(permission)
+
+    async def dependency(
+        context: WorkspaceContext = Depends(permission_dependency),
+    ) -> WorkspaceContext:
+        return _platform_operator_only(context)
+
+    dependency.homayar_permission = permission  # type: ignore[attr-defined]
+    dependency.homayar_write = False  # type: ignore[attr-defined]
     dependency.homayar_platform = True  # type: ignore[attr-defined]
     return dependency
 
