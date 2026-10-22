@@ -48,7 +48,7 @@ export function dockPanels(dict: Dictionary, locale: Locale) {
       <CopilotChat mock={m} />
     </div>,
     <ul key="integ" className="flex flex-wrap items-center gap-2 text-[11px]">
-      {[m.webhookTitle, "LDAP · AD", m.roles.join(" · "), m.exportPdf].map((x) => (
+      {[m.webhookTitle, "Google OAuth", m.roles.join(" · "), m.exportPdf].map((x) => (
         <li key={x} className="chip !min-h-0 !px-2 !py-1 !text-[10px]" dir="auto">
           {x}
         </li>
