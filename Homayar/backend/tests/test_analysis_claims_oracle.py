@@ -640,6 +640,10 @@ def _valid_output() -> dict:
         },
         "decisions": [_decision("Call back at nine", "explicit", (1,), owner="Support")],
         "key_moments": [_moment("commitment", "The agent promises a callback", (1,))],
+        "extraction": {
+            name: {"status": "not_stated", "values": []}
+            for name in ("intent", "topic", "entity", "outcome")
+        },
     }
 
 
@@ -704,7 +708,7 @@ def test_a8_the_parser_accepts_a_well_formed_structured_payload():
     assert result.is_mock is False
 
 
-def test_a8_the_request_asks_for_the_new_keys_under_prompt_version_3():
+def test_a8_the_request_asks_for_the_new_keys_under_prompt_version_4():
     seen: list = []
     _analyze(_valid_output(), seen)
     (payload,) = seen
@@ -712,7 +716,7 @@ def test_a8_the_request_asks_for_the_new_keys_under_prompt_version_3():
     assert {"summary_fields", "decisions", "key_moments"} <= set(schema["required"])
     assert "not_stated" in payload["messages"][0]["content"]
     identity = _adapter()(_valid_output()).identity()
-    assert identity.params["prompt_version"] == 3
+    assert identity.params["prompt_version"] == 4  # 4: the extraction (HOM-53)
 
 
 ALLOWED = [

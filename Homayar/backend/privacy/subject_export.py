@@ -9,7 +9,8 @@ detected spans, never substrings.
 
 Scope, stated in the export itself: live conversations of the workspace (a
 tombstoned conversation is already denied to every normal path, held or not),
-every transcript revision, the summary and the action items.  Not included:
+every transcript revision, the summary, the action items and the entity values of
+every stored taxonomy extraction (HOM-53, kept and withheld).  Not included:
 audio, backups, audit metadata, and anything that names the subject without
 one of the supported identifiers (names, addresses).  Segments are returned as
 they are, so they may also contain other people's words: the owner reviews the
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from backend.database.saas_models import (
     ActionItem,
+    AnalysisExtraction,
     Meeting,
     MeetingSpeaker,
     MeetingSummary,
@@ -171,9 +173,10 @@ def _meeting_matches(db: Session, meeting: Meeting, matcher: _Matcher) -> dict[s
                 }
             )
 
-    if not (revisions or summary_items or actions):
+    extraction = _extraction_matches(db, meeting, matcher)
+    if not (revisions or summary_items or actions or extraction):
         return None
-    return {
+    match: dict[str, Any] = {
         "meeting_id": meeting.id,
         "title": meeting.title,
         "created_at": _iso(meeting.created_at),
@@ -182,6 +185,37 @@ def _meeting_matches(db: Session, meeting: Meeting, matcher: _Matcher) -> dict[s
         "summary": summary_items,
         "actions": actions,
     }
+    if extraction:
+        match["extraction"] = extraction
+    return match
+
+
+def _extraction_matches(db: Session, meeting: Meeting, matcher: _Matcher) -> list[dict[str, Any]]:
+    """Entity values the matcher hits, kept and withheld, from every stored run."""
+    found: list[dict[str, Any]] = []
+    for row in db.scalars(
+        select(AnalysisExtraction)
+        .where(
+            AnalysisExtraction.workspace_id == meeting.workspace_id,
+            AnalysisExtraction.meeting_id == meeting.id,
+        )
+        .order_by(AnalysisExtraction.created_at.asc(), AnalysisExtraction.id.asc())
+    ):
+        fields = row.result.get("fields") if isinstance(row.result, dict) else None
+        entity = fields.get("entity") if isinstance(fields, dict) else None
+        if not isinstance(entity, dict):
+            continue
+        for value in [*(entity.get("values") or []), *(entity.get("withheld") or [])]:
+            text = value.get("text") if isinstance(value, dict) else None
+            if isinstance(text, str) and matcher.classes(text):
+                found.append(
+                    {
+                        "analysis_run_id": row.analysis_run_id,
+                        "label": value.get("label"),
+                        "text": text,
+                    }
+                )
+    return found
 
 
 def build_subject_export(

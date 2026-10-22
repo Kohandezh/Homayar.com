@@ -67,6 +67,7 @@ from backend.providers.routing import analysis_text_classes
 from backend.providers.routing import select as select_candidate
 from backend.providers.schemas import IntelligenceResult, TranscriptTurn
 from backend.services.ai_policy_service import EffectivePolicy, current_policy
+from backend.services.analysis_extraction import extraction_audit_details
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.logging_service import logger
@@ -127,6 +128,8 @@ class _Analysis:
     pii_classes: tuple[str, ...]
     identity_params: dict[str, Any]
     manifest_digest: str | None
+    # The turns the answering model received; empty without an analysis (HOM-53).
+    model_turns: tuple[TranscriptTurn, ...] = ()
 
 
 class _RecomputeFailed(Exception):
@@ -407,6 +410,7 @@ def _analyze(
         pii_classes=candidate.pii_classes,
         identity_params=dict(adapters[candidate.index].identity().params),
         manifest_digest=selection.candidates[candidate.index].digest,
+        model_turns=tuple(candidate.request.turns),
     )
 
 
@@ -471,6 +475,7 @@ def _persist(work: RecomputeWork, analysis: _Analysis, *, settings: Settings) ->
             revision=revision,
             segments=segments,
             intelligence=analysis.intelligence,
+            model_turns=analysis.model_turns,
             state=analysis.state,
             reason_code=analysis.reason_code,
             now=now,
@@ -496,6 +501,7 @@ def _persist(work: RecomputeWork, analysis: _Analysis, *, settings: Settings) ->
                 "evidence_count": len(persisted.plan.spans),
                 "rejected_reference_count": persisted.plan.rejected_reference_count,
                 "action_item_count": len(persisted.actions),
+                **extraction_audit_details(persisted.extraction, persisted.extraction_reason),
             },
             settings=settings,
         )

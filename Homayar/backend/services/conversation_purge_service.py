@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 from backend.config import Settings
 from backend.database.saas_models import (
     ActionItem,
+    AnalysisExtraction,
     AnalysisRun,
     ConversationPurge,
     EvidenceSpan,
@@ -233,6 +234,7 @@ def _remove_content(db: Session, *, workspace_id: str, meeting: Meeting) -> int:
         )
     for model in (
         EvidenceSpan,
+        AnalysisExtraction,
         ActionItem,
         MeetingSummary,
         AnalysisRun,

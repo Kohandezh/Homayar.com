@@ -2178,7 +2178,8 @@ class EvidenceSpan(Base):
             name="ck_evidence_confidence",
         ),
         CheckConstraint(
-            "finding_type IN ('summary', 'insight', 'action_item')", name="ck_evidence_finding"
+            "finding_type IN ('summary', 'insight', 'action_item', 'extraction')",
+            name="ck_evidence_finding",
         ),
         CheckConstraint("evidence_type IN ('turn_reference', 'human')", name="ck_evidence_type"),
         CheckConstraint(
@@ -2186,6 +2187,53 @@ class EvidenceSpan(Base):
         ),
         Index("ix_evidence_workspace_meeting", "workspace_id", "meeting_id"),
         Index("ix_evidence_run_finding", "analysis_run_id", "finding_type", "finding_index"),
+    )
+
+
+class AnalysisExtraction(Base):
+    """The judged taxonomy extraction of one analysis run (HOM-53).
+
+    ``result`` is the policy result as stored JSON: per dimension the kept values
+    (auto-accepted or for review), the withheld ones and the issues, with the
+    taxonomy, validator and policy versions and digests that produced it.  The
+    columns next to it copy what a list needs without reading the JSON
+    (``review_count``: kept values that need a person, HOM-18).  Immutable: a new
+    analysis run gets a new row.  Entity values can be personal data (a phone, a
+    national id), so the row is tenant-only and never reachable through a share.
+    """
+
+    __tablename__ = "analysis_extractions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    analysis_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    taxonomy_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    taxonomy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    taxonomy_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    validator_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    valid: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    review_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("analysis_run_id", name="uq_analysis_extraction_run"),
+        CheckConstraint("taxonomy_version >= 1", name="ck_analysis_extraction_taxonomy_version"),
+        CheckConstraint("review_count >= 0", name="ck_analysis_extraction_review_count"),
+        # The review list of HOM-18.
+        Index("ix_analysis_extraction_review", "workspace_id", "needs_review"),
     )
 
 
@@ -2499,6 +2547,7 @@ def _changed_columns(target: object) -> set[str]:
 
 @event.listens_for(TranscriptSegment, "before_update")
 @event.listens_for(EvidenceSpan, "before_update")
+@event.listens_for(AnalysisExtraction, "before_update")
 @event.listens_for(TranscriptRedaction, "before_update")
 @event.listens_for(RedactedSegment, "before_update")
 @event.listens_for(PiiMapping, "before_update")

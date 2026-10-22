@@ -56,6 +56,10 @@ OUTPUT = {
     },
     "decisions": [],
     "key_moments": [],
+    "extraction": {
+        name: {"status": "not_stated", "values": []}
+        for name in ("intent", "topic", "entity", "outcome")
+    },
 }
 
 

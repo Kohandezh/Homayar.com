@@ -158,7 +158,7 @@ def test_findings_cite_authorized_turns_and_malformed_references_are_rejected(
     # offered: summary 2, insights 1 + 1, action items 2 (dedup) + 0 = 6; rejected 7, 5, 3
     assert (run["reference_count"], run["rejected_reference_count"]) == (6, 3)
     assert (run["prompt_version"], run["prompt_sha256"]) == ("7", "ab" * 32)
-    assert run["schema_version"] == 3
+    assert run["schema_version"] == 4
     decision, risk = summary["key_points"]
     assert decision["evidence_status"] == "sufficient" and len(decision["evidence_ids"]) == 1
     assert risk["evidence_status"] == "insufficient" and risk["evidence_ids"] == []

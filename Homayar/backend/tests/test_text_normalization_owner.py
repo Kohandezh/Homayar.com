@@ -4758,7 +4758,7 @@ FROZEN_FILES: dict[str, str] = {
         "6facb81af9244730d104e6e12a5bd3491141245dab66f144c38c14dd1b25053a"
     ),
     "backend/privacy/subject_export.py": (
-        "634e68bc4bebe9c0a6d652013442e1dcc2f4b12e7742a7bee9ec4e03aed77711"
+        "f58eefef667fc509b827c21c29b8e4d186945023ba5800dd391f826532df8356"
     ),
     "backend/privacy/transcript_view.py": (
         "7266bb290d68cd66385d365f7d5397054710878f356922f21172ccd5c14ec418"

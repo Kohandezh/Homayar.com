@@ -84,6 +84,10 @@ def _structured_content() -> dict[str, Any]:
         },
         "decisions": [],
         "key_moments": [],
+        "extraction": {
+            name: {"status": "not_stated", "values": []}
+            for name in ("intent", "topic", "entity", "outcome")
+        },
     }
 
 
@@ -177,6 +181,10 @@ def test_openai_compatible_validates_structured_output() -> None:
                 },
                 "decisions": [],
                 "key_moments": [],
+                "extraction": {
+                    name: {"status": "not_stated", "values": []}
+                    for name in ("intent", "topic", "entity", "outcome")
+                },
             }
         ),
     ],

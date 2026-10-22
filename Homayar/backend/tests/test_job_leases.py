@@ -130,6 +130,7 @@ def _persist(claim: processor.ClaimedJob, settings: Settings, text_value: str) -
         turns=[TranscriptTurn(text=text_value, speaker_label=UNKNOWN_SPEAKER_LABEL)],
         records=_completed_records(),
         settings=settings,
+        model_turns=(),
     )
 
 

@@ -117,7 +117,8 @@ ARTIFACT_SCHEMAS: dict[StageName, tuple[type[ProviderSchema], int]] = {
     # 2: summary_source_turn_indexes (WP04-T03) — earlier artifacts lack
     # summary evidence and are not reused for a new analysis.
     # 3: summary_fields, decisions, key_moments (HOM-61).
-    StageName.INTELLIGENCE: (IntelligenceResult, 3),
+    # 4: extraction (HOM-53).
+    StageName.INTELLIGENCE: (IntelligenceResult, 4),
 }
 
 INVALID_ARTIFACT_MISSING = "artifact_missing"

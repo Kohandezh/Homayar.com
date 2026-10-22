@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import date, datetime
 from enum import Enum
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -266,6 +267,39 @@ class KeyMoment(ProviderSchema):
         return _non_negative(value)
 
 
+# Deepest nesting of arrays and objects (counted together) an extraction may have; a
+# real one has 5.  Deeper output is refused, so it can never exhaust the stack later.
+MAX_JSON_DEPTH = 32
+
+
+def _is_json_value(value: object) -> bool:
+    """Plain, finite, bounded JSON: object (string keys), array, string, finite number,
+    bool or null, at most ``MAX_JSON_DEPTH`` levels deep.
+
+    Iterative, so a value of any depth is judged without a ``RecursionError``.  A
+    non-finite number (NaN, an infinity, or ``1e400`` read as one) is refused: it would
+    break the deterministic result and the exact checkpoint round trip.
+    """
+    pending: list[tuple[object, int]] = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if item is None or isinstance(item, (str, int)):  # bool is an int
+            continue
+        if isinstance(item, float):
+            if not math.isfinite(item):
+                return False
+            continue
+        if not isinstance(item, (list, dict)) or depth >= MAX_JSON_DEPTH:
+            return False
+        if isinstance(item, dict):
+            if not all(isinstance(key, str) for key in item):
+                return False
+            pending.extend((child, depth + 1) for child in item.values())
+        else:
+            pending.extend((child, depth + 1) for child in item)
+    return True
+
+
 class ProviderUsageReport(ProviderSchema):
     """What a provider reported about one call (WP08-T04).  A field is
     ``None`` when the provider did not report it: never an invented zero."""
@@ -293,6 +327,14 @@ class IntelligenceResult(ProviderSchema):
     summary_fields: Optional[SummaryFields] = None
     decisions: List[Decision] = Field(default_factory=list)
     key_moments: List[KeyMoment] = Field(default_factory=list)
+    # The taxonomy extraction (HOM-53): the raw JSON value the model gave, never
+    # coerced (``Any``: ``ProviderSchema`` would strip strings and object keys).  The
+    # analysis stage judges it, so a bad one (even a non-object) never fails the
+    # result.  None with ``extraction_missing`` False: a legacy result (a provider
+    # that is never asked).  ``extraction_missing``: the provider was asked, but
+    # the output had no extraction (the key was absent or null).
+    extraction: Any = None
+    extraction_missing: bool = False
 
     @field_validator("summary_source_turn_indexes")
     @classmethod
@@ -301,10 +343,19 @@ class IntelligenceResult(ProviderSchema):
             raise ValueError("summary source turn indexes must be non-negative")
         return value
 
+    @field_validator("extraction")
+    @classmethod
+    def validate_extraction(cls, value: Any) -> Any:
+        if not _is_json_value(value):
+            raise ValueError("the extraction must be plain, finite, bounded JSON")
+        return value
+
     @model_validator(mode="after")
     def require_structured_summary(self) -> "IntelligenceResult":
         if (self.decisions or self.key_moments) and self.summary_fields is None:
             raise ValueError("decisions and key moments need summary_fields")
+        if self.extraction_missing and self.extraction is not None:
+            raise ValueError("a missing extraction has no value")
         return self
 
 

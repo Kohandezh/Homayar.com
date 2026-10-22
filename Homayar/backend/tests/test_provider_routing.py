@@ -123,6 +123,10 @@ class _Transport:
             },
             "decisions": [],
             "key_moments": [],
+            "extraction": {
+                name: {"status": "not_stated", "values": []}
+                for name in ("intent", "topic", "entity", "outcome")
+            },
         }
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(output)}}]})
 
