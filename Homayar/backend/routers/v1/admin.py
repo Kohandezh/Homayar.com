@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
@@ -10,6 +10,7 @@ from backend.database.relational import get_db
 from backend.database.saas_models import JobState, ShareAudience
 from backend.jobs.outbox import dispatch_job
 from backend.jobs.replay import ReplayRefused, replay_dead_letter_job
+from backend.observability.system_health import SystemHealthCollector, system_health_collector
 from backend.review_sampling import SamplingError
 from backend.schemas.admin import (
     AdminJobListResponse,
@@ -30,10 +31,12 @@ from backend.schemas.admin import (
 )
 from backend.schemas.coverage import CoverageResponse, ReviewSampleRequest, ReviewSampleResponse
 from backend.schemas.meetings import JobResponse
+from backend.schemas.system_health import SystemHealthResponse
 from backend.security.context import (
     Permission,
     WorkspaceContext,
     require_permission,
+    require_platform_operator_read,
     require_write_permission,
 )
 from backend.services.admin_jobs_service import (
@@ -532,3 +535,27 @@ def list_legal_holds(
         ],
         next_cursor=page.next_cursor,
     )
+
+
+@router.get("/system-health", response_model=SystemHealthResponse)
+def read_system_health(
+    response: Response,
+    context: WorkspaceContext = Depends(
+        require_platform_operator_read(Permission.WORKSPACE_MANAGE)
+    ),
+    collector: SystemHealthCollector = Depends(system_health_collector),
+) -> SystemHealthResponse:
+    """Deployment-wide health for a platform operator (HOM-227; the console, HOM-232).
+
+    Dependencies (``up``, ``down``, ``timeout``), the schema revision against the
+    code's migration head, the durable and broker queues, every periodic sweep, the
+    backup freshness, the audit sink's verify run and the build identity. ``status``
+    is ``down`` when the database is not up, ``degraded`` when anything else is not
+    healthy, else ``ok``. Every source has its own deadline and the answer comes in
+    under a second, also when a dependency hangs; a failed source gives ``null``,
+    never a guess. The data is not the workspace's: the workspace only proves an
+    active ``workspace:manage`` membership. Platform operators only, from a
+    signed-in session (never an API key). A read, not audited.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    return SystemHealthResponse.model_validate(collector.collect())
