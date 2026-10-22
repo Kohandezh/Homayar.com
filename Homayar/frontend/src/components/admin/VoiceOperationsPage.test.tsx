@@ -7,7 +7,7 @@ import api from "@/lib/api";
 import { describeApiError } from "@/lib/error-messages";
 import { isolateLtr } from "@/lib/format";
 import { FIXTURE_OPERATOR, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";
-import type { VoiceCapacityResponse, VoiceMediaNode } from "@/types/voice";
+import type { VoiceCapacityResponse, VoiceMediaNode, VoiceMetrics, VoiceRecoverResponse } from "@/types/voice";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 // The page reads the capacity, then React Aria builds the table; a loaded machine needs more than 1 s.
@@ -39,6 +39,26 @@ const NODES: VoiceMediaNode[] = [
   node({ node_id: "media-c", max_concurrent: 8, held: 8, heartbeat_at: ago(2 * 3600 + 5) }),
 ];
 
+// The exact shape the server sends (VoiceMetricsSnapshot in the backend).
+const METRICS: VoiceMetrics = {
+  admitted_total: 7,
+  active_calls: 2,
+  // Unsorted on purpose: the panel sorts the lines by reason code.
+  rejections_by_reason: { node_draining: 2, capacity_workspace: 1 },
+  releases_by_reason: {},
+  admission_latency_ms: { count: 4, mean: 12.5, p50: 10.2, p95: 25.5, p99: 30, max: 30 },
+};
+
+const RECOVER_EMPTY: VoiceRecoverResponse = {
+  lost_nodes: [],
+  failed_calls: { node_lost: [], lease_expired: [] },
+};
+
+const RECOVER_RESULT: VoiceRecoverResponse = {
+  lost_nodes: ["media-z"],
+  failed_calls: { node_lost: ["call-1", "call-2"], lease_expired: ["call-3"] },
+};
+
 function workspaceOnly(held = 0, limit = 200): VoiceCapacityResponse {
   return { workspace: { workspace_id: "ws-1", held, limit } };
 }
@@ -47,17 +67,27 @@ function withDeployment(nodes: VoiceMediaNode[] = NODES): VoiceCapacityResponse 
   return {
     ...workspaceOnly(),
     deployment: { profile: "pilot", held: 11, limit: 50, nodes },
-    metrics: { admitted: 5 },
+    metrics: METRICS,
   };
 }
 
 type Answer = VoiceCapacityResponse | Error | "pending";
+type RecoverAnswer = Answer | VoiceRecoverResponse;
 
 /**
  * Serves GET /voice/capacity from `capacity` in order (the last answer
- * repeats) and POST /voice/nodes/{id}/drain from `drain`.
+ * repeats), POST /voice/nodes/{id}/drain from `drain` and POST /voice/recover
+ * from `recover` (the empty recovery when omitted).
  */
-function mockApi({ capacity, drain }: { capacity: Answer[]; drain?: Answer | ((body: unknown) => unknown) }) {
+function mockApi({
+  capacity,
+  drain,
+  recover,
+}: {
+  capacity: Answer[];
+  drain?: Answer | ((body: unknown) => unknown);
+  recover?: RecoverAnswer;
+}) {
   const answers = [...capacity];
   const get = vi.spyOn(api, "get").mockImplementation(async (url: string) => {
     if (url !== "/voice/capacity") throw apiError(404, "not_found");
@@ -67,6 +97,12 @@ function mockApi({ capacity, drain }: { capacity: Answer[]; drain?: Answer | ((b
     return okResponse(next);
   });
   const post = vi.spyOn(api, "post").mockImplementation(async (url: string, body?: unknown) => {
+    if (url === "/voice/recover") {
+      if (recover === "pending") return new Promise(() => undefined);
+      if (recover === undefined) return okResponse(RECOVER_EMPTY);
+      if (recover instanceof Error) throw recover;
+      return okResponse(recover);
+    }
     if (!url.endsWith("/drain")) throw apiError(404, "not_found");
     if (drain === "pending") return new Promise(() => undefined);
     if (drain instanceof Error) throw drain;
@@ -92,6 +128,12 @@ function renderPage(lang: "fa" | "en" = "en") {
 
 function region(name: string) {
   return screen.getByRole("region", { name });
+}
+
+/** The <dd> that belongs to the <dt> with text `term` inside `scope`. */
+function definitionOf(scope: HTMLElement, term: string) {
+  const dt = within(scope).getByText(term);
+  return within(dt.parentElement as HTMLElement).getByRole("definition");
 }
 
 /** The texts of one table row, row header first. */
@@ -202,6 +244,43 @@ describe("VoiceOperationsPage", () => {
     const section = await screen.findByRole("region", { name: "Workspace capacity" }, LOAD);
     expect(await within(section).findByText("Voice calls are off for this workspace.", undefined, LOAD)).toBeInTheDocument();
     expect(within(section).queryByRole("meter")).not.toBeInTheDocument();
+  }, SLOW);
+
+  it("shows the off text instead of the All nodes meter when the deployment limit is 0", async () => {
+    mockApi({ capacity: [{ ...withDeployment(), deployment: { profile: "pilot", held: 0, limit: 0, nodes: NODES } }] });
+    renderPage();
+    const section = await screen.findByRole("region", { name: "Deployment capacity" }, LOAD);
+    expect(await within(section).findByText("Voice calls are off for the whole deployment.", undefined, LOAD)).toBeInTheDocument();
+    expect(within(section).queryByRole("meter")).not.toBeInTheDocument();
+    // The profile line stays, and the workspace meter is untouched.
+    expect(within(section).getByText("pilot")).toBeInTheDocument();
+    expect(within(region("Workspace capacity")).getByRole("meter", { name: "Concurrent calls" })).toBeInTheDocument();
+  }, SLOW);
+
+  it("shows every runtime metrics value, reason lines sorted and None for an empty map", async () => {
+    mockApi({ capacity: [withDeployment()] });
+    renderPage();
+    const section = await screen.findByRole("region", { name: "Runtime metrics" }, LOAD);
+    expect(within(section).getByText("Counted by this API process since it started.")).toBeInTheDocument();
+    expect(definitionOf(section, "Calls admitted")).toHaveTextContent("7");
+    expect(definitionOf(section, "Active calls")).toHaveTextContent("2");
+    const rejections = definitionOf(section, "Rejections by reason");
+    expect(rejections.textContent).toBe(`${isolateLtr("capacity_workspace")}: 1${isolateLtr("node_draining")}: 2`);
+    expect(definitionOf(section, "Ended calls by reason")).toHaveTextContent("None");
+    expect(definitionOf(section, "Admission samples")).toHaveTextContent("4");
+    expect(definitionOf(section, "Admission latency, mean")).toHaveTextContent("12.5 ms");
+    expect(definitionOf(section, "Admission latency, p50")).toHaveTextContent("10.2 ms");
+    expect(definitionOf(section, "Admission latency, p95")).toHaveTextContent("25.5 ms");
+    expect(definitionOf(section, "Admission latency, p99")).toHaveTextContent("30 ms");
+    expect(definitionOf(section, "Admission latency, max")).toHaveTextContent("30 ms");
+  }, SLOW);
+
+  it("shows no runtime metrics section when the answer has no metrics", async () => {
+    mockApi({ capacity: [{ ...withDeployment(), metrics: undefined }] });
+    renderPage();
+    await screen.findByRole("grid", { name: "Media nodes" }, LOAD);
+    expect(screen.queryByRole("heading", { name: "Runtime metrics" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Counted by this API process since it started.")).not.toBeInTheDocument();
   }, SLOW);
 
   it("shows the loading state, then the first-load error with a working Try again", async () => {
@@ -392,6 +471,112 @@ describe("VoiceOperationsPage drain and resume", () => {
   }, SLOW);
 });
 
+describe("VoiceOperationsPage recovery", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("shows the Recovery section, between Media nodes and Runtime metrics, only with a deployment", async () => {
+    mockApi({ capacity: [workspaceOnly()] });
+    const denied = renderPage();
+    expect(await screen.findByText("Deployment details are only shown to platform operators.", undefined, LOAD)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Recovery" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Recover now" })).not.toBeInTheDocument();
+    denied.unmount();
+    vi.restoreAllMocks();
+
+    // Allow-control: the same answer with a deployment.
+    mockApi({ capacity: [withDeployment()] });
+    renderPage();
+    expect(await screen.findByRole("button", { name: "Recover now" }, LOAD)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recovery" })).toBeInTheDocument();
+    expect(screen.getByText("Ends the calls of nodes that stopped sending heartbeats and frees call slots whose lease ran out. The worker also runs this on a schedule.")).toBeInTheDocument();
+    const titles = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+    expect(titles.indexOf("Media nodes")).toBeLessThan(titles.indexOf("Recovery"));
+    expect(titles.indexOf("Recovery")).toBeLessThan(titles.indexOf("Runtime metrics"));
+  }, SLOW);
+
+  it("asks first and sends nothing on Cancel", async () => {
+    const { post } = mockApi({ capacity: [withDeployment()] });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Recover now" }, LOAD));
+    const dialog = await screen.findByRole("alertdialog", { name: "Run recovery now?" }, LOAD);
+    expect(within(dialog).getByText("Nodes with no recent heartbeat are marked lost. Their live calls, and calls whose slot lease ran out, end as failed. This cannot be undone.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Run recovery" })).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "Run recovery now?" })).not.toBeInTheDocument());
+    expect(post).not.toHaveBeenCalled();
+  }, SLOW);
+
+  it("recovers on confirm with one POST, closes, toasts and reads the capacity again", async () => {
+    const { get, post } = mockApi({ capacity: [withDeployment()], recover: RECOVER_RESULT });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Recover now" }, LOAD));
+    const dialog = await screen.findByRole("alertdialog", { name: "Run recovery now?" }, LOAD);
+    expect(capacityCalls(get)).toBe(1);
+
+    await user.click(within(dialog).getByRole("button", { name: "Run recovery" }));
+    expect(await screen.findByText("Recovery done: 1 nodes marked lost, 3 calls ended.", undefined, LOAD)).toBeInTheDocument();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith("/voice/recover");
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "Run recovery now?" })).not.toBeInTheDocument());
+    await waitFor(() => expect(capacityCalls(get)).toBe(2));
+  }, SLOW);
+
+  it("toasts that nothing needed recovery when the answer is empty", async () => {
+    const { post } = mockApi({ capacity: [withDeployment()] });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Recover now" }, LOAD));
+    const dialog = await screen.findByRole("alertdialog", { name: "Run recovery now?" }, LOAD);
+
+    await user.click(within(dialog).getByRole("button", { name: "Run recovery" }));
+    expect(await screen.findByText("Recovery done. Nothing needed recovery.", undefined, LOAD)).toBeInTheDocument();
+    expect(post).toHaveBeenCalledWith("/voice/recover");
+  }, SLOW);
+
+  it("sends one POST on a double click while the request runs", async () => {
+    const { post } = mockApi({ capacity: [withDeployment()], recover: "pending" });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Recover now" }, LOAD));
+    const dialog = await screen.findByRole("alertdialog", { name: "Run recovery now?" }, LOAD);
+    const confirm = within(dialog).getByRole("button", { name: "Run recovery" });
+    await user.dblClick(confirm);
+    await user.click(confirm);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith("/voice/recover");
+    expect(confirm).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("alertdialog", { name: "Run recovery now?" })).toBeInTheDocument();
+  }, SLOW);
+
+  it.each([
+    ["403 platform_operator_required", apiError(403, "platform_operator_required"), "Only platform operators can run recovery."],
+  ])("keeps the dialog open with its own text on %s", async (_label, error, text) => {
+    const { get } = mockApi({ capacity: [withDeployment()], recover: error });
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Recover now" }, LOAD));
+    const dialog = await screen.findByRole("alertdialog", { name: "Run recovery now?" }, LOAD);
+    await user.click(within(dialog).getByRole("button", { name: "Run recovery" }));
+    expect(await within(dialog).findByRole("alert", undefined, LOAD)).toHaveTextContent(text);
+    expect(screen.getByRole("alertdialog", { name: "Run recovery now?" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Run recovery" })).not.toBeDisabled();
+    expect(capacityCalls(get)).toBe(1);
+  }, SLOW);
+});
+
 describe("VoiceOperationsPage in Persian", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -425,7 +610,8 @@ describe("VoiceOperationsPage in Persian", () => {
     expect(rowTexts("media:b")).toEqual(["media:b", "ناسالم", "۵ دقیقه پیش", "۰ / ۱۰", "در حال تخلیه", "ازسرگیری"]);
     expect(rowTexts("media-c")[2]).toBe("۲ ساعت پیش");
     expect(screen.getByRole("button", { name: "ازسرگیری media:b" })).toBeInTheDocument();
-    expect(container.textContent).not.toMatch(/[0-9]/);
+    // Only Persian digits, except the fixed "p50"-style percentile labels of the copy.
+    expect(container.textContent.replace(/p(?:50|95|99)/g, "")).not.toMatch(/[0-9]/);
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "ازسرگیری media:b" }));
@@ -465,6 +651,13 @@ describe("VoiceOperationsPage in Persian", () => {
     first.unmount();
     vi.restoreAllMocks();
 
+    mockApi({ capacity: [{ ...withDeployment(), deployment: { profile: "pilot", held: 0, limit: 0, nodes: [] } }] });
+    const deploymentOff = renderPage("fa");
+    expect(await screen.findByText("تماس صوتی برای کل استقرار خاموش است.", undefined, LOAD)).toBeInTheDocument();
+    expect(within(region("ظرفیت استقرار")).queryByRole("meter")).not.toBeInTheDocument();
+    deploymentOff.unmount();
+    vi.restoreAllMocks();
+
     mockApi({ capacity: [withDeployment([])] });
     const second = renderPage("fa");
     expect(await screen.findByText("هیچ گره رسانه‌ای ثبت نشده است.", undefined, LOAD)).toBeInTheDocument();
@@ -484,6 +677,29 @@ describe("VoiceOperationsPage in Persian", () => {
     const dialog = await screen.findByRole("alertdialog", { name: `${isolateLtr("media-a")} تخلیه شود؟` }, LOAD);
     await user.click(within(dialog).getByRole("button", { name: "تخلیه گره" }));
     expect(await within(dialog).findByRole("alert", undefined, LOAD)).toHaveTextContent("فقط اپراتورهای پلتفرم می‌توانند گره را تخلیه کنند.");
+  }, SLOW);
+
+  it("shows the Persian metrics with Persian digits and the Persian recovery texts", async () => {
+    const { post } = mockApi({ capacity: [withDeployment()], recover: RECOVER_RESULT });
+    renderPage("fa");
+    const section = await screen.findByRole("region", { name: "سنجه‌های اجرا" }, LOAD);
+    expect(within(section).getByText("شمارش همین فرایند API از زمان شروع آن.")).toBeInTheDocument();
+    expect(definitionOf(section, "تماس‌های پذیرفته")).toHaveTextContent("۷");
+    expect(definitionOf(section, "تماس‌های فعال")).toHaveTextContent("۲");
+    const rejections = definitionOf(section, "ردها بر اساس دلیل");
+    expect(rejections.textContent).toBe(`${isolateLtr("capacity_workspace")}: ۱${isolateLtr("node_draining")}: ۲`);
+    expect(definitionOf(section, "تماس‌های پایان‌یافته بر اساس دلیل")).toHaveTextContent("هیچ");
+    expect(definitionOf(section, "نمونه‌های پذیرش")).toHaveTextContent("۴");
+    expect(definitionOf(section, "تأخیر پذیرش، میانگین")).toHaveTextContent("۱۲٫۵ میلی‌ثانیه");
+    expect(definitionOf(section, "تأخیر پذیرش، بیشینه")).toHaveTextContent("۳۰ میلی‌ثانیه");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "اکنون بازیابی کن" }, LOAD));
+    const dialog = await screen.findByRole("alertdialog", { name: "بازیابی اکنون اجرا شود؟" }, LOAD);
+    expect(within(dialog).getByText("گره‌هایی که ضربان تازه نفرستاده‌اند از دست رفته علامت می‌خورند. تماس‌های جاری روی آن‌ها و تماس‌هایی که اجارهٔ جایشان تمام شده، ناموفق پایان می‌یابند. این کار برگشت‌پذیر نیست.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "اجرای بازیابی" }));
+    expect(await screen.findByText("بازیابی انجام شد: ۱ گره از دست رفته، ۳ تماس پایان یافت.", undefined, LOAD)).toBeInTheDocument();
+    expect(post).toHaveBeenCalledWith("/voice/recover");
   }, SLOW);
 
   it("shows the Persian not-found text, toast for resume and the Try again button", async () => {

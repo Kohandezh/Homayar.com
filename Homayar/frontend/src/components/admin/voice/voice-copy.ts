@@ -12,6 +12,7 @@ export const VOICE_COPY = {
     concurrentCalls: "Concurrent calls",
     allNodes: "All nodes",
     callsOff: "Voice calls are off for this workspace.",
+    deploymentCallsOff: "Voice calls are off for the whole deployment.",
 
     eyebrow: "Administration",
     pageTitle: "Voice operations",
@@ -51,12 +52,39 @@ export const VOICE_COPY = {
     cancel: "Cancel",
     drained: (nodeId: string) => `${nodeId} is draining.`,
     resumed: (nodeId: string) => `${nodeId} takes calls again.`,
+
+    recoveryTitle: "Recovery",
+    recoveryText:
+      "Ends the calls of nodes that stopped sending heartbeats and frees call slots whose lease ran out. The worker also runs this on a schedule.",
+    recover: "Recover now",
+    recoverHeading: "Run recovery now?",
+    recoverBody:
+      "Nodes with no recent heartbeat are marked lost. Their live calls, and calls whose slot lease ran out, end as failed. This cannot be undone.",
+    recoverConfirm: "Run recovery",
+    recovered: (nodes: string, calls: string) => `Recovery done: ${nodes} nodes marked lost, ${calls} calls ended.`,
+    recoveredNothing: "Recovery done. Nothing needed recovery.",
+
+    metricsTitle: "Runtime metrics",
+    metricsNote: "Counted by this API process since it started.",
+    admittedTotal: "Calls admitted",
+    activeCalls: "Active calls",
+    rejections: "Rejections by reason",
+    releases: "Ended calls by reason",
+    latencyCount: "Admission samples",
+    latencyMean: "Admission latency, mean",
+    latencyP50: "Admission latency, p50",
+    latencyP95: "Admission latency, p95",
+    latencyP99: "Admission latency, p99",
+    latencyMax: "Admission latency, max",
+    ms: (n: string) => `${n} ms`,
+    none: "None",
   },
   fa: {
     cardTitle: "ظرفیت تماس صوتی",
     concurrentCalls: "تماس‌های هم‌زمان",
     allNodes: "همهٔ گره‌ها",
     callsOff: "تماس صوتی برای این فضای کاری خاموش است.",
+    deploymentCallsOff: "تماس صوتی برای کل استقرار خاموش است.",
 
     eyebrow: "مدیریت",
     pageTitle: "عملیات صوتی",
@@ -96,6 +124,32 @@ export const VOICE_COPY = {
     cancel: "انصراف",
     drained: (nodeId: string) => `${nodeId} در حال تخلیه است.`,
     resumed: (nodeId: string) => `${nodeId} دوباره تماس می‌گیرد.`,
+
+    recoveryTitle: "بازیابی",
+    recoveryText:
+      "تماس‌های گره‌هایی را که دیگر ضربان نمی‌فرستند پایان می‌دهد و جای تماس‌هایی را که اجاره‌شان تمام شده آزاد می‌کند. کارگزار این کار را طبق زمان‌بندی هم انجام می‌دهد.",
+    recover: "اکنون بازیابی کن",
+    recoverHeading: "بازیابی اکنون اجرا شود؟",
+    recoverBody:
+      "گره‌هایی که ضربان تازه نفرستاده‌اند از دست رفته علامت می‌خورند. تماس‌های جاری روی آن‌ها و تماس‌هایی که اجارهٔ جایشان تمام شده، ناموفق پایان می‌یابند. این کار برگشت‌پذیر نیست.",
+    recoverConfirm: "اجرای بازیابی",
+    recovered: (nodes: string, calls: string) => `بازیابی انجام شد: ${nodes} گره از دست رفته، ${calls} تماس پایان یافت.`,
+    recoveredNothing: "بازیابی انجام شد. چیزی برای بازیابی نبود.",
+
+    metricsTitle: "سنجه‌های اجرا",
+    metricsNote: "شمارش همین فرایند API از زمان شروع آن.",
+    admittedTotal: "تماس‌های پذیرفته",
+    activeCalls: "تماس‌های فعال",
+    rejections: "ردها بر اساس دلیل",
+    releases: "تماس‌های پایان‌یافته بر اساس دلیل",
+    latencyCount: "نمونه‌های پذیرش",
+    latencyMean: "تأخیر پذیرش، میانگین",
+    latencyP50: "تأخیر پذیرش، p50",
+    latencyP95: "تأخیر پذیرش، p95",
+    latencyP99: "تأخیر پذیرش، p99",
+    latencyMax: "تأخیر پذیرش، بیشینه",
+    ms: (n: string) => `${n} میلی‌ثانیه`,
+    none: "هیچ",
   },
 } as const;
 
@@ -112,5 +166,16 @@ export const DRAIN_ERROR_CODES: ErrorCodeMessages = {
   not_found: {
     fa: "این گره دیگر وجود ندارد.",
     en: "This node no longer exists.",
+  },
+};
+
+/**
+ * Error codes of POST /voice/recover with their own text. Every other code
+ * (permission_denied, 5xx) gets what describeApiError says for it.
+ */
+export const RECOVER_ERROR_CODES: ErrorCodeMessages = {
+  platform_operator_required: {
+    fa: "فقط اپراتورهای پلتفرم می‌توانند بازیابی را اجرا کنند.",
+    en: "Only platform operators can run recovery.",
   },
 };

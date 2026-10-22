@@ -2,14 +2,17 @@ import { expect, test, type Page } from "@playwright/test";
 import { consolePath, resumeSession } from "./demo";
 
 /**
- * HOM-194: the voice capacity card and the operator-only voice operations
- * page. The demo seed has no platform operator and no media node, so:
+ * HOM-194 + HOM-242: the voice capacity card and the operator-only voice
+ * operations page. The demo seed has no platform operator and no media node,
+ * so:
  *
  * - test 1 reads the real backend as the demo owner (`system_role` "user");
- * - test 2 keeps the owner's real session but mocks `/auth/me` (operator)
- *   and every voice request, and drives drain and resume through the dialog.
+ * - tests 2 to 4 keep the owner's real session but mock `/auth/me`
+ *   (operator) and every voice request, and drive drain and resume through
+ *   the dialog (2), recovery, the runtime metrics and a deployment limit of
+ *   0 (3), and the Persian page (4).
  *
- * Neither test may write to the shared backend. Every route below is
+ * No test may write to the shared backend. Every route below is
  * registered before the first navigation, and any write to `/api/v1/` that
  * no mock answers is aborted in the browser and recorded, so a bug fails
  * the test instead of changing the demo data.
@@ -89,6 +92,28 @@ function mockNode(nodeId: string, overrides: Partial<MockNode> = {}): MockNode {
   };
 }
 
+/** The exact metrics shape the real endpoint sends (VoiceMetricsSnapshot in the backend). */
+const MOCK_METRICS = {
+  admitted_total: 7,
+  active_calls: 2,
+  rejections_by_reason: { capacity_workspace: 1 },
+  releases_by_reason: {},
+  admission_latency_ms: { count: 4, mean: 12.5, p50: 10.2, p95: 25.5, p99: 30, max: 30 },
+};
+
+/** The real session answer, read-only, with the platform operator role added. */
+async function mockOperatorSession(page: Page) {
+  await page.route("**/api/v1/auth/me", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    const response = await route.fetch();
+    const session = await response.json();
+    await route.fulfill({ response, json: { ...session, user: { ...session.user, system_role: "operator" } } });
+  });
+}
+
 test("a platform operator drains and resumes nodes through the confirm dialog (voice API mocked)", async ({ page }) => {
   const blocked = await blockApiWrites(page);
 
@@ -125,7 +150,7 @@ test("a platform operator drains and resumes nodes through the confirm dialog (v
           limit: 50,
           nodes: list,
         },
-        metrics: {},
+        metrics: MOCK_METRICS,
       },
     });
   });
@@ -157,16 +182,7 @@ test("a platform operator drains and resumes nodes through the confirm dialog (v
       },
     });
   });
-  // The real session answer, read-only, with the platform operator role added.
-  await page.route("**/api/v1/auth/me", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.fallback();
-      return;
-    }
-    const response = await route.fetch();
-    const session = await response.json();
-    await route.fulfill({ response, json: { ...session, user: { ...session.user, system_role: "operator" } } });
-  });
+  await mockOperatorSession(page);
 
   await resumeSession(page, "owner");
   await page.goto(consolePath("/admin/voice"));
@@ -208,6 +224,130 @@ test("a platform operator drains and resumes nodes through the confirm dialog (v
   await expect(page.getByRole("button", { name: "Drain media:b" })).toBeVisible();
   expect(drainPosts).toHaveLength(2);
   expect(drainPosts[1]).toEqual({ path: "/api/v1/voice/nodes/media%3Ab/drain", body: { draining: false } });
+
+  // The mocked capacity carries the runtime metrics, so the page shows them.
+  await expect(page.getByRole("region", { name: "Runtime metrics" })).toBeVisible();
+
+  expect(blocked).toEqual([]);
+});
+
+test("a platform operator reads the metrics and runs recovery (voice API mocked)", async ({ page }) => {
+  const blocked = await blockApiWrites(page);
+  const nodes = [mockNode("media-a")];
+  // Flip to 0 mid-test: the reload then shows the deployment off text.
+  let deploymentLimit = 50;
+  const recoverPosts: string[] = [];
+
+  await page.route("**/api/v1/voice/**", async (route) => {
+    blocked.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    await route.abort();
+  });
+  await page.route("**/api/v1/voice/capacity", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      json: {
+        workspace: { workspace_id: "e2e-workspace", held: 3, limit: 200 },
+        deployment: {
+          profile: "e2e",
+          held: nodes.reduce((sum, node) => sum + node.held, 0),
+          limit: deploymentLimit,
+          nodes,
+        },
+        metrics: MOCK_METRICS,
+      },
+    });
+  });
+  await page.route("**/api/v1/voice/recover", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    recoverPosts.push(new URL(route.request().url()).pathname);
+    // The answer shape of the real endpoint (RecoverResponse in backend/routers/v1/voice.py).
+    await route.fulfill({
+      json: { lost_nodes: ["media-z"], failed_calls: { node_lost: ["call-1"], lease_expired: [] } },
+    });
+  });
+  await mockOperatorSession(page);
+
+  await resumeSession(page, "owner");
+  await page.goto(consolePath("/admin/voice"));
+
+  // The runtime metrics section shows the mocked values.
+  const metrics = page.getByRole("region", { name: "Runtime metrics" });
+  await expect(metrics).toBeVisible();
+  await expect(metrics.getByText("Counted by this API process since it started.")).toBeVisible();
+  await expect(metrics.getByText("Calls admitted")).toBeVisible();
+  await expect(metrics.getByText(`${ltr("capacity_workspace")}: 1`)).toBeVisible();
+  await expect(metrics.getByText("None", { exact: true })).toBeVisible();
+
+  // Cancel sends nothing.
+  await page.getByRole("button", { name: "Recover now" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Run recovery now?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(recoverPosts).toEqual([]);
+
+  // Confirm sends exactly one POST /voice/recover, closes and toasts.
+  await page.getByRole("button", { name: "Recover now" }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Run recovery" }).click();
+  await expect(page.getByText("Recovery done: 1 nodes marked lost, 1 calls ended.")).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  expect(recoverPosts).toEqual(["/api/v1/voice/recover"]);
+
+  // A deployment limit of 0 shows the off text instead of the All nodes meter.
+  deploymentLimit = 0;
+  await page.reload();
+  await expect(page.getByText("Voice calls are off for the whole deployment.")).toBeVisible();
+  await expect(page.getByRole("meter", { name: "All nodes" })).toHaveCount(0);
+  await expect(page.getByRole("meter", { name: "Concurrent calls" })).toHaveCount(1);
+
+  expect(blocked).toEqual([]);
+});
+
+test("the Persian voice operations page is right to left (voice API mocked)", async ({ page }) => {
+  const blocked = await blockApiWrites(page);
+  const nodes = [mockNode("media-a")];
+
+  await page.route("**/api/v1/voice/**", async (route) => {
+    blocked.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    await route.abort();
+  });
+  await page.route("**/api/v1/voice/capacity", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      json: {
+        workspace: { workspace_id: "e2e-workspace", held: 3, limit: 200 },
+        deployment: {
+          profile: "e2e",
+          held: nodes.reduce((sum, node) => sum + node.held, 0),
+          limit: 50,
+          nodes,
+        },
+        metrics: MOCK_METRICS,
+      },
+    });
+  });
+  await mockOperatorSession(page);
+
+  await resumeSession(page, "owner", "fa");
+  await page.goto(consolePath("/admin/voice"));
+
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+  await expect(page.getByRole("heading", { name: "عملیات صوتی", level: 1 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "اکنون بازیابی کن" })).toBeVisible();
+  const metrics = page.getByRole("region", { name: "سنجه‌های اجرا" });
+  await expect(metrics).toBeVisible();
+  await expect(metrics.getByText("تماس‌های پذیرفته")).toBeVisible();
+  await expect(metrics.getByText("۷", { exact: true })).toBeVisible();
 
   expect(blocked).toEqual([]);
 });

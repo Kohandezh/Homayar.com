@@ -151,6 +151,73 @@ def test_voice_call_lifecycle_capacity_and_nodes(voice_client, email_outbox):
     assert client.post(f"{API}/recover", headers=_write(client, ws)).json()["lost_nodes"] == []
 
 
+def test_voice_capacity_and_recover_response_shapes(voice_client, email_outbox):
+    client = voice_client
+    ws = _login(client, email_outbox, "voice-shape@example.com")
+
+    # A workspace owner that is not a platform operator gets the workspace key only.
+    plain = client.get(f"{API}/capacity", headers=_read(ws)).json()
+    assert list(plain.keys()) == ["workspace"]
+    assert plain["workspace"] == {"workspace_id": ws, "held": 0, "limit": 2}
+
+    _make_operator("voice-shape@example.com")
+    client.post(
+        f"{API}/nodes",
+        json={"node_id": "media-1", "max_concurrent": 10},
+        headers=_write(client, ws),
+    )
+
+    snapshot = client.get(f"{API}/capacity", headers=_read(ws)).json()
+    assert list(snapshot.keys()) == ["workspace", "deployment", "metrics"]
+    node = snapshot["deployment"]["nodes"][0]
+    assert list(node.keys()) == [
+        "node_id",
+        "max_concurrent",
+        "held",
+        "draining",
+        "healthy",
+        "generation",
+        "heartbeat_at",
+    ]
+    # heartbeat_at stays the datetime.isoformat() text, not a Pydantic datetime.
+    assert node["heartbeat_at"].endswith("+00:00")
+    metrics = snapshot["metrics"]
+    assert list(metrics.keys()) == [
+        "admitted_total",
+        "active_calls",
+        "rejections_by_reason",
+        "releases_by_reason",
+        "admission_latency_ms",
+    ]
+    assert list(metrics["admission_latency_ms"].keys()) == [
+        "count",
+        "mean",
+        "p50",
+        "p95",
+        "p99",
+        "max",
+    ]
+
+    recovered = client.post(f"{API}/recover", headers=_write(client, ws))
+    assert recovered.status_code == 200
+    assert recovered.json() == {
+        "lost_nodes": [],
+        "failed_calls": {"node_lost": [], "lease_expired": []},
+    }
+
+
+def test_voice_capacity_and_recover_document_named_response_schemas(voice_client):
+    spec = voice_client.app.openapi()
+    capacity = spec["paths"]["/api/v1/voice/capacity"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert capacity == {"$ref": "#/components/schemas/CapacityResponse"}
+    recover = spec["paths"]["/api/v1/voice/recover"]["post"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert recover == {"$ref": "#/components/schemas/RecoverResponse"}
+
+
 def test_voice_cross_tenant_and_permission_negatives(voice_client, email_outbox):
     client = voice_client
     ws_a = _login(client, email_outbox, "voice-a@example.com")
