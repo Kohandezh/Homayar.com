@@ -108,6 +108,64 @@ class NodeResponse(BaseModel):
     heartbeat_at: datetime
 
 
+class WorkspaceCapacity(BaseModel):
+    workspace_id: str
+    held: int
+    limit: int
+
+
+class NodeCapacity(BaseModel):
+    node_id: str
+    max_concurrent: int
+    held: int
+    draining: bool
+    healthy: bool
+    generation: int
+    # The plane emits datetime.isoformat() text; a datetime type here would
+    # re-serialize it and change the JSON.
+    heartbeat_at: str
+
+
+class DeploymentCapacity(BaseModel):
+    profile: str
+    held: int
+    limit: int
+    nodes: list[NodeCapacity]
+
+
+class AdmissionLatency(BaseModel):
+    count: int
+    mean: float
+    p50: float
+    p95: float
+    p99: float
+    max: float
+
+
+class VoiceMetricsSnapshot(BaseModel):
+    admitted_total: int
+    active_calls: int
+    rejections_by_reason: dict[str, int]
+    releases_by_reason: dict[str, int]
+    admission_latency_ms: AdmissionLatency
+
+
+class CapacityResponse(BaseModel):
+    workspace: WorkspaceCapacity
+    deployment: DeploymentCapacity | None = None
+    metrics: VoiceMetricsSnapshot | None = None
+
+
+class FailedCalls(BaseModel):
+    node_lost: list[str]
+    lease_expired: list[str]
+
+
+class RecoverResponse(BaseModel):
+    lost_nodes: list[str]
+    failed_calls: FailedCalls
+
+
 def _call_response(call: VoiceCallSession) -> CallSessionResponse:
     return CallSessionResponse(
         id=call.id,
@@ -245,18 +303,20 @@ def transition_call(
 # --- capacity & nodes ----------------------------------------------------------
 
 
-@router.get("/capacity")
+@router.get("/capacity", response_model=CapacityResponse, response_model_exclude_none=True)
 def capacity(
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
     plane: VoiceControlPlane = Depends(get_voice_control_plane),
-) -> dict:
-    return plane.capacity_snapshot(
-        db,
-        workspace_id=context.workspace.id,
-        include_deployment=context.has(Permission.WORKSPACE_MANAGE)
-        and context.actor.api_key is None
-        and context.actor.user.system_role == "operator",
+) -> CapacityResponse:
+    return CapacityResponse.model_validate(
+        plane.capacity_snapshot(
+            db,
+            workspace_id=context.workspace.id,
+            include_deployment=context.has(Permission.WORKSPACE_MANAGE)
+            and context.actor.api_key is None
+            and context.actor.user.system_role == "operator",
+        )
     )
 
 
@@ -330,10 +390,10 @@ def drain_node(
     return response
 
 
-@router.post("/recover")
+@router.post("/recover", response_model=RecoverResponse)
 def recover(
     context: WorkspaceContext = Depends(require_platform_operator(Permission.WORKSPACE_MANAGE)),
     db: Session = Depends(get_db),
     plane: VoiceControlPlane = Depends(get_voice_control_plane),
-) -> dict:
-    return plane.recover(db)
+) -> RecoverResponse:
+    return RecoverResponse.model_validate(plane.recover(db))
