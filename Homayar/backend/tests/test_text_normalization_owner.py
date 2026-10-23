@@ -4763,8 +4763,8 @@ FROZEN_FILES: dict[str, str] = {
     "backend/privacy/redaction_service.py": (
         "6facb81af9244730d104e6e12a5bd3491141245dab66f144c38c14dd1b25053a"
     ),
-    "backend/privacy/subject_export.py": (  # HOM-291: _Matcher reads one class at a time
-        "d1ed6a023cac0983d691e49184179e781c80ee6de95ace0599d9fc1292392fcf"
+    "backend/privacy/subject_export.py": (  # HOM-293: also searches decision due_date.value
+        "5e2919fe482ae096d0bf0bb9fec5cd1b83b663f0c49abc475e65b20a9b726c2e"
     ),
     "backend/privacy/transcript_view.py": (
         "b65c3629ac444112d593f3c2e7071a4d27b4f229f09fcf9a5c3803d0533aa44e"
