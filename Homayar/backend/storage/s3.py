@@ -52,11 +52,14 @@ class S3ObjectStorage(ObjectStorage):
 
     Error classification (WP05-T05 contract): only a 404 that is not a
     bucket-level code means *object missing* (``ObjectNotFoundError`` /
-    ``exists() is False``).  Access denial, transport failures and other
-    provider errors surface as ``StorageError`` with the operation's stable
-    code (``s3_read_failed``, ``s3_head_failed``, ``s3_delete_failed``,
-    ``s3_list_failed``, ``s3_upload_failed``); a missing or misconfigured
-    bucket surfaces as ``s3_bucket_unavailable``.
+    ``exists() is False``).  A bodiless 404 on ``HEAD`` object is ambiguous
+    (S3 and MinIO answer it for a missing bucket too), so ``exists()``
+    confirms the bucket with ``head_bucket`` before answering ``False``.
+    Access denial, transport failures and other provider errors surface as
+    ``StorageError`` with the operation's stable code (``s3_read_failed``,
+    ``s3_head_failed``, ``s3_delete_failed``, ``s3_list_failed``,
+    ``s3_upload_failed``); a missing or misconfigured bucket surfaces as
+    ``s3_bucket_unavailable``.
     """
 
     supports_presigned_access = True
@@ -179,6 +182,21 @@ class S3ObjectStorage(ObjectStorage):
         if not isinstance(response, dict):
             return False
         return str(response.get("Error", {}).get("Code", "")) in cls._BUCKET_LEVEL_CODES
+
+    @classmethod
+    def _head_bucket_reports_missing(cls, exc: Exception) -> bool:
+        """A ``head_bucket`` failure that means the bucket itself is gone.
+
+        ``HEAD`` carries no body, so S3-compatible services report a missing
+        bucket as a bare ``404`` (code ``"404"``) or a bucket-level code.
+        """
+        response = getattr(exc, "response", None)
+        if not isinstance(response, dict):
+            return False
+        error = response.get("Error", {})
+        code = str(error.get("Code", ""))
+        status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        return status == 404 or code in cls._BUCKET_LEVEL_CODES or code in {"404", "NoSuchBucket"}
 
     @classmethod
     def _wrap(cls, exc: Exception, message: str, code: str) -> StorageError:
@@ -329,8 +347,21 @@ class S3ObjectStorage(ObjectStorage):
             return True
         except Exception as exc:
             if self._is_not_found(exc):
-                return False
+                return self._exists_with_bucket_confirmed()
             raise self._wrap(exc, "S3 object metadata lookup failed", "s3_head_failed") from exc
+
+    def _exists_with_bucket_confirmed(self) -> bool:
+        # A bodiless 404 on HEAD object also answers for a missing bucket;
+        # never read it as "object missing" without the bucket.
+        try:
+            self._client.head_bucket(Bucket=self._bucket)
+        except Exception as exc:
+            if self._head_bucket_reports_missing(exc):
+                raise StorageError(
+                    "S3 bucket is unavailable or misconfigured", code="s3_bucket_unavailable"
+                ) from exc
+            raise self._wrap(exc, "S3 object metadata lookup failed", "s3_head_failed") from exc
+        return False
 
     def delete(self, tenant_id: str, key: str) -> bool:
         validated = validate_owned_object_key(tenant_id, key)
