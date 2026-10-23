@@ -13,7 +13,6 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
 from sqlalchemy import event, select
 
 from backend.database.relational import get_engine
@@ -150,26 +149,25 @@ def test_a_scope_key_in_the_query_is_refused(client, email_outbox, monkeypatch):
     assert _get(people["member"]).status_code == 200
 
 
-@pytest.mark.parametrize(
-    ("params", "expected"),
-    [
-        ((("product", "x"),), ("filter_unsupported", "product")),
-        ((("foo", "1"),), ("filter_unknown_key", "foo")),
-        ((("aaa", "x"), ("workspace_id", "y")), ("filter_scope_not_allowed", "workspace_id")),
-        (
-            (("from", "2026-01-01T00:00:00Z"), ("from", "2026-01-02T00:00:00Z")),
-            ("filter_bad_type", "from"),
-        ),
-        ((("team_id", "not-a-uuid"),), ("filter_bad_value", "team_id")),
-        ((("team_id", ""),), ("filter_bad_value", "team_id")),
-        ((("service_area", "nope"),), ("filter_bad_value", "service_area")),
-    ],
-)
-def test_filter_refusals_are_422_with_their_key(
-    client, email_outbox, monkeypatch, params, expected
-):
+# (query params, (error.code, error.details.key)); one setup serves every case
+FILTER_REFUSALS = [
+    ((("product", "x"),), ("filter_unsupported", "product")),
+    ((("foo", "1"),), ("filter_unknown_key", "foo")),
+    ((("aaa", "x"), ("workspace_id", "y")), ("filter_scope_not_allowed", "workspace_id")),
+    (
+        (("from", "2026-01-01T00:00:00Z"), ("from", "2026-01-02T00:00:00Z")),
+        ("filter_bad_type", "from"),
+    ),
+    ((("team_id", "not-a-uuid"),), ("filter_bad_value", "team_id")),
+    ((("team_id", ""),), ("filter_bad_value", "team_id")),
+    ((("service_area", "nope"),), ("filter_bad_value", "service_area")),
+]
+
+
+def test_filter_refusals_are_422_with_their_key(client, email_outbox, monkeypatch):
     _owner, people = _people(client, email_outbox, monkeypatch, member="member")
-    assert _refusal(_get(people["member"], *params)) == expected
+    for params, expected in FILTER_REFUSALS:
+        assert _refusal(_get(people["member"], *params)) == expected, params
 
 
 def test_window_refusals_name_the_end_at_fault(client, email_outbox, monkeypatch):
@@ -217,29 +215,29 @@ def test_repeated_list_keys_are_lists(client, email_outbox, monkeypatch):
 # --- deny-case 12: series -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("params", "expected"),
-    [
-        ((("grain", "hour"),), ("trend_grain_invalid", "grain")),
-        ((("grain", "day"), ("grain", "day")), ("trend_grain_invalid", "grain")),
-        ((("grain", ""),), ("trend_grain_invalid", "grain")),
-        ((("timezone", "Mars/Base"),), ("trend_timezone_invalid", "timezone")),
-        ((("timezone", "utc"),), ("trend_timezone_invalid", "timezone")),
-        ((("timezone", "asia/tehran"),), ("trend_timezone_invalid", "timezone")),
-        ((("timezone", "UTC"), ("timezone", "UTC")), ("trend_timezone_invalid", "timezone")),
-        # A2: filter errors first, then grain, then timezone
-        ((("workspace_id", "x"), ("grain", "hour")), ("filter_scope_not_allowed", "workspace_id")),
-        ((("foo", "1"), ("timezone", "Mars/Base")), ("filter_unknown_key", "foo")),
-        ((("timezone", "Mars/Base"), ("grain", "hour")), ("trend_grain_invalid", "grain")),
-        (
-            (("timezone", "Mars/Base"), ("grain", "day"), ("grain", "week")),
-            ("trend_grain_invalid", "grain"),
-        ),
-    ],
-)
-def test_series_refusals(client, email_outbox, monkeypatch, params, expected):
+SERIES_REFUSALS = [
+    ((("grain", "hour"),), ("trend_grain_invalid", "grain")),
+    ((("grain", "day"), ("grain", "day")), ("trend_grain_invalid", "grain")),
+    ((("grain", ""),), ("trend_grain_invalid", "grain")),
+    ((("timezone", "Mars/Base"),), ("trend_timezone_invalid", "timezone")),
+    ((("timezone", "utc"),), ("trend_timezone_invalid", "timezone")),
+    ((("timezone", "asia/tehran"),), ("trend_timezone_invalid", "timezone")),
+    ((("timezone", "UTC"), ("timezone", "UTC")), ("trend_timezone_invalid", "timezone")),
+    # A2: filter errors first, then grain, then timezone
+    ((("workspace_id", "x"), ("grain", "hour")), ("filter_scope_not_allowed", "workspace_id")),
+    ((("foo", "1"), ("timezone", "Mars/Base")), ("filter_unknown_key", "foo")),
+    ((("timezone", "Mars/Base"), ("grain", "hour")), ("trend_grain_invalid", "grain")),
+    (
+        (("timezone", "Mars/Base"), ("grain", "day"), ("grain", "week")),
+        ("trend_grain_invalid", "grain"),
+    ),
+]
+
+
+def test_series_refusals(client, email_outbox, monkeypatch):
     _owner, people = _people(client, email_outbox, monkeypatch, member="member")
-    assert _refusal(_get(people["member"], *params)) == expected
+    for params, expected in SERIES_REFUSALS:
+        assert _refusal(_get(people["member"], *params)) == expected, params
 
 
 def test_a_weekly_utc_series_is_answered(client, email_outbox, monkeypatch):

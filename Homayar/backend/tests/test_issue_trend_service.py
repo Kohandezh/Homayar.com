@@ -882,26 +882,27 @@ def test_point_sums_equal_the_whole_window(client, email_outbox):
     assert [p["population"]["excluded"]["duplicate_media"] for p in days] == [0, 0, 1, 0]
 
 
-@pytest.mark.parametrize(
-    ("grain", "timezone", "code", "key"),
-    [
-        ("hour", "Asia/Tehran", "trend_grain_invalid", "grain"),
-        ("", "Asia/Tehran", "trend_grain_invalid", "grain"),
-        ("Day", "Asia/Tehran", "trend_grain_invalid", "grain"),
-        ("day", "Mars/Base", "trend_timezone_invalid", "timezone"),
-        ("day", "utc", "trend_timezone_invalid", "timezone"),
-        ("day", "asia/tehran", "trend_timezone_invalid", "timezone"),
-        ("day", "America", "trend_timezone_invalid", "timezone"),
-        ("day", "../etc/passwd", "trend_timezone_invalid", "timezone"),
-        ("day", "", "trend_timezone_invalid", "timezone"),
-        ("hour", "Mars/Base", "trend_grain_invalid", "grain"),
-    ],
-)
-def test_bad_series_settings_are_refused(client, email_outbox, grain, timezone, code, key):
+# (grain, timezone, code, key); one tenant serves every case
+BAD_SERIES_SETTINGS = [
+    ("hour", "Asia/Tehran", "trend_grain_invalid", "grain"),
+    ("", "Asia/Tehran", "trend_grain_invalid", "grain"),
+    ("Day", "Asia/Tehran", "trend_grain_invalid", "grain"),
+    ("day", "Mars/Base", "trend_timezone_invalid", "timezone"),
+    ("day", "utc", "trend_timezone_invalid", "timezone"),
+    ("day", "asia/tehran", "trend_timezone_invalid", "timezone"),
+    ("day", "America", "trend_timezone_invalid", "timezone"),
+    ("day", "../etc/passwd", "trend_timezone_invalid", "timezone"),
+    ("day", "", "trend_timezone_invalid", "timezone"),
+    ("hour", "Mars/Base", "trend_grain_invalid", "grain"),
+]
+
+
+def test_bad_series_settings_are_refused(client, email_outbox):
     tenant = Tenant(client, email_outbox, f"trend-series-{uuid.uuid4().hex[:8]}@example.com")
-    with pytest.raises(TrendSeriesError) as caught:
-        trends(tenant, grain=grain, timezone=timezone)
-    assert (caught.value.code, caught.value.key) == (code, key)
+    for grain, timezone, code, key in BAD_SERIES_SETTINGS:
+        with pytest.raises(TrendSeriesError) as caught:
+            trends(tenant, grain=grain, timezone=timezone)
+        assert (caught.value.code, caught.value.key) == (code, key), (grain, timezone)
 
 
 def test_every_grain_and_the_window_edges_are_answered(client, email_outbox):
