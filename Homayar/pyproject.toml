@@ -53,6 +53,7 @@ markers = [
   "redis: drives the real Redis/Celery transport; skipped unless TEST_REDIS_URL is set",
   "ffmpeg: needs the ffprobe and ffmpeg binaries on PATH; skipped when they are missing",
   "live_s3: mutates a designated disposable S3-compatible bucket; skipped unless HOMAYAR_LIVE_S3_TEST=1 and the HOMAYAR_LIVE_S3_* target is configured",
+  "minio_s3: runs against a disposable local MinIO container (infra/ci/minio-contract-target.sh); skipped unless HOMAYAR_MINIO_TEST=1 and the HOMAYAR_MINIO_* target is configured",
 ]
 
 [tool.ruff]

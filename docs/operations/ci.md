@@ -32,6 +32,11 @@ to SQLite, so a green backend job always means PostgreSQL. Locally, run
 inside `Homayar/`; without the variable the suite uses temporary SQLite files and skips the
 `postgres`-marked tests. The console and backend jobs still fail explicitly when their product
 files are absent from the commit.
+Before the full test step, the step "Qualify the storage contract against MinIO" starts a
+disposable MinIO container with `infra/ci/minio-contract-target.sh` and runs the `minio_s3`
+cases with `HOMAYAR_REQUIRE_MINIO_TESTS=1`, so it stops with a usage error instead of skipping
+them ([ADR 0019](../architecture/decisions/0019-storage-contract.md), HOM-36). The credentials
+stay in that step, so the full test step skips the `s3-minio` cases as NOT_RUN.
 
 The backend job installs `ffmpeg` (which provides `ffprobe`) from the Ubuntu 24.04 archive and
 prints both versions, so the `ffmpeg`-marked media tests (`test_media_fixtures.py`,

@@ -81,3 +81,71 @@ available to this environment.
   (`mkstemp`, hard link) propagate as `OSError`; no object is ever published
   in that case and temporaries are removed, so the invariant holds, but the
   code is not a `StorageError` (recorded in the authorization matrix §8).
+
+## Amendment (2026-10-23, HOM-36): MinIO qualification
+
+The suite now has a fourth target, `s3-minio` (marker `minio_s3`). It runs
+`S3ObjectStorage` with a real boto3 client against a disposable local MinIO
+container. `infra/ci/minio-contract-target.sh up <port> <env-file>` starts it on
+`127.0.0.1:<port>` and bootstraps it like `minio-bootstrap` in
+`infra/compose/compose.onprem.yaml`: a versioned bucket, anonymous access `none`,
+and an app user with the same `homayar-app` policy. A static test fails when the
+script's policy drifts from the Compose one. The script also adds a user with no
+policy and a user whose policy covers only a bucket that is never created. It
+generates every credential fresh on each run, checks versioning and anonymous
+access with the root key, and writes only the user keys to the env file
+(`backend/tests/_minio_s3.py` reads it and accepts only a loopback endpoint).
+
+Images: the official `quay.io/minio` images now need a login and the Docker Hub
+copies are gone. The script uses `bitnamilegacy/minio:2025.4.22` and
+`bitnamilegacy/minio-client:2025.4.16`, pinned by digest. They run the same
+MinIO and mc commits as the Compose defaults
+(`RELEASE.2025-04-22T22-12-26Z`, `RELEASE.2025-04-16T18-13-26Z`).
+
+What MinIO proves: every shared case except fault injection, plus real
+decisions. A user with no policy is refused for write, read, HEAD, delete and
+listing (`AccessDenied` / 403, never "missing"). Unsigned, expired and tampered
+GETs answer 403 while a valid presigned GET answers 200. The app policy cannot
+create buckets, set a bucket policy or reach another bucket. A bucket outside the
+policy is a 403 `StorageError`, never "missing". An aborted multipart upload
+leaves no readable, listed or pending object. The adapter itself issues no
+multipart operation.
+
+CI: the backend job runs the step "Qualify the storage contract against MinIO"
+before the full test step, with `HOMAYAR_REQUIRE_MINIO_TESTS=1`, so the run
+stops with a usage error instead of skipping. The credentials stay in that
+step's shell. A cleanup step with `if: always()` runs `down`.
+
+Still NOT_RUN on MinIO: the 12 cases that call `require_faults()`, because a
+real endpoint cannot inject faults. They are:
+
+- `test_read_faults_are_not_reported_as_missing` (deny, transient);
+- `test_metadata_faults_never_answer_false_for_exists` (deny, transient);
+- `test_delete_faults_preserve_the_object_for_a_retry` (deny, transient);
+- `test_listing_faults_surface_as_storage_errors` (deny, transient);
+- `test_listing_is_lazy_so_a_budget_bounds_the_backend_work`;
+- `test_listing_skips_entries_that_are_not_owned_objects`;
+- `test_purge_incomplete_removes_only_stale_leftovers`;
+- `test_provider_denies_the_write_and_nothing_authoritative_remains`.
+
+The injected faults are deny and transient only. Real denial and a real missing
+bucket are covered by the MinIO-only cases instead.
+
+Known gap, not fixed here: `exists()` and `delete()` on a bucket that does not
+exist answer `False`. HEAD has no body, so botocore reports code `404` and the
+adapter reads it as a missing object, against decision 2. The case is marked
+`xfail(strict=True)` and turns red when the adapter is fixed in a follow-up.
+`open_reader` and `iter_objects` already answer `s3_bucket_unavailable`.
+
+Not proven: an external S3 provider and cloud IAM. `s3-live` stays opt-in and
+BLOCKED_EXTERNAL.
+
+Local run, from `Homayar/`:
+
+```bash
+ENVF="$(mktemp -d)/minio.env"
+../infra/ci/minio-contract-target.sh up 4360 "$ENVF"
+( set -a; . "$ENVF"; set +a; HOMAYAR_REQUIRE_MINIO_TESTS=1 \
+  uv run pytest backend/tests/test_storage_contract.py -m minio_s3 -v -rs )
+../infra/ci/minio-contract-target.sh down 4360
+```
