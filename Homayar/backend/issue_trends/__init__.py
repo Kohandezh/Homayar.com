@@ -1,8 +1,8 @@
 """Trend issue taxonomy, counting and deduplication, filters and sample thresholds
 (HOM-79, WP15-T01).
 
-See ``README.md`` in this package.  Nothing in the backend uses it yet: HOM-80 builds
-scoped SQL aggregates on these rules and HOM-81 shows denominators and coverage.
+See ``README.md`` in this package.  HOM-80 (``services/issue_trend_service.py``) builds
+the scoped aggregates on these rules and HOM-81 shows denominators and coverage.
 """
 
 from backend.issue_trends.counting import (

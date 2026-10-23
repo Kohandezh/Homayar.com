@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.orm import Session
 
 from backend.database.saas_models import (
@@ -364,19 +364,34 @@ def _ledger_rows(db: Session, *, workspace_id: str, window: CoverageWindow) -> S
     ).all()
 
 
+def transcribable_clauses(workspace_id: str) -> tuple[ColumnElement[bool], ...]:
+    """An accepted ledger row of the workspace whose live meeting is in a transcribable
+    status, with no window.  For a select that joins ``IngestionRecord`` to ``Meeting`` on
+    ``IngestionRecord.meeting_id``.  The trend population (HOM-80) shares it."""
+    return (
+        IngestionRecord.workspace_id == workspace_id,
+        IngestionRecord.status == IngestionStatus.ACCEPTED,
+        Meeting.workspace_id == workspace_id,
+        Meeting.deleted_at.is_(None),
+        Meeting.status.in_(sorted(TRANSCRIBABLE_STATUSES, key=lambda status: status.value)),
+    )
+
+
+def has_segments(segment_count: int | None) -> bool:
+    """The current transcript revision has at least one segment: a transcribable
+    meeting with it is in the processing bucket ``transcribed``."""
+    return segment_count is not None and segment_count > 0
+
+
 def _candidate_meetings(workspace_id: str, window: CoverageWindow):
     """Accepted, live meetings of the window in a transcribable status (a subquery)."""
     return (
         select(Meeting.id)
         .join(IngestionRecord, IngestionRecord.meeting_id == Meeting.id)
         .where(
-            IngestionRecord.workspace_id == workspace_id,
+            *transcribable_clauses(workspace_id),
             IngestionRecord.received_at >= window.start,
             IngestionRecord.received_at < window.end,
-            IngestionRecord.status == IngestionStatus.ACCEPTED,
-            Meeting.workspace_id == workspace_id,
-            Meeting.deleted_at.is_(None),
-            Meeting.status.in_(sorted(TRANSCRIBABLE_STATUSES, key=lambda status: status.value)),
         )
     )
 
@@ -560,7 +575,7 @@ def compute_coverage(
     evaluated: list[EvaluatedMeeting] = []
     for row in candidates:
         revision = facts.revisions.get(row.meeting_id)
-        if revision is None or revision.segment_count <= 0:
+        if not has_segments(revision.segment_count if revision is not None else None):
             processing["no_transcript"] += 1
             continue
         processing[BUCKET_TRANSCRIBED] += 1
