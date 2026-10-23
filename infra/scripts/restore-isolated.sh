@@ -22,17 +22,21 @@ usage() {
 Usage: COMPOSE_PROJECT_NAME=homayar-restore BACKUP_ROOT=/secure/homayar-backups \\
        BACKUP_KEY_FILE=/run/secrets/homayar-backup.key TOMBSTONE_JOURNAL_PATH=/replica/tombstones \\
        $(basename -- "$0") --backup ID [--fetch s3://bucket/prefix] [--start-app]
-       [--accept-held REF] [--accept-missing REF] [--accept-no-journal REF]
-       [--revoke-share-links] [--resume]
+       [--accept-held REF] [--accept-missing REF --accept-missing-digest sha256:<64 hex>]
+       [--accept-no-journal REF] [--revoke-share-links] [--resume]
 
 The project must NOT be the live one (LIVE_COMPOSE_PROJECT, default homayar-onprem).
 TOMBSTONE_JOURNAL_PATH must be the replicated tombstone journal (a host directory).
+--accept-missing needs --accept-missing-digest: the missing_set_digest of the objects
+check in a previous FAIL report. The owner accepts only that exact set of lost objects.
 EOF
 }
 
 backup_id=""
 fetch=""
 start_app=0
+accept_missing=""
+accept_missing_digest=""
 restore_args=()
 reconcile_args=()
 while [[ $# -gt 0 ]]; do
@@ -42,13 +46,27 @@ while [[ $# -gt 0 ]]; do
     --start-app) start_app=1; shift ;;
     --resume) restore_args+=(--resume); shift ;;
     --revoke-share-links) reconcile_args+=(--revoke-share-links); shift ;;
-    --accept-held|--accept-missing|--accept-no-journal)
+    --accept-missing)
+      [[ $# -ge 2 ]] || die "$1 requires an owner decision reference"
+      accept_missing="$2"; shift 2 ;;
+    --accept-missing-digest)
+      [[ $# -ge 2 ]] || die "$1 requires the missing_set_digest of a FAIL report"
+      accept_missing_digest="$2"; shift 2 ;;
+    --accept-held|--accept-no-journal)
       [[ $# -ge 2 ]] || die "$1 requires an owner decision reference"
       reconcile_args+=("$1" "$2"); shift 2 ;;
     --help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
 done
+
+# Lost objects are accepted only for the exact set a FAIL report showed (HOM-215),
+# so a first run can never carry this override. Checked before anything starts.
+if [[ -n "${accept_missing}${accept_missing_digest}" ]]; then
+  [[ "${accept_missing}" =~ [^[:space:]] && "${accept_missing_digest}" =~ ^sha256:[0123456789abcdef]{64}$ ]] ||
+    die "--accept-missing REF needs --accept-missing-digest sha256:<64 lowercase hex>. Run without the override first, read missing_set_digest in the objects check of the FAIL report, then pass both."
+  reconcile_args+=(--accept-missing "${accept_missing}" --accept-missing-digest "${accept_missing_digest}")
+fi
 
 [[ "${backup_id}" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$ ]] || die "--backup must be a backup id"
 require_env COMPOSE_PROJECT_NAME

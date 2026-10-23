@@ -273,10 +273,12 @@ def cmd_restore(args) -> int:
 
 
 def cmd_reconcile(args) -> int:
-    from backend.backup.reconcile import reconcile_restore
+    from backend.backup.reconcile import check_accept_missing, reconcile_restore
     from backend.backup.restore import describe_storage_target
     from backend.storage import create_object_storage
 
+    # An unbound override is refused before the key, settings or store are loaded.
+    check_accept_missing(args.accept_missing, args.accept_missing_digest)
     settings = _settings_with_target_storage(args)
     set_dir = _set_dir(args, args.backup)
     report = reconcile_restore(
@@ -291,6 +293,7 @@ def cmd_reconcile(args) -> int:
         app_role=settings.database_app_role or "homayar_app",
         accept_held=args.accept_held,
         accept_missing=args.accept_missing,
+        accept_missing_digest=args.accept_missing_digest,
         accept_no_journal=args.accept_no_journal,
         revoke_share_links=args.revoke_share_links,
     )
@@ -420,6 +423,10 @@ def build_parser() -> argparse.ArgumentParser:
         else:
             p.add_argument("--accept-held", help="owner decision reference for held conversations")
             p.add_argument("--accept-missing", help="owner decision reference for missing objects")
+            p.add_argument(
+                "--accept-missing-digest",
+                help="with --accept-missing: missing_set_digest of the FAIL report the owner read",
+            )
             p.add_argument(
                 "--accept-no-journal", help="owner decision reference: no tombstone journal"
             )
