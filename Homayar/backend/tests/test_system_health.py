@@ -10,6 +10,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -54,6 +55,12 @@ SECRET_STORAGE_BUCKET = "secret-bucket-name-4417"  # noqa: S105 - test value
 SECRET_ACCESS_KEY = "AKIASECRETACCESSKEY4417"  # noqa: S105 - test value
 SECRET_SECRET_KEY = "secret-storage-secret-key-4417-abcdefghijklmnop"  # noqa: S105 - test value
 BACKUP_MAX_AGE_SECONDS = 93600.0  # 26 h, the backup age alert
+# A deadline far above every real wait in these tests: a bug that makes a request
+# wait out its whole deadline then costs 30 s, which the wide bound below catches.
+LONG_DEADLINE_SECONDS = 30.0
+# Far below the 30 s of the long deadline and of the hung fakes' gate.wait(30), far
+# above a loaded runner's request overhead; the only upper time limit left in the file.
+WIDE_BOUND_SECONDS = 10.0
 
 STATUSES = {"ok", "degraded", "down"}
 DEPENDENCY_STATUSES = {"up", "down", "timeout"}
@@ -120,6 +127,51 @@ def gate() -> Iterator[threading.Event]:
     event = threading.Event()
     yield event
     event.set()
+
+
+@dataclass(frozen=True)
+class _RecordedWait:
+    """One ``system_health.wait`` call: the futures it got and how it ended."""
+
+    futures: frozenset
+    timeout: float | None
+    ran_out: bool  # not_done was non-empty: the wait ended before every future did
+
+
+class _WaitRecorder:
+    """What the ``waits`` fixture recorded; ``clear`` starts a fresh record."""
+
+    def __init__(self) -> None:
+        self.calls: list[_RecordedWait] = []
+
+    def clear(self) -> None:
+        self.calls.clear()
+
+
+@pytest.fixture
+def waits(monkeypatch) -> _WaitRecorder:
+    """Wraps ``system_health.wait``: same call, same result, every call recorded."""
+    recorder = _WaitRecorder()
+    real_wait = system_health.wait
+
+    def recording(futures, timeout=None, **rest):
+        done, not_done = real_wait(futures, timeout=timeout, **rest)
+        recorder.calls.append(
+            _RecordedWait(futures=frozenset(futures), timeout=timeout, ran_out=bool(not_done))
+        )
+        return done, not_done
+
+    monkeypatch.setattr(system_health, "wait", recording)
+    return recorder
+
+
+@pytest.fixture
+def long_deadline(client, settings) -> system_health.SystemHealthCollector:
+    """The app's collector with a 30 s deadline, in place before the first health
+    request; the app's lifespan closes it at shutdown, as for the default one."""
+    collector = system_health.SystemHealthCollector(settings, deadline=LONG_DEADLINE_SECONDS)
+    client.app.state.system_health_collector = collector
+    return collector
 
 
 def _set_system_role(email: str, system_role: str) -> None:
@@ -215,6 +267,24 @@ def _health_threads(name: str) -> set[threading.Thread]:
         for thread in threading.enumerate()
         if thread.name == f"homayar-health-{name}" and thread.is_alive()
     }
+
+
+def _no_wait_ran_out(waits: _WaitRecorder) -> None:
+    """No recorded wait ended with a future still pending (R1, R5)."""
+    assert not any(wait.ran_out for wait in waits.calls), waits.calls
+
+
+def _within_one_deadline(waits: _WaitRecorder) -> None:
+    """Every recorded wait asked to wait at most one deadline, with no tolerance (R2)."""
+    for wait in waits.calls:
+        assert wait.timeout is not None, wait
+        assert wait.timeout <= system_health.DEADLINE_SECONDS, wait
+
+
+def _not_waited_on(waits: _WaitRecorder, future) -> None:
+    """The given future was never given to a wait (R3)."""
+    for wait in waits.calls:
+        assert future not in wait.futures, wait
 
 
 # --- 1. the contract ---------------------------------------------------------------------
@@ -448,7 +518,7 @@ def test_an_operator_whose_membership_is_revoked_is_refused(client, email_outbox
 
 
 def test_a_down_database_is_down_and_the_rest_stays_correct(
-    client, email_outbox, heartbeat_store, redis_up, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, monkeypatch, waits, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _fresh_sweeps(heartbeat_store)
@@ -458,7 +528,8 @@ def test_a_down_database_is_down_and_the_rest_stays_correct(
 
     monkeypatch.setattr(metrics, "collect_database", broken)
     body, elapsed = _timed(client, workspace_id)
-    assert elapsed < 1.0
+    assert elapsed < WIDE_BOUND_SECONDS
+    _no_wait_ran_out(waits)  # a source that raises at once does not eat the deadline
     assert body["status"] == "down"
     database = body["dependencies"]["database"]
     assert database["status"] == "down" and isinstance(database["probe_seconds"], float)
@@ -481,14 +552,15 @@ def test_a_down_database_is_down_and_the_rest_stays_correct(
 
 
 def test_a_down_redis_is_down_and_only_the_broker_length_is_missing(
-    client, email_outbox, heartbeat_store
+    client, email_outbox, heartbeat_store, waits, long_deadline
 ):
     # The configured Redis (port 1) refuses the connection.
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
     _fresh_sweeps(heartbeat_store)
     body, elapsed = _timed(client, workspace_id)
-    assert elapsed < 1.0
+    assert elapsed < WIDE_BOUND_SECONDS
+    _no_wait_ran_out(waits)  # a source that raises at once does not eat the deadline
     redis_probe = body["dependencies"]["redis"]
     assert redis_probe["status"] == "down" and isinstance(redis_probe["probe_seconds"], float)
     assert body["queue"]["status"] == "ok"
@@ -499,7 +571,9 @@ def test_a_down_redis_is_down_and_only_the_broker_length_is_missing(
     assert body["status"] == "degraded"
 
 
-def test_a_down_object_store_is_down(client, email_outbox, heartbeat_store, redis_up, monkeypatch):
+def test_a_down_object_store_is_down(
+    client, email_outbox, heartbeat_store, redis_up, monkeypatch, waits, long_deadline
+):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
     _fresh_sweeps(heartbeat_store)
@@ -510,7 +584,8 @@ def test_a_down_object_store_is_down(client, email_outbox, heartbeat_store, redi
 
     monkeypatch.setattr(metrics, "probe_storage", lambda settings: Refusing())
     body, elapsed = _timed(client, workspace_id)
-    assert elapsed < 1.0
+    assert elapsed < WIDE_BOUND_SECONDS
+    _no_wait_ran_out(waits)  # a source that raises at once does not eat the deadline
     storage = body["dependencies"]["storage"]
     assert storage["status"] == "down" and isinstance(storage["probe_seconds"], float)
     assert body["dependencies"]["database"]["status"] == "up"
@@ -519,7 +594,7 @@ def test_a_down_object_store_is_down(client, email_outbox, heartbeat_store, redi
 
 
 def test_a_down_heartbeat_store_makes_every_sweep_unknown(
-    client, email_outbox, redis_up, monkeypatch
+    client, email_outbox, redis_up, monkeypatch, waits, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -536,7 +611,8 @@ def test_a_down_heartbeat_store_makes_every_sweep_unknown(
         body, elapsed = _timed(client, workspace_id)
     finally:
         heartbeats.use_heartbeat_store(None)
-    assert elapsed < 1.0
+    assert elapsed < WIDE_BOUND_SECONDS
+    _no_wait_ran_out(waits)  # a source that raises at once does not eat the deadline
     assert body["sweeps"]["status"] == "unknown"
     assert [task["task"] for task in body["sweeps"]["tasks"]] == list(heartbeats.PERIODIC_TASKS)
     for task in body["sweeps"]["tasks"]:
@@ -556,7 +632,7 @@ def test_a_down_heartbeat_store_makes_every_sweep_unknown(
 
 
 def test_a_failing_backup_read_is_unknown(
-    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch, waits, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _backup_file(tmp_path, monkeypatch, {"postgres": time.time()})
@@ -566,7 +642,8 @@ def test_a_failing_backup_read_is_unknown(
 
     monkeypatch.setattr(backup_metrics, "read_values", broken)
     body, elapsed = _timed(client, workspace_id)
-    assert elapsed < 1.0
+    assert elapsed < WIDE_BOUND_SECONDS
+    _no_wait_ran_out(waits)  # a source that raises at once does not eat the deadline
     assert body["backup"] == {
         "status": "unknown",
         "targets": {"postgres": None, "objects": None, "offsite": None},
@@ -577,13 +654,17 @@ def test_a_failing_backup_read_is_unknown(
 # --- 3/4. a source that hangs: bounded, and never started twice -----------------------------
 
 
-def _assert_hung_twice(client, workspace_id: str, source: str, calls: list[int]) -> list[dict]:
+def _assert_hung_twice(
+    client, workspace_id: str, source: str, calls: list[int], waits: _WaitRecorder
+) -> list[dict]:
     before = _health_threads(source)
     bodies = []
     started: list[set[threading.Thread]] = []
     for _ in range(2):
+        waits.clear()
         body, elapsed = _timed(client, workspace_id)
-        assert elapsed < 1.0, elapsed
+        assert elapsed < WIDE_BOUND_SECONDS, elapsed
+        _within_one_deadline(waits)  # a hung source is bounded by one deadline, no more
         bodies.append(body)
         started.append(_health_threads(source) - before)
     assert calls == [1]  # the second request reports it at once and starts no thread
@@ -592,7 +673,7 @@ def _assert_hung_twice(client, workspace_id: str, source: str, calls: list[int])
 
 
 def test_a_hung_database_times_out_and_is_not_restarted(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits
 ):
     workspace_id = _operator(client, email_outbox)
     _fresh_sweeps(heartbeat_store)
@@ -604,7 +685,7 @@ def test_a_hung_database_times_out_and_is_not_restarted(
         return True
 
     monkeypatch.setattr(metrics, "collect_database", hung)
-    for body in _assert_hung_twice(client, workspace_id, "database", calls):
+    for body in _assert_hung_twice(client, workspace_id, "database", calls, waits):
         assert body["dependencies"]["database"] == {"status": "timeout", "probe_seconds": None}
         assert body["schema"]["status"] == "unknown"
         assert body["queue"]["status"] == "unknown" and body["queue"]["queued_due"] is None
@@ -616,7 +697,7 @@ def test_a_hung_database_times_out_and_is_not_restarted(
 
 
 def test_a_hung_redis_times_out_and_is_not_restarted(
-    client, email_outbox, heartbeat_store, gate, monkeypatch
+    client, email_outbox, heartbeat_store, gate, monkeypatch, waits
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -628,7 +709,7 @@ def test_a_hung_redis_times_out_and_is_not_restarted(
         gate.wait(30)
 
     monkeypatch.setattr(metrics, "collect_redis", hung)
-    for body in _assert_hung_twice(client, workspace_id, "redis", calls):
+    for body in _assert_hung_twice(client, workspace_id, "redis", calls, waits):
         assert body["dependencies"]["redis"] == {"status": "timeout", "probe_seconds": None}
         assert body["queue"]["status"] == "ok" and body["queue"]["broker_queue_length"] is None
         assert body["dependencies"]["database"]["status"] == "up"
@@ -637,7 +718,7 @@ def test_a_hung_redis_times_out_and_is_not_restarted(
 
 
 def test_a_hung_object_store_times_out_and_is_not_restarted(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -651,7 +732,7 @@ def test_a_hung_object_store_times_out_and_is_not_restarted(
             return False
 
     monkeypatch.setattr(metrics, "probe_storage", lambda settings: Hung())
-    for body in _assert_hung_twice(client, workspace_id, "storage", calls):
+    for body in _assert_hung_twice(client, workspace_id, "storage", calls, waits):
         assert body["dependencies"]["storage"] == {"status": "timeout", "probe_seconds": None}
         assert body["dependencies"]["database"]["status"] == "up"
         assert body["dependencies"]["redis"]["status"] == "up"
@@ -660,7 +741,7 @@ def test_a_hung_object_store_times_out_and_is_not_restarted(
 
 
 def test_a_hung_heartbeat_store_is_unknown_and_is_not_restarted(
-    client, email_outbox, redis_up, gate
+    client, email_outbox, redis_up, gate, waits
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -677,7 +758,7 @@ def test_a_hung_heartbeat_store_is_unknown_and_is_not_restarted(
 
     heartbeats.use_heartbeat_store(Hung())
     try:
-        bodies = _assert_hung_twice(client, workspace_id, "heartbeats", calls)
+        bodies = _assert_hung_twice(client, workspace_id, "heartbeats", calls, waits)
     finally:
         heartbeats.use_heartbeat_store(None)
     for body in bodies:
@@ -688,7 +769,7 @@ def test_a_hung_heartbeat_store_is_unknown_and_is_not_restarted(
 
 
 def test_a_hung_backup_file_is_unknown_and_is_not_restarted(
-    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch, waits
 ):
     # A FIFO without a writer blocks the reader in open(): a real hung file read.
     workspace_id = _operator(client, email_outbox)
@@ -704,7 +785,7 @@ def test_a_hung_backup_file_is_unknown_and_is_not_restarted(
 
     monkeypatch.setattr(backup_metrics, "read_values", counted)
     try:
-        for body in _assert_hung_twice(client, workspace_id, "backup", calls):
+        for body in _assert_hung_twice(client, workspace_id, "backup", calls, waits):
             assert body["backup"] == {
                 "status": "unknown",
                 "targets": {"postgres": None, "objects": None, "offsite": None},
@@ -717,7 +798,7 @@ def test_a_hung_backup_file_is_unknown_and_is_not_restarted(
 
 
 def test_hung_queue_aggregates_are_unknown_and_not_restarted(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -730,7 +811,7 @@ def test_hung_queue_aggregates_are_unknown_and_not_restarted(
         return 0, 0.0, 0
 
     monkeypatch.setattr(metrics, "read_queue_depth", hung)
-    for body in _assert_hung_twice(client, workspace_id, "jobs", calls):
+    for body in _assert_hung_twice(client, workspace_id, "jobs", calls, waits):
         assert body["queue"] == {
             "status": "unknown",
             "queued_due": None,
@@ -743,8 +824,8 @@ def test_hung_queue_aggregates_are_unknown_and_not_restarted(
         assert body["status"] == "degraded"
 
 
-def test_every_source_hung_at_once_still_answers_under_a_second(
-    client, email_outbox, gate, tmp_path, monkeypatch
+def test_every_source_hung_at_once_still_answers_within_one_deadline(
+    client, email_outbox, gate, tmp_path, monkeypatch, waits
 ):
     workspace_id = _operator(client, email_outbox)
 
@@ -767,8 +848,10 @@ def test_every_source_hung_at_once_still_answers_under_a_second(
     heartbeats.use_heartbeat_store(HungStore())
     try:
         for _ in range(2):
+            waits.clear()
             body, elapsed = _timed(client, workspace_id)
-            assert elapsed < 1.0, elapsed
+            assert elapsed < WIDE_BOUND_SECONDS, elapsed
+            _within_one_deadline(waits)  # even every source hung is bounded by one deadline
     finally:
         heartbeats.use_heartbeat_store(None)
     assert {dependency["status"] for dependency in body["dependencies"].values()} == {"timeout"}
@@ -810,20 +893,21 @@ def test_a_hung_metrics_scrape_does_not_block_the_summary(
     workspace_id = _operator(client, email_outbox)
     entered = threading.Event()
 
-    def hung(snapshot, factory, *, now):
+    def hung(self):
         entered.set()
         gate.wait(30)
 
-    # Only /metrics reads provider health: its refresh holds the collector lock for
-    # its whole stage deadline (3 s) while this source hangs.
-    monkeypatch.setattr(metrics, "collect_providers", hung)
+    # collect() runs refresh() inside the /metrics collector's lock: patching the
+    # class method (the app's collector is a local in create_app) makes the scrape
+    # hold that lock until gate is set, with no time limit at all.
+    monkeypatch.setattr(metrics.StateCollector, "refresh", hung)
     scrape = threading.Thread(target=client.get, args=("/metrics",), daemon=True)
     scrape.start()
     try:
         assert entered.wait(10)
-        body, elapsed = _timed(client, workspace_id)
-        assert elapsed < 1.0, elapsed
-        assert body["dependencies"]["database"]["status"] == "up"
+        body = _health(client, workspace_id)
+        assert body["dependencies"]["database"]["status"] == "up"  # the summary answered
+        assert scrape.is_alive()  # while the scrape still held the collector lock
     finally:
         gate.set()
         scrape.join(10)
@@ -831,7 +915,7 @@ def test_a_hung_metrics_scrape_does_not_block_the_summary(
 
 @pytest.mark.parametrize("source", ["database", "storage"])
 def test_a_source_still_hung_from_an_earlier_request_is_reported_at_once(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, source
+    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, source, waits
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -846,18 +930,22 @@ def test_a_source_still_hung_from_an_earlier_request_is_reported_at_once(
     assert elapsed >= system_health.DEADLINE_SECONDS  # this request started it and waited
 
     collector = client.app.state.system_health_collector
-    started = time.monotonic()
+    hung_call = collector._inflight[source]
+    waits.clear()
     second = collector.collect()
     # Still running from the first request: reported at once, not waited on again.
-    assert time.monotonic() - started < 0.4
+    assert collector._inflight[source] is hung_call  # no new call was started
+    _not_waited_on(waits, hung_call.future)
     assert second["dependencies"][source] == {"status": "timeout", "probe_seconds": None}
     for other in {"database", "redis", "storage"} - {source}:
         assert second["dependencies"][other]["status"] == "up"
     if source == "database":
         assert second["queue"]["status"] == "unknown"
-    body, elapsed = _timed(client, workspace_id)
+    waits.clear()
+    body = _health(client, workspace_id)
     assert body["dependencies"][source]["status"] == "timeout"
-    assert elapsed < 1.0
+    assert collector._inflight[source] is hung_call  # no new call was started
+    _not_waited_on(waits, hung_call.future)
 
 
 def test_a_call_started_by_an_earlier_request_never_answers_a_later_one(
@@ -935,7 +1023,7 @@ def test_overlapping_requests_on_a_healthy_install_are_all_up(
 
 
 def test_a_request_shares_a_young_call_that_another_request_started(
-    client, email_outbox, heartbeat_store, redis_up, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, monkeypatch, waits, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -948,7 +1036,7 @@ def test_a_request_shares_a_young_call_that_another_request_started(
     def slow(snapshot, storage):
         calls.append(1)
         entered.set()
-        shared.wait(0.4)  # until the second request holds this call
+        shared.wait(5)  # until the second request holds this call
         time.sleep(0.1)  # then slow, but well under the deadline
         collect_storage(snapshot, storage)
 
@@ -967,10 +1055,12 @@ def test_a_request_shares_a_young_call_that_another_request_started(
         return call
 
     monkeypatch.setattr(collector, "_start", start_and_signal)
+    waits.clear()  # record from just before the second request's collect
     started = time.monotonic()
     second = collector.collect()
     elapsed = time.monotonic() - started
     request_a.join(5)
+    _no_wait_ran_out(waits)  # the shared young call answered both, no deadline spent
     assert calls == [1]  # one probe answered both requests
     assert second["dependencies"]["storage"]["status"] == "up"
     assert first["dependencies"]["storage"]["status"] == "up"
@@ -978,7 +1068,7 @@ def test_a_request_shares_a_young_call_that_another_request_started(
         second["dependencies"]["storage"]["probe_seconds"]
         == (first["dependencies"]["storage"]["probe_seconds"])
     )
-    assert elapsed < system_health.DEADLINE_SECONDS
+    assert elapsed < WIDE_BOUND_SECONDS
 
 
 def test_a_shared_call_that_ends_after_its_own_deadline_does_not_count(
