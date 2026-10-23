@@ -304,11 +304,13 @@ def _view_fields(view: MeetingView) -> dict[str, object]:
 
 
 def _decision_point(view: MeetingView, point: object) -> object:
-    """A decision in this view, including a structured decision's owner (HOM-61)."""
+    """A decision in this view, including a structured decision's owner and
+    due date (HOM-61)."""
     rendered = view.point(point)
-    owner = rendered.get("owner") if isinstance(rendered, dict) else None
-    if view.redacted and isinstance(owner, dict) and isinstance(owner.get("value"), str):
-        rendered = {**rendered, "owner": {**owner, "value": view.text(owner["value"])}}
+    for key in ("owner", "due_date"):
+        detail = rendered.get(key) if isinstance(rendered, dict) else None
+        if view.redacted and isinstance(detail, dict) and isinstance(detail.get("value"), str):
+            rendered = {**rendered, key: {**detail, "value": view.text(detail["value"])}}
     return rendered
 
 

@@ -679,6 +679,9 @@ class MeetingView:
                     owner = point.get("owner")  # a structured decision (HOM-61)
                     if isinstance(owner, dict) and isinstance(owner.get("value"), str):
                         values.append(owner["value"])
+                    due_date = point.get("due_date")
+                    if isinstance(due_date, dict) and isinstance(due_date.get("value"), str):
+                        values.append(due_date["value"])
             values.extend(str(topic) for topic in summary.topics or [])
         actions = self.db.scalars(
             select(ActionItem)
