@@ -77,8 +77,10 @@ python3 infra/release/release_manifest.py verify --manifest release-manifest.jso
 checks the manifest's own `manifest_sha256` (an integrity checksum, not proof of authorship: it is
 unkeyed, so whoever edits a manifest can recompute it), the source commit and
 date, version, profile, `uv.lock` and `pyproject.toml` digests, migration head, shipped-code
-digest and file count, base image reference, uv version and the Python minor version, and with
-`--image-labels` the revision, version, created and base-image labels.
+digest and file count, base image reference, uv version and the Python minor version, that
+every base image in `build_inputs` is pinned by digest, and with `--image-labels` the revision,
+version, created and base-image labels. A manifest made before HOM-228 now fails `verify` on
+this pin check, because it records the console-web and egress-proxy base images as tags.
 
 CI does the same on every push and pull request (job `release-manifest`): it generates the
 manifest twice and compares the bytes, builds the API image with the `build-args` output,
@@ -118,17 +120,28 @@ Pinned:
 * Python dependencies (`Homayar/uv.lock`, enforced by `uv sync --locked`); the
   `installed_set_sha256` in `build-info.json` records the result;
 * the uv version (`UV_VERSION=0.11.24`, installed with pip by version, not by hash);
-* the API base image by digest (`python:3.12-slim-bookworm@sha256:34386e…`, the multi-platform
-  index resolved on 2026-10-18, Python 3.12.15).
+* the base image of every built image by digest, each the multi-platform index (the tag stays
+  in front of the digest):
+  * api `PYTHON_IMAGE`: `python:3.12-slim-bookworm@sha256:34386e…`, resolved on 2026-10-18,
+    Python 3.12.15;
+  * console-web `NODE_IMAGE`: `node:22-alpine@sha256:fe4f6d…`, resolved on 2026-10-23,
+    Node.js 22.23.4;
+  * console-web `NGINX_IMAGE`: `nginx:1.28-alpine@sha256:a8b39b…`, resolved on 2026-10-23,
+    nginx 1.28.3;
+  * egress-proxy `ALPINE_IMAGE`: `alpine:3.22@sha256:d40644…`, resolved on 2026-10-23,
+    Alpine 3.22.7.
+
+  `verify` exits 1 when a manifest records a base image that is not pinned by digest, so CI
+  fails on such a commit.
 
 Not pinned (recorded as such under `reproducibility.not_pinned` in every manifest):
 
 * Debian packages installed with `apt-get` (`build-essential`, `libpq-dev`, `ca-certificates`,
   `ffmpeg`, `libgomp1`, `libmagic1`, `libpq5`): they come from the Debian archive on the day of
   the build;
+* Alpine packages installed with `apk add` (`squid` in egress-proxy): they come from the
+  Alpine repository on the day of the build; pinning the Alpine base does not pin them;
 * file timestamps and layer digests;
-* the base images of `console-web` and `egress-proxy` (tags; the manifest records
-  them with `pinned_by_digest: false`);
 * signatures and provenance: the manifest and images are not signed and carry no provenance
   attestation, and the image ids recorded by CI are local ids, not registry digests.
 
@@ -137,7 +150,6 @@ Known gaps (documented, not addressed here):
 * `verify` does not compare the installed distribution set (`installed_set_sha256`); it is
   recorded in `build-info.json` for comparison by hand between builds;
 * uv is installed with `pip install uv==<version>`, by version, not by hash;
-* the on-prem Compose file's `PYTHON_IMAGE` default is a tag (see below);
 * `SOURCE_DATE_EPOCH` sets the image `created` time and labels, not the timestamps of files in
   the layers.
 
@@ -146,17 +158,22 @@ environments and caches, the same rule as `infra/docker/api.Dockerfile.dockerign
 image built from a dirty checkout with a real `SOURCE_SHA` fails `verify`. It does not hash the
 installed packages' files, only their names and versions.
 
-The on-prem Compose file passes `PYTHON_IMAGE` with the tag `python:3.12-slim-bookworm` as its
-default build argument, so `docker compose build` does not use the digest pin; such images are
-unreleased anyway (no `SOURCE_SHA`) and `verify` reports the base-image difference. Release
-images are built as above.
+The on-prem Compose file passes `PYTHON_IMAGE`, `NODE_IMAGE`, `NGINX_IMAGE` and `ALPINE_IMAGE`
+as build arguments. Their defaults are the same digest pins as the Dockerfiles, so
+`docker compose build` uses the pins. An operator can still set them to a mirror of the same
+digest. Compose images are unreleased anyway (no `SOURCE_SHA`). Release images are built as
+above.
 
 ## Maintenance
 
-* **Re-pin the base image** on purpose (for a Python patch or Debian security update): run
-  `docker buildx imagetools inspect python:3.12-slim-bookworm`, take the index `Digest`, update
-  `PYTHON_IMAGE` in `infra/docker/api.Dockerfile` and the date and Python version in its comment,
-  and rebuild. Keep the tag's Python minor version equal to `Homayar/.python-version`: the
+* **Re-pin a base image** on purpose (for a Python, Node.js, nginx or Alpine patch, or a
+  security update): run `docker buildx imagetools inspect <tag>`, take the index `Digest`, and
+  update the `ARG` default as `<tag>@sha256:<digest>` (`PYTHON_IMAGE` in
+  `infra/docker/api.Dockerfile`, `NODE_IMAGE` and `NGINX_IMAGE` in
+  `infra/docker/console-web.Dockerfile`, `ALPINE_IMAGE` in `infra/docker/egress-proxy.Dockerfile`)
+  and the date and upstream version in its comment. Put the same value in the matching default
+  of `infra/compose/compose.onprem.yaml`: `test_release_manifest.py` fails when they differ.
+  Then rebuild. Keep the Python tag's minor version equal to `Homayar/.python-version`: the
   manifest refuses a mismatch.
 * **Change dependencies** with `uv lock` (never by hand), then regenerate
   `Homayar/backend/requirements.txt` with

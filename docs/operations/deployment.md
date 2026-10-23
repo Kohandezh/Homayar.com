@@ -283,10 +283,16 @@ container-network test on one Docker host, not a validation of a production depl
 
 ## Image Policy
 
-Defaults are conservative local tags. Production deployments must override base and state
-images with reviewed digest references and record the digests with the release. Relevant
-overrides include `NODE_IMAGE`, `PYTHON_IMAGE`, `NGINX_IMAGE`, `POSTGRES_IMAGE`,
-`REDIS_IMAGE`, `MINIO_IMAGE`, `MINIO_MC_IMAGE`, and `NEO4J_IMAGE`.
+The base images of the built images (`PYTHON_IMAGE`, `NODE_IMAGE`, `NGINX_IMAGE`,
+`ALPINE_IMAGE`) are pinned by digest in the Dockerfiles and in the Compose build-argument
+defaults. Do not override them for a release; re-pin them on purpose
+(`docs/operations/release.md`). The release manifest records these digests. The runtime
+`proxy` service also reads `NGINX_IMAGE`, but its own default is still the tag
+`nginx:1.28-alpine`; a value you set changes both the proxy and the console-web build.
+
+The state images (`POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `MINIO_MC_IMAGE`,
+`NEO4J_IMAGE`) still default to tags. Production deployments must override them with reviewed
+digest references and record the digests with the release.
 
 Never place provider API keys in Docker build arguments. Add optional runtime providers in
 a deployment-specific Compose override whose secret values also use required substitutions.

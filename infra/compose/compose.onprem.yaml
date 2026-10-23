@@ -121,7 +121,7 @@ x-api-image: &api-image
     context: ../..
     dockerfile: infra/docker/api.Dockerfile
     args:
-      PYTHON_IMAGE: "${PYTHON_IMAGE:-python:3.12-slim-bookworm}"
+      PYTHON_IMAGE: "${PYTHON_IMAGE:-python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258}"
       UV_VERSION: "${UV_VERSION:-0.11.24}"
       INSTALL_AI_LOCAL: "${INSTALL_AI_LOCAL:-false}"
 
@@ -166,8 +166,8 @@ services:
       context: ../..
       dockerfile: infra/docker/console-web.Dockerfile
       args:
-        NODE_IMAGE: "${NODE_IMAGE:-node:22-alpine}"
-        NGINX_IMAGE: "${NGINX_IMAGE:-nginx:1.28-alpine}"
+        NODE_IMAGE: "${NODE_IMAGE:-node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914}"
+        NGINX_IMAGE: "${NGINX_IMAGE:-nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236}"
         VITE_API_URL: /api/v1
         VITE_BASE_PATH: /app/
     healthcheck:
@@ -307,7 +307,7 @@ services:
       context: ../..
       dockerfile: infra/docker/egress-proxy.Dockerfile
       args:
-        ALPINE_IMAGE: "${ALPINE_IMAGE:-alpine:3.22}"
+        ALPINE_IMAGE: "${ALPINE_IMAGE:-alpine:3.22@sha256:d406446bc05b82480756ce8f1287964d28768c23955fa9480d2a74a2eae7a654}"
     volumes:
       - "${EGRESS_ALLOWLIST_PATH:-../egress/allowlist.txt}:/etc/homayar/egress/allowlist.txt:ro"
     healthcheck:

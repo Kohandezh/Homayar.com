@@ -1,5 +1,9 @@
-ARG NODE_IMAGE=node:22-alpine
-ARG NGINX_IMAGE=nginx:1.28-alpine
+# Base images pinned by digest (HOM-228): the multi-platform indexes of
+# node:22-alpine (Node.js 22.23.4) and nginx:1.28-alpine (nginx 1.28.3) resolved on
+# 2026-10-23 with `docker buildx imagetools inspect <tag>`. Re-pin on purpose,
+# never by overriding NODE_IMAGE or NGINX_IMAGE for a release (docs/operations/release.md).
+ARG NODE_IMAGE=node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+ARG NGINX_IMAGE=nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
 
 # hadolint ignore=DL3006
 FROM ${NODE_IMAGE} AS build

@@ -21,7 +21,8 @@ variable, ``.env`` content or Git identity.
 ``build-args`` prints the ``KEY=VALUE`` Docker build arguments of the API image
 for the revision.  ``verify`` compares a manifest with the ``build-info.json``
 of an image (``backend/observability/release.py``) and, optionally, with the
-image's OCI labels; it exits 1 and prints each mismatch.
+image's OCI labels, and refuses a manifest with a base image that is not pinned by
+digest; it exits 1 and prints each mismatch.
 
 Standard library only (Python 3.12).
 """
@@ -81,6 +82,7 @@ ALWAYS_PINNED = [
 ]
 NEVER_PINNED = [
     "Debian packages installed with apt-get at build time",
+    "Alpine packages installed with apk add at build time (egress-proxy squid)",
     "image and layer digests (builds are not bit-for-bit reproducible)",
     "not signed / no provenance attestation; images are local ids, not registry digests",
 ]
@@ -425,6 +427,28 @@ def _get(document: Any, dotted: str) -> Any:
     return document
 
 
+def base_image_problems(manifest: dict[str, Any]) -> list[str]:
+    """Each base image of ``build_inputs`` that is not pinned by digest."""
+    build_inputs = manifest.get("build_inputs")
+    if not isinstance(build_inputs, dict) or not build_inputs:
+        return ["build_inputs: missing"]
+    problems = []
+    for image, inputs in sorted(build_inputs.items()):
+        bases = _get(inputs, "base_images")
+        if not isinstance(bases, dict) or not bases:
+            problems.append(f"build_inputs.{image}.base_images: no base image recorded")
+            continue
+        for arg, base in sorted(bases.items()):
+            reference = _get(base, "reference")
+            # Recomputed from the reference, so an edited pinned_by_digest flag cannot pass.
+            expected = image_reference(reference) if isinstance(reference, str) else None
+            if expected is None or not expected["pinned_by_digest"] or base != expected:
+                problems.append(
+                    f"build_inputs.{image}.base_images.{arg}: not pinned by digest ({reference!r})"
+                )
+    return problems
+
+
 def verify_documents(
     manifest: dict[str, Any],
     build_info: dict[str, Any],
@@ -463,6 +487,7 @@ def verify_documents(
         problems.append(
             f"runtime.python: manifest={python!r} build-info python_version={running!r}"
         )
+    problems.extend(base_image_problems(manifest))
     if _get(build_info, "source.sha") == UNRELEASED_SHA:
         problems.append("build-info: the image was built without release arguments (unreleased)")
     if labels is not None:
