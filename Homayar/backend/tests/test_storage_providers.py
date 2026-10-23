@@ -85,6 +85,9 @@ class FakeS3Client:
             raise FakeS3NotFound() from exc
         return {"ContentLength": len(stored["Body"]), "Metadata": stored["Metadata"]}
 
+    def head_bucket(self, **kwargs: Any) -> dict[str, Any]:
+        return {}
+
     def get_object(self, **kwargs: Any) -> Dict[str, Any]:
         try:
             stored = self.objects[kwargs["Key"]]

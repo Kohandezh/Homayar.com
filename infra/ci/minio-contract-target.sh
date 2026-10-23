@@ -13,7 +13,9 @@
 # backend/tests/_minio_s3.py reads. Every credential is random and new on each `up`.
 # The root credentials stay inside this script. No credential value is printed.
 #
-# `down` removes that container. It is safe to run twice and removes nothing else.
+# `down` removes that container and its anonymous volumes. It is safe to run
+# twice and removes nothing else: `--volumes` only drops that container's
+# anonymous volumes, never named volumes.
 set -Eeuo pipefail
 
 # The official quay.io/minio images now need a login and the Docker Hub copies are gone.
@@ -82,7 +84,7 @@ cleanup_up() {
   fi
   # On any failure, leave no container behind.
   if [[ "${status}" -ne 0 && -n "${UP_CONTAINER}" ]]; then
-    docker rm --force "${UP_CONTAINER}" >/dev/null 2>&1 || true
+    docker rm --force --volumes "${UP_CONTAINER}" >/dev/null 2>&1 || true
   fi
 }
 
@@ -229,7 +231,7 @@ down() {
   local port="$1" name
   check_port "${port}"
   name="$(container_name "${port}")"
-  docker rm --force "${name}" >/dev/null 2>&1 || true
+  docker rm --force --volumes "${name}" >/dev/null 2>&1 || true
   if [[ -n "$(docker ps -aq --filter "name=^${name}$")" ]]; then
     printf 'ERROR: container %s is still present\n' "${name}" >&2
     exit 1

@@ -99,6 +99,7 @@ EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 _OP_NAMES = {
     "put": "PutObject",
     "head": "HeadObject",
+    "head_bucket": "HeadBucket",
     "get": "GetObject",
     "delete": "DeleteObject",
     "list": "ListObjectsV2",
@@ -145,6 +146,9 @@ class ContractS3Client:
     * ``IfNoneMatch="*"`` on an existing key → 412 ``PreconditionFailed``;
     * ``head_object`` on a missing key → ``ClientError`` code ``404`` (as boto3
       reports it); ``get_object`` → ``NoSuchKey`` 404;
+    * ``bucket_exists=False`` models MinIO on a missing bucket: ``head_object``
+      and ``head_bucket`` answer a bodiless ``ClientError`` code ``404`` with
+      HTTP 404 for every key;
     * ``list_objects_v2`` paginates with ``page_size`` and can emit an empty
       truncated first page (permitted by the S3 API);
     * per-operation faults: ``deny`` (403 ``AccessDenied``), ``transient``
@@ -154,13 +158,16 @@ class ContractS3Client:
     Every API operation name is appended to ``operations``.
     """
 
-    def __init__(self, *, page_size: int = 2, empty_first_page: bool = False) -> None:
+    def __init__(
+        self, *, page_size: int = 2, empty_first_page: bool = False, bucket_exists: bool = True
+    ) -> None:
         self.objects: dict[str, dict[str, Any]] = {}
         self.operations: list[str] = []
         self.faults: dict[str, str] = {}
         self.bodies: list[_TrackingBody] = []
         self.page_size = page_size
         self.empty_first_page = empty_first_page
+        self.bucket_exists = bucket_exists
 
     def _enter(self, op: str) -> str | None:
         name = _OP_NAMES[op]
@@ -186,10 +193,18 @@ class ContractS3Client:
 
     def head_object(self, **kwargs: Any) -> dict[str, Any]:
         self._enter("head")
+        if not self.bucket_exists:
+            raise _client_error("404", 404, "HeadObject")
         stored = self.objects.get(kwargs["Key"])
         if stored is None:
             raise _client_error("404", 404, "HeadObject")
         return {"ContentLength": len(stored["Body"]), "Metadata": stored["Metadata"]}
+
+    def head_bucket(self, **kwargs: Any) -> dict[str, Any]:
+        self._enter("head_bucket")
+        if not self.bucket_exists:
+            raise _client_error("404", 404, "HeadBucket")
+        return {}
 
     def get_object(self, **kwargs: Any) -> dict[str, Any]:
         mode = self._enter("get")
@@ -1026,6 +1041,36 @@ def test_s3_missing_bucket_is_never_reported_as_a_missing_object() -> None:
     assert client.objects.get(harness.key_for(TOKEN_B)) is None
 
 
+def test_s3_bodiless_head_404_confirms_the_bucket_before_answering_missing() -> None:
+    # MinIO answers HEAD object on a missing bucket with a bodiless 404, the
+    # same shape as a missing object; the adapter must confirm the bucket.
+    missing = ContractS3Client(bucket_exists=False)
+    missing_harness = _s3_harness(missing)
+    key = missing_harness.key_for(TOKEN_A)
+
+    with pytest.raises(StorageError) as head_error:
+        missing_harness.storage.exists(missing_harness.tenant, key)
+    with pytest.raises(StorageError) as delete_error:
+        missing_harness.storage.delete(missing_harness.tenant, key)
+    for error in (head_error, delete_error):
+        assert not isinstance(error.value, ObjectNotFoundError)
+        assert error.value.code == "s3_bucket_unavailable"
+    assert missing.operations == [
+        "HeadObject",
+        "HeadBucket",
+        "HeadObject",
+        "HeadBucket",
+    ]  # delete() goes through exists(): one HEAD pair per call
+
+    # Allow-control: with the bucket present, a key that was never written is
+    # only a missing object.
+    present = ContractS3Client()
+    present_harness = _s3_harness(present)
+    control_key = present_harness.key_for(TOKEN_A)
+    assert present_harness.storage.exists(present_harness.tenant, control_key) is False
+    assert present_harness.storage.delete(present_harness.tenant, control_key) is False
+
+
 def test_s3_incomplete_get_response_is_an_invalid_response_not_missing() -> None:
     client = ContractS3Client()
     harness = _s3_harness(client)
@@ -1226,7 +1271,20 @@ def test_s3_real_client_errors_are_classified_distinctly(sdk_probe: SdkProbe) ->
         storage.open_reader("tenant-a", key)
 
     stub.add_client_error("head_object", service_error_code="404", http_status_code=404)
+    stub.add_response("head_bucket", {})
     assert storage.exists("tenant-a", key) is False
+
+    stub.add_client_error("head_object", service_error_code="404", http_status_code=404)
+    stub.add_client_error("head_bucket", service_error_code="404", http_status_code=404)
+    with pytest.raises(StorageError) as missing_bucket:
+        storage.exists("tenant-a", key)
+    assert missing_bucket.value.code == "s3_bucket_unavailable"
+
+    stub.add_client_error("head_object", service_error_code="404", http_status_code=404)
+    stub.add_client_error("head_bucket", service_error_code="AccessDenied", http_status_code=403)
+    with pytest.raises(StorageError) as denied_probe:
+        storage.exists("tenant-a", key)
+    assert denied_probe.value.code == "s3_head_failed"
 
     stub.add_client_error("head_object", service_error_code="AccessDenied", http_status_code=403)
     with pytest.raises(StorageError) as denied:
@@ -1253,6 +1311,11 @@ def test_s3_real_client_errors_are_classified_distinctly(sdk_probe: SdkProbe) ->
     assert sdk_probe.operations == [
         "GetObject",
         "HeadObject",
+        "HeadBucket",
+        "HeadObject",
+        "HeadBucket",
+        "HeadObject",
+        "HeadBucket",
         "HeadObject",
         "GetObject",
         "HeadObject",
@@ -1617,24 +1680,29 @@ def test_minio_missing_bucket_is_unavailable_for_reads_and_listing(minio_run: Mi
 
 
 @pytest.mark.minio_s3
-@pytest.mark.xfail(
-    strict=True,
-    raises=pytest.fail.Exception,
-    reason="HEAD on a missing bucket is a bodiless 404; adapter gap, follow-up ticket",
-)
 def test_minio_missing_bucket_is_never_reported_as_a_missing_object(minio_run: MinioRun) -> None:
-    target = minio_run.target
+    run = minio_run
+    target = run.target
     probe = _minio_storage(
         target,
         access_key_id=target.probe_access_key_id,
         secret_access_key=target.probe_secret_access_key,
         bucket=target.missing_bucket,
     )
-    key = minio_run.key_for(minio_run.token())
-    with pytest.raises(StorageError):
-        probe.exists(minio_run.tenant, key)
-    with pytest.raises(StorageError):
-        probe.delete(minio_run.tenant, key)
+    key = run.key_for(run.token())
+
+    with pytest.raises(StorageError) as head_error:
+        probe.exists(run.tenant, key)
+    with pytest.raises(StorageError) as delete_error:
+        probe.delete(run.tenant, key)
+    for error in (head_error, delete_error):
+        assert not isinstance(error.value, ObjectNotFoundError)
+        assert error.value.code == "s3_bucket_unavailable"
+
+    # Allow-control: on the real bucket the app key still answers "missing"
+    # for a key that was never written.
+    assert run.app.exists(run.tenant, key) is False
+    assert run.app.delete(run.tenant, key) is False
 
 
 @pytest.mark.minio_s3
