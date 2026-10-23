@@ -16,13 +16,19 @@ No row is stored when there is nothing to judge: a legacy result or no analysis
 (reason ``not_requested``), or an output that left the extraction out
 (``missing_from_output``, one warning log).  The rest of the analysis is kept either
 way.  Nothing here logs or audits a label or a text.
+
+The call report reads the row of the current run (``current_extraction``), the
+label names of the taxonomy version the row was judged with (``label_names``), and
+where in a turn an entity text was quoted (``quoted_region``).
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.analysis_taxonomy import (
@@ -31,6 +37,7 @@ from backend.analysis_taxonomy import (
     Disposition,
     PolicyResult,
     PolicyValue,
+    TaxonomyError,
     evaluate_extraction,
     load_taxonomy,
 )
@@ -38,6 +45,7 @@ from backend.database.saas_models import (
     AnalysisExtraction,
     AnalysisRun,
     Meeting,
+    StageState,
     TranscriptRevision,
     TranscriptSegment,
 )
@@ -48,6 +56,8 @@ from backend.services.evidence_service import (
     resolve_turn_references,
 )
 from backend.services.logging_service import logger
+from backend.services.transcript_service import current_analysis_run
+from backend.speech.text_normalize import normalize_for_matching
 
 # The pinned taxonomy; the provider asks in the same one (``openai_compatible``).
 TAXONOMY_ID = "conversation"
@@ -58,6 +68,16 @@ STATE_UNAVAILABLE = "unavailable"  # no row: no analysis, or a legacy result
 STATE_INVALID = "invalid"
 STATE_REVIEW_REQUIRED = "review_required"
 STATE_ACCEPTED = "accepted"
+
+# The four fields of a stored result, in citation order.
+EXTRACTION_FIELDS: tuple[str, ...] = tuple(DIMENSIONS)
+
+# A current run in one of these states analysed nothing, so it shows no extraction.
+_NO_ANALYSIS_STATES = frozenset({StageState.SKIPPED, StageState.UNAVAILABLE, StageState.FAILED})
+
+# The validator folds entity texts and turns as Persian (``normalize_for_matching``).
+_MATCH_LANGUAGE = "fa"
+_WORD = re.compile(r"\S+")
 
 # ``extraction_reason`` of the completion audit events when no row is stored.
 REASON_MISSING = "missing_from_output"  # asked for, but the output had none
@@ -164,3 +184,78 @@ def extraction_audit_details(
         "extraction_review_count": row.review_count if row is not None else 0,
         "extraction_reason": reason,
     }
+
+
+def current_extraction(
+    db: Session, *, workspace_id: str, meeting_id: str
+) -> AnalysisExtraction | None:
+    """The row of the meeting's current analysis run; ``None`` when there is no
+    current run, the run analysed nothing, or it stored no row.  Never the row of
+    another run."""
+    run = current_analysis_run(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    if run is None or run.state in _NO_ANALYSIS_STATES:
+        return None
+    return db.scalar(
+        select(AnalysisExtraction).where(
+            AnalysisExtraction.workspace_id == workspace_id,
+            AnalysisExtraction.meeting_id == meeting_id,
+            AnalysisExtraction.analysis_run_id == run.id,
+        )
+    )
+
+
+def label_names(row: AnalysisExtraction) -> dict[tuple[str, str], tuple[str, str]] | None:
+    """``(field, label id) -> (English name, Persian name)`` from the taxonomy version
+    the row was judged with, never a newer one.  ``None`` when that version cannot be
+    loaded (unknown version, or a digest that does not match)."""
+    try:
+        taxonomy = load_taxonomy(
+            row.taxonomy_id, row.taxonomy_version, expected_digest=row.taxonomy_digest
+        )
+    except TaxonomyError:
+        return None
+    return {
+        (name, label.id): (label.name_en, label.name_fa)
+        for name in DIMENSIONS
+        for label in taxonomy.dimension(name).labels
+    }
+
+
+def _fold(text: str) -> str:
+    return normalize_for_matching(text, _MATCH_LANGUAGE)
+
+
+def quoted_regions(turn: str, quote: str) -> list[tuple[int, int]]:
+    """Every region of ``turn`` that ``quote`` quotes, in text order.
+
+    The validator's rule: the folded quote is a whole run of tokens of the folded
+    turn.  Each word of ``turn`` is folded alone so its tokens keep the word's
+    offsets; this is used only when those tokens are exactly the folded turn.  A
+    region is the words a matching run covers, or the exact quote inside them when
+    it is there.  When the words cannot be lined up with the folded turn, the
+    regions are the exact occurrences of ``quote``.
+    """
+    tokens: list[tuple[str, int, int]] = []
+    for word in _WORD.finditer(turn):
+        tokens.extend((token, word.start(), word.end()) for token in _fold(word.group()).split())
+    if " ".join(token for token, _start, _end in tokens) != _fold(turn):
+        if not quote:
+            return []
+        exact = [match.start() for match in re.finditer(re.escape(quote), turn)]
+        return [(start, start + len(quote)) for start in exact]
+    needle = _fold(quote).split()
+    regions: list[tuple[int, int]] = []
+    for first in range(len(tokens) - len(needle) + 1 if needle else 0):
+        if [token for token, _s, _e in tokens[first : first + len(needle)]] == needle:
+            start, end = tokens[first][1], tokens[first + len(needle) - 1][2]
+            inside = turn.find(quote, start, end)
+            region = (inside, inside + len(quote)) if inside >= 0 else (start, end)
+            if region not in regions:
+                regions.append(region)
+    return regions
+
+
+def quoted_region(turn: str, quote: str) -> tuple[int, int] | None:
+    """The first region of ``quoted_regions``, or ``None``."""
+    regions = quoted_regions(turn, quote)
+    return regions[0] if regions else None

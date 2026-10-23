@@ -11,9 +11,10 @@ HOM-52 (WP11-T02). This package defines what an analysis may say about a convers
 - a pure, versioned policy (HOM-53) that decides what is shown, what is withheld for low
   confidence and what goes to human review.
 
-Nothing in the backend uses it yet. HOM-53 wires it into the provider prompt and the
-pipeline. HOM-54 builds scorecards on its label ids. There is no table, no API and no
-migration here.
+HOM-53 uses it in the provider prompt, the analysis stage and the call report (see
+"How HOM-53 uses it"). HOM-54 builds scorecards on its label ids. This package has no
+table, no API and no migration of its own: the stage stores its result in the
+`analysis_extractions` table, and the report reads that table.
 
 Import everything from `backend.analysis_taxonomy`.
 
@@ -274,6 +275,31 @@ Only two backend modules import this package. A test pins that list.
 7. To read an old result, call
    `load_taxonomy(taxonomy_id, taxonomy_version, expected_digest=taxonomy_digest)`. Never
    judge an old result again with a newer version.
+8. The call report (`GET /meetings/{meeting_id}/report`) has one `extraction` block. It
+   shows the row of the meeting's current analysis run, never a row of another run.
+   `status` is `available` (a valid row), `invalid` (a row with `valid = false`) or
+   `unavailable` (no current run, a run that analysed nothing, or no row). The block
+   copies the row's ids, versions, `needs_review` and `review_count`. All four fields
+   are always there. A field shows its stored `status`, `abstain_reason`,
+   `review_required` and its kept values. A rejected field, and every field of an
+   `unavailable` block, is `unavailable` with no values. Each value has its `index` (its
+   `finding_index`), its label and the label's English and Persian names, read with
+   `load_taxonomy(row.taxonomy_id, row.taxonomy_version,
+   expected_digest=row.taxonomy_digest)`. If that load fails, the names are `null` and
+   the report still answers. An entity value's text is the stored text in the original
+   view. In a redacted view every region the text quotes in its cited turns is rendered
+   like an evidence reference, and the first rendering that holds a placeholder is
+   shown (else the first rendering), so a part of a phone or email shows the whole
+   value's placeholder. With no region at all it is the redacted stored text only when
+   the run read turns redacted under the same policy as the view
+   (`AnalysisRun.input_policy_digest` equals the view's policy digest), else `null`: a
+   run redacted with other classes may have quoted a raw part of a value of a class added
+   later, which `MeetingView.text` cannot spot. Each value cites the extraction
+   spans of its index, with the same evidence status rules as the other report findings.
+   Withheld values and stored issues are never shown. The block adds nothing to
+   `qa.findings`, the counts, the notices or the review actions, and `report_version`
+   stays `1`. Share links and exports never carry it. Only
+   `backend/services/analysis_extraction.py` reads the package for the report.
 
 ## Confidence and abstention policy
 
@@ -284,7 +310,8 @@ result = evaluate_extraction(extraction, taxonomy, turns)
 ```
 
 The policy reads only the validator result. It is pure and deterministic, and it never
-changes its input. It does no I/O and logs nothing. Nothing in the backend calls it yet.
+changes its input. It does no I/O and logs nothing. The analysis stage calls it (see
+"How HOM-53 uses it").
 
 ### Version 1
 
@@ -413,5 +440,7 @@ says what the resolution **is**, with its own basis and turns.
 - `insufficient_evidence` and `contradictory` have no report word. Never show them as
   `not_stated`.
 
-The two come from different facts and can disagree. This package changes neither the
-report nor its rule.
+The two come from different facts and can disagree. The report shows both: its
+`outcome.state` from the decisions, and the taxonomy `outcome` field in the
+`extraction` block, with `insufficient_evidence` and `contradictory` shown as they are.
+The extraction never changes `outcome.state` or its rule.
