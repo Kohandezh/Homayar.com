@@ -504,7 +504,7 @@ def test_a_malformed_due_date_stays_unavailable(
     assert reported["due_date"] == UNAVAILABLE
     assert reported["owner"] == _stated("تیم فروش")
     (summarized,) = _summary(client, tenant, meeting_id)["decisions"]
-    assert summarized.get("due_date", MISSING) == detail
+    assert summarized.get("due_date", MISSING) == (MISSING if detail is MISSING else UNAVAILABLE)
 
 
 UNREADABLE_STATUSES = [
@@ -535,7 +535,7 @@ def test_a_phone_under_an_unreadable_status_is_masked_and_never_stated(
     assert _due_dates(report["outcome"]["decisions"]) == [reported]
     assert not _shows(report)
     summary = _summary(client, tenant, meeting_id)
-    assert _due_dates(summary["decisions"]) == [{**status, "value": CALL_ALI_SHOWN}]
+    assert _due_dates(summary["decisions"]) == [reported]
     assert not _shows(summary)
 
 

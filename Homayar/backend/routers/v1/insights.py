@@ -303,14 +303,34 @@ def _view_fields(view: MeetingView) -> dict[str, object]:
     return {"view": policy.view, "privacy_enforced": policy.enforced, "redaction": redaction}
 
 
+def decision_detail(detail: object) -> tuple[str, str | None]:
+    """The only shape a stored decision detail (HOM-61 owner / due date)
+    leaves in: a stated string value, not_stated, or unavailable
+    (HOM-294); anything else is never upgraded to stated."""
+    status = detail.get("status") if isinstance(detail, dict) else None
+    value = detail.get("value") if isinstance(detail, dict) else None
+    if status == "stated" and isinstance(value, str):
+        return "stated", value
+    if status == "not_stated":
+        return "not_stated", None
+    return "unavailable", None
+
+
 def _decision_point(view: MeetingView, point: object) -> object:
     """A decision in this view, including a structured decision's owner and
-    due date (HOM-61)."""
+    due date (HOM-61); a present detail key leaves only in its allowed
+    shape, an absent one stays absent."""
     rendered = view.point(point)
+    if not isinstance(rendered, dict):
+        return rendered
     for key in ("owner", "due_date"):
-        detail = rendered.get(key) if isinstance(rendered, dict) else None
-        if view.redacted and isinstance(detail, dict) and isinstance(detail.get("value"), str):
-            rendered = {**rendered, key: {**detail, "value": view.text(detail["value"])}}
+        if key not in rendered:
+            continue
+        status, value = decision_detail(rendered[key])
+        rendered = {
+            **rendered,
+            key: {"status": status, "value": view.text(value) if value is not None else None},
+        }
     return rendered
 
 
@@ -323,6 +343,9 @@ def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryRespo
             "key_points": [point for point in response.key_points if claim_section(point) is None]
         }
     )
+    response = response.model_copy(
+        update={"decisions": [_decision_point(view, point) for point in response.decisions]}
+    )
     if not view.redacted:
         return response
     return response.model_copy(
@@ -330,7 +353,6 @@ def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryRespo
             "overview": view.text(response.overview) or "",
             "topics": view.texts(response.topics),
             "key_points": [view.point(point) for point in response.key_points],
-            "decisions": [_decision_point(view, point) for point in response.decisions],
         }
     )
 

@@ -314,8 +314,8 @@ def test_status_shapes_are_unchanged(client, email_outbox, monkeypatch, settings
     summary = _summary(client, tenant, meeting_id)
     assert _summary_due_dates(summary) == [
         NOT_STATED,
-        _stated(42),
-        {"status": "maybe", "value": "تا [PHONE_2]"},
+        unavailable,
+        unavailable,
         NOT_STATED,
     ]
     assert summary["decisions"][3]["owner"] == _stated("مسئول [PHONE_2]")
