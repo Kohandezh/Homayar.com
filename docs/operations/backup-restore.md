@@ -27,11 +27,35 @@ on every restore.
    Write the printed line to a root-owned mode-0600 file on the host (`BACKUP_KEY_FILE`). Losing
    the key loses every set made with it; rotation = new key id for new sets, keep old keys until
    their sets expire.
-2. **Backup root** (`BACKUP_ROOT`): encrypted storage on a different disk / failure domain than
+2. **Admin DSN file** (`BACKUP_DATABASE_URL_FILE`, recommended). A backup bypasses row-level
+   security, so the tool needs a superuser or BYPASSRLS login. Keep that DSN in its own file, so
+   no application service ever sees it. The file holds one line, the DSN only:
+
+   ```text
+   postgresql+psycopg://<admin-user>:<password>@postgres:5432/<db>
+   ```
+
+   Write it with an editor (not `echo`, which keeps the password in the shell history). Keep it
+   outside the repository and outside `BACKUP_ROOT`. It must be owned by the user the container
+   runs as (`BACKUP_UID:BACKUP_GID`), mode 0400:
+
+   ```bash
+   export BACKUP_UID="${BACKUP_UID:-$(id -u)}" BACKUP_GID="${BACKUP_GID:-$(id -g)}"
+   sudo chown "$BACKUP_UID:$BACKUP_GID" /etc/homayar/backup-database-url
+   sudo chmod 0400 /etc/homayar/backup-database-url
+   ```
+
+   Create the file before you set the variable: for a path that does not exist, Docker creates
+   a root-owned directory there and the run fails. Set `BACKUP_DATABASE_URL_FILE` to its host
+   path. A relative path resolves against `infra/compose/`, like the other bind mounts.
+   Compose mounts it read-only at `/run/secrets/homayar-backup-database-url` in `backup-tool`
+   only. When it is unset, the tool falls back to `DATABASE_URL`, which must then log in as
+   `POSTGRES_USER` (superuser).
+3. **Backup root** (`BACKUP_ROOT`): encrypted storage on a different disk / failure domain than
    the Compose volumes, owned by the operator account (`BACKUP_UID`/`BACKUP_GID`, default the
    calling user; export both when running `docker compose ... run backup-tool` directly), mode
    0700.
-3. **Off-site target** (at least one): an `s3://bucket/prefix` on another host
+4. **Off-site target** (at least one): an `s3://bucket/prefix` on another host
    (`BACKUP_OFFSITE`, credentials `BACKUP_OFFSITE_S3_ENDPOINT` / `_ACCESS_KEY` / `_SECRET_KEY` /
    `_REGION`; the host must be on the egress allowlist and `EGRESS_PROXY_URL` set; recommended),
    or a mounted directory of another host or medium (`BACKUP_OFFSITE_PATH`). When you provision a
@@ -93,13 +117,13 @@ on every restore.
    copy that is being uploaded again is not touched. A denied `s3:PutObjectRetention` is
    reported in `errors` and fails the run, because the monthly sets would then be locked only
    for the default period.
-4. **Tombstone journal**: bind `TOMBSTONE_JOURNAL_PATH` to a host directory outside the
+5. **Tombstone journal**: bind `TOMBSTONE_JOURNAL_PATH` to a host directory outside the
    PostgreSQL and MinIO failure domains and replicate it continuously off the host (rsync/zfs
    send/object replication). Never restore it from an older copy; keep its files at least as long
    as the oldest set that may still be restored. Deletions newer than the replica's last sync are
    lost on a restore: the replication interval is that window. Nothing measures or alerts on it
    yet; add a replication-age check.
-5. **Alerting** (contract with Lane D): the node_exporter textfile
+6. **Alerting** (contract with Lane D): the node_exporter textfile
    `$NODE_EXPORTER_TEXTFILE_DIR/homayar_backup.prom` is rewritten under a lock, through a unique
    temporary file and an atomic rename (file 0644; the directory's mode is left alone), with
 
@@ -144,7 +168,7 @@ Settings used by the tool (documented here; the application `.env.example` belon
 | `BACKUP_ROOT` | `infra/backups` | sets, restore work dirs |
 | `BACKUP_KEY_FILE` | — (required) | mounted as `HOMAYAR_BACKUP_KEY_FILE` |
 | `NODE_EXPORTER_TEXTFILE_DIR` | — (required by `backup.sh`; outside `BACKUP_ROOT`; `BACKUP_TEXTFILE_DIR` is accepted as an alias) | node_exporter's textfile directory, mounted at `/textfile` |
-| `BACKUP_DATABASE_URL` / `BACKUP_DATABASE_URL_FILE` | `DATABASE_URL` | superuser / BYPASSRLS DSN; never passed on the command line |
+| `BACKUP_DATABASE_URL` / `BACKUP_DATABASE_URL_FILE` | `DATABASE_URL` | superuser / BYPASSRLS DSN; never passed on the command line. In Compose only `BACKUP_DATABASE_URL_FILE` is supported: a host path, mounted read-only at `/run/secrets/homayar-backup-database-url` (step 2). Unset: fallback to `DATABASE_URL` |
 | `BACKUP_OFFSITE` / `BACKUP_OFFSITE_PATH` | — | off-site target |
 | `BACKUP_OFFSITE_S3_*` | — | S3 off-site credentials and endpoint |
 | `HOMAYAR_RELEASE_SHA` / `HOMAYAR_RELEASE_VERSION` | — | recorded in the manifest (else `unknown`) |
@@ -154,6 +178,7 @@ Settings used by the tool (documented here; the application `.env.example` belon
 
 ```bash
 BACKUP_ROOT=/secure/homayar-backups BACKUP_KEY_FILE=/etc/homayar/backup.key \
+BACKUP_DATABASE_URL_FILE=/etc/homayar/backup-database-url \
 BACKUP_OFFSITE=s3://homayar-offsite/site-a COMPOSE_ENV_FILE=/etc/homayar/onprem.env \
 NODE_EXPORTER_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
   infra/scripts/backup.sh
@@ -162,7 +187,7 @@ NODE_EXPORTER_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
 Run it daily (systemd timer or cron) while the stack runs, as the account that owns
 `NODE_EXPORTER_TEXTFILE_DIR` (or with `BACKUP_UID`/`BACKUP_GID` set to its owner); it does not
 stop traffic. Use absolute paths: a relative `BACKUP_ROOT`, `BACKUP_KEY_FILE`,
-`BACKUP_OFFSITE_PATH` or `NODE_EXPORTER_TEXTFILE_DIR` is resolved against the Compose file's
+`BACKUP_DATABASE_URL_FILE`, `BACKUP_OFFSITE_PATH` or `NODE_EXPORTER_TEXTFILE_DIR` is resolved against the Compose file's
 directory (`infra/compose/`), the same base Compose uses for its bind mounts. Steps:
 `textfile-check` → `create` → `verify` (full decryption; marks the set verified and moves the
 gauges) → `replicate` → `prune` (the backup root and the off-site copy). Exit codes: 0 done;
@@ -219,6 +244,7 @@ reconciliation.
    ```bash
    COMPOSE_PROJECT_NAME=homayar-restore COMPOSE_ENV_FILE=/etc/homayar/onprem.env \
    BACKUP_ROOT=/secure/homayar-backups BACKUP_KEY_FILE=/etc/homayar/backup.key \
+   BACKUP_DATABASE_URL_FILE=/etc/homayar/backup-database-url \
    TOMBSTONE_JOURNAL_PATH=/replica/homayar-tombstones \
      infra/scripts/restore-isolated.sh --backup 20261017T020000Z-0a1b2c3d \
        --fetch s3://homayar-offsite/site-a --start-app
