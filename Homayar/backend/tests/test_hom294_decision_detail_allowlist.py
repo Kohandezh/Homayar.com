@@ -372,7 +372,7 @@ def test_the_original_view_keeps_only_the_allowed_shapes(
 
 ABSENT = object()
 # A present detail that must collapse to unavailable, extra key and all.
-MALFORMED = {"status": "stated", "value": 20261103, "note": PHONE}
+MALFORMED_DETAIL = {"status": "stated", "value": 20261103, "note": PHONE}
 
 
 def _absent_decision(owner, due_date) -> dict:
@@ -396,8 +396,8 @@ def _assert_detail_key(point: dict, key: str, detail) -> None:
     ("name", "owner", "due_date"),
     [
         pytest.param("both-absent", ABSENT, ABSENT, id="both-absent"),
-        pytest.param("owner-absent", ABSENT, MALFORMED, id="owner-absent"),
-        pytest.param("due-date-absent", MALFORMED, ABSENT, id="due-date-absent"),
+        pytest.param("owner-absent", ABSENT, MALFORMED_DETAIL, id="owner-absent"),
+        pytest.param("due-date-absent", MALFORMED_DETAIL, ABSENT, id="due-date-absent"),
     ],
 )
 def test_an_absent_detail_key_stays_absent(
