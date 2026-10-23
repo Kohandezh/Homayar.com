@@ -34,6 +34,7 @@ from backend.services.issue_trend_service import (
     organization_release,
     point_finder,
     remainder_unsafe,
+    team_filter_masks,
     team_parts,
     week_passes,
     week_stats,
@@ -288,12 +289,27 @@ def test_every_subset_of_teams_as_the_request():
         parts, rest, release = release_of(judged, points=points)
         teams = set(parts)
         for requested in _subsets(teams):
-            requested = set(requested)
-            # /trends/teams releases a team only from the canonical set
-            assert {t for t in requested if t in release.window} <= release.window
-            # /trends/issues?team_id= is released only if every requested team is in it
-            released_union = requested <= release.window
-            assert released_union == all(t in release.window for t in requested)
+            requested = frozenset(requested)
+            # the real decision of /trends/issues?team_id= (and of /trends/teams for one team)
+            masks = team_filter_masks(requested, release, has_points=bool(points))
+            if LAYER_WINDOW not in masks:
+                assert requested <= release.window, (points, requested)
+                # what the attacker can build from it is never unsafe
+                built = remainder(parts, rest, set(requested))
+                assert not remainder_unsafe(built, LAYER_WINDOW), (points, requested)
+            else:
+                assert not requested <= release.window, (points, requested)
+                assert LAYER_POINTS in masks or not points  # the points go with the window
+            if points and not masks:
+                built = remainder(parts, rest, set(requested))
+                assert not remainder_unsafe(built, LAYER_POINTS), requested
+            for team_id in requested:
+                alone = team_filter_masks(frozenset({team_id}), release, has_points=bool(points))
+                assert (LAYER_WINDOW not in alone) == (team_id in release.window), team_id
+        # a requested team with no conversation in the scope adds nothing and blocks nothing
+        assert team_filter_masks(frozenset({"elsewhere"}), release, has_points=bool(points)) == (
+            frozenset()
+        )
         for layer, released in ((LAYER_WINDOW, release.window), (LAYER_POINTS, release.points)):
             if layer == LAYER_POINTS and not points:
                 continue
@@ -464,8 +480,15 @@ def test_comparisons_are_pairs_in_a_fixed_order_and_never_a_rank():
     assert result[1]["status"] == "insufficient_sample" and result[1]["difference"] is None
     assert result[2]["status"] == "not_computable"
     assert result[2]["reason"] == "scorecard_results_unavailable"
-    assert {result[3]["reason"], result[4]["reason"]} == {REASON_SMALL_GROUP}
-    assert result[6]["reason"] == REASON_COMPLEMENTARY
+    # a small or withheld side is withheld on every row, the qa row included (F1)
+    assert [(c["status"], c["reason"]) for c in result[3:6]] == [
+        ("withheld", REASON_SMALL_GROUP)
+    ] * 3
+    assert [(c["status"], c["reason"]) for c in result[6:9]] == [
+        ("withheld", REASON_COMPLEMENTARY)
+    ] * 3
+    # allow-control: the qa row of two released rate teams stays not_computable
+    assert result[2]["family"] == "qa" and result[2]["status"] == "not_computable"
     for comparison in result:
         assert not {"rank", "score", "best", "worst"} & set(comparison)
 
@@ -481,8 +504,18 @@ def test_compared_teams_check_the_count_then_the_scope():
         compared_teams(comparable[:3], ["t0", "elsewhere"])
     assert (foreign.value.status_code, foreign.value.code) == (403, "team_scope_denied")
     with pytest.raises(TrendViewError) as none:
-        compared_teams([], [])
+        compared_teams([], [])  # a member or viewer with no comparable team
     assert (none.value.code, none.value.key) == ("team_scope_denied", None)
+    # an owner or admin with no active team: nothing to compare, no 403 (F2) ...
+    assert compared_teams([], [], every_team=True) == []
+    # ... but a named team outside the set stays refused for every role
+    with pytest.raises(TrendViewError) as named:
+        compared_teams([], ["t0"], every_team=True)
+    assert (named.value.status_code, named.value.code, named.value.key) == (
+        403,
+        "team_scope_denied",
+        "team_id",
+    )
     # allow-control and the fixed order: name case-folded, then id
     assert compared_teams([("2", "beta"), ("1", "Alpha")], []) == [("1", "Alpha"), ("2", "beta")]
 

@@ -160,15 +160,20 @@ def read_team_comparison(
     """Supervisor team comparison (HOM-82): one block per team, compared in pairs.
 
     Session only: every API key is ``401 api_key_not_accepted``.  Owners and admins
-    compare every active team; members and viewers only the active teams they supervise
-    (``403 team_scope_denied`` otherwise, also for a ``team_id`` they may not compare).  At
+    compare every active team (none: ``200`` with no team); members and viewers only the
+    active teams they supervise (``403 team_scope_denied`` otherwise, also for a ``team_id``
+    they may not compare).  At
     most 10 teams (``422 trend_too_many_teams``).  ``agent_user_id`` is
     ``422 trend_parameter_not_allowed``.  A team is shown only when it is in the canonical
     released set of the caller's scope.  No rank: teams in a fixed order by name.
     """
     filters, grain, timezone = _view_query(request, datetime.now(UTC))
     try:
-        teams = roles.compared_teams(roles.comparable_teams(db, context), filters.team_ids)
+        teams = roles.compared_teams(
+            roles.comparable_teams(db, context),
+            filters.team_ids,
+            every_team=roles.compares_every_team(context),
+        )
         answer = roles.team_comparison(
             db,
             context=context,

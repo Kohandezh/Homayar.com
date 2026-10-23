@@ -62,7 +62,6 @@ from backend.services.issue_trend_service import (
     COVERAGE_BASIS_TREND_POPULATION,
     COVERAGE_BASIS_WORKSPACE,
     GRAIN_INVALID,
-    LAYER_POINTS,
     LAYER_WINDOW,
     REASON_COMPLEMENTARY,
     REASON_SMALL_GROUP,
@@ -88,6 +87,7 @@ from backend.services.issue_trend_service import (
     point_finder,
     series_block,
     series_points,
+    team_filter_masks,
     team_parts,
     trend_definition,
     validate_series,
@@ -316,13 +316,15 @@ def _comparison(
         "minimum_sample": COMPARISON_MINIMUM,
     }
     left_cell, right_cell = left_row["cell"], right_row["cell"]
-    unavailable = CellReason.SCORECARD_RESULTS_UNAVAILABLE.value
-    if unavailable in (left_cell["reason"], right_cell["reason"]):
-        return {**answer, "status": "not_computable", "reason": unavailable}
+    # A small group is never compared, on any row (the qa row too); then a withheld side;
+    # then a source that does not exist yet.
     if CellKind.AGENT in (left.kind, right.kind):
         return {**answer, "reason": REASON_SMALL_GROUP}
     if left.withheld or right.withheld or "withheld" in (left_cell["status"], right_cell["status"]):
         return {**answer, "reason": REASON_COMPLEMENTARY}
+    unavailable = CellReason.SCORECARD_RESULTS_UNAVAILABLE.value
+    if unavailable in (left_cell["reason"], right_cell["reason"]):
+        return {**answer, "status": "not_computable", "reason": unavailable}
     compared = compare_cells(
         (left_cell["numerator"], left_cell["denominator"]),
         (right_cell["numerator"], right_cell["denominator"]),
@@ -352,11 +354,16 @@ def team_comparisons(teams: Sequence[ComparedTeam]) -> list[dict[str, Any]]:
 # --- workspace views ------------------------------------------------------------------------
 
 
+def compares_every_team(context: WorkspaceContext) -> bool:
+    """An owner or admin may compare every active team of the workspace."""
+    return context.membership.role in UNRESTRICTED_ROLES
+
+
 def comparable_teams(db: Session, context: WorkspaceContext) -> list[tuple[str, str]]:
     """The teams the caller may compare: every active team for an owner or admin, else the
     active teams where they hold an effective supervisor assignment."""
     teams = active_teams(db, workspace_id=context.workspace.id)
-    if context.membership.role in UNRESTRICTED_ROLES:
+    if compares_every_team(context):
         return teams
     access = context.record_access
     supervised = (
@@ -370,10 +377,15 @@ def comparable_teams(db: Session, context: WorkspaceContext) -> list[tuple[str, 
 
 
 def compared_teams(
-    comparable: Sequence[tuple[str, str]], requested: Sequence[str]
+    comparable: Sequence[tuple[str, str]],
+    requested: Sequence[str],
+    *,
+    every_team: bool = False,
 ) -> list[tuple[str, str]]:
     """The requested teams (default: every comparable team) in the fixed order, or a
-    ``TrendViewError``: ``trend_too_many_teams`` first, then ``team_scope_denied``."""
+    ``TrendViewError``: ``trend_too_many_teams`` first, then ``team_scope_denied``.  An owner
+    or admin (``every_team``) of a workspace with no active team gets no team, not a 403:
+    there is nothing to compare.  A member or viewer with no comparable team gets the 403."""
     chosen = list(requested) if requested else [team_id for team_id, _ in comparable]
     if len(chosen) > MAX_COMPARED_TEAMS:
         raise TrendViewError(
@@ -384,7 +396,7 @@ def compared_teams(
         raise TrendViewError(
             403, TEAM_SCOPE_DENIED, "team_id", "You may only compare teams you supervise"
         )
-    if not comparable:
+    if not comparable and not every_team:
         raise TrendViewError(
             403, TEAM_SCOPE_DENIED, None, "You may only compare teams you supervise"
         )
@@ -431,10 +443,7 @@ def team_comparison(
         everyone = cohort_stats(members, n_points=len(points), point_of=point_of)
         kind, _gated = cohort_kind(everyone.agents, viewer)
         masked = set(parts[team_id].masked) if team_id in parts else set()
-        if team_id in release.teams and team_id not in release.window:
-            masked |= {LAYER_WINDOW, LAYER_POINTS} if points else {LAYER_WINDOW}
-        elif points and team_id in release.teams and team_id not in release.points:
-            masked.add(LAYER_POINTS)
+        masked |= team_filter_masks(frozenset({team_id}), release, has_points=bool(points))
         population, rows, series_answer = cohort_parts(
             members, definition, filters, kind, points, zone
         )

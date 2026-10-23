@@ -770,6 +770,21 @@ def canonical_release(
     return TeamRelease(frozenset(teams), frozenset(window), frozenset(points))
 
 
+def team_filter_masks(
+    requested: frozenset[str], release: TeamRelease, *, has_points: bool
+) -> frozenset[str]:
+    """The layers withheld for a cohort of the ``requested`` teams (one team on
+    ``/trends/teams``, the union on ``/trends/issues?team_id=``): the window when a requested
+    team with data is not in the canonical window set, the points when one is not in the
+    points set.  A requested team with no conversation in the scope adds nothing."""
+    present = requested & release.teams
+    if not present <= release.window:
+        return frozenset({LAYER_WINDOW, LAYER_POINTS} if has_points else {LAYER_WINDOW})
+    if has_points and not present <= release.points:
+        return frozenset({LAYER_POINTS})
+    return frozenset()
+
+
 def team_parts(
     conversations: Sequence[JudgedConversation],
     viewer: str | None,
@@ -1025,11 +1040,7 @@ def compute_issue_trends(
     if requested:
         parts, rest = team_parts(judged, viewer, n_points=n_points, point_of=point_of)
         release = canonical_release(parts, rest, has_points=bool(points))
-        present = requested & release.teams
-        if not present <= release.window:
-            masked |= {LAYER_WINDOW, LAYER_POINTS} if points else {LAYER_WINDOW}
-        elif points and not present <= release.points:
-            masked.add(LAYER_POINTS)
+        masked |= team_filter_masks(requested, release, has_points=bool(points))
     population, rows, series_answer = cohort_parts(cohort, definition, filters, kind, points, zone)
     rows, series_answer = apply_masks(rows, series_answer, frozenset(masked))
 

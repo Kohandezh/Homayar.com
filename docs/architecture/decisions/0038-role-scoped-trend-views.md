@@ -112,7 +112,10 @@ Two facts shape the answer:
      rest of the workspace is less than the counts of a person.
 8. **Comparisons without a ranking.** Every pair of compared teams, per window row, through
    `compare_cells` (50 per side), only between teams of the canonical set. A small or
-   withheld team is never compared. No rank field; teams in a fixed order by name, then id;
+   withheld team is never compared, on any row: the status order is a side of kind `agent`
+   (`withheld`, `small_group`), then a withheld side (`withheld`,
+   `complementary_disclosure`), then the `qa` row (`not_computable`), then `compare_cells`
+   (turn B2). No rank field; teams in a fixed order by name, then id;
    the difference is signed by that order. Every comparison answer carries the notices
    `correlation_not_cause` and `unadjusted_comparison` and, per team, the mix of languages and
    sources.
@@ -156,6 +159,8 @@ The ticket is silent on these. Each is the safest choice found; the owner may ch
   teams that are no longer active (D3).
 - The drill-down goes one level only: workspace to team.
 - Members and viewers compare only teams they supervise, whatever the record scope.
+- An owner or admin of a workspace with no active team gets an empty comparison (`200`, no
+  team), not a 403: they may compare every active team, and there is none (turn B2).
 - The four routes refuse every API key.
 - No organization total and no all-teams total.
 

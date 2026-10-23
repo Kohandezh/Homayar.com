@@ -1397,8 +1397,11 @@ layers, `points` and `window`). A withheld cell has status `withheld`, reason
 ### Comparisons
 
 `GET /trends/teams` compares every pair of teams per window row with `compare_cells` (50 per
-side), only between `rate` teams of the canonical set. A small group is never compared
-(`withheld`, `small_group`). No rank field; teams in a fixed order (name case-folded, then
+side), only between `rate` teams of the canonical set. The status of each row comes in this
+order: a side of kind `agent` gives `withheld` (`small_group`); then a withheld side gives
+`withheld` (`complementary_disclosure`); then the `qa` row gives `not_computable`
+(`scorecard_results_unavailable`); then `compare_cells`. So a small group is never compared,
+on any row, the `qa` row included. No rank field; teams in a fixed order (name case-folded, then
 id); `difference` is left minus right in that order. The notices `correlation_not_cause` and
 `unadjusted_comparison` go with every comparison answer, and `mix` shows the languages and
 sources of each team.
@@ -1409,6 +1412,9 @@ The workspace views check, in order: the credentials, the key classes
 (`filter_scope_not_allowed`, then `trend_parameter_not_allowed`, then `filter_unsupported`,
 then `filter_unknown_key`), the values (`filter_bad_type`, `filter_bad_value`,
 `filter_window_invalid`), the series, `trend_too_many_teams`, then `403 team_scope_denied`.
+An owner or admin of a workspace with no active team, with no `team_id`, gets `200` with
+`teams: []` and `comparisons: []`: there is nothing to compare. A member or viewer with no
+comparable team gets the 403, and a named `team_id` outside the set is a 403 for every role.
 The organization views check `require_organization`, the permission, the key classes, the
 values after the grid default for a missing end, `trend_grain_invalid`, then
 `trend_window_not_aligned` (`from`, then `to`, then `to` closed), then `404
@@ -1417,15 +1423,22 @@ attribution write (`services/team_service.py`); here they mean a refused read sc
 
 ### Cost
 
-The statement counts do not grow with the conversations or the teams: `GET /trends/issues` and
-`GET /trends/me` run P, G and one coverage run (at most 9); `GET /trends/teams` also lists the
-active teams (and, for a member of an unrestricted workspace, the supervisor assignments) and
-uses `compute_coverage_by_team` (the same 9 statements for every team); the executive view runs
-P and G per scoped workspace, and one coverage run for each released block (rule 8: each
-workspace is its own tenant); the
-drill-down runs the same for one workspace plus one team list. Pinned in
-`tests/test_role_trend_routes.py`. In Python, `GET /trends/issues` with `team_id` now judges the
-caller's whole scope, and an organization team grant judges the whole workspace.
+The statement counts do not grow with the conversations or the teams. `tests/test_role_trend_routes.py`
+pins these numbers of query statements per request (the `set_config` calls of the
+row-level-security binding, PostgreSQL only, are left out, so one number holds on SQLite and
+PostgreSQL; on PostgreSQL the binding adds 16 to `GET /trends/issues`):
+
+| Request | Statements pinned |
+| --- | --- |
+| `GET /trends/issues`, unrestricted caller, with or without `team_id` | F = 14: 3 (session, user, membership) + 2 (P and G) + 9 (coverage) |
+| `GET /trends/me` | F + 0 = 14 |
+| `GET /trends/teams`, owner, 2 or 3 teams | F + 1 = 15 (the active teams; `compute_coverage_by_team` is the same 9 for every team) |
+| `GET /trends/teams`, a member who supervises | F + 2 = 16 (the active teams and their supervisor assignments) |
+| executive view, per released workspace | + 11 (P, G and 9 coverage statements; rule 8: each workspace is its own tenant) |
+| drill-down, 1 or 3 teams | 16: 3 (session, user, organization membership) + 1 (the workspace) + 1 (its teams) + 2 (P and G) + 9 (one grouped coverage run) |
+
+A withheld executive block runs no coverage run. In Python, `GET /trends/issues` with `team_id`
+now judges the caller's whole scope, and an organization team grant judges the whole workspace.
 
 ### Known limits
 

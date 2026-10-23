@@ -122,11 +122,21 @@ def _expire_membership(membership_id: str) -> None:
         db.commit()
 
 
+# The query statements of one route call, made of a fixed part F (session, user, membership
+# and the HOM-80 population statements P and G, plus 9 coverage statements) and the view's own
+# statements.  ``/trends/issues`` is F = 14 for an unrestricted caller with a coverage candidate:
+# 3 (session, user, membership) + 2 (P and G) + 9 (coverage).
+ISSUES_STATEMENTS = 14
+
+
 def _statements(send) -> tuple[int, Any]:
+    """Query statements of one request.  The ``set_config`` calls of the row-level-security
+    binding (PostgreSQL only) are left out, so one count holds on SQLite and PostgreSQL."""
     seen: list[str] = []
 
     def record(_conn, _cursor, statement, _parameters, _context, _executemany):
-        seen.append(statement)
+        if "set_config" not in statement:
+            seen.append(statement)
 
     engine = get_engine()
     event.listen(engine, "before_cursor_execute", record)
@@ -293,6 +303,14 @@ def test_workspace_views_allow_and_deny(client, email_outbox, monkeypatch):
         response = persona.get(path, params=_params(*extra))
         assert _answer(response) == expected, (label, response.text)
 
+    # the statements of a member who supervises: F + 1 (teams) + 1 (their assignments)
+    issues_count = _statements(lambda: sup.get(ISSUES, params=_params()))[0]
+    teams_count = _statements(lambda: sup.get(TEAMS, params=_params()))[0]
+    assert issues_count == ISSUES_STATEMENTS and teams_count == issues_count + 2, (
+        issues_count,
+        teams_count,
+    )
+
     # the allowed answers name the right teams and the right meetings
     assert [t["team"]["name"] for t in owner.get(TEAMS, params=_params()).json()["teams"]] == [
         "alpha",
@@ -384,7 +402,11 @@ def test_team_comparison_answer(client, email_outbox, monkeypatch):
     _calls(place, third, _agents(2, "r"), 20)
     count_two, two = _statements(lambda: owner.get(TEAMS, params=_params(*pair)))
     count_three, body = _statements(lambda: owner.get(TEAMS, params=_params()))
-    assert count_two == count_three  # one load of the scope, split in Python
+    issues_count = _statements(lambda: owner.get(ISSUES, params=_params()))[0]
+    team_count = _statements(lambda: owner.get(ISSUES, params=_params(("team_id", first))))[0]
+    assert issues_count == team_count == ISSUES_STATEMENTS  # team_id: the same F
+    # one load of the scope, split in Python: F + 1 (the active teams), for 2 or 3 teams
+    assert count_two == count_three == issues_count + 1, (count_two, count_three)
     blocks = {block["team"]["id"]: block for block in body["teams"]}
     assert [block["team"]["name"] for block in body["teams"]] == ["Alpha", "beta", "Gamma"]
     assert blocks[first]["disclosure"]["status"] == "released"
@@ -448,7 +470,9 @@ def test_self_view_and_issue_trend_disclosure(client, email_outbox, monkeypatch)
     window = (("from", later.isoformat()), ("to", (later + DAY).isoformat()))
     count_small, _small = _statements(lambda: agent.get(ME, params=_params()))
     count_large, large = _statements(lambda: agent.get(ME, params=list(window)))
-    assert count_small == count_large and included(large) == 9
+    issues_count = _statements(lambda: agent.get(ISSUES, params=_params()))[0]
+    assert count_small == count_large == issues_count == ISSUES_STATEMENTS  # me: F + 0
+    assert included(large) == 9
 
     # Worked example 1: the workspace total minus a team that is all but one person
     whole = owner.get(ISSUES, params=_params()).json()
@@ -474,6 +498,14 @@ def test_self_view_and_issue_trend_disclosure(client, email_outbox, monkeypatch)
 
     # The points of a small group are all shown or all withheld, apart from the window
     small = Tenant(client, email_outbox, "trend-points@example.com")
+    # F2: an owner of a workspace with no active team has nothing to compare (200, empty)
+    empty = small.get(TEAMS, **WINDOW)
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["teams"] == [] and empty.json()["comparisons"] == []
+    named = small.get(TEAMS, team_id=str(uuid.uuid4()), **WINDOW)
+    assert _answer(named) == (403, "team_scope_denied", "team_id")  # a named team: refused
+    member = agent.get(TEAMS, params=_params())  # control: a member with no supervised team
+    assert _answer(member) == (403, "team_scope_denied", None)
     pair = _agents(2, "s")
     _calls(small, None, pair, 16)  # 32 calls on day 1
     _calls(small, None, pair[:1], 2, received_at=BASE + DAY)  # 2 calls on day 2
@@ -831,10 +863,13 @@ def test_org_views_withhold_small_groups(client, email_outbox):
     for place in shapes:
         _scope_grant(owner, org, memberships["executive"], place)
         counts.append(_statements(lambda: executive.get(executive_path, params=window))[0])
-    assert counts[1] - counts[0] == counts[2] - counts[1], counts
+    # per released workspace: P and G, plus 9 coverage statements
+    assert counts[1] - counts[0] == counts[2] - counts[1] == 11, counts
     one_team = _statements(lambda: owner.get(_drill(org, shapes[0]), params=window))
     three_teams = _statements(lambda: owner.get(_drill(org, shapes[1]), params=window))
-    assert one_team[0] == three_teams[0], (one_team[0], three_teams[0])
+    # 3 (session, user, organization membership) + 1 (the workspace) + 1 (its teams)
+    # + 2 (P and G) + 9 (one grouped coverage run), for 1 or 3 teams
+    assert one_team[0] == three_teams[0] == 16, (one_team[0], three_teams[0])
     assert len(three_teams[1]["teams"]) == 3
 
 
