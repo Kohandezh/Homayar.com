@@ -4578,7 +4578,7 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "2fe40ccc8dc8ab320b49c9ab"),  # HOM-164/165/171/291/303 docstring
+        ("Expr", "d1af9fa6c91857e77279b14c"),  # HOM-164/165/171/291/303 docstring
         ("DETECTOR_VERSION", "163d2bb305714266a477ff8d"),  # HOM-303 text-pii/6
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
@@ -4597,11 +4597,10 @@ BASE_FINGERPRINTS: dict = {
         ("_IBAN_RE", "a948ca753b466b8dbef81dd7"),  # HOM-165
         ("_POSTAL_KEYWORD_RE", "3d3fd7541a6fe30549048ec8"),  # HOM-164
         ("_POSTAL_WINDOW", "74a038fb8d85fb4f9693c87a"),
-        ("_ID_KEYWORD_RE", "0541fe7de135fd1961315efe"),  # HOM-303 a named glued ID
-        ("_GLUED_MOBILE", "2c7948f8956861afb61b6e35"),  # HOM-303
-        ("_GLUED_ID", "0e02923df40934274973b787"),  # HOM-303
+        ("_GLUED_MOBILE", "585d0bc724bd6209bc359042"),  # HOM-303
         ("_GROUP_RE", "7a5fa4129af1d2b74d12e9fb"),  # HOM-303
         ("_MOBILE_DIGITS_RE", "ea768f85cc63f061da633be1"),  # HOM-303
+        ("_LANDLINE_DIGITS_RE", "8c3534ea3ecc12408b94eb6d"),  # HOM-303
         ("_WRITTEN_HINT_RE", "97afcdba3f31f9ce4413e0fb"),  # HOM-303
         ("PiiSpan", "8687935185aa5ebaa3e16763"),
         ("_only_digits", "d8d3ac4b39284bb71083c7de"),  # HOM-165
@@ -4614,10 +4613,11 @@ BASE_FINGERPRINTS: dict = {
         ("_matches", "44336fcb9c5930f298fcc309"),  # HOM-303 split out of _candidates
         ("_candidates", "c1883d5c3649c720a8ca4e96"),  # HOM-303 takes the matches
         ("_beside", "1fa12d0f4bd7568c367d9a72"),  # HOM-303 what stands next to a card
-        ("_written", "7ec69cfb0c7faf6ac4309b23"),  # HOM-303 written-form readings
+        ("_glued_mobile", "2a659c98701b598f1cd2c54a"),  # HOM-303 one way to read a group
+        ("_written", "e8ec22d00285e1e4a8a75ec7"),  # HOM-303 written-form readings
         ("_select", "2d1f1550a1097775ee8593d9"),  # HOM-291 no candidate digit left raw
         ("_keep", "137ffd296d48bf705921b724"),  # HOM-303 no base character lost
-        ("detect", "a507eefad96012c74df4db42"),  # HOM-303 written readings where raw
+        ("detect", "33c88c8aae7b2cff56681f4f"),  # HOM-303 written readings where raw
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),

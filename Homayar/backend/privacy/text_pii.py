@@ -38,18 +38,18 @@ and values, each grown over the letters and digits up to the next one.
 A regex reading can use up digits that a neighbour needs (a card regex reads
 13 to 19 digits from the first digit it meets).  So identifiers are also read
 in their usual written form, and used only where the readings above leave one
-of their digits raw: a Luhn card as four groups of four digits, or as one
-group of 13 to 19 digits next to another card or reading, when each group
-next to it is missing, at most two digits long, another card or part of
-another reading, and no reading of another class holds it; a ``00`` number
+of their digits raw: a Luhn card of 16 digits as four groups of four, or as
+one group next to another card or reading, when each group next to it is
+missing, at most two digits long, another card or part of another reading,
+and no reading of another class holds it or lies inside it; a ``00`` number
 at any group of a digit run; and a mobile number with at most three digits
-glued before or after it in one group (a national ID with at most four, but
-only after an ID keyword such as ``کد ملی``), when that group is not inside a
-longer reading of any class.  A glued reading may raise the share of random
-one-group numbers of 11 to 19 digits that get a span by at most 2 percentage
-points; four glued digits on a mobile would already raise it by 2.2.
-Where such a reading cuts a span chosen without it, the span before the cut
-grows over the separator, so nothing redacted before is shown again.
+glued before or after it in one group, when no reading holds that group and
+the group holds no second mobile, no landline and no valid national ID.
+A glued reading may raise the share of random one-group numbers of 11 to 19
+digits that get a span by at most 2 percentage points (four glued digits
+would already raise it by 2.2).  Where such a reading cuts a span chosen
+without it, the span before the cut grows over the separator, so nothing
+redacted before is shown again.
 
 NOT detected (disclosed residual risk): person and company names, street
 addresses, dates of birth, licence plates, passport and account numbers
@@ -60,18 +60,21 @@ that would cut another reading of the same class, or joined identifiers whose
 split needs a class that was not requested, for example a card glued to an ID
 with the speech entity classes), and anything a speaker paraphrases.  These
 glued or joined shapes are not read because the same rule would redact too
-many other numbers (measured on random inputs):
-a national ID or a landline with digits glued to it and no ID keyword (a check
-digit holds by chance in about 1 of 10 places, the landline pattern in about 8
-of 100: random 12 to 14 digit numbers would go from 0-10% to 34-60% redacted);
-a number glued to the first or last group of a grouped ID or phone
-(``120912 345 6789``: 26-32% more price lists redacted); two identifiers glued
-in one group with another number (2.7-32% more 21 to 26 digit codes); and a
-card in groups of four next to a number of three or more digits, which is
-also the shape of a price list.  A card written as one group with only short
-numbers around it (``12 6037991199500004 34``) is not read either: a random
-16-digit number there passes Luhn 1 time in 10, and the subject export would
-return texts that hold no card.  Out of scope: a card with digits glued to
+many other numbers, or would make the subject export return texts about
+another value (measured on random inputs and on the HOM-303 gate corpus):
+a national ID or a landline with digits glued to it (a check digit holds by
+chance in about 1 of 10 places, the landline pattern in about 8 of 100:
+random 12 to 14 digit numbers would go from 0-10% to 34-60% redacted; even
+after an ID keyword, random numbers there hold a valid ID by chance); a
+glued group that reads in two ways (``1209123456789`` is ``12`` and a
+mobile, or a valid ID ``2091234567`` and more digits); a number glued to the
+first or last group of a grouped ID or phone (``120912 345 6789``: 26-32%
+more price lists redacted); two identifiers glued in one group with another
+number (2.7-32% more 21 to 26 digit codes); a card in groups of four next to
+a number of three or more digits, which is also the shape of a price list;
+and a card written as one group with only short numbers around it
+(``12 6037991199500004 34``), or with other than 16 digits, where a random
+number passes Luhn 1 time in 10.  Out of scope: a card with digits glued to
 it, and a ``00`` or ``+`` number with a digit glued before it.
 Redaction therefore reduces exposure; it is not anonymisation, and it is text
 only — it never masks audio.
@@ -185,17 +188,10 @@ _POSTAL_KEYWORD_RE = re.compile(
     re.IGNORECASE,
 )
 _POSTAL_WINDOW = 48
-# The national-ID keyword, in the style of the postal one: only after it is an
-# ID with digits glued to it read (HOM-303).
-_ID_KEYWORD_RE = re.compile(
-    r"(?:کد[\s\u200c]?ملی|شماره[\s\u200c]?ملی|national\s+id)"
-    r"(?:\s+[^\s\d]{1,12}){0,2}[\s:：\-]*$",
-    re.IGNORECASE,
-)
-_GLUED_MOBILE = 3  # at most this many digits glued to a mobile
-_GLUED_ID = 4  # and to an ID after an ID keyword
+_GLUED_MOBILE = 3  # at most this many digits glued to a mobile (HOM-303)
 _GROUP_RE = re.compile(r"[0-9]+")
 _MOBILE_DIGITS_RE = re.compile(r"09[0-49][0-9]{8}")
+_LANDLINE_DIGITS_RE = re.compile(r"0[1-8][0-9]{9}")
 # A run worth a closer look: a group of 11+ digits, a 00 group after the first,
 # or four groups of four digits.
 _WRITTEN_HINT_RE = re.compile(
@@ -514,16 +510,28 @@ def _beside(
     return 1 if end - start <= 2 else 0
 
 
-def _written(
-    norm: str, folded: str, wanted: frozenset[PiiClass], found: list[PiiSpan]
-) -> list[PiiSpan]:
+def _glued_mobile(digits: str) -> int | None:
+    """Where the one mobile in a group of glued digits starts, or None when
+    the group also reads in another way (a second mobile, a landline or a
+    valid national ID): then any reading of it is a guess."""
+    size = len(digits)
+    mobiles = [i for i in range(size - 10) if _MOBILE_DIGITS_RE.fullmatch(digits, i, i + 11)]
+    if (
+        len(mobiles) != 1
+        or any(_LANDLINE_DIGITS_RE.fullmatch(digits, i, i + 11) for i in range(size - 10))
+        or any(valid_national_id(digits[i : i + 10]) for i in range(size - 9))
+    ):
+        return None
+    return mobiles[0]
+
+
+def _written(norm: str, wanted: frozenset[PiiClass], found: list[PiiSpan]) -> list[PiiSpan]:
     """Identifiers in their usual written form, which a regex reading of a
-    neighbour can use up (HOM-303): a Luhn card as four groups of four or as
-    one group of 13 to 19 digits next to another card or reading, a ``00``
-    number at any group of a run, and a mobile (or an ID after an ID keyword)
-    with digits glued to it."""
+    neighbour can use up (HOM-303): a Luhn card of 16 digits as four groups
+    of four or as one group next to another card or reading, a ``00`` number
+    at any group of a run, and a mobile with digits glued to it."""
     readings: list[PiiSpan] = []
-    if not wanted & {PiiClass.BANK_CARD, PiiClass.PHONE, PiiClass.IR_NATIONAL_ID}:
+    if not wanted & {PiiClass.BANK_CARD, PiiClass.PHONE}:
         return readings
     ordered: list[PiiSpan] | None = None
     for run in _DIGIT_RUN_RE.finditer(norm):
@@ -556,39 +564,21 @@ def _written(
         held += [(span.start, span.end, span.pii_class) for span in phones]
         if PiiClass.PHONE in wanted:
             readings += phones
-        for start, end in groups:
-            # A mobile or a named ID with glued digits, in a group that no
-            # longer reading of any class holds.
-            size = end - start
-            mobile = PiiClass.PHONE in wanted and 11 < size <= 11 + _GLUED_MOBILE
-            named = PiiClass.IR_NATIONAL_ID in wanted and 10 < size <= 10 + _GLUED_ID
-            if not (mobile or named) or any(
-                s <= start and end <= e and (s, e) != (start, end) for s, e, _ in held
-            ):
-                continue
-            digits = norm[start:end]
-            if mobile:
-                readings += [
-                    PiiSpan(start + i, start + i + 11, PiiClass.PHONE, digits[i : i + 11])
-                    for i in range(size - 10)
-                    if _MOBILE_DIGITS_RE.fullmatch(digits, i, i + 11)
-                ]
-            if named:
-                window = strip_diacritics(folded[max(0, start - _POSTAL_WINDOW) : start])
-                if _ID_KEYWORD_RE.search(window):
-                    readings += [
-                        PiiSpan(
-                            start + i, start + i + 10, PiiClass.IR_NATIONAL_ID, digits[i : i + 10]
-                        )
-                        for i in range(size - 9)
-                        if valid_national_id(digits[i : i + 10])
-                    ]
+            for start, end in groups:
+                # A mobile with glued digits, in a group that no reading holds.
+                if 11 < end - start <= 11 + _GLUED_MOBILE and not any(
+                    s <= start and end <= e for s, e, _ in held
+                ):
+                    i = _glued_mobile(norm[start:end])
+                    if i is not None:
+                        i += start
+                        readings.append(PiiSpan(i, i + 11, PiiClass.PHONE, norm[i : i + 11]))
         if PiiClass.BANK_CARD not in wanted:
             continue
         single = {
             x
             for x, (start, end) in enumerate(groups)
-            if 13 <= end - start <= 19 and valid_luhn(norm[start:end])
+            if end - start == 16 and valid_luhn(norm[start:end])
         }
         fours = {
             k
@@ -606,9 +596,12 @@ def _written(
             )
             if 0 in sides or (width == 1 and 2 not in sides):
                 continue
-            # A card that another class reads whole is a chance Luhn hit.
+            # A card that a reading of another class holds, or that holds one,
+            # is a chance Luhn hit.
             if any(
-                s <= card[0] and card[1] <= e and c is not PiiClass.BANK_CARD for s, e, c in held
+                c is not PiiClass.BANK_CARD
+                and (s <= card[0] and card[1] <= e or card[0] <= s and e <= card[1])
+                for s, e, c in held
             ):
                 continue
             readings.append(
@@ -755,7 +748,7 @@ def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[P
     matches, pieces = _candidates(norm, wanted, found, folded)
     chosen = _select(norm, matches, pieces)
     # A written-form reading is used only where it holds a digit left raw.
-    extra = _written(norm, folded, wanted, found)
+    extra = _written(norm, wanted, found)
     if extra:
         covered = bytearray(len(norm))
         for span in chosen:

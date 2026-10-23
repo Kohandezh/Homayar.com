@@ -3,8 +3,8 @@
 Up to text-pii/5 three shapes left identifier digits raw in a redacted view:
 
 A. a number glued to a national ID or a phone, with no separator (now read
-   for a mobile, and for an ID only after an ID keyword: a plain check digit
-   or the landline pattern would read too many other numbers);
+   for a mobile when its group reads in one way only: a plain check digit or
+   the landline pattern would read too many other numbers);
 B. a card next to a short number in the same run (the card regex reads 13 to
    19 digits from the first digit it meets, so a short number before or after
    a card, or a second card, uses up the digits the card needs);
@@ -82,9 +82,6 @@ def _params(cases):
 # --- SPEC section 1: the leader's rows -------------------------------------------
 
 SPEC_ROWS = [
-    ("A1", [(NID, True), (" 12", False), (MOBILE, True)], ALL),
-    ("A2-keyword", [("کد ملی 1234", False), (NID, True)], ALL),
-    ("A3-keyword", [("national id: 12", False), (NID, True), ("0", False)], ALL),
     ("B1", [(grouped(C1), True), (" ", False), (grouped(C2), True), (" 12", False)], ALL),
     ("B2", [("12 ", False), (grouped(C1), True), (" ", False), (grouped(C2), True)], ALL),
     ("B3", [(grouped(C1), True), (" 12 ", False), (grouped(C2), True)], ALL),
@@ -98,26 +95,24 @@ def test_spec_rows_leave_no_identifier_digit_raw(parts, classes):
     assert _raw_identifier_digits(parts, classes) == [], "".join(t for t, _ in parts)
 
 
-# --- case A: a short number glued to an ID or a phone ----------------------------
+# --- case A: a short number glued to a mobile -------------------------------------
 
 GLUED = [
-    (f"{label}-{side}-{short}", parts, classes)
-    for label, prefix, ident, classes, longest in [
-        ("mobile", "", MOBILE, [PiiClass.PHONE], "140"),
-        ("mobile-b", "موبایل ", "09351234567", [PiiClass.PHONE], "140"),
-        ("nid-keyword", "کد ملی ", NID, [PiiClass.IR_NATIONAL_ID], "1403"),
-        ("nid-b-keyword", "شماره ملی: ", NID_B, [PiiClass.IR_NATIONAL_ID], "1403"),
+    (f"{label}-{side}-{short}", parts, [PiiClass.PHONE])
+    for label, prefix, mobile, shorts in [
+        ("mobile", "", MOBILE, ("7", "27", "613")),
+        ("mobile-b", "موبایل ", "09351234567", ("7", "33", "613")),
     ]
-    for short in ("7", "12", longest)
+    for short in shorts
     for side, parts in [
-        ("before", [(prefix + short, False), (ident, True)]),
-        ("after", [(prefix, False), (ident, True), (short, False)]),
+        ("before", [(prefix + short, False), (mobile, True)]),
+        ("after", [(prefix, False), (mobile, True), (short, False)]),
     ]
 ]
 
 
 @pytest.mark.parametrize(("parts", "classes"), list(_params(GLUED)))
-def test_a_mobile_or_a_named_id_with_a_glued_short_number_is_read(parts, classes):
+def test_a_mobile_with_a_glued_short_number_is_read(parts, classes):
     for class_list in (classes, ALL, SPEECH):
         assert _raw_identifier_digits(parts, class_list) == [], "".join(t for t, _ in parts)
 
@@ -125,50 +120,61 @@ def test_a_mobile_or_a_named_id_with_a_glued_short_number_is_read(parts, classes
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("کد ملی 12340012345679", [(PiiClass.IR_NATIONAL_ID, NID)]),
-        ("کدملی 1200123456790", [(PiiClass.IR_NATIONAL_ID, NID)]),
-        (f"National ID {NID_B}57", [(PiiClass.IR_NATIONAL_ID, NID_B)]),
-        ("1209123456789", [(PiiClass.PHONE, MOBILE)]),
+        ("709123456789", [(PiiClass.PHONE, MOBILE)]),
         ("091234567897", [(PiiClass.PHONE, MOBILE)]),
-        ("14009123456789", [(PiiClass.PHONE, MOBILE)]),
-        (f"{NID} 12{MOBILE}", [(PiiClass.IR_NATIONAL_ID, NID), (PiiClass.PHONE, MOBILE)]),
+        ("61309123456789", [(PiiClass.PHONE, MOBILE)]),
+        (f"{NID} 27{MOBILE}", [(PiiClass.IR_NATIONAL_ID, NID), (PiiClass.PHONE, MOBILE)]),
     ],
 )
-def test_a_glued_identifier_keeps_its_class_and_value(text, expected):
+def test_a_glued_mobile_keeps_its_class_and_value(text, expected):
     for written in (text, text.translate(FA)):
         assert [(s.pii_class, s.value) for s in detect(written, SPEECH)] == expected, written
 
 
 def test_the_glued_phone_keeps_its_own_span_next_to_an_id():
-    text = f"{NID} 12{MOBILE}"
+    text = f"{NID} 27{MOBILE}"
     assert [(text[s.start : s.end], s.pii_class) for s in detect(text)] == [
         (NID, PiiClass.IR_NATIONAL_ID),
         (MOBILE, PiiClass.PHONE),
     ]
 
 
-# Not detected safely (see the text_pii docstring): without an ID keyword, a
-# check digit holds by chance in about 1 of 10 windows, and the landline
-# pattern 0[1-8] + 9 digits in about 8 of 100.  Reading them glued would take
-# random 12-14 digit numbers from 0-10% to 34-60% redacted.  A mobile may
-# carry at most three glued digits.
+# Not detected safely (see the text_pii docstring).  A national ID or a
+# landline glued to other digits: a check digit holds by chance in about 1 of
+# 10 windows, and the landline pattern 0[1-8] + 9 digits in about 8 of 100, so
+# random 12-14 digit numbers would go from 0-10% to 34-60% redacted.  An ID
+# keyword does not help: the gate corpus has random numbers after it.  A group
+# that reads in two ways is a guess (G3: the export would return texts about
+# another value).  A mobile may carry at most three glued digits.
 @pytest.mark.parametrize(
     "text",
     [
         "12340012345679",  # SPEC row A2
         "1200123456790",  # SPEC row A3
+        "کد ملی 12340012345679",
         f"7{NID}",
         f"{NID_B}12",
         f"7{LANDLINE}",
         f"{LANDLINE}1403",
+        # 12 + mobile, or the valid ID 2091234567 + 789 (SPEC row A1).
+        "1209123456789",
         # Four digits glued to a mobile: +2.2 points at 15 digits, over the limit.
         f"1403{MOBILE}",
         f"{MOBILE}1403",
     ],
 )
-def test_a_glued_id_landline_or_long_glue_is_not_read(text):
+def test_a_glued_id_landline_two_way_or_long_glue_is_not_read(text):
     for written in (text, text.translate(FA)):
         assert detect(written) == [], written
+
+
+def test_spec_row_a1_keeps_its_base_output():
+    text = f"{NID} 12{MOBILE}"
+    for written, expected in (
+        (text, "[IR_NATIONAL_ID_1] 1209123456789"),
+        (text.translate(FA), "[IR_NATIONAL_ID_1] ۱۲۰۹۱۲۳۴۵۶۷۸۹"),
+    ):
+        assert redact(written)[0] == expected
 
 
 # --- case B: a card next to a short number or another card -----------------------
@@ -287,6 +293,25 @@ def test_shapes_not_detected_keep_their_base_output(text, expected):
     # Digits of the text, not the placeholder numbers (those follow "_").
     persian = re.sub(r"(?<![_0-9])[0-9]+", lambda m: m.group().translate(FA), expected)
     assert redact(text.translate(FA))[0] == persian
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # 13 digits pass Luhn by chance; a written card has 16 digits.
+        "+98 911 156 5207-8091653861170",
+        # Four groups of four that hold the whole 00 number 0049 3826 9693.
+        "کارت 007–75–61–9411–1653–0049–3826–9693",
+    ],
+)
+def test_a_written_card_has_16_digits_and_holds_no_other_reading(text):
+    for written in (text, text.translate(FA)):
+        assert detect(written, [PiiClass.BANK_CARD]) == [], written
+
+
+def test_a_mobile_glued_inside_a_phone_list_is_read():
+    text = "+98 911 156 5207-8091653861170"
+    assert redact(text)[0] == "[PHONE_1]-8[PHONE_2]0"
 
 
 def test_a_chance_luhn_hit_inside_another_reading_is_not_a_card():
