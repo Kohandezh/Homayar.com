@@ -429,6 +429,7 @@ describe("SystemHealthPage refresh", () => {
 
   it("keeps the last data and its checked line, and shows the alert, when a background refresh fails", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(NOW);
     mockApi({ health: [HEALTHY, apiError(503, "service_unavailable")] });
     renderPage();
     await screen.findByRole("region", { name: "Dependencies" }, LOAD);

@@ -148,6 +148,7 @@ async function expectInRow(name: string, text: string) {
 
 describe("TeamsPage", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     window.localStorage.clear();
   });
@@ -344,6 +345,8 @@ describe("TeamsPage", () => {
   });
 
   it("shows every assignment status in the drawer, with revoke only where it applies", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse(T));
     mockReads({
       details: {
         "team-1": [
