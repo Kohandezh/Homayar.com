@@ -79,9 +79,12 @@ class _Matcher:
     def classes(self, text: str | None) -> list[str]:
         if not text:
             return []
+        # One class at a time (HOM-291): read together, a chance reading of one
+        # class can cut a real value of another.
         found = {
             span.pii_class.value
-            for span in detect(text, self._classes)
+            for pii_class in self._classes
+            for span in detect(text, {pii_class})
             if (span.pii_class, span.value) in self._wanted
         }
         return sorted(found)

@@ -737,4 +737,9 @@ def test_a_non_devanagari_script_is_not_folded_or_detected_either(sample):
 
 
 def test_detector_version_covers_the_keyword_marks():
-    assert DETECTOR_VERSION == "text-pii/4"
+    assert DETECTOR_VERSION not in {"text-pii/1", "text-pii/2", "text-pii/3"}
+
+
+def test_detector_version_covers_the_id_next_to_a_phone():
+    # HOM-291: stored redactions made before the split are derived again.
+    assert DETECTOR_VERSION == "text-pii/5"
