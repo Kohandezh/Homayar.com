@@ -201,11 +201,14 @@ suite on every pull request and every push to `main`. Inside the runner it:
 4. runs `npm run test:e2e` with `CI=true` (one retry, no `test.only`).
    Playwright starts the dev server and the SMTP sink itself.
 
+The browser install has 15 minutes, the tests 12 and the whole job 25. The
+install step also sets `Acquire::Retries "3"` for apt, because `--with-deps`
+downloads the system libraries from the Ubuntu mirror on every run.
+
 Everything runs on `127.0.0.1` with mock providers. No shared backend is used,
 and no secret is needed.
 
-When the job fails, and also when it is cancelled (for example by its
-15-minute timeout), it prints the last 200 lines of the API log and uploads
+When the job fails, and also when it is cancelled by a timeout, it prints the last 200 lines of the API log and uploads
 the artifact `console-e2e-report` (kept 7 days). It holds `playwright-report/`
 and `test-results/` (traces, screenshots, videos). Download it from the run's
 Summary page, unzip it, and open the report with
