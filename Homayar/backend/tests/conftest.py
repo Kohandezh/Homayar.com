@@ -27,9 +27,11 @@ from backend.tests._database import (
     test_database_url,
 )
 from backend.tests._live_s3 import live_s3_unavailable_reason
+from backend.tests._minio_s3 import minio_unavailable_reason
 from backend.tests._transport import APP_REDIS_URL, TEST_REDIS_ENV, configured_redis_url
 
 REQUIRE_MEDIA_TOOLS_ENV = "HOMAYAR_REQUIRE_MEDIA_TOOLS"
+REQUIRE_MINIO_TESTS_ENV = "HOMAYAR_REQUIRE_MINIO_TESTS"
 
 
 def media_tools_missing() -> list[str]:
@@ -40,12 +42,22 @@ def media_tools_required() -> bool:
     return os.environ.get(REQUIRE_MEDIA_TOOLS_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
+def minio_tests_required() -> bool:
+    return os.environ.get(REQUIRE_MINIO_TESTS_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
 def pytest_sessionstart(session: pytest.Session) -> None:
     missing_media_tools = media_tools_missing()
     if missing_media_tools and media_tools_required():
         raise pytest.UsageError(
             f"{REQUIRE_MEDIA_TOOLS_ENV} is set but {', '.join(missing_media_tools)} "
             "missing from PATH; refusing to skip the ffmpeg-marked media tests"
+        )
+    minio_reason = minio_unavailable_reason()
+    if minio_reason is not None and minio_tests_required():
+        raise pytest.UsageError(
+            f"{REQUIRE_MINIO_TESTS_ENV} is set but the MinIO contract target is not available "
+            f"({minio_reason}); refusing to skip the minio_s3-marked tests"
         )
     configured = configured_database_url()
     if postgres_required() and not is_postgres_url(configured):
@@ -102,6 +114,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if live_s3_reason is not None:
         reason = f"NOT_RUN/BLOCKED_EXTERNAL: {live_s3_reason}"
         skips.append(("live_s3", pytest.mark.skip(reason=reason)))
+    minio_reason = minio_unavailable_reason()
+    if minio_reason is not None:
+        reason = f"NOT_RUN: {minio_reason}"
+        skips.append(("minio_s3", pytest.mark.skip(reason=reason)))
     for item in items:
         for marker, skip in skips:
             if item.get_closest_marker(marker) is not None:

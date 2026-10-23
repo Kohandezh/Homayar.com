@@ -376,6 +376,23 @@ jobs:
       - name: Validate and apply migrations
         run: uv run ../infra/ci/check-migrations.sh backend
 
+      # HOM-36: the storage contract against a disposable MinIO container. The
+      # credentials stay in this step's shell; they never go to $GITHUB_ENV, so the
+      # s3-minio cases skip as NOT_RUN in the full test step below.
+      - name: Qualify the storage contract against MinIO
+        run: |
+          ../infra/ci/minio-contract-target.sh up 9000 "${RUNNER_TEMP}/minio-contract.env"
+          set -a
+          . "${RUNNER_TEMP}/minio-contract.env"
+          set +a
+          HOMAYAR_REQUIRE_MINIO_TESTS=1 uv run pytest backend/tests/test_storage_contract.py -m minio_s3 -v -rs
+
+      - name: Remove the MinIO contract target
+        if: always()
+        run: |
+          ../infra/ci/minio-contract-target.sh down 9000
+          rm -f -- "${RUNNER_TEMP}/minio-contract.env"
+
       - name: Run backend tests
         run: uv run pytest backend/tests --quiet -rs
 
@@ -606,6 +623,7 @@ jobs:
           --severity=warning
           infra/ci/check-migrations.sh
           infra/ci/check-source-contract.sh
+          infra/ci/minio-contract-target.sh
           infra/ci/tests/test-check-source-contract.sh
           infra/scripts/backup-postgres.sh
           infra/scripts/restore-postgres.sh

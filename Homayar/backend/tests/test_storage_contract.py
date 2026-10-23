@@ -9,11 +9,19 @@ One set of guarantees, run against every supported ``ObjectStorage``:
   cloud IAM policy or the behaviour of every S3-compatible service);
 * ``live`` — ``S3ObjectStorage`` over a real boto3 client against a
   *designated disposable* bucket, opt-in only (``backend/tests/_live_s3.py``);
-  skipped by default and reported as NOT_RUN / BLOCKED_EXTERNAL.
+  skipped by default and reported as NOT_RUN / BLOCKED_EXTERNAL;
+* ``minio`` (id ``s3-minio``, HOM-36) — ``S3ObjectStorage`` over a real boto3
+  client against a disposable local MinIO container started by
+  ``infra/ci/minio-contract-target.sh`` with the bucket, private access and
+  ``homayar-app`` policy of the on-prem Compose profile, opt-in only
+  (``backend/tests/_minio_s3.py``); skipped as NOT_RUN without it.
 
 Fault injection (denied / transient / missing bucket) exists for ``local``
-and ``s3`` only; tests that need it skip the live target instead of
-pretending.  The single-request upload proof at the end runs the *actual*
+and ``s3`` only; tests that need it skip the live and MinIO targets instead
+of pretending.  On MinIO the same outcomes come from real decisions instead:
+a user with no policy, unsigned, expired and tampered requests, a bucket
+outside the app policy and a real multipart upload (the ``minio_s3`` cases
+near the end).  The single-request upload proof at the end runs the *actual*
 boto3 SDK path through ``botocore.stub.Stubber`` and records every
 operation name the adapter issues.
 """
@@ -24,9 +32,14 @@ import contextlib
 import errno
 import hashlib
 import inspect
+import json
 import os
 import pathlib
+import re
 import tempfile
+import time
+import urllib.error
+import urllib.request
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -52,6 +65,7 @@ from backend.storage import (
     PresignedAccessNotSupportedError,
     S3ObjectStorage,
     StorageError,
+    StoredObject,
 )
 from backend.storage import s3 as s3_module
 from backend.storage.base import tenant_prefix
@@ -60,6 +74,20 @@ from backend.tests._live_s3 import (
     live_s3_target,
     live_s3_unavailable_reason,
     quiet_sdk_logging,
+)
+from backend.tests._minio_s3 import (
+    MINIO_ACCESS_KEY_ENV,
+    MINIO_BUCKET_ENV,
+    MINIO_DENIED_ACCESS_KEY_ENV,
+    MINIO_DENIED_SECRET_KEY_ENV,
+    MINIO_ENDPOINT_ENV,
+    MINIO_OPT_IN_ENV,
+    MINIO_PROBE_ACCESS_KEY_ENV,
+    MINIO_PROBE_SECRET_KEY_ENV,
+    MINIO_SECRET_KEY_ENV,
+    MinioS3Target,
+    minio_target,
+    minio_unavailable_reason,
 )
 
 MAX_OBJECT_BYTES = 4096
@@ -414,11 +442,50 @@ def _live_harness() -> Harness:
     )
 
 
+def _minio_storage(
+    target: MinioS3Target,
+    *,
+    access_key_id: str | None = None,
+    secret_access_key: str | None = None,
+    bucket: str | None = None,
+) -> S3ObjectStorage:
+    """``S3ObjectStorage`` on the MinIO container; the app key unless another is given."""
+    return S3ObjectStorage(
+        bucket or target.bucket,
+        max_size_bytes=LIVE_S3_MAX_OBJECT_BYTES,
+        endpoint_url=target.endpoint_url,
+        region_name=target.region_name,
+        access_key_id=access_key_id or target.access_key_id,
+        secret_access_key=secret_access_key or target.secret_access_key,
+        force_path_style=True,
+    )
+
+
+def _minio_harness() -> Harness:
+    target = minio_target()
+    run_id = uuid.uuid4().hex[:12]
+    return Harness(
+        name="minio",
+        storage=_minio_storage(target),
+        tenant=f"minio-{run_id}-a",
+        other_tenant=f"minio-{run_id}-b",
+        codes={
+            "get": "s3_read_failed",
+            "head": "s3_head_failed",
+            "delete": "s3_delete_failed",
+            "list": "s3_list_failed",
+            "put": "s3_upload_failed",
+        },
+        faults=None,
+    )
+
+
 @pytest.fixture(
     params=[
         pytest.param("local", id="local"),
         pytest.param("s3", id="s3-fake"),
         pytest.param("live", id="s3-live", marks=pytest.mark.live_s3),
+        pytest.param("minio", id="s3-minio", marks=pytest.mark.minio_s3),
     ]
 )
 def harness(
@@ -430,11 +497,19 @@ def harness(
     if request.param == "s3":
         yield _s3_harness()
         return
-    reason = live_s3_unavailable_reason()
-    if reason is not None:  # defence in depth: the marker skip already covers this
-        pytest.skip(f"NOT_RUN/BLOCKED_EXTERNAL: {reason}")
+    # The marker skips already cover these; the checks are defence in depth.
+    if request.param == "live":
+        reason = live_s3_unavailable_reason()
+        if reason is not None:
+            pytest.skip(f"NOT_RUN/BLOCKED_EXTERNAL: {reason}")
+        build = _live_harness
+    else:
+        reason = minio_unavailable_reason()
+        if reason is not None:
+            pytest.skip(f"NOT_RUN: {reason}")
+        build = _minio_harness
     previous_levels = quiet_sdk_logging()
-    harness = _live_harness()
+    harness = build()
     try:
         yield harness
     finally:
@@ -1183,3 +1258,648 @@ def test_s3_real_client_errors_are_classified_distinctly(sdk_probe: SdkProbe) ->
         "HeadObject",
         "ListObjectsV2",
     ]
+
+
+# --------------------------------------------------------------------------- #
+# MinIO (HOM-36): real denial, presign and multipart decisions
+# --------------------------------------------------------------------------- #
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_MINIO_SCRIPT = _REPO_ROOT / "infra" / "ci" / "minio-contract-target.sh"
+_ONPREM_COMPOSE = _REPO_ROOT / "infra" / "compose" / "compose.onprem.yaml"
+# Plain HTTP for the unsigned, presigned, expired and tampered requests; never
+# through a proxy from the environment (the target is a loopback container).
+_DIRECT_HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _http_get(url: str) -> tuple[int, bytes]:
+    try:
+        with _DIRECT_HTTP.open(url, timeout=10) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:
+        with error:
+            return error.code, error.read()
+
+
+def _s3_error_code(body: bytes) -> str | None:
+    match = re.search(rb"<Code>([^<]+)</Code>", body)
+    return match.group(1).decode() if match else None
+
+
+def _s3_error_message(body: bytes) -> str:
+    match = re.search(rb"<Message>([^<]*)</Message>", body)
+    return match.group(1).decode() if match else ""
+
+
+def _denial(error: BaseException) -> tuple[str, int | None]:
+    """Code and HTTP status of the provider ``ClientError`` behind ``error``."""
+    current: BaseException | None = error
+    while current is not None and not isinstance(current, ClientError):
+        current = current.__cause__
+    assert isinstance(current, ClientError), f"no ClientError behind {error!r}"
+    return (
+        str(current.response.get("Error", {}).get("Code", "")),
+        current.response.get("ResponseMetadata", {}).get("HTTPStatusCode"),
+    )
+
+
+def _raw_client(target: MinioS3Target, access_key_id: str, secret_access_key: str) -> Any:
+    import boto3
+    from botocore.config import Config
+
+    return boto3.client(
+        "s3",
+        endpoint_url=target.endpoint_url,
+        region_name=target.region_name,
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+            ignore_configured_endpoint_urls=True,
+        ),
+    )
+
+
+def _multipart_uploads(client: Any, bucket: str, prefix: str) -> list[tuple[str, str]]:
+    response = client.list_multipart_uploads(Bucket=bucket, Prefix=prefix)
+    return [(upload["Key"], upload["UploadId"]) for upload in response.get("Uploads", [])]
+
+
+@dataclass
+class MinioRun:
+    target: MinioS3Target
+    app: S3ObjectStorage
+    denied: S3ObjectStorage
+    app_raw: Any
+    denied_raw: Any
+    tenant: str
+    created: list[str] = field(default_factory=list)
+
+    @staticmethod
+    def token() -> str:
+        return f"minio-case-{uuid.uuid4().hex}"
+
+    def key_for(self, token: str) -> str:
+        return f"{tenant_prefix(self.tenant)}{token}"
+
+    def put(self, payload: bytes, *, token: str | None = None) -> StoredObject:
+        stored = self.app.put_stream(
+            self.tenant,
+            BytesIO(payload),
+            content_type="application/octet-stream",
+            object_token=token,
+        )
+        self.created.append(stored.key)
+        return stored
+
+    def read(self, key: str) -> bytes:
+        with self.app.open_reader(self.tenant, key) as reader:
+            return reader.read()
+
+    def listed(self) -> list[str]:
+        return [entry.key for entry in self.app.iter_objects(self.tenant)]
+
+    def object_url(self, key: str) -> str:
+        return f"{self.target.endpoint_url.rstrip('/')}/{self.target.bucket}/{key}"
+
+
+@pytest.fixture
+def minio_run() -> Iterator[MinioRun]:
+    reason = minio_unavailable_reason()
+    if reason is not None:  # defence in depth: the marker skip already covers this
+        pytest.skip(f"NOT_RUN: {reason}")
+    previous_levels = quiet_sdk_logging()
+    target = minio_target()
+    run = MinioRun(
+        target=target,
+        app=_minio_storage(target),
+        denied=_minio_storage(
+            target,
+            access_key_id=target.denied_access_key_id,
+            secret_access_key=target.denied_secret_access_key,
+        ),
+        app_raw=_raw_client(target, target.access_key_id, target.secret_access_key),
+        denied_raw=_raw_client(
+            target, target.denied_access_key_id, target.denied_secret_access_key
+        ),
+        tenant=f"minio-{uuid.uuid4().hex[:12]}-a",
+    )
+    try:
+        yield run
+    finally:
+        # Remove exactly the keys this run created (idempotent; never a prefix sweep).
+        for key in run.created:
+            with contextlib.suppress(StorageError):
+                run.app.delete(run.tenant, key)
+        for logger, level in previous_levels:
+            logger.setLevel(level)
+
+
+@pytest.mark.minio_s3
+def test_minio_denied_key_cannot_write_and_nothing_is_published(minio_run: MinioRun) -> None:
+    run = minio_run
+    listed_before = run.listed()
+    token = run.token()
+    generated_token = run.token()
+    key, generated_key = run.key_for(token), run.key_for(generated_token)
+    run.created.extend([key, generated_key])  # removed afterwards even if a denial fails open
+
+    with pytest.raises(StorageError) as token_error:
+        run.denied.put_stream(
+            run.tenant,
+            BytesIO(b"denied-write"),
+            content_type="application/octet-stream",
+            object_token=token,
+        )
+    assert token_error.value.code == "s3_upload_failed"
+    assert _denial(token_error.value) == ("AccessDenied", 403)
+
+    # A generated key is cleaned up after a failed PUT; the cleanup DELETE is
+    # denied too, so the adapter reports that it could not confirm it.
+    denied_generated = S3ObjectStorage(
+        run.target.bucket,
+        max_size_bytes=LIVE_S3_MAX_OBJECT_BYTES,
+        endpoint_url=run.target.endpoint_url,
+        region_name=run.target.region_name,
+        access_key_id=run.target.denied_access_key_id,
+        secret_access_key=run.target.denied_secret_access_key,
+        force_path_style=True,
+        key_factory=lambda: generated_token,
+    )
+    with pytest.raises(StorageError) as generated_error:
+        denied_generated.put_stream(
+            run.tenant, BytesIO(b"denied-generated"), content_type="application/octet-stream"
+        )
+    assert generated_error.value.code == "s3_upload_cleanup_failed"
+    assert _denial(generated_error.value) == ("AccessDenied", 403)
+
+    assert run.app.exists(run.tenant, key) is False
+    assert run.app.exists(run.tenant, generated_key) is False
+    assert run.listed() == listed_before
+
+    # Allow-control: the same writes with the app key succeed.
+    assert run.put(b"denied-write", token=token).key == key
+    allowed_generated = S3ObjectStorage(
+        run.target.bucket,
+        max_size_bytes=LIVE_S3_MAX_OBJECT_BYTES,
+        endpoint_url=run.target.endpoint_url,
+        region_name=run.target.region_name,
+        access_key_id=run.target.access_key_id,
+        secret_access_key=run.target.secret_access_key,
+        force_path_style=True,
+        key_factory=lambda: generated_token,
+    )
+    stored = allowed_generated.put_stream(
+        run.tenant, BytesIO(b"denied-generated"), content_type="application/octet-stream"
+    )
+    assert stored.key == generated_key
+    assert run.read(key) == b"denied-write"
+    assert run.read(generated_key) == b"denied-generated"
+    assert run.listed() == sorted([*listed_before, key, generated_key])
+
+
+@pytest.mark.minio_s3
+def test_minio_denied_key_cannot_read_head_delete_or_list(minio_run: MinioRun) -> None:
+    run = minio_run
+    stored = run.put(b"owned-by-app", token=run.token())
+
+    with pytest.raises(StorageError) as read_error:
+        run.denied.open_reader(run.tenant, stored.key)
+    with pytest.raises(StorageError) as head_error:
+        run.denied.exists(run.tenant, stored.key)
+    # delete() checks exists() first, so the denied HEAD answers before any DELETE.
+    with pytest.raises(StorageError) as delete_error:
+        run.denied.delete(run.tenant, stored.key)
+    with pytest.raises(StorageError) as list_error:
+        list(run.denied.iter_objects(run.tenant))
+
+    for error in (read_error, head_error, delete_error, list_error):
+        assert not isinstance(error.value, ObjectNotFoundError)
+    assert read_error.value.code == "s3_read_failed"
+    assert _denial(read_error.value) == ("AccessDenied", 403)
+    assert head_error.value.code == "s3_head_failed"
+    assert _denial(head_error.value)[1] == 403  # HEAD has no body, so no error code
+    assert delete_error.value.code == "s3_head_failed"
+    assert _denial(delete_error.value)[1] == 403
+    assert list_error.value.code == "s3_list_failed"
+    assert _denial(list_error.value) == ("AccessDenied", 403)
+
+    # The DELETE itself is denied too, not only the HEAD in front of it.
+    with pytest.raises(ClientError) as raw_delete:
+        run.denied_raw.delete_object(Bucket=run.target.bucket, Key=stored.key)
+    assert _denial(raw_delete.value) == ("AccessDenied", 403)
+
+    # Allow-control: the app key still reads the same object with the same bytes.
+    assert run.app.exists(run.tenant, stored.key) is True
+    assert run.read(stored.key) == b"owned-by-app"
+    assert stored.key in run.listed()
+
+
+@pytest.mark.minio_s3
+def test_minio_anonymous_get_is_denied_and_a_presigned_get_is_served(
+    minio_run: MinioRun,
+) -> None:
+    run = minio_run
+    payload = b"private-object-bytes"
+    stored = run.put(payload, token=run.token())
+
+    status, body = _http_get(run.object_url(stored.key))
+    assert (status, _s3_error_code(body)) == (403, "AccessDenied")
+
+    # Allow-control: a presigned URL for the same object, within its TTL.
+    presigned = run.app.presign_get(run.tenant, stored.key, expires_in_seconds=60)
+    assert presigned.url.startswith(run.object_url(stored.key) + "?")
+    assert _http_get(presigned.url) == (200, payload)
+
+
+@pytest.mark.minio_s3
+def test_minio_expired_and_tampered_presigned_urls_are_refused(minio_run: MinioRun) -> None:
+    run = minio_run
+    payload = b"presigned-bytes"
+    stored = run.put(payload, token=run.token())
+
+    short = run.app.presign_get(run.tenant, stored.key, expires_in_seconds=1)
+    valid = run.app.presign_get(run.tenant, stored.key, expires_in_seconds=60)
+    signature = re.search(r"X-Amz-Signature=([0-9a-f]+)", valid.url)
+    assert signature is not None
+    last = signature.group(1)[-1]
+    tampered = valid.url.replace(
+        f"X-Amz-Signature={signature.group(1)}",
+        f"X-Amz-Signature={signature.group(1)[:-1]}{'1' if last == '0' else '0'}",
+    )
+    assert tampered != valid.url
+
+    time.sleep(3)  # well past the one-second TTL (X-Amz-Date has second precision)
+    status, body = _http_get(short.url)
+    assert (status, _s3_error_code(body)) == (403, "AccessDenied")
+    # The denial is the expiry itself, not a signature or policy failure.
+    assert _s3_error_message(body) == "Request has expired"
+    status, body = _http_get(tampered)
+    assert (status, _s3_error_code(body)) == (403, "SignatureDoesNotMatch")
+
+    # Allow-control: an untouched URL and a fresh one are both served.
+    assert _http_get(valid.url) == (200, payload)
+    fresh = run.app.presign_get(run.tenant, stored.key, expires_in_seconds=60)
+    assert _http_get(fresh.url) == (200, payload)
+
+
+@pytest.mark.minio_s3
+def test_minio_app_policy_is_least_privilege(minio_run: MinioRun) -> None:
+    run = minio_run
+    stored = run.put(b"least-privilege", token=run.token())
+    bucket = run.target.bucket
+    other = f"{bucket}-other"  # never created
+
+    with pytest.raises(ClientError) as create_error:
+        run.app_raw.create_bucket(Bucket=f"{bucket}-created-{uuid.uuid4().hex[:8]}")
+    assert _denial(create_error.value) == ("AccessDenied", 403)
+
+    public_read = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"AWS": ["*"]},
+                "Action": ["s3:GetObject"],
+                "Resource": [f"arn:aws:s3:::{bucket}/*"],
+            }
+        ],
+    }
+    with pytest.raises(ClientError) as policy_error:
+        run.app_raw.put_bucket_policy(Bucket=bucket, Policy=json.dumps(public_read))
+    assert _denial(policy_error.value) == ("AccessDenied", 403)
+
+    second_bucket_calls = {
+        "get": lambda: run.app_raw.get_object(Bucket=other, Key=stored.key),
+        "put": lambda: run.app_raw.put_object(Bucket=other, Key=stored.key, Body=b"x"),
+        "list": lambda: run.app_raw.list_objects_v2(Bucket=other),
+    }
+    for name, call in second_bucket_calls.items():
+        with pytest.raises(ClientError) as other_error:
+            call()
+        assert _denial(other_error.value)[0] in {"AccessDenied", "NoSuchBucket"}, name
+
+    # The refused policy left the bucket private.
+    status, body = _http_get(run.object_url(stored.key))
+    assert (status, _s3_error_code(body)) == (403, "AccessDenied")
+
+    # Allow-control: the app key lists its own bucket.
+    listing = run.app_raw.list_objects_v2(Bucket=bucket, Prefix=tenant_prefix(run.tenant))
+    assert [entry["Key"] for entry in listing.get("Contents", [])] == [stored.key]
+
+
+@pytest.mark.minio_s3
+def test_minio_missing_bucket_is_unavailable_for_reads_and_listing(minio_run: MinioRun) -> None:
+    run = minio_run
+    target = run.target
+    probe = _minio_storage(
+        target,
+        access_key_id=target.probe_access_key_id,
+        secret_access_key=target.probe_secret_access_key,
+        bucket=target.missing_bucket,
+    )
+    key = run.key_for(run.token())
+
+    with pytest.raises(StorageError) as read_error:
+        probe.open_reader(run.tenant, key)
+    with pytest.raises(StorageError) as list_error:
+        list(probe.iter_objects(run.tenant))
+    for error in (read_error, list_error):
+        assert not isinstance(error.value, ObjectNotFoundError)
+        assert error.value.code == "s3_bucket_unavailable"
+        assert _denial(error.value) == ("NoSuchBucket", 404)
+
+    # Allow-control: the real bucket answers normally with the app key.
+    stored = run.put(b"bucket-present", token=run.token())
+    assert run.app.exists(run.tenant, stored.key) is True
+    assert run.app.exists(run.tenant, key) is False
+
+
+@pytest.mark.minio_s3
+@pytest.mark.xfail(
+    strict=True,
+    raises=pytest.fail.Exception,
+    reason="HEAD on a missing bucket is a bodiless 404; adapter gap, follow-up ticket",
+)
+def test_minio_missing_bucket_is_never_reported_as_a_missing_object(minio_run: MinioRun) -> None:
+    target = minio_run.target
+    probe = _minio_storage(
+        target,
+        access_key_id=target.probe_access_key_id,
+        secret_access_key=target.probe_secret_access_key,
+        bucket=target.missing_bucket,
+    )
+    key = minio_run.key_for(minio_run.token())
+    with pytest.raises(StorageError):
+        probe.exists(minio_run.tenant, key)
+    with pytest.raises(StorageError):
+        probe.delete(minio_run.tenant, key)
+
+
+@pytest.mark.minio_s3
+def test_minio_bucket_outside_the_app_policy_is_denied_not_missing(minio_run: MinioRun) -> None:
+    run = minio_run
+    outside = _minio_storage(run.target, bucket=f"{run.target.bucket}-other")
+    key = run.key_for(run.token())
+
+    with pytest.raises(StorageError) as head_error:
+        outside.exists(run.tenant, key)
+    with pytest.raises(StorageError) as read_error:
+        outside.open_reader(run.tenant, key)
+    for error in (head_error, read_error):
+        assert not isinstance(error.value, ObjectNotFoundError)
+    assert head_error.value.code == "s3_head_failed"
+    assert _denial(head_error.value)[1] == 403
+    assert read_error.value.code == "s3_read_failed"
+    assert _denial(read_error.value) == ("AccessDenied", 403)
+
+    # Allow-control: the configured bucket answers normally with the same key.
+    stored = run.put(b"policy-bucket", token=run.token())
+    assert run.app.exists(run.tenant, stored.key) is True
+    assert run.read(stored.key) == b"policy-bucket"
+
+
+def _assert_not_an_object(run: MinioRun, key: str) -> None:
+    assert run.app.exists(run.tenant, key) is False
+    with pytest.raises(ObjectNotFoundError):
+        run.app.open_reader(run.tenant, key)
+    assert key not in run.listed()
+
+
+@pytest.mark.minio_s3
+def test_minio_aborted_multipart_upload_leaves_no_accessible_orphan(minio_run: MinioRun) -> None:
+    run = minio_run
+    bucket = run.target.bucket
+    key = run.key_for(run.token())
+    upload_id = run.app_raw.create_multipart_upload(
+        Bucket=bucket, Key=key, ContentType="application/octet-stream"
+    )["UploadId"]
+    aborted = False
+    try:
+        run.app_raw.upload_part(
+            Bucket=bucket, Key=key, PartNumber=1, UploadId=upload_id, Body=b"part-one" * 128
+        )
+        # Control: the upload is real and visible to ListMultipartUploads.
+        assert _multipart_uploads(run.app_raw, bucket, key) == [(key, upload_id)]
+        _assert_not_an_object(run, key)
+
+        run.app_raw.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+        aborted = True
+
+        _assert_not_an_object(run, key)
+        assert _multipart_uploads(run.app_raw, bucket, key) == []
+        assert _multipart_uploads(run.app_raw, bucket, tenant_prefix(run.tenant)) == []
+        with pytest.raises(ClientError) as parts_error:
+            run.app_raw.list_parts(Bucket=bucket, Key=key, UploadId=upload_id)
+        assert _denial(parts_error.value)[0] == "NoSuchUpload"
+    finally:
+        if not aborted:
+            with contextlib.suppress(ClientError):
+                run.app_raw.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+
+
+@pytest.mark.minio_s3
+def test_minio_adapter_never_starts_a_multipart_upload(minio_run: MinioRun) -> None:
+    run = minio_run
+    storage = _minio_storage(run.target)
+    operations: list[str] = []
+
+    def record(params: dict[str, Any], model: Any, **_: Any) -> None:
+        operations.append(model.name)
+
+    storage._client.meta.events.register("provide-client-params.s3", record)
+
+    generated = storage.put_stream(
+        run.tenant, BytesIO(b"generated-" * 64), content_type="application/octet-stream"
+    )
+    run.created.append(generated.key)
+    token_key = run.key_for(run.token())
+    run.created.append(token_key)
+    stored = storage.put_stream(
+        run.tenant,
+        BytesIO(b"token-" * 64),
+        content_type="application/octet-stream",
+        object_token=token_key.rsplit("/", 1)[1],
+    )
+    assert stored.key == token_key
+
+    oversized_key = run.key_for(run.token())
+    with pytest.raises(ObjectTooLargeError):
+        storage.put_stream(
+            run.tenant,
+            iter([b"o" * 1024] * (LIVE_S3_MAX_OBJECT_BYTES // 1024 + 1)),
+            content_type="application/octet-stream",
+            object_token=oversized_key.rsplit("/", 1)[1],
+        )
+
+    def interrupted() -> Iterator[bytes]:
+        yield b"first-chunk"
+        raise StreamInterrupted("client went away")
+
+    interrupted_key = run.key_for(run.token())
+    with pytest.raises(StreamInterrupted):
+        storage.put_stream(
+            run.tenant,
+            interrupted(),
+            content_type="application/octet-stream",
+            object_token=interrupted_key.rsplit("/", 1)[1],
+        )
+
+    # Control: the recorder sees the adapter's real requests.
+    assert operations.count("PutObject") == 2
+    assert not _MULTIPART_OPERATIONS & set(operations)
+    for key in (generated.key, token_key, oversized_key, interrupted_key):
+        assert _multipart_uploads(run.app_raw, run.target.bucket, key) == []
+    assert _multipart_uploads(run.app_raw, run.target.bucket, tenant_prefix(run.tenant)) == []
+    assert storage.purge_incomplete(run.tenant, older_than=datetime.now(UTC)) == 0
+    assert run.app.exists(run.tenant, oversized_key) is False
+    assert run.app.exists(run.tenant, interrupted_key) is False
+
+
+@pytest.mark.minio_s3
+def test_minio_delete_on_the_versioned_bucket_hides_the_object(minio_run: MinioRun) -> None:
+    # The script checks with the root key that versioning is Enabled and that
+    # anonymous access is none before it writes the env file; no test
+    # credential may read GetBucketVersioning.
+    run = minio_run
+    stored = run.put(b"versioned", token=run.token())
+    assert run.app.exists(run.tenant, stored.key) is True  # control
+
+    assert run.app.delete(run.tenant, stored.key) is True
+    assert run.app.exists(run.tenant, stored.key) is False
+    with pytest.raises(ObjectNotFoundError):
+        run.app.open_reader(run.tenant, stored.key)
+    assert stored.key not in run.listed()
+
+
+# --------------------------------------------------------------------------- #
+# MinIO target: static guards that need no container
+# --------------------------------------------------------------------------- #
+
+_POLICY_STATEMENT_RE = re.compile(r'"Effect":"(\w+)","Action":\[([^\]]*)\],"Resource":\[([^\]]*)\]')
+# The bucket is spliced into the single-quoted policy text by the shell:
+# '"$$MINIO_BUCKET"' in Compose, '"$1"' in the script.
+_SHELL_BUCKET_SPLICE_RE = re.compile(r"'\"\$\$?\{?\w+\}?\"'")
+
+
+def _policy_statements(text: str) -> list[tuple[str, frozenset[str], frozenset[str]]]:
+    text = _SHELL_BUCKET_SPLICE_RE.sub("<bucket>", text)
+    return sorted(
+        (
+            effect,
+            frozenset(re.findall(r'"([^"]+)"', actions)),
+            frozenset(re.findall(r'"([^"]+)"', resources)),
+        )
+        for effect, actions, resources in _POLICY_STATEMENT_RE.findall(text)
+    )
+
+
+def _section(text: str, pattern: str) -> str:
+    match = re.search(pattern, text, re.MULTILINE | re.DOTALL)
+    assert match is not None, pattern
+    return match.group(1)
+
+
+def test_minio_script_app_policy_matches_the_onprem_compose_bootstrap() -> None:
+    compose = _section(
+        _ONPREM_COMPOSE.read_text(encoding="utf-8"), r"^  minio-bootstrap:\n(.*?)^  \S"
+    )
+    script = _section(_MINIO_SCRIPT.read_text(encoding="utf-8"), r"^app_policy\(\) \{\n(.*?)^\}")
+    compose_statements = _policy_statements(compose)
+    script_statements = _policy_statements(script)
+
+    assert len(compose_statements) == 2  # the parser found the bundled policy
+    assert script_statements == compose_statements
+    actions = {action for _, statement, _ in compose_statements for action in statement}
+    resources = {resource for _, _, statement in compose_statements for resource in statement}
+    assert {action for _, statement, _ in script_statements for action in statement} == actions
+    assert {
+        resource for _, _, statement in script_statements for resource in statement
+    } == resources
+    assert resources == {"arn:aws:s3:::<bucket>", "arn:aws:s3:::<bucket>/*"}
+
+
+_MINIO_COMPLETE_ENV = {
+    MINIO_OPT_IN_ENV: "1",
+    MINIO_ENDPOINT_ENV: "http://127.0.0.1:4360",
+    MINIO_BUCKET_ENV: "homayar-private",
+    MINIO_ACCESS_KEY_ENV: "unit-app-key",
+    MINIO_SECRET_KEY_ENV: "unit-app-secret",
+    MINIO_DENIED_ACCESS_KEY_ENV: "unit-denied-key",
+    MINIO_DENIED_SECRET_KEY_ENV: "unit-denied-secret",
+    MINIO_PROBE_ACCESS_KEY_ENV: "unit-probe-key",
+    MINIO_PROBE_SECRET_KEY_ENV: "unit-probe-secret",
+}
+
+
+@pytest.fixture
+def minio_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    for name, value in _MINIO_COMPLETE_ENV.items():
+        monkeypatch.setenv(name, value)
+    return monkeypatch
+
+
+def test_minio_target_requires_the_opt_in(minio_env: pytest.MonkeyPatch) -> None:
+    minio_env.delenv(MINIO_OPT_IN_ENV)
+    reason = minio_unavailable_reason()
+    assert reason is not None and MINIO_OPT_IN_ENV in reason
+    minio_env.setenv(MINIO_OPT_IN_ENV, "true")
+    assert minio_unavailable_reason() is not None  # only the exact value 1 opts in
+
+
+@pytest.mark.parametrize("name", sorted(set(_MINIO_COMPLETE_ENV) - {MINIO_OPT_IN_ENV}))
+def test_minio_target_requires_every_variable(minio_env: pytest.MonkeyPatch, name: str) -> None:
+    minio_env.setenv(name, "  ")
+    assert minio_unavailable_reason() == f"missing {name}"
+    minio_env.delenv(name)
+    assert minio_unavailable_reason() == f"missing {name}"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://minio.example.com:9000",
+        "https://s3.amazonaws.com",
+        "http://10.0.0.5:9000",
+        "http://127.0.0.1.example.com:9000",
+        "ftp://127.0.0.1:9000",
+        "127.0.0.1:9000",
+        "http://127.0.0.1:notaport",
+        "http://127.0.0.1@evil.example/",  # userinfo: the real host is evil.example
+        "http://localhost:4360@evil.example:4360",
+        "http://localhost.example.com:4360",
+    ],
+)
+def test_minio_target_refuses_a_non_loopback_endpoint(
+    minio_env: pytest.MonkeyPatch, endpoint: str
+) -> None:
+    minio_env.setenv(MINIO_ENDPOINT_ENV, endpoint)
+    reason = minio_unavailable_reason()
+    assert reason is not None and MINIO_ENDPOINT_ENV in reason
+    with pytest.raises(RuntimeError):
+        minio_target()
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://127.0.0.1:4360", "http://localhost:9000", "http://[::1]:9000", "https://127.0.0.1"],
+)
+def test_minio_target_accepts_a_loopback_endpoint(
+    minio_env: pytest.MonkeyPatch, endpoint: str
+) -> None:
+    minio_env.setenv(MINIO_ENDPOINT_ENV, endpoint)
+    assert minio_unavailable_reason() is None
+    target = minio_target()
+    assert target.endpoint_url == endpoint
+    assert target.missing_bucket == "homayar-private-missing"
+    shown = repr(target)
+    for name in (
+        MINIO_ACCESS_KEY_ENV,
+        MINIO_SECRET_KEY_ENV,
+        MINIO_DENIED_ACCESS_KEY_ENV,
+        MINIO_DENIED_SECRET_KEY_ENV,
+        MINIO_PROBE_ACCESS_KEY_ENV,
+        MINIO_PROBE_SECRET_KEY_ENV,
+    ):
+        assert _MINIO_COMPLETE_ENV[name] not in shown
