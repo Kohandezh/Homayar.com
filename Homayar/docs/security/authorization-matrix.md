@@ -134,7 +134,7 @@ Which **workspace** roles an organization role may install in (or withdraw from)
 | `workspace` (default; trial and personal workspaces) | all records | all records |
 | `team` | all records | union of: meetings of teams where the caller holds an **effective** `supervisor` assignment; meetings with `agent_user_id = caller`; meetings with `created_by_user_id = caller`. No assignment → own records only. |
 
-An assignment is effective when `revoked_at IS NULL AND valid_from ≤ now < valid_until (or NULL)` and its team is active. The predicate is applied to **every** meeting lookup (list, detail, job, recording, transcript, summary, actions, speakers, search, export, share create/list/revoke); an invisible record answers `404`, never `403`, so existence is not disclosed.
+An assignment is effective when `revoked_at IS NULL AND valid_from ≤ now < valid_until (or NULL)` and its team is active. The predicate is applied to **every** meeting lookup (list, detail, job, recording, transcript, summary, actions, speakers, search, export, share create/list/revoke); an invisible record answers `404`, never `403`, so existence is not disclosed. The issue trends (`GET /trends/issues`, HOM-80) count only the meetings of this predicate; a `team_id` filter is ANDed with it, so a team outside the caller's scope answers `200` narrowed to what they may see (often empty), never `403`.
 
 Attribution writes (`PATCH /meetings/{id}` with `team_id` / `agent_user_id`, permission `meeting:update`):
 
@@ -187,6 +187,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | PATCH | /api/v1/teams/{team_id} | team:manage +csrf |
 | POST | /api/v1/teams/{team_id}/assignments | team:manage +csrf |
 | DELETE | /api/v1/teams/{team_id}/assignments/{assignment_id} | team:manage +csrf |
+| GET | /api/v1/trends/issues | meeting:read |
 | GET | /api/v1/admin/audit-events | audit:read |
 | GET | /api/v1/admin/audit-event-types | audit:read |
 | GET | /api/v1/admin/shares | workspace:manage |

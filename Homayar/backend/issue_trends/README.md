@@ -14,10 +14,11 @@ It is pure. It uses no database, no network and no clock. It reads no file excep
 definition files and the pinned taxonomy file (see "The definition file"). The same input
 always gives the same output. It never changes its inputs.
 
-Nothing in the backend uses it yet. HOM-80 writes the scoped SQL aggregates on these rules.
-HOM-81 shows denominators, coverage and missing data. HOM-82 applies role scope. HOM-83
-builds drill-down. HOM-84 reconciles the SQL with a reference dataset. There is no table,
-no API and no migration here.
+HOM-80 is the first backend user: `services/issue_trend_service.py` and
+`GET /api/v1/trends/issues` build the scoped aggregates on these rules (see "HOM-80: the
+scoped aggregates"). HOM-81 shows denominators, coverage and missing data. HOM-82 applies
+role scope. HOM-83 builds drill-down. HOM-84 reconciles the aggregates with a reference
+dataset. This package itself has no table, no API and no migration.
 
 The version of the rules is `issue-trends/1` (`TRENDS_VERSION`). Import everything from
 `backend.issue_trends`.
@@ -1018,6 +1019,245 @@ counters are workspace-wide.
    `ConversationJudgment`, reads the evidence of each value through its `finding_index`, and
    shows `correlation_not_cause` next to two trends.
 
+## HOM-80: the scoped aggregates
+
+HOM-80 is the first backend user of this package. It changes no rule above.
+
+| Part | Where |
+| --- | --- |
+| Service | `services/issue_trend_service.py`: `compute_issue_trends`, `validate_series`, `TREND_GRAINS`, `TREND_DEFAULT_TIMEZONE`, `TrendSeriesError` |
+| Route | `routers/v1/trends.py`: `GET /api/v1/trends/issues` |
+| Response model | `schemas/trends.py`: `IssueTrendResponse` |
+| Shared population helpers | `services/coverage_service.py`: `transcribable_clauses`, `has_segments` |
+
+### The route
+
+`GET /api/v1/trends/issues`. Permission `meeting:read`, plus the caller's record scope
+(`RecordAccess.meeting_clause()` of the request context), like `GET /voicemails/analytics`.
+Owners and admins see the whole workspace. A member or a viewer of a workspace with
+`record_scope = team` sees only the meetings of the teams they supervise and the meetings
+attributed to them (agent or uploader). An API key with the `meeting:read` scope may read it
+too. It is a read and it is not audited, like coverage.
+
+Query parameters:
+
+- every key except `grain` and `timezone` goes to `validate_filters` ("Supported filters").
+  A key given once is a string; a key given more than once is a list
+  (`language=fa&language=en`). So `from` twice is `filter_bad_type`;
+- `grain`: `none` (default), `day`, `week` or `month`;
+- `timezone`: an exact, case-sensitive IANA name from `zoneinfo.available_timezones()`.
+  Default `Asia/Tehran`. `UTC` is accepted; `utc` and `asia/tehran` are refused on every
+  platform (a plain `ZoneInfo("utc")` succeeds on a case-insensitive file system).
+
+### Errors
+
+Every refusal of the route itself is a `422` in the app's error envelope:
+`{"error": {"code": ..., "message": ..., "request_id": ..., "details": {"key": ...}}}`. The
+code is `error.code` and the query key at fault is `error.details.key`.
+
+| Code | `details.key` | When |
+| --- | --- | --- |
+| `filter_scope_not_allowed` | the key | `workspace_id`, `organization_id`, `role` or `scope` in the query |
+| `filter_unsupported` | the key | `product`, `customer_id`, `sentiment` and the other words of "Supported filters" |
+| `filter_unknown_key` | the key | any other key that is not a filter, `grain` or `timezone` |
+| `filter_bad_type` | the key | `from` or `to` given more than once |
+| `filter_bad_value` | the key | a value outside the allowed values, an empty value, more than 50 values |
+| `filter_window_invalid` | `from`, `to` or `null` | a window rule; `null` when the two ends together break it |
+| `trend_grain_invalid` | `grain` | not one of the four grains, or `grain` given more than once |
+| `trend_timezone_invalid` | `timezone` | not an exact IANA name, given more than once, or a window that cannot be shown in that zone (near year 1 or 9999, only with a series) |
+
+Order: the filter codes first, in their own order ("Supported filters"), then
+`trend_grain_invalid`, then `trend_timezone_invalid`. So `workspace_id=x&grain=hour` is
+`filter_scope_not_allowed`. Before any of them, `require_permission` answers `401` without a
+session and `403 workspace_access_denied` without a membership in the workspace.
+
+### Scope is never a filter (v1 answer)
+
+The workspace and the record scope are ANDed with every filter, so a filter only narrows. A
+`team_id` outside the caller's scope answers `200`, narrowed to what the caller may see
+(often empty), never `403`, and it never tells whether that team has data. This is the
+answer the other scoped routes give. HOM-82 may change it (open question 6).
+
+### The answer
+
+```json
+{
+  "trends_version": "issue-trends/1",
+  "definition": {"id": "trends", "version": 1, "digest": "<64 hex>"},
+  "taxonomy": {"id": "conversation", "version": 1, "digest": "<64 hex>"},
+  "extraction_policies": [{"version": "extraction-policy/1", "digest": "<64 hex>"}],
+  "validator_versions": ["analysis-taxonomy-validator/1"],
+  "sample_policy": {"version": "trend-sample-policy/1", "digest": "<64 hex>"},
+  "window": {"from": "2026-09-30T20:30:00+00:00", "to": "2026-10-02T20:30:00+00:00",
+             "basis": "ingestion_received_at"},
+  "filters": {"window": {"...": "the same window"}, "team_id": [], "agent_user_id": [],
+              "language": [], "source_type": [], "family": [], "issue": [],
+              "service_area": []},
+  "scope": {"restricted": false},
+  "series": {"grain": "day", "timezone": "Asia/Tehran", "calendar": "gregorian",
+             "week_starts_on": "saturday"},
+  "population": {"included": 120, "excluded": {"duplicate_media": 2}},
+  "rows": ["... build_rows output for the whole window, as in 'A trend answer' ..."],
+  "points": [
+    {"from": "2026-10-01T00:00:00+03:30", "to": "2026-10-02T00:00:00+03:30",
+     "partial": false,
+     "population": {"included": 64, "excluded": {"duplicate_media": 1}},
+     "rows": ["... build_rows output for this point ..."]},
+    {"from": "2026-10-02T00:00:00+03:30", "to": "2026-10-03T00:00:00+03:30",
+     "partial": false,
+     "population": {"included": 56, "excluded": {"duplicate_media": 1}},
+     "rows": ["..."]}
+  ]
+}
+```
+
+- The provenance keys are exactly `trend_provenance(definition, SAMPLE_POLICY_V1)`.
+- `window` and `filters.window` are both `TrendWindow.to_json()`: strings in UTC (`+00:00`).
+- `scope.restricted` is `RecordAccess.restricted`.
+- `rows` is `build_rows(...)`, family rows then issue rows, each `TrendRow.to_json()`. The
+  `qa` row is always `not_computable` with `scorecard_results_unavailable`, never 0.
+- `points` is `[]` when `grain` is `none`. `series` is always there.
+- There is no `coverage` key: HOM-81 adds it.
+
+Invariants (tested in `tests/test_issue_trend_service.py`):
+
+- in every available row of the window and of every point,
+  `cell.denominator + sum(missing) == population.included`;
+- the points add up to the window for `population.included`, `excluded.duplicate_media`,
+  every row's `cell.denominator` and every `missing` bucket, always; and for
+  `cell.numerator`, `pending_review` and `absent_pending_review` wherever no value is `null`.
+  A `null` comes only from the agent-cell rule ("Small counts stay visible") or the `qa` row;
+- with an unrestricted caller and no population filter,
+  `population.included + population.excluded.duplicate_media` is the `coverage/1`
+  processing numerator of the same window ("The coverage link").
+
+### Series
+
+- Points are cut at local boundaries of `timezone`: `day` at every local midnight, `week` at
+  local midnight of every **Saturday** (the Iranian week), `month` at local midnight of day 1
+  of every **Gregorian** month.
+- A local midnight is `datetime(y, m, d, tzinfo=zone)` with fold 0 (PEP 495). A midnight in a
+  DST gap is then the first instant of that local day. Iran has no DST since 2022.
+- The first point starts at `window.from` and the last ends at `window.to`. A point cut by the
+  window is `partial: true`; every other point is a whole day, week or month.
+- `from` and `to` of a point are shown in the series timezone
+  (`2026-10-01T00:00:00+03:30`). A call at 23:00 UTC is at 02:30 the next day in Tehran, so it
+  belongs to the next local day.
+- A conversation belongs to the point that holds its own `received_at`. An included
+  conversation is its own counted copy, so this is the point of the counted copy. An excluded
+  duplicate is counted in the point of its own `received_at`.
+- Each conversation is judged once. Its judgment goes into the window tally and into the
+  tally of its point. Each point then gets its own `build_rows`, with the same selectors and
+  cell kind.
+- There is no cap on the number of points: `grain=day` over 366 days gives up to 367 points
+  (see "Cost").
+
+### Cell kind
+
+`CellKind.AGENT` when the `agent_user_id` filter has exactly one value, else `CellKind.RATE`
+(step 5 of "How HOM-80 to HOM-84 use it"). The same kind for the window and every point.
+HOM-82 builds the agent self-view.
+
+**Known limit: the kind follows the filter, not the data.** A caller can add a second
+`agent_user_id` that owns no meeting. The conversations stay the same, but the kind becomes
+`rate`, so the numerator, `pending_review` and `absent_pending_review` that an agent cell under
+the minimum hides become visible. This is the same kind of leak as the subtraction from team
+totals ("Small counts stay visible"). HOM-82 closes both, for example by choosing the kind from
+the distinct agents of the population instead of from the filter.
+
+### How it counts
+
+1. The population (statement P): the ledger rows of the window in the coverage `transcribed`
+   bucket (`transcribable_clauses` in SQL, then `has_segments` on the current revision),
+   ANDed with `meeting_clause()` and each non-empty population filter as `IN (...)`. The same
+   statement LEFT JOINs the current transcript revision, the current analysis run
+   (`is_current`) and that run's `analysis_extractions` row. An older run and its row are
+   never read. One row per conversation: `uq_ingestion_meeting`,
+   `uq_transcript_revision_current`, `uq_analysis_run_current` and
+   `uq_analysis_extraction_run` guarantee it, and `tally` refuses a meeting judged twice.
+2. The media groups (statement G): a recursive query walks every linked ledger row of the
+   **whole workspace** up its `duplicate_of_id` chain to the root. For each group that holds a
+   row of the window, it returns every member's `received_at` and transcribed state (the same
+   two helpers, without the window). Members outside the window, the filters or the scope
+   are read only for this; nothing about them is returned. `counted_copy_id(members)` picks the
+   counted copy in Python.
+3. `ConversationFacts` per row, then `judge_conversation` and `tally` in Python, then
+   `build_rows`. SQL returns rows only: no count, no division, no rounding.
+
+Why Python counting and not SQL JSON counting (the choice "What HOM-80 reads from the
+database" asks for): the steps, the shape walk with its one-reason order, the status mapping
+and `absent_pending_review` then have one source, this package. A SQL copy would be a second
+definition that HOM-84 would have to reconcile bucket by bucket. `analysis_extractions.result`
+is `JSON`, not `JSONB`, so SQLite and Postgres would need two JSON dialects; Python gives one
+answer on both. Only the Python path was built and measured.
+
+### Cost
+
+The service runs exactly **2 statements** (P and G), whatever the number of conversations,
+groups or points, with or without a series, scoped or not (pinned by
+`test_the_statement_count_is_fixed`). The route adds the fixed statements of
+`require_permission` (session, membership, tenant binding, team assignments).
+
+Measured on 2026-10-23 on Postgres 17 (local container, 8-core Apple silicon laptop with a
+load average of 12 to 15 from other test suites, so the absolute times are high). One
+workspace with 10 000 conversations over 30 days: 2 teams, 203 duplicates (chains of 2 and
+3), 302 stale runs, 203 without a run, 320 without a row, 107 unreadable rows. The route was
+called with an owner session, 20 calls after one warm-up:
+
+| Request | Median | p95 | Route statements | Response | Points |
+| --- | --- | --- | --- | --- | --- |
+| 30 days, `grain=none` | 4.37 s | 5.91 s | 21 | 15 KB | 0 |
+| 30 days, `grain=day` | 3.80 s | 4.50 s | 21 | 440 KB | 30 |
+| 366 days, `grain=day` | 3.29 s | 6.30 s | 21 | 5.3 MB | 366 |
+
+The 21 route statements are the 2 of the service plus the fixed statements of the session,
+membership, tenant binding and record access; the count is the same for every request.
+
+Where the time goes (service only, median of 5, 30 days, `grain=none`): loading 0.83 s (both
+statements, decoding about 9 700 stored `result` JSON values, building the facts), judging
+1.40 s (about 140 µs per conversation, the shape walk of `judge_conversation`), `tally` and
+`build_rows` 0.10 s. In Postgres itself, `EXPLAIN ANALYZE` gives 24 ms for P and 21 ms for G.
+So almost all of the cost is Python, not SQL.
+
+For HOM-84: this path does not meet the proposed p95 under 1 s at 10 000 conversations on
+this machine. The cost grows with the conversations of the window, not with the points (the
+366-day series has the same conversations). Ways to lower it, none built here: counting in SQL
+with a test that it equals `tally` bucket by bucket; storing the judgment of each immutable
+extraction row (a new table, so a migration); caching judgments in the process (a row never
+changes). Each one is a decision for HOM-84.
+
+No index is missing: P and G each take about 20 ms in Postgres. G starts from the workspace's
+linked rows (`duplicate_of_id IS NOT NULL`) and walks up by primary key. No migration.
+
+### Known limits
+
+- **Two statements, two snapshots.** Under Postgres `READ COMMITTED` statements P and G each
+  take their own snapshot. If a member of a media group finishes transcription or is deleted
+  between them, one answer can classify that duplicate with slightly old data. It never
+  counts a group twice: one counted copy is chosen per group, so at most one row of a group is
+  included.
+- **`duplicate_of_id` is `ON DELETE SET NULL`.** If a ledger row were deleted, its linked rows
+  would become roots and a media group could split in two. No backend code deletes
+  `ingestion_records`; only a workspace or organization cascade does, and that removes the
+  whole group. A future ledger deletion must keep the groups whole.
+- **A `duplicate_of_id` loop.** No caller can make one (a link always points to an earlier
+  row), but a manual edit, a backfill or a future bug could (A links to B, B links to A).
+  Statement G's recursion is a `UNION`, which drops a repeated pair, so it always ends. A row
+  in a loop, or a row that links into one, never reaches a root: each such row counts as its
+  own group, so the copies of that media can count more than once. Other groups are not
+  affected.
+
+### What HOM-81 and HOM-82 add
+
+- HOM-81 adds the `coverage` block (the `coverage/1` counters of the same window) next to
+  `population`, and shows `pending_review`, `absent_pending_review` and the `missing` buckets
+  next to each rate. With a population filter it must filter coverage the same way or say
+  that the coverage counters are workspace-wide ("The coverage link").
+- HOM-82 builds the role views (supervisor, executive, agent self-view) on this route or this
+  service: it may change the scope answer of open question 6, chooses `kind=agent` for a
+  cohort of one person, and stops complementary disclosure of hidden agent counts, including
+  the extra `agent_user_id` that turns an agent cell into a rate cell ("Cell kind").
+
 ## Open questions
 
 These are product choices. Version 1 uses the default given here.
@@ -1031,6 +1271,10 @@ These are product choices. Version 1 uses the default given here.
    complains is a billing call. Default: this.
 5. `unresolved_outcome` includes `escalated` and `follow_up_scheduled`, not only
    `unresolved` ("not resolved in this call"). Default: this.
-6. A `team_id` outside the caller's scope (HOM-82): 403 or an empty answer? No default here.
-7. The grain and timezone of a time series (HOM-80). Likely answer: day, week and month cut
-   in `Asia/Tehran`. No default here.
+6. A `team_id` outside the caller's scope (HOM-82): 403 or an empty answer? v1 answer
+   (HOM-80): `200`, narrowed to what the caller may see (often empty), never `403`, like the
+   other scoped routes. HOM-82 may change it.
+7. The grain and timezone of a time series (HOM-80). v1 answer: `grain` `none` (default),
+   `day`, `week` or `month`, cut in `timezone` (default `Asia/Tehran`), weeks starting on
+   Saturday, Gregorian months. The owner may later confirm the default timezone and ask for
+   Solar Hijri months; either is a new series option, not a new rule version.

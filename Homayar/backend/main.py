@@ -47,6 +47,7 @@ from backend.routers.v1 import privacy as privacy_v1
 from backend.routers.v1 import reports as reports_v1
 from backend.routers.v1 import shares as shares_v1
 from backend.routers.v1 import teams as teams_v1
+from backend.routers.v1 import trends as trends_v1
 from backend.routers.v1 import voice as voice_v1
 from backend.routers.v1 import voicemail as voicemail_v1
 from backend.services.auth_service import ensure_development_demo_account
@@ -248,6 +249,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(reports_v1.router, prefix=settings.api_prefix)
     app.include_router(shares_v1.router, prefix=settings.api_prefix)
     app.include_router(teams_v1.router, prefix=settings.api_prefix)
+    app.include_router(trends_v1.router, prefix=settings.api_prefix)
     app.include_router(locations_v1.router, prefix=settings.api_prefix)
     app.include_router(voice_v1.router, prefix=settings.api_prefix)
     app.include_router(voicemail_v1.router, prefix=settings.api_prefix)
