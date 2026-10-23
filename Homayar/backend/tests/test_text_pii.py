@@ -742,4 +742,10 @@ def test_detector_version_covers_the_keyword_marks():
 
 def test_detector_version_covers_the_id_next_to_a_phone():
     # HOM-291: stored redactions made before the split are derived again.
-    assert DETECTOR_VERSION == "text-pii/5"
+    # HOM-303: any version after text-pii/4 holds the split.
+    assert DETECTOR_VERSION not in {"text-pii/1", "text-pii/2", "text-pii/3", "text-pii/4"}
+
+
+def test_detector_version_covers_the_glued_runs():
+    # HOM-303: stored redactions made before the written-form readings are derived again.
+    assert DETECTOR_VERSION == "text-pii/6"

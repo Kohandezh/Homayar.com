@@ -35,19 +35,40 @@ every letter and digit, the whole overlap is redacted as one span with one
 placeholder and the value of its best reading (for example a phone glued to
 an e-mail).  Readings of one class that overlap keep their longest-first spans
 and values, each grown over the letters and digits up to the next one.
+A regex reading can use up digits that a neighbour needs (a card regex reads
+13 to 19 digits from the first digit it meets).  So identifiers are also read
+in their usual written form, and used only where the readings above leave one
+of their digits raw: a Luhn card as one group of 13 to 19 digits, or as four
+groups of four digits when each group next to it is missing, at most two
+digits long, another such card or part of another reading; a ``00`` number
+at any group of a digit run; and a mobile number with at most three digits
+glued before or after it in one group (a national ID with at most four, but
+only after an ID keyword such as ``کد ملی``), when that group is not inside a
+longer reading of any class.  A glued reading may raise the share of random
+one-group numbers of 11 to 19 digits that get a span by at most 2 percentage
+points; four glued digits on a mobile would already raise it by 2.2.
+Where such a reading cuts a span chosen without it, the span before the cut
+grows over the separator, so nothing redacted before is shown again.
 
 NOT detected (disclosed residual risk): person and company names, street
 addresses, dates of birth, licence plates, passport and account numbers
 without a checksum, identifiers spelled out in words (``صفر نهصد و دوازده``),
 numbers split across transcript segments, joined digits that do not split
-into whole identifiers (a number glued to the ID or the phone without a
-separator, 21 digits that are not an ID plus a phone, cards joined only to
-cards when another number shares the run, a split that would cut another
-reading of the same class, or joined identifiers whose split needs a class
-that was not requested, for example a card glued to an ID with the speech
-entity classes), a number next to another number when the regex reading of
-one uses up the start of the other (for example a national ID followed by an
-international number), and anything a speaker paraphrases.
+into whole identifiers (21 digits that are not an ID plus a phone, a split
+that would cut another reading of the same class, or joined identifiers whose
+split needs a class that was not requested, for example a card glued to an ID
+with the speech entity classes), and anything a speaker paraphrases.  These
+glued or joined shapes are not read because the same rule would redact too
+many other numbers (measured on random inputs):
+a national ID or a landline with digits glued to it and no ID keyword (a check
+digit holds by chance in about 1 of 10 places, the landline pattern in about 8
+of 100: random 12 to 14 digit numbers would go from 0-10% to 34-60% redacted);
+a number glued to the first or last group of a grouped ID or phone
+(``120912 345 6789``: 26-32% more price lists redacted); two identifiers glued
+in one group with another number (2.7-32% more 21 to 26 digit codes); and a
+card in groups of four next to a number of three or more digits, which is
+also the shape of a price list.  Not read either: a card with digits glued to
+it, and a ``00`` or ``+`` number with a digit glued before it.
 Redaction therefore reduces exposure; it is not anonymisation, and it is text
 only — it never masks audio.
 """
@@ -73,7 +94,9 @@ from backend.speech.text_normalize import (
 # text-pii/3 (HOM-165): fullwidth digits fold to ASCII; only ASCII counts as a digit.
 # text-pii/4 (HOM-171): harakat and tatweel inside the postal keyword are ignored.
 # text-pii/5 (HOM-291): an ID next to a phone number is two identifiers, no digit left raw.
-DETECTOR_VERSION = "text-pii/5"
+# text-pii/6 (HOM-303): a card, a 00 number or a glued mobile is read where a neighbour
+# used up its digits.
+DETECTOR_VERSION = "text-pii/6"
 
 
 class PiiClass(str, enum.Enum):
@@ -158,6 +181,17 @@ _POSTAL_KEYWORD_RE = re.compile(
     re.IGNORECASE,
 )
 _POSTAL_WINDOW = 48
+# The national-ID keyword, in the style of the postal one: only after it is an
+# ID with digits glued to it read (HOM-303).
+_ID_KEYWORD_RE = re.compile(
+    r"(?:کد[\s\u200c]?ملی|شماره[\s\u200c]?ملی|national\s+id)"
+    r"(?:\s+[^\s\d]{1,12}){0,2}[\s:：\-]*$",
+    re.IGNORECASE,
+)
+_GLUED_MOBILE = 3  # at most this many digits glued to a mobile
+_GLUED_ID = 4  # and to an ID after an ID keyword
+_GROUP_RE = re.compile(r"[0-9]+")
+_MOBILE_DIGITS_RE = re.compile(r"09[0-49][0-9]{8}")
 
 
 @dataclass(frozen=True)
@@ -385,16 +419,12 @@ def _split_run(
     return split(allowed)
 
 
-def _candidates(norm: str, wanted: frozenset[PiiClass]) -> tuple[list[PiiSpan], list[PiiSpan]]:
-    """Every validated reading: the matches of each class, then the pieces of
-    a digit run whose whole groups split into two or more identifiers."""
-    # One-to-one letter folding: same length as ``norm``, so offsets carry over.
-    folded = unify_arabic_letters(norm)
-    candidates: list[PiiSpan] = []
+def _matches(norm: str, folded: str) -> list[PiiSpan]:
+    """Every validated regex reading, of every class."""
+    found: list[PiiSpan] = []
 
     def add(start: int, end: int, pii_class: PiiClass, value: str) -> None:
-        if pii_class in wanted:
-            candidates.append(PiiSpan(start, end, pii_class, value))
+        found.append(PiiSpan(start, end, pii_class, value))
 
     for match in _EMAIL_RE.finditer(norm):
         add(match.start(), match.end(), PiiClass.EMAIL, match.group().lower())
@@ -416,7 +446,19 @@ def _candidates(norm: str, wanted: frozenset[PiiClass]) -> tuple[list[PiiSpan], 
         pii_class = _ten_digit_class(folded, match.start(), digits)
         if pii_class is not None:
             add(match.start(), match.end(), pii_class, digits)
+    return found
 
+
+def _candidates(
+    norm: str, wanted: frozenset[PiiClass], found: list[PiiSpan] | None = None
+) -> tuple[list[PiiSpan], list[PiiSpan]]:
+    """Every validated reading: the matches of each class, then the pieces of
+    a digit run whose whole groups split into two or more identifiers."""
+    # One-to-one letter folding: same length as ``norm``, so offsets carry over.
+    folded = unify_arabic_letters(norm)
+    if found is None:
+        found = _matches(norm, folded)
+    candidates = [span for span in found if span.pii_class in wanted]
     matches = sorted(candidates, key=lambda s: s.start)
     match_starts = [span.start for span in matches]
     longest = max((span.end - span.start for span in matches), default=0)
@@ -433,6 +475,99 @@ def _candidates(norm: str, wanted: frozenset[PiiClass]) -> tuple[list[PiiSpan], 
             )
         )
     return candidates, pieces
+
+
+def _written(
+    norm: str, folded: str, wanted: frozenset[PiiClass], found: list[PiiSpan]
+) -> list[PiiSpan]:
+    """Identifiers in their usual written form, which a regex reading of a
+    neighbour can use up (HOM-303): a Luhn card as one group of 13 to 19
+    digits or as four groups of four, a ``00`` number at any group of a run,
+    and a mobile (or an ID after an ID keyword) with digits glued to it."""
+    readings: list[PiiSpan] = []
+    ordered = sorted(found, key=lambda s: s.start)
+    starts = [span.start for span in ordered]
+    longest = max((span.end - span.start for span in ordered), default=0)
+    for run in _DIGIT_RUN_RE.finditer(norm):
+        if run.end() - run.start() < 11:
+            continue  # too short for any of these readings
+        before, after = norm[run.start() - 1 : run.start()], norm[run.end() : run.end() + 1]
+        if (before.isascii() and before.isalnum()) or (after.isascii() and after.isalnum()):
+            continue  # glued to letters, like every match
+        groups = [(g.start(), g.end()) for g in _GROUP_RE.finditer(norm, run.start(), run.end())]
+        # Every reading of any class that shares a character with the run.
+        held = [
+            (m.start, m.end)
+            for m in ordered[
+                bisect_left(starts, run.start() - longest) : bisect_left(starts, run.end())
+            ]
+            if m.end > run.start()
+        ]
+        phones: list[PiiSpan] = []
+        for start, _ in groups[1:]:
+            match = _INTL_PHONE_RE.match(norm, start) if norm.startswith("00", start) else None
+            canonical = _canonical_phone(match.group()) if match else None
+            if match and canonical is not None:
+                phones.append(PiiSpan(match.start(), match.end(), PiiClass.PHONE, canonical))
+        held += [(span.start, span.end) for span in phones]
+        cards = [
+            PiiSpan(start, end, PiiClass.BANK_CARD, norm[start:end])
+            for start, end in groups
+            if 13 <= end - start <= 19 and valid_luhn(norm[start:end])
+        ]
+        fours = {
+            k
+            for k in range(len(groups) - 3)
+            if all(end - start == 4 for start, end in groups[k : k + 4])
+            and valid_luhn(_only_digits(norm[groups[k][0] : groups[k + 3][1]]))
+        }
+        for k in sorted(fours):
+            first, last = groups[k][0], groups[k + 3][1]
+            # Each group next to the four is at most two digits, another such
+            # card, or part of a reading that does not hold the four.
+            if all(
+                end - start <= 2
+                or other in fours
+                or any(s <= start and end <= e and not (s <= first and last <= e) for s, e in held)
+                for (start, end), other in [
+                    (groups[x], k - 4 if x < k else k + 4)
+                    for x in (k - 1, k + 4)
+                    if 0 <= x < len(groups)
+                ]
+            ):
+                cards.append(
+                    PiiSpan(first, last, PiiClass.BANK_CARD, _only_digits(norm[first:last]))
+                )
+        held += [(span.start, span.end) for span in cards]
+        readings += [span for span in phones + cards if span.pii_class in wanted]
+        for start, end in groups:
+            # A mobile or a named ID with glued digits, in a group that no
+            # longer reading of any class holds.
+            size = end - start
+            mobile = PiiClass.PHONE in wanted and 11 < size <= 11 + _GLUED_MOBILE
+            named = PiiClass.IR_NATIONAL_ID in wanted and 10 < size <= 10 + _GLUED_ID
+            if not (mobile or named) or any(
+                s <= start and end <= e and (s, e) != (start, end) for s, e in held
+            ):
+                continue
+            digits = norm[start:end]
+            if mobile:
+                readings += [
+                    PiiSpan(start + i, start + i + 11, PiiClass.PHONE, digits[i : i + 11])
+                    for i in range(size - 10)
+                    if _MOBILE_DIGITS_RE.fullmatch(digits, i, i + 11)
+                ]
+            if named:
+                window = strip_diacritics(folded[max(0, start - _POSTAL_WINDOW) : start])
+                if _ID_KEYWORD_RE.search(window):
+                    readings += [
+                        PiiSpan(
+                            start + i, start + i + 10, PiiClass.IR_NATIONAL_ID, digits[i : i + 10]
+                        )
+                        for i in range(size - 9)
+                        if valid_national_id(digits[i : i + 10])
+                    ]
+    return readings
 
 
 def _select(norm: str, matches: list[PiiSpan], pieces: list[PiiSpan]) -> list[PiiSpan]:
@@ -544,11 +679,48 @@ def _select(norm: str, matches: list[PiiSpan], pieces: list[PiiSpan]) -> list[Pi
     return chosen
 
 
+def _keep(before: list[PiiSpan], spans: list[PiiSpan]) -> list[PiiSpan]:
+    """``spans`` grown so that every character inside a span of ``before``
+    stays inside a span: where ``spans`` cut one of them, the span before
+    the cut grows over the separator."""
+    starts = [span.start for span in spans]
+    ends = [span.end for span in spans]
+    bounds = [[span.start, span.end] for span in spans]
+    for old in before:
+        # Every letter and digit of ``old`` is in ``spans``, so first < last.
+        first, last = bisect_right(ends, old.start), bisect_left(starts, old.end)
+        bounds[first][0] = min(bounds[first][0], old.start)
+        bounds[last - 1][1] = max(bounds[last - 1][1], old.end)
+        for k in range(first, last - 1):
+            bounds[k][1] = bounds[k + 1][0]
+    return [
+        PiiSpan(start, end, span.pii_class, span.value)
+        for (start, end), span in zip(bounds, spans, strict=True)
+    ]
+
+
 def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[PiiSpan]:
     """Non-overlapping spans of the requested classes, in text order."""
     norm = normalize_digits_extended(text)
-    matches, pieces = _candidates(norm, frozenset(classes))
-    return _select(norm, matches, pieces)
+    wanted = frozenset(classes)
+    folded = unify_arabic_letters(norm)
+    found = _matches(norm, folded)
+    matches, pieces = _candidates(norm, wanted, found)
+    chosen = _select(norm, matches, pieces)
+    # A written-form reading is used only where it holds a digit left raw.
+    extra = _written(norm, folded, wanted, found)
+    if extra:
+        covered = bytearray(len(norm))
+        for span in chosen:
+            covered[span.start : span.end] = b"\x01" * (span.end - span.start)
+        extra = [
+            span
+            for span in extra
+            if any(not covered[i] and "0" <= norm[i] <= "9" for i in range(span.start, span.end))
+        ]
+    if not extra:
+        return chosen
+    return _keep(chosen, _select(norm, matches, pieces + extra))
 
 
 @dataclass(frozen=True)

@@ -405,9 +405,12 @@ BASE_POLICY_DIGEST_EMAIL = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d
 # HOM-171 text-pii/4 ignores harakat and tatweel in the postal keyword (owner-approved
 # re-baseline 2026-10-10: only this version and the two digests change).
 # HOM-291 text-pii/5 reads a national ID next to a phone number as two identifiers.
-CURRENT_DETECTOR_VERSION = "text-pii/5"
-CURRENT_POLICY_DIGEST_ALL = "2fcacd2246e02eea2438336c5ac4934895a36b9eb333d8548ae9e74d5bf072c2"
-CURRENT_POLICY_DIGEST_EMAIL = "9ded6e893d988f71870fa94d7d562ececda2d4a00f520008d810447755cf2bca"
+# HOM-303 text-pii/6 reads a card, a 00 number or a glued mobile where a neighbour used
+# up its digits.
+# HOM-303: the version and the two current digests below.
+CURRENT_DETECTOR_VERSION = "text-pii/6"
+CURRENT_POLICY_DIGEST_ALL = "d3810be7444e616215f289639f4a6c1814f29d3e35ca2c49a60db3ce717f7209"
+CURRENT_POLICY_DIGEST_EMAIL = "20b3e99733a46c3007b3eb8fbe6b88a481ec3377a76e95ef1ec727961ddc4399"
 # (input, speech.normalize_fa, locations stream text, stream offsets,
 #  locations.normalize_text, voicemail.normalize_text)
 PROFILE_TABLE = [

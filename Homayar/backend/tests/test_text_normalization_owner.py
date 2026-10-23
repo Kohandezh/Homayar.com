@@ -3967,9 +3967,12 @@ EMAIL_ONLY_DIGEST = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058c
 # HOM-171 bumped it to text-pii/4 (harakat and tatweel ignored in the postal
 # keyword); owner-approved re-baseline of 2026-10-10.
 # HOM-291 bumped it to text-pii/5 (a national ID next to a phone is two identifiers).
-CURRENT_DETECTOR_VERSION = "text-pii/5"
-CURRENT_ALL_CLASSES_DIGEST = "2fcacd2246e02eea2438336c5ac4934895a36b9eb333d8548ae9e74d5bf072c2"
-CURRENT_EMAIL_ONLY_DIGEST = "9ded6e893d988f71870fa94d7d562ececda2d4a00f520008d810447755cf2bca"
+# HOM-303 bumped it to text-pii/6 (a card, a 00 number or a glued mobile is read where
+# a neighbour used up its digits).
+# HOM-303: the version and the two current digests below.
+CURRENT_DETECTOR_VERSION = "text-pii/6"
+CURRENT_ALL_CLASSES_DIGEST = "d3810be7444e616215f289639f4a6c1814f29d3e35ca2c49a60db3ce717f7209"
+CURRENT_EMAIL_ONLY_DIGEST = "20b3e99733a46c3007b3eb8fbe6b88a481ec3377a76e95ef1ec727961ddc4399"
 
 
 class TestGoldenDivergenceTable:
@@ -4575,8 +4578,8 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "40424ba52a3a96c8f5f80dd8"),  # HOM-164/165/171/291 docstring
-        ("DETECTOR_VERSION", "929c8f3b3114545ce2ae71dc"),  # HOM-291 text-pii/5
+        ("Expr", "f20ed821a6f2011e1848523a"),  # HOM-164/165/171/291/303 docstring
+        ("DETECTOR_VERSION", "163d2bb305714266a477ff8d"),  # HOM-303 text-pii/6
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
         ("_PRIORITY", "3266f57d52c974fe017bac21"),
@@ -4594,6 +4597,11 @@ BASE_FINGERPRINTS: dict = {
         ("_IBAN_RE", "a948ca753b466b8dbef81dd7"),  # HOM-165
         ("_POSTAL_KEYWORD_RE", "3d3fd7541a6fe30549048ec8"),  # HOM-164
         ("_POSTAL_WINDOW", "74a038fb8d85fb4f9693c87a"),
+        ("_ID_KEYWORD_RE", "0541fe7de135fd1961315efe"),  # HOM-303 a named glued ID
+        ("_GLUED_MOBILE", "2c7948f8956861afb61b6e35"),  # HOM-303
+        ("_GLUED_ID", "0e02923df40934274973b787"),  # HOM-303
+        ("_GROUP_RE", "7a5fa4129af1d2b74d12e9fb"),  # HOM-303
+        ("_MOBILE_DIGITS_RE", "ea768f85cc63f061da633be1"),  # HOM-303
         ("PiiSpan", "8687935185aa5ebaa3e16763"),
         ("_only_digits", "d8d3ac4b39284bb71083c7de"),  # HOM-165
         ("valid_national_id", "a2a44ce0ff124921f63547b1"),
@@ -4602,9 +4610,12 @@ BASE_FINGERPRINTS: dict = {
         ("_canonical_phone", "406be280c94ea1e049f0f165"),
         ("_ten_digit_class", "fcc5a1c0dc0e59ec4be9b812"),  # HOM-291 split out of detect
         ("_split_run", "769ee2ca6830b4c213e869fd"),  # HOM-291 a run read as identifiers
-        ("_candidates", "52bfef8ec9b855ad4621d844"),  # HOM-291 split out of detect
+        ("_matches", "44336fcb9c5930f298fcc309"),  # HOM-303 split out of _candidates
+        ("_candidates", "3a5a3f453ce0da6e4e894432"),  # HOM-303 takes the matches
+        ("_written", "afa91291e0cc5c3570a50d1d"),  # HOM-303 written-form readings
         ("_select", "2d1f1550a1097775ee8593d9"),  # HOM-291 no candidate digit left raw
-        ("detect", "162804bfb8d73914a6027908"),  # HOM-291 candidates then selection
+        ("_keep", "137ffd296d48bf705921b724"),  # HOM-303 no base character lost
+        ("detect", "c4010fd85603f6bd666ac76e"),  # HOM-303 written readings where raw
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),
