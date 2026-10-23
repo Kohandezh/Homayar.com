@@ -85,7 +85,7 @@ from backend.services.export_service import (
 from backend.services.meeting_service import latest_job_for_meeting
 from backend.services.quality_service import assess_meeting
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
-from backend.services.report_service import meeting_completeness
+from backend.services.report_service import evidence_status_of, meeting_completeness
 from backend.services.transcript_service import (
     SegmentEdit,
     TranscriptError,
@@ -316,6 +316,18 @@ def decision_detail(detail: object) -> tuple[str, str | None]:
     return "unavailable", None
 
 
+def _detail_fields(view: MeetingView, point: dict) -> dict[str, object]:
+    """The owner and due date of a point, each present key in the only shape
+    it leaves in (HOM-294); an absent detail key stays absent."""
+    fields: dict[str, object] = {}
+    for key in ("owner", "due_date"):
+        if key not in point:
+            continue
+        status, value = decision_detail(point[key])
+        fields[key] = {"status": status, "value": view.text(value) if value is not None else None}
+    return fields
+
+
 def _decision_point(view: MeetingView, point: object) -> object:
     """A decision in this view, including a structured decision's owner and
     due date (HOM-61); a present detail key leaves only in its allowed
@@ -323,24 +335,48 @@ def _decision_point(view: MeetingView, point: object) -> object:
     rendered = view.point(point)
     if not isinstance(rendered, dict):
         return rendered
-    for key in ("owner", "due_date"):
-        if key not in rendered:
-            continue
-        status, value = decision_detail(rendered[key])
-        rendered = {
-            **rendered,
-            key: {"status": status, "value": view.text(value) if value is not None else None},
-        }
-    return rendered
+    return {**rendered, **_detail_fields(view, rendered)}
+
+
+def _insight_point(view: MeetingView, point: object) -> object:
+    """An insight key point in this view: only the keys the processor writes
+    leave, each in its allowed shape, and a present owner or due date in the
+    decision detail shape (HOM-304); any other key is dropped."""
+    rendered = view.point(point)
+    if not isinstance(rendered, dict):
+        return rendered
+    allowed: dict[str, object] = _detail_fields(view, rendered)
+    for key, value in rendered.items():
+        if key in ("category", "description"):
+            if isinstance(value, str):
+                allowed[key] = value
+        elif key == "confidence":
+            if value is None or (isinstance(value, int | float) and not isinstance(value, bool)):
+                allowed[key] = value
+        elif key == "source_turn_indexes":
+            if isinstance(value, list) and all(
+                isinstance(item, int) and not isinstance(item, bool) for item in value
+            ):
+                allowed[key] = value
+        elif key == "evidence_ids":
+            if isinstance(value, list) and all(isinstance(item, str) for item in value):
+                allowed[key] = value
+        elif key == "evidence_status":
+            allowed[key] = evidence_status_of(value)
+    return allowed
 
 
 def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryResponse:
     response = SummaryResponse.model_validate(summary).model_copy(update=_view_fields(view))
     # Structured claims (HOM-61) are stored next to the insights; the key
-    # points of /summary stay the insights only.
+    # points of /summary stay the insights only, each behind the allow list.
     response = response.model_copy(
         update={
-            "key_points": [point for point in response.key_points if claim_section(point) is None]
+            "key_points": [
+                _insight_point(view, point)
+                for point in response.key_points
+                if claim_section(point) is None
+            ]
         }
     )
     response = response.model_copy(
@@ -352,7 +388,6 @@ def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryRespo
         update={
             "overview": view.text(response.overview) or "",
             "topics": view.texts(response.topics),
-            "key_points": [view.point(point) for point in response.key_points],
         }
     )
 
