@@ -25,6 +25,12 @@ ClaimStatusLiteral = Literal["stated", "not_stated", "unavailable"]
 FindingSection = Literal[
     "overview", "summary_field", "insight", "decision", "key_moment", "action_item"
 ]
+# HOM-53: the taxonomy extraction of the current analysis run.
+ExtractionStatusLiteral = Literal["available", "invalid", "unavailable"]
+ExtractionFieldStatusLiteral = Literal[
+    "stated", "not_stated", "insufficient_evidence", "contradictory", "unavailable"
+]
+AbstainReasonLiteral = Literal["model", "contradictory", "low_confidence"]
 
 
 class ReportEvidenceRef(BaseModel):
@@ -162,6 +168,68 @@ class ReportQA(BaseModel):
     counts: ReportFindingCounts
 
 
+class ReportExtractionValue(BaseModel):
+    """One kept value (auto-accepted or for review).  A withheld value is never here."""
+
+    index: int  # the evidence finding_index of this value
+    label: str
+    # From the taxonomy version the row was judged with; null when that version
+    # cannot be loaded.
+    label_name_en: str | None
+    label_name_fa: str | None
+    basis: ClaimBasis
+    critical: bool
+    confidence: float | None
+    review: Literal["required", "not_required"]
+    review_reason: Literal["critical_label"] | None
+    text: str | None  # entity values only, in the caller's view
+    evidence_status: EvidenceStatusLiteral
+    supported: bool
+    evidence: list[ReportEvidenceRef]
+
+
+class ReportExtractionField(BaseModel):
+    """One extraction field as stored.  ``unavailable`` is a rejected field, or a
+    field of a block that is ``unavailable``: no reason, no review, no values.
+    ``insufficient_evidence`` and ``contradictory`` are not ``not_stated``."""
+
+    status: ExtractionFieldStatusLiteral
+    abstain_reason: AbstainReasonLiteral | None
+    review_required: bool
+    values: list[ReportExtractionValue]
+
+
+class ReportExtractionFields(BaseModel):
+    intent: ReportExtractionField
+    topic: ReportExtractionField
+    entity: ReportExtractionField
+    outcome: ReportExtractionField
+
+
+class ReportExtraction(BaseModel):
+    """The taxonomy extraction of the current analysis run (HOM-53).
+
+    ``available``: the stored extraction is valid.  ``invalid``: it broke a rule
+    (a rejected field, or an unknown key); the fields the validator accepted or
+    abstained on are still shown.  ``unavailable``: the current run has no
+    extraction (no analysis, a legacy result, or an output without one); the ids
+    are null and every field is ``unavailable``.  Withheld values and validator
+    issues are never shown.
+    """
+
+    status: ExtractionStatusLiteral
+    needs_review: bool
+    review_count: int
+    analysis_run_id: str | None
+    taxonomy_id: str | None
+    taxonomy_version: int | None
+    taxonomy_digest: str | None
+    validator_version: str | None
+    policy_version: str | None
+    policy_digest: str | None
+    fields: ReportExtractionFields
+
+
 class ReviewActionResponse(BaseModel):
     action: str
     available: bool
@@ -176,6 +244,7 @@ class CallReportResponse(BaseModel):
     qa: ReportQA
     review_actions: list[ReviewActionResponse]
     completeness: ReportCompleteness
+    extraction: ReportExtraction
     view: Literal["original", "redacted"] = "original"
     privacy_enforced: bool = False
     redaction: ContentRedactionInfo | None = None

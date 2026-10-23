@@ -1,7 +1,8 @@
 """Conversation taxonomy: supported labels, extraction shape, validator (HOM-52) and the
 confidence, abstention and review policy (HOM-53).
 
-See ``README.md`` in this package.  Nothing in the backend uses it yet (HOM-53 wires it).
+See ``README.md`` in this package.  The provider and the analysis stage use it (HOM-53);
+the call report reads stored results through ``services/analysis_extraction.py``.
 """
 
 from backend.analysis_taxonomy.extraction import (

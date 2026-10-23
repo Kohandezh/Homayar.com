@@ -5,6 +5,8 @@ outcome, the QA result (the quality assessment plus every AI finding with its
 evidence), the review actions the caller can take now, and what is missing.
 It is built from the same helpers as ``/summary``, ``/actions``,
 ``/evidence`` and ``/quality``, so it can never say more than they do.
+The ``extraction`` block (HOM-53) shows the taxonomy extraction of the
+current analysis run; it adds nothing to the QA findings or the notices.
 """
 
 from __future__ import annotations
@@ -19,7 +21,16 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
-from backend.database.saas_models import ActionItem, EvidenceSpan, Meeting, MeetingSummary
+from backend.database.saas_models import (
+    ActionItem,
+    AnalysisExtraction,
+    AnalysisRun,
+    EvidenceSpan,
+    EvidenceStatus,
+    Meeting,
+    MeetingSummary,
+    TranscriptRevision,
+)
 from backend.privacy.transcript_view import MeetingView
 from backend.providers.schemas import SUMMARY_FIELD_NAMES, ClaimBasis
 from backend.routers.v1 import insights, shares
@@ -40,6 +51,10 @@ from backend.schemas.reports import (
     ReportDecision,
     ReportDecisionDetail,
     ReportEvidenceRef,
+    ReportExtraction,
+    ReportExtractionField,
+    ReportExtractionFields,
+    ReportExtractionValue,
     ReportFinding,
     ReportFindingCounts,
     ReportKeyMoment,
@@ -59,8 +74,15 @@ from backend.services.analysis_claims import (
     STRUCTURED_SUMMARY_SCHEMA_VERSION,
     claim_section,
 )
+from backend.services.analysis_extraction import (
+    EXTRACTION_FIELDS,
+    current_extraction,
+    label_names,
+    quoted_regions,
+)
 from backend.services.evidence_service import (
     FINDING_ACTION_ITEM,
+    FINDING_EXTRACTION,
     FINDING_INSIGHT,
     FINDING_SUMMARY,
     list_evidence,
@@ -73,7 +95,7 @@ from backend.services.report_service import (
     outcome_state,
     review_action_reason,
 )
-from backend.services.transcript_service import current_revision
+from backend.services.transcript_service import current_revision, segments_of
 
 router = APIRouter(tags=["meeting intelligence"])
 
@@ -421,6 +443,193 @@ def _action_findings(
     return findings
 
 
+_FIELD_STATUSES = frozenset({"stated", "not_stated", "insufficient_evidence", "contradictory"})
+_ABSTAIN_REASONS = frozenset({"model", "contradictory", "low_confidence"})
+
+
+def _unavailable_field() -> ReportExtractionField:
+    return ReportExtractionField(
+        status="unavailable", abstain_reason=None, review_required=False, values=[]
+    )
+
+
+def _unavailable_extraction() -> ReportExtraction:
+    return ReportExtraction(
+        status="unavailable",
+        needs_review=False,
+        review_count=0,
+        analysis_run_id=None,
+        taxonomy_id=None,
+        taxonomy_version=None,
+        taxonomy_digest=None,
+        validator_version=None,
+        policy_version=None,
+        policy_digest=None,
+        fields=ReportExtractionFields(**{name: _unavailable_field() for name in EXTRACTION_FIELDS}),
+    )
+
+
+def _entity_texts(db: Session, *, row: AnalysisExtraction, view: MeetingView):
+    """The text of an entity value in the caller's view.
+
+    The original view shows the stored text.  A redacted view renders every region
+    the text quotes in its cited turns (turns in stored order, regions in text
+    order) like an evidence reference, and shows the first rendering that holds a
+    placeholder, so a part of a covered value shows that value's placeholder even
+    when the same digits are said elsewhere.  With no placeholder, it shows the
+    first rendering.  With no region at all, a text quoted from turns redacted under
+    the view's own policy goes through ``view.text``; any other is ``None``, never
+    the stored text raw.
+    """
+    loaded: list[tuple[AnalysisRun | None, TranscriptRevision | None, list]] = []
+
+    def turns():
+        if not loaded:
+            run = db.get(AnalysisRun, row.analysis_run_id)
+            revision = db.get(TranscriptRevision, run.transcript_revision_id) if run else None
+            loaded.append((run, revision, segments_of(db, revision) if revision else []))
+        return loaded[0]
+
+    def text_of(raw: dict) -> str | None:
+        text = raw.get("text")
+        if not isinstance(text, str) or not view.redacted:
+            return text if isinstance(text, str) else None
+        run, revision, segments = turns()
+        indexes = raw.get("source_turn_indexes")
+        first: str | None = None
+        for index in indexes if isinstance(indexes, list) else []:
+            if revision is None or not isinstance(index, int) or not 0 <= index < len(segments):
+                continue
+            segment = segments[index]
+            for start, end in quoted_regions(segment.text, text):
+                rendered = view.span(segment, revision, start, end)[0]
+                if rendered != segment.text[start:end]:
+                    return rendered  # holds a placeholder
+                first = rendered if first is None else first
+        if first is not None:
+            return first
+        # A text quoted from turns redacted under this view's policy holds its
+        # placeholders; under other classes it may hold a raw part of a value
+        # ``view.text`` cannot spot.
+        if (
+            run is not None
+            and run.input_view != "original"
+            and run.input_policy_digest is not None
+            and run.input_policy_digest == view.policy.digest
+        ):
+            return view.text(text)
+        return None
+
+    return text_of
+
+
+def _extraction_value(
+    raw: dict,
+    *,
+    name: str,
+    index: int,
+    names: dict[tuple[str, str], tuple[str, str]] | None,
+    spans: list[EvidenceSpan],
+    entity_text,
+    render,
+) -> ReportExtractionValue:
+    """One kept value.  The validator already checked its cited turns, so it is
+    ``sufficient`` with at least one evidence reference, else ``insufficient``."""
+    label = str(raw.get("label"))
+    label_name = names.get((name, label)) if names is not None else None
+    refs = [render(span) for span in spans]
+    status = EvidenceStatus.SUFFICIENT.value if refs else EvidenceStatus.INSUFFICIENT.value
+    return ReportExtractionValue(
+        index=index,
+        label=label,
+        label_name_en=label_name[0] if label_name is not None else None,
+        label_name_fa=label_name[1] if label_name is not None else None,
+        # A kept value with an unreadable basis is never upgraded to explicit.
+        basis=_basis(raw) or "inferred",
+        critical=raw.get("critical") is True,
+        confidence=_confidence(raw),
+        # Only an auto-accepted value skips review.
+        review="not_required" if raw.get("disposition") == "auto_accepted" else "required",
+        review_reason="critical_label" if raw.get("review_reason") == "critical_label" else None,
+        text=entity_text(raw) if name == "entity" else None,
+        evidence_status=status,
+        supported=is_supported(status, len(refs)),
+        evidence=refs,
+    )
+
+
+def _extraction(db: Session, *, meeting: Meeting, view: MeetingView, render) -> ReportExtraction:
+    """The stored extraction of the current analysis run, in the caller's view.
+
+    Rendered after the summary and the action items, in ``index`` order, so a
+    redacted entity text gets the same placeholder on every read.
+    """
+    row: AnalysisExtraction | None = current_extraction(
+        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+    )
+    if row is None:
+        return _unavailable_extraction()
+    names = label_names(row)
+    entity_text = _entity_texts(db, row=row, view=view)
+    cited: dict[int, list[EvidenceSpan]] = {}
+    for span in list_evidence(
+        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id, run_id=row.analysis_run_id
+    ):
+        if (
+            span.finding_type == FINDING_EXTRACTION
+            and span.analysis_run_id == row.analysis_run_id
+            and span.finding_index is not None
+        ):
+            cited.setdefault(span.finding_index, []).append(span)
+    stored = row.result.get("fields") if isinstance(row.result, dict) else None
+    fields: dict[str, ReportExtractionField] = {}
+    index = 0  # the finding_index counts the kept values over the whole row
+    for name in EXTRACTION_FIELDS:
+        stored_field = stored.get(name) if isinstance(stored, dict) else None
+        if not isinstance(stored_field, dict):
+            fields[name] = _unavailable_field()
+            continue
+        raw_values = stored_field.get("values")
+        raw_values = raw_values if isinstance(raw_values, list) else []
+        first, index = index, index + len(raw_values)
+        status = stored_field.get("status")
+        if stored_field.get("verdict") == "rejected" or status not in _FIELD_STATUSES:
+            fields[name] = _unavailable_field()
+            continue
+        reason = stored_field.get("abstain_reason")
+        fields[name] = ReportExtractionField(
+            status=status,
+            abstain_reason=reason if reason in _ABSTAIN_REASONS else None,
+            review_required=stored_field.get("review_required") is True,
+            values=[
+                _extraction_value(
+                    raw,
+                    name=name,
+                    index=position,
+                    names=names,
+                    spans=cited.get(position, []),
+                    entity_text=entity_text,
+                    render=render,
+                )
+                for position, raw in enumerate(raw_values, start=first)
+                if isinstance(raw, dict)
+            ],
+        )
+    return ReportExtraction(
+        status="available" if row.valid else "invalid",
+        needs_review=row.needs_review,
+        review_count=row.review_count,
+        analysis_run_id=row.analysis_run_id,
+        taxonomy_id=row.taxonomy_id,
+        taxonomy_version=row.taxonomy_version,
+        taxonomy_digest=row.taxonomy_digest,
+        validator_version=row.validator_version,
+        policy_version=row.policy_version,
+        policy_digest=row.policy_digest,
+        fields=ReportExtractionFields(**fields),
+    )
+
+
 def _review_actions(
     context: WorkspaceContext, quality: MeetingQualityResponse
 ) -> list[ReviewActionResponse]:
@@ -480,6 +689,7 @@ def get_call_report(
             db, meeting=meeting, summary=summary, view=meeting_view_, render=render
         )
     findings.extend(_action_findings(db, meeting=meeting, view=meeting_view_, render=render))
+    extraction = _extraction(db, meeting=meeting, view=meeting_view_, render=render)
 
     quality = _quality(db, meeting, settings=settings)
     counts = finding_counts((finding.evidence_status, finding.supported) for finding in findings)
@@ -501,6 +711,7 @@ def get_call_report(
         completeness=meeting_completeness(
             status=meeting.status, quality=quality, unsupported=unsupported
         ),
+        extraction=extraction,
         **_view_fields(meeting_view_),
     )
     db.commit()  # a first redacted version or an original-access audit

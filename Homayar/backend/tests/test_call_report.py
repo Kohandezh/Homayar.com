@@ -64,6 +64,7 @@ TOP_LEVEL = {
     "qa",
     "review_actions",
     "completeness",
+    "extraction",
     "view",
     "privacy_enforced",
     "redaction",
