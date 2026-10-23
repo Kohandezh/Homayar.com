@@ -91,7 +91,10 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 _NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 _TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
-_DOCKER_ARG = re.compile(r"^\s*ARG\s+([A-Za-z_][A-Za-z0-9_]*)=(\S+)\s*$", re.MULTILINE)
+# One word of an ARG instruction: NAME, or NAME= with a default of non-space characters.
+_ARG_WORD = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(=(\S*))?")
+# A leading `# escape=` parser directive: it changes which character continues a line.
+_ESCAPE_DIRECTIVE = re.compile(r"#\s*escape\s*=", re.IGNORECASE)
 # Files Alembic loads as revisions (alembic.script.base._only_source_rev_file).
 _REVISION_FILE = re.compile(r"(?!\.\#|__init__)(.*\.py)$")
 
@@ -275,11 +278,54 @@ def shipped_code(revision: GitRevision) -> dict[str, Any]:
     }
 
 
-def dockerfile_args(text: str) -> dict[str, str]:
-    """Default value of each ``ARG NAME=value`` (first declaration wins)."""
+def dockerfile_args(text: str, path: str = "Dockerfile") -> dict[str, str]:
+    """Default value of each ``ARG NAME[=default]``; a name defaulted twice is refused.
+
+    Docker does not document which default wins when one name gets two (anywhere in
+    the file), so the manifest refuses to guess; a bare ``ARG NAME`` never counts.
+    ``path`` names the Dockerfile in error messages (HOM-287).
+    """
     values: dict[str, str] = {}
-    for name, value in _DOCKER_ARG.findall(text):
-        values.setdefault(name, value.strip("\"'"))
+    defaulted_at: dict[str, int] = {}
+    leading = True
+    for number, line in enumerate(text.removeprefix("\ufeff").splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            if leading and _ESCAPE_DIRECTIVE.match(line):
+                raise ManifestError(
+                    f"{path}: line {number}: escape parser directive changes line continuations"
+                )
+            continue
+        leading = False
+        words = line.split()
+        if words[0].rstrip("\\").upper() != "ARG":
+            continue
+        if line.endswith("\\"):
+            raise ManifestError(f"{path}: line {number}: cannot read ARG with a line continuation")
+        if len(words) == 1:
+            raise ManifestError(f"{path}: line {number}: ARG instruction without a name")
+        for word in words[1:]:
+            declaration = _ARG_WORD.fullmatch(word)
+            if declaration is None:
+                raise ManifestError(f"{path}: line {number}: cannot read ARG declaration {word!r}")
+            name = declaration.group(1)
+            if declaration.group(2) is None:
+                continue
+            value = declaration.group(3)
+            if value.startswith(("\"", "'")) and (len(value) < 2 or value[-1] != value[0]):
+                raise ManifestError(
+                    f"{path}: line {number}: unbalanced quote in ARG declaration {word!r}"
+                )
+            if name in defaulted_at:
+                raise ManifestError(
+                    f"{path}: ARG {name} has a default on line {defaulted_at[name]} and again "
+                    f"on line {number}; the release manifest refuses a repeated default "
+                    f"because Docker does not document which one wins. Keep one default."
+                )
+            values[name] = value.strip("\"'")
+            defaulted_at[name] = number
     return values
 
 
@@ -366,7 +412,7 @@ def build_manifest(
     blobs = revision.read(static_inputs() + migration_files)
     project = _project(blobs)
     python = _text(blobs[PYTHON_VERSION_FILE], PYTHON_VERSION_FILE).strip()
-    api_args = dockerfile_args(_text(blobs[API_DOCKERFILE], API_DOCKERFILE))
+    api_args = dockerfile_args(_text(blobs[API_DOCKERFILE], API_DOCKERFILE), API_DOCKERFILE)
     for name in ("PYTHON_IMAGE", "UV_VERSION"):
         if name not in api_args:
             raise ManifestError(f"{API_DOCKERFILE}: no default for ARG {name}")
@@ -379,7 +425,7 @@ def build_manifest(
     build_inputs: dict[str, Any] = {}
     for name, dockerfile in IMAGES.items():
         ignore = f"{dockerfile}.dockerignore"
-        args = dockerfile_args(_text(blobs[dockerfile], dockerfile))
+        args = dockerfile_args(_text(blobs[dockerfile], dockerfile), dockerfile)
         build_inputs[name] = {
             "dockerfile": _file(dockerfile, blobs[dockerfile]),
             "dockerignore": _file(ignore, blobs[ignore]),

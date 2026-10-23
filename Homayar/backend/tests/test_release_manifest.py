@@ -308,6 +308,101 @@ def test_stage_check_accepts_pinned_sources_and_earlier_stages(dockerfile: str) 
     assert _unpinned_stage_sources(dockerfile) == [], dockerfile
 
 
+# --- dockerfile ARG defaults (HOM-287) ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    [
+        "ARG A=1\nARG A=2\n",
+        "ARG A=1\narg A=2\n",
+        "ARG A=1 A=2\n",
+        "ARG A=1\nFROM image\nARG A=2\n",
+        "FROM image AS first\nARG V=1\nFROM image AS second\nARG V=2\n",
+        'ARG X="a b"\n',
+        "ARG X=1 \\\n",
+        "ARG\n",
+        "# escape=`\nARG A=1\n",
+        'ARG X="a B=2"\n',
+        "\ufeffARG A=1\nFROM image\nARG A=2\n",
+    ],
+)
+def test_a_repeated_or_unreadable_default_is_refused(dockerfile: str) -> None:
+    with pytest.raises(rm.ManifestError):
+        rm.dockerfile_args(dockerfile)
+
+
+def test_repeated_default_error_names_file_arg_and_both_lines() -> None:
+    dockerfile = (
+        "ARG PYTHON_IMAGE=python:3.12-slim-bookworm\n"
+        "FROM ${PYTHON_IMAGE}\n"
+        "ARG PYTHON_IMAGE=python:3.13-slim-bookworm\n"
+    )
+    with pytest.raises(rm.ManifestError) as raised:
+        rm.dockerfile_args(dockerfile)
+    message = str(raised.value)
+    assert "Dockerfile" in message and "PYTHON_IMAGE" in message
+    assert "line 1" in message and "line 3" in message
+    assert "Keep one default" in message
+
+
+def test_two_stages_reuse_one_default_only_through_bare_arg() -> None:
+    denied = "FROM image AS first\nARG V=1\nFROM image AS second\nARG V=2\n"
+    with pytest.raises(rm.ManifestError):
+        rm.dockerfile_args(denied)
+    allowed = "ARG V=1\nFROM image AS a\nARG V\nFROM image AS b\nARG V\n"
+    assert rm.dockerfile_args(allowed) == {"V": "1"}
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "expected"),
+    [
+        ("ARG A=1\nARG B=2\n", {"A": "1", "B": "2"}),
+        ("ARG A=1\narg B=2\n", {"A": "1", "B": "2"}),
+        ("ARG A=1 B=2\n", {"A": "1", "B": "2"}),
+        ("ARG A=1\nFROM image\nARG A\n", {"A": "1"}),
+        ("ARG V=1\nFROM image AS a\nARG V\nFROM image AS b\nARG V\n", {"V": "1"}),
+        ('ARG X="ab"\n', {"X": "ab"}),
+        ("ARG X=1\n", {"X": "1"}),
+        ("ARG A=1\n# ARG A=2\n", {"A": "1"}),
+        ("# syntax=docker/dockerfile:1\nARG A=1\n", {"A": "1"}),
+        ('ARG X="a"\n', {"X": "a"}),
+        ("\ufeffARG A=1\n", {"A": "1"}),
+    ],
+)
+def test_every_well_formed_default_is_read(dockerfile: str, expected: dict[str, str]) -> None:
+    assert rm.dockerfile_args(dockerfile) == expected
+
+
+def _first_declaration_defaults(text: str) -> dict[str, str]:
+    first = re.compile(r"^\s*ARG\s+([A-Za-z_][A-Za-z0-9_]*)=(\S+)\s*$", re.MULTILINE)
+    values: dict[str, str] = {}
+    for name, value in first.findall(text):
+        values.setdefault(name, value.strip("\"'"))
+    return values
+
+
+@pytest.mark.parametrize("image", sorted(rm.IMAGES))
+def test_recorded_defaults_are_unchanged_for_committed_dockerfiles(image: str) -> None:
+    dockerfile = _dockerfile_text(image)
+    recorded = rm.dockerfile_args(dockerfile)
+    for name, value in _first_declaration_defaults(dockerfile).items():
+        if name.endswith("_IMAGE") or (image == "api" and name == "UV_VERSION"):
+            assert recorded.get(name) == value, name
+
+
+@requires_git
+def test_generate_refuses_a_repeated_default(synthetic_repo: Path) -> None:
+    dockerfile = synthetic_repo / rm.API_DOCKERFILE
+    dockerfile.write_bytes(dockerfile.read_bytes() + b"ARG UV_VERSION=9.9.9\n")
+    _git(synthetic_repo, "add", "--all")
+    _git(synthetic_repo, "commit", "--quiet", "--message", "repeated default", env=GIT_ENV)
+    result = _cli("generate", "--rev", "HEAD", "--repo", str(synthetic_repo))
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert rm.API_DOCKERFILE in result.stderr and "UV_VERSION" in result.stderr
+
+
 def test_api_base_image_matches_the_python_version() -> None:
     dockerfile = _dockerfile_text("api")
     base = rm.image_reference(rm.dockerfile_args(dockerfile)["PYTHON_IMAGE"])

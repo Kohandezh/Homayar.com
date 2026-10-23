@@ -174,7 +174,9 @@ above.
   and the date and upstream version in its comment. Put the same value in the matching default
   of `infra/compose/compose.onprem.yaml`: `test_release_manifest.py` fails when they differ.
   Then rebuild. Keep the Python tag's minor version equal to `Homayar/.python-version`: the
-  manifest refuses a mismatch.
+  manifest refuses a mismatch. Declare each `ARG` default only once in a Dockerfile: `generate`
+  refuses a name that gets a default a second time, because Docker does not document which
+  default wins.
 * **Change dependencies** with `uv lock` (never by hand), then regenerate
   `Homayar/backend/requirements.txt` with
   `uv export --format requirements-txt --no-dev --frozen --no-hashes -o backend/requirements.txt`
