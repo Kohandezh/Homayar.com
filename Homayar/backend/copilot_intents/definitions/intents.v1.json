@@ -1,0 +1,150 @@
+{
+  "schema": "homayar.copilot-intents/1",
+  "definition_id": "intents",
+  "version": 1,
+  "notes": "First catalogue of WP17 (HOM-92). Every number comes from an exact SQL aggregate. Evidence routes never give a number.",
+  "trends": {
+    "definition_id": "trends",
+    "version": 1,
+    "digest": "1d7ef96eec5fff028481b1ecea297d7ccce64be2e16985c87ec58a8ce97a17de"
+  },
+  "sample_policy": {
+    "version": "trend-sample-policy/1",
+    "digest": "e0a00f274f7bdac50774b294df188487f2e67077c99de4de261a5563031e13a9"
+  },
+  "coverage_version": "coverage/1",
+  "intents": [
+    {
+      "id": "agent_ranking",
+      "route": "refuse",
+      "reason": "individual_ranking_not_supported",
+      "gate": "none",
+      "target": "none",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-97"],
+      "definition": "Rank or compare individual agents against each other, for example the agent with the most complaints.",
+      "filter_keys": [],
+      "params": []
+    },
+    {
+      "id": "causal_question",
+      "route": "refuse",
+      "reason": "causal_not_supported",
+      "gate": "none",
+      "target": "none",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-97"],
+      "definition": "Ask why one thing causes another; the data shows only how often things appear together.",
+      "filter_keys": [],
+      "params": []
+    },
+    {
+      "id": "cohort_comparison",
+      "route": "sql_aggregate",
+      "reason": null,
+      "gate": "comparison",
+      "target": "one_row",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-96", "HOM-97"],
+      "definition": "The rate of one issue or one family for two cohorts of one key (two teams, two languages or two sources) and their difference.",
+      "filter_keys": ["agent_user_id", "family", "from", "issue", "language", "service_area", "source_type", "team_id", "to"],
+      "params": ["compare_by", "compare_values"]
+    },
+    {
+      "id": "conversation_lookup",
+      "route": "evidence_retrieval",
+      "reason": null,
+      "gate": "evidence",
+      "target": "none",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-93", "HOM-94", "HOM-95", "HOM-97"],
+      "definition": "What was said in one named conversation, answered only with cited spans of that conversation.",
+      "filter_keys": [],
+      "params": ["conversation_id", "query"]
+    },
+    {
+      "id": "coverage_status",
+      "route": "sql_aggregate",
+      "reason": null,
+      "gate": "none",
+      "target": "none",
+      "scope_rule": "whole_workspace",
+      "components": ["HOM-96"],
+      "definition": "The four coverage/1 counters (ingestion, processing, evaluation, review) for one window.",
+      "filter_keys": ["from", "to"],
+      "params": []
+    },
+    {
+      "id": "evidence_examples",
+      "route": "evidence_retrieval",
+      "reason": null,
+      "gate": "evidence",
+      "target": "selector",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-93", "HOM-94", "HOM-95", "HOM-97"],
+      "definition": "A few cited example spans of conversations where a trend issue or a service area topic was counted.",
+      "filter_keys": ["agent_user_id", "family", "from", "issue", "language", "service_area", "source_type", "team_id", "to"],
+      "params": ["limit"]
+    },
+    {
+      "id": "forecast",
+      "route": "refuse",
+      "reason": "forecast_not_supported",
+      "gate": "none",
+      "target": "none",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-97"],
+      "definition": "Predict a future number, for example next month's complaints; no exact aggregate can give it.",
+      "filter_keys": [],
+      "params": []
+    },
+    {
+      "id": "issue_count",
+      "route": "sql_aggregate",
+      "reason": null,
+      "gate": "count",
+      "target": "selector",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-96", "HOM-97"],
+      "definition": "How many conversations have a trend issue or family, counted once per conversation.",
+      "filter_keys": ["agent_user_id", "family", "from", "issue", "language", "service_area", "source_type", "team_id", "to"],
+      "params": []
+    },
+    {
+      "id": "issue_rate",
+      "route": "sql_aggregate",
+      "reason": null,
+      "gate": "cell",
+      "target": "selector",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-96", "HOM-97"],
+      "definition": "The share of assessable conversations that have a trend issue or family, as an issue_trends cell.",
+      "filter_keys": ["agent_user_id", "family", "from", "issue", "language", "service_area", "source_type", "team_id", "to"],
+      "params": []
+    },
+    {
+      "id": "issue_trend",
+      "route": "sql_aggregate",
+      "reason": null,
+      "gate": "cell",
+      "target": "selector",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-96", "HOM-97"],
+      "definition": "The issue rate as a time series, one cell per point of the given grain inside the window.",
+      "filter_keys": ["agent_user_id", "family", "from", "issue", "language", "service_area", "source_type", "team_id", "to"],
+      "params": ["grain"]
+    },
+    {
+      "id": "out_of_scope",
+      "route": "refuse",
+      "reason": "out_of_scope",
+      "gate": "none",
+      "target": "none",
+      "scope_rule": "caller_scope",
+      "components": ["HOM-97"],
+      "definition": "A question that is not about the caller's call analytics.",
+      "filter_keys": [],
+      "params": []
+    }
+  ]
+}
