@@ -64,6 +64,7 @@ from backend.services.admin_shares_service import (
     ShareStatus,
     list_workspace_shares,
 )
+from backend.services.aggregate_metadata import coverage_missing_data, scorecard_block
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.coverage_service import (
@@ -358,8 +359,9 @@ def read_coverage(
     Four separate counters over the workspace's ingestion ledger rows with
     ``from <= received_at < to`` (ISO 8601 with a timezone; default: the 30
     days before now; at most 366 days). Each counter's denominator is the
-    previous one's numerator, and there is no blended number. Refused with
-    ``422 coverage_window_invalid``. A read, not audited.
+    previous one's numerator, and there is no blended number. The answer also
+    carries the scorecard state and the missing-data indicators (HOM-81).
+    Refused with ``422 coverage_window_invalid``. A read, not audited.
     """
     try:
         window = parse_window(from_, to)
@@ -371,11 +373,14 @@ def read_coverage(
         window=window,
         recompute_max_attempts=settings.recompute_max_attempts,
     )
+    scorecard = scorecard_block()
     return CoverageResponse.model_validate(
         {
             "coverage_version": COVERAGE_VERSION,
             "window": window.as_dict(),
             "counters": coverage.counters,
+            "scorecard": scorecard,
+            "missing_data": coverage_missing_data(coverage.counters, scorecard),
         }
     )
 

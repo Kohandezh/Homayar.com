@@ -566,7 +566,7 @@ def test_four_counters_have_the_exact_values_and_reconcile(client, email_outbox)
     _seed(owner.workspace_id, at=FROM + timedelta(hours=2), ledger="none", summary="supported")
 
     body = _coverage(owner)
-    assert set(body) == {"coverage_version", "window", "counters"}
+    assert set(body) == {"coverage_version", "window", "counters", "scorecard", "missing_data"}
     assert body["coverage_version"] == "coverage/1"
     assert body["window"]["basis"] == "ingestion_received_at"
     assert set(body["window"]) == {"from", "to", "basis"}

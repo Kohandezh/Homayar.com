@@ -15,6 +15,11 @@ The rules stay in ``backend.issue_trends``: ``counted_copy_id`` picks the counte
 a group, ``judge_conversation`` and ``tally`` count, ``build_rows`` makes the cells.  SQL
 returns rows only, never a count, a ratio or a rounding.  A series cuts the window at
 local midnights of one timezone; every point is tallied on its own.
+
+HOM-81: ``add_trend_metadata`` adds the ``coverage/1`` counters of the window
+(``compute_coverage``, over the same scope and population filters when there are any),
+the scorecard block and the missing-data indicators.  ``compute_issue_trends`` stays at
+its two statements.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ from backend.database.saas_models import (
     AnalysisRun,
     IngestionRecord,
     IngestionSourceType,
+    IngestionStatus,
     Meeting,
     StageState,
     TranscriptRevision,
@@ -56,7 +62,14 @@ from backend.issue_trends import (
     trend_provenance,
 )
 from backend.security.authorization import RecordAccess
-from backend.services.coverage_service import has_segments, transcribable_clauses
+from backend.services.aggregate_metadata import scorecard_block, trend_missing_data
+from backend.services.coverage_service import (
+    COVERAGE_VERSION,
+    CoverageWindow,
+    compute_coverage,
+    has_segments,
+    transcribable_clauses,
+)
 
 TREND_DEFINITION_ID = "trends"
 TREND_DEFINITION_VERSION = 1
@@ -67,6 +80,8 @@ TREND_CALENDAR = "gregorian"
 TREND_WEEK_STARTS_ON = "saturday"
 GRAIN_INVALID = "trend_grain_invalid"
 TIMEZONE_INVALID = "trend_timezone_invalid"
+COVERAGE_BASIS_WORKSPACE = "workspace"
+COVERAGE_BASIS_TREND_POPULATION = "trend_population"
 
 _SATURDAY = 5  # date.weekday()
 
@@ -226,18 +241,11 @@ def _current_revision(workspace_id: str) -> ColumnElement[bool]:
     )
 
 
-def _population_clauses(
-    workspace_id: str, access: RecordAccess, filters: TrendFilters
-) -> list[ColumnElement[bool]]:
-    """The window's transcribable ledger rows, the caller's scope and the population
-    filters, all by AND (a filter only narrows).  ``IngestionRecord`` joined to
-    ``Meeting``."""
-    clauses = [
-        *transcribable_clauses(workspace_id),
-        IngestionRecord.received_at >= filters.window.start,
-        IngestionRecord.received_at < filters.window.end,
-        access.meeting_clause(),
-    ]
+def _scope_clauses(access: RecordAccess, filters: TrendFilters) -> list[ColumnElement[bool]]:
+    """The caller's scope and the population filters, by AND (a filter only narrows).
+    ``IngestionRecord`` joined to ``Meeting``.  The trend population and its coverage
+    (HOM-81) share them."""
+    clauses = [access.meeting_clause()]
     if filters.team_ids:
         clauses.append(Meeting.team_id.in_(filters.team_ids))
     if filters.agent_user_ids:
@@ -251,6 +259,19 @@ def _population_clauses(
             )
         )
     return clauses
+
+
+def _population_clauses(
+    workspace_id: str, access: RecordAccess, filters: TrendFilters
+) -> list[ColumnElement[bool]]:
+    """The window's transcribable ledger rows, the caller's scope and the population
+    filters, all by AND.  ``IngestionRecord`` joined to ``Meeting``."""
+    return [
+        *transcribable_clauses(workspace_id),
+        IngestionRecord.received_at >= filters.window.start,
+        IngestionRecord.received_at < filters.window.end,
+        *_scope_clauses(access, filters),
+    ]
 
 
 def _population_rows(db: Session, workspace_id: str, clauses: Sequence[ColumnElement[bool]]):
@@ -499,3 +520,82 @@ def compute_issue_trends(
         "rows": rows,
         "points": series_answer,
     }
+
+
+# --- coverage, scorecard and missing data (HOM-81) -----------------------------------------
+
+
+def _has_population_filter(filters: TrendFilters) -> bool:
+    return bool(
+        filters.team_ids or filters.agent_user_ids or filters.languages or filters.source_types
+    )
+
+
+def trend_coverage(
+    db: Session,
+    *,
+    workspace_id: str,
+    access: RecordAccess,
+    filters: TrendFilters,
+    recompute_max_attempts: int,
+) -> dict[str, Any]:
+    """The ``coverage/1`` processing and evaluation counters of the trend window.
+
+    ``workspace`` basis for an unrestricted caller with no population filter: then the
+    counters equal those of ``GET /admin/coverage``.  Otherwise ``trend_population``: the
+    same ``compute_coverage`` rules over the accepted ledger rows whose meeting passes the
+    caller's scope and the population filters, so no count is about a meeting outside the
+    scope.  Selectors, grain and timezone never change it.  At most 9 statements (1 ledger
+    statement, plus 8 fact statements when a meeting may be transcribed), whatever the
+    number of conversations.
+    """
+    window = filters.window
+    if access.restricted or _has_population_filter(filters):
+        basis = COVERAGE_BASIS_TREND_POPULATION
+        population = [
+            IngestionRecord.status == IngestionStatus.ACCEPTED,
+            *_scope_clauses(access, filters),
+        ]
+    else:
+        basis, population = COVERAGE_BASIS_WORKSPACE, []
+    counters = compute_coverage(
+        db,
+        workspace_id=workspace_id,
+        window=CoverageWindow(start=window.start, end=window.end),
+        recompute_max_attempts=recompute_max_attempts,
+        population=population,
+    ).counters
+    return {
+        "version": COVERAGE_VERSION,
+        "window": window.to_json(),
+        "basis": basis,
+        "processing": counters["processing"],
+        "evaluation": counters["evaluation"],
+    }
+
+
+def add_trend_metadata(
+    db: Session,
+    answer: dict[str, Any],
+    *,
+    workspace_id: str,
+    access: RecordAccess,
+    filters: TrendFilters,
+    recompute_max_attempts: int,
+) -> dict[str, Any]:
+    """``answer`` of ``compute_issue_trends`` (same workspace, access and filters) with
+    ``coverage``, ``scorecard`` and ``missing_data`` added.  A new dict; every existing
+    key keeps its value.  ``compute_issue_trends`` itself stays at 2 statements."""
+    complete = {
+        **answer,
+        "coverage": trend_coverage(
+            db,
+            workspace_id=workspace_id,
+            access=access,
+            filters=filters,
+            recompute_max_attempts=recompute_max_attempts,
+        ),
+        "scorecard": scorecard_block(),
+    }
+    complete["missing_data"] = trend_missing_data(complete)
+    return complete

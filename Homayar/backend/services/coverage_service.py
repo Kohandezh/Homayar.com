@@ -336,8 +336,20 @@ def unsupported_finding_count(
 # --- set-based loading ---------------------------------------------------------
 
 
-def _ledger_rows(db: Session, *, workspace_id: str, window: CoverageWindow) -> Sequence[Any]:
-    return db.execute(
+def _ledger_rows(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    population: Sequence[ColumnElement[bool]] = (),
+) -> Sequence[Any]:
+    """The window's ledger rows.  With ``population`` only the rows that join to a meeting
+    of the workspace and pass every clause: a row with no meeting cannot be attributed."""
+    meeting_of_row = and_(
+        Meeting.id == IngestionRecord.meeting_id,
+        Meeting.workspace_id == workspace_id,
+    )
+    statement = (
         select(
             IngestionRecord.status,
             IngestionRecord.reason,
@@ -349,19 +361,19 @@ def _ledger_rows(db: Session, *, workspace_id: str, window: CoverageWindow) -> S
             Meeting.source,
             Meeting.language,
         )
-        .outerjoin(
-            Meeting,
-            and_(
-                Meeting.id == IngestionRecord.meeting_id,
-                Meeting.workspace_id == workspace_id,
-            ),
-        )
+        .select_from(IngestionRecord)
         .where(
             IngestionRecord.workspace_id == workspace_id,
             IngestionRecord.received_at >= window.start,
             IngestionRecord.received_at < window.end,
+            *population,
         )
-    ).all()
+    )
+    if population:
+        statement = statement.join(Meeting, meeting_of_row)
+    else:
+        statement = statement.outerjoin(Meeting, meeting_of_row)
+    return db.execute(statement).all()
 
 
 def transcribable_clauses(workspace_id: str) -> tuple[ColumnElement[bool], ...]:
@@ -383,8 +395,11 @@ def has_segments(segment_count: int | None) -> bool:
     return segment_count is not None and segment_count > 0
 
 
-def _candidate_meetings(workspace_id: str, window: CoverageWindow):
-    """Accepted, live meetings of the window in a transcribable status (a subquery)."""
+def _candidate_meetings(
+    workspace_id: str, window: CoverageWindow, population: Sequence[ColumnElement[bool]] = ()
+):
+    """Accepted, live meetings of the window in a transcribable status that pass every
+    ``population`` clause (a subquery)."""
     return (
         select(Meeting.id)
         .join(IngestionRecord, IngestionRecord.meeting_id == Meeting.id)
@@ -392,6 +407,7 @@ def _candidate_meetings(workspace_id: str, window: CoverageWindow):
             *transcribable_clauses(workspace_id),
             IngestionRecord.received_at >= window.start,
             IngestionRecord.received_at < window.end,
+            *population,
         )
     )
 
@@ -409,10 +425,16 @@ class _Facts:
     spans: dict[str, list[Any]] = field(default_factory=lambda: defaultdict(list))
 
 
-def _load_facts(db: Session, *, workspace_id: str, window: CoverageWindow) -> _Facts:
+def _load_facts(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    population: Sequence[ColumnElement[bool]] = (),
+) -> _Facts:
     """Everything the quality assessment and the report count read, for every
     candidate meeting at once: eight statements, whatever the meeting count."""
-    candidates = _candidate_meetings(workspace_id, window)
+    candidates = _candidate_meetings(workspace_id, window, population)
     facts = _Facts()
     for revision in db.scalars(
         select(TranscriptRevision).where(
@@ -548,15 +570,26 @@ def _assess(
 
 
 def compute_coverage(
-    db: Session, *, workspace_id: str, window: CoverageWindow, recompute_max_attempts: int
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    recompute_max_attempts: int,
+    population: Sequence[ColumnElement[bool]] = (),
 ) -> Coverage:
-    """The four ``coverage/1`` counters of the workspace for ``window``."""
+    """The four ``coverage/1`` counters of the workspace for ``window``.
+
+    ``population`` narrows the ledger rows with the same rules (HOM-81): extra clauses on
+    ``IngestionRecord`` joined to ``Meeting``, ANDed.  A ledger row then counts only if it
+    joins to a meeting of the workspace (live or soft-deleted) and passes every clause.
+    Empty (the default) is the whole workspace, ``GET /admin/coverage``.
+    """
     ingestion = dict.fromkeys(INGESTION_BUCKETS, 0)
     rejected_reasons: Counter[str] = Counter()
     processing = dict.fromkeys(PROCESSING_BUCKETS, 0)
     evaluation = dict.fromkeys(EVALUATION_BUCKETS, 0)
     candidates = []
-    for row in _ledger_rows(db, workspace_id=workspace_id, window=window):
+    for row in _ledger_rows(db, workspace_id=workspace_id, window=window, population=population):
         if row.status == IngestionStatus.REJECTED:
             ingestion["rejected"] += 1
             rejected_reasons[row.reason] += 1
@@ -571,7 +604,11 @@ def compute_coverage(
         else:
             candidates.append(row)  # completed or partial: decided by the transcript
 
-    facts = _load_facts(db, workspace_id=workspace_id, window=window) if candidates else _Facts()
+    facts = (
+        _load_facts(db, workspace_id=workspace_id, window=window, population=population)
+        if candidates
+        else _Facts()
+    )
     evaluated: list[EvaluatedMeeting] = []
     for row in candidates:
         revision = facts.revisions.get(row.meeting_id)

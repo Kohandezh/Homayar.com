@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.schemas.coverage import AggregateMissingData, AggregateScorecard, CoverageCounter
+
 
 class TrendDefinitionRef(BaseModel):
     id: str
@@ -110,6 +112,20 @@ class TrendPoint(BaseModel):
     rows: list[TrendRowResponse]
 
 
+class TrendCoverage(BaseModel):
+    """The ``coverage/1`` processing and evaluation counters of the trend window (HOM-81).
+
+    ``workspace``: the counters of ``GET /admin/coverage``.  ``trend_population``: the same
+    rules over the ledger rows whose meeting passes the caller's scope and the population
+    filters."""
+
+    version: Literal["coverage/1"]
+    window: TrendWindowResponse
+    basis: Literal["workspace", "trend_population"]
+    processing: CoverageCounter
+    evaluation: CoverageCounter
+
+
 class IssueTrendResponse(BaseModel):
     trends_version: str
     definition: TrendDefinitionRef
@@ -124,3 +140,6 @@ class IssueTrendResponse(BaseModel):
     population: TrendPopulation
     rows: list[TrendRowResponse]
     points: list[TrendPoint]
+    coverage: TrendCoverage
+    scorecard: AggregateScorecard
+    missing_data: AggregateMissingData

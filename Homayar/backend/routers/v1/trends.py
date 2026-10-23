@@ -4,7 +4,9 @@
 
 The caller's workspace and record scope (``RecordAccess.meeting_clause``) are ANDed with
 every filter, so a filter only narrows: a ``team_id`` outside the scope answers ``200``
-with what the caller may see, never ``403``.  A read, not audited.
+with what the caller may see, never ``403``.  A read, not audited.  The answer carries the
+``coverage/1`` counters of its window, the scorecard state and the missing-data
+indicators (HOM-81).
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from backend.config import Settings, get_settings
 from backend.database.relational import get_db
 from backend.issue_trends import TrendFilterError, validate_filters
 from backend.schemas.trends import IssueTrendResponse
@@ -23,6 +26,7 @@ from backend.services.issue_trend_service import (
     TREND_DEFAULT_GRAIN,
     TREND_DEFAULT_TIMEZONE,
     TrendSeriesError,
+    add_trend_metadata,
     compute_issue_trends,
     trend_definition,
     validate_series,
@@ -47,6 +51,7 @@ def read_issue_trends(
     request: Request,
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> IssueTrendResponse:
     """Call reasons, unresolved outcomes, QA and product/service complaints (HOM-80).
 
@@ -87,4 +92,12 @@ def read_issue_trends(
         )
     except TrendSeriesError as exc:  # a window that cannot be shown in the zone
         raise _refused(exc.code, exc.key, str(exc)) from exc
+    answer = add_trend_metadata(
+        db,
+        answer,
+        workspace_id=context.workspace.id,
+        access=context.record_access,
+        filters=filters,
+        recompute_max_attempts=settings.recompute_max_attempts,
+    )
     return IssueTrendResponse.model_validate(answer)
