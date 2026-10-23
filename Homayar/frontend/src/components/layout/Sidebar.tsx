@@ -3,7 +3,9 @@ import { NavLink, useNavigate } from "react-router";
 import { AudioLines, LogOut } from "lucide-react";
 import { Button, Separator, Spinner, buttonVariants } from "@heroui/react";
 import { useAuth } from "@/lib/auth-context";
+import { CONSOLE_BUILD } from "@/lib/build-info";
 import { describeApiError } from "@/lib/error-messages";
+import { isolateLtr } from "@/lib/format";
 import { useI18n, type Lang } from "@/lib/i18n-context";
 import { ADMIN_NAV, MAIN_NAV, type MainNavEntry } from "@/lib/navigation";
 import { canOpenAdminEntry, useCan } from "@/lib/use-can";
@@ -99,6 +101,16 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="flex flex-col gap-2 border-t border-separator pt-3">
+        {/* The build version line (HOM-232 V4): one muted line for everyone
+            who sees the Administration section, so any user of the admin
+            area can read what build they are on. Only the text is isolated
+            left to right, so in Persian the line still aligns with the other
+            footer text. */}
+        {adminEntries.length > 0 && (
+          <p className="m-0 px-3 text-xs text-muted">
+            {isolateLtr(`Homayar ${CONSOLE_BUILD.version} · ${CONSOLE_BUILD.sha ?? (isFa ? "منتشرنشده" : "unreleased")}`)}
+          </p>
+        )}
         <Button
           variant="ghost"
           fullWidth
