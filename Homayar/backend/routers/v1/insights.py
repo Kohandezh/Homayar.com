@@ -1035,11 +1035,16 @@ def update_action(
     )
     current = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     fields = payload.model_fields_set
+    # The stored text tells which shown placeholder was a fragment (HOM-284).
     if "description" in fields and payload.description is not None:
-        action.description = view.restore(payload.description.strip(), revision=current)
+        action.description = view.restore(
+            payload.description.strip(), revision=current, previous=action.description
+        )
     if "assignee_text" in fields:
         action.assignee_text = (
-            view.restore(payload.assignee_text.strip(), revision=current)
+            view.restore(
+                payload.assignee_text.strip(), revision=current, previous=action.assignee_text
+            )
             if payload.assignee_text
             else None
         )

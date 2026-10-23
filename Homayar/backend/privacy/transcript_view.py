@@ -16,13 +16,71 @@ revision in segment order; free texts (summary, action items) continue the
 numbering of the current revision, so ``[PHONE_1]`` means the same value in
 the transcript and in the summary.  Offsets of evidence spans are mapped into
 the redacted text and widened so that a span never shows part of a value.
+
+A free text can also quote part of a value, which the detector does not see
+as a value: a summary written before redaction was on can say ``۰۹۱۲ ۳۴۵`` of
+the phone ``۰۹۱۲ ۳۴۵ ۶۷۸۹``, or ``example.com`` of ``ali.rezaei@example.com``
+(HOM-284).  So after the whole values are replaced, the text that is still
+visible is searched for fragments of the known values.  The known values are
+the ones the free pseudonymizer holds: the current revision's values and the
+whole values of the free texts.
+
+* R1, digits: a digit run is digits (Persian, Arabic-Indic, fullwidth or
+  ASCII) joined directly or by one of the detector's separators; a leading
+  ``+`` and brackets around an area code belong to it.  A run of at least four
+  digits is a fragment when it shares four consecutive digits with a known
+  phone, national ID, bank card, IBAN or postal code.  For an Iranian phone,
+  a ``98``/``0098``/``+98`` prefix of the run is also compared as the trunk ``0``.
+* R2, e-mail: a token is a run of ``[A-Za-z0-9._%+@-]`` with ``.``, ``-`` and
+  ``_`` trimmed at its ends.  The whole token is a fragment when it contains a
+  part of a known address of at least four characters that (a) contains
+  ``@``, or contains ``.`` and covers at least one whole label (the local part
+  split at ``.``, and the domain labels other than the last); or (b) is the
+  whole local part, one label of the local part, or one whole domain label
+  other than the last, with the token edge, one of ``._%+@-`` or a digit on
+  each side.  So ``www.example.com``, ``ali.r``, ``ali.rezaei2``, ``rezaei``
+  and ``x-example`` are fragments of ``ali.rezaei@example.com``;
+  ``examples``, ``rezaeian``, ``google.com``, ``i.re``, ``ali`` and ``com``
+  are not.
+* R3: the whole run or token shows the placeholder of the value it belongs
+  to, as ``span`` widens a cut inside a value.  When several values match, the
+  value with the longest common part wins, then the detector's class priority
+  (e-mail, IBAN, bank card, phone, national ID, postal code), then the lowest
+  placeholder number.  A fragment never creates a placeholder, so the
+  numbering stays as described above.
+* R6: only the placeholders of this view are skipped as hidden.  Text shaped
+  like another placeholder (``[A_0912345]``) is searched like any other text.
+
+The known values are looked up by 4-character windows (for an address, only
+the windows every R2 match holds), so only the values that share one with a
+run or a token are ranked.
+
+``restore`` with the stored text gives a placeholder back the exact stored
+text it stood for, so editing an action keeps a fragment a fragment, but only
+when the placeholder is kept from the shown text (not added), every occurrence
+of it there stood for the same stored text (a known placeholder stored as text
+counts as its own stored text), and no ``[A-Za-z0-9]`` is glued to it after
+digit folding; otherwise it restores the whole value.  A whole value glued to other
+characters (``[EMAIL_1]2``) is stored as written; the read path above masks it.
+
+Residual risk: a value that occurs only in an older revision (corrected away
+since) is not a known value, so its fragments in a free text stay visible.
+Digits split by a separator of two or more characters are separate runs:
+``۰۹۱۲ - ۳۴۵ - ۶۷۸۹`` shows ``۳۴۵``.  A whole value spelled with characters
+that are not separators (``091.234.567.89``, a ZWNJ between groups) is not
+detected: when no other text makes it a known value it stays visible, as before
+this rule; when it is known, only its groups of four or more digits are masked
+(``0912.345.6789`` shows ``[PHONE_1].345.[PHONE_1]``).  Names and numbers spelled
+out in words are not seen.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from difflib import SequenceMatcher
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -48,6 +106,7 @@ from backend.privacy.text_pii import (
     redact,
 )
 from backend.services.transcript_service import current_revision, segments_of
+from backend.speech.text_normalize import normalize_digits_extended
 
 VIEW_ORIGINAL = "original"
 VIEW_REDACTED = "redacted"
@@ -61,6 +120,32 @@ REDACTION_NOTICE = (
 ORIGINAL_NOTICE = "Original transcript: identifiers are not redacted."
 
 _PLACEHOLDER_RE = re.compile(r"\[[A-Z_]+_[0-9]+\]")
+
+# Fragments of known values in free text (module docstring, R1-R3).  The
+# separators and the class priority are the detector's (``text_pii._SEP``,
+# ``text_pii._PRIORITY``); a test keeps them equal.
+_SEPARATORS = " \u00a0\\-\u2010\u2011\u2012\u2013"  # space, NBSP, hyphen, dashes
+_DIGIT_RUN_RE = re.compile(rf"(?:\+[{_SEPARATORS}]?)?\(?[0-9](?:\)?[{_SEPARATORS}]?\(?[0-9])*")
+_LATIN_TOKEN_RE = re.compile(r"[A-Za-z0-9._%+@-]+")
+_MIN_FRAGMENT = 4
+_COUNTRY_PREFIXES = ("0098", "98")
+_DIGIT_CLASSES = frozenset(
+    {
+        PiiClass.PHONE,
+        PiiClass.IR_NATIONAL_ID,
+        PiiClass.BANK_CARD,
+        PiiClass.IBAN,
+        PiiClass.IR_POSTAL_CODE,
+    }
+)
+_CLASS_ORDER = (
+    PiiClass.EMAIL,
+    PiiClass.IBAN,
+    PiiClass.BANK_CARD,
+    PiiClass.PHONE,
+    PiiClass.IR_NATIONAL_ID,
+    PiiClass.IR_POSTAL_CODE,
+)
 
 
 class ViewDenied(Exception):
@@ -142,6 +227,250 @@ def _copy(pseudonymizer: Pseudonymizer) -> Pseudonymizer:
     return clone
 
 
+@dataclass(frozen=True)
+class _Known:
+    """A known value as the fragment rule compares it."""
+
+    pii_class: PiiClass
+    placeholder: str
+    text: str  # the value digits, or the lower-case e-mail address
+
+    @property
+    def iranian_phone(self) -> bool:
+        # Canonical Iranian numbers start with the trunk 0; international ones with 00.
+        if self.pii_class is not PiiClass.PHONE:
+            return False
+        return self.text.startswith("0") and not self.text.startswith("00")
+
+    def rank(self, common: int) -> tuple[int, int, int]:
+        """R3: the longest common part, then the class priority, then the lowest number."""
+        number = int(self.placeholder[self.placeholder.rindex("_") + 1 : -1])
+        return (-common, _CLASS_ORDER.index(self.pii_class), number)
+
+
+def _common_part(a: str, b: str) -> int:
+    return SequenceMatcher(None, a, b, autojunk=False).find_longest_match().size
+
+
+def _windows(text: str) -> Iterator[str]:
+    """Every run of ``_MIN_FRAGMENT`` characters of ``text``, left to right."""
+    return (text[i : i + _MIN_FRAGMENT] for i in range(len(text) - _MIN_FRAGMENT + 1))
+
+
+@dataclass
+class _KnownValues:
+    """The known values of a view, looked up by their 4-character windows, so
+    only values that share a window with a run or a token are ranked (P1)."""
+
+    size: int  # the number of pseudonymizer tokens it was built from
+    placeholders: frozenset[str]
+    digits: dict[str, list[_Known]]  # a 4-digit window -> the digit values holding it
+    addresses: dict[str, list[_Known]]  # an R2 key window (_email_keys) -> the addresses
+
+    @classmethod
+    def of(cls, tokens: Mapping[tuple[PiiClass, str], str]) -> _KnownValues:
+        known = cls(len(tokens), frozenset(tokens.values()), {}, {})
+        for (pii_class, value), placeholder in tokens.items():
+            if pii_class is PiiClass.EMAIL:
+                address = _Known(pii_class, placeholder, value.lower())
+                for window in _email_keys(address.text):
+                    known.addresses.setdefault(window, []).append(address)
+            elif pii_class in _DIGIT_CLASSES:
+                digits = _Known(pii_class, placeholder, re.sub(r"[^0-9]", "", value))
+                for window in set(_windows(digits.text)):
+                    known.digits.setdefault(window, []).append(digits)
+        return known
+
+
+def _visible_parts(
+    text: str, whole: Sequence[Replacement], placeholders: frozenset[str]
+) -> Iterator[tuple[int, int]]:
+    """The parts of a free text the detector left as they are, without the
+    placeholders of this view the text already holds (R6: text shaped like
+    another placeholder is searched like any other text)."""
+    hidden = sorted(
+        [(item.start, item.end) for item in whole]
+        + [
+            match.span()
+            for match in _PLACEHOLDER_RE.finditer(text)
+            if match.group() in placeholders
+        ]
+    )
+    cursor = 0
+    for start, end in hidden:
+        if cursor < start:
+            yield cursor, start
+        cursor = max(cursor, end)
+    if cursor < len(text):
+        yield cursor, len(text)
+
+
+def _digit_matches(run: str, known: _KnownValues) -> list[tuple[int, _Known]]:
+    digits = re.sub(r"[^0-9]", "", run)
+    if len(digits) < _MIN_FRAGMENT:
+        return []
+    forms = [digits]
+    prefix = next((p for p in _COUNTRY_PREFIXES if digits.startswith(p)), None)
+    if prefix is not None:
+        forms.append("0" + digits[len(prefix) :])
+    candidates: dict[_Known, list[str]] = {}  # each value with the forms it is compared to
+    for index, form in enumerate(forms):
+        for window in _windows(form):
+            for value in known.digits.get(window, ()):
+                if index == 0 or value.iranian_phone:
+                    candidates[value] = forms if value.iranian_phone else forms[:1]
+    if not candidates:
+        return []
+    size, best = _shared_digits(candidates)
+    return [(size, value) for value in best]
+
+
+def _shared_digits(candidates: Mapping[_Known, list[str]]) -> tuple[int, list[_Known]]:
+    """R3: the values that share the longest digit run with the run, and its
+    length.  Each candidate already shares ``_MIN_FRAGMENT`` digits; the length
+    grows by one digit while some value still shares it."""
+    size, best = _MIN_FRAGMENT, list(candidates)
+    while True:
+        longer = [
+            value
+            for value in best
+            if any(
+                form[start : start + size + 1] in value.text
+                for form in candidates[value]
+                for start in range(len(form) - size)
+            )
+        ]
+        if not longer:
+            return size, best
+        size, best = size + 1, longer
+
+
+def _bounded(token: str, start: int, end: int) -> bool:
+    """R2 (b): each side of the part is the token edge, ``._%+@-``, or a digit."""
+    sides = (token[start - 1] if start else "", token[end] if end < len(token) else "")
+    return all(side == "" or side in "._%+@-0123456789" for side in sides)
+
+
+def _labels(address: str) -> list[tuple[int, int]]:
+    """Spans of the labels R2 (a) counts: the local part split at ``.``, and
+    the domain labels before the last one."""
+    local, _, domain = address.rpartition("@")
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for label in [*local.split("."), *domain.split(".")[:-1]]:
+        spans.append((start, start + len(label)))
+        start += len(label) + 1  # the "." (or the "@" after the local part)
+    return [(start, end) for start, end in spans if start < end]
+
+
+def _email_keys(address: str) -> set[str]:
+    """Windows of ``address`` of which every R2 match holds at least one: a
+    window with the ``@``, the first four characters of a label, or, for a
+    label shorter than four, each window around it.  ``.com`` alone is none."""
+    keys = {window for window in _windows(address) if "@" in window}
+    for start, end in _labels(address):
+        if end - start >= _MIN_FRAGMENT:
+            keys.add(address[start : start + _MIN_FRAGMENT])
+            continue
+        for first in range(max(0, end - _MIN_FRAGMENT), start + 1):
+            if first + _MIN_FRAGMENT <= len(address):
+                keys.add(address[first : first + _MIN_FRAGMENT])
+    return keys
+
+
+def _is_email_fragment(token: str, address: str) -> bool:
+    """R2: ``token`` holds a part of ``address`` of at least four characters."""
+    labels = _labels(address)
+    for i in range(len(token)):
+        for j in range(len(address)):
+            if token[i] != address[j] or (i and j and token[i - 1] == address[j - 1]):
+                continue  # a common part that starts further left holds this one
+            size = 1
+            while (
+                i + size < len(token)
+                and j + size < len(address)
+                and token[i + size] == address[j + size]
+            ):
+                size += 1
+            part = address[j : j + size]
+            if size >= _MIN_FRAGMENT and (
+                "@" in part
+                or ("." in part and any(j <= start and end <= j + size for start, end in labels))
+            ):
+                return True  # case (a)
+    local, _, domain = address.rpartition("@")
+    for part in {local, *local.split("."), *domain.split(".")[:-1]}:
+        if len(part) < _MIN_FRAGMENT:
+            continue
+        start = token.find(part)
+        while start >= 0:
+            if _bounded(token, start, start + len(part)):
+                return True  # case (b)
+            start = token.find(part, start + 1)
+    return False
+
+
+def _email_matches(token: str, known: _KnownValues) -> list[tuple[int, _Known]]:
+    token = token.lower()
+    candidates: dict[_Known, None] = {}  # an ordered set
+    for window in _windows(token):
+        for address in known.addresses.get(window, ()):
+            candidates[address] = None
+    return [
+        (_common_part(token, address.text), address)
+        for address in candidates
+        if _is_email_fragment(token, address.text)
+    ]
+
+
+def _fragments(text: str, whole: Sequence[Replacement], known: _KnownValues) -> list[Replacement]:
+    """Replacements for the fragments of known values in ``text`` (R1-R3, R6).
+
+    ``whole`` are the detector's replacements in ``text``.  Offsets refer to
+    ``text``.
+    """
+    if not known.placeholders:
+        return []
+    folded = normalize_digits_extended(text)  # one character each: offsets are kept
+    found: list[tuple[int, int, int, _Known]] = []
+    for part_start, part_end in _visible_parts(text, whole, known.placeholders):
+        for match in _DIGIT_RUN_RE.finditer(folded, part_start, part_end):
+            start, end = match.span()
+            first = start + next(i for i, char in enumerate(match.group()) if char.isdigit())
+            if "(" in folded[start:first] and ")" not in folded[first:end]:
+                start = first  # an opening bracket no area code closes stays visible
+            found.extend(
+                (start, end, common, value)
+                for common, value in _digit_matches(folded[start:end], known)
+            )
+        for match in _LATIN_TOKEN_RE.finditer(folded, part_start, part_end):
+            start, end = match.span()
+            while start < end and folded[start] in "._-":
+                start += 1
+            while end > start and folded[end - 1] in "._-":
+                end -= 1
+            found.extend(
+                (start, end, common, value)
+                for common, value in _email_matches(folded[start:end], known)
+            )
+    # Overlapping fragments (a run inside a token) become one replacement, so
+    # no character of either stays visible.
+    groups: list[tuple[int, int, list[tuple[int, _Known]]]] = []
+    for start, end, common, known in sorted(found, key=lambda item: (item[0], item[1])):
+        if groups and start < groups[-1][1]:
+            group_start, group_end, matches = groups.pop()
+            groups.append((group_start, max(group_end, end), [*matches, (common, known)]))
+        else:
+            groups.append((start, end, [(common, known)]))
+    replacements: list[Replacement] = []
+    for start, end, matches in groups:
+        _, best = min(matches, key=lambda match: match[1].rank(match[0]))
+        replacements.append(
+            Replacement(start, end, best.pii_class, best.placeholder, text[start:end])
+        )
+    return replacements
+
+
 class MeetingView:
     """The texts of one meeting as one caller may see them.
 
@@ -171,6 +500,7 @@ class MeetingView:
         self._revisions: dict[str, RevisionRedaction] = {}
         self._free: Pseudonymizer | None = None
         self._free_values: dict[str, str] = {}
+        self._known: _KnownValues | None = None
         self.created = False
 
     @property
@@ -282,18 +612,37 @@ class MeetingView:
                 values.append(action.assignee_text)
         return values
 
-    def _redact_free(self, value: str) -> str:
+    def _redact_free(self, value: str) -> RedactedText:
         assert self._free is not None
         text, replacements = redact(value, self.policy.classes, pseudonymizer=self._free)
         for replacement in replacements:
             self._free_values.setdefault(replacement.placeholder, replacement.value)
-        return text
+        return RedactedText(text, tuple(replacements))
+
+    def _render_free(self, value: str) -> RedactedText:
+        """A free text in this view: whole values as the detector finds them,
+        then each fragment of a known value as that value's placeholder."""
+        free = self._free_pseudonymizer()
+        whole = self._redact_free(value)
+        # The tokens only grow, so their number tells when the index is stale.
+        if self._known is None or self._known.size != len(free.tokens):
+            self._known = _KnownValues.of(free.tokens)
+        fragments = _fragments(value, whole.replacements, self._known)
+        if not fragments:
+            return whole
+        replacements = sorted([*whole.replacements, *fragments], key=lambda item: item.start)
+        parts: list[str] = []
+        cursor = 0
+        for replacement in replacements:
+            parts += [value[cursor : replacement.start], replacement.placeholder]
+            cursor = replacement.end
+        parts.append(value[cursor:])
+        return RedactedText("".join(parts), tuple(replacements))
 
     def text(self, value: str | None) -> str | None:
         if value is None or not self.redacted:
             return value
-        self._free_pseudonymizer()
-        return self._redact_free(value)
+        return self._render_free(value).text
 
     def point(self, value: object) -> object:
         """A summary key point / decision with its texts in this view."""
@@ -317,12 +666,19 @@ class MeetingView:
         *,
         revision: TranscriptRevision | None = None,
         segment_id: str | None = None,
+        previous: str | None = None,
     ) -> str:
         """Put originals back for placeholders this view showed.
 
         A person editing a redacted text returns placeholders; without this
         step a correction would overwrite the original value with the token.
-        Known placeholders of the segment win, then of the revision, then of
+        With ``previous``, the stored free text the person edited, a
+        placeholder gets back the exact stored text it stood for there (a
+        fragment stays a fragment) only when it is kept from the shown text
+        (not added), unambiguous (every occurrence there, including one stored
+        as text, stood for the same stored text), and not glued to
+        ``[A-Za-z0-9]`` in ``value`` after digit folding.  Other
+        known placeholders of the segment win, then of the revision, then of
         the free texts; unknown ones stay literal.
         """
         if not self.redacted or "[" not in value:
@@ -337,7 +693,45 @@ class MeetingView:
             if segment_id is not None and segment_id in redaction.segments:
                 for replacement in redaction.segments[segment_id].replacements:
                     known[replacement.placeholder] = replacement.value
-        return _PLACEHOLDER_RE.sub(lambda match: known.get(match.group(), match.group()), value)
+        kept = self._kept_placeholders(value, previous) if previous else {}
+
+        def original(match: re.Match[str]) -> str:
+            if match.start() in kept:
+                return kept[match.start()]
+            return known.get(match.group(), match.group())
+
+        return _PLACEHOLDER_RE.sub(original, value)
+
+    def _kept_placeholders(self, value: str, previous: str) -> dict[int, str]:
+        """The placeholders of ``value`` that get back their stored text from
+        ``previous`` (SPEC 11.2), by position, with that text."""
+        shown = self._render_free(previous)
+        stored: dict[str, set[str]] = {}
+        for item in shown.replacements:
+            stored.setdefault(item.placeholder, set()).add(item.value)
+        assert self._known is not None
+        for match in _PLACEHOLDER_RE.finditer(previous):
+            if match.group() in self._known.placeholders:
+                stored.setdefault(match.group(), set()).add(match.group())  # stored as text
+        by_offset = {shown.offset(item.start, end=False): item for item in shown.replacements}
+        kept: dict[int, str] = {}
+        # Placeholders in a block the edit left unchanged are kept; the others
+        # were added (or moved) by the person.
+        matcher = SequenceMatcher(None, shown.text, value, autojunk=False)
+        for block in matcher.get_matching_blocks():
+            for match in _PLACEHOLDER_RE.finditer(value, block.b, block.b + block.size):
+                item = by_offset.get(block.a + match.start() - block.b)
+                if item is None or item.placeholder != match.group():
+                    continue
+                if len(stored[item.placeholder]) != 1:
+                    continue  # ambiguous
+                sides = normalize_digits_extended(
+                    value[match.start() - 1 : match.start()] + value[match.end() : match.end() + 1]
+                )
+                if any(char.isascii() and char.isalnum() for char in sides):
+                    continue  # glued: the stored text would join the letter or digit
+                kept[match.start()] = item.value
+        return kept
 
     # --- provenance -----------------------------------------------------------
 
