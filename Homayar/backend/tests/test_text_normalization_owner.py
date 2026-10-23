@@ -3966,9 +3966,10 @@ EMAIL_ONLY_DIGEST = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058c
 # HOM-165 bumped it again to text-pii/3 (fullwidth digits fold to ASCII).
 # HOM-171 bumped it to text-pii/4 (harakat and tatweel ignored in the postal
 # keyword); owner-approved re-baseline of 2026-10-10.
-CURRENT_DETECTOR_VERSION = "text-pii/4"
-CURRENT_ALL_CLASSES_DIGEST = "e07352c17058c7ca0e60a31590a9daf9d68e16ac789cb94bd6dd3cbbcd95c66c"
-CURRENT_EMAIL_ONLY_DIGEST = "9d691ba3431f10161dcbba86334f9a534de30b2e78db1c7f686546ce708d2d2a"
+# HOM-291 bumped it to text-pii/5 (a national ID next to a phone is two identifiers).
+CURRENT_DETECTOR_VERSION = "text-pii/5"
+CURRENT_ALL_CLASSES_DIGEST = "2fcacd2246e02eea2438336c5ac4934895a36b9eb333d8548ae9e74d5bf072c2"
+CURRENT_EMAIL_ONLY_DIGEST = "9ded6e893d988f71870fa94d7d562ececda2d4a00f520008d810447755cf2bca"
 
 
 class TestGoldenDivergenceTable:
@@ -4574,8 +4575,8 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "32a26634d15dffaedeea5fa3"),  # HOM-164/165/171 docstring
-        ("DETECTOR_VERSION", "9657ab596efa48f712402232"),  # HOM-171 text-pii/4
+        ("Expr", "40424ba52a3a96c8f5f80dd8"),  # HOM-164/165/171/291 docstring
+        ("DETECTOR_VERSION", "929c8f3b3114545ce2ae71dc"),  # HOM-291 text-pii/5
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
         ("_PRIORITY", "3266f57d52c974fe017bac21"),
@@ -4589,6 +4590,7 @@ BASE_FINGERPRINTS: dict = {
         ("_INTL_PHONE_RE", "c443fa695f2605ce94871c1f"),  # HOM-165
         ("_TEN_DIGITS_RE", "f12c90097867adca76912b90"),
         ("_CARD_RE", "504886bc0ce5dcc69329dbd7"),
+        ("_DIGIT_RUN_RE", "9530a482ace5b8dbbb70c247"),  # HOM-291 joined digit runs
         ("_IBAN_RE", "a948ca753b466b8dbef81dd7"),  # HOM-165
         ("_POSTAL_KEYWORD_RE", "3d3fd7541a6fe30549048ec8"),  # HOM-164
         ("_POSTAL_WINDOW", "74a038fb8d85fb4f9693c87a"),
@@ -4598,7 +4600,11 @@ BASE_FINGERPRINTS: dict = {
         ("valid_luhn", "8b40e7530c9816227f216679"),
         ("valid_iban", "96143c494e81f9c5b0b851ef"),
         ("_canonical_phone", "406be280c94ea1e049f0f165"),
-        ("detect", "ca2130c4a3da043b1748f2bf"),  # HOM-164/171 keyword, HOM-165 digits
+        ("_ten_digit_class", "fcc5a1c0dc0e59ec4be9b812"),  # HOM-291 split out of detect
+        ("_split_run", "769ee2ca6830b4c213e869fd"),  # HOM-291 a run read as identifiers
+        ("_candidates", "52bfef8ec9b855ad4621d844"),  # HOM-291 split out of detect
+        ("_select", "2d1f1550a1097775ee8593d9"),  # HOM-291 no candidate digit left raw
+        ("detect", "162804bfb8d73914a6027908"),  # HOM-291 candidates then selection
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),
@@ -4757,8 +4763,8 @@ FROZEN_FILES: dict[str, str] = {
     "backend/privacy/redaction_service.py": (
         "6facb81af9244730d104e6e12a5bd3491141245dab66f144c38c14dd1b25053a"
     ),
-    "backend/privacy/subject_export.py": (
-        "f58eefef667fc509b827c21c29b8e4d186945023ba5800dd391f826532df8356"
+    "backend/privacy/subject_export.py": (  # HOM-291: _Matcher reads one class at a time
+        "d1ed6a023cac0983d691e49184179e781c80ee6de95ace0599d9fc1292392fcf"
     ),
     "backend/privacy/transcript_view.py": (
         "b65c3629ac444112d593f3c2e7071a4d27b4f229f09fcf9a5c3803d0533aa44e"
