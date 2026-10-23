@@ -77,8 +77,10 @@ python3 infra/release/release_manifest.py verify --manifest release-manifest.jso
 checks the manifest's own `manifest_sha256` (an integrity checksum, not proof of authorship: it is
 unkeyed, so whoever edits a manifest can recompute it), the source commit and
 date, version, profile, `uv.lock` and `pyproject.toml` digests, migration head, shipped-code
-digest and file count, base image reference, uv version and the Python minor version, and with
-`--image-labels` the revision, version, created and base-image labels.
+digest and file count, base image reference, uv version and the Python minor version, that
+every base image in `build_inputs` is pinned by digest, and with `--image-labels` the revision,
+version, created and base-image labels. A manifest made before HOM-228 now fails `verify` on
+this pin check, because it records the console-web and egress-proxy base images as tags.
 
 CI does the same on every push and pull request (job `release-manifest`): it generates the
 manifest twice and compares the bytes, builds the API image with the `build-args` output,

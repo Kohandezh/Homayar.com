@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import itertools
 import json
 import os
 import platform
@@ -238,12 +239,73 @@ def test_every_base_image_is_pinned_by_digest(image: str) -> None:
         assert base["pinned_by_digest"], (image, arg, base)
         # The tag stays readable in front of the digest (tag@sha256:...).
         assert re.fullmatch(r"[a-z0-9./-]+:[\w.-]+@sha256:[0-9a-f]{64}", value), (image, arg)
-    # Every stage starts from a pinned ARG or an earlier stage, never from a literal tag.
+    assert _unpinned_stage_sources(dockerfile) == [], image
+
+
+def _unpinned_stage_sources(dockerfile: str) -> list[str]:
+    """Each FROM line that does not start from a pinned base-image ARG or an earlier stage."""
+    # The base images the manifest records for this Dockerfile, kept only when pinned.
+    pinned = {
+        arg for arg, value in _base_args(dockerfile).items() if rm.image_reference(value)["digest"]
+    }
     stages: set[str] = set()
-    for source, stage in re.findall(r"^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$", dockerfile, re.M):
-        assert source in stages or re.fullmatch(r"\$\{(\w+_IMAGE)\}", source), (image, source)
-        if stage:
-            stages.add(stage)
+    problems = []
+    for line in dockerfile.splitlines():
+        words = line.split()
+        if not words or words[0].upper() != "FROM":
+            continue
+        # FROM [--platform=<platform>]... <source> [AS <name>]
+        rest = list(itertools.dropwhile(lambda word: word.startswith("--"), words[1:]))
+        if len(rest) not in (1, 3) or (len(rest) == 3 and rest[1].upper() != "AS"):
+            problems.append(f"cannot parse: {line.strip()}")
+            continue
+        source = rest[0]
+        variable = re.fullmatch(r"\$\{(\w+)\}|\$(\w+)", source)
+        name = variable and (variable.group(1) or variable.group(2))
+        # Stage names are case-insensitive in Docker.
+        if source.lower() not in stages and name not in pinned:
+            problems.append(f"not a pinned base-image ARG or an earlier stage: {line.strip()}")
+        if len(rest) == 3:
+            stages.add(rest[2].lower())
+    return problems
+
+
+PINNED_NODE = f"ARG NODE_IMAGE=node:22-alpine@{DIGEST}\n"
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    [
+        f"{PINNED_NODE}FROM --platform=$BUILDPLATFORM alpine:3.22 AS tools\n",
+        f"{PINNED_NODE}from alpine:3.22 as tools\n",
+        f"{PINNED_NODE}FROM ${{NODE_IMAGE}} AS build\nFROM alpine:3.22\n",
+        # An ARG without a default is not in the manifest's base_images.
+        "ARG NODE_IMAGE\nFROM ${NODE_IMAGE}\n",
+        "ARG NODE_IMAGE=node:22-alpine\nFROM ${NODE_IMAGE}\n",
+        f"{PINNED_NODE}FROM ${{OTHER_IMAGE}}\n",
+        # A stage name is only known after the FROM that defines it.
+        f"{PINNED_NODE}FROM build\nFROM ${{NODE_IMAGE}} AS build\n",
+        f"{PINNED_NODE}FROM\n",
+        f"{PINNED_NODE}FROM ${{NODE_IMAGE}} AS build extra\n",
+        f"{PINNED_NODE}FROM ${{NODE_IMAGE}} \\\n  AS build\n",
+    ],
+)
+def test_stage_check_refuses_unpinned_sources(dockerfile: str) -> None:
+    assert len(_unpinned_stage_sources(dockerfile)) == 1, dockerfile
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    [
+        f"{PINNED_NODE}FROM ${{NODE_IMAGE}}\n",
+        f"{PINNED_NODE}FROM $NODE_IMAGE\n",
+        f"{PINNED_NODE}FROM --platform=$BUILDPLATFORM ${{NODE_IMAGE}} AS build\nFROM build\n",
+        f"{PINNED_NODE}from ${{NODE_IMAGE}} as Build\nFROM build AS runtime\n",
+        f"{PINNED_NODE}# FROM alpine:3.22 in a comment is not a stage\nFROM ${{NODE_IMAGE}}\n",
+    ],
+)
+def test_stage_check_accepts_pinned_sources_and_earlier_stages(dockerfile: str) -> None:
+    assert _unpinned_stage_sources(dockerfile) == [], dockerfile
 
 
 def test_api_base_image_matches_the_python_version() -> None:
