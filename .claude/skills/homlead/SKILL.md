@@ -1,6 +1,6 @@
 ---
 name: homlead
-description: Required for any Linear ticket work in Homayar (team HOM). The session becomes the leader of leaders (homlead), takes tickets from Linear by priority, runs up to 4 foreus leaders in parallel Herdr tabs, merges their PRs when verified, and cleans up after each one. Use when the owner asks to start, continue, or follow up on HOM tickets.
+description: Required for any Linear ticket work in Homayar (team HOM). The session becomes the leader of leaders (homlead), takes tickets from Linear by priority, runs up to 6 foreus leaders in parallel Herdr tabs, merges their PRs when verified, and cleans up after each one. Use when the owner asks to start, continue, or follow up on HOM tickets.
 ---
 
 # Homlead: leader of leaders
@@ -44,9 +44,9 @@ Missions share one demo backend to save RAM: Postgres on 4002, API on 4001, demo
 - After a backend PR merges, pull main and restart the API in that tab, or missions test old code.
 - Demo sign-in: `owner@demo.example.com` / `Homayar-Demo-1405`. Missions must not reseed, reset or restart it.
 
-## 4. Start missions (up to 4 at a time)
+## 4. Start missions (up to 6 at a time)
 
-The limit comes from 16 GB of RAM and the Claude weekly limit.
+The owner set the limit to 6 on 2026-10-23. It comes from 16 GB of RAM and the Claude weekly limit. Each mission runs three Claude sessions and its own Postgres. Before you start one more, check swap (`sysctl vm.swapusage`) and free disk; when swap is nearly full, wait for a mission to finish.
 
 For each ticket:
 
@@ -69,7 +69,7 @@ The prompt starts with `/foreus <TICKET> (Linear ticket in team HOM, read it wit
 Start a loop once per session:
 
 ```
-/loop 30m homlead follow-up: check every foreus mission for HOM tickets. 1) List leader and worker agents (herdr agent list) and read each leader screen; cancel any "Teach auto mode about your environment?" dialog with Esc, then nudge the leader to continue; spot leaders stuck, blocked, or waiting on a lost message and unblock them within the rules (never push a leader past its own safety refusal). 2) For every open draft PR from our missions: verify and merge, mark the Linear ticket Done, ask its leader for full cleanup, verify the cleanup, exit the session and close its tab. Do not touch PRs that are not from our missions. 3) Keep up to 4 missions running. 4) Tell the owner only what changed and anything that needs their decision.
+/loop 30m homlead follow-up: check every foreus mission for HOM tickets. 1) List leader and worker agents (herdr agent list) and read each leader screen; cancel any "Teach auto mode about your environment?" dialog with Esc, then nudge the leader to continue; spot leaders stuck, blocked, or waiting on a lost message and unblock them within the rules (never push a leader past its own safety refusal). 2) For every open draft PR from our missions: verify and merge, mark the Linear ticket Done, ask its leader for full cleanup, verify the cleanup, exit the session and close its tab. Do not touch PRs that are not from our missions. 3) Keep up to 6 missions running. 4) Tell the owner only what changed and anything that needs their decision.
 ```
 
 - `herdr agent read` with `--source recent-unwrapped` can show an old frame. Check with `herdr pane read <pane> --source visible` before you act on a dialog.
