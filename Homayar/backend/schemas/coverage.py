@@ -1,4 +1,5 @@
-"""Coverage counters and review sample draws (HOM-72, WP14-T01)."""
+"""Coverage counters and review sample draws (HOM-72, WP14-T01), and the scorecard and
+missing-data blocks every aggregate carries (HOM-81, WP15-T03)."""
 
 from __future__ import annotations
 
@@ -44,10 +45,47 @@ class CoverageWindowResponse(BaseModel):
     basis: Literal["ingestion_received_at"]
 
 
+MissingDataIndicator = Literal[
+    "ingestion_incomplete",
+    "processing_incomplete",
+    "evaluation_incomplete",
+    "review_incomplete",
+    "ingestion_unavailable",
+    "processing_unavailable",
+    "evaluation_unavailable",
+    "review_unavailable",
+    "scorecard_unavailable",
+    "empty_population",
+    "missing_values",
+    "pending_review",
+    "insufficient_sample",
+    "source_unavailable",
+]
+
+
+class AggregateScorecard(BaseModel):
+    """The scorecard state of an aggregate.  Scorecards (HOM-54) do not exist yet, so it
+    is always ``not_available``; HOM-54 adds ``available`` with a version and digest."""
+
+    status: Literal["not_available"]
+    version: str | None
+    digest: str | None
+    reason: Literal["scorecard_results_unavailable"] | None
+
+
+class AggregateMissingData(BaseModel):
+    """Sorted, distinct codes, each a pure function of the same response
+    (``services/aggregate_metadata.py``)."""
+
+    indicators: list[MissingDataIndicator]
+
+
 class CoverageResponse(BaseModel):
     coverage_version: str
     window: CoverageWindowResponse
     counters: CoverageCounters
+    scorecard: AggregateScorecard
+    missing_data: AggregateMissingData
 
 
 class ReviewSampleRequest(BaseModel):

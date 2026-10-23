@@ -465,7 +465,7 @@ def test_window_errors_are_422_and_366_days_is_200(client, email_outbox):
     )
     assert allowed.status_code == 200, allowed.text
     body = allowed.json()
-    assert set(body) == {"coverage_version", "window", "counters"}
+    assert set(body) == {"coverage_version", "window", "counters", "scorecard", "missing_data"}
     assert body["coverage_version"] == "coverage/1"
     assert body["window"]["basis"] == "ingestion_received_at"
     assert datetime.fromisoformat(body["window"]["from"]) == datetime(2026, 1, 1, tzinfo=UTC)

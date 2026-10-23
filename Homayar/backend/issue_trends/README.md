@@ -940,7 +940,10 @@ on the field of the table above, and the window into `from <= received_at < to`.
 ### A trend answer
 
 HOM-80 builds the rows with `build_rows(tally, definition, filters, kind=..., policy=...)` and
-the provenance with `trend_provenance(definition, policy)`. HOM-81 adds the coverage link.
+the provenance with `trend_provenance(definition, policy)`. HOM-81 adds `coverage`, `scorecard`
+and `missing_data` (`add_trend_metadata` in `services/issue_trend_service.py`). The answer of
+`GET /api/v1/trends/issues` below is shortened: `filters`, `scope`, `series` and `points` are
+in "The answer" of HOM-80, and every counter has the full `coverage/1` keys.
 
 ```json
 {
@@ -955,8 +958,19 @@ the provenance with `trend_provenance(definition, policy)`. HOM-81 adds the cove
   "filters": {"...": "the normalized filter object"},
   "population": {"included": 120, "excluded": {"duplicate_media": 2}},
   "coverage": {"version": "coverage/1",
+               "window": {"from": "2026-09-23T00:00:00+00:00",
+                          "to": "2026-10-23T00:00:00+00:00",
+                          "basis": "ingestion_received_at"},
+               "basis": "workspace",
                "processing": {"numerator": 122, "denominator": 130, "ratio": 0.9385,
-                              "status": "computed", "reason": null}},
+                              "status": "computed", "reason": null, "...": "..."},
+               "evaluation": {"numerator": 101, "denominator": 122, "ratio": 0.8279,
+                              "status": "computed", "reason": null, "...": "..."}},
+  "scorecard": {"status": "not_available", "version": null, "digest": null,
+                "reason": "scorecard_results_unavailable"},
+  "missing_data": {"indicators": ["evaluation_incomplete", "missing_values",
+                                  "pending_review", "processing_incomplete",
+                                  "scorecard_unavailable", "source_unavailable"]},
   "rows": [
     {"level": "family", "family": "service_complaint", "issue": null,
      "cell": {"status": "computed", "numerator": 14, "denominator": 96, "ratio": 0.1458,
@@ -988,6 +1002,28 @@ In every available row: `cell.denominator + sum(missing) == population.included`
 call-reason rows. Its own `absent_pending_review` (2) is the calls whose intent is a pending
 `unsolicited`.
 
+`scorecard` is the same block in `GET /admin/coverage`. Scorecards (HOM-54) do not exist yet,
+so it is always `not_available` with `scorecard_results_unavailable` and never a version;
+HOM-54 adds `available`. `missing_data.indicators` is a sorted list of distinct codes. Each
+code is a pure function of other fields of the same answer (`services/aggregate_metadata.py`),
+never a new query or a new number:
+
+| Code | When |
+| --- | --- |
+| `processing_incomplete`, `evaluation_incomplete` | that `coverage` counter is `computed` and `numerator < denominator` |
+| `processing_unavailable`, `evaluation_unavailable` | that counter is `not_computable` for a reason other than `empty_denominator` |
+| `scorecard_unavailable` | `scorecard.status == "not_available"` (always today) |
+| `empty_population` | `population.included == 0` |
+| `missing_values` | a row of `rows` has `sum(missing) > 0` |
+| `pending_review` | a row of `rows` has `pending_review > 0` or `absent_pending_review > 0` (`null` is 0) |
+| `insufficient_sample` | a row of `rows` has `cell.status == "insufficient_sample"` |
+| `source_unavailable` | a row of `rows` has `cell.status == "not_computable"` for a reason other than `empty_denominator` (the `qa` row, always, while it is selected) |
+
+Only `rows` of the whole window count, not `points[].rows`; the points are unchanged.
+`GET /admin/coverage` uses the same counter rules on its four counters (so it can also hold
+`ingestion_*` and `review_*` codes; `review_unavailable` is always there today), plus
+`scorecard_unavailable` and `empty_population` (`counters.ingestion.denominator == 0`).
+
 ### The coverage link
 
 The trend population is the `coverage/1` processing `transcribed` bucket of the same window,
@@ -995,11 +1031,33 @@ so with no population filter:
 
 `population.included + sum(population.excluded) == coverage.processing.numerator`.
 
-HOM-81 shows the coverage counters of the same window next to the trend, so a reader sees
-how many conversations were ingested, transcribed and evaluated before any issue was
-counted. `compute_coverage` has no team, agent, language or source filter today. With a
-population filter, HOM-81 either filters coverage the same way or states that the coverage
-counters are workspace-wide.
+HOM-81 shows the processing and evaluation counters of the same window next to the trend
+(`coverage`), so a reader sees how many accepted conversations were transcribed and evaluated
+before any issue was counted. `coverage.window` is the answer's `window`. `coverage.basis` says
+which ledger rows the counters count:
+
+- `workspace`: the caller is unrestricted (`scope.restricted` is false) and the query has no
+  population filter (`team_id`, `agent_user_id`, `language`, `source_type` all empty). The
+  counters are equal to the `processing` and `evaluation` counters of `GET /admin/coverage`
+  for the same `from` and `to`.
+- `trend_population`: otherwise. The same `compute_coverage` rules count only the accepted
+  ledger rows of the window that join to a meeting of the workspace (live or soft-deleted)
+  whose meeting passes the caller's `meeting_clause()` and the `team_id`, `agent_user_id` and
+  `language` filters, and whose ledger row passes the `source_type` filter
+  (`compute_coverage(..., population=clauses)`). A ledger row without a meeting, or a
+  rejected row, cannot be attributed and is not counted. So a restricted caller never sees a
+  count about a meeting outside their scope.
+
+Selectors (`family`, `issue`, `service_area`), `grain` and `timezone` never change the block.
+With both bases, and any filter:
+
+- `population.included + sum(population.excluded) == coverage.processing.numerator` when
+  `coverage.processing.status` is `computed`; both are 0 otherwise (`numerator` is 0, not
+  `null`, for an empty denominator);
+- `coverage.evaluation.denominator == coverage.processing.numerator`.
+
+There is no `ingestion` and no `review` counter in this block. The rejected rows are in the
+`ingestion` counter of `GET /admin/coverage` only.
 
 ## How HOM-80 to HOM-84 use it
 
@@ -1117,7 +1175,8 @@ answer the other scoped routes give. HOM-82 may change it (open question 6).
 - `rows` is `build_rows(...)`, family rows then issue rows, each `TrendRow.to_json()`. The
   `qa` row is always `not_computable` with `scorecard_results_unavailable`, never 0.
 - `points` is `[]` when `grain` is `none`. `series` is always there.
-- There is no `coverage` key: HOM-81 adds it.
+- `compute_issue_trends` returns no `coverage` key. The route adds `coverage`, `scorecard`
+  and `missing_data` with `add_trend_metadata` (HOM-81, "A trend answer").
 
 Invariants (tested in `tests/test_issue_trend_service.py`):
 
@@ -1212,6 +1271,9 @@ called with an owner session, 20 calls after one warm-up:
 
 The 21 route statements are the 2 of the service plus the fixed statements of the session,
 membership, tenant binding and record access; the count is the same for every request.
+Since HOM-81 the route also runs `add_trend_metadata`: 1 ledger statement, plus 8 fact
+statements when a candidate exists, so up to 9 more statements. The times above were
+measured before HOM-81.
 
 Where the time goes (service only, median of 5, 30 days, `grain=none`): loading 0.83 s (both
 statements, decoding about 9 700 stored `result` JSON values, building the facts), judging
@@ -1249,10 +1311,16 @@ linked rows (`duplicate_of_id IS NOT NULL`) and walks up by primary key. No migr
 
 ### What HOM-81 and HOM-82 add
 
-- HOM-81 adds the `coverage` block (the `coverage/1` counters of the same window) next to
-  `population`, and shows `pending_review`, `absent_pending_review` and the `missing` buckets
-  next to each rate. With a population filter it must filter coverage the same way or say
-  that the coverage counters are workspace-wide ("The coverage link").
+- HOM-81 (done): the route answer has `coverage`, `scorecard` and `missing_data` ("A trend
+  answer", "The coverage link"), and `GET /admin/coverage` has `scorecard` and
+  `missing_data`. Every other key of both answers is unchanged. `compute_issue_trends` itself
+  is unchanged: it still returns no `coverage` key and still runs 2 statements. The route then
+  calls `add_trend_metadata`, which adds the three keys with `compute_coverage`: 1 ledger
+  statement, plus 8 fact statements when a meeting of the window may be transcribed. That
+  count does not grow with the conversations (pinned in `tests/test_aggregate_metadata.py`).
+  `pending_review`, `absent_pending_review` and the `missing` buckets were already next to
+  each rate; `missing_data` sums them up for the whole answer. The rendering is frontend
+  scope (HOM-237).
 - HOM-82 builds the role views (supervisor, executive, agent self-view) on this route or this
   service: it may change the scope answer of open question 6, chooses `kind=agent` for a
   cohort of one person, and stops complementary disclosure of hidden agent counts, including
