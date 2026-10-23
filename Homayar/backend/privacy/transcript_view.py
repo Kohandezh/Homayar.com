@@ -63,6 +63,19 @@ counts as its own stored text), and no ``[A-Za-z0-9]`` is glued to it after
 digit folding; otherwise it restores the whole value.  A whole value glued to other
 characters (``[EMAIL_1]2``) is stored as written; the read path above masks it.
 
+A transcript segment has no such fragment masking: it is redacted with whole
+values only.  So ``restore_segment``, the write-back of a correction
+(HOM-288), refuses what the detector would not find again as the same value:
+``[PHONE_1]2`` would store a longer number, shown raw, and ``x[EMAIL_1]`` or
+``a.[EMAIL_1]`` another address.  Kept or added is decided against the
+segment as shown, not against its free-text rendering, on whole tokens and the
+text between them.  A kept placeholder gets back its exact stored text (one
+stored as text stays text), an added one the whole value.  Refused: a
+placeholder the shown segment uses both as its own text and for a value, an
+added one without a value, and a value next to ``[A-Za-z0-9]`` (after digit
+folding) or not found again as exactly one detector replacement with its start
+and end.
+
 Residual risk: a value that occurs only in an older revision (corrected away
 since) is not a known value, so its fragments in a free text stay visible.
 Digits split by a separator of two or more characters are separate runs:
@@ -152,6 +165,13 @@ class ViewDenied(Exception):
     """The caller asked for the original under an enforced policy without the right."""
 
     code = "original_access_denied"
+
+
+class PlaceholderRefused(Exception):
+    """A corrected segment would store a placeholder as text, or a value the
+    redacted view would then show raw or as another value (HOM-288)."""
+
+    code = "invalid_placeholder"
 
 
 @dataclass(frozen=True)
@@ -250,6 +270,68 @@ class _Known:
 
 def _common_part(a: str, b: str) -> int:
     return SequenceMatcher(None, a, b, autojunk=False).find_longest_match().size
+
+
+def _collapsed(text: str) -> tuple[str, list[int]]:
+    """``" ".join(text.split())``, as a correction stores a segment, and the
+    offset there of each character of ``text``."""
+    out: list[str] = []
+    offsets: list[int] = []
+    for index, char in enumerate(text):
+        if char.isspace():
+            offsets.append(len(out))
+            continue
+        if out and text[index - 1].isspace():
+            out.append(" ")
+        offsets.append(len(out))
+        out.append(char)
+    return "".join(out), offsets
+
+
+# Aligning n pieces costs about n**3 steps when they repeat: 200 take some
+# 0.03 s, 800 take seconds (HOM-288, R10).
+_MAX_ALIGNED_PIECES = 200
+
+
+def _pieces(text: str) -> list[tuple[int, str]]:
+    """``text`` as placeholder tokens and the text between them, each with its
+    offset; the tokens are at the odd indexes."""
+    pieces: list[tuple[int, str]] = []
+    cursor = 0
+    for match in _PLACEHOLDER_RE.finditer(text):
+        pieces += [(cursor, text[cursor : match.start()]), (match.start(), match.group())]
+        cursor = match.end()
+    pieces.append((cursor, text[cursor:]))
+    return pieces
+
+
+def _kept_tokens(shown: str, value: str) -> dict[int, int]:
+    """The placeholders of ``value`` kept from ``shown``: offset in ``value`` to
+    offset in ``shown``.
+
+    Both texts are compared as whole pieces (a token, or the text between two
+    tokens), never character by character.  The equal pieces at both ends are
+    kept; the changed middle is aligned with ``SequenceMatcher`` only when it
+    has at most ``_MAX_ALIGNED_PIECES`` pieces on each side, else its tokens
+    count as added.
+    """
+    old, new = _pieces(shown), _pieces(value)
+    pairs: list[tuple[int, int]] = []
+    head = 0
+    while head < min(len(old), len(new)) and old[head][1] == new[head][1]:
+        pairs.append((head, head))
+        head += 1
+    tail = 0
+    while tail < min(len(old), len(new)) - head and old[-1 - tail][1] == new[-1 - tail][1]:
+        tail += 1
+        pairs.append((len(old) - tail, len(new) - tail))
+    middle_old = [text for _, text in old[head : len(old) - tail]]
+    middle_new = [text for _, text in new[head : len(new) - tail]]
+    if max(len(middle_old), len(middle_new)) <= _MAX_ALIGNED_PIECES:
+        matcher = SequenceMatcher(None, middle_old, middle_new, autojunk=False)
+        for block in matcher.get_matching_blocks():
+            pairs += [(head + block.a + k, head + block.b + k) for k in range(block.size)]
+    return {new[j][0]: old[i][0] for i, j in pairs if j % 2}
 
 
 def _windows(text: str) -> Iterator[str]:
@@ -678,11 +760,26 @@ class MeetingView:
         (not added), unambiguous (every occurrence there, including one stored
         as text, stood for the same stored text), and not glued to
         ``[A-Za-z0-9]`` in ``value`` after digit folding.  Other
-        known placeholders of the segment win, then of the revision, then of
-        the free texts; unknown ones stay literal.
+        known placeholders get the whole value (``_known_values``); unknown
+        ones stay literal.
         """
         if not self.redacted or "[" not in value:
             return value
+        known = self._known_values(revision, segment_id)
+        kept = self._kept_placeholders(value, previous) if previous else {}
+
+        def original(match: re.Match[str]) -> str:
+            if match.start() in kept:
+                return kept[match.start()]
+            return known.get(match.group(), match.group())
+
+        return _PLACEHOLDER_RE.sub(original, value)
+
+    def _known_values(
+        self, revision: TranscriptRevision | None, segment_id: str | None
+    ) -> dict[str, str]:
+        """The whole value of each placeholder: the segment's win, then the
+        free texts', then the revision's."""
         self._free_pseudonymizer()
         known: dict[str, str] = dict(self._free_values)
         redaction = self.revision(revision) if revision is not None else None
@@ -693,14 +790,73 @@ class MeetingView:
             if segment_id is not None and segment_id in redaction.segments:
                 for replacement in redaction.segments[segment_id].replacements:
                     known[replacement.placeholder] = replacement.value
-        kept = self._kept_placeholders(value, previous) if previous else {}
+        return known
 
-        def original(match: re.Match[str]) -> str:
+    def restore_segment(self, value: str, *, revision: TranscriptRevision, segment_id: str) -> str:
+        """The text a person corrected in one segment of ``revision``, as it is
+        stored (whitespace collapsed like ``correct_revision``), HOM-288.
+
+        A placeholder the edit kept from the shown segment (``_kept_tokens``)
+        gets back the exact stored text it stood for there, so each spelling of
+        a value stays as it was; one stored as text stays that text.  An added
+        or moved placeholder gets the whole value (``_known_values``).  Raises
+        ``PlaceholderRefused`` for a token that the shown segment uses both as
+        its own text and for a value, an added token without a value, and a
+        value put back next to ``[A-Za-z0-9]`` (after digit folding) or not
+        found again as exactly one detector replacement with its start and
+        end: the redacted view would show it raw, or as another value.
+        """
+        matches = list(_PLACEHOLDER_RE.finditer(value)) if self.redacted else []
+        if not matches:
+            return value
+        redaction = self.revision(revision)
+        assert redaction is not None
+        shown = redaction.segments[segment_id]
+        # What each placeholder of the shown segment stood for, and whether
+        # that is a value (not the token stored as text).
+        starts = {shown.offset(item.start, end=False): item for item in shown.replacements}
+        at: dict[int, tuple[str, bool]] = {}
+        kinds: dict[str, set[bool]] = {}
+        for match in _PLACEHOLDER_RE.finditer(shown.text):
+            item = starts.get(match.start())
+            at[match.start()] = (match.group(), False) if item is None else (item.value, True)
+            kinds.setdefault(match.group(), set()).add(item is not None)
+        known = self._known_values(revision, segment_id)
+        for match in matches:  # refused before any alignment work
+            if len(kinds.get(match.group(), ())) > 1:
+                raise PlaceholderRefused()  # text and a value: a guess may restore the wrong one
+            if match.group() not in kinds and match.group() not in known:
+                raise PlaceholderRefused()  # unknown: it would be stored as text
+        kept = _kept_tokens(shown.text, value)
+        parts: list[str] = []
+        values: list[tuple[int, int]] = []
+        size = cursor = 0
+        for match in matches:
             if match.start() in kept:
-                return kept[match.start()]
-            return known.get(match.group(), match.group())
-
-        return _PLACEHOLDER_RE.sub(original, value)
+                restored, is_value = at[kept[match.start()]]
+            elif match.group() in known:
+                restored, is_value = known[match.group()], True
+            else:
+                raise PlaceholderRefused()  # an added copy of a token stored as text
+            parts.append(value[cursor : match.start()])
+            size += len(parts[-1])
+            if is_value:
+                values.append((size, size + len(restored)))
+            parts.append(restored)
+            size += len(restored)
+            cursor = match.end()
+        parts.append(value[cursor:])
+        stored, offsets = _collapsed("".join(parts))
+        folded = normalize_digits_extended(stored)
+        found = {(item.start, item.end) for item in redact(stored, self.policy.classes)[1]}
+        for start, end in values:
+            start, end = offsets[start], offsets[end - 1] + 1
+            sides = folded[start - 1 : start] + folded[end : end + 1]
+            if any(char.isascii() and char.isalnum() for char in sides):
+                raise PlaceholderRefused()  # glued: another value, or none
+            if (start, end) not in found:
+                raise PlaceholderRefused()  # not found again as this value, whole
+        return stored
 
     def _kept_placeholders(self, value: str, previous: str) -> dict[int, str]:
         """The placeholders of ``value`` that get back their stored text from
