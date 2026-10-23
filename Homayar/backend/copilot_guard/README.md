@@ -150,6 +150,13 @@ run of whitespace becomes one space. For matching it is then case folded, and co
 marks (`Mn`) are removed. So `ｉｇｎｏｒｅ`, `İGNORE`, an accent, a harakat mark, a hidden
 zero-width space or a bidi control does not hide a phrase.
 
+The letter table comes from `LETTER_VARIANTS_BASIC` in `backend/speech/text_normalize.py`.
+That module is the only place in the backend that may build a character table (a repo
+test checks this). The owner table maps more letters, but only the three above apply here:
+`normalize_text` keeps teh marbuta (U+0629) and the alef forms U+0623, U+0625 and U+0671.
+(For matching, the removal of combining marks still turns U+0623 and U+0625 into a plain
+alef, as before.)
+
 **Three views of the text.**
 
 - Phrase rules (`ignore_instructions`, `role_reassignment`) read the words only:

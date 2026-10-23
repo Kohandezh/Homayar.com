@@ -12,6 +12,8 @@ import re
 import unicodedata
 from enum import StrEnum
 
+from backend.speech.text_normalize import LETTER_VARIANTS_BASIC, translation_table
+
 
 class InjectionSignal(StrEnum):
     IGNORE_INSTRUCTIONS = "ignore_instructions"
@@ -21,8 +23,19 @@ class InjectionSignal(StrEnum):
     FENCE_SPOOF = "fence_spoof"
 
 
-# Arabic yeh, alef maksura and kaf become the Persian letters.
-_LETTERS = str.maketrans({"ي": "ی", "ى": "ی", "ك": "ک"})
+# Arabic yeh, alef maksura and kaf become the Persian letters.  The table comes from the
+# owner module.  Only these three of its letters apply (SPEC 3.2): teh marbuta and the
+# alef forms stay as they are.  Its normalize and normalize_for_matching are not used:
+# they also change commas, quotes, digits and case and drop punctuation, and the number,
+# quote, role-tag and link checks depend on those.
+_SPEC_LETTERS = frozenset({"ARABIC LETTER YEH", "ARABIC LETTER ALEF MAKSURA", "ARABIC LETTER KAF"})
+_LETTERS = translation_table(
+    {
+        arabic: persian
+        for arabic, persian in LETTER_VARIANTS_BASIC.items()
+        if unicodedata.name(arabic) in _SPEC_LETTERS
+    }
+)
 _WHITESPACE = re.compile(r"\s+")
 # The line breaks a model may read as a new line.  A role tag counts only at a line start.
 _LINE_BREAK = re.compile(r"[\n\r\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
