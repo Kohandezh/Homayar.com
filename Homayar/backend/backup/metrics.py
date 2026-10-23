@@ -9,18 +9,32 @@ and the age alert fires.  Path: ``HOMAYAR_BACKUP_TEXTFILE`` (Compose sets it
 to node_exporter's textfile directory, ``NODE_EXPORTER_TEXTFILE_DIR`` on the
 host, outside the 0700 backup root), else ``<root>/metrics/homayar_backup.prom``
 for local runs.
+
+A stored value is normally max-merged (it never moves backwards), but one
+more than ``SKEW_ALLOWANCE_SECONDS`` (5 minutes) ahead of the writing host's
+clock is dropped at the next write.  The allowance absorbs the small clock
+differences between the host that writes and the clock that produced the
+value; a value beyond it can only come from a skewed clock or a hand edit,
+and keeping it would pin the gauge in the future forever, silencing the age
+alert.  A dropped target outside that write loses its line, so the missing
+alert fires instead.
 """
 
 from __future__ import annotations
 
 import fcntl
+import logging
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 METRIC = "homayar_backup_last_success_timestamp_seconds"
 TARGETS = ("postgres", "objects", "offsite")
+SKEW_ALLOWANCE_SECONDS = 300.0
 _LINE = re.compile(rf'^{METRIC}\{{target="([a-z]+)"\}} ([0-9.eE+]+)$')
 
 
@@ -67,26 +81,48 @@ def probe(path: Path) -> None:
     os.unlink(temporary)
 
 
-def record_success(path: Path, timestamps: dict[str, float]) -> None:
+def record_success(path: Path, timestamps: dict[str, float], *, now: float | None = None) -> None:
     """Merge ``{target: unix_time}`` into the textfile.
 
     A value never moves backwards (verifying an old set cannot make the
-    gauge look fresher than the newest verified one).  Concurrent writers
-    (two ``compose run`` containers both have PID 1) are serialised by an
-    ``flock`` on a lock file next to the textfile, and each writes its own
-    ``mkstemp`` temporary before the atomic rename.  The file is 0644; a
-    directory created here is 0755, and an existing one (possibly shared with
-    other collectors and owned by someone else) keeps its mode.
+    gauge look fresher than the newest verified one), but a *stored* value
+    strictly beyond ``now + SKEW_ALLOWANCE_SECONDS`` (``now`` defaults to
+    ``time.time()``) is dropped first and logs a warning: a value that far
+    in the future can only come from a skewed clock or a hand edit, and
+    max-merging it would pin the gauge in the future forever, silencing the
+    age alert.  The allowance covers the small clock differences between
+    the host that writes and the clock that produced the value.  A dropped
+    target outside this write loses its line, so the missing alert fires.
+    Concurrent writers (two ``compose run`` containers both have PID 1)
+    are serialised by an ``flock`` on a lock file next to the textfile, and
+    each writes its own ``mkstemp`` temporary before the atomic rename.  The
+    file is 0644; a directory created here is 0755, and an existing one
+    (possibly shared with other collectors and owned by someone else)
+    keeps its mode.
     """
     unknown = set(timestamps) - set(TARGETS)
     if unknown:
         raise ValueError(f"unknown backup targets: {sorted(unknown)}")
+    if now is None:
+        now = time.time()
     path = Path(path)
     _ensure_directory(path.parent)
     lock_fd = os.open(path.parent / f".{path.name}.lock", os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         values = read_values(path)
+        limit = now + SKEW_ALLOWANCE_SECONDS
+        future = sorted(target for target, value in values.items() if value > limit)
+        for target in future:
+            logger.warning(
+                "dropping future freshness value for target %s: stored %.3f is beyond "
+                "now %.3f + skew allowance %.3f s",
+                target,
+                values[target],
+                now,
+                SKEW_ALLOWANCE_SECONDS,
+            )
+            del values[target]
         for target, value in timestamps.items():
             values[target] = max(value, values.get(target, value))
         body = [
