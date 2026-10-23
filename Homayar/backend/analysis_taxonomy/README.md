@@ -235,7 +235,11 @@ Details:
 
 ## How HOM-53 uses it
 
-Only two backend modules import this package. A test pins that list.
+Only three backend modules import this package: the provider
+(`backend/providers/openai_compatible.py`), the analysis stage
+(`backend/services/analysis_extraction.py`) and the trend definition loader
+(`backend/issue_trends/definition.py`, HOM-79), which checks its label references
+against the pinned taxonomy. A test pins that list.
 
 1. Pin a version as a constant: `load_taxonomy("conversation", 1)`. The provider
    (`backend/providers/openai_compatible.py`) and the analysis stage

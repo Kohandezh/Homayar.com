@@ -1,0 +1,435 @@
+{
+  "schema": "homayar.issue-trends/1",
+  "definition_id": "trends",
+  "version": 1,
+  "notes": "Version 1 (HOM-79). Every issue reads the stored extraction of the current analysis run. QA has no stored source yet. Product or service is expressed only as a topic of a complaint.",
+  "taxonomy": {
+    "taxonomy_id": "conversation",
+    "taxonomy_version": 1,
+    "taxonomy_digest": "52748000de889391c1f3eba57f286ccc8cde0919554ced27d1e4f8bd51bd7e9e"
+  },
+  "extraction_policies": [
+    {
+      "policy_version": "extraction-policy/1",
+      "policy_digest": "309c4abbd4eef8c975ac64aef597ce4fe6ba755ac4f998a35a0f305bc47a62de"
+    }
+  ],
+  "validator_versions": [
+    "analysis-taxonomy-validator/1"
+  ],
+  "families": [
+    {
+      "id": "call_reason",
+      "name_en": "Call reasons",
+      "name_fa": "دلایل تماس",
+      "definition": "Why the customer made contact: the intent of the conversation.",
+      "source": "conversation_taxonomy",
+      "source_state": "available",
+      "source_reason": null
+    },
+    {
+      "id": "unresolved_outcome",
+      "name_en": "Unresolved outcomes",
+      "name_fa": "نتیجه‌های حل‌نشده",
+      "definition": "The main request was not fully handled during the conversation: unresolved, escalated or a follow-up.",
+      "source": "conversation_taxonomy",
+      "source_state": "available",
+      "source_reason": null
+    },
+    {
+      "id": "service_complaint",
+      "name_en": "Product and service complaints",
+      "name_fa": "شکایت از محصول یا خدمت",
+      "definition": "A complaint (intent report_dissatisfaction) about a service area, where the service area is a topic of the same conversation.",
+      "source": "conversation_taxonomy",
+      "source_state": "available",
+      "source_reason": null
+    },
+    {
+      "id": "qa",
+      "name_en": "Quality checks",
+      "name_fa": "کنترل کیفیت",
+      "definition": "Failed scorecard criteria and conversation checks. No result of these is stored yet, so version 1 counts nothing here.",
+      "source": "scorecard",
+      "source_state": "unavailable",
+      "source_reason": "scorecard_results_unavailable"
+    }
+  ],
+  "issues": [
+    {
+      "id": "intent_request_support",
+      "family": "call_reason",
+      "name_en": "Support request",
+      "name_fa": "درخواست پشتیبانی",
+      "definition": "The current analysis states the main reason for contact as intent request_support.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "request_support"
+        }
+      ]
+    },
+    {
+      "id": "intent_report_dissatisfaction",
+      "family": "call_reason",
+      "name_en": "Complaint",
+      "name_fa": "ثبت شکایت",
+      "definition": "The current analysis states the main reason for contact as intent report_dissatisfaction.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        }
+      ]
+    },
+    {
+      "id": "intent_purchase_inquiry",
+      "family": "call_reason",
+      "name_en": "Purchase inquiry",
+      "name_fa": "استعلام خرید",
+      "definition": "The current analysis states the main reason for contact as intent purchase_inquiry.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "purchase_inquiry"
+        }
+      ]
+    },
+    {
+      "id": "intent_resolve_billing",
+      "family": "call_reason",
+      "name_en": "Billing issue",
+      "name_fa": "مسئله صورتحساب",
+      "definition": "The current analysis states the main reason for contact as intent resolve_billing.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "resolve_billing"
+        }
+      ]
+    },
+    {
+      "id": "intent_schedule_appointment",
+      "family": "call_reason",
+      "name_en": "Appointment",
+      "name_fa": "تعیین نوبت",
+      "definition": "The current analysis states the main reason for contact as intent schedule_appointment.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "schedule_appointment"
+        }
+      ]
+    },
+    {
+      "id": "intent_request_callback",
+      "family": "call_reason",
+      "name_en": "Callback request",
+      "name_fa": "درخواست تماس مجدد",
+      "definition": "The current analysis states the main reason for contact as intent request_callback.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "request_callback"
+        }
+      ]
+    },
+    {
+      "id": "intent_cancel_service",
+      "family": "call_reason",
+      "name_en": "Cancellation request",
+      "name_fa": "درخواست لغو سرویس",
+      "definition": "The current analysis states the main reason for contact as intent cancel_service.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "cancel_service"
+        }
+      ]
+    },
+    {
+      "id": "intent_unsolicited",
+      "family": "call_reason",
+      "name_en": "Unsolicited contact",
+      "name_fa": "تماس ناخواسته",
+      "definition": "The current analysis states the main reason for contact as intent unsolicited.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "unsolicited"
+        }
+      ]
+    },
+    {
+      "id": "outcome_unresolved",
+      "family": "unresolved_outcome",
+      "name_en": "Unresolved",
+      "name_fa": "حل نشده",
+      "definition": "The current analysis states outcome unresolved: no hand-over and no agreed next step.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "outcome",
+          "label": "unresolved"
+        }
+      ]
+    },
+    {
+      "id": "outcome_escalated",
+      "family": "unresolved_outcome",
+      "name_en": "Escalated",
+      "name_fa": "ارجاع شده",
+      "definition": "The current analysis states outcome escalated: the request was handed to another person, team or level.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "outcome",
+          "label": "escalated"
+        }
+      ]
+    },
+    {
+      "id": "outcome_follow_up_scheduled",
+      "family": "unresolved_outcome",
+      "name_en": "Follow-up scheduled",
+      "name_fa": "پیگیری برنامه‌ریزی شده",
+      "definition": "The current analysis states outcome follow_up_scheduled: not handled yet, with an agreed next step.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "outcome",
+          "label": "follow_up_scheduled"
+        }
+      ]
+    },
+    {
+      "id": "complaint_pricing",
+      "family": "service_complaint",
+      "name_en": "Complaint about pricing",
+      "name_fa": "شکایت درباره قیمت",
+      "definition": "The current analysis states intent report_dissatisfaction and topic pricing.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "pricing"
+        }
+      ]
+    },
+    {
+      "id": "complaint_refund",
+      "family": "service_complaint",
+      "name_en": "Complaint about refund",
+      "name_fa": "شکایت درباره بازگشت وجه",
+      "definition": "The current analysis states intent report_dissatisfaction and topic refund.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "refund"
+        }
+      ]
+    },
+    {
+      "id": "complaint_invoice",
+      "family": "service_complaint",
+      "name_en": "Complaint about invoice",
+      "name_fa": "شکایت درباره فاکتور",
+      "definition": "The current analysis states intent report_dissatisfaction and topic invoice.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "invoice"
+        }
+      ]
+    },
+    {
+      "id": "complaint_payment",
+      "family": "service_complaint",
+      "name_en": "Complaint about payment",
+      "name_fa": "شکایت درباره پرداخت",
+      "definition": "The current analysis states intent report_dissatisfaction and topic payment.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "payment"
+        }
+      ]
+    },
+    {
+      "id": "complaint_delivery",
+      "family": "service_complaint",
+      "name_en": "Complaint about delivery",
+      "name_fa": "شکایت درباره ارسال و تحویل",
+      "definition": "The current analysis states intent report_dissatisfaction and topic delivery.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "delivery"
+        }
+      ]
+    },
+    {
+      "id": "complaint_account_access",
+      "family": "service_complaint",
+      "name_en": "Complaint about account access",
+      "name_fa": "شکایت درباره دسترسی به حساب",
+      "definition": "The current analysis states intent report_dissatisfaction and topic account_access.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "account_access"
+        }
+      ]
+    },
+    {
+      "id": "complaint_connectivity",
+      "family": "service_complaint",
+      "name_en": "Complaint about connectivity",
+      "name_fa": "شکایت درباره اتصال و شبکه",
+      "definition": "The current analysis states intent report_dissatisfaction and topic connectivity.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "connectivity"
+        }
+      ]
+    },
+    {
+      "id": "complaint_contract",
+      "family": "service_complaint",
+      "name_en": "Complaint about contract and subscription",
+      "name_fa": "شکایت درباره قرارداد و اشتراک",
+      "definition": "The current analysis states intent report_dissatisfaction and topic contract.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "contract"
+        }
+      ]
+    },
+    {
+      "id": "complaint_installation",
+      "family": "service_complaint",
+      "name_en": "Complaint about installation",
+      "name_fa": "شکایت درباره نصب و راه‌اندازی",
+      "definition": "The current analysis states intent report_dissatisfaction and topic installation.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "installation"
+        }
+      ]
+    },
+    {
+      "id": "complaint_scheduling",
+      "family": "service_complaint",
+      "name_en": "Complaint about scheduling",
+      "name_fa": "شکایت درباره زمان‌بندی",
+      "definition": "The current analysis states intent report_dissatisfaction and topic scheduling.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "scheduling"
+        }
+      ]
+    },
+    {
+      "id": "complaint_technical_fault",
+      "family": "service_complaint",
+      "name_en": "Complaint about technical fault",
+      "name_fa": "شکایت درباره خرابی فنی",
+      "definition": "The current analysis states intent report_dissatisfaction and topic technical_fault.",
+      "source": "conversation_taxonomy",
+      "status": "active",
+      "match": [
+        {
+          "dimension": "intent",
+          "label": "report_dissatisfaction"
+        },
+        {
+          "dimension": "topic",
+          "label": "technical_fault"
+        }
+      ]
+    }
+  ],
+  "retired_issue_ids": []
+}
