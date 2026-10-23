@@ -1,0 +1,14 @@
+# Copy to .dev.vars for local development (`pnpm dev`, `pnpm preview`). .dev.vars is not committed.
+# These are not secrets: they are Cloudflare's public test values and placeholders.
+
+# Cloudflare's test secret key. The Turnstile testing doc says it "always passes"
+# validation. The test site key the form uses without NEXT_PUBLIC_TURNSTILE_SITE_KEY
+# (1x00000000000000000000AA) gives the dummy token XXXX.DUMMY.TOKEN.XXXX.
+# https://developers.cloudflare.com/turnstile/troubleshooting/testing/
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+
+# Where the contact e-mail goes. Locally the mail is only logged, never sent.
+CONTACT_TO=owner@example.com
+
+# Optional. A webhook that gets {"text": "..."} when a delivery fails.
+# CONTACT_ALERT_WEBHOOK_URL=https://hooks.example.com/alert
