@@ -28,6 +28,7 @@ from backend.privacy.redaction_service import RedactionError, reveal_placeholder
 from backend.privacy.text_pii import DETECTOR_VERSION
 from backend.privacy.transcript_view import (
     MeetingView,
+    PlaceholderRefused,
     ViewDenied,
     ViewPolicy,
     choose_view,
@@ -110,6 +111,11 @@ _VIEW_QUERY = Query(
     ),
 )
 SpeakerKey = Annotated[str, StringConstraints(min_length=1, max_length=64)]
+# Names no value and no placeholder (HOM-288).
+_PLACEHOLDER_REFUSED = (
+    "A masked value cannot be joined to other text or added when it is not shown. "
+    "Keep a space around it, or remove it."
+)
 
 
 def invalid_time_range(message: str = "end_ms must be greater than start_ms") -> HTTPException:
@@ -448,6 +454,9 @@ def correct_transcript(
 
     The base revision is never modified; the correction becomes the current
     revision and is audited by ids and counts (never by transcript text).
+    Under the redacted view placeholders go back to their values; one that
+    would be stored as text or shown raw is refused (``422
+    invalid_placeholder``, HOM-288) and nothing is written.
     After the commit a recompute of the analysis on the corrected revision is
     dispatched (HOM-63) unless ``recompute_on_correction`` is off; a failed
     dispatch never fails the correction (the sweeper finds the meeting).
@@ -462,13 +471,13 @@ def correct_transcript(
         request=request,
         surface="correction",
     )
-    base = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
 
-    def _restored(edit) -> str | None:
+    def _restored(text: str, base: TranscriptRevision, segment_id: str) -> str:
         # A person edits the redacted text: placeholders go back to originals.
-        if edit.text is None or base is None or base.id != payload.base_revision_id:
-            return edit.text
-        return view.restore(edit.text, revision=base, segment_id=edit.segment_id)
+        try:
+            return view.restore_segment(text, revision=base, segment_id=segment_id)
+        except PlaceholderRefused as exc:
+            raise TranscriptError(exc.code, _PLACEHOLDER_REFUSED) from exc
 
     try:
         revision, _segments, changed = correct_revision(
@@ -476,12 +485,13 @@ def correct_transcript(
             meeting=meeting,
             base_revision_id=payload.base_revision_id,
             edits=[
-                SegmentEdit(edit.segment_id, text=_restored(edit), speaker_key=edit.speaker_key)
+                SegmentEdit(edit.segment_id, text=edit.text, speaker_key=edit.speaker_key)
                 for edit in payload.edits
             ],
             actor_user_id=context.actor.user.id,
             now=datetime.now(UTC),
             note=payload.reason,
+            restore=_restored,
         )
     except TranscriptError as exc:
         db.rollback()

@@ -12,7 +12,7 @@ schema, so a summary or AI action item can always be traced to its inputs.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -389,6 +389,7 @@ def correct_revision(
     actor_user_id: str,
     now: datetime,
     note: str | None = None,
+    restore: Callable[[str, TranscriptRevision, str], str] | None = None,
 ) -> tuple[TranscriptRevision, list[TranscriptSegment], int]:
     """Create a corrected revision from the *current* revision.
 
@@ -398,6 +399,11 @@ def correct_revision(
     name a segment of that base and a speaker known to the meeting, and at
     least one edit must change something.  ``note`` is the person's reason for
     the correction and is required (``422 reason_required`` when blank).
+    ``restore(text, base, segment_id)`` turns an edited text into the text to
+    store (a redacted view puts values back, HOM-288).  After a
+    ``TranscriptError`` from it no other edit is restored, and the error is
+    reported only when every other check passes, so a stale base stays ``409``
+    and every other refusal keeps its code.
     Returns the new revision, its segments and the number of segments that
     differ from the base.
     """
@@ -429,6 +435,7 @@ def correct_revision(
     ) | {UNKNOWN_SPEAKER_LABEL}
 
     changes: dict[str, SegmentEdit] = {}
+    refused: TranscriptError | None = None
     for edit in edits:
         if edit.segment_id in changes:
             raise TranscriptError("duplicate_edit", "A segment was edited more than once")
@@ -437,7 +444,13 @@ def correct_revision(
             raise TranscriptError(
                 "invalid_segment", "A segment does not belong to the base revision"
             )
-        text = None if edit.text is None else " ".join(edit.text.split())
+        text = edit.text
+        if text is not None and restore is not None and refused is None:
+            try:
+                text = restore(text, base, edit.segment_id)
+            except TranscriptError as exc:
+                refused = exc
+        text = None if text is None else " ".join(text.split())
         if text is not None and (not text or len(text) > MAX_SEGMENT_TEXT_LENGTH):
             raise TranscriptError("invalid_text", "Segment text is empty or too long")
         speaker = edit.speaker_key
@@ -448,6 +461,8 @@ def correct_revision(
         ):
             continue
         changes[edit.segment_id] = SegmentEdit(edit.segment_id, text=text, speaker_key=speaker)
+    if refused is not None:
+        raise refused
     if not changes:
         raise TranscriptError("no_changes", "The edits do not change the transcript")
 
