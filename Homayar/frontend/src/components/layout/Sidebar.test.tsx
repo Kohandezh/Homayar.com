@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import Sidebar from "@/components/layout/Sidebar";
+import { isolateLtr } from "@/lib/format";
 import { ADMIN_NAV, MAIN_NAV } from "@/lib/navigation";
 import { FIXTURE_OPERATOR, FIXTURE_USER, FIXTURE_WORKSPACE, apiError, renderConsole } from "@/test/fixtures";
 import type { AuthContextValue } from "@/lib/auth-context";
 import type { AuthUser, AuthWorkspace, WorkspaceRole } from "@/types/auth";
+
+// The version line reads CONSOLE_BUILD inside the render, so a mutable mock
+// object lets each test set the sha (or null) it needs (V4 of HOM-232).
+const consoleBuild = vi.hoisted(() => ({
+  CONSOLE_BUILD: { version: "0.5.0", sha: "abc1234" as string | null },
+}));
+vi.mock("@/lib/build-info", () => ({ CONSOLE_BUILD: consoleBuild.CONSOLE_BUILD }));
 
 function workspace(role: WorkspaceRole, permissions?: string[]): AuthWorkspace {
   return { ...FIXTURE_WORKSPACE, role, ...(permissions ? { permissions } : {}) };
@@ -63,6 +71,16 @@ describe("Sidebar navigation", () => {
     renderSidebar(workspace("admin"), "en", { user: FIXTURE_OPERATOR });
     expect(adminLabels()).toEqual(ALL_ADMIN.filter((label) => label !== "Privacy"));
     expect(screen.getByRole("link", { name: "Voice operations" }).getAttribute("href")).toMatch(/\/admin\/voice$/);
+  });
+
+  it("adds System health, pointing at /admin/system, only for a platform operator", () => {
+    const allowed = renderSidebar(workspace("owner"), "en", { user: FIXTURE_OPERATOR });
+    expect(adminLabels()).toContain("System health");
+    expect(screen.getByRole("link", { name: "System health" }).getAttribute("href")).toMatch(/\/admin\/system$/);
+    allowed.unmount();
+
+    renderSidebar(workspace("owner"));
+    expect(screen.queryByRole("link", { name: "System health" })).not.toBeInTheDocument();
   });
 
   // Each deny case changes one field of the allow case above it.
@@ -157,5 +175,65 @@ describe("Sidebar navigation", () => {
     });
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+});
+
+describe("Sidebar version line", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // Mutate, not reassign: the mocked module keeps one object reference.
+    consoleBuild.CONSOLE_BUILD.version = "0.5.0";
+    consoleBuild.CONSOLE_BUILD.sha = "abc1234";
+  });
+
+  it("shows the build version and short sha above Sign out for an owner", () => {
+    renderSidebar(workspace("owner"), "en", { user: FIXTURE_OPERATOR });
+    const line = screen.getByText(isolateLtr("Homayar 0.5.0 · abc1234"));
+    expect(line).toBeInTheDocument();
+    expect(line.className).toContain("text-muted");
+    // No dir attribute: in Persian the line aligns with the other footer text.
+    expect(line).not.toHaveAttribute("dir");
+    // Above the sign out button, inside the footer block.
+    const footer = line.parentElement as HTMLElement;
+    const signOut = screen.getByRole("button", { name: "Sign out" });
+    expect(footer).toContainElement(signOut);
+    expect(line.compareDocumentPosition(signOut) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("reads CONSOLE_BUILD inside the render, so a changed sha shows the new line", () => {
+    consoleBuild.CONSOLE_BUILD.version = "0.5.0";
+    consoleBuild.CONSOLE_BUILD.sha = "9f8e7d6";
+    renderSidebar(workspace("owner"), "en", { user: FIXTURE_OPERATOR });
+    expect(screen.getByText(isolateLtr("Homayar 0.5.0 · 9f8e7d6"))).toBeInTheDocument();
+  });
+
+  it.each(["member", "viewer"] as const)(
+    "shows the version line to a %s, who sees only Members and Teams",
+    (role) => {
+      renderSidebar(workspace(role));
+      expect(adminLabels()).toEqual(["Members", "Teams"]);
+      expect(screen.getByText(isolateLtr("Homayar 0.5.0 · abc1234"))).toBeInTheDocument();
+    },
+  );
+
+  it("shows no version line when no admin entry is visible", () => {
+    const emptyPermissions = renderSidebar(workspace("owner", []));
+    expect(screen.queryByText(/Homayar 0\.5\.0/)).not.toBeInTheDocument();
+    emptyPermissions.unmount();
+
+    renderSidebar(null);
+    expect(screen.queryByText(/Homayar 0\.5\.0/)).not.toBeInTheDocument();
+  });
+
+  it("says unreleased in Persian when the sha is null", () => {
+    consoleBuild.CONSOLE_BUILD.sha = null;
+    renderSidebar(workspace("viewer"), "fa");
+    expect(screen.getByText(isolateLtr("Homayar 0.5.0 · منتشرنشده"))).toBeInTheDocument();
+  });
+
+  it("says unreleased in English when the sha is null", () => {
+    consoleBuild.CONSOLE_BUILD.sha = null;
+    renderSidebar(workspace("viewer"));
+    expect(screen.getByText(isolateLtr("Homayar 0.5.0 · unreleased"))).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import {
   AudioLines,
   BrainCircuit,
   Gauge,
+  HeartPulse,
   Inbox,
   KeyRound,
   LayoutDashboard,
@@ -66,6 +67,7 @@ export const ADMIN_NAV = [
   { path: "/admin/privacy", label: { fa: "حریم خصوصی", en: "Privacy" }, icon: LockKeyhole, permission: "pii:original_access" },
   { path: "/admin/locations", label: { fa: "مکان‌های خدمات", en: "Locations" }, icon: MapPin, permission: "workspace:manage" },
   { path: "/admin/voice", label: { fa: "عملیات صوتی", en: "Voice operations" }, icon: RadioTower, permission: "workspace:manage", operatorOnly: true },
+  { path: "/admin/system", label: { fa: "سلامت سامانه", en: "System health" }, icon: HeartPulse, permission: "workspace:manage", operatorOnly: true },
 ] as const satisfies readonly AdminNavEntry[];
 
 export type AdminPath = (typeof ADMIN_NAV)[number]["path"];
