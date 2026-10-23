@@ -4761,7 +4761,7 @@ FROZEN_FILES: dict[str, str] = {
         "f58eefef667fc509b827c21c29b8e4d186945023ba5800dd391f826532df8356"
     ),
     "backend/privacy/transcript_view.py": (
-        "7266bb290d68cd66385d365f7d5397054710878f356922f21172ccd5c14ec418"
+        "080c0568a4e6e9f7fc7c70bbcc5cb5ee45361bdbf4d60e5cfa9cbcb6cee01bbe"
     ),
     "backend/privacy/mapping_crypto.py": (
         "f3bea7cd866f961b03c1e342c540c2a38ccd1402cdba76fea1f4780075e9efa3"
