@@ -20,5 +20,22 @@
   "routes": [
     { "pattern": "homayar.com", "custom_domain": true },
     { "pattern": "www.homayar.com", "custom_domain": true }
-  ]
+  ],
+  // Contact requests (lib/contact). A copy of every request is stored here before the
+  // e-mail is sent. No database_id: on the first deploy wrangler connects to the database
+  // with this name, or creates it (automatic provisioning). The table is created by code.
+  "d1_databases": [{ "binding": "CONTACT_DB", "database_name": "homayar-website-contact" }],
+  // Cloudflare Email Service. Sends the request to the owner (secret CONTACT_TO).
+  // In local dev the mail is only logged, never sent.
+  "send_email": [{ "name": "CONTACT_EMAIL", "allowed_sender_addresses": ["website@homayar.com"] }],
+  "vars": {
+    "CONTACT_FROM": "website@homayar.com"
+  },
+  // Every 10 minutes worker.ts `scheduled` sends failed contact requests again and
+  // deletes requests older than 180 days.
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  }
+  // Secrets (never in this file): TURNSTILE_SECRET_KEY, CONTACT_TO, and the optional
+  // CONTACT_ALERT_WEBHOOK_URL. See DEPLOY.md. Local values go in .dev.vars.
 }

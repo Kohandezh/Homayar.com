@@ -64,8 +64,17 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # The Turnstile site key is public and is built into the contact page. Without it the
+      # page would use Cloudflare's always-pass test key, so the release stops here instead.
       - name: Build for Cloudflare Workers
-        run: pnpm build:cf
+        env:
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}
+        run: |
+          if [[ -z "${NEXT_PUBLIC_TURNSTILE_SITE_KEY}" ]]; then
+            echo "::error title=Missing Turnstile site key::Set the GitHub variable TURNSTILE_SITE_KEY (Settings > Secrets and variables > Actions > Variables). See website/DEPLOY.md."
+            exit 1
+          fi
+          pnpm build:cf
 
       # `pnpm deploy` is a pnpm built-in command, so the script is called with `pnpm run`.
       - name: Deploy to Cloudflare Workers
@@ -99,7 +108,8 @@ jobs:
           contact_body='{"name":"Test User","email":"test@example.com","company":"Homayar QA","deployment":"saas","locale":"en"}'
           check "GET https://homayar.com/" '(307|200) .*' https://homayar.com/
           check "GET https://homayar.com/fa" '200 ' https://homayar.com/fa
-          check "POST https://homayar.com/api/contact" '202 ' \
+          # No Turnstile token: 403 proves the route is live and protected, and stores no lead.
+          check "POST https://homayar.com/api/contact" '403 ' \
             --request POST --header 'Content-Type: application/json' --data "${contact_body}" \
             https://homayar.com/api/contact
           check "GET https://www.homayar.com/fa" '301 https://homayar\.com/fa' https://www.homayar.com/fa
