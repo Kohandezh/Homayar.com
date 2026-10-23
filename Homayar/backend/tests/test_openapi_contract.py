@@ -29,6 +29,11 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/v1/meetings/{meeting_id}/evidence"),
     ("get", "/api/v1/meetings/{meeting_id}/quality"),
     ("get", "/api/v1/meetings/{meeting_id}/export"),
+    # HOM-82: the role-scoped trend views (contract 1.3.0)
+    ("get", "/api/v1/trends/teams"),
+    ("get", "/api/v1/trends/me"),
+    ("get", "/api/v1/organizations/{organization_id}/trends/issues"),
+    ("get", "/api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues"),
 }
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 ERROR_REF = "#/components/schemas/ErrorResponse"
@@ -212,7 +217,7 @@ def test_write_cli_regenerates_the_snapshot(tmp_path):
 
 def test_snapshot_is_openapi_3_with_the_contract_version_and_exact_operations(snapshot):
     assert snapshot["openapi"].startswith("3.")
-    assert snapshot["info"]["version"] == "1.2.0"
+    assert snapshot["info"]["version"] == "1.3.0"
     assert _operations(snapshot) == EXPECTED_OPERATIONS
     raw = contract.SNAPSHOT_PATH.read_text(encoding="utf-8")
     assert raw.endswith("}\n") and not raw.endswith("\n\n")

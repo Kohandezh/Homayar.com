@@ -27,6 +27,14 @@ RATIO_PLACES = 4
 # Tells HOM-83 how to label two trends shown together (README "Correlation is not cause").
 ASSOCIATION_NOTICE = "correlation_not_cause"
 
+# HOM-82 role views (README "HOM-82: role views and disclosure").  Not a field of
+# ``SAMPLE_POLICY_V1``: a new number here is a new disclosure version.
+DISCLOSURE_VERSION = "trend-disclosure/1"
+# A small group has 1 to 4 distinct agents.  The usual disclosure-control minimum is 3
+# contributors per cell, so that no one learns another by subtracting their own value; 5
+# keeps a margin of 2 for a viewer who already knows the calls of one or two members.
+MIN_COHORT_AGENTS = 5
+
 
 class CellStatus(str, Enum):
     COMPUTED = "computed"

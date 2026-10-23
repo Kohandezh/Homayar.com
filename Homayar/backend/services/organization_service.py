@@ -700,7 +700,26 @@ def _revoke_scope_grants(db: Session, *, membership: OrganizationMembership, now
 # --- scoped analytics ---------------------------------------------------------------
 
 
-def _scoped_workspaces(
+def _scope_of(
+    db: Session, *, organization: Organization, access: OrganizationAccess, workspace: Workspace
+) -> tuple[Workspace, frozenset[str] | None] | None:
+    team_ids = access.team_filter(workspace.id)
+    if team_ids is None:
+        return workspace, None
+    bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
+    active = frozenset(
+        db.scalars(
+            select(Team.id).where(
+                Team.workspace_id == workspace.id,
+                Team.id.in_(sorted(team_ids)),
+                Team.is_active.is_(True),
+            )
+        )
+    )
+    return (workspace, active) if active else None
+
+
+def scoped_workspaces(
     db: Session, *, organization: Organization, access: OrganizationAccess
 ) -> list[tuple[Workspace, frozenset[str] | None]]:
     """Authorized workspaces with their team filter; inactive teams drop out.
@@ -711,23 +730,27 @@ def _scoped_workspaces(
     """
     scoped: list[tuple[Workspace, frozenset[str] | None]] = []
     for workspace in list_organization_workspaces(db, organization=organization, access=access):
-        team_ids = access.team_filter(workspace.id)
-        if team_ids is not None:
-            bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
-            active = frozenset(
-                db.scalars(
-                    select(Team.id).where(
-                        Team.workspace_id == workspace.id,
-                        Team.id.in_(sorted(team_ids)),
-                        Team.is_active.is_(True),
-                    )
-                )
-            )
-            if not active:
-                continue
-            team_ids = active
-        scoped.append((workspace, team_ids))
+        scope = _scope_of(db, organization=organization, access=access, workspace=workspace)
+        if scope is not None:
+            scoped.append(scope)
     return scoped
+
+
+def scoped_workspace(
+    db: Session, *, organization: Organization, access: OrganizationAccess, workspace_id: str
+) -> tuple[Workspace, frozenset[str] | None] | None:
+    """``scoped_workspaces`` for one workspace: ``None`` when it is outside the scope
+    (another organization, no grant, a revoked grant, only inactive granted teams)."""
+    if not access.may_see_workspace(workspace_id):
+        return None
+    workspace = db.scalar(
+        select(Workspace).where(
+            Workspace.id == workspace_id, Workspace.organization_id == organization.id
+        )
+    )
+    if workspace is None:
+        return None
+    return _scope_of(db, organization=organization, access=access, workspace=workspace)
 
 
 def workspace_aggregates(
@@ -745,7 +768,7 @@ def workspace_aggregates(
     scope is never bound.
     """
     results: list[WorkspaceAggregate] = []
-    for workspace, team_ids in _scoped_workspaces(db, organization=organization, access=access):
+    for workspace, team_ids in scoped_workspaces(db, organization=organization, access=access):
         bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
         conditions = [Meeting.workspace_id == workspace.id, Meeting.deleted_at.is_(None)]
         if team_ids is not None:
@@ -789,7 +812,7 @@ def scoped_records(
     """Meeting metadata (never transcript text) inside the caller's scope."""
     records: list[ScopedRecord] = []
     truncated = False
-    for workspace, team_ids in _scoped_workspaces(db, organization=organization, access=access):
+    for workspace, team_ids in scoped_workspaces(db, organization=organization, access=access):
         bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
         query = select(Meeting).where(
             Meeting.workspace_id == workspace.id, Meeting.deleted_at.is_(None)

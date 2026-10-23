@@ -760,13 +760,14 @@ denominator (how many calls) is not sensitive. `absent_pending_review` is hidden
 the same reason. The missing-data counts stay visible: they describe the data, not the
 person.
 
-Two things are HOM-82's job, not this package's:
+Two things are HOM-82's job, not this package's, and HOM-82 does both ("HOM-82: role views
+and disclosure"):
 
 - **Complementary disclosure.** A hidden agent count can be recovered by subtraction, for
   example a team total minus the other agents. HOM-82 decides which cells a role sees
-  together, so it must stop that.
+  together, so it stops that.
 - **The kind of a cohort.** A cohort of one person (a team with one agent, a filter on one
-  `agent_user_id`) is an agent cell. HOM-82 knows the cohort and passes `kind=agent`.
+  `agent_user_id`) is an agent cell. HOM-82 chooses the kind from the agents of the cohort.
 
 ## Correlation is not cause
 
@@ -1134,7 +1135,9 @@ session and `403 workspace_access_denied` without a membership in the workspace.
 The workspace and the record scope are ANDed with every filter, so a filter only narrows. A
 `team_id` outside the caller's scope answers `200`, narrowed to what the caller may see
 (often empty), never `403`, and it never tells whether that team has data. This is the
-answer the other scoped routes give. HOM-82 may change it (open question 6).
+answer the other scoped routes give. HOM-82 keeps it for this route (open question 6) and
+adds one refusal: `agent_user_id` other than the caller's own id is `403
+agent_scope_denied`.
 
 ### The answer
 
@@ -1213,16 +1216,15 @@ Invariants (tested in `tests/test_issue_trend_service.py`):
 
 ### Cell kind
 
-`CellKind.AGENT` when the `agent_user_id` filter has exactly one value, else `CellKind.RATE`
-(step 5 of "How HOM-80 to HOM-84 use it"). The same kind for the window and every point.
-HOM-82 builds the agent self-view.
+Since HOM-82 the kind comes from the data, not from the filter: `CellKind.AGENT` when the
+population is the caller's own calls, or when it holds 1 to 4 distinct agents other than the
+caller (a small group); else `CellKind.RATE`. The same kind for the window and every point
+("HOM-82: role views and disclosure", rule 1).
 
-**Known limit: the kind follows the filter, not the data.** A caller can add a second
-`agent_user_id` that owns no meeting. The conversations stay the same, but the kind becomes
-`rate`, so the numerator, `pending_review` and `absent_pending_review` that an agent cell under
-the minimum hides become visible. This is the same kind of leak as the subtraction from team
-totals ("Small counts stay visible"). HOM-82 closes both, for example by choosing the kind from
-the distinct agents of the population instead of from the filter.
+HOM-80 used `CellKind.AGENT` when the `agent_user_id` filter had exactly one value. A caller
+could then add a second `agent_user_id` that owns no meeting: the conversations stayed the
+same, but the kind became `rate`, so the counts an agent cell under the minimum hides became
+visible (L1). The kind from the data closes it.
 
 ### How it counts
 
@@ -1321,10 +1323,123 @@ linked rows (`duplicate_of_id IS NOT NULL`) and walks up by primary key. No migr
   `pending_review`, `absent_pending_review` and the `missing` buckets were already next to
   each rate; `missing_data` sums them up for the whole answer. The rendering is frontend
   scope (HOM-237).
-- HOM-82 builds the role views (supervisor, executive, agent self-view) on this route or this
-  service: it may change the scope answer of open question 6, chooses `kind=agent` for a
-  cohort of one person, and stops complementary disclosure of hidden agent counts, including
-  the extra `agent_user_id` that turns an agent cell into a rate cell ("Cell kind").
+- HOM-82 (done) builds the role views (supervisor, executive, analyst, agent self-view) on
+  this service, chooses the kind from the data, and stops complementary disclosure of hidden
+  agent counts, including the extra `agent_user_id` that turned an agent cell into a rate
+  cell ("HOM-82: role views and disclosure").
+
+## HOM-82: role views and disclosure
+
+HOM-82 (WP15-T04) adds four read routes on the same population and rules, and the rules that
+keep an aggregate from showing one person. It changes no counting rule of this package, so
+`TRENDS_VERSION` stays `issue-trends/1`; the disclosure rules have their own version,
+`trend-disclosure/1` (`DISCLOSURE_VERSION`), with one new constant, `MIN_COHORT_AGENTS = 5`
+(`samples.py`; not a field of `SAMPLE_POLICY_V1`). ADR 0038 records the decisions.
+
+| Route | Who | Cohorts |
+| --- | --- | --- |
+| `GET /api/v1/trends/teams` | workspace owner or admin (every active team); member or viewer with an effective supervisor assignment (those teams only); a session only | one block per compared team (at most 10), and pairwise comparisons |
+| `GET /api/v1/trends/me` | any workspace member; a session only | the caller's own meetings as agent (`agent_user_id = caller`; uploads do not count) |
+| `GET /api/v1/organizations/{organization_id}/trends/issues` | organization owner, admin, analyst, executive (`organization:analytics:read`) | one block per scoped workspace (the grant unit) |
+| `GET /api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues` | organization owner, admin, analyst (`organization:records:read`) | the grant unit and one block per active team inside it |
+
+"A session only": every bearer that looks like an API key gets `401 api_key_not_accepted`
+before any key lookup. `GET /trends/issues` still accepts keys.
+
+The code: the pure rules are in `services/issue_trend_service.py` (section "disclosure") and
+the views in `services/role_trend_service.py`. Each view loads one scope with statements P
+and G, judges every conversation once and splits cohorts in Python.
+
+### The rules
+
+**The agent of a conversation** is `Meeting.agent_user_id`. A meeting with no agent counts
+in every number but adds no agent. **A small group** has 1 to 4 distinct agents among its
+included conversations. On a workspace view the caller is not counted (they know their own
+calls); on an organization view they are.
+
+1. **Kind from the data** (workspace views). No agent: `rate`. Only the caller's own calls
+   (and the self-view always): `agent`. A small group: `agent`, with rule 2. Else `rate`.
+2. **All or nothing** (workspace views, an `agent` cohort seen by someone other than its
+   only agent). If one cell of the window rows is under the minimum (hidden), every other cell
+   of the window rows is withheld; the same for the cells of all points, decided on their own.
+   When the caller is one of the agents, the cohort without their calls is tested too. Every
+   row of the definition is tested, whatever the selectors. Why the whole layer: in
+   `call_reason` and `unresolved_outcome` the family numerator is the sum of its issues, and
+   every complaint is also an `intent_report_dissatisfaction`.
+3. **One canonical released-team set** (workspace views with team cohorts). For one caller,
+   window and set of non-team filters, over every team that has a conversation in the
+   caller's scope (also inactive teams and teams the caller may not compare): the remainder
+   (the scope minus the released teams minus the caller's own calls) must not be unsafe.
+   Unsafe: 1 to 4 agents and a cell under the minimum that holds an agent. While it is
+   unsafe, the team with the fewest included conversations (then the smallest id) moves into
+   it. A points pass runs the same way. `GET /trends/teams` shows a team only from this set;
+   `GET /trends/issues?team_id=` is released only when every requested team with data is in
+   it. So subtracting released answers always leaves the same safe remainder plus whole
+   released teams.
+4. **Organization views: withhold, per workspace and week.** The window is whole closed
+   weeks from Saturday 00:00 Asia/Tehran (default the 4 closed weeks before the current one,
+   at most 52; grain `none` or `week`; no `timezone`, `team_id`, `agent_user_id`, `language`
+   or `source_type`). A cohort passes a week when its included conversations, and the
+   denominator of every row (whatever the selectors), have 0 or at least 5 agents. Per
+   workspace and week, over every team id with data that week (active or not), the passing
+   teams form `Rel_k`; if the workspace minus `Rel_k` does not pass, `Rel_k` is empty. A
+   whole-workspace block is released when it passes every week; a team block or a team-grant
+   block when each of its teams with data is in `Rel_k` every week (an empty team-week
+   passes). A withheld block has no count at all: `population`, `coverage` and
+   `missing_data` are `null`, `rows` and `points` empty.
+
+`disclosure` of every cohort: `status` (`released`, `masked`, `withheld`), `reason`
+(`small_group`, `complementary_disclosure` or `null`), `kind` and `masked` (the withheld
+layers, `points` and `window`). A withheld cell has status `withheld`, reason
+`complementary_disclosure`, a `null` numerator, ratio, `pending_review` and
+`absent_pending_review`, and keeps its denominator and missing counts.
+
+### Comparisons
+
+`GET /trends/teams` compares every pair of teams per window row with `compare_cells` (50 per
+side), only between `rate` teams of the canonical set. A small group is never compared
+(`withheld`, `small_group`). No rank field; teams in a fixed order (name case-folded, then
+id); `difference` is left minus right in that order. The notices `correlation_not_cause` and
+`unadjusted_comparison` go with every comparison answer, and `mix` shows the languages and
+sources of each team.
+
+### Refusals
+
+The workspace views check, in order: the credentials, the key classes
+(`filter_scope_not_allowed`, then `trend_parameter_not_allowed`, then `filter_unsupported`,
+then `filter_unknown_key`), the values (`filter_bad_type`, `filter_bad_value`,
+`filter_window_invalid`), the series, `trend_too_many_teams`, then `403 team_scope_denied`.
+The organization views check `require_organization`, the permission, the key classes, the
+values after the grid default for a missing end, `trend_grain_invalid`, then
+`trend_window_not_aligned` (`from`, then `to`, then `to` closed), then `404
+workspace_not_found`. `team_scope_denied` and `agent_scope_denied` also mean a refused
+attribution write (`services/team_service.py`); here they mean a refused read scope.
+
+### Cost
+
+The statement counts do not grow with the conversations or the teams: `GET /trends/issues` and
+`GET /trends/me` run P, G and one coverage run (at most 9); `GET /trends/teams` also lists the
+active teams (and, for a member of an unrestricted workspace, the supervisor assignments) and
+uses `compute_coverage_by_team` (the same 9 statements for every team); the executive view runs
+P and G per scoped workspace, and one coverage run for each released block (rule 8: each
+workspace is its own tenant); the
+drill-down runs the same for one workspace plus one team list. Pinned in
+`tests/test_role_trend_routes.py`. In Python, `GET /trends/issues` with `team_id` now judges the
+caller's whole scope, and an organization team grant judges the whole workspace.
+
+### Known limits
+
+- Workspace views, across answers with other windows, grains, languages or sources, can
+  still isolate a few calls; the caller may open those records (record scope).
+- Inside a `rate` cohort on a workspace view, a day point or a row can rest on one agent and
+  show a numerator under 30.
+- A restricted caller's scope changes over time (an assignment ends, a team becomes
+  inactive); the canonical set holds only within one scope.
+- On organization views a closed week can still change (a transcription finishes, a meeting
+  is deleted, moved to another team or agent, or its team is deleted), so two answers at two
+  times can differ by a few conversations.
+- A team-grant block reveals one yes or no per week about the rest of the workspace.
+- Dominance (one agent with almost all calls of a cohort) is not checked.
 
 ## Open questions
 
@@ -1333,6 +1448,8 @@ These are product choices. Version 1 uses the default given here.
 1. Sample minimums 30 (rate), 30 (agent), 50 (each side of a comparison). Default: these.
 2. An agent cell below the minimum hides its numerator, `pending_review` and
    `absent_pending_review`. Should a manager see them anyway? Default: hidden for everyone.
+   HOM-82 keeps it, applies it to small groups of 1 to 4 agents too, and shows a manager no
+   per-agent trend of another person (`agent_user_id` only the caller's own).
 3. `intent_cancel_service` and `intent_unsolicited` show 0 confirmed until reviews exist,
    because policy 1 never auto-accepts a critical label. Default: shown as pending review.
 4. A complaint is only the main intent `report_dissatisfaction`. A billing call that also
@@ -1341,7 +1458,10 @@ These are product choices. Version 1 uses the default given here.
    `unresolved` ("not resolved in this call"). Default: this.
 6. A `team_id` outside the caller's scope (HOM-82): 403 or an empty answer? v1 answer
    (HOM-80): `200`, narrowed to what the caller may see (often empty), never `403`, like the
-   other scoped routes. HOM-82 may change it.
+   other scoped routes. HOM-82 answer: a population filter narrows (`200` on
+   `GET /trends/issues` and `GET /trends/me`); a named cohort outside the scope is refused
+   (`403 team_scope_denied` on `GET /trends/teams`); the organization views take no
+   `team_id`.
 7. The grain and timezone of a time series (HOM-80). v1 answer: `grain` `none` (default),
    `day`, `week` or `month`, cut in `timezone` (default `Asia/Tehran`), weeks starting on
    Saturday, Gregorian months. The owner may later confirm the default timezone and ask for
