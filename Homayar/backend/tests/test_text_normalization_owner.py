@@ -4578,7 +4578,7 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "d1af9fa6c91857e77279b14c"),  # HOM-164/165/171/291/303 docstring
+        ("Expr", "8ed2e691c9341bbea1e0ffea"),  # HOM-164/165/171/291/303 docstring
         ("DETECTOR_VERSION", "163d2bb305714266a477ff8d"),  # HOM-303 text-pii/6
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),

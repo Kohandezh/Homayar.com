@@ -66,15 +66,17 @@ a national ID or a landline with digits glued to it (a check digit holds by
 chance in about 1 of 10 places, the landline pattern in about 8 of 100:
 random 12 to 14 digit numbers would go from 0-10% to 34-60% redacted; even
 after an ID keyword, random numbers there hold a valid ID by chance); a
-glued group that reads in two ways (``1209123456789`` is ``12`` and a
-mobile, or a valid ID ``2091234567`` and more digits); a number glued to the
-first or last group of a grouped ID or phone (``120912 345 6789``: 26-32%
-more price lists redacted); two identifiers glued in one group with another
-number (2.7-32% more 21 to 26 digit codes); a card in groups of four next to
-a number of three or more digits, which is also the shape of a price list;
-and a card written as one group with only short numbers around it
-(``12 6037991199500004 34``), or with other than 16 digits, where a random
-number passes Luhn 1 time in 10.  Out of scope: a card with digits glued to
+glued group that reads in two ways: ``1209123456789`` is ``12`` and a mobile,
+but it also holds the valid ID ``2091234567``, so the reading is a guess (such
+guesses, with chance cards and chance IDs after a keyword, gave 133 new
+subject-export matches for values not written in the text as identifiers);
+a number glued to the first or last group of a grouped ID or phone
+(``120912 345 6789``: 26-32% more price lists redacted); two identifiers glued
+in one group with another number (2.7-32% more 21 to 26 digit codes); a card
+in groups of four next to a number of three or more digits, which is also the
+shape of a price list; and a card written as one group with only short
+numbers around it (``12 6037991199500004 34``), or with other than 16 digits,
+where a random number passes Luhn 1 time in 10.  Out of scope: a card with digits glued to
 it, and a ``00`` or ``+`` number with a digit glued before it.
 Redaction therefore reduces exposure; it is not anonymisation, and it is text
 only — it never masks audio.
