@@ -46,6 +46,7 @@ from backend.backup.reconcile import (
     RETIRED_PREFIX,
     drop_retired,
     list_retired,
+    load_report,
     promote,
     reconcile_restore,
 )
@@ -868,6 +869,54 @@ def test_object_reconciliation_reports_orphans_and_fails_on_missing_bytes(
     assert details["orphan_keys"] == [orphan.key]
     assert storage.exists(workspace_id, orphan.key)  # reported, never deleted
     assert details["removed_again"] == 1 and not storage.exists(workspace_id, artifact)
+    # HOM-215: the owner accepts exactly this set, by the digest the FAIL report shows.
+    digest = details["missing_set_digest"]
+    assert digest == reconcile_module.missing_set_digest(
+        report["backup_id"], [original.storage_key], [rotten]
+    )
+
+    # A reference without the digest (or the reverse) is refused before anything changes.
+    marker = read_marker(_admin(), staging)
+    for override, code in (
+        ({"accept_missing": "INC-42"}, "accept_missing_needs_digest"),
+        ({"accept_missing_digest": digest}, "accept_missing_needs_reference"),
+    ):
+        with pytest.raises(RestoreRefused) as unbound:
+            _reconcile(set_dir, staging, target_settings, storage, tmp_path, **override)
+        assert unbound.value.code == code
+    assert read_marker(_admin(), staging) == marker
+
+    # The digest of another set (here: without the rotten key) accepts nothing.
+    subset = reconcile_module.missing_set_digest(report["backup_id"], [original.storage_key], [])
+    refused = _reconcile(
+        set_dir,
+        staging,
+        target_settings,
+        storage,
+        tmp_path,
+        accept_missing="INC-42",
+        accept_missing_digest=subset,
+        accept_no_journal="OWNER-NO-DELETIONS",  # nothing was ever deleted here
+    )
+    assert refused["status"] == "FAIL"
+    assert [name for name, status in refused["statuses"].items() if status == "FAIL"] == ["objects"]
+    refused_details = refused["checks"]["objects"]["details"]
+    assert refused_details["accept_missing_refused"] == {
+        "reference": "INC-42",
+        "supplied_digest": subset,
+        "actual_digest": digest,
+    }
+    assert refused_details["accepted_missing"] is None
+    assert refused["owner_overrides"] == {"accept_no_journal": "OWNER-NO-DELETIONS"}
+    with pytest.raises(RestoreRefused) as not_passed:
+        promote(
+            admin_url=_admin(),
+            staging_database=staging,
+            live_database=live,
+            report_path=tmp_path / "restore-work" / REPORT_FILE,
+            key=KEY,
+        )
+    assert not_passed.value.code == "not_reconciled"
 
     accepted = _reconcile(
         set_dir,
@@ -876,12 +925,25 @@ def test_object_reconciliation_reports_orphans_and_fails_on_missing_bytes(
         storage,
         tmp_path,
         accept_missing="INC-42",
-        accept_no_journal="OWNER-NO-DELETIONS",  # nothing was ever deleted here
+        accept_missing_digest=digest,
+        accept_no_journal="OWNER-NO-DELETIONS",
     )
     assert accepted["status"] == "PASS", accepted["statuses"]
-    assert accepted["checks"]["objects"]["details"]["accepted_missing"] == "INC-42"
-    assert accepted["owner_overrides"] == {
-        "accept_missing": "INC-42",
+    sealed = load_report(tmp_path / "restore-work" / REPORT_FILE, KEY)
+    assert sealed == {name: value for name, value in accepted.items() if name != "path"}
+    assert sealed["checks"]["objects"]["details"]["accepted_missing"] == {
+        "reference": "INC-42",
+        "digest": digest,
+        "missing_keys": [original.storage_key],
+        "content_mismatch_keys": [rotten],
+    }
+    assert sealed["owner_overrides"] == {
+        "accept_missing": {
+            "reference": "INC-42",
+            "digest": digest,
+            "missing": 1,
+            "content_mismatch": 1,
+        },
         "accept_no_journal": "OWNER-NO-DELETIONS",
     }
     # The live name already exists.

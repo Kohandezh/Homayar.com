@@ -297,10 +297,85 @@ Owner decisions the report may ask for (they are recorded in the sealed report):
 | Report status | Flag | When |
 | --- | --- | --- |
 | `REVIEW_REQUIRED` (held conversation in the journal) | `--accept-held REF` | the hold in the backup was released before the deletion; decide with the owner, then delete again after promotion if needed |
-| `FAIL` objects (required object missing or corrupt) | `--accept-missing REF` | accept losing or keeping damaged bytes (rows stay; the media is flagged by the reconciliation sweep) |
+| `FAIL` objects (required object missing or corrupt) | `--accept-missing REF --accept-missing-digest sha256:…` | accept losing, or keeping with other bytes, exactly the keys that FAIL report lists (rows stay; the media is flagged by the reconciliation sweep). It takes a second run (below). The reference alone is refused |
 | `FAIL` tombstones, no evidence (no journal files, files without records, or records only of tenants the backup does not know) | `--accept-no-journal REF` | the only owner override for the journal; it is recorded in the sealed report and the restore timeline. Any replica present is still replayed (unknown tenants are skipped); with no replica, deletions after the backup come back and must be repeated by the owner. A replica that holds records of tenants created after the backup **and** of known tenants passes without it |
 | `FAIL` tombstones, stale or foreign replica | none | cannot be accepted: mount the current replica, or remove it and decide on `--accept-no-journal` |
 | revocations after the backup | `--revoke-share-links` | revoke every share link of the restored data (owners re-share) |
+
+**Accepting lost objects takes two runs.** The owner may accept only the exact set of keys a
+FAIL report showed, so the first run never carries this override:
+
+1. Run step 3 without `--accept-missing`. Reconciliation FAILs, nothing is promoted, and the
+   stores keep running. In `$BACKUP_ROOT/restores/<id>/reconciliation-report.json`, the
+   `objects` check lists every lost key (`required_missing_keys` and `content_mismatch_keys`,
+   never cut short) and `missing_set_digest`: `sha256:` and 64 hex characters, computed over the
+   backup id and both lists.
+2. The owner reviews every listed key and records the decision under a reference (for example
+   an incident id).
+3. From the repository root, reconcile the same staging database again with the reference and
+   that digest, then promote. Every value below must be the same as in the first run (step 3).
+   Unset, Compose falls back to its defaults: `BACKUP_KEY_FILE` to `/dev/null` (no key) and
+   `TOMBSTONE_JOURNAL_PATH` to an empty volume, so tombstones FAIL (never answer that with
+   `--accept-no-journal`). Every other Compose variable comes from `$COMPOSE_ENV_FILE`, as in
+   the first run. Add the other owner flags of the first run (`--accept-held`,
+   `--accept-no-journal`, `--revoke-share-links`) to `tool reconcile`, each with its own
+   `mark owner_override` line, as the script does:
+
+   ```bash
+   # The same values as the first run (step 3).
+   export COMPOSE_PROJECT_NAME=homayar-restore COMPOSE_ENV_FILE=/etc/homayar/onprem.env \
+     BACKUP_ROOT=/secure/homayar-backups BACKUP_KEY_FILE=/etc/homayar/backup.key \
+     BACKUP_DATABASE_URL_FILE=/etc/homayar/backup-database-url \
+     TOMBSTONE_JOURNAL_PATH=/replica/homayar-tombstones
+   # The live database name: the POSTGRES_DB line of the env file
+   # (grep '^POSTGRES_DB=' "$COMPOSE_ENV_FILE"); the first run needed it in the environment too.
+   export POSTGRES_DB=homayar
+   # As infra/scripts/lib/compose.sh sets them for the script; a value you set is kept.
+   export BACKUP_UID="${BACKUP_UID:-$(id -u)}" BACKUP_GID="${BACKUP_GID:-$(id -g)}"
+   backup_id=20261017T020000Z-0a1b2c3d
+   staging="${POSTGRES_DB}_restoring"
+   ref=INC-42
+   digest='sha256:<missing_set_digest of the report>'
+   # As restore-isolated.sh: a textfile directory of its own, and the same timeline format.
+   export NODE_EXPORTER_TEXTFILE_DIR="$BACKUP_ROOT/restores/$backup_id/metrics"
+   timeline="$BACKUP_ROOT/restores/$backup_id/timeline.log"
+   mark() { printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" | tee -a "$timeline" >&2; }
+   tool() {
+     docker compose --project-name "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" \
+       --file infra/compose/compose.onprem.yaml --profile onprem --profile ops \
+       run --rm --no-deps -T backup-tool "$@"
+   }
+
+   mark owner_override "--accept-missing=$ref"
+   mark owner_override "--accept-missing-digest=$digest"
+   mark reconcile START
+   if tool reconcile "$backup_id" --staging-db "$staging" \
+       --accept-missing "$ref" --accept-missing-digest "$digest"; then
+     mark reconcile END
+     mark promote START
+     tool promote "$backup_id" --staging-db "$staging" --live-db "$POSTGRES_DB" --retire-existing &&
+       tool gate --live-db "$POSTGRES_DB" && mark promote END
+   else
+     mark reconcile FAILED
+   fi
+   ```
+
+   Then start the application without ingress, as `--start-app` does
+   (`docker compose ... --profile onprem up -d --wait --no-deps api worker scheduler`), and go
+   on with step 4. `reconcile` does not reload the database or write objects, so it checks the
+   same staging database and store the owner reviewed. Do not use `restore-isolated.sh --resume`
+   for this run: a resume drops and reloads the staging database and writes the set's objects
+   again. That can change the set the owner reviewed (an object deleted from the target store
+   comes back), or stop the restore with `object_conflict` (another object under a key).
+4. The sealed report records the applied override: the reference, the digest and every
+   accepted key (`objects` details `accepted_missing`) and `owner_overrides.accept_missing`.
+
+The reference without the digest, the digest without the reference, or a malformed digest is
+refused (by the script before it starts anything, and by `reconcile`). A digest of any other set
+(more, fewer or other keys, a key in the other list, another backup, or nothing lost) accepts
+nothing: the `objects` check FAILs, the report records `accept_missing_refused` (reference,
+supplied and actual digest), and `promote` refuses the report. If the set changed since the owner's
+review, review the new report and decide again.
 
 ## 4. Legacy scripts
 

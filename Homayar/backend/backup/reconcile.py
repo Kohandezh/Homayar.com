@@ -42,7 +42,7 @@ import os
 import re
 import secrets
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -437,13 +437,131 @@ def _stored_sha256(storage: ObjectStorage, workspace_id: str, key: str) -> str |
     return digest.hexdigest()
 
 
+# The owner accepts lost objects only for the exact set a FAIL report showed
+# (HOM-215): the override carries the digest of that set.
+ACCEPT_MISSING_DOMAIN = "homayar-accept-missing/1"
+_SET_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def missing_set_digest(
+    backup_id: str, missing: Iterable[str], content_mismatch: Iterable[str]
+) -> str:
+    """The digest an ``accept_missing`` override must carry for these lost objects.
+
+    SHA-256 of canonical JSON (sorted keys, no spaces) that holds a fixed
+    domain, the backup id and the two key sets, each sorted and kept apart:
+    a missing object and an object with other bytes are different losses.
+    JSON quotes every key, so two different inputs never encode the same.
+    """
+    body = json.dumps(
+        {
+            "domain": ACCEPT_MISSING_DOMAIN,
+            "backup_id": backup_id,
+            "missing": sorted(set(missing)),
+            "content_mismatch": sorted(set(content_mismatch)),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _given(reference: str | None) -> bool:
+    """A decision reference counts only with a visible character (not blank)."""
+    return bool(reference and reference.strip())
+
+
+def check_accept_missing(reference: str | None, digest: str | None) -> None:
+    """Refuse an override of lost objects that is not bound to a reviewed set."""
+    reference = reference if _given(reference) else None
+    if reference and not digest:
+        raise RestoreRefused(
+            "accept_missing_needs_digest",
+            "--accept-missing needs --accept-missing-digest: copy missing_set_digest from "
+            "the objects check of a previous FAIL report of this restore",
+        )
+    if digest and not reference:
+        raise RestoreRefused(
+            "accept_missing_needs_reference",
+            "--accept-missing-digest needs --accept-missing REF (the owner decision "
+            "reference); the digest comes from a previous FAIL report of this restore",
+        )
+    if digest and not _SET_DIGEST.fullmatch(digest):
+        raise RestoreRefused(
+            "accept_missing_digest_malformed",
+            "--accept-missing-digest must be sha256: and 64 lowercase hex characters, "
+            "copied from missing_set_digest in a previous FAIL report of this restore",
+        )
+
+
+def objects_check(
+    backup_id: str,
+    *,
+    missing: Iterable[str],
+    content_mismatch: Iterable[str],
+    missing_explained: list[dict[str, str]],
+    removal_failed: list[str],
+    accept_missing: str | None,
+    accept_missing_digest: str | None,
+    **facts: Any,
+) -> dict[str, Any]:
+    """The ``objects`` check from what ``_objects`` found (no I/O).
+
+    Every lost key is listed (the digest stands for all of them).  An override
+    applies only when its digest equals the digest of this exact set; any other
+    digest (more, fewer or other keys, a key in the other list, or nothing
+    lost) accepts nothing, is recorded as refused and fails the check.
+    """
+    missing = sorted(set(missing))
+    content_mismatch = sorted(set(content_mismatch))
+    lost = bool(missing or content_mismatch)
+    digest = missing_set_digest(backup_id, missing, content_mismatch) if lost else None
+    accepted = refused = None
+    if _given(accept_missing):
+        if digest is not None and accept_missing_digest == digest:
+            accepted = {
+                "reference": accept_missing,
+                "digest": digest,
+                "missing_keys": missing,
+                "content_mismatch_keys": content_mismatch,
+            }
+        else:
+            refused = {
+                "reference": accept_missing,
+                "supplied_digest": accept_missing_digest,
+                "actual_digest": digest,
+            }
+    status = "PASS"
+    if lost:
+        status = "PASS" if accepted else "FAIL"
+    elif missing_explained:
+        status = "WARN"
+    if refused or removal_failed:
+        status = "FAIL"
+    return _check(
+        status,
+        **facts,
+        required_missing=len(missing),
+        required_missing_keys=missing,
+        content_mismatch=len(content_mismatch),
+        content_mismatch_keys=content_mismatch,
+        missing_set_digest=digest,
+        deleted_after_snapshot=missing_explained[:100],
+        removal_failed_keys=removal_failed[:100],
+        accepted_missing=accepted,
+        accept_missing_refused=refused,
+    )
+
+
 def _objects(
     admin_url: str,
     storage: ObjectStorage | None,
     workspaces: list[str],
     *,
+    backup_id: str,
     catalog: dict[str, Any],
     accept_missing: str | None,
+    accept_missing_digest: str | None,
 ) -> dict[str, Any]:
     """Every required object is present AND hashes to its restored row's SHA-256.
 
@@ -452,7 +570,7 @@ def _objects(
     after the snapshot (its own row was gone or being deleted when the copy
     ran, and it was not under legal hold) is explained, listed and not a
     failure; anything else missing or different fails unless the owner
-    accepts the loss.
+    accepts exactly that set (``objects_check``).
     """
     if storage is None:
         return _check("FAIL", note="no object store: a restore without objects is not usable")
@@ -492,32 +610,22 @@ def _objects(
             storage.delete(stored[key], key)
         except StorageError:
             removal_failed.append(key)
-    status = "PASS"
-    if missing or corrupt:
-        status = "PASS" if accept_missing else "FAIL"
-    elif missing_explained:
-        status = "WARN"
-    if removal_failed:
-        status = "FAIL"
-    return _check(
-        status,
+    return objects_check(
+        backup_id,
+        missing=missing,
+        content_mismatch=corrupt,
+        missing_explained=[{"key": key, "reason": explained[key]} for key in missing_explained],
+        removal_failed=removal_failed,
+        accept_missing=accept_missing,
+        accept_missing_digest=accept_missing_digest,
         stored=len(stored),
         referenced=len(refs),
         required=len(required),
         content_verified=verified,
-        required_missing=len(missing),
-        required_missing_keys=missing[:100],
-        content_mismatch=len(corrupt),
-        content_mismatch_keys=corrupt[:100],
-        deleted_after_snapshot=[
-            {"key": key, "reason": explained[key]} for key in missing_explained[:100]
-        ],
         backup_integrity=catalog["objects"].get("integrity", "complete"),
         orphans=len(orphans),
         orphan_keys=orphans[:100],
         removed_again=len(lingering) - len(removal_failed),
-        removal_failed_keys=removal_failed[:100],
-        accepted_missing=accept_missing,
     )
 
 
@@ -776,11 +884,19 @@ def reconcile_restore(
     app_role: str = APP_ROLE,
     accept_held: str | None = None,
     accept_missing: str | None = None,
+    accept_missing_digest: str | None = None,
     accept_no_journal: str | None = None,
     revoke_share_links: bool = False,
     max_tenants: int = 500,
 ) -> dict[str, Any]:
-    """Run every check, replay the tombstones, write the sealed report."""
+    """Run every check, replay the tombstones, write the sealed report.
+
+    ``accept_missing`` (the owner's decision reference) is taken only with
+    ``accept_missing_digest``, the ``missing_set_digest`` of a previous FAIL
+    report; either one alone, or a malformed digest, is refused here, before
+    anything is read or changed.
+    """
+    check_accept_missing(accept_missing, accept_missing_digest)
     manifest = read_manifest(set_dir)
     check_manifest_mac(manifest, key)  # its journal fingerprint decides below
     with staging_lock(admin_url, staging_database):
@@ -797,6 +913,7 @@ def reconcile_restore(
             app_role=app_role,
             accept_held=accept_held,
             accept_missing=accept_missing,
+            accept_missing_digest=accept_missing_digest,
             accept_no_journal=accept_no_journal,
             revoke_share_links=revoke_share_links,
             max_tenants=max_tenants,
@@ -817,6 +934,7 @@ def _reconcile_locked(
     app_role: str,
     accept_held: str | None,
     accept_missing: str | None,
+    accept_missing_digest: str | None,
     accept_no_journal: str | None,
     revoke_share_links: bool,
     max_tenants: int,
@@ -948,7 +1066,13 @@ def _reconcile_locked(
         checks["non_resurrection"]["status"] = "PASS"
         checks["non_resurrection"]["details"]["accepted_held"] = accept_held
     checks["objects"] = _objects(
-        staging_url, storage, workspaces, catalog=catalog, accept_missing=accept_missing
+        staging_url,
+        storage,
+        workspaces,
+        backup_id=backup_id,
+        catalog=catalog,
+        accept_missing=accept_missing,
+        accept_missing_digest=accept_missing_digest,
     )
     checks["secrets"] = _secrets(catalog, settings, key)
     checks["post_backup_state"] = _post_backup_state(
@@ -964,11 +1088,19 @@ def _reconcile_locked(
         overall = "REVIEW_REQUIRED"
     else:
         overall = "PASS"
+    # Only an override whose digest matched the lost set is applied.
+    accepted = checks["objects"]["details"].get("accepted_missing")
+    applied_missing = accepted and {
+        "reference": accepted["reference"],
+        "digest": accepted["digest"],
+        "missing": len(accepted["missing_keys"]),
+        "content_mismatch": len(accepted["content_mismatch_keys"]),
+    }
     overrides = {
         name: value
         for name, value in (
             ("accept_no_journal", accept_no_journal),
-            ("accept_missing", accept_missing),
+            ("accept_missing", applied_missing),
             ("accept_held", accept_held),
             ("revoke_share_links", revoke_share_links or None),
         )
@@ -1203,4 +1335,11 @@ def drop_retired(
     return {"dropped": database}
 
 
-__all__ = ["BackupInvalid", "promote", "reconcile_restore", "load_report", "bound_database"]
+__all__ = [
+    "BackupInvalid",
+    "promote",
+    "reconcile_restore",
+    "load_report",
+    "bound_database",
+    "missing_set_digest",
+]
