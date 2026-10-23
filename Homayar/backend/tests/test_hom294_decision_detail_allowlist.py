@@ -52,9 +52,7 @@ def _stated(value) -> dict:
     return {"status": "stated", "value": value}
 
 
-def _decision(
-    description: str, *, owner=NOT_STATED, due_date=NOT_STATED
-) -> dict:
+def _decision(description: str, *, owner=NOT_STATED, due_date=NOT_STATED) -> dict:
     """A decision as ``analysis_claims`` stores it."""
     return {
         "section": "decision",
@@ -324,9 +322,7 @@ def test_an_unreadable_status_hides_the_value_and_a_stated_one_is_masked(
     assert deny["description"] == "نامشخص"
     assert deny["owner"] == UNAVAILABLE
     assert allow["owner"] == _stated("[PHONE_2]")
-    (shared_deny, shared_allow) = _shared(client, tenant, meeting_id)["summary"][
-        "decisions"
-    ]
+    (shared_deny, shared_allow) = _shared(client, tenant, meeting_id)["summary"]["decisions"]
     assert shared_deny["owner"] == UNAVAILABLE
     assert shared_allow["owner"] == _stated("[PHONE_2]")
     report = _report(client, tenant, meeting_id)
@@ -374,24 +370,57 @@ def test_the_original_view_keeps_only_the_allowed_shapes(
 # --- AC8: an absent key stays absent ---------------------------------------------------
 
 
-def test_an_absent_detail_key_stays_absent(client, email_outbox, monkeypatch, settings):
+ABSENT = object()
+# A present detail that must collapse to unavailable, extra key and all.
+MALFORMED = {"status": "stated", "value": 20261103, "note": PHONE}
+
+
+def _absent_decision(owner, due_date) -> dict:
     decision = _decision("بدون مسئول")
-    del decision["owner"]
-    del decision["due_date"]
+    for key, detail in (("owner", owner), ("due_date", due_date)):
+        if detail is ABSENT:
+            del decision[key]
+        else:
+            decision[key] = detail
+    return decision
+
+
+def _assert_detail_key(point: dict, key: str, detail) -> None:
+    if detail is ABSENT:
+        assert key not in point
+    else:
+        assert point[key] == UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    ("name", "owner", "due_date"),
+    [
+        pytest.param("both-absent", ABSENT, ABSENT, id="both-absent"),
+        pytest.param("owner-absent", ABSENT, MALFORMED, id="owner-absent"),
+        pytest.param("due-date-absent", MALFORMED, ABSENT, id="due-date-absent"),
+    ],
+)
+def test_an_absent_detail_key_stays_absent(
+    client, email_outbox, monkeypatch, settings, name, owner, due_date
+):
     tenant, meeting_id = _meeting(
         client,
         email_outbox,
         monkeypatch,
         settings,
-        "hom294-absent",
-        decision,
+        f"hom294-absent-{name}",
+        _absent_decision(owner, due_date),
         public_share_links_enabled=True,
     )
-    (point,) = _summary(client, tenant, meeting_id)["decisions"]
-    assert "owner" not in point and "due_date" not in point
-    (original,) = _summary(client, tenant, meeting_id, view="original")["decisions"]
-    assert "owner" not in original and "due_date" not in original
+    for body in (
+        _summary(client, tenant, meeting_id),
+        _summary(client, tenant, meeting_id, view="original"),
+    ):
+        (point,) = body["decisions"]
+        for key, detail in (("owner", owner), ("due_date", due_date)):
+            _assert_detail_key(point, key, detail)
     (shared_point,) = _shared(client, tenant, meeting_id)["summary"]["decisions"]
-    assert "owner" not in shared_point and "due_date" not in shared_point
+    for key, detail in (("owner", owner), ("due_date", due_date)):
+        _assert_detail_key(shared_point, key, detail)
     (reported,) = _report(client, tenant, meeting_id)["outcome"]["decisions"]
     assert reported["owner"] == reported["due_date"] == UNAVAILABLE
