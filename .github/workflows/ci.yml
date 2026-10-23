@@ -283,9 +283,10 @@ jobs:
   backend:
     name: Backend tests and migrations
     runs-on: ubuntu-24.04
-    # pytest alone took about 22 minutes on 2f5f666 and the whole job 37 minutes on main
-    # on 2026-10-22, as the suite grew; 60 leaves room for runner variance.
-    timeout-minutes: 60
+    # The whole job took 37 minutes on main on 2026-10-22 and the test step alone
+    # 54 minutes on 469e330 on 2026-10-23, as the suite grew (each test builds a
+    # fresh app and schema). 90 leaves room until the tests get faster (HOM-292).
+    timeout-minutes: 90
     needs: source-contract
     services:
       postgres:
