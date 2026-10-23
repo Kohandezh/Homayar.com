@@ -179,8 +179,6 @@ CARD_RUNS = [
     for name, parts in [
         ("short-after", [(grouped(C1, sep), True), (f"{sep}12", False)]),
         ("short-before", [(f"7{sep}", False), (grouped(C1, sep), True)]),
-        ("short-around-compact", [(f"12{sep}", False), (C1, True), (f"{sep}34", False)]),
-        ("compact-short-after", [(C1, True), (f"{sep}7", False)]),
         ("two-cards-short-after", [(C1, True), (sep, False), (C2, True), (f"{sep}12", False)]),
         (
             "two-cards-short-between",
@@ -269,6 +267,12 @@ def test_the_space_the_base_span_covered_stays_covered():
         # 32% more 21-26 digit codes).
         ("00123456791209123456789", "00123456791209123456789"),
         ("001234567912091234567891", "001234567912091234567891"),
+        # A card as one group with only short numbers around it: a random
+        # 16-digit number there passes Luhn 1 time in 10 (G3: the export would
+        # return texts that hold no card).
+        (f"12 {C1} 34", f"12 {C1} 34"),
+        (f"{C1} 7", f"{C1} 7"),
+        ("call 39 5996690023350377 now", "call 39 5996690023350377 now"),
         # Out of scope: a card with glued digits, and a 00/+ number with a
         # digit glued before it.
         ("60379911995000047", "60379911995000047"),
@@ -283,6 +287,14 @@ def test_shapes_not_detected_keep_their_base_output(text, expected):
     # Digits of the text, not the placeholder numbers (those follow "_").
     persian = re.sub(r"(?<![_0-9])[0-9]+", lambda m: m.group().translate(FA), expected)
     assert redact(text.translate(FA))[0] == persian
+
+
+def test_a_chance_luhn_hit_inside_another_reading_is_not_a_card():
+    # 0034 9582 3347 11 is a 00 number; the 14 digits also pass Luhn.  Base
+    # reads no card here, with any class list, and neither does the patch.
+    text = "کد ملی 64841 00349582334711 است"
+    assert detect(text, [PiiClass.BANK_CARD]) == []
+    assert [s.pii_class for s in detect(text)] == [PiiClass.PHONE]
 
 
 # --- SPEC section 3: deny-cases and allow-controls -------------------------------
