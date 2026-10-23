@@ -660,11 +660,13 @@ def _assert_hung_twice(
     before = _health_threads(source)
     bodies = []
     started: list[set[threading.Thread]] = []
-    for _ in range(2):
+    for attempt in range(2):
         waits.clear()
         body, elapsed = _timed(client, workspace_id)
         assert elapsed < WIDE_BOUND_SECONDS, elapsed
         _within_one_deadline(waits)  # a hung source is bounded by one deadline, no more
+        if attempt == 0:
+            assert any(wait.ran_out for wait in waits.calls)  # it did wait for the hang
         bodies.append(body)
         started.append(_health_threads(source) - before)
     assert calls == [1]  # the second request reports it at once and starts no thread
@@ -896,16 +898,18 @@ def test_a_hung_metrics_scrape_does_not_block_the_summary(
     def hung(self):
         entered.set()
         gate.wait(30)
+        return metrics.Snapshot()
 
     # collect() runs refresh() inside the /metrics collector's lock: patching the
     # class method (the app's collector is a local in create_app) makes the scrape
-    # hold that lock until gate is set, with no time limit at all.
+    # hold that lock until gate is set or 30 s pass, far above WIDE_BOUND_SECONDS.
     monkeypatch.setattr(metrics.StateCollector, "refresh", hung)
     scrape = threading.Thread(target=client.get, args=("/metrics",), daemon=True)
     scrape.start()
     try:
         assert entered.wait(10)
-        body = _health(client, workspace_id)
+        body, elapsed = _timed(client, workspace_id)
+        assert elapsed < WIDE_BOUND_SECONDS, elapsed
         assert body["dependencies"]["database"]["status"] == "up"  # the summary answered
         assert scrape.is_alive()  # while the scrape still held the collector lock
     finally:
@@ -931,6 +935,7 @@ def test_a_source_still_hung_from_an_earlier_request_is_reported_at_once(
 
     collector = client.app.state.system_health_collector
     hung_call = collector._inflight[source]
+    assert any(hung_call.future in wait.futures for wait in waits.calls)  # it was waited on
     waits.clear()
     second = collector.collect()
     # Still running from the first request: reported at once, not waited on again.
