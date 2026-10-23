@@ -184,13 +184,8 @@ def _detail(point: object, key: str) -> ReportDecisionDetail:
     """A structured decision's owner or due date; anything malformed is
     ``unavailable``, never upgraded to stated."""
     detail = point.get(key) if isinstance(point, dict) else None
-    status = detail.get("status") if isinstance(detail, dict) else None
-    value = detail.get("value") if isinstance(detail, dict) else None
-    if status == "stated" and isinstance(value, str):
-        return ReportDecisionDetail(status="stated", value=value)
-    if status == "not_stated":
-        return ReportDecisionDetail(status="not_stated", value=None)
-    return _UNAVAILABLE_DETAIL
+    status, value = insights.decision_detail(detail)
+    return ReportDecisionDetail(status=status, value=value)
 
 
 def _empty_field(status: str) -> ReportSummaryField:
