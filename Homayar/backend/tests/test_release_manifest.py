@@ -216,15 +216,156 @@ def test_manifest_describes_the_revision(head_manifest: dict[str, Any]) -> None:
     assert printed.stdout == "".join(f"{key}={value}\n" for key, value in args.items())
 
 
-def test_api_base_image_is_pinned_by_digest() -> None:
-    dockerfile = (REPO_ROOT / rm.API_DOCKERFILE).read_text(encoding="utf-8")
+def _dockerfile_text(image: str) -> str:
+    return (REPO_ROOT / rm.IMAGES[image]).read_text(encoding="utf-8")
+
+
+def _base_args(dockerfile: str) -> dict[str, str]:
+    return {
+        arg: value
+        for arg, value in rm.dockerfile_args(dockerfile).items()
+        if arg.endswith("_IMAGE")
+    }
+
+
+@pytest.mark.parametrize("image", sorted(rm.IMAGES))
+def test_every_base_image_is_pinned_by_digest(image: str) -> None:
+    dockerfile = _dockerfile_text(image)
+    bases = _base_args(dockerfile)
+    assert bases, f"{rm.IMAGES[image]} declares no *_IMAGE ARG"
+    for arg, value in bases.items():
+        base = rm.image_reference(value)
+        assert base["pinned_by_digest"], (image, arg, base)
+        # The tag stays readable in front of the digest (tag@sha256:...).
+        assert re.fullmatch(r"[a-z0-9./-]+:[\w.-]+@sha256:[0-9a-f]{64}", value), (image, arg)
+    # Every stage starts from a pinned ARG or an earlier stage, never from a literal tag.
+    stages: set[str] = set()
+    for source, stage in re.findall(r"^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$", dockerfile, re.M):
+        assert source in stages or re.fullmatch(r"\$\{(\w+_IMAGE)\}", source), (image, source)
+        if stage:
+            stages.add(stage)
+
+
+def test_api_base_image_matches_the_python_version() -> None:
+    dockerfile = _dockerfile_text("api")
     base = rm.image_reference(rm.dockerfile_args(dockerfile)["PYTHON_IMAGE"])
-    assert base["pinned_by_digest"], base
     python = (REPO_ROOT / rm.PYTHON_VERSION_FILE).read_text(encoding="utf-8").strip()
     assert base["reference"].startswith(f"python:{python}-")
     # A stale lock must fail the image build, not be installed.
     assert "uv sync --frozen" not in dockerfile
     assert dockerfile.count("uv sync --locked") == 2
+
+
+def _compose_build_args(text: str) -> dict[str, dict[str, tuple[str, str]]]:
+    """Dockerfile -> {ARG: (variable, default)} of each ``"${VAR:-default}"`` build argument."""
+    result: dict[str, dict[str, tuple[str, str]]] = {}
+    dockerfile, args_indent = None, None
+    for line in text.splitlines():
+        indent = len(line) - len(line.lstrip())
+        if args_indent is not None and line.strip() and indent <= args_indent:
+            args_indent = None
+        if match := re.fullmatch(r"\s*dockerfile:\s*(\S+)\s*", line):
+            dockerfile = match.group(1)
+            result.setdefault(dockerfile, {})
+        elif dockerfile and re.fullmatch(r"\s*args:\s*", line):
+            args_indent = indent
+        elif dockerfile and args_indent is not None:
+            value = re.fullmatch(r'\s*(\w+):\s*"\$\{(\w+):-([^}]*)\}"\s*', line)
+            if value:
+                result[dockerfile][value.group(1)] = (value.group(2), value.group(3))
+    return result
+
+
+def test_compose_build_arg_defaults_are_the_dockerfile_pins() -> None:
+    compose = (REPO_ROOT / "infra/compose/compose.onprem.yaml").read_text(encoding="utf-8")
+    build_args = _compose_build_args(compose)
+    for image, dockerfile in rm.IMAGES.items():
+        assert dockerfile in build_args, f"compose.onprem.yaml does not build {image}"
+        for arg, default in _base_args(_dockerfile_text(image)).items():
+            # Same name, so an operator can still point at a mirror; same default as the pin.
+            assert build_args[dockerfile].get(arg) == (arg, default), (image, arg)
+
+
+def _with_base_images(manifest: dict[str, Any], **references: str) -> dict[str, Any]:
+    """``manifest`` with ``image.ARG=reference`` base images and a valid checksum again."""
+    changed = copy.deepcopy(manifest)
+    for key, reference in references.items():
+        image, arg = key.split(".")
+        changed["build_inputs"][image]["base_images"][arg] = rm.image_reference(reference)
+    body = {key: value for key, value in changed.items() if key != "manifest_sha256"}
+    changed["manifest_sha256"] = rm.sha256_bytes(rm.canonical_json(body).encode("ascii"))
+    return changed
+
+
+PINNED_BASES = {
+    "console-web.NODE_IMAGE": "node:22-alpine@" + DIGEST,
+    "console-web.NGINX_IMAGE": "nginx:1.28-alpine@" + DIGEST,
+    "egress-proxy.ALPINE_IMAGE": "alpine:3.22@" + DIGEST,
+}
+
+
+@requires_git
+@pytest.mark.parametrize(
+    "unpinned",
+    [
+        "alpine:3.22",
+        "alpine:3.22@sha256:" + "AB" * 32,
+        "alpine:3.22@sha256:abc123",
+        "alpine:3.22@" + "ab" * 32,
+    ],
+)
+def test_verify_refuses_an_unpinned_base_image(
+    head_manifest: dict[str, Any], tmp_path: Path, unpinned: str
+) -> None:
+    build_info = _build_info_for(head_manifest, tmp_path)
+    pinned = _with_base_images(head_manifest, **PINNED_BASES)
+    assert rm.verify_documents(pinned, build_info) == []
+    # One unpinned base among pinned ones; the checksum is valid, so only the pin check fails.
+    denied = _with_base_images(pinned, **{"egress-proxy.ALPINE_IMAGE": unpinned})
+    problems = rm.verify_documents(denied, build_info)
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("build_inputs.egress-proxy.base_images.ALPINE_IMAGE:"), problems
+    assert unpinned in problems[0]
+    manifest_path, info_path = tmp_path / "manifest.json", tmp_path / "build-info.json"
+    info_path.write_text(release.canonical_json(build_info))
+    args = ("verify", "--manifest", str(manifest_path), "--build-info", str(info_path))
+    manifest_path.write_text(rm.render(denied))
+    refused = _cli(*args)
+    assert refused.returncode == 1, refused.stdout + refused.stderr
+    assert "egress-proxy" in refused.stdout and "ALPINE_IMAGE" in refused.stdout
+    manifest_path.write_text(rm.render(pinned))
+    allowed = _cli(*args)
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+
+
+def test_verify_refuses_a_base_image_that_claims_a_pin() -> None:
+    claimed = {"reference": "alpine:3.22", "digest": DIGEST, "pinned_by_digest": True}
+    manifest = {"build_inputs": {"egress-proxy": {"base_images": {"ALPINE_IMAGE": claimed}}}}
+    problems = rm.base_image_problems(manifest)
+    assert problems == [
+        "build_inputs.egress-proxy.base_images.ALPINE_IMAGE: not pinned by digest ('alpine:3.22')"
+    ]
+    assert rm.base_image_problems({"build_inputs": {"api": {"base_images": {}}}}) == [
+        "build_inputs.api.base_images: no base image recorded"
+    ]
+    assert rm.base_image_problems({}) == ["build_inputs: missing"]
+
+
+@requires_git
+def test_manifest_records_every_base_image_as_pinned(head_manifest: dict[str, Any]) -> None:
+    for image, inputs in head_manifest["build_inputs"].items():
+        assert inputs["base_images"], image
+        for arg, base in inputs["base_images"].items():
+            assert base["pinned_by_digest"] is True, (image, arg, base)
+            assert re.fullmatch(r"sha256:[0-9a-f]{64}", base["digest"]), (image, arg)
+            assert base["reference"].endswith("@" + base["digest"]), (image, arg)
+    reproducibility = head_manifest["reproducibility"]
+    assert not [item for item in reproducibility["not_pinned"] if "(tag, not a digest)" in item]
+    for name in ("api PYTHON_IMAGE", "console-web NODE_IMAGE", "console-web NGINX_IMAGE"):
+        assert any(item.startswith(f"{name} ") for item in reproducibility["pinned"]), name
+    assert any(item.startswith("egress-proxy ALPINE_IMAGE ") for item in reproducibility["pinned"])
+    assert any("apk" in item and "squid" in item for item in reproducibility["not_pinned"])
+    assert rm.base_image_problems(head_manifest) == []
 
 
 @requires_git
