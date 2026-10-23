@@ -118,8 +118,11 @@ jobs:
   console-e2e:
     name: Product console end-to-end tests
     runs-on: ubuntu-24.04
-    # HOM-224 caps the job at 15 minutes.
-    timeout-minutes: 15
+    # HOM-224 capped the job at 15 minutes. On 2026-10-23 the Ubuntu apt mirror
+    # took 11 minutes for the Playwright system libraries, and the job was
+    # cancelled although every test passed. The install step and the test step
+    # now have their own limits, so a slow mirror cannot use the time of the tests.
+    timeout-minutes: 25
     needs: source-contract
     services:
       postgres:
@@ -224,17 +227,23 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('Homayar/frontend/package-lock.json') }}
 
+      # `--with-deps` installs the system libraries with apt-get. The retries help
+      # when the mirror drops a download, as it did on 2026-10-23.
       - name: Install Chromium for Playwright
         working-directory: Homayar/frontend
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 15
+        run: |
+          echo 'Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/80-retries
+          npx playwright install --with-deps chromium
 
       # Playwright starts the Vite dev server itself (playwright.config.ts). CI=true
       # gives one retry and forbids `test.only`.
       - name: Run end-to-end tests
         working-directory: Homayar/frontend
+        timeout-minutes: 12
         run: npm run test:e2e
 
-      # Also when the 15-minute timeout cancels the job, when the report matters most.
+      # Also when a timeout cancels the job, when the report matters most.
       - name: Show the end of the API log
         if: failure() || cancelled()
         run: tail -n 200 "${RUNNER_TEMP}/api.log" || true
