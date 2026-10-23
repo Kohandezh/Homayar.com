@@ -110,6 +110,16 @@ Two facts shape the answer:
      then a team grant and a whole-workspace grant would be tested apart, and the whole
      workspace minus the granted team could be one person. One yes or no per week about the
      rest of the workspace is less than the counts of a person.
+   - *A caller who also holds a restricted workspace membership (turn B3, SPEC A6).* One
+     person can hold an organization grant on W and a membership in W (ADR 0012). When that
+     membership is effective and restricted (not owner or admin, and `record_scope=team`), the
+     person knows every conversation of its scope S (supervised teams, own agent meetings, own
+     uploads), so `W_k − S_k` could be one agent. On both organization views every block of W
+     (the workspace block and each team block) must then also pass the week test on the block
+     minus S, in every week; otherwise it is withheld (`complementary_disclosure`). No
+     membership, or an unrestricted one, is decided as before: an unrestricted member can read
+     every record of W already. The extra cost is a fixed 1 to 3 statements per workspace (the
+     membership; for a restricted one its assignments and the meetings of S).
 8. **Comparisons without a ranking.** Every pair of compared teams, per window row, through
    `compare_cells` (50 per side), only between teams of the canonical set. A small or
    withheld team is never compared, on any row: the status order is a side of kind `agent`
@@ -151,7 +161,11 @@ The ticket is silent on these. Each is the safest choice found; the owner may ch
 - A restricted supervisor's uploads of an agent in a team they do not supervise are in their
   scope. They can make the remainder a small group and withhold a supervised team, maybe the
   whole comparison.
-- Organization owners and admins are withheld like analysts and executives.
+- Organization owners and admins are withheld like analysts and executives. They can install
+  themselves as workspace `admin` (matrix 4a, ADR 0012), so this default binds them only on
+  the organization routes.
+- An organization caller who also holds a restricted membership in the workspace gets a block
+  only when the block minus that membership's scope also passes the week test (decision 7).
 - Organization views use whole closed weeks only, never days, months, or the current week.
 - On organization views every row is tested, so a cohort is withheld when one issue rests on 1
   to 4 agents in some week.
@@ -194,6 +208,9 @@ disclosure decision depends on the conversations of the answer, so nothing is st
 - **A changing scope on workspace views (D3).** A restricted caller's scope changes over time:
   an assignment ends, a team becomes inactive. The canonical released set holds only within
   one scope, so two answers before and after such a change come from two different sets.
+- **Processing counts of a released organization block.** Its per-row `missing` buckets and
+  `population.excluded` are processing counts that the week test does not check, like its
+  coverage counters.
 - **Closed weeks still change.** A transcription that finishes late changes an old week; two
   answers at two times then differ by a few calls of a cohort that passed the week test.
 - **Moved or deleted attribution on organization views (D3).** A meeting moved to another team

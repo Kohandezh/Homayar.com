@@ -1385,7 +1385,12 @@ calls); on an organization view they are.
    teams form `Rel_k`; if the workspace minus `Rel_k` does not pass, `Rel_k` is empty. A
    whole-workspace block is released when it passes every week; a team block or a team-grant
    block when each of its teams with data is in `Rel_k` every week (an empty team-week
-   passes). A withheld block has no count at all: `population`, `coverage` and
+   passes). A caller who also holds an effective, restricted membership in the workspace
+   (not owner or admin, `record_scope=team`) knows every conversation of its scope S
+   (supervised teams, own agent meetings, own uploads): every block of that workspace must
+   then also pass the week test on the block minus S, in every week, or it is withheld
+   (`complementary_disclosure`). No membership, or an unrestricted one, changes nothing (A6).
+   A withheld block has no count at all: `population`, `coverage` and
    `missing_data` are `null`, `rows` and `points` empty.
 
 `disclosure` of every cohort: `status` (`released`, `masked`, `withheld`), `reason`
@@ -1434,8 +1439,11 @@ PostgreSQL; on PostgreSQL the binding adds 16 to `GET /trends/issues`):
 | `GET /trends/me` | F + 0 = 14 |
 | `GET /trends/teams`, owner, 2 or 3 teams | F + 1 = 15 (the active teams; `compute_coverage_by_team` is the same 9 for every team) |
 | `GET /trends/teams`, a member who supervises | F + 2 = 16 (the active teams and their supervisor assignments) |
-| executive view, per released workspace | + 11 (P, G and 9 coverage statements; rule 8: each workspace is its own tenant) |
-| drill-down, 1 or 3 teams | 16: 3 (session, user, organization membership) + 1 (the workspace) + 1 (its teams) + 2 (P and G) + 9 (one grouped coverage run) |
+| executive view, per released workspace, caller with no membership there | + 12 (P, G, the caller's membership (A6) and 9 coverage statements; rule 8: each workspace is its own tenant) |
+| drill-down, 1 or 3 teams, caller with an unrestricted membership | 17: 3 (session, user, organization membership) + 1 (the workspace) + 1 (its teams) + 2 (P and G) + 1 (the caller's membership) + 9 (one grouped coverage run) |
+
+A caller with a restricted membership in the workspace adds 2 more statements there (its team
+assignments and the meetings of its scope), whatever the weeks and teams.
 
 A withheld executive block runs no coverage run. In Python, `GET /trends/issues` with `team_id`
 now judges the caller's whole scope, and an organization team grant judges the whole workspace.
@@ -1452,6 +1460,8 @@ now judges the caller's whole scope, and an organization team grant judges the w
   is deleted, moved to another team or agent, or its team is deleted), so two answers at two
   times can differ by a few conversations.
 - A team-grant block reveals one yes or no per week about the rest of the workspace.
+- An organization caller with a restricted workspace membership is checked against that
+  membership's scope (A6); knowledge from outside the system is not.
 - Dominance (one agent with almost all calls of a cohort) is not checked.
 
 ## Open questions

@@ -32,6 +32,7 @@ from backend.database.saas_models import (
     IngestionRecord,
     IngestionStatus,
     Meeting,
+    Membership,
     Organization,
     Team,
     Workspace,
@@ -53,6 +54,8 @@ from backend.issue_trends.samples import ASSOCIATION_NOTICE
 from backend.security.authorization import (
     UNRESTRICTED_ROLES,
     OrganizationAccess,
+    membership_effective_clause,
+    resolve_record_access,
     supervised_team_ids,
 )
 from backend.security.context import WorkspaceContext
@@ -85,12 +88,14 @@ from backend.services.issue_trend_service import (
     judge_population,
     organization_release,
     point_finder,
+    scope_meeting_ids,
     series_block,
     series_points,
     team_filter_masks,
     team_parts,
     trend_definition,
     validate_series,
+    week_passes,
     week_stats,
     weekly_release,
     withheld_block,
@@ -180,18 +185,31 @@ def workspace_query(
 # --- the organization grid ------------------------------------------------------------------
 
 
-def _local_midnight(day: Any) -> datetime:
-    return datetime.combine(day, time(), tzinfo=_GRID_ZONE).astimezone(UTC)
+def _local_midnight(day: Any) -> datetime | None:
+    """Midnight of ``day`` in Asia/Tehran as a UTC instant; ``None`` outside the UTC range
+    (near year 1 or 9999), like ``issue_trend_service._midnight``."""
+    try:
+        return datetime.combine(day, time(), tzinfo=_GRID_ZONE).astimezone(UTC)
+    except OverflowError:
+        return None
 
 
 def current_week_start(now: datetime) -> datetime:
     """Saturday 00:00 in Asia/Tehran at or before ``now``, as a UTC instant."""
     local = now.astimezone(_GRID_ZONE)
-    return _local_midnight(local.date() - timedelta(days=(local.weekday() - _SATURDAY) % 7))
+    start = _local_midnight(local.date() - timedelta(days=(local.weekday() - _SATURDAY) % 7))
+    if start is None:  # the server clock, never user input
+        raise ValueError("now is outside the supported date range")
+    return start
 
 
 def is_week_boundary(instant: datetime) -> bool:
-    local = instant.astimezone(_GRID_ZONE)
+    """Saturday 00:00 in Asia/Tehran.  An instant that can not be shown in Asia/Tehran (near
+    year 9999) is not a boundary, so it is refused as not aligned, never a 500."""
+    try:
+        local = instant.astimezone(_GRID_ZONE)
+    except OverflowError:
+        return False
     return local.weekday() == _SATURDAY and _local_midnight(local.date()) == instant
 
 
@@ -543,6 +561,79 @@ def week_parts(
     return [{team_id: week_stats(members) for team_id, members in week.items()} for week in grouped]
 
 
+def weekly_stats(
+    conversations: Iterable[JudgedConversation], weeks: Sequence[Any]
+) -> list[WeekStats]:
+    """The stats of the included ``conversations`` in each week."""
+    index = point_finder(weeks)
+    grouped: list[list[JudgedConversation]] = [[] for _ in weeks]
+    for conversation in conversations:
+        if conversation.included:
+            grouped[index(conversation.received_at)].append(conversation)
+    return [week_stats(members) for members in grouped]
+
+
+def passes_outside_known(
+    conversations: Sequence[JudgedConversation],
+    known: frozenset[str] | None,
+    weeks: Sequence[Any],
+) -> bool:
+    """A6: a caller who also holds a restricted membership in the workspace knows the
+    meetings of its scope (``known``).  The block minus them must pass the week test in
+    every week (0 or at least 5 agents, per cohort and per row).  ``None``: no such
+    membership, nothing to check."""
+    if known is None:
+        return True
+    outside = [c for c in conversations if c.judgment.meeting_id not in known]
+    return all(week_passes(stats) for stats in weekly_stats(outside, weeks))
+
+
+def known_meetings(
+    db: Session,
+    *,
+    workspace: Workspace,
+    user_id: str,
+    filters: TrendFilters,
+    now: datetime | None = None,
+) -> frozenset[str] | None:
+    """The meetings of the window an organization caller knows through an effective,
+    restricted membership in ``workspace`` (A6): its ``meeting_clause`` (supervised teams, own
+    agent meetings, own uploads).  ``None`` with no membership, or an unrestricted one (owner,
+    admin, ``record_scope=workspace``), which can read every record already.  At most 3
+    statements per workspace: the membership, the assignments, the meetings."""
+    now = now or datetime.now(UTC)
+    membership = db.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace.id,
+            Membership.user_id == user_id,
+            membership_effective_clause(now),
+        )
+    )
+    if membership is None:
+        return None
+    access = resolve_record_access(db, workspace=workspace, membership=membership, now=now)
+    if access.unrestricted:
+        return None
+    return scope_meeting_ids(
+        db, workspace_id=workspace.id, scope=access.meeting_clause(), filters=filters
+    )
+
+
+def _decide(
+    parts: Sequence[Mapping[str | None, WeekStats]],
+    rel: Sequence[frozenset[str]],
+    team_ids: frozenset[str] | None,
+    members: Sequence[JudgedConversation],
+    known: frozenset[str] | None,
+    weeks: Sequence[Any],
+) -> tuple[bool, str | None]:
+    """``organization_release``, then the A6 test of the caller's known meetings."""
+    released, reason = organization_release(parts, rel, team_ids)
+    if released and not passes_outside_known(members, known, weeks):
+        return False, REASON_COMPLEMENTARY
+    return released, reason
+
+
 def _organization_block(
     released: bool,
     reason: str | None,
@@ -613,9 +704,10 @@ def organization_trends(
     for workspace, team_ids in scoped_workspaces(db, organization=organization, access=access):
         bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
         judged = _workspace_population(db, workspace, filters)
+        known = known_meetings(db, workspace=workspace, user_id=access.user_id, filters=filters)
         parts = week_parts(judged, weeks)
-        released, reason = organization_release(parts, weekly_release(parts), team_ids)
         members = judged if team_ids is None else [c for c in judged if c.team_id in team_ids]
+        released, reason = _decide(parts, weekly_release(parts), team_ids, members, known, weeks)
         coverage: dict[str, Any] = {}
         if released:
             counters = compute_coverage(
@@ -658,16 +750,19 @@ def organization_drilldown(
     organization: Organization,
     workspace: Workspace,
     team_ids: frozenset[str] | None,
+    user_id: str,
     filters: TrendFilters,
     grain: str,
     recompute_max_attempts: int,
 ) -> dict[str, Any]:
     """Analyst drill-down: the grant unit and one block per active team inside it.  Every
-    block is released per week over the window (design 4.3)."""
+    block is released per week over the window (design 4.3), and tested against what the
+    caller knows through a restricted membership in the workspace (A6)."""
     bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
     weeks = _weeks(filters)
     teams = active_teams(db, workspace_id=workspace.id, team_ids=team_ids)
     judged = _workspace_population(db, workspace, filters)
+    known = known_meetings(db, workspace=workspace, user_id=user_id, filters=filters)
     parts = week_parts(judged, weeks)
     rel = weekly_release(parts)
     whole, by_team = compute_coverage_by_team(
@@ -679,8 +774,8 @@ def organization_drilldown(
         teams=[team_id for team_id, _ in teams],
     )
     options = {"filters": filters, "grain": grain, "weeks": weeks}
-    released, reason = organization_release(parts, rel, team_ids)
     members = judged if team_ids is None else [c for c in judged if c.team_id in team_ids]
+    released, reason = _decide(parts, rel, team_ids, members, known, weeks)
     basis = COVERAGE_BASIS_WORKSPACE if team_ids is None else COVERAGE_BASIS_TREND_POPULATION
     workspace_block = _organization_block(
         released,
@@ -691,14 +786,17 @@ def organization_drilldown(
     )
     team_blocks = []
     for team_id, name in teams:
-        team_released, team_reason = organization_release(parts, rel, frozenset({team_id}))
+        team_members = [c for c in judged if c.team_id == team_id]
+        team_released, team_reason = _decide(
+            parts, rel, frozenset({team_id}), team_members, known, weeks
+        )
         team_blocks.append(
             {
                 "team": {"id": team_id, "name": name},
                 **_organization_block(
                     team_released,
                     team_reason,
-                    [c for c in judged if c.team_id == team_id],
+                    team_members,
                     coverage=coverage_block(
                         filters.window,
                         COVERAGE_BASIS_TREND_POPULATION,

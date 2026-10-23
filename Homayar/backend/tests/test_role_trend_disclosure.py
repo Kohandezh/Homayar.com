@@ -48,6 +48,7 @@ from backend.services.role_trend_service import (
     current_week_start,
     is_week_boundary,
     organization_query,
+    passes_outside_known,
     team_comparisons,
     workspace_query,
 )
@@ -449,6 +450,41 @@ def test_an_empty_team_week_passes():
     assert organization_release(weeks, weekly_release(weeks), frozenset({"t1"})) == (True, None)
 
 
+# --- A6: an organization caller who also holds a restricted workspace membership -----------
+
+ONE_WEEK = [SeriesPoint(START, START + timedelta(days=7), False)]
+
+
+def _meeting_ids(conversations) -> frozenset[str]:
+    return frozenset(c.judgment.meeting_id for c in conversations)
+
+
+def test_the_block_minus_what_the_caller_knows_passes_the_week_test():
+    supervised = calls("t", people("a", 4), 10)  # P supervises T: they know these calls
+    lone = calls(None, ["n1"], 12)
+    block = [*supervised, *lone]
+    # the workspace block alone passes (5 agents), but minus P's scope it is n1 alone
+    assert week_passes(week_stats(block))
+    assert not passes_outside_known(block, _meeting_ids(supervised), ONE_WEEK)
+    # allow-control: the rest outside P's scope has 5 agents
+    wider = [*block, *calls(None, people("n", 5)[1:], 1)]  # n2 to n5
+    assert passes_outside_known(wider, _meeting_ids(supervised), ONE_WEEK)
+    # allow-control: no restricted membership (None): nothing more to check
+    assert passes_outside_known(block, None, ONE_WEEK)
+    # P knows the whole block (it is their own team): nothing is left to reveal
+    assert passes_outside_known(supervised, _meeting_ids(supervised), ONE_WEEK)
+
+
+def test_uploads_count_as_known_calls():
+    # the upload variant: P uploaded the calls of agent x (created_by_user_id), so P knows them
+    uploads = calls(None, ["x"], 6)
+    others = calls(None, people("o", 4), 3)
+    block = [*uploads, *others]
+    assert week_passes(week_stats(block))  # 5 agents in all
+    assert not passes_outside_known(block, _meeting_ids(uploads), ONE_WEEK)  # 4 agents left
+    assert passes_outside_known([*block, *calls(None, ["o5"], 3)], _meeting_ids(uploads), ONE_WEEK)
+
+
 # --- 5: comparisons -------------------------------------------------------------------------
 
 
@@ -549,6 +585,9 @@ def test_the_grid_window_defaults():
     assert _window({"from": (WEEK_START - 52 * W).isoformat(), "to": WEEK_START.isoformat()})[
         :2
     ] == (WEEK_START - 52 * W, WEEK_START)
+    # allow-control for the overflow cases: an aligned, closed Saturday in Tehran time
+    saturday = datetime(2026, 10, 2, 20, 30, tzinfo=UTC)  # 2026-10-03T00:00:00+03:30
+    assert _window({"to": "2026-10-03T00:00:00+03:30"})[:2] == (saturday - 4 * W, saturday)
 
 
 ORGANIZATION_REFUSALS = [
@@ -559,6 +598,10 @@ ORGANIZATION_REFUSALS = [
     ({"from": (WEEK_START - 53 * W).isoformat(), "to": WEEK_START.isoformat()},
      ("filter_window_invalid", None)),
     ({"from": WEEK_START.isoformat()}, ("filter_window_invalid", None)),
+    # G2: an instant that can not be shown in Asia/Tehran is not aligned, never a 500
+    ({"to": "9999-12-31T23:59:59+00:00"}, ("trend_window_not_aligned", "to")),
+    ({"from": "9999-12-31T22:00:00+00:00", "to": "9999-12-31T23:00:00+00:00"},
+     ("trend_window_not_aligned", "from")),
     ({"grain": "day"}, ("trend_grain_invalid", "grain")),
     ({"grain": "month"}, ("trend_grain_invalid", "grain")),
     ({"team_id": "xyz"}, ("trend_parameter_not_allowed", "team_id")),

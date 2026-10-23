@@ -477,6 +477,22 @@ def judge_population(
     return conversations
 
 
+def scope_meeting_ids(
+    db: Session, *, workspace_id: str, scope: ColumnElement[bool], filters: TrendFilters
+) -> frozenset[str]:
+    """The meetings of the window's population under ``scope`` (HOM-82, A6: what a caller
+    knows through a restricted workspace membership).  One statement."""
+    clauses = _population_clauses(workspace_id, filter_clauses(scope, filters), filters)
+    return frozenset(
+        db.scalars(
+            select(Meeting.id)
+            .select_from(IngestionRecord)
+            .join(Meeting, Meeting.id == IngestionRecord.meeting_id)
+            .where(*clauses)
+        )
+    )
+
+
 # --- the answer -----------------------------------------------------------------------------
 
 

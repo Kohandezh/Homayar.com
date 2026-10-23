@@ -26,9 +26,12 @@ from backend.database.relational import get_engine, get_session_factory
 from backend.database.saas_models import (
     Membership,
     OrganizationMembership,
+    RecordScope,
     Team,
     TeamAssignment,
     TeamRole,
+    Workspace,
+    WorkspaceRole,
 )
 from backend.database.tenant_context import (
     bind_organization_context,
@@ -554,6 +557,35 @@ def _released(block: dict[str, Any]) -> tuple[str, str | None]:
     return block["disclosure"]["status"], block["disclosure"]["reason"]
 
 
+def _install_member(place, user_id: str) -> str:
+    """A workspace ``member`` row, like a delegated installation, without the seat checks."""
+    with inspection_session_factory()() as db:
+        membership = Membership(
+            workspace_id=place.workspace_id,
+            user_id=user_id,
+            role=WorkspaceRole.MEMBER,
+            is_active=True,
+            valid_from=datetime.now(UTC) - DAY,
+        )
+        db.add(membership)
+        db.commit()
+        return membership.id
+
+
+def _set_membership_role(membership_id: str, role: WorkspaceRole) -> None:
+    with inspection_session_factory()() as db:
+        db.execute(update(Membership).where(Membership.id == membership_id).values(role=role))
+        db.commit()
+
+
+def _set_record_scope(place, scope: RecordScope) -> None:
+    with inspection_session_factory()() as db:
+        db.execute(
+            update(Workspace).where(Workspace.id == place.workspace_id).values(record_scope=scope)
+        )
+        db.commit()
+
+
 def _expire_organization_membership(membership_id: str) -> None:
     now = datetime.now(UTC)
     with inspection_session_factory()() as db:
@@ -850,6 +882,41 @@ def test_org_views_withhold_small_groups(client, email_outbox):
     later = executive.get(executive_path, params=_week_window(weeks[1], 1)).json()["workspaces"]
     assert _released(later[0]) == ("released", None)
 
+    # A6 (the final review's probe): the analyst also supervises team T as a restricted
+    # member of the workspace.  T has 4 agents with 10 calls each, n1 has 12 calls and no
+    # team.  The block passes (5 agents), but minus what the analyst knows it is n1 alone.
+    probe = _org_workspace(owner, org, "Probe")
+    _scope_grant(owner, org, memberships["analyst"], probe)
+    _scope_grant(owner, org, memberships["executive"], probe)  # no membership: the control
+    tier = add_team(probe, "T")
+    _calls(probe, tier, _agents(4, "pt"), 10, received_at=weeks[0] + DAY)
+    _calls(probe, None, [add_user("pn1")], 12, received_at=weeks[0] + DAY)
+    membership_id = _install_member(probe, analyst.user_id)
+    _set_record_scope(probe, RecordScope.TEAM)
+    _assign(probe, tier, analyst.user_id, "supervisor", by=owner.user_id)
+    one_week = _week_window(weeks[0], 1)
+
+    def probe_block(persona, *, drill: bool = False) -> tuple[str, str | None]:
+        if drill:
+            return _released(persona.get(_drill(org, probe), params=one_week).json()["workspace"])
+        answer = persona.get(executive_path, params=one_week).json()["workspaces"]
+        return _released(next(w for w in answer if w["workspace_id"] == probe.workspace_id))
+
+    withheld = ("withheld", "complementary_disclosure")
+    assert probe_block(analyst) == withheld
+    assert probe_block(analyst, drill=True) == withheld
+    assert probe_block(executive) == ("released", None)  # no workspace membership: unchanged
+    _set_membership_role(membership_id, WorkspaceRole.ADMIN)  # unrestricted: unchanged
+    assert probe_block(analyst) == ("released", None)
+    _set_membership_role(membership_id, WorkspaceRole.MEMBER)
+    _set_record_scope(probe, RecordScope.WORKSPACE)  # unrestricted: unchanged
+    assert probe_block(analyst) == ("released", None)
+    _set_record_scope(probe, RecordScope.TEAM)
+    assert probe_block(analyst) == withheld
+    _calls(probe, None, _agents(4, "pn"), 1, received_at=weeks[0] + DAY)  # n2 to n5
+    assert probe_block(analyst) == ("released", None)  # the rest has 5 agents
+    assert probe_block(analyst, drill=True) == ("released", None)
+
     # Cost: the executive view grows by the same number of statements per workspace, and
     # the drill-down does not grow with the teams
     shapes = []
@@ -863,13 +930,14 @@ def test_org_views_withhold_small_groups(client, email_outbox):
     for place in shapes:
         _scope_grant(owner, org, memberships["executive"], place)
         counts.append(_statements(lambda: executive.get(executive_path, params=window))[0])
-    # per released workspace: P and G, plus 9 coverage statements
-    assert counts[1] - counts[0] == counts[2] - counts[1] == 11, counts
+    # per released workspace: P and G, the caller's membership (A6), and 9 coverage statements
+    assert counts[1] - counts[0] == counts[2] - counts[1] == 12, counts
     one_team = _statements(lambda: owner.get(_drill(org, shapes[0]), params=window))
     three_teams = _statements(lambda: owner.get(_drill(org, shapes[1]), params=window))
     # 3 (session, user, organization membership) + 1 (the workspace) + 1 (its teams)
-    # + 2 (P and G) + 9 (one grouped coverage run), for 1 or 3 teams
-    assert one_team[0] == three_teams[0] == 16, (one_team[0], three_teams[0])
+    # + 2 (P and G) + 1 (the caller's workspace membership, A6; the owner's is unrestricted)
+    # + 9 (one grouped coverage run), for 1 or 3 teams
+    assert one_team[0] == three_teams[0] == 17, (one_team[0], three_teams[0])
     assert len(three_teams[1]["teams"]) == 3
 
 

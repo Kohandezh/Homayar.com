@@ -726,6 +726,7 @@ def read_organization_drilldown(
         organization=context.organization,
         workspace=workspace,
         team_ids=team_ids,
+        user_id=context.access.user_id,
         filters=filters,
         grain=grain,
         recompute_max_attempts=settings.recompute_max_attempts,
