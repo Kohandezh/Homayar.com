@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import random
 import re
-import sys
 import time
-import types
 
 import pytest
 
 from backend.privacy.text_pii import PiiClass, detect, redact, valid_luhn
 from backend.speech.text_normalize import normalize_digits_extended
+from backend.tests._cost import lines_run
 
 FA = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 AR = str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
@@ -325,55 +324,7 @@ def test_an_unsplittable_overlap_is_redacted_whole():
 
 def _text_pii_lines(text: str) -> tuple[int, str]:
     """Lines of backend.privacy.text_pii code that one redact(text) call runs."""
-    module = sys.modules["backend.privacy.text_pii"]
-    functions = [
-        obj
-        for obj in vars(module).values()
-        if isinstance(obj, types.FunctionType) and obj.__module__ == module.__name__
-    ]
-    for obj in vars(module).values():
-        if isinstance(obj, type) and obj.__module__ == module.__name__:
-            for member in vars(obj).values():
-                fn = member.__func__ if isinstance(member, (staticmethod, classmethod)) else member
-                if isinstance(fn, types.FunctionType) and fn.__module__ == module.__name__:
-                    functions.append(fn)
-    codes: list[types.CodeType] = []
-    seen: set[types.CodeType] = set()
-    stack = [fn.__code__ for fn in functions]
-    while stack:
-        code = stack.pop()
-        if code in seen:
-            continue
-        seen.add(code)
-        codes.append(code)
-        stack.extend(c for c in code.co_consts if isinstance(c, types.CodeType))
-    tool = next(
-        (
-            candidate
-            for candidate in (sys.monitoring.PROFILER_ID, 3, 4, sys.monitoring.OPTIMIZER_ID)
-            if sys.monitoring.get_tool(candidate) is None
-        ),
-        None,
-    )
-    if tool is None:
-        pytest.fail("no free sys.monitoring tool id to count text_pii lines")
-    count = 0
-
-    def counter(code: types.CodeType, line_number: int) -> None:
-        nonlocal count
-        count += 1
-
-    sys.monitoring.use_tool_id(tool, "count text_pii lines")
-    try:
-        sys.monitoring.register_callback(tool, sys.monitoring.events.LINE, counter)
-        for code in codes:
-            sys.monitoring.set_local_events(tool, code, sys.monitoring.events.LINE)
-        redacted, _ = redact(text)
-    finally:
-        for code in codes:
-            sys.monitoring.set_local_events(tool, code, 0)
-        sys.monitoring.register_callback(tool, sys.monitoring.events.LINE, None)
-        sys.monitoring.free_tool_id(tool)
+    count, (redacted, _) = lines_run(("backend.privacy.text_pii",), redact, text)
     return count, redacted
 
 

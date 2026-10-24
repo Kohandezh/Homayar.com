@@ -27,6 +27,7 @@ from backend.providers.factory import ProviderBundle
 from backend.providers.mocks import MockASRProvider, MockIntelligenceProvider
 from backend.providers.schemas import ASRResult, ASRSegment
 from backend.services.transcript_service import current_revision, segments_of
+from backend.tests._cost import WIDE_BOUND_SECONDS, lines_run
 from backend.tests._database import inspection_session_factory
 from backend.tests.test_free_text_partial_pii import _post, _view
 from backend.tests.test_ingestion_ledger import _patch_media, _tenant, _upload
@@ -402,17 +403,50 @@ def test_restoring_stops_at_the_first_refusal(client, email_outbox, monkeypatch,
     assert calls == [edits[0]["segment_id"]]
 
 
+_WORDS = ("یک کلمه " * 1000)[:7981]
+_FAR = f"[PHONE_1] {_WORDS} پایان"
+_ALIGNMENT_CASES = (
+    (_WORDS, "[A_1] " * 1333),
+    ("[A_1] " * 1330, "[A_1]  " * 1142),
+    (_FAR, _FAR.replace("پایان", "آخر")),
+)
+_ALIGNMENT_MODULES = ("backend.privacy.transcript_view", "difflib")
+# Lines of transcript_view and difflib code one _kept_tokens call runs on the cases
+# above, measured on the base (Python 3.12.13): 4,019; 7,442; 99.  The ceiling is about
+# 9x the largest count, like the old 1 s limit's headroom.  With the cap off, the
+# second case runs far past it (87 s on the wall clock, without counting).
+ALIGNMENT_WORK_CEILING = 67_000
+
+
 def test_the_alignment_is_bounded():
-    words = ("یک کلمه " * 1000)[:7981]
-    far = f"[PHONE_1] {words} پایان"
-    for shown, value in (
-        (words, "[A_1] " * 1333),
-        ("[A_1] " * 1330, "[A_1]  " * 1142),
-        (far, far.replace("پایان", "آخر")),
-    ):
-        started = time.monotonic()
-        kept = transcript_view._kept_tokens(shown, value)
-        assert time.monotonic() - started < 1, (len(shown), len(value))
+    for shown, value in _ALIGNMENT_CASES:
+        count, kept = lines_run(
+            _ALIGNMENT_MODULES,
+            transcript_view._kept_tokens,
+            shown,
+            value,
+            stop_at=ALIGNMENT_WORK_CEILING,  # fail at once, not after minutes of alignment
+        )
+        assert count < ALIGNMENT_WORK_CEILING, (len(shown), len(value), count)
+        # Backstop for work in C the line count cannot see, in CPU seconds of this thread.
+        started = time.thread_time()
+        transcript_view._kept_tokens(shown, value)
+        assert time.thread_time() - started < WIDE_BOUND_SECONDS, (len(shown), len(value))
     assert kept == {0: 0}
     shown = "شماره [PHONE_1] یعنی [PHONE_1] است."
     assert transcript_view._kept_tokens(shown, "شماره یعنی [PHONE_1] است.") == {11: 21}
+
+
+def test_the_alignment_ceiling_catches_an_uncapped_alignment(monkeypatch):
+    monkeypatch.setattr(transcript_view, "_MAX_ALIGNED_PIECES", 10**9)
+    counts = [
+        lines_run(
+            _ALIGNMENT_MODULES,
+            transcript_view._kept_tokens,
+            shown,
+            value,
+            stop_at=ALIGNMENT_WORK_CEILING,
+        )[0]
+        for shown, value in _ALIGNMENT_CASES
+    ]
+    assert max(counts) >= ALIGNMENT_WORK_CEILING, counts

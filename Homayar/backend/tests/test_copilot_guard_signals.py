@@ -6,12 +6,11 @@ the spellings an attacker would try, and call-center text that must stay quiet.
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from backend.copilot_guard import InjectionSignal, scan_injection, signals
 from backend.copilot_guard.signals import normalize_text
+from backend.tests._cost import cpu_units
 
 IGNORE = InjectionSignal.IGNORE_INSTRUCTIONS
 ROLE = InjectionSignal.ROLE_REASSIGNMENT
@@ -256,12 +255,19 @@ def test_a_non_str_is_a_value_error(text: object) -> None:
         scan_injection(text)  # type: ignore[arg-type]
 
 
+# The old limit was 2 s on the wall clock for both scans.  In calibration units
+# (backend.tests._cost) that is 2 / LOCAL_CALIBRATION_SECONDS (0.013 s) = 154.
+# Measured today (best of 3 runs): 1.47 for both scans.
+BRACKET_SCAN_BUDGET_UNITS = 154
+
+
 def test_a_long_run_of_brackets_is_scanned_in_linear_time() -> None:
     # A transcript is attacker text.  An unbounded bracket run once took seconds here.
-    started = time.perf_counter()
-    assert scan_injection("<" * 20000) == ()
-    assert scan_injection("<" * 20000 + "END") == (FENCE,)
-    assert time.perf_counter() - started < 2
+    units, results = cpu_units(
+        lambda: (scan_injection("<" * 20000), scan_injection("<" * 20000 + "END"))
+    )
+    assert results == ((), (FENCE,))
+    assert units < BRACKET_SCAN_BUDGET_UNITS
 
 
 def test_a_long_text_is_scanned_in_reasonable_time() -> None:

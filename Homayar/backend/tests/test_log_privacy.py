@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,6 +28,7 @@ from backend.services.logging_service import (
     safe_message,
 )
 from backend.storage.base import StorageError
+from backend.tests._cost import cpu_units
 from backend.tests.test_observability_metrics import (
     _EMAIL,
     _PHONE,
@@ -351,6 +351,13 @@ def test_a_quoted_secret_split_by_the_input_bound_does_not_survive():
         assert word not in result
 
 
+# The old limit was 1.0 s on the wall clock.  In calibration units (backend.tests._cost)
+# that is 1.0 / LOCAL_CALIBRATION_SECONDS (0.013 s) = 77.  Measured today (best of 3
+# runs): dots 0.37, jwt-prefix 1.42, schemes 0.40, url-userinfo 0.004, quoted-keys
+# 0.26, bearer 0.33, at-signs 0.43, key-value 0.004.
+SCRUB_BUDGET_UNITS = 77
+
+
 @pytest.mark.parametrize(
     "hostile",
     [
@@ -376,9 +383,8 @@ def test_a_quoted_secret_split_by_the_input_bound_does_not_survive():
 )
 def test_scrubbing_hostile_input_of_the_full_bound_is_fast(hostile):
     assert len(hostile) >= scrub.MAX_SCRUB_INPUT
-    started = time.monotonic()
-    result = diagnostic_text(hostile)
-    assert time.monotonic() - started < 1.0
+    units, result = cpu_units(diagnostic_text, hostile)
+    assert units < SCRUB_BUDGET_UNITS
     assert len(result) <= scrub.MAX_DIAGNOSTIC_LENGTH + len(scrub.TRUNCATED)
 
 
