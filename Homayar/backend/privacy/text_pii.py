@@ -47,12 +47,17 @@ A card as one group needs another card or reading next to it, or past one
 number of at most three digits (short enough for the card regex to take with
 it).  A card as four groups of four needs each group next to it to be
 missing, at most two digits long, another card or part of another reading; a
-longer number is allowed only when a card stands on its other side or past
-that number.  The written readings of a digit run are used,
-together, only where one of them holds a digit the readings above leave raw,
-so each written card keeps its own span and value.  A glued reading may raise
-the share of random one-group numbers of 11 to 19 digits that get a span by at
-most 2 percentage points (four glued digits would already raise it by 2.2).
+longer number is allowed only when a card stands on its other side, or past
+a neighbouring number of at most three digits.  The written readings of a
+digit run are used, together, only where one of them holds a digit the
+readings above leave raw, so a written card usually keeps its own span and
+value.  It can still be merged into one span with an overlapping chance
+reading of its class (four groups of four that overlap it, or a longer 17 to
+19 digit card reading, which keeps its longest-first value); every digit is
+still covered, but that span has the chance reading's value.  A glued reading
+may raise the share of random one-group numbers of 11 to 19 digits that get a
+span by at most 2 percentage points (four glued digits would already raise it
+by 2.2).
 Where such a reading cuts a span chosen without it, the span before the cut
 grows over the separator, so nothing redacted before is shown again.  When
 national IDs are not requested, a ``00`` reading that starts at an ID still
@@ -88,10 +93,16 @@ groups of four stands next to a number of three or more digits with no card
 beside it (the shape of a price list), or a card as one group has only numbers
 around it (``12 6037991199500004 34``) and no card or reading near it, or a
 card has other than 16 digits (a random number passes Luhn 1 time in 10); a
-card with digits glued to it (17 to 19 digit numbers would get a chance card
-18-33 points more often); a ``00`` number with digits glued before it (random
-11 to 19 digit numbers: up to 3.0 points more); and a ``+`` number right after
-a digit (28% of written sums ``a+b`` would be read as a phone).
+glued mobile in a group that a longer chance reading of a class that was not
+requested holds (``102 1209316593052`` with the speech classes, where a chance
+card reads all of ``102 1209316593052``; 90 of the 3-digit numbers 100 to 999
+do this before ``1209316593052``), because ignoring such a reading gave a new
+false subject-export match on the gate corpus (a chance mobile in the glued
+last group of a planted card); a card with digits glued to it (17 to 19 digit
+numbers would get a chance card 18-33 points more often); a ``00`` number with
+digits glued before it (random 11 to 19 digit numbers: up to 3.0 points more);
+and a ``+`` number right after a digit (28% of written sums ``a+b`` would be
+read as a phone).
 Redaction therefore reduces exposure; it is not anonymisation, and it is text
 only — it never masks audio.
 """

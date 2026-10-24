@@ -490,3 +490,27 @@ def test_every_digit_of_every_written_reading_is_redacted():
                 for index in range(span.start, span.end):
                     if norm[index] in "0123456789":
                         assert index in covered, (text, wanted, span)
+
+
+# --- review round 2: disclosed shapes, pinned -------------------------------------
+
+
+def test_a_written_card_can_merge_with_a_longer_chance_reading():
+    # Pinned: every digit is covered, but the last two cards share one span
+    # valued as the 17-digit chance card reading.
+    text = "5892 1055 0986 5157".translate(AR) + "–6037 9933 1777 7936-9023–6219 8698 7018 1320"
+    spans = detect(text)
+    assert [(s.pii_class, s.value) for s in spans] == [
+        (PiiClass.BANK_CARD, "5892105509865157"),
+        (PiiClass.BANK_CARD, "60379933177779369"),
+    ]
+    covered = {i for s in spans for i in range(s.start, s.end)}
+    assert all(i in covered for i, c in enumerate(text) if c.isdigit())
+
+
+def test_a_glued_mobile_held_by_a_longer_chance_card_is_not_read_without_cards():
+    # Pinned: the chance card 102 1209316593052 holds the glued group; ignoring
+    # such a longer reading gave a new false subject-export match (G3).
+    for written in ("102 1209316593052", "102 1209316593052".translate(FA)):
+        assert detect(written, SPEECH) == [], written
+        assert redact(written)[0] == "[BANK_CARD_1]"
