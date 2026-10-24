@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import random
 import re
+import sys
 import time
+import types
 
 import pytest
 
@@ -321,6 +323,70 @@ def test_an_unsplittable_overlap_is_redacted_whole():
 # --- AC8: no exponential search -------------------------------------------------------
 
 
+def _text_pii_lines(text: str) -> tuple[int, str]:
+    """Lines of backend.privacy.text_pii code that one redact(text) call runs."""
+    module = sys.modules["backend.privacy.text_pii"]
+    functions = [
+        obj
+        for obj in vars(module).values()
+        if isinstance(obj, types.FunctionType) and obj.__module__ == module.__name__
+    ]
+    for obj in vars(module).values():
+        if isinstance(obj, type) and obj.__module__ == module.__name__:
+            for member in vars(obj).values():
+                fn = member.__func__ if isinstance(member, (staticmethod, classmethod)) else member
+                if isinstance(fn, types.FunctionType) and fn.__module__ == module.__name__:
+                    functions.append(fn)
+    codes: list[types.CodeType] = []
+    seen: set[types.CodeType] = set()
+    stack = [fn.__code__ for fn in functions]
+    while stack:
+        code = stack.pop()
+        if code in seen:
+            continue
+        seen.add(code)
+        codes.append(code)
+        stack.extend(c for c in code.co_consts if isinstance(c, types.CodeType))
+    tool = next(
+        (
+            candidate
+            for candidate in (sys.monitoring.PROFILER_ID, 3, 4, sys.monitoring.OPTIMIZER_ID)
+            if sys.monitoring.get_tool(candidate) is None
+        ),
+        None,
+    )
+    if tool is None:
+        pytest.fail("no free sys.monitoring tool id to count text_pii lines")
+    count = 0
+
+    def counter(code: types.CodeType, line_number: int) -> None:
+        nonlocal count
+        count += 1
+
+    sys.monitoring.use_tool_id(tool, "count text_pii lines")
+    try:
+        sys.monitoring.register_callback(tool, sys.monitoring.events.LINE, counter)
+        for code in codes:
+            sys.monitoring.set_local_events(tool, code, sys.monitoring.events.LINE)
+        redacted, _ = redact(text)
+    finally:
+        for code in codes:
+            sys.monitoring.set_local_events(tool, code, 0)
+        sys.monitoring.register_callback(tool, sys.monitoring.events.LINE, None)
+        sys.monitoring.free_tool_id(tool)
+    return count, redacted
+
+
+# Lines of text_pii code one redact call runs on the 5000-char inputs, measured on
+# the base (Python 3.12.13): id-phone 737,113; ids-joined 321,459; id-phone-joined
+# 1,379,797; single-digits 873,539; unsplittable 576,600; cards 534,628.  The
+# ceiling is about 9x the largest count, like the old 1.0 s budget.
+WORK_CEILING = 12_500_000
+# Backstop for work in C the line count cannot see (a regex blow-up), in CPU
+# seconds of this thread, like HOM-301 test_system_health.py.
+WIDE_BOUND_SECONDS = 10.0
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -333,10 +399,15 @@ def test_an_unsplittable_overlap_is_redacted_whole():
     ],
     ids=["id-phone", "ids-joined", "id-phone-joined", "single-digits", "unsplittable", "cards"],
 )
-def test_a_long_segment_full_of_numbers_is_fast(text):
-    started = time.process_time()  # CPU time: a busy machine does not slow the count
-    redacted, _ = redact(text)
-    assert time.process_time() - started < 1.0
+def test_a_long_segment_full_of_numbers_does_bounded_linear_work(text):
+    full_count, redacted = _text_pii_lines(text)
+    half_count, _ = _text_pii_lines(text[:2500])
+    assert 0 < half_count
+    assert full_count < WORK_CEILING
+    assert full_count < 3 * half_count  # twice the text costs about twice the work
+    started = time.thread_time()  # this thread's CPU time: load on other threads is not counted
+    redact(text)
+    assert time.thread_time() - started < WIDE_BOUND_SECONDS
     assert redacted
 
 
