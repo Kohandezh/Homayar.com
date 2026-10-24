@@ -399,7 +399,7 @@ def test_both_routes_carry_the_metadata(client, email_outbox, monkeypatch):
     whole = _get(owner)
     assert whole.status_code == 200, whole.text
     body = whole.json()
-    assert set(body) == ANSWER_KEYS | NEW_KEYS
+    assert set(body) == ANSWER_KEYS | NEW_KEYS | {"notices"}  # the route adds it (HOM-83)
     assert_coverage_block(body, "workspace")
     coverage = owner.get(COVERAGE, params=WINDOW)
     assert coverage.status_code == 200, coverage.text

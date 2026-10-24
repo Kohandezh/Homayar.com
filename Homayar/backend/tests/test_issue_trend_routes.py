@@ -247,7 +247,8 @@ def test_a_weekly_utc_series_is_answered(client, email_outbox, monkeypatch):
     answer = _get(people["member"], ("grain", "week"), ("timezone", "UTC"))
     assert answer.status_code == 200, answer.text
     body = answer.json()
-    assert set(body) == ANSWER_KEYS | {"coverage", "scorecard", "missing_data"}
+    assert set(body) == ANSWER_KEYS | {"coverage", "scorecard", "missing_data", "notices"}
+    assert body["notices"] == ["correlation_not_cause"]  # HOM-83 (A1)
     assert body["series"] == {
         "grain": "week",
         "timezone": "UTC",

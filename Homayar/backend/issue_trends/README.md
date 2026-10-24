@@ -772,9 +772,9 @@ and disclosure"):
 ## Correlation is not cause
 
 The package has no field, status or word that says one trend causes another. A comparison
-gives a `difference`, never a cause. HOM-83 must show any relation between two trends as
-co-occurrence ("appears together with"), and attach the notice
-`correlation_not_cause` (`ASSOCIATION_NOTICE`) to every view that shows two trends together.
+gives a `difference`, never a cause. Any relation between two trends is co-occurrence
+("appears together with"). Since HOM-83 every trend answer carries the notice
+`correlation_not_cause` (`ASSOCIATION_NOTICE`), and no answer has a "root cause" state.
 
 For drill-down, HOM-83 reads the evidence link from the stored row: each kept value's
 `finding_index` is its position among the kept values over intent, topic, entity and
@@ -1074,9 +1074,10 @@ There is no `ingestion` and no `review` counter in this block. The rejected rows
    the reference dataset, issue by issue and bucket by bucket.
 5. `build_rows(...)` with `kind=CellKind.AGENT` for a cohort of one agent, else `RATE`.
    `compare_cells` for two cohorts.
-6. HOM-83 drill-down lists the conversations of one issue state, with their
-   `ConversationJudgment`, reads the evidence of each value through its `finding_index`, and
-   shows `correlation_not_cause` next to two trends.
+6. HOM-83 drill-down (done) lists the conversations of one `computed` cell: those whose
+   state for the row is `counted`, with the evidence of each supporting value through its
+   `finding_index`. Every trend answer carries `correlation_not_cause` ("HOM-83: supporting
+   conversations").
 
 ## HOM-80: the scoped aggregates
 
@@ -1470,6 +1471,110 @@ now judges the caller's whole scope, and an organization team grant judges the w
   second account is not checked. A possible follow-up: count every supervisor assignment the
   user ever held in the workspace as known (revoked rows are kept).
 - Dominance (one agent with almost all calls of a cohort) is not checked.
+
+## HOM-83: supporting conversations
+
+HOM-83 (WP15-T05) links a trend cell to the conversations behind it. It changes no counting,
+release or disclosure rule, so `issue-trends/1` and `trend-disclosure/1` stay. ADR 0040
+records the decisions.
+
+| Part | Where |
+| --- | --- |
+| Route | `routers/v1/trends.py`: `GET /api/v1/trends/conversations` (`meeting:read`, a session only) |
+| Service | `services/trend_link_service.py` |
+| The views' decisions | `issue_cohort` (`issue_trend_service.py`), `team_scope` and `team_cohort`, `self_cohort` (`role_trend_service.py`) |
+| Response model | `schemas/trends.py`: `TrendLinkResponse` |
+
+### The request
+
+`trend_view` names the view the cell comes from: `issues` (`GET /trends/issues`), `teams`
+(one team block of `GET /trends/teams`: exactly one `team_id`, a team the caller may compare)
+or `me` (`GET /trends/me`). The rest of the query is that view's own query, read by the view's
+own parser, and `from` and `to` are required: pass the `window.from` and `window.to` the view
+echoed. Then:
+
+- `row`: `family:<id>` or `issue:<id>`, a row the view shows for the same selectors;
+- `point`: optional, the index of a point in the view's `points` (absent: the window cell);
+- `offset` (0 to 999999, default 0) and `limit` (1 to 100, default 50).
+
+### The rule
+
+The route decides the cell with the view's own function, makes the cells with the same
+`cohort_parts` and `apply_masks` calls, and reads the target cell. Only a `computed` cell
+gives links. Every other cell gets the same answer, `403 trend_links_withheld`, with the same
+message and `details`, and no `notices`: `insufficient_sample` (also a rate cell whose
+numerator is shown), `withheld`, a hidden numerator, `not_computable` (the `qa` row, an empty
+denominator). The answer reads only the cell status, so a hidden count never changes it.
+
+The list is the numerator: the included conversations of the cohort (and of the point) whose
+state for the row is `counted`, the same rule `tally` uses. Its length is the numerator (the
+service checks it). They are ordered by meeting id, a random UUID, and paged; `page.total` is
+the numerator.
+
+### The answer
+
+The provenance keys, `disclosure_policy`, `notices`, `trend_view`, `window`, `filters`,
+`scope`, `series`, `team` (`trend_view=teams` only), `row`, `point` (`index`, `from`, `to`,
+`partial`, or `null`), the `cell` and `disclosure` the view shows, `page` (`offset`, `limit`,
+`total`) and `conversations`. Each conversation is ids only:
+
+```json
+{"meeting_id": "0b6f…", "state": "counted", "analysis_run_id": "5c1e…",
+ "evidence_ids": ["9a2d…"]}
+```
+
+- `analysis_run_id` is the current run that was judged.
+- `evidence_ids` are the extraction evidence spans of that run whose `finding_index` is a
+  kept, auto-accepted value that makes the row hold: for an issue, the values of its
+  references; for a family, the same over its issues whose state is `counted`. The index is
+  the position among the kept values over intent, topic, entity and outcome
+  (`services/analysis_extraction.py:87-89`, `:120-129`). Spans of other runs, other finding
+  types and other labels are never listed.
+- `evidence_ids` can be empty: the provider cited no valid turn for that value (a rejected
+  reference keeps no span). An empty list does **not** mean "not counted".
+- No agent, team, time, language or source, and no other issue's state: each would split a
+  released cell into cells the views withhold. No text: open a meeting with
+  `GET /meetings/{id}` and its evidence with `GET /meetings/{id}/evidence/{evidence_id}`,
+  which apply the redaction view choice and audit an original read.
+
+A listed conversation is one where the issue was counted. It does not explain the trend.
+
+### Scope
+
+Every listed meeting passes the predicates of `GET /meetings/{id}`: a live meeting of the
+workspace in the caller's `meeting_clause`. A share grants one meeting through the share
+routes and never adds a link. The organization views get no links: an organization role
+never gives content access (ADR 0012).
+
+### Cost
+
+The view's statements P and G, plus two statements when the page holds a conversation (the
+stored rows of the page's judged runs, then their evidence spans), and no coverage run: a link
+request runs the view's count minus 9, plus 2 for a non-empty page. `tests/test_trend_links_routes.py`
+pins it:
+
+| Request | Statements | The view |
+| --- | --- | --- |
+| `trend_view=issues` or `me`, a page with conversations | 7 | 14 |
+| the same, a refused cell or an empty page | 5 | 14 |
+| `trend_view=teams`, owner | 8 | 15 |
+| `trend_view=teams`, a member who supervises | 9 | 16 |
+
+Each page reloads the whole population, so reading every conversation of a numerator of N
+takes `ceil(N/100)` requests, each with the view's Python cost. HOM-84 measures the p95.
+
+### Known limits
+
+- A caller who opens every listed meeting sees its team, agent and time, and can rebuild
+  breakdowns the views withhold. They may open those records anyway (record scope).
+- Two link answers with different windows, grains, languages or sources can isolate a few
+  conversations by id, as ADR 0038 accepts for counts.
+- A refused cell's list can be rebuilt by subtraction with the same request shape: the window
+  list minus the computed lists of the other points, or a computed family list minus its
+  computed sibling issue lists. This holds in a cohort of the caller's own calls and in a rate
+  cohort, where a refused `insufficient_sample` cell can rest on one agent. A3 stops a direct
+  link only; record scope limits the rebuilt meetings to ones the caller may open anyway.
+- One answer is one snapshot: a meeting deleted or moved after the load can still be in it.
 
 ## Open questions
 
