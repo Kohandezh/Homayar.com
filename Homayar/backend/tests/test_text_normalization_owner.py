@@ -4597,7 +4597,9 @@ BASE_FINGERPRINTS: dict = {
         ("_DIGIT_RUN_RE", "9530a482ace5b8dbbb70c247"),  # HOM-291 joined digit runs
         ("_IBAN_RE", "a948ca753b466b8dbef81dd7"),  # HOM-165
         ("_IBAN_LENGTHS", "173bd8b3332f2b97250e2cbb"),  # HOM-308 registered IBAN lengths
-        ("_POSTAL_KEYWORD_RE", "3d3fd7541a6fe30549048ec8"),  # HOM-164
+        ("_POSTAL_WORD", "af2a9708e718a9127dc8b1a4"),  # HOM-302 the keyword part, shared
+        ("_POSTAL_KEYWORD_RE", "f1794e73efc3533bef97b4ca"),  # HOM-302 same pattern, split
+        ("_POSTAL_WORD_RE", "28f1af0062aec338e9346edb"),  # HOM-302 is a keyword in the text at all
         ("_POSTAL_WINDOW", "74a038fb8d85fb4f9693c87a"),
         ("_GLUED_MOBILE", "585d0bc724bd6209bc359042"),  # HOM-303
         ("_WRITTEN_CLASSES", "f850e3e11166c3e5fe1be8bf"),  # HOM-303
@@ -4605,6 +4607,15 @@ BASE_FINGERPRINTS: dict = {
         ("_MOBILE_DIGITS_RE", "ea768f85cc63f061da633be1"),  # HOM-303
         ("_LANDLINE_DIGITS_RE", "8c3534ea3ecc12408b94eb6d"),  # HOM-303
         ("_WRITTEN_HINT_RE", "97afcdba3f31f9ce4413e0fb"),  # HOM-303
+        ("_PHONE_DIGITS", "1f4d41913bbb138d1c6ac359"),  # HOM-302 phone lengths in a run
+        ("_SPLIT_CLASSES", "9a27ef2f74ee784a5583bb6c"),  # HOM-302 classes a run can split into
+        ("_END", "b29533655c9ea6fc08367767"),  # HOM-302 sort key of piece readings
+        ("_ANCHORS", "bb99486c8ee5ed8b4d156f2e"),  # HOM-302 split state bits
+        ("_START", "24961f87b95a533f007acae5"),  # HOM-302 split state bits
+        ("_EDGE", "94e45265e09829dff4af7e55"),  # HOM-302 split state bits
+        ("_HOLDS", "dc5e1dd89aa9f832b5f27c5e"),  # HOM-302 split state bits
+        ("_TOUCHES", "19ba4c87a85f69912e7fd838"),  # HOM-302 split state bits
+        ("_ANCHORED", "5de5c63285fa9ef5f58ad489"),  # HOM-302 split state bits
         ("PiiSpan", "8687935185aa5ebaa3e16763"),
         ("_only_digits", "d8d3ac4b39284bb71083c7de"),  # HOM-165
         ("valid_national_id", "a2a44ce0ff124921f63547b1"),
@@ -4615,16 +4626,22 @@ BASE_FINGERPRINTS: dict = {
         ("_ibans_before_words", "d793fd6cf3b4c393934811d3"),  # HOM-308 never over a base IBAN
         ("_canonical_phone", "406be280c94ea1e049f0f165"),
         ("_ten_digit_class", "fcc5a1c0dc0e59ec4be9b812"),  # HOM-291 split out of detect
-        ("_split_run", "769ee2ca6830b4c213e869fd"),  # HOM-291 a run read as identifiers
+        ("_Run", "368616489d07da4535e2866b"),  # HOM-302 class-free piece readings, read once
+        ("_joins", "133f9d4789b5de9b579598ef"),  # HOM-302 the split test on state masks
+        ("_split_run", "67c6da81a682080681289071"),  # HOM-302 reached starts, pass 2 reuses pass 1
         ("_matches", "e40fcac009ad686897760ebc"),  # HOM-308 new IBAN readings after the base ones
-        ("_candidates", "38168e29cc1e1a5e35095f4c"),  # HOM-303 takes the matches
+        ("_runs", "da472995066bac940dfad86f"),  # HOM-302 the digit runs of one text
+        ("_candidates", "9543360de4cb8bfd17d79385"),  # HOM-302 takes shared runs
         ("_beside", "b1afa8142337e65e1e407e78"),  # HOM-303 what stands next to a card
         ("_glued_mobile", "2a659c98701b598f1cd2c54a"),  # HOM-303 one way to read a group
         ("_cards", "bc094e49cb305a5ca6fe930d"),  # HOM-303 written cards of one run
         ("_written", "13a55f307ff0f1461bc5baab"),  # HOM-303 written-form readings
-        ("_select", "2d1f1550a1097775ee8593d9"),  # HOM-291 no candidate digit left raw
+        ("_select", "2bb79ac1071c9bab8b3e9224"),  # HOM-302 marks built once per call
         ("_keep", "137ffd296d48bf705921b724"),  # HOM-303 no base character lost
-        ("detect", "3486c053b1d26c58946489d7"),  # HOM-303 written readings where raw
+        ("_Text", "94cc07b98e990d8e58079b30"),  # HOM-302 class-free work of one call
+        ("detect", "336fc65f2833b39061cdd4ea"),  # HOM-302 one class set of _detect_each
+        ("_detect_each", "b7e9ddc5a5e0a225b4faabb0"),  # HOM-302 shares class-free work
+        ("_detect_in", "fb142378ba433d6de009994c"),  # HOM-302 the old detect body
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),
@@ -4783,8 +4800,8 @@ FROZEN_FILES: dict[str, str] = {
     "backend/privacy/redaction_service.py": (
         "6facb81af9244730d104e6e12a5bd3491141245dab66f144c38c14dd1b25053a"
     ),
-    "backend/privacy/subject_export.py": (  # HOM-293: also searches decision due_date.value
-        "5e2919fe482ae096d0bf0bb9fec5cd1b83b663f0c49abc475e65b20a9b726c2e"
+    "backend/privacy/subject_export.py": (  # HOM-302: _Matcher shares the class-free work
+        "c7930b00c98f7aab94b3862959d56d371d4fe11f90b592965e161ce28ecf338f"
     ),
     "backend/privacy/transcript_view.py": (
         "b65c3629ac444112d593f3c2e7071a4d27b4f229f09fcf9a5c3803d0533aa44e"

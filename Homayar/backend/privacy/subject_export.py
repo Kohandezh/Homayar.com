@@ -33,7 +33,7 @@ from backend.database.saas_models import (
     MeetingSpeaker,
     MeetingSummary,
 )
-from backend.privacy.text_pii import DETECTOR_VERSION, PiiClass, detect
+from backend.privacy.text_pii import DETECTOR_VERSION, PiiClass, _detect_each, detect
 from backend.services.transcript_service import list_revisions, segments_of
 
 SUBJECT_SCAN_LIMIT = 500
@@ -80,11 +80,12 @@ class _Matcher:
         if not text:
             return []
         # One class at a time (HOM-291): read together, a chance reading of one
-        # class can cut a real value of another.
+        # class can cut a real value of another.  The work that does not depend
+        # on the class is done once (HOM-302).
         found = {
             span.pii_class.value
-            for pii_class in self._classes
-            for span in detect(text, {pii_class})
+            for spans in _detect_each(text, [{pii_class} for pii_class in self._classes])
+            for span in spans
             if (span.pii_class, span.value) in self._wanted
         }
         return sorted(found)
