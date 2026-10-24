@@ -16,29 +16,23 @@ The transcript (``test_privacy_routing.SEGMENTS``) holds the known values
 
 from __future__ import annotations
 
-import base64
-import os
-from urllib.parse import urlparse
-
 import pytest
 
 from backend.services.analysis_claims import STRUCTURED_SUMMARY_SCHEMA_VERSION
-from backend.tests.test_free_text_partial_pii import (
-    _post,
-    _redacted_meeting,
-    _store_summary,
+from backend.tests.test_free_text_partial_pii import _redacted_meeting, _store_summary
+from backend.tests.test_hom294_decision_detail_allowlist import (
+    NOT_STATED,
+    PHONE,
+    PHONE_FA,
+    UNAVAILABLE,
+    _key,
+    _no_digits,
+    _report,
+    _shared,
+    _stated,
+    _summary,
 )
-from backend.tests.test_privacy_routing import _dump, _get, _no_raw
-
-NOT_STATED = {"status": "not_stated", "value": None}
-UNAVAILABLE = {"status": "unavailable", "value": None}
-# Phones that are not in the transcript, and no four digits of which are.
-PHONE = "09198880770"
-PHONE_FA = "۰۹۱۹۸۸۸۰۷۷۰"
-
-
-def _key() -> str:
-    return base64.b64encode(os.urandom(32)).decode()
+from backend.tests.test_privacy_routing import _dump, _no_raw
 
 
 @pytest.fixture
@@ -47,10 +41,6 @@ def settings(settings):
     return settings.model_copy(
         update={"pii_mapping_keys": f"k1:{_key()}", "pii_mapping_active_key_id": "k1"}
     )
-
-
-def _stated(value) -> dict:
-    return {"status": "stated", "value": value}
 
 
 def _insight(description, **extra) -> dict:
@@ -85,37 +75,6 @@ def _meeting(client, email_outbox, monkeypatch, settings, label, *insights, **po
     )
     _seed(meeting_id, *insights)
     return tenant, meeting_id
-
-
-def _summary(client, tenant, meeting_id, **params) -> dict:
-    response = _get(client, tenant, f"/api/v1/meetings/{meeting_id}/summary", **params)
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-def _report(client, tenant, meeting_id, **params) -> dict:
-    response = _get(client, tenant, f"/api/v1/meetings/{meeting_id}/report", **params)
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-def _shared(client, tenant, meeting_id) -> dict:
-    share = _post(
-        client,
-        tenant,
-        f"/api/v1/meetings/{meeting_id}/shares",
-        {"expires_in_hours": 24, "require_authentication": False, "allow_export": True},
-    )
-    assert share.status_code == 201, share.text
-    token = urlparse(share.json()["url"]).path.rsplit("/", 1)[-1]
-    client.cookies.clear()
-    shared = client.get(f"/api/v1/shares/{token}")
-    assert shared.status_code == 200, shared.text
-    return shared.json()
-
-
-def _no_digits(text: str, *values: str) -> bool:
-    return not any(value in text for value in values)
 
 
 # --- AC1: an extra key and stated details leave only in their allowed shape --------------
@@ -204,6 +163,83 @@ def test_a_processor_insight_keeps_its_six_keys_masked(client, email_outbox, mon
     body = _dump(shared)
     assert _no_raw(body)
     assert _no_digits(body, PHONE, PHONE_FA, "8880770", "۸۸۸۰۷۷۰")
+
+
+# --- AC3, rule table row by row: the wrong shape drops, the right one keeps --------------
+
+DROPPED = object()
+
+RULE_ROWS = [
+    pytest.param(
+        "confidence-bool", "confidence", {"confidence": True}, DROPPED, {"confidence": 1}, 1
+    ),
+    pytest.param(
+        "confidence-none", "confidence", {"confidence": True}, DROPPED, {"confidence": None}, None
+    ),
+    pytest.param(
+        "source-turn-indexes",
+        "source_turn_indexes",
+        {"source_turn_indexes": [PHONE]},
+        DROPPED,
+        {"source_turn_indexes": []},
+        [],
+    ),
+    pytest.param(
+        "evidence-ids",
+        "evidence_ids",
+        {"evidence_ids": [1]},
+        DROPPED,
+        {"evidence_ids": ["e"]},
+        ["e"],
+    ),
+    pytest.param(
+        "evidence-status",
+        "evidence_status",
+        {"evidence_status": "SUFFICIENT"},
+        "insufficient",
+        {"evidence_status": "partial"},
+        "partial",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "key", "deny_extra", "deny_expected", "allow_extra", "allow_expected"),
+    RULE_ROWS,
+)
+def test_a_wrong_rule_row_shape_is_dropped_and_a_right_one_is_kept(
+    client,
+    email_outbox,
+    monkeypatch,
+    settings,
+    name,
+    key,
+    deny_extra,
+    deny_expected,
+    allow_extra,
+    allow_expected,
+):
+    tenant, meeting_id = _meeting(
+        client,
+        email_outbox,
+        monkeypatch,
+        settings,
+        f"hom304-rule-{name}",
+        _insight("غلط", **deny_extra),
+        _insight("درست", **allow_extra),
+        public_share_links_enabled=True,
+    )
+    summary = _summary(client, tenant, meeting_id)
+    assert summary["view"] == "redacted"
+    deny, allow = summary["key_points"]
+    assert deny["description"] == "غلط"
+    assert allow["description"] == "درست"
+    if deny_expected is DROPPED:
+        assert key not in deny
+    else:
+        assert deny[key] == deny_expected
+    assert allow[key] == allow_expected
+    assert _no_digits(_dump(summary), PHONE, PHONE_FA)
 
 
 # --- AC4: every malformed detail is unavailable, a proper one is kept ---------------------
