@@ -47,8 +47,10 @@ on every restore.
 
    Create the file before you set the variable. `backup.sh` and `restore-isolated.sh` stop
    before they start Docker when `BACKUP_DATABASE_URL_FILE` is set and the file is missing,
-   is not a regular file, or cannot be read. The check sees the variable only when it is set
-   in the script's environment. A value only in `COMPOSE_ENV_FILE` is not checked. A direct
+   is not a regular file, or cannot be read. The scripts also read the variable from
+   `COMPOSE_ENV_FILE`, or from `.env` next to the Compose file when `COMPOSE_ENV_FILE` is
+   unset. A value set in the shell wins, as in Compose. A value that uses `$` or `\` is not
+   checked before Docker starts. The scripts print a warning for such a value. A direct
    `docker compose ... run backup-tool` does not check. Docker then creates a root-owned
    directory at that path and the run fails. Set `BACKUP_DATABASE_URL_FILE` to its host
    path. A relative path resolves against `infra/compose/`, like the other bind mounts.

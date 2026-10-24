@@ -39,6 +39,84 @@ require_env() {
   [[ -n "${!name:-}" ]] || die "Required environment variable is empty: ${name}"
 }
 
+# compose_env_default NAME: when NAME is not set in the shell, take its value from the env
+# file Compose will read (COMPOSE_ENV_FILE, else .env next to the Compose file), as Compose
+# does. Sets the shell variable only, never exports it, and never sources or prints the env
+# file. A value Compose would interpolate (it has $ or \) or with an unclosed quote cannot
+# be copied exactly: NAME stays unset and one WARNING names the variable and the file only.
+compose_env_default() {
+  local name="$1"
+  if [[ -n "${!name+x}" ]]; then
+    return 0
+  fi
+  local env_file
+  if [[ -n "${COMPOSE_ENV_FILE:-}" ]]; then
+    env_file="${COMPOSE_ENV_FILE}"
+  elif [[ -n "${COMPOSE_ENV_FILES:-}" ]]; then
+    return 0
+  else
+    env_file="$(dirname -- "${COMPOSE_FILE}")/.env"
+  fi
+  if [[ ! -f "${env_file}" || ! -r "${env_file}" ]]; then
+    return 0
+  fi
+  local pattern="^[[:space:]]*(export[[:space:]]+)?${name}[[:space:]]*=(.*)$"
+  local line=""
+  local raw=""
+  local found=0
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    if [[ "${line}" =~ ${pattern} ]]; then
+      raw="${BASH_REMATCH[2]}"
+      found=1
+    fi
+  done < "${env_file}"
+  if [[ "${found}" != 1 ]]; then
+    return 0
+  fi
+  local single="'"
+  local dquote='"'
+  local value=""
+  local unchecked=0
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  if [[ "${raw}" == "${single}"* ]]; then
+    raw="${raw#"${single}"}"
+    if [[ "${raw}" == *"${single}"* ]]; then
+      value="${raw%%"${single}"*}"
+    else
+      unchecked=1
+    fi
+  elif [[ "${raw}" == "${dquote}"* ]]; then
+    raw="${raw#"${dquote}"}"
+    if [[ "${raw}" == *"${dquote}"* ]]; then
+      value="${raw%%"${dquote}"*}"
+      if [[ "${value}" == *'$'* || "${value}" == *'\'* ]]; then
+        unchecked=1
+      fi
+    else
+      unchecked=1
+    fi
+  else
+    # An inline comment starts at the first ' #' (a space then '#'); a tab before '#'
+    # or a '#' with no space before it stays in the value, as in Compose.
+    local space_hash=" #"
+    raw="${raw%%"${space_hash}"*}"
+    raw="${raw%"${raw##*[![:space:]]}"}"
+    if [[ "${raw}" == *'$'* || "${raw}" == *'\'* ]]; then
+      unchecked=1
+    else
+      value="${raw}"
+    fi
+  fi
+  if [[ "${unchecked}" == 1 ]]; then
+    printf 'WARNING: %s in %s uses a variable or an escape; it is not checked before Docker starts.\n' \
+      "${name}" "${env_file}" >&2
+    return 0
+  fi
+  printf -v "${name}" '%s' "${value}"
+  return 0
+}
+
 compose() {
   docker compose "${compose_args[@]}" "$@"
 }
