@@ -1389,7 +1389,10 @@ calls); on an organization view they are.
    (not owner or admin, `record_scope=team`) knows every conversation of its scope S
    (supervised teams, own agent meetings, own uploads): every block of that workspace must
    then also pass the week test on the block minus S, in every week, or it is withheld
-   (`complementary_disclosure`). No membership, or an unrestricted one, changes nothing (A6).
+   (`complementary_disclosure`). For that caller, `Rel_k` is also decided a second time over
+   the conversations outside S, and a team is released only when it is in both sets (A6b): so
+   the workspace minus the released teams minus S is a remainder that passed the week test
+   too. No membership, or an unrestricted one, changes nothing (A6).
    A withheld block has no count at all: `population`, `coverage` and
    `missing_data` are `null`, `rows` and `points` empty.
 

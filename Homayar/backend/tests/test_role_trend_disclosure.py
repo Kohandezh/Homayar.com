@@ -43,6 +43,7 @@ from backend.services.issue_trend_service import (
 from backend.services.role_trend_service import (
     ComparedTeam,
     TrendViewError,
+    caller_release,
     check_view_keys,
     compared_teams,
     current_week_start,
@@ -50,6 +51,7 @@ from backend.services.role_trend_service import (
     organization_query,
     passes_outside_known,
     team_comparisons,
+    week_parts,
     workspace_query,
 )
 from backend.tests.test_issue_trends_counting import judge, ok, stored
@@ -483,6 +485,40 @@ def test_uploads_count_as_known_calls():
     assert week_passes(week_stats(block))  # 5 agents in all
     assert not passes_outside_known(block, _meeting_ids(uploads), ONE_WEEK)  # 4 agents left
     assert passes_outside_known([*block, *calls(None, ["o5"], 3)], _meeting_ids(uploads), ONE_WEEK)
+
+
+def test_two_released_teams_minus_what_the_caller_knows_never_isolate_one_agent():
+    # A6b (the team review's probe): A supervises T3, so A knows T3's calls
+    t1 = calls("t1", people("a", 6), 2)
+    t2 = calls("t2", people("b", 6), 2)
+    t3 = calls("t3", people("c", 4), 2)
+    lone = calls(None, ["n1"], 12)
+    judged = [*t1, *t2, *t3, *lone]
+    known = _meeting_ids(t3)
+    parts = week_parts(judged, ONE_WEEK)
+    assert weekly_release(parts) == [frozenset({"t1", "t2"})]  # the canonical decision
+    rel = caller_release(judged, parts, known, ONE_WEEK)
+    assert rel == [frozenset()]  # outside T3 the remainder is n1 alone
+    for team in ("t1", "t2"):
+        members = [c for c in judged if c.team_id == team]
+        assert organization_release(parts, rel, frozenset({team})) == (
+            False,
+            REASON_COMPLEMENTARY,
+        )
+        assert passes_outside_known(members, known, ONE_WEEK)  # each block alone passes
+    # the workspace block stays released: outside T3 it has 13 agents
+    assert organization_release(parts, rel, None) == (True, None)
+    assert passes_outside_known(judged, known, ONE_WEEK)
+    # the grant-change variant: the set does not read the grant, so (W, t1), then (W, t2),
+    # then the whole W get the same decision, and W - t1 - t2 is never available
+    for grant in (frozenset({"t1"}), frozenset({"t2"})):
+        assert not organization_release(parts, rel, grant)[0], grant
+    # control: no restricted membership, the canonical set is unchanged
+    assert caller_release(judged, parts, None, ONE_WEEK) == [frozenset({"t1", "t2"})]
+    # control: with five agents outside the caller's scope and the teams, both are released
+    wider = [*judged, *calls(None, people("n", 5)[1:], 1)]
+    wider_parts = week_parts(wider, ONE_WEEK)
+    assert caller_release(wider, wider_parts, known, ONE_WEEK) == [frozenset({"t1", "t2"})]
 
 
 # --- 5: comparisons -------------------------------------------------------------------------

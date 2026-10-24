@@ -120,6 +120,12 @@ Two facts shape the answer:
      membership, or an unrestricted one, is decided as before: an unrestricted member can read
      every record of W already. The extra cost is a fixed 1 to 3 statements per workspace (the
      membership; for a restricted one its assignments and the meetings of S).
+   - *A second release set for that caller (turn B4, SPEC A6b).* The per-block test alone is
+     not enough: W minus two released team blocks minus S can still be one agent. So for that
+     caller the weekly decision is also made over the conversations outside S
+     (`Rel_out_k`), and a team is released only when it is in `Rel_k` and in `Rel_out_k`.
+     Both remainders (of W, and of W outside S) then have 0 or at least 5 agents. The set does
+     not read the grant, so a change of grant gives the same decision. No new statement.
 8. **Comparisons without a ranking.** Every pair of compared teams, per window row, through
    `compare_cells` (50 per side), only between teams of the canonical set. A small or
    withheld team is never compared, on any row: the status order is a side of kind `agent`

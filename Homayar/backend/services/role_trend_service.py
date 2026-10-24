@@ -619,6 +619,26 @@ def known_meetings(
     )
 
 
+def caller_release(
+    judged: Sequence[JudgedConversation],
+    parts: Sequence[Mapping[str | None, WeekStats]],
+    known: frozenset[str] | None,
+    weeks: Sequence[Any],
+) -> list[frozenset[str]]:
+    """The per-week release set for this caller.  Without ``known`` it is ``Rel_k``.  With
+    a restricted membership (A6b) it is ``Rel_k`` and, in the same week, ``Rel_out_k``: the
+    same weekly decision over the conversations outside what the caller knows.  So the
+    workspace minus the released teams minus the caller's scope is a remainder that passed
+    the week test too, not only each block on its own.  Python only, no statement; it does
+    not read the grant, so a change of grant gives the same set."""
+    rel = weekly_release(parts)
+    if known is None:
+        return rel
+    outside = [c for c in judged if c.judgment.meeting_id not in known]
+    rel_out = weekly_release(week_parts(outside, weeks))
+    return [inside & out for inside, out in zip(rel, rel_out, strict=True)]
+
+
 def _decide(
     parts: Sequence[Mapping[str | None, WeekStats]],
     rel: Sequence[frozenset[str]],
@@ -707,7 +727,8 @@ def organization_trends(
         known = known_meetings(db, workspace=workspace, user_id=access.user_id, filters=filters)
         parts = week_parts(judged, weeks)
         members = judged if team_ids is None else [c for c in judged if c.team_id in team_ids]
-        released, reason = _decide(parts, weekly_release(parts), team_ids, members, known, weeks)
+        rel = caller_release(judged, parts, known, weeks)
+        released, reason = _decide(parts, rel, team_ids, members, known, weeks)
         coverage: dict[str, Any] = {}
         if released:
             counters = compute_coverage(
@@ -764,7 +785,7 @@ def organization_drilldown(
     judged = _workspace_population(db, workspace, filters)
     known = known_meetings(db, workspace=workspace, user_id=user_id, filters=filters)
     parts = week_parts(judged, weeks)
-    rel = weekly_release(parts)
+    rel = caller_release(judged, parts, known, weeks)
     whole, by_team = compute_coverage_by_team(
         db,
         workspace_id=workspace.id,

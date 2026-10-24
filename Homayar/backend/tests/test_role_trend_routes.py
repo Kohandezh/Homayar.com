@@ -917,6 +917,38 @@ def test_org_views_withhold_small_groups(client, email_outbox):
     assert probe_block(analyst) == ("released", None)  # the rest has 5 agents
     assert probe_block(analyst, drill=True) == ("released", None)
 
+    # A6b (the team review's probe): T1 and T2 pass, but the workspace minus both teams and
+    # minus what the analyst knows (T3, which they supervise) is n1 alone
+    second = _org_workspace(owner, org, "Probe 2")
+    _scope_grant(owner, org, memberships["analyst"], second)
+    _scope_grant(owner, org, memberships["executive"], second)
+    one, two, three = (add_team(second, name) for name in ("T1", "T2", "T3"))
+    for team_id, count, each in ((one, 6, 2), (two, 6, 2), (three, 4, 2)):
+        _calls(second, team_id, _agents(count, f"q{count}{each}"), each, received_at=weeks[0] + DAY)
+    _calls(second, None, [add_user("qn1")], 12, received_at=weeks[0] + DAY)
+    _install_member(second, analyst.user_id)
+    _set_record_scope(second, RecordScope.TEAM)
+    _assign(second, three, analyst.user_id, "supervisor", by=owner.user_id)
+
+    def drilled_second(persona) -> dict[str, Any]:
+        body = persona.get(_drill(org, second), params=one_week).json()
+        return {
+            "workspace": _released(body["workspace"]),
+            **{block["team"]["id"]: _released(block) for block in body["teams"]},
+        }
+
+    by_analyst = drilled_second(analyst)
+    assert by_analyst["workspace"] == ("released", None)  # outside T3: 13 agents
+    assert by_analyst[one] == by_analyst[two] == withheld
+    assert by_analyst[three][0] == "withheld"
+    by_owner = drilled_second(owner)  # control: an unrestricted membership, unchanged
+    assert by_owner["workspace"] == by_owner[one] == by_owner[two] == ("released", None)
+    by_executive = executive.get(executive_path, params=one_week).json()["workspaces"]
+    assert _released(next(w for w in by_executive if w["workspace_id"] == second.workspace_id)) == (
+        "released",
+        None,
+    )  # control: no membership
+
     # Cost: the executive view grows by the same number of statements per workspace, and
     # the drill-down does not grow with the teams
     shapes = []
