@@ -4598,6 +4598,7 @@ BASE_FINGERPRINTS: dict = {
         ("_POSTAL_KEYWORD_RE", "3d3fd7541a6fe30549048ec8"),  # HOM-164
         ("_POSTAL_WINDOW", "74a038fb8d85fb4f9693c87a"),
         ("_GLUED_MOBILE", "585d0bc724bd6209bc359042"),  # HOM-303
+        ("_WRITTEN_CLASSES", "f850e3e11166c3e5fe1be8bf"),  # HOM-303
         ("_GROUP_RE", "7a5fa4129af1d2b74d12e9fb"),  # HOM-303
         ("_MOBILE_DIGITS_RE", "ea768f85cc63f061da633be1"),  # HOM-303
         ("_LANDLINE_DIGITS_RE", "8c3534ea3ecc12408b94eb6d"),  # HOM-303
@@ -4611,14 +4612,14 @@ BASE_FINGERPRINTS: dict = {
         ("_ten_digit_class", "fcc5a1c0dc0e59ec4be9b812"),  # HOM-291 split out of detect
         ("_split_run", "769ee2ca6830b4c213e869fd"),  # HOM-291 a run read as identifiers
         ("_matches", "44336fcb9c5930f298fcc309"),  # HOM-303 split out of _candidates
-        ("_candidates", "c1883d5c3649c720a8ca4e96"),  # HOM-303 takes the matches
+        ("_candidates", "38168e29cc1e1a5e35095f4c"),  # HOM-303 takes the matches
         ("_beside", "b1afa8142337e65e1e407e78"),  # HOM-303 what stands next to a card
         ("_glued_mobile", "2a659c98701b598f1cd2c54a"),  # HOM-303 one way to read a group
         ("_cards", "bc094e49cb305a5ca6fe930d"),  # HOM-303 written cards of one run
-        ("_written", "41e159ace54de46602497d80"),  # HOM-303 written-form readings
+        ("_written", "13a55f307ff0f1461bc5baab"),  # HOM-303 written-form readings
         ("_select", "2d1f1550a1097775ee8593d9"),  # HOM-291 no candidate digit left raw
         ("_keep", "137ffd296d48bf705921b724"),  # HOM-303 no base character lost
-        ("detect", "b735bfef11912faf7519a323"),  # HOM-303 written readings where raw
+        ("detect", "3486c053b1d26c58946489d7"),  # HOM-303 written readings where raw
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),

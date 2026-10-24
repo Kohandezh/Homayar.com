@@ -449,7 +449,7 @@ def test_the_digit_patterns_agree_with_the_phone_regexes():
 
 def test_every_digit_of_every_written_reading_is_redacted():
     # Finding 8, white box: like the HOM-291 candidate check, for _written.
-    from backend.privacy.text_pii import _matches, _written
+    from backend.privacy.text_pii import _candidates, _matches, _written
     from backend.speech.text_normalize import normalize_digits_extended, unify_arabic_letters
 
     rng = random.Random(3038)  # noqa: S311 - deterministic test inputs, not security
@@ -483,7 +483,9 @@ def test_every_digit_of_every_written_reading_is_redacted():
         covered = {i for s in detect(text, wanted) for i in range(s.start, s.end)}
         norm = normalize_digits_extended(text)
         found = _matches(norm, unify_arabic_letters(norm))
-        for spans in _written(norm, frozenset(wanted), found):
+        runs: list[tuple[int, int]] = []
+        _candidates(norm, frozenset(wanted), found, runs=runs)
+        for spans in _written(norm, frozenset(wanted), found, runs):
             for span in spans:
                 for index in range(span.start, span.end):
                     if norm[index] in "0123456789":

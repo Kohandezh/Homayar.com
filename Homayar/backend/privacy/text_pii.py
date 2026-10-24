@@ -205,6 +205,7 @@ _POSTAL_KEYWORD_RE = re.compile(
 )
 _POSTAL_WINDOW = 48
 _GLUED_MOBILE = 3  # at most this many digits glued to a mobile (HOM-303)
+_WRITTEN_CLASSES = frozenset({PiiClass.BANK_CARD, PiiClass.PHONE})
 _GROUP_RE = re.compile(r"[0-9]+")
 _MOBILE_DIGITS_RE = re.compile(r"09[0-49][0-9]{8}")
 _LANDLINE_DIGITS_RE = re.compile(r"0[1-8][0-9]{9}")
@@ -475,9 +476,11 @@ def _candidates(
     wanted: frozenset[PiiClass],
     found: list[PiiSpan] | None = None,
     folded: str | None = None,
+    runs: list[tuple[int, int]] | None = None,
 ) -> tuple[list[PiiSpan], list[PiiSpan]]:
     """Every validated reading: the matches of each class, then the pieces of
-    a digit run whose whole groups split into two or more identifiers."""
+    a digit run whose whole groups split into two or more identifiers.  The
+    runs of 11 characters or more are added to ``runs`` for ``_written``."""
     # One-to-one letter folding: same length as ``norm``, so offsets carry over.
     if folded is None:
         folded = unify_arabic_letters(norm)
@@ -492,6 +495,8 @@ def _candidates(
         before, after = norm[run.start() - 1 : run.start()], norm[run.end() : run.end() + 1]
         if (before.isascii() and before.isalnum()) or (after.isascii() and after.isalnum()):
             continue  # glued to letters, like every match above
+        if runs is not None and run.end() - run.start() >= 11:
+            runs.append((run.start(), run.end()))
         at = [i for i in range(run.start(), run.end()) if "0" <= norm[i] <= "9"]
         pieces.extend(
             PiiSpan(start, end, pii_class, value)
@@ -591,35 +596,31 @@ def _cards(
     return cards
 
 
-def _written(norm: str, wanted: frozenset[PiiClass], found: list[PiiSpan]) -> list[list[PiiSpan]]:
+def _written(
+    norm: str, wanted: frozenset[PiiClass], found: list[PiiSpan], runs: list[tuple[int, int]]
+) -> list[list[PiiSpan]]:
     """Identifiers in their usual written form, which a regex reading of a
     neighbour can use up (HOM-303), one list per digit run: Luhn cards of 16
     digits (``_cards``), a ``00`` number at any group of a run, and a mobile
-    with digits glued to it."""
-    runs: list[list[PiiSpan]] = []
-    if not wanted & {PiiClass.BANK_CARD, PiiClass.PHONE}:
-        return runs
+    with digits glued to it.  ``runs`` are the digit runs ``_candidates``
+    keeps (not glued to letters, 11 characters or more)."""
+    written: list[list[PiiSpan]] = []
+    if wanted.isdisjoint(_WRITTEN_CLASSES):
+        return written
     ordered: list[PiiSpan] | None = None
-    for run in _DIGIT_RUN_RE.finditer(norm):
-        if run.end() - run.start() < 11 or not _WRITTEN_HINT_RE.search(
-            norm, run.start(), run.end()
-        ):
+    for first, last in runs:
+        if not _WRITTEN_HINT_RE.search(norm, first, last):
             continue  # no group of 11+ digits, no 00 group, no four groups of four
         if ordered is None:
             ordered = sorted(found, key=lambda s: s.start)
             starts = [span.start for span in ordered]
             longest = max((span.end - span.start for span in ordered), default=0)
-        before, after = norm[run.start() - 1 : run.start()], norm[run.end() : run.end() + 1]
-        if (before.isascii() and before.isalnum()) or (after.isascii() and after.isalnum()):
-            continue  # glued to letters, like every match
-        groups = [(g.start(), g.end()) for g in _GROUP_RE.finditer(norm, run.start(), run.end())]
+        groups = [(g.start(), g.end()) for g in _GROUP_RE.finditer(norm, first, last)]
         # Every reading of any class that shares a character with the run.
         held = [
             (m.start, m.end, m.pii_class)
-            for m in ordered[
-                bisect_left(starts, run.start() - longest) : bisect_left(starts, run.end())
-            ]
-            if m.end > run.start()
+            for m in ordered[bisect_left(starts, first - longest) : bisect_left(starts, last)]
+            if m.end > first
         ]
         phones: list[PiiSpan] = []
         for start, _ in groups[1:]:
@@ -646,8 +647,8 @@ def _written(norm: str, wanted: frozenset[PiiClass], found: list[PiiSpan]) -> li
         if PiiClass.BANK_CARD in wanted:
             here += _cards(norm, groups, held)
         if here:
-            runs.append(here)
-    return runs
+            written.append(here)
+    return written
 
 
 def _select(norm: str, matches: list[PiiSpan], pieces: list[PiiSpan]) -> list[PiiSpan]:
@@ -785,17 +786,18 @@ def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[P
     wanted = frozenset(classes)
     folded = unify_arabic_letters(norm)
     found = _matches(norm, folded)
-    matches, pieces = _candidates(norm, wanted, found, folded)
+    runs: list[tuple[int, int]] = []
+    matches, pieces = _candidates(norm, wanted, found, folded, runs)
     chosen = _select(norm, matches, pieces)
     # The written-form readings of a run are used, together, only where one of
     # them holds a digit left raw.
     extra: list[PiiSpan] = []
-    runs = _written(norm, wanted, found)
-    if runs:
+    written = _written(norm, wanted, found, runs)
+    if written:
         covered = bytearray(len(norm))
         for span in chosen:
             covered[span.start : span.end] = b"\x01" * (span.end - span.start)
-        for spans in runs:
+        for spans in written:
             if any(
                 not covered[i] and "0" <= norm[i] <= "9"
                 for span in spans
