@@ -224,6 +224,11 @@ disclosure decision depends on the conversations of the answer, so nothing is st
   closed weeks. Two answers before and after can then differ by a single conversation.
 - **One yes or no per week leaves the grant (D3).** For a team grant, the release of a week
   tells whether the rest of the workspace passed the week test (decision 7).
+- **The caller's scope is read at request time (turn B5).** A6 and A6b use the caller's
+  workspace scope as it is at the request. Knowledge from an earlier or a later scope (for
+  example the numbers of a team the caller supervised before the assignment was revoked), from
+  share links, or from a second account is not checked. A possible follow-up: count every
+  supervisor assignment the user ever held in W as known (revoked rows are kept).
 - **Cost.** `GET /trends/issues` with `team_id` now judges the caller's whole scope, and a team
   grant on the organization views judges the whole workspace. The statement counts do not
   change. HOM-84 measures the p95.

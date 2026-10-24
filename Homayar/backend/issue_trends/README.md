@@ -1465,6 +1465,10 @@ now judges the caller's whole scope, and an organization team grant judges the w
 - A team-grant block reveals one yes or no per week about the rest of the workspace.
 - An organization caller with a restricted workspace membership is checked against that
   membership's scope (A6); knowledge from outside the system is not.
+- A6 and A6b read the caller's scope at request time. Knowledge from an earlier or a later
+  scope (a team supervised before the assignment was revoked), from share links, or from a
+  second account is not checked. A possible follow-up: count every supervisor assignment the
+  user ever held in the workspace as known (revoked rows are kept).
 - Dominance (one agent with almost all calls of a cohort) is not checked.
 
 ## Open questions
