@@ -105,8 +105,10 @@ The ticket is silent on these. Each is the safest choice found; the owner may ch
 - Links list only the numerator (`counted`). No links to `pending_review`, `absent`,
   `missing` or excluded duplicates, and none to the denominator.
 - Only a `computed` cell is linkable. The owner may relax this: a rate cell under 30 with its
-  numerator shown could be linked, but it may rest on one agent. An agent cell under 30 hides
-  its numerator and is never linkable, for the agent too.
+  numerator shown could be linked, but it may rest on one agent. Relaxing A3 would not change
+  what can be rebuilt: a refused list can already be rebuilt by subtraction (Risks, "Rebuilding
+  a refused list"). An agent cell under 30 hides its numerator and is never linkable, for the
+  agent too.
 - A link shows no agent, team, time, language or source, no other issue's state and no
   evidence of other labels.
 - 50 conversations per page by default, at most 100, ordered by meeting id.
@@ -143,9 +145,15 @@ The links are derived at read time from the tables HOM-80 already reads, plus th
 - **Differencing two link answers.** Two link answers with different windows, grains,
   languages or sources can isolate a few conversations by id, as ADR 0038 accepts for counts.
   The caller may open those conversations anyway.
-- **An own-only cohort.** When a cohort is only the caller's own calls, it has no all or
-  nothing rule. A family list minus the lists of its sibling issues then rebuilds the list of
-  an issue whose cell is hidden. These are the caller's own calls; fairness only.
+- **Rebuilding a refused list.** A3 stops a direct link only, not subtraction. With the same
+  request shape, the window list minus the computed lists of the other points rebuilds the
+  list of a refused point, and a computed family list minus its computed sibling issue lists
+  rebuilds the list of a refused issue. This holds in a cohort of only the caller's own calls
+  (it has no all or nothing rule) and in a rate cohort, where a refused `insufficient_sample`
+  cell can rest on one agent (the final review rebuilt one of 5 calls of one agent). In an
+  agent cohort a hidden cell withholds its whole layer, so the lists to subtract do not
+  exist. Record scope limits it: every rebuilt meeting is one the caller may open anyway, so
+  this bypasses the HOM-79 fairness rule, not the record scope.
 - **Inside a rate cohort.** A `computed` point or row can rest on one agent. Its link lists
   that agent's conversations. The cell has at least 30 conversations, the HOM-79 minimum for
   one agent.

@@ -1569,9 +1569,11 @@ takes `ceil(N/100)` requests, each with the view's Python cost. HOM-84 measures 
   breakdowns the views withhold. They may open those records anyway (record scope).
 - Two link answers with different windows, grains, languages or sources can isolate a few
   conversations by id, as ADR 0038 accepts for counts.
-- On a cohort of only the caller's own calls (no all-or-nothing rule), a family list minus
-  the lists of its sibling issues rebuilds the list of an issue whose cell is hidden. These
-  are the caller's own calls.
+- A refused cell's list can be rebuilt by subtraction with the same request shape: the window
+  list minus the computed lists of the other points, or a computed family list minus its
+  computed sibling issue lists. This holds in a cohort of the caller's own calls and in a rate
+  cohort, where a refused `insufficient_sample` cell can rest on one agent. A3 stops a direct
+  link only; record scope limits the rebuilt meetings to ones the caller may open anyway.
 - One answer is one snapshot: a meeting deleted or moved after the load can still be in it.
 
 ## Open questions
