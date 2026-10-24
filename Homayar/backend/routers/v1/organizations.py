@@ -9,11 +9,16 @@ HOM-82 adds the role-scoped trend views: executive aggregates
 (``/workspaces/{workspace_id}/trends/issues``, ``organization:records:read``).  Both are
 session only, like every organization route, and withhold any cohort that rests on 1 to
 4 agents in some week (``role_trend_service``).
+
+HOM-299 (ADR 0041, L2) adds ``coverage``, ``scorecard``, ``missing_data`` and ``disclosure``
+to each ``/aggregates`` item: those of the executive view's block for the same workspace,
+grant and closed-week window.  Its existing counts stay.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from functools import partial
 from typing import Never
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -22,7 +27,7 @@ from sqlalchemy.orm import Session
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
 from backend.database.saas_models import OrganizationRole, WorkspaceRole
-from backend.issue_trends import TrendFilterError
+from backend.issue_trends import TrendFilterError, TrendFilters
 from backend.schemas.organizations import (
     AggregatesResponse,
     InstalledWorkspaceMemberResponse,
@@ -590,6 +595,24 @@ def revoke_scope_grant(
 # --- scoped analytics -------------------------------------------------------------------------
 
 
+def _aggregate_filters(
+    since: datetime | None, until: datetime | None, now: datetime
+) -> TrendFilters:
+    """The window ``W`` of the ``/aggregates`` metadata (HOM-299, ADR 0041 decision 13): the
+    organization grid query of ``since`` and ``until`` when the HOM-82 parser accepts it,
+    else its default, the 4 closed weeks before this week.  Never a 422."""
+    raw: dict[str, str | list[str]] = {}
+    if since is not None:
+        raw["from"] = since.isoformat()
+    if until is not None:
+        raw["to"] = until.isoformat()
+    try:
+        filters, _grain = roles.organization_query(raw, now=now)
+    except (TrendFilterError, TrendSeriesError, roles.TrendViewError):
+        filters, _grain = roles.organization_query({}, now=now)
+    return filters
+
+
 @router.get("/{organization_id}/aggregates", response_model=AggregatesResponse)
 def read_aggregates(
     since: datetime | None = Query(default=None),
@@ -598,9 +621,29 @@ def read_aggregates(
         require_organization_permission(OrganizationPermission.ANALYTICS_READ)
     ),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> AggregatesResponse:
+    """Counts per scoped workspace, and (HOM-299) each item's ``coverage``, ``scorecard``,
+    ``missing_data`` and ``disclosure``: those of the executive view's block for the same
+    workspace, grant and window ``coverage_window`` (ADR 0041, L2).  A block HOM-82 withholds
+    is withheld here too; the existing counts keep their values."""
+    now = datetime.now(UTC)
+    filters = _aggregate_filters(since, until, now)
     aggregates = service.workspace_aggregates(
-        db, organization=context.organization, access=context.access, since=since, until=until
+        db,
+        organization=context.organization,
+        access=context.access,
+        since=since,
+        until=until,
+        trend_block=partial(
+            roles.organization_workspace_block,
+            db,
+            user_id=context.access.user_id,
+            filters=filters,
+            grain="none",
+            weeks=roles.organization_weeks(filters),
+            recompute_max_attempts=settings.recompute_max_attempts,
+        ),
     )
     return AggregatesResponse(
         organization_id=context.organization.id,
@@ -616,9 +659,12 @@ def read_aggregates(
                 meetings_by_status=item.meetings_by_status,
                 audio_seconds_total=item.audio_seconds_total,
                 action_items_total=item.action_items_total,
+                **item.metadata,
             )
             for item in aggregates
         ],
+        disclosure_policy=roles.organization_disclosure_policy(),
+        coverage_window=filters.window.to_json(),
     )
 
 

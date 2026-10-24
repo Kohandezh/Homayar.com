@@ -1,5 +1,6 @@
-"""Coverage counters and review sample draws (HOM-72, WP14-T01), and the scorecard and
-missing-data blocks every aggregate carries (HOM-81, WP15-T03)."""
+"""Coverage counters and review sample draws (HOM-72, WP14-T01), the scorecard and
+missing-data blocks every aggregate carries (HOM-81, WP15-T03), and the population coverage
+of the voicemail aggregates (HOM-299)."""
 
 from __future__ import annotations
 
@@ -78,6 +79,29 @@ class AggregateMissingData(BaseModel):
     (``services/aggregate_metadata.py``)."""
 
     indicators: list[MissingDataIndicator]
+
+
+class PopulationCoverageWindow(BaseModel):
+    """``from <= <basis column> < to`` of a population that is not the ledger (HOM-299)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: datetime = Field(alias="from")
+    to: datetime
+    basis: Literal["voicemail_received_at"]
+
+
+class PopulationCoverage(BaseModel):
+    """The ``coverage/1`` processing and evaluation counters over a population of rows
+    that is not the ledger (HOM-299, ADR 0041).  ``window.basis`` names the column the
+    window filters; ``basis`` names the population: the voicemail rows of
+    ``GET /voicemails/analytics``."""
+
+    version: Literal["coverage/1"]
+    window: PopulationCoverageWindow
+    basis: Literal["voicemail_population"]
+    processing: CoverageCounter
+    evaluation: CoverageCounter
 
 
 class CoverageResponse(BaseModel):

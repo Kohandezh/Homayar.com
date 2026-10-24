@@ -598,6 +598,11 @@ def _weeks(filters: TrendFilters):
     return series_points(filters.window.start, filters.window.end, "week", _GRID_ZONE)
 
 
+def organization_weeks(filters: TrendFilters) -> list[SeriesPoint]:
+    """The closed weeks of an organization window (HOM-299 reads them for ``/aggregates``)."""
+    return _weeks(filters)
+
+
 def week_parts(
     conversations: Iterable[JudgedConversation], weeks: Sequence[Any]
 ) -> list[dict[str | None, WeekStats]]:
@@ -758,6 +763,50 @@ def _workspace_population(db: Session, workspace: Workspace, filters: TrendFilte
     return judge_population(db, workspace_id=workspace.id, scope=true(), filters=filters)
 
 
+def organization_workspace_block(
+    db: Session,
+    *,
+    workspace: Workspace,
+    team_ids: frozenset[str] | None,
+    user_id: str,
+    filters: TrendFilters,
+    grain: str,
+    weeks: Sequence[Any],
+    recompute_max_attempts: int,
+) -> dict[str, Any]:
+    """The executive view's block of one scoped workspace or team grant, with the workspace
+    already bound as the tenant: statements P and G, at most 3 for A6, and 9 coverage
+    statements when released.  The executive view and the HOM-299 metadata of
+    ``/aggregates`` both run it, so their ``coverage``, ``scorecard``, ``missing_data`` and
+    ``disclosure`` are the same (ADR 0041, L2)."""
+    judged = _workspace_population(db, workspace, filters)
+    known = known_meetings(db, workspace=workspace, user_id=user_id, filters=filters)
+    parts = week_parts(judged, weeks)
+    members = judged if team_ids is None else [c for c in judged if c.team_id in team_ids]
+    rel = caller_release(judged, parts, known, weeks)
+    released, reason = _decide(parts, rel, team_ids, members, known, weeks)
+    coverage: dict[str, Any] = {}
+    if released:
+        counters = compute_coverage(
+            db,
+            workspace_id=workspace.id,
+            window=coverage_window(filters),
+            recompute_max_attempts=recompute_max_attempts,
+            population=_granted(team_ids),
+        ).counters
+        basis = COVERAGE_BASIS_WORKSPACE if team_ids is None else COVERAGE_BASIS_TREND_POPULATION
+        coverage = coverage_block(filters.window, basis, counters)
+    return _organization_block(
+        released,
+        reason,
+        members,
+        filters=filters,
+        grain=grain,
+        weeks=weeks,
+        coverage=coverage,
+    )
+
+
 def organization_trends(
     db: Session,
     *,
@@ -774,38 +823,20 @@ def organization_trends(
     items = []
     for workspace, team_ids in scoped_workspaces(db, organization=organization, access=access):
         bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
-        judged = _workspace_population(db, workspace, filters)
-        known = known_meetings(db, workspace=workspace, user_id=access.user_id, filters=filters)
-        parts = week_parts(judged, weeks)
-        members = judged if team_ids is None else [c for c in judged if c.team_id in team_ids]
-        rel = caller_release(judged, parts, known, weeks)
-        released, reason = _decide(parts, rel, team_ids, members, known, weeks)
-        coverage: dict[str, Any] = {}
-        if released:
-            counters = compute_coverage(
-                db,
-                workspace_id=workspace.id,
-                window=coverage_window(filters),
-                recompute_max_attempts=recompute_max_attempts,
-                population=_granted(team_ids),
-            ).counters
-            basis = (
-                COVERAGE_BASIS_WORKSPACE if team_ids is None else COVERAGE_BASIS_TREND_POPULATION
-            )
-            coverage = coverage_block(filters.window, basis, counters)
         items.append(
             {
                 "workspace_id": workspace.id,
                 "workspace_name": workspace.name,
                 "team_ids": sorted(team_ids) if team_ids is not None else None,
-                **_organization_block(
-                    released,
-                    reason,
-                    members,
+                **organization_workspace_block(
+                    db,
+                    workspace=workspace,
+                    team_ids=team_ids,
+                    user_id=access.user_id,
                     filters=filters,
                     grain=grain,
                     weeks=weeks,
-                    coverage=coverage,
+                    recompute_max_attempts=recompute_max_attempts,
                 ),
             }
         )

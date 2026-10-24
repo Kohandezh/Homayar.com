@@ -256,6 +256,67 @@
         "title": "AggregateScorecard",
         "type": "object"
       },
+      "AggregatesResponse": {
+        "properties": {
+          "coverage_window": {
+            "$ref": "#/components/schemas/TrendWindowResponse"
+          },
+          "disclosure_policy": {
+            "$ref": "#/components/schemas/OrganizationDisclosurePolicy"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceAggregateResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "organization_id": {
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "organization_id",
+          "since",
+          "until",
+          "generated_at",
+          "items",
+          "disclosure_policy",
+          "coverage_window"
+        ],
+        "title": "AggregatesResponse",
+        "type": "object"
+      },
       "AnalysisRunResponse": {
         "description": "Provenance of the analysis pass that produced a summary / AI actions.",
         "properties": {
@@ -694,6 +755,25 @@
           "buckets"
         ],
         "title": "CoverageCounter",
+        "type": "object"
+      },
+      "DayCount": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "count"
+        ],
+        "title": "DayCount",
         "type": "object"
       },
       "DegradationResponse": {
@@ -2288,6 +2368,66 @@
           "team_ids"
         ],
         "title": "OrganizationWorkspaceTrend",
+        "type": "object"
+      },
+      "PopulationCoverage": {
+        "description": "The ``coverage/1`` processing and evaluation counters over a population of rows\nthat is not the ledger (HOM-299, ADR 0041).  ``window.basis`` names the column the\nwindow filters; ``basis`` names the population: the voicemail rows of\n``GET /voicemails/analytics``.",
+        "properties": {
+          "basis": {
+            "const": "voicemail_population",
+            "title": "Basis",
+            "type": "string"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/CoverageCounter"
+          },
+          "processing": {
+            "$ref": "#/components/schemas/CoverageCounter"
+          },
+          "version": {
+            "const": "coverage/1",
+            "title": "Version",
+            "type": "string"
+          },
+          "window": {
+            "$ref": "#/components/schemas/PopulationCoverageWindow"
+          }
+        },
+        "required": [
+          "version",
+          "window",
+          "basis",
+          "processing",
+          "evaluation"
+        ],
+        "title": "PopulationCoverage",
+        "type": "object"
+      },
+      "PopulationCoverageWindow": {
+        "description": "``from <= <basis column> < to`` of a population that is not the ledger (HOM-299).",
+        "properties": {
+          "basis": {
+            "const": "voicemail_received_at",
+            "title": "Basis",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "format": "date-time",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "basis"
+        ],
+        "title": "PopulationCoverageWindow",
         "type": "object"
       },
       "RecordingResponse": {
@@ -4498,6 +4638,100 @@
         "title": "UsageStateResponse",
         "type": "object"
       },
+      "VoicemailAnalyticsResponse": {
+        "properties": {
+          "by_category": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Category",
+            "type": "object"
+          },
+          "by_day": {
+            "items": {
+              "$ref": "#/components/schemas/DayCount"
+            },
+            "title": "By Day",
+            "type": "array"
+          },
+          "by_follow_up_state": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Follow Up State",
+            "type": "object"
+          },
+          "by_priority": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Priority",
+            "type": "object"
+          },
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Status",
+            "type": "object"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/PopulationCoverage"
+          },
+          "followed_up": {
+            "title": "Followed Up",
+            "type": "integer"
+          },
+          "median_follow_up_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Follow Up Seconds"
+          },
+          "missing_data": {
+            "$ref": "#/components/schemas/AggregateMissingData"
+          },
+          "received_from": {
+            "format": "date-time",
+            "title": "Received From",
+            "type": "string"
+          },
+          "received_to": {
+            "format": "date-time",
+            "title": "Received To",
+            "type": "string"
+          },
+          "scorecard": {
+            "$ref": "#/components/schemas/AggregateScorecard"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "received_from",
+          "received_to",
+          "total",
+          "by_category",
+          "by_priority",
+          "by_status",
+          "by_follow_up_state",
+          "by_day",
+          "followed_up",
+          "median_follow_up_seconds",
+          "coverage",
+          "scorecard",
+          "missing_data"
+        ],
+        "title": "VoicemailAnalyticsResponse",
+        "type": "object"
+      },
       "VoicemailImportResponse": {
         "properties": {
           "idempotent_replay": {
@@ -4827,6 +5061,92 @@
         ],
         "title": "VoicemailResponse",
         "type": "object"
+      },
+      "WorkspaceAggregateResponse": {
+        "properties": {
+          "action_items_total": {
+            "title": "Action Items Total",
+            "type": "integer"
+          },
+          "audio_seconds_total": {
+            "title": "Audio Seconds Total",
+            "type": "integer"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disclosure": {
+            "$ref": "#/components/schemas/TrendDisclosure"
+          },
+          "meetings_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Meetings By Status",
+            "type": "object"
+          },
+          "meetings_total": {
+            "title": "Meetings Total",
+            "type": "integer"
+          },
+          "missing_data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AggregateMissingData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scorecard": {
+            "$ref": "#/components/schemas/AggregateScorecard"
+          },
+          "team_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Ids"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "workspace_name": {
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "workspace_name",
+          "team_ids",
+          "meetings_total",
+          "meetings_by_status",
+          "audio_seconds_total",
+          "action_items_total",
+          "coverage",
+          "scorecard",
+          "missing_data",
+          "disclosure"
+        ],
+        "title": "WorkspaceAggregateResponse",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -4837,9 +5157,9 @@
     }
   },
   "info": {
-    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Role-scoped trend views (1.3.0).** Four read operations need a signed-in user\nsession and refuse every API key with `401 api_key_not_accepted`: the team comparison\n`/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates\nand the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort\ncarries a `disclosure` block; a cohort of 1 to 4 agents is held back.\n\n**Supporting conversations (1.4.0).** `/api/v1/trends/conversations` lists the\nconversations behind one `computed` cell of `/api/v1/trends/issues`, `/api/v1/trends/teams`\nor `/api/v1/trends/me`, as ids only. It needs a signed-in user session too. Every trend\nanswer carries `notices: [\"correlation_not_cause\"]`: a trend shows how often an issue was\ncounted, not why.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
+    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Role-scoped trend views (1.3.0).** Four read operations need a signed-in user\nsession and refuse every API key with `401 api_key_not_accepted`: the team comparison\n`/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates\nand the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort\ncarries a `disclosure` block; a cohort of 1 to 4 agents is held back.\n\n**Supporting conversations (1.4.0).** `/api/v1/trends/conversations` lists the\nconversations behind one `computed` cell of `/api/v1/trends/issues`, `/api/v1/trends/teams`\nor `/api/v1/trends/me`, as ids only. It needs a signed-in user session too. Every trend\nanswer carries `notices: [\"correlation_not_cause\"]`: a trend shows how often an issue was\ncounted, not why.\n\n**Aggregate metadata (1.5.0).** `/api/v1/voicemails/analytics` adds `coverage` (the\n`coverage/1` processing and evaluation counters of the voicemails it counts), `scorecard`\nand `missing_data`. Each item of `/api/v1/organizations/{organization_id}/aggregates` adds\nthe `coverage`, `scorecard`, `missing_data` and `disclosure` of the matching executive\ntrend block: a block of 1 to 4 agents in some closed week is withheld, with `coverage` and\n`missing_data` null. Every existing field keeps its name and value.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
     "title": "Homayar Ingestion API",
-    "version": "1.4.0"
+    "version": "1.5.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6603,6 +6923,162 @@
         ]
       }
     },
+    "/api/v1/organizations/{organization_id}/aggregates": {
+      "get": {
+        "description": "Counts per scoped workspace, and (HOM-299) each item's ``coverage``, ``scorecard``,\n``missing_data`` and ``disclosure``: those of the executive view's block for the same\nworkspace, grant and window ``coverage_window`` (ADR 0041, L2).  A block HOM-82 withholds\nis withheld here too; the existing counts keep their values.\n\nSince 1.5.0. Who: an organization owner, admin, analyst or executive (`organization:analytics:read`), over the workspaces they may see. A signed-in session only: an API key is `401 api_key_not_accepted`. Each item adds `coverage`, `scorecard`, `missing_data` and `disclosure`: exactly those of the workspace block of `GET /api/v1/organizations/{organization_id}/trends/issues` for the same caller, grant and window. `coverage_window` is the window that `GET /api/v1/organizations/{organization_id}/trends/issues` would use for `from=since` and `to=until`, or its default (the 4 closed weeks before this week) when that route would refuse them. A withheld item has `coverage` and `missing_data` null; its other fields keep their values and their own window.",
+        "operationId": "read_aggregates_api_v1_organizations__organization_id__aggregates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "organization_id",
+            "required": true,
+            "schema": {
+              "title": "Organization Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AggregatesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Aggregates",
+        "tags": [
+          "organizations"
+        ]
+      }
+    },
     "/api/v1/organizations/{organization_id}/trends/issues": {
       "get": {
         "description": "Executive aggregates (HOM-82): one block per scoped workspace, no total.\n\nOrg owner, admin, analyst and executive; a session only (every API key is\n``401 api_key_not_accepted``).  Whole closed weeks from Saturday 00:00 Asia/Tehran,\ngrain ``none`` or ``week``.  ``team_id``, ``agent_user_id``, ``language``,\n``source_type`` and ``timezone`` are ``422 trend_parameter_not_allowed``.  A workspace\nblock is withheld when a week, or a row of a week, rests on 1 to 4 agents.\n\nSince 1.3.0. Who: an organization owner, admin, analyst or executive (`organization:analytics:read`), over the workspaces they may see. A signed-in session only: an API key is `401 api_key_not_accepted`; no membership is `404 organization_not_found`. Whole closed weeks from Saturday 00:00 Asia/Tehran (`422 trend_window_not_aligned` otherwise), grain `none` or `week`.",
@@ -7669,6 +8145,169 @@
           }
         ],
         "summary": "Import Voicemail Route",
+        "tags": [
+          "voicemail"
+        ]
+      }
+    },
+    "/api/v1/voicemails/analytics": {
+      "get": {
+        "description": "Counts of the window, and (HOM-299) the ``coverage/1`` processing and evaluation\ncounters of the same voicemails with ``scorecard`` and ``missing_data``.\n\nSince 1.5.0: `coverage` (basis `voicemail_population`, window basis `voicemail_received_at`), `scorecard` and `missing_data` over the voicemails that `total` counts, so `coverage.processing.denominator` equals `total`. A window longer than 366 days or not after its start is `422 invalid_window`.",
+        "operationId": "voicemail_analytics_route_api_v1_voicemails_analytics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "received_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Received From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "received_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Received To"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoicemailAnalyticsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Voicemail Analytics Route",
         "tags": [
           "voicemail"
         ]

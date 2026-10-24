@@ -26,9 +26,10 @@ organization authority over it was established.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -166,6 +167,12 @@ class WorkspaceAggregate:
     meetings_by_status: dict[str, int]
     audio_seconds_total: int
     action_items_total: int
+    # HOM-299: ``coverage``, ``scorecard``, ``missing_data`` and ``disclosure``
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# HOM-299 (ADR 0041, L2): the keys of an ``/aggregates`` item taken from the HOM-82 block.
+AGGREGATE_METADATA_KEYS = ("coverage", "scorecard", "missing_data", "disclosure")
 
 
 @dataclass(frozen=True)
@@ -760,12 +767,19 @@ def workspace_aggregates(
     access: OrganizationAccess,
     since: datetime | None = None,
     until: datetime | None = None,
+    trend_block: Callable[..., dict[str, Any]] | None = None,
 ) -> list[WorkspaceAggregate]:
     """Counts and durations per authorized workspace (and team filter): no content.
 
     Each workspace is bound as the tenant in turn, so the queries run under
     that workspace's row-level security; a workspace outside the caller's
     scope is never bound.
+
+    HOM-299 (ADR 0041, L2): with ``trend_block(workspace=, team_ids=)`` (the HOM-82 block of
+    the executive view, from ``role_trend_service``, which imports this module) each item
+    also carries that block's ``coverage``, ``scorecard``, ``missing_data`` and
+    ``disclosure``, unchanged.  The workspace is bound again before it runs.  The existing
+    counts do not change.
     """
     results: list[WorkspaceAggregate] = []
     for workspace, team_ids in scoped_workspaces(db, organization=organization, access=access):
@@ -797,9 +811,31 @@ def workspace_aggregates(
                 meetings_by_status=by_status,
                 audio_seconds_total=audio_seconds,
                 action_items_total=int(actions or 0),
+                metadata=_item_metadata(
+                    db,
+                    organization=organization,
+                    workspace=workspace,
+                    team_ids=team_ids,
+                    trend_block=trend_block,
+                ),
             )
         )
     return results
+
+
+def _item_metadata(
+    db: Session,
+    *,
+    organization: Organization,
+    workspace: Workspace,
+    team_ids: frozenset[str] | None,
+    trend_block: Callable[..., dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if trend_block is None:
+        return {}
+    bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
+    block = trend_block(workspace=workspace, team_ids=team_ids)
+    return {key: block[key] for key in AGGREGATE_METADATA_KEYS}
 
 
 def scoped_records(

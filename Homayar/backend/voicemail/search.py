@@ -12,12 +12,25 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.database.saas_models import Meeting, TranscriptRevision, TranscriptSegment
 from backend.security.authorization import RecordAccess
+from backend.services.aggregate_metadata import (
+    BASIS_VOICEMAIL_POPULATION,
+    WINDOW_BASIS_VOICEMAIL_RECEIVED_AT,
+    population_coverage_block,
+    population_missing_data,
+    scorecard_block,
+)
+from backend.services.coverage_service import (
+    TRANSCRIBABLE_STATUSES,
+    CoverageWindow,
+    compute_population_coverage,
+)
 from backend.voicemail.classify import normalize_text
 from backend.voicemail.models import VoicemailMessage
 
@@ -140,6 +153,10 @@ class VoicemailAnalytics:
     by_day: list[tuple[date, int]] = field(default_factory=list)
     followed_up: int = 0
     median_follow_up_seconds: float | None = None
+    # HOM-299: ``coverage``, ``scorecard`` and ``missing_data`` of the same voicemails
+    coverage: dict[str, Any] = field(default_factory=dict)
+    scorecard: dict[str, Any] = field(default_factory=scorecard_block)
+    missing_data: dict[str, Any] = field(default_factory=dict)
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -153,12 +170,23 @@ def voicemail_analytics(
     access: RecordAccess,
     received_from: datetime,
     received_to: datetime,
+    recompute_max_attempts: int,
 ) -> VoicemailAnalytics:
     """Counts by category/priority/status/follow-up/day and median time to follow-up.
 
     Time to follow-up is ``follow_up_done_at - received_at`` over the
     voicemails of the window whose follow-up is done; ``None`` without any.
+
+    HOM-299 (ADR 0041): the same statement also reads each voicemail's meeting, and the
+    ``coverage/1`` processing and evaluation counters are computed over exactly these
+    voicemails, so ``processing.denominator == total``.  At most 8 more statements, only
+    when a meeting is completed or partial.  No small-group rule: the caller can list and
+    open every counted voicemail.
     """
+    in_window = and_(
+        VoicemailMessage.received_at >= received_from,
+        VoicemailMessage.received_at < received_to,
+    )
     rows = db.execute(
         _scoped(workspace_id, access)
         .with_only_columns(
@@ -168,18 +196,21 @@ def voicemail_analytics(
             VoicemailMessage.follow_up_state,
             VoicemailMessage.received_at,
             VoicemailMessage.follow_up_done_at,
+            Meeting.id.label("meeting_id"),
+            Meeting.status.label("meeting_status"),
+            Meeting.deleted_at,
+            Meeting.team_id,
+            Meeting.agent_user_id,
+            Meeting.source,
+            Meeting.language,
         )
-        .where(
-            and_(
-                VoicemailMessage.received_at >= received_from,
-                VoicemailMessage.received_at < received_to,
-            )
-        )
+        .where(in_window)
     ).all()
     result = VoicemailAnalytics(received_from=received_from, received_to=received_to)
     days: dict[date, int] = {}
     durations: list[float] = []
-    for category, priority, status, follow_up, received_at, done_at in rows:
+    for row in rows:
+        category, priority, status, follow_up, received_at, done_at = row[:6]
         result.total += 1
         key = category or "unclassified"
         result.by_category[key] = result.by_category.get(key, 0) + 1
@@ -194,6 +225,31 @@ def voicemail_analytics(
     result.by_day = sorted(days.items())
     result.followed_up = len(durations)
     result.median_follow_up_seconds = statistics.median(durations) if durations else None
+
+    window = CoverageWindow(start=received_from, end=received_to)
+    candidates = (
+        _scoped(workspace_id, access)
+        .with_only_columns(Meeting.id)
+        .where(
+            in_window,
+            Meeting.status.in_(sorted(TRANSCRIBABLE_STATUSES, key=lambda value: value.value)),
+        )
+    )
+    counters = compute_population_coverage(
+        db,
+        workspace_id=workspace_id,
+        window=window,
+        rows=rows,
+        candidates=candidates,
+        recompute_max_attempts=recompute_max_attempts,
+    ).counters
+    result.coverage = population_coverage_block(
+        window,
+        window_basis=WINDOW_BASIS_VOICEMAIL_RECEIVED_AT,
+        basis=BASIS_VOICEMAIL_POPULATION,
+        counters=counters,
+    )
+    result.missing_data = population_missing_data(result.coverage, result.scorecard)
     return result
 
 

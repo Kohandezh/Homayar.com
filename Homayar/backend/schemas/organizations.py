@@ -11,6 +11,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from backend.schemas.coverage import AggregateMissingData, AggregateScorecard
+from backend.schemas.trends import (
+    OrganizationDisclosurePolicy,
+    TrendCoverage,
+    TrendDisclosure,
+    TrendWindowResponse,
+)
+
 OrganizationRoleLiteral = Literal["owner", "admin", "analyst", "executive"]
 GrantableOrganizationRoleLiteral = Literal["admin", "analyst", "executive"]
 DelegatedWorkspaceRoleLiteral = Literal["admin", "member", "viewer"]
@@ -154,6 +162,13 @@ class WorkspaceAggregateResponse(BaseModel):
     meetings_by_status: dict[str, int]
     audio_seconds_total: int
     action_items_total: int
+    # HOM-299 (ADR 0041, L2): the executive view's block for the same workspace, grant and
+    # window.  A withheld item has no count: ``coverage`` and ``missing_data`` are null; the
+    # fields above keep their values.
+    coverage: TrendCoverage | None
+    scorecard: AggregateScorecard
+    missing_data: AggregateMissingData | None
+    disclosure: TrendDisclosure
 
 
 class AggregatesResponse(BaseModel):
@@ -162,6 +177,9 @@ class AggregatesResponse(BaseModel):
     until: datetime | None
     generated_at: datetime
     items: list[WorkspaceAggregateResponse]
+    # HOM-299: the disclosure rules and the closed-week window ``W`` of every item's metadata
+    disclosure_policy: OrganizationDisclosurePolicy
+    coverage_window: TrendWindowResponse
 
 
 class ScopedRecordResponse(BaseModel):

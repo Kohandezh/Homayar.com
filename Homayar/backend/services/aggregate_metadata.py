@@ -16,6 +16,11 @@ Response rules: ``scorecard_unavailable`` (both), ``empty_population`` (trends: 
 included; coverage: nothing ingested), and for the trend rows of the whole window (not the
 points) ``missing_values``, ``pending_review``, ``insufficient_sample`` and
 ``source_unavailable``.
+
+HOM-299 (ADR 0041): ``GET /voicemails/analytics`` carries a population ``coverage`` block
+(``population_coverage_block``) and ``population_missing_data``: the scorecard and counter
+rules, and ``empty_population`` when the processing denominator is 0.  The items of
+``GET /organizations/{id}/aggregates`` carry the HOM-82 block's metadata unchanged.
 """
 
 from __future__ import annotations
@@ -25,14 +30,21 @@ from typing import Any
 
 from backend.issue_trends import CellReason, CellStatus
 from backend.services.coverage_service import (
+    COVERAGE_VERSION,
     REASON_EMPTY_DENOMINATOR,
     STATUS_COMPUTED,
     STATUS_NOT_COMPUTABLE,
+    CoverageWindow,
 )
 
 SCORECARD_NOT_AVAILABLE = "not_available"
 
 TREND_COUNTERS = ("processing", "evaluation")
+
+# HOM-299: the population of a coverage block that is not the ledger, and the column its
+# window filters.
+BASIS_VOICEMAIL_POPULATION = "voicemail_population"
+WINDOW_BASIS_VOICEMAIL_RECEIVED_AT = "voicemail_received_at"
 COVERAGE_COUNTERS = ("ingestion", "processing", "evaluation", "review")
 
 MISSING_DATA_INDICATORS = frozenset(
@@ -117,5 +129,31 @@ def coverage_missing_data(
     for name in COVERAGE_COUNTERS:
         codes |= counter_indicators(name, counters[name])
     if counters["ingestion"]["denominator"] == 0:
+        codes.add("empty_population")
+    return _missing_data(codes)
+
+
+def population_coverage_block(
+    window: CoverageWindow, *, window_basis: str, basis: str, counters: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The ``coverage`` key over a population that is not the ledger (HOM-299): the
+    ``coverage/1`` processing and evaluation counters."""
+    return {
+        "version": COVERAGE_VERSION,
+        "window": {"from": window.start, "to": window.end, "basis": window_basis},
+        "basis": basis,
+        "processing": counters["processing"],
+        "evaluation": counters["evaluation"],
+    }
+
+
+def population_missing_data(
+    coverage: Mapping[str, Any], scorecard: Mapping[str, Any]
+) -> dict[str, Any]:
+    """``missing_data`` of a population coverage block (HOM-299)."""
+    codes = _scorecard_indicators(scorecard)
+    for name in TREND_COUNTERS:
+        codes |= counter_indicators(name, coverage[name])
+    if coverage["processing"]["denominator"] == 0:
         codes.add("empty_population")
     return _missing_data(codes)
