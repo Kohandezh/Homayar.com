@@ -33,6 +33,7 @@ from backend.privacy.transcript_view import (
     ViewPolicy,
     choose_view,
 )
+from backend.providers.schemas import ClaimBasis
 from backend.schemas.insights import (
     ActionItemCreateRequest,
     ActionItemResponse,
@@ -65,7 +66,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
-from backend.services.analysis_claims import claim_section
+from backend.services.analysis_claims import SECTION_DECISION, claim_section
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.evidence_service import (
@@ -328,23 +329,14 @@ def _detail_fields(view: MeetingView, point: dict) -> dict[str, object]:
     return fields
 
 
-def _decision_point(view: MeetingView, point: object) -> object:
-    """A decision in this view, including a structured decision's owner and
-    due date (HOM-61); a present detail key leaves only in its allowed
-    shape, an absent one stays absent."""
-    rendered = view.point(point)
-    if not isinstance(rendered, dict):
-        return rendered
-    return {**rendered, **_detail_fields(view, rendered)}
+# The values a stored ``basis`` may hold (HOM-61); reports.py reuses this set.
+_BASES = frozenset(basis.value for basis in ClaimBasis)
 
 
-def _insight_point(view: MeetingView, point: object) -> object:
-    """An insight key point in this view: only the keys the processor writes
-    leave, each in its allowed shape, and a present owner or due date in the
+def _point_fields(view: MeetingView, rendered: dict) -> dict[str, object]:
+    """The allowed fields of a rendered point: the six insight keys, each
+    only in its allowed shape, and a present owner or due date in the
     decision detail shape (HOM-304); any other key is dropped."""
-    rendered = view.point(point)
-    if not isinstance(rendered, dict):
-        return rendered
     allowed: dict[str, object] = _detail_fields(view, rendered)
     for key, value in rendered.items():
         if key in ("category", "description"):
@@ -364,6 +356,33 @@ def _insight_point(view: MeetingView, point: object) -> object:
         elif key == "evidence_status":
             allowed[key] = evidence_status_of(value)
     return allowed
+
+
+def _decision_point(view: MeetingView, point: object) -> object:
+    """A decision in this view: only the allowed keys leave. The shared
+    point rule, plus a structured decision's ``section`` (HOM-61) and
+    ``basis`` in their exact stored shapes, and the owner and due date
+    detail (HOM-294); any other key is dropped."""
+    rendered = view.point(point)
+    if not isinstance(rendered, dict):
+        return rendered
+    allowed = _point_fields(view, rendered)
+    if rendered.get("section") == SECTION_DECISION:
+        allowed["section"] = SECTION_DECISION
+    basis = rendered.get("basis")
+    if isinstance(basis, str) and basis in _BASES:
+        allowed["basis"] = basis
+    return allowed
+
+
+def _insight_point(view: MeetingView, point: object) -> object:
+    """An insight key point in this view: only the keys the processor writes
+    leave, each in its allowed shape, and a present owner or due date in the
+    decision detail shape (HOM-304); any other key is dropped."""
+    rendered = view.point(point)
+    if not isinstance(rendered, dict):
+        return rendered
+    return _point_fields(view, rendered)
 
 
 def summary_response(summary: MeetingSummary, view: MeetingView) -> SummaryResponse:
