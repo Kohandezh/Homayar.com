@@ -748,4 +748,17 @@ def test_detector_version_covers_the_id_next_to_a_phone():
 
 def test_detector_version_covers_the_glued_runs():
     # HOM-303: stored redactions made before the written-form readings are derived again.
-    assert DETECTOR_VERSION == "text-pii/6"
+    # HOM-308: any version after text-pii/5 holds the written-form readings.
+    assert DETECTOR_VERSION not in {
+        "text-pii/1",
+        "text-pii/2",
+        "text-pii/3",
+        "text-pii/4",
+        "text-pii/5",
+    }
+
+
+def test_detector_version_covers_the_iban_before_a_latin_word():
+    # HOM-308: stored redactions made before an IBAN was read without the word after it
+    # are derived again.
+    assert DETECTOR_VERSION == "text-pii/7"

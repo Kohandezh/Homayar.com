@@ -6,6 +6,16 @@ common spelling, international ``+``/``00`` numbers), Iranian national IDs
 (check digit), bank cards (Luhn), IBANs (ISO 13616 mod 97, ``IR`` included) and
 Iranian postal codes (only next to a postal-code keyword: ten digits without a
 check digit are otherwise indistinguishable from other numbers).
+An ``IR`` IBAN followed by a separator and a Latin word is read without the
+word (``IR062960000000100324200001 thanks``): when the reading with the word
+fails the IBAN check, one shorter reading of 26 characters is tried, when a
+separator and a Latin letter follow it.  The rest of that reading is then
+searched again (the restart rule): an ``IR`` reading there is read the same
+way and is dropped only over another IBAN reading
+(``IR06 ... 01 and IR27 ... 98 thanks``); any other reading must be whole, of
+a registered length (SWIFT registry), and overlap no other regex reading
+(``IR... and DE89370400440532013000``).  A reading with the word that passes
+the check by chance keeps the word in its span.
 
 Persian (``۰``–``۹``), Arabic-Indic (``٠``–``٩``) and fullwidth (``０``–``９``)
 digits are folded to ASCII, and stored values are ASCII.  All other
@@ -69,7 +79,12 @@ second number on its own.
 NOT detected (disclosed residual risk): person and company names, street
 addresses, dates of birth, licence plates, passport and account numbers
 without a checksum, identifiers spelled out in words (``صفر نهصد و دوازده``),
-numbers split across transcript segments, joined digits that do not split
+numbers split across transcript segments, an IBAN with a Latin word glued to
+it (``IR062960000000100324200001thanks``), an IBAN followed by a separator
+and a digit token (``IR062960000000100324200001 2``), a non-IR IBAN before a
+Latin word (``DE89370400440532013000 thanks``), a grouped non-IR IBAN after an
+IR IBAN and a word, when its digits hold a phone
+(``IR06 ... 01 and DE89 3704 0044 0532 0130 00``), joined digits that do not split
 into whole identifiers (21 digits that are not an ID plus a phone, a split
 that would cut another reading of the same class, or joined identifiers whose
 split needs a class that was not requested, for example a card glued to an ID
@@ -102,7 +117,12 @@ last group of a planted card); a card with digits glued to it (17 to 19 digit
 numbers would get a chance card 18-33 points more often); a ``00`` number with
 digits glued before it (random 11 to 19 digit numbers: up to 3.0 points more);
 and a ``+`` number right after a digit (28% of written sums ``a+b`` would be
-read as a phone).
+read as a phone).  Only one shorter IBAN reading is tried, and only for
+``IR``, because each one is one more chance (about 1 in 97) that random
+letters and digits pass the IBAN check: cutting non-IR readings at their
+registered length gave 11 new subject-export matches for values not in the
+text on the HOM-308 gate corpus, all chance readings (cutting after the last
+digit gave 282).
 Redaction therefore reduces exposure; it is not anonymisation, and it is text
 only — it never masks audio.
 """
@@ -130,7 +150,8 @@ from backend.speech.text_normalize import (
 # text-pii/5 (HOM-291): an ID next to a phone number is two identifiers, no digit left raw.
 # text-pii/6 (HOM-303): a card, a 00 number or a glued mobile is read where a neighbour
 # used up its digits.
-DETECTOR_VERSION = "text-pii/6"
+# text-pii/7 (HOM-308): an IBAN followed by a separator and a Latin word is read.
+DETECTOR_VERSION = "text-pii/7"
 
 
 class PiiClass(str, enum.Enum):
@@ -205,6 +226,33 @@ _IBAN_RE = re.compile(
     + _SEP
     + r"[A-Za-z0-9]){11,30}(?![0-9A-Za-z])"
 )
+# IBAN length per country (HOM-308): the SWIFT IBAN registry (ISO 13616), as listed on
+# en.wikipedia.org/wiki/International_Bank_Account_Number on 2026-10-24.  IR is not in
+# the registry; its 26 is the length ``valid_iban`` already requires.
+_IBAN_LENGTHS = {
+    country: length
+    for length, countries in (
+        (15, "NO"),
+        (16, "BE"),
+        (18, "DK FI FK FO GL NL SD"),
+        (19, "MK SI"),
+        (20, "AT BA EE KZ LT LU MN XK"),
+        (21, "CH HR LI LV"),
+        (22, "BG BH CR DE GB GE IE ME RS VA"),
+        (23, "AE GI IL IQ OM SO TL"),
+        (24, "AD CZ ES MD PK RO SA SE SK TN VG"),
+        (25, "LY PT ST"),
+        (26, "IR IS TR"),
+        (27, "BI DJ FR GR IT MC MR SM"),
+        (28, "AL AZ BY CY DO GT HN HU LB NI PL SV"),
+        (29, "BR EG PS QA UA"),
+        (30, "JO KW MU YE"),
+        (31, "MT SC"),
+        (32, "LC"),
+        (33, "RU"),
+    )
+    for country in countries.split()
+}
 # The keyword, optionally followed by up to two short words ("کد پستی منزل",
 # "postal code of office"), then only separators up to the number.  Matched
 # on letter-folded text without harakat and tatweel, so Arabic kaf/yeh and
@@ -270,6 +318,65 @@ def valid_iban(compact: str) -> bool:
     rearranged = compact[4:] + compact[:4]
     numeric = "".join(str(int(char, 36)) for char in rearranged)
     return int(numeric) % 97 == 1
+
+
+def _iban_cut(norm: str, start: int, end: int, length: int) -> int | None:
+    """Where the first ``length`` letters and digits of the IBAN reading
+    ``norm[start:end]`` end, when a separator and a Latin letter follow them
+    inside the reading (HOM-308)."""
+    count = 0
+    for i in range(start, end - 2):
+        if norm[i].isalnum():
+            count += 1
+            if count == length:
+                return i + 1 if not norm[i + 1].isalnum() and norm[i + 2].isalpha() else None
+    return None
+
+
+def _registered_iban(norm: str, match: re.Match[str], *, cut: bool) -> PiiSpan | None:
+    """The reading of ``match`` with the registered IBAN length of its
+    country: the whole reading, or with ``cut`` one cut before a Latin word
+    (HOM-308)."""
+    compact = re.sub(r"[^0-9A-Za-z]", "", match.group()).upper()
+    length = _IBAN_LENGTHS.get(compact[:2])
+    if length is None or len(compact) < length or (len(compact) > length and not cut):
+        return None
+    end: int | None = match.end()
+    if len(compact) > length:
+        end = _iban_cut(norm, match.start(), match.end(), length)
+    if end is None or not valid_iban(compact[:length]):
+        return None
+    return PiiSpan(match.start(), end, PiiClass.IBAN, compact[:length])
+
+
+def _ibans_before_words(
+    norm: str, failed: list[re.Match[str]], base: list[PiiSpan]
+) -> list[PiiSpan]:
+    """New IBAN readings in the ``IR`` base readings that failed because they
+    took a Latin word (HOM-308): the cut of each one, then a scan that restarts
+    at the cut over the rest of it (``IR... and GB82 WEST ...``).  In the scan
+    an ``IR`` reading is read like the first one (it may be cut) and is dropped
+    over a base IBAN; any other reading must be whole, of a registered length,
+    and overlap no regex reading in ``base``, so none of those changes."""
+    new: list[PiiSpan] = []
+    for match in failed:
+        span = _registered_iban(norm, match, cut=True)
+        if span is None:
+            continue
+        new.append(span)
+        pos = span.end
+        # Only readings that start in the part of the failed reading base did not scan.
+        while (following := _IBAN_RE.search(norm, pos)) and following.start() < match.end():
+            pos = following.end()
+            ir = following.group()[:2].upper() == "IR"
+            span = _registered_iban(norm, following, cut=ir)
+            if span is not None and not any(
+                other.start < span.end and span.start < other.end
+                for other in base
+                if not ir or other.pii_class is PiiClass.IBAN
+            ):
+                new.append(span)
+    return new
 
 
 def _canonical_phone(raw: str) -> str | None:
@@ -466,10 +573,13 @@ def _matches(norm: str, folded: str) -> list[PiiSpan]:
             canonical = _canonical_phone(match.group())
             if canonical is not None:
                 add(match.start(), match.end(), PiiClass.PHONE, canonical)
+    failed: list[re.Match[str]] = []
     for match in _IBAN_RE.finditer(norm):
         compact = re.sub(r"[^0-9A-Za-z]", "", match.group()).upper()
         if valid_iban(compact):
             add(match.start(), match.end(), PiiClass.IBAN, compact)
+        elif compact.startswith("IR"):
+            failed.append(match)
     for match in _CARD_RE.finditer(norm):
         digits = _only_digits(match.group())
         if valid_luhn(digits):
@@ -479,6 +589,9 @@ def _matches(norm: str, folded: str) -> list[PiiSpan]:
         pii_class = _ten_digit_class(folded, match.start(), digits)
         if pii_class is not None:
             add(match.start(), match.end(), pii_class, digits)
+    if failed:
+        # After every base reading, so a new IBAN reading can be checked against all of them.
+        found += _ibans_before_words(norm, failed, found)
     return found
 
 
