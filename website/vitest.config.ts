@@ -7,7 +7,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.{ts,tsx}"],
     // The reviewer's acceptance tests run with their own config (tests/oracle/vitest.oracle.config.ts).
     exclude: ["tests/oracle/**", "node_modules/**"],
   },

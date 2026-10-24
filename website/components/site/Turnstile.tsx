@@ -56,6 +56,7 @@ export function Turnstile({
   locale,
   onToken,
   onLoadError,
+  onError,
   ref,
 }: {
   locale: Locale;
@@ -63,17 +64,21 @@ export function Turnstile({
   onToken: (token: string | null) => void;
   /** The script could not load (blocked or offline), so no token will ever come. */
   onLoadError: () => void;
+  /** The widget itself ran into an error, so no token will come until it is reset. */
+  onError: () => void;
   ref?: Ref<TurnstileHandle>;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
   const onTokenRef = useRef(onToken);
   const onLoadErrorRef = useRef(onLoadError);
+  const onErrorRef = useRef(onError);
 
   useEffect(() => {
     onTokenRef.current = onToken;
     onLoadErrorRef.current = onLoadError;
-  }, [onToken, onLoadError]);
+    onErrorRef.current = onError;
+  }, [onToken, onLoadError, onError]);
 
   useImperativeHandle(ref, () => ({
     reset() {
@@ -94,7 +99,10 @@ export function Turnstile({
             theme: "auto",
             callback: (token: string) => onTokenRef.current(token),
             "expired-callback": () => onTokenRef.current(null),
-            "error-callback": () => onTokenRef.current(null),
+            "error-callback": () => {
+              onTokenRef.current(null);
+              onErrorRef.current();
+            },
           }) ?? null;
       })
       .catch(() => {

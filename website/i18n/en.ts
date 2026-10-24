@@ -896,6 +896,7 @@ const en = {
       turnstileFailed: "The security check did not pass. Please complete it again, then send the form.",
       turnstileWaiting: "Waiting for the security check to finish. Your request is sent as soon as it does.",
       turnstileLoadFailed: "The security check could not load. Check your connection or ad blocker, then reload the page.",
+      turnstileError: "The security check ran into a problem. Press Try again to run it again, then your request is sent.",
       privacyNote: "We get only what you type here. Cloudflare Turnstile, run by Cloudflare, checks that you are a person. Your request is stored with Cloudflare and e-mailed to the Homayar team only so we can answer you. We delete the stored copy after 180 days and never add you to a marketing list.",
     },
     aside: {
