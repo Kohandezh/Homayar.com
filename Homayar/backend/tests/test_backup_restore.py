@@ -18,6 +18,7 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -40,7 +41,7 @@ from backend.backup.manifest import (
     read_manifest,
     write_manifest,
 )
-from backend.backup.metrics import read_values, record_success
+from backend.backup.metrics import read_values, record_success, textfile_path
 from backend.backup.reconcile import (
     REPORT_FILE,
     RETIRED_PREFIX,
@@ -56,6 +57,7 @@ from backend.backup.restore import (
     describe_storage_target,
     live_lock,
     read_marker,
+    read_state,
     restore_backup,
     write_marker,
 )
@@ -188,7 +190,7 @@ def _reconcile(set_dir, staging, target_settings, storage, tmp_path, **kwargs):
 
 
 def test_backup_offsite_copy_isolated_restore_reconcile_promote_and_serve(
-    client, email_outbox, monkeypatch, settings, tmp_path, databases
+    client, email_outbox, monkeypatch, settings, tmp_path, databases, capsys
 ):
     _patch_media(monkeypatch)
     alpha = _tenant(client, email_outbox, "bk-alpha")
@@ -212,9 +214,14 @@ def test_backup_offsite_copy_isolated_restore_reconcile_promote_and_serve(
     monkeypatch.setenv(
         "HOMAYAR_BACKUP_KEY", f"{KEY.key_id}:{base64.b64encode(KEY.secret).decode()}"
     )
-    manifest = _backup(settings, tmp_path, root=root)
-    set_dir = Path(manifest["path"])
+    capsys.readouterr()
+    with monkeypatch.context() as patched:
+        patched.setattr("backend.config.get_settings", lambda: settings)
+        assert cli(["--root", str(root), "create"]) == 0
+    set_dir = Path(json.loads(capsys.readouterr().out)["path"])
+    manifest = {**read_manifest(set_dir), "path": str(set_dir)}
     assert not textfile.exists()  # creating a set moves no gauge
+    assert textfile_path(root) == textfile
 
     # Identity and integrity evidence of the set (HOM-116).
     assert manifest["backup_id"] == set_dir.name
@@ -392,7 +399,7 @@ def _subprocess_env(settings, root: Path, marker: Path) -> dict[str, str]:
 
 
 def test_interrupted_backups_never_leave_a_usable_set_and_release_the_lock(
-    client, email_outbox, monkeypatch, settings, tmp_path
+    client, email_outbox, monkeypatch, settings, tmp_path, capsys
 ):
     _patch_media(monkeypatch)
     tenant = _tenant(client, email_outbox, "bk-interrupt")
@@ -457,13 +464,17 @@ def test_interrupted_backups_never_leave_a_usable_set_and_release_the_lock(
     assert not textfile.exists()
 
     # The kernel released the lock: the next scheduled run completes.
-    manifest = _backup(settings, tmp_path, root=root)
-    assert [name for name, _ in list_complete_sets(root)] == [manifest["backup_id"]]
-    assert not textfile.exists()  # only a verified set moves the gauges
     monkeypatch.setenv("HOMAYAR_BACKUP_TEXTFILE", str(textfile))
     monkeypatch.setenv(
         "HOMAYAR_BACKUP_KEY", f"{KEY.key_id}:{base64.b64encode(KEY.secret).decode()}"
     )
+    monkeypatch.setenv("BACKUP_DATABASE_URL", _admin())
+    monkeypatch.setattr("backend.config.get_settings", lambda: settings)
+    capsys.readouterr()
+    assert cli(["--root", str(root), "create"]) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    assert [name for name, _ in list_complete_sets(root)] == [manifest["backup_id"]]
+    assert not textfile.exists()  # only a verified set moves the gauges
     assert cli(["--root", str(root), "verify", manifest["backup_id"]]) == 0
     fresh = read_values(textfile)
     assert set(fresh) == {"postgres", "objects"}
@@ -754,6 +765,161 @@ def test_restore_failure_isolation_guards_and_idempotent_retry(
             work_dir=tmp_path / "work-3",
         )
     assert older.value.code == "code_older_than_backup"
+
+
+def _change_marker(database: str, **change) -> dict:
+    """Another writer replaces the marker (a run that lost its lock, or a hand edit)."""
+    changed = {**read_marker(_admin(), database), **change}
+    write_marker(_admin(), database, changed)
+    return changed
+
+
+@contextmanager
+def _holding(lock: str):
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as holder:
+        holder.execute("SELECT pg_advisory_lock(hashtext(%s))", (lock,))
+        yield
+
+
+def _retired_names(live: str) -> list[str]:
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        rows = connection.execute(
+            "SELECT datname FROM pg_database WHERE starts_with(datname, %s)",
+            (f"{live[:40]}_retired_",),
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def test_a_changed_marker_or_a_held_lock_stops_every_staging_step(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "bk-guards")
+    accepted = _upload(client, tenant, key="bk-guards-1")
+    assert accepted.status_code == 202, accepted.text
+    _stamp_head(settings.database_url)
+    set_dir = Path(_backup(settings, tmp_path)["path"])
+    _delete(client, tenant, accepted.json()["meeting"]["id"])  # one tombstone to replay
+    staging, live = _names("guards", databases)
+    target = _target(settings, tmp_path)
+    work = tmp_path / "restore-work"
+    report_path = work / REPORT_FILE
+    changed: dict = {}
+
+    def run_promote(**kwargs):
+        return promote(
+            admin_url=_admin(),
+            staging_database=staging,
+            live_database=live,
+            report_path=report_path,
+            key=KEY,
+            **kwargs,
+        )
+
+    # Restore: the marker changes after _prepare_staging wrote it, before the CAS to loaded.
+    original_point = faults.point
+
+    def change_before_objects(name: str) -> None:
+        if name == "before_objects":
+            changed.clear()
+            changed.update(_change_marker(staging, by="another restore"))
+        original_point(name)
+
+    monkeypatch.setattr(faults, "point", change_before_objects)
+    with pytest.raises(RestoreRefused) as restore_changed:
+        _restore(settings, tmp_path, set_dir, staging, target=target)
+    assert restore_changed.value.code == "staging_changed"
+    assert changed["state"] == "restoring" and read_marker(_admin(), staging) == changed
+    assert read_state(work)["status"] == "restoring"
+    monkeypatch.setattr(faults, "point", original_point)
+    state, *_ = _restore(settings, tmp_path, set_dir, staging, target=target, resume=True)
+    assert state["status"] == "loaded" and read_marker(_admin(), staging)["state"] == "loaded"
+
+    # Reconcile while another run holds the staging database.
+    loaded = read_marker(_admin(), staging)
+    with _holding(f"homayar-restore:{staging}"):
+        with pytest.raises(RestoreRefused) as reconcile_busy:
+            _reconcile(set_dir, staging, target[0], target[1], tmp_path)
+        assert reconcile_busy.value.code == "staging_busy"
+    assert read_marker(_admin(), staging) == loaded
+
+    # Reconcile: the marker changes after it was read, before the CAS to reconciling.
+    real_read = reconcile_module.read_marker
+
+    def read_then_change(admin_url: str, database: str):
+        marker = real_read(admin_url, database)
+        if database == staging:
+            monkeypatch.setattr(reconcile_module, "read_marker", real_read)
+            changed.clear()
+            changed.update(_change_marker(staging, at="changed by another writer"))
+        return marker
+
+    monkeypatch.setattr(reconcile_module, "read_marker", read_then_change)
+    with pytest.raises(RestoreRefused) as first_cas:
+        _reconcile(set_dir, staging, target[0], target[1], tmp_path)
+    assert first_cas.value.code == "staging_changed"
+    assert not report_path.exists()
+    assert changed["state"] == "loaded" and read_marker(_admin(), staging) == changed
+
+    # Reconcile: the marker changes during the run, before the CAS to reconciled.
+    real_heads = reconcile_module.code_heads
+
+    def heads_then_change():
+        monkeypatch.setattr(reconcile_module, "code_heads", real_heads)
+        assert read_marker(_admin(), staging)["state"] == "reconciling"
+        changed.clear()
+        changed.update(_change_marker(staging, run="another-run"))
+        return real_heads()
+
+    monkeypatch.setattr(reconcile_module, "code_heads", heads_then_change)
+    with pytest.raises(RestoreRefused) as final_cas:
+        _reconcile(set_dir, staging, target[0], target[1], tmp_path)
+    assert final_cas.value.code == "staging_changed"
+    assert read_marker(_admin(), staging) == changed and changed["state"] == "reconciling"
+    assert load_report(report_path, KEY)["status"] == "PASS"
+    # The PASS report of that run promotes nothing: the marker never became reconciled.
+    with pytest.raises(RestoreRefused) as unsealed:
+        run_promote()
+    assert unsealed.value.code == "staging_not_reconciled"
+
+    report = _reconcile(set_dir, staging, target[0], target[1], tmp_path)
+    assert report["status"] == "PASS", report["statuses"]
+    reconciled = read_marker(_admin(), staging)
+    assert reconciled["state"] == "reconciled"
+
+    # Promote while another run holds the staging database, or another promote the live name.
+    with _holding(f"homayar-restore:{staging}"):
+        with pytest.raises(RestoreRefused) as promote_busy:
+            run_promote()
+        assert promote_busy.value.code == "staging_busy"
+    with _holding(f"homayar-live:{live}"):
+        with pytest.raises(RestoreRefused) as live_busy:
+            run_promote()
+        assert live_busy.value.code == "live_busy"
+    assert read_marker(_admin(), staging) == reconciled
+    assert read_marker(_admin(), live) is False
+
+    # Promote: the marker changes after it was read, before the transaction re-reads it.
+    # The renames of that transaction (old live retired, staging to live) roll back.
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        connection.execute(f'CREATE DATABASE "{live}"')
+    monkeypatch.setattr(reconcile_module, "read_marker", read_then_change)
+    with pytest.raises(RestoreRefused) as promote_changed:
+        run_promote(retire_existing=True)
+    assert promote_changed.value.code == "staging_changed"
+    monkeypatch.setattr(reconcile_module, "read_marker", real_read)
+    retired = _retired_names(live)
+    databases.extend(retired)
+    assert retired == []
+    assert changed["state"] == "reconciled" and read_marker(_admin(), staging) == changed
+    assert read_marker(_admin(), live) is None  # the old live database, under its name
+
+    promoted = run_promote(retire_existing=True)
+    databases.extend(_retired_names(live))
+    assert promoted["live_database"] == live
+    assert promoted["dropped_empty_database"].startswith(f"{live[:40]}_retired_")
+    assert read_marker(_admin(), live)["state"] == "promoted"
+    assert read_marker(_admin(), staging) is False
 
 
 # --- RLS, tenant boundaries and object reconciliation -----------------------------------
