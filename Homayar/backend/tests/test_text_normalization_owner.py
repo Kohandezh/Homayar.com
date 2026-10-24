@@ -3969,10 +3969,11 @@ EMAIL_ONLY_DIGEST = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058c
 # HOM-291 bumped it to text-pii/5 (a national ID next to a phone is two identifiers).
 # HOM-303 bumped it to text-pii/6 (a card, a 00 number or a glued mobile is read where
 # a neighbour used up its digits).
-# HOM-303: the version and the two current digests below.
-CURRENT_DETECTOR_VERSION = "text-pii/6"
-CURRENT_ALL_CLASSES_DIGEST = "d3810be7444e616215f289639f4a6c1814f29d3e35ca2c49a60db3ce717f7209"
-CURRENT_EMAIL_ONLY_DIGEST = "20b3e99733a46c3007b3eb8fbe6b88a481ec3377a76e95ef1ec727961ddc4399"
+# HOM-308 bumped it to text-pii/7 (an IBAN followed by a separator and a Latin word is read).
+# HOM-308: the version and the two current digests below.
+CURRENT_DETECTOR_VERSION = "text-pii/7"
+CURRENT_ALL_CLASSES_DIGEST = "6f541a32e767395e11877a20831d684133f10a26f78b45a1a51e93e73a69194d"
+CURRENT_EMAIL_ONLY_DIGEST = "de632e686197390ae7eaa5960a339ae96d3d929b4621f8520f2c2a69aa3ba449"
 
 
 class TestGoldenDivergenceTable:
@@ -4578,8 +4579,8 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "7f2909390dc76b5bc94d83f3"),  # HOM-164/165/171/291/303 docstring
-        ("DETECTOR_VERSION", "163d2bb305714266a477ff8d"),  # HOM-303 text-pii/6
+        ("Expr", "29ba4438938f9afd4c0d35c4"),  # HOM-164/165/171/291/303/308 docstring
+        ("DETECTOR_VERSION", "3c729a129ba65bf83ea786f7"),  # HOM-308 text-pii/7
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
         ("_PRIORITY", "3266f57d52c974fe017bac21"),
@@ -4595,6 +4596,7 @@ BASE_FINGERPRINTS: dict = {
         ("_CARD_RE", "504886bc0ce5dcc69329dbd7"),
         ("_DIGIT_RUN_RE", "9530a482ace5b8dbbb70c247"),  # HOM-291 joined digit runs
         ("_IBAN_RE", "a948ca753b466b8dbef81dd7"),  # HOM-165
+        ("_IBAN_LENGTHS", "173bd8b3332f2b97250e2cbb"),  # HOM-308 registered IBAN lengths
         ("_POSTAL_KEYWORD_RE", "3d3fd7541a6fe30549048ec8"),  # HOM-164
         ("_POSTAL_WINDOW", "74a038fb8d85fb4f9693c87a"),
         ("_GLUED_MOBILE", "585d0bc724bd6209bc359042"),  # HOM-303
@@ -4608,10 +4610,13 @@ BASE_FINGERPRINTS: dict = {
         ("valid_national_id", "a2a44ce0ff124921f63547b1"),
         ("valid_luhn", "8b40e7530c9816227f216679"),
         ("valid_iban", "96143c494e81f9c5b0b851ef"),
+        ("_iban_cut", "01314cb365e34ba7e0404cbb"),  # HOM-308 the end of a registered length
+        ("_registered_iban", "1a7eeac66e4bc488a76ac96c"),  # HOM-308 one registered length
+        ("_ibans_before_words", "d793fd6cf3b4c393934811d3"),  # HOM-308 never over a base IBAN
         ("_canonical_phone", "406be280c94ea1e049f0f165"),
         ("_ten_digit_class", "fcc5a1c0dc0e59ec4be9b812"),  # HOM-291 split out of detect
         ("_split_run", "769ee2ca6830b4c213e869fd"),  # HOM-291 a run read as identifiers
-        ("_matches", "44336fcb9c5930f298fcc309"),  # HOM-303 split out of _candidates
+        ("_matches", "e40fcac009ad686897760ebc"),  # HOM-308 new IBAN readings after the base ones
         ("_candidates", "38168e29cc1e1a5e35095f4c"),  # HOM-303 takes the matches
         ("_beside", "b1afa8142337e65e1e407e78"),  # HOM-303 what stands next to a card
         ("_glued_mobile", "2a659c98701b598f1cd2c54a"),  # HOM-303 one way to read a group
