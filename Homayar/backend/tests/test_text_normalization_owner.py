@@ -4578,7 +4578,7 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "8ed2e691c9341bbea1e0ffea"),  # HOM-164/165/171/291/303 docstring
+        ("Expr", "5177b82ab5fb73258ed1d92e"),  # HOM-164/165/171/291/303 docstring
         ("DETECTOR_VERSION", "163d2bb305714266a477ff8d"),  # HOM-303 text-pii/6
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
@@ -4612,12 +4612,13 @@ BASE_FINGERPRINTS: dict = {
         ("_split_run", "769ee2ca6830b4c213e869fd"),  # HOM-291 a run read as identifiers
         ("_matches", "44336fcb9c5930f298fcc309"),  # HOM-303 split out of _candidates
         ("_candidates", "c1883d5c3649c720a8ca4e96"),  # HOM-303 takes the matches
-        ("_beside", "1fa12d0f4bd7568c367d9a72"),  # HOM-303 what stands next to a card
+        ("_beside", "b1afa8142337e65e1e407e78"),  # HOM-303 what stands next to a card
         ("_glued_mobile", "2a659c98701b598f1cd2c54a"),  # HOM-303 one way to read a group
-        ("_written", "e8ec22d00285e1e4a8a75ec7"),  # HOM-303 written-form readings
+        ("_cards", "bc094e49cb305a5ca6fe930d"),  # HOM-303 written cards of one run
+        ("_written", "41e159ace54de46602497d80"),  # HOM-303 written-form readings
         ("_select", "2d1f1550a1097775ee8593d9"),  # HOM-291 no candidate digit left raw
         ("_keep", "137ffd296d48bf705921b724"),  # HOM-303 no base character lost
-        ("detect", "33c88c8aae7b2cff56681f4f"),  # HOM-303 written readings where raw
+        ("detect", "b735bfef11912faf7519a323"),  # HOM-303 written readings where raw
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),

@@ -16,6 +16,7 @@ Synthetic values only.
 
 from __future__ import annotations
 
+import random
 import re
 
 import pytest
@@ -352,3 +353,138 @@ def test_a_phone_inside_a_price_list_is_covered():
     parts = [("120000 45000 ", False), (MOBILE, True), (" 3500000 98000", False)]
     for table in (None, FA):
         assert _raw_identifier_digits(_script(parts, table)) == []
+
+
+# --- review round 1 ------------------------------------------------------------------
+
+C3 = "6104338418140683"
+C4 = "6273539475267963"
+
+
+@pytest.mark.parametrize(
+    ("text", "values"),
+    [
+        # Finding 1: a one-group card cut off from another card by a short number.
+        (f"{C1} 7 {C2}", [C1, C2]),
+        (f"{C1} 12 {C2}", [C1, C2]),
+        (f"{C1} 7 {grouped(C2)}", [C1, C2]),
+        (f"{C3} 4–6273 5394 7526 7963", [C3, C4]),
+        (f"{C1} 123 {C2}", [C1, C2]),
+        (f"{grouped(C1)} 123 {grouped(C2)}", [C1, C2]),
+        # Finding 2: a card on one side and three digits on the other.
+        (f"{C1} {C2} 123", [C1, C2]),
+        (f"123 {C1} {C2}", [C1, C2]),
+        (f"{grouped(C1)} {C2} 123", [C1, C2]),
+        (f"{C1} {grouped(C2)} 123", [C1, C2]),
+    ],
+)
+def test_a_card_next_to_another_card_past_a_short_number_is_read(text, values):
+    for written in (text, text.translate(FA)):
+        spans = detect(written)
+        assert [(s.pii_class, s.value) for s in spans] == [
+            (PiiClass.BANK_CARD, value) for value in values
+        ], written
+
+
+@pytest.mark.parametrize(
+    ("parts", "classes"),
+    [
+        # Finding 3: a chance card of a class that was not requested holds the group.
+        (
+            [("3998095845-128", False), ("09316593052", True)],
+            [PiiClass.PHONE, PiiClass.IR_NATIONAL_ID, PiiClass.EMAIL],
+        ),
+        ([("01826407857-747", False), ("09380261211", True), ("", False)], SPEECH),
+        ([("01826407857-747", False), ("09380261211", True)], [PiiClass.PHONE]),
+        ([("09314489417" + NBSP + "61", False), ("09396952460", True)], SPEECH),
+    ],
+)
+def test_a_glued_mobile_is_read_when_only_an_unrequested_class_holds_its_group(parts, classes):
+    for table in (None, FA):
+        assert _raw_identifier_digits(_script(parts, table), classes) == []
+
+
+def test_each_written_card_keeps_its_own_span_and_value():
+    # Finding 5: the written readings of a run are used together.
+    text = "٢٠٨٦٩ 5022-2914-7811-7854–6104-3306-9339-2881 6037–9960–9969–0706"
+    assert [(s.pii_class, s.value) for s in detect(text)] == [
+        (PiiClass.BANK_CARD, "5022291478117854"),
+        (PiiClass.BANK_CARD, "6104330693392881"),
+        (PiiClass.BANK_CARD, "6037996099690706"),
+    ]
+
+
+def test_without_ids_a_00_reading_still_takes_the_next_number():
+    # Finding 6, pinned: one span over both numbers, valued as the 00 reading
+    # that starts at the ID (the value base gives with phones only).
+    text = "0039626921 0090 453 3473 896 2"
+    spans = detect(text, [PiiClass.PHONE, PiiClass.BANK_CARD])
+    assert [(s.start, s.end, s.pii_class, s.value) for s in spans] == [
+        (0, len(text), PiiClass.PHONE, "00396269210090453")
+    ]
+
+
+def test_the_digit_patterns_agree_with_the_phone_regexes():
+    # Finding 7: the glued-mobile check uses its own digit patterns; they must
+    # accept exactly the 11-digit strings the mobile and landline regexes accept.
+    from backend.privacy.text_pii import (
+        _IR_LANDLINE_RE,
+        _IR_MOBILE_RE,
+        _LANDLINE_DIGITS_RE,
+        _MOBILE_DIGITS_RE,
+    )
+
+    rng = random.Random(3037)  # noqa: S311 - deterministic test inputs, not security
+    for prefix in range(1000):
+        head = f"{prefix:03d}"
+        for _ in range(3):
+            digits = head + "".join(rng.choice("0123456789") for _ in range(8))
+            assert bool(_MOBILE_DIGITS_RE.fullmatch(digits)) == bool(
+                _IR_MOBILE_RE.fullmatch(digits) and digits.startswith("0")
+            ), digits
+            assert bool(_LANDLINE_DIGITS_RE.fullmatch(digits)) == bool(
+                _IR_LANDLINE_RE.fullmatch(digits)
+            ), digits
+
+
+def test_every_digit_of_every_written_reading_is_redacted():
+    # Finding 8, white box: like the HOM-291 candidate check, for _written.
+    from backend.privacy.text_pii import _matches, _written
+    from backend.speech.text_normalize import normalize_digits_extended, unify_arabic_letters
+
+    rng = random.Random(3038)  # noqa: S311 - deterministic test inputs, not security
+    tokens = [
+        NID,
+        MOBILE,
+        LANDLINE,
+        C1,
+        C2,
+        grouped(C1),
+        grouped(C2, "-"),
+        INTL,
+        "+44 20 7946 0958",
+    ]
+    tokens += ["7", "12", "123", "1403", "98000", "613"]
+    separators = ["", " ", "-", NBSP, EN_DASH]
+    classes = [
+        ALL,
+        SPEECH,
+        [PiiClass.PHONE],
+        [PiiClass.BANK_CARD],
+        [PiiClass.PHONE, PiiClass.BANK_CARD],
+    ]
+    for _ in range(3000):
+        text = "".join(
+            rng.choice(separators) + rng.choice(tokens) for _ in range(rng.randint(2, 5))
+        )
+        if rng.random() < 0.3:
+            text = text.translate(FA)
+        wanted = rng.choice(classes)
+        covered = {i for s in detect(text, wanted) for i in range(s.start, s.end)}
+        norm = normalize_digits_extended(text)
+        found = _matches(norm, unify_arabic_letters(norm))
+        for spans in _written(norm, frozenset(wanted), found):
+            for span in spans:
+                for index in range(span.start, span.end):
+                    if norm[index] in "0123456789":
+                        assert index in covered, (text, wanted, span)

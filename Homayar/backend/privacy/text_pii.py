@@ -37,19 +37,29 @@ an e-mail).  Readings of one class that overlap keep their longest-first spans
 and values, each grown over the letters and digits up to the next one.
 A regex reading can use up digits that a neighbour needs (a card regex reads
 13 to 19 digits from the first digit it meets).  So identifiers are also read
-in their usual written form, and used only where the readings above leave one
-of their digits raw: a Luhn card of 16 digits as four groups of four, or as
-one group next to another card or reading, when each group next to it is
-missing, at most two digits long, another card or part of another reading,
-and no reading of another class holds it or lies inside it; a ``00`` number
-at any group of a digit run; and a mobile number with at most three digits
-glued before or after it in one group, when no reading holds that group and
+in their usual written form: a Luhn card of 16 digits, as one group or as four
+groups of four, when no reading of another class holds it or lies inside it;
+a ``00`` number at any group of a digit run; and a mobile number with at most
+three digits glued before or after it in one group, when no reading of a
+requested class holds that group, no longer reading of any class holds it, and
 the group holds no second mobile, no landline and no valid national ID.
-A glued reading may raise the share of random one-group numbers of 11 to 19
-digits that get a span by at most 2 percentage points (four glued digits
-would already raise it by 2.2).  Where such a reading cuts a span chosen
-without it, the span before the cut grows over the separator, so nothing
-redacted before is shown again.
+A card as one group needs another card or reading next to it, or past one
+number of at most three digits (short enough for the card regex to take with
+it).  A card as four groups of four needs each group next to it to be
+missing, at most two digits long, another card or part of another reading; a
+longer number is allowed only when a card stands on its other side or past
+that number.  The written readings of a digit run are used,
+together, only where one of them holds a digit the readings above leave raw,
+so each written card keeps its own span and value.  A glued reading may raise
+the share of random one-group numbers of 11 to 19 digits that get a span by at
+most 2 percentage points (four glued digits would already raise it by 2.2).
+Where such a reading cuts a span chosen without it, the span before the cut
+grows over the separator, so nothing redacted before is shown again.  When
+national IDs are not requested, a ``00`` reading that starts at an ID still
+takes the start of the next number: the span grows over both numbers and keeps
+that reading's value (``0039626921 0090 453 3473 896 2`` gives one phone span,
+valued ``00396269210090453`` as before), so a phone search does not find the
+second number on its own.
 
 NOT detected (disclosed residual risk): person and company names, street
 addresses, dates of birth, licence plates, passport and account numbers
@@ -72,12 +82,16 @@ guesses, with chance cards and chance IDs after a keyword, gave 133 new
 subject-export matches for values not written in the text as identifiers);
 a number glued to the first or last group of a grouped ID or phone
 (``120912 345 6789``: 26-32% more price lists redacted); two identifiers glued
-in one group with another number (2.7-32% more 21 to 26 digit codes); a card
-in groups of four next to a number of three or more digits, which is also the
-shape of a price list; and a card written as one group with only short
-numbers around it (``12 6037991199500004 34``), or with other than 16 digits,
-where a random number passes Luhn 1 time in 10.  Out of scope: a card with digits glued to
-it, and a ``00`` or ``+`` number with a digit glued before it.
+in one group with another number (2.7-32% more 21 to 26 digit codes); cards
+joined only to cards when another number shares the run, where a card in
+groups of four stands next to a number of three or more digits with no card
+beside it (the shape of a price list), or a card as one group has only numbers
+around it (``12 6037991199500004 34``) and no card or reading near it, or a
+card has other than 16 digits (a random number passes Luhn 1 time in 10); a
+card with digits glued to it (17 to 19 digit numbers would get a chance card
+18-33 points more often); a ``00`` number with digits glued before it (random
+11 to 19 digit numbers: up to 3.0 points more); and a ``+`` number right after
+a digit (28% of written sums ``a+b`` would be read as a phone).
 Redaction therefore reduces exposure; it is not anonymisation, and it is text
 only — it never masks audio.
 """
@@ -497,8 +511,8 @@ def _beside(
     held: list[tuple[int, int, PiiClass]],
     card: tuple[int, int],
 ) -> int:
-    """How group x next to a written card at ``card`` reads: 2 another card
-    or part of another reading, 1 nothing or at most two digits, 0 a number
+    """How group x next to a written card at ``card`` reads: 3 another card,
+    2 part of another reading, 1 nothing or at most two digits, 0 a number
     that blocks the card."""
     if not 0 <= x < len(groups):
         return 1
@@ -506,7 +520,7 @@ def _beside(
     # Another card: one group, or four groups of four that end (on the left)
     # or start (on the right) at x.
     if x in single or (x - 3 if left else x) in fours:
-        return 2
+        return 3
     if any(s <= start and end <= e and not (s <= card[0] and card[1] <= e) for s, e, _ in held):
         return 2
     return 1 if end - start <= 2 else 0
@@ -527,14 +541,64 @@ def _glued_mobile(digits: str) -> int | None:
     return mobiles[0]
 
 
-def _written(norm: str, wanted: frozenset[PiiClass], found: list[PiiSpan]) -> list[PiiSpan]:
+def _cards(
+    norm: str, groups: list[tuple[int, int]], held: list[tuple[int, int, PiiClass]]
+) -> list[PiiSpan]:
+    """Luhn cards of 16 digits written as four groups of four, or as one group
+    (which a price list never holds), in one digit run."""
+    single = {
+        x
+        for x, (start, end) in enumerate(groups)
+        if end - start == 16 and valid_luhn(norm[start:end])
+    }
+    fours = {
+        k
+        for k in range(len(groups) - 3)
+        if all(end - start == 4 for start, end in groups[k : k + 4])
+        and valid_luhn(_only_digits(norm[groups[k][0] : groups[k + 3][1]]))
+    }
+    cards: list[PiiSpan] = []
+    for k, width in [(x, 1) for x in sorted(single)] + [(k, 4) for k in sorted(fours)]:
+        card = (groups[k][0], groups[k + width - 1][1])
+        left = _beside(groups, k - 1, True, single, fours, held, card)
+        right = _beside(groups, k + width, False, single, fours, held, card)
+        # What stands past a neighbour short enough (at most three digits) for
+        # the card regex to take with the card.
+        past = [
+            _beside(groups, beyond, side, single, fours, held, card)
+            for x, beyond, side in ((k - 1, k - 2, True), (k + width, k + width + 1, False))
+            if 0 <= x < len(groups) and groups[x][1] - groups[x][0] <= 3
+        ]
+        if width == 1:
+            # One group needs another card or reading next to it or past it.
+            if max([left, right, *past]) < 2:
+                continue
+        elif 0 in (left, right) and 3 not in (left, right, *past):
+            # Four groups of four next to a number of three or more digits is
+            # also the shape of a price list, unless a card stands beside it.
+            continue
+        # A card that a reading of another class holds, or that holds one, is a
+        # chance Luhn hit.
+        if any(
+            c is not PiiClass.BANK_CARD
+            and (s <= card[0] and card[1] <= e or card[0] <= s and e <= card[1])
+            for s, e, c in held
+        ):
+            continue
+        cards.append(
+            PiiSpan(card[0], card[1], PiiClass.BANK_CARD, _only_digits(norm[card[0] : card[1]]))
+        )
+    return cards
+
+
+def _written(norm: str, wanted: frozenset[PiiClass], found: list[PiiSpan]) -> list[list[PiiSpan]]:
     """Identifiers in their usual written form, which a regex reading of a
-    neighbour can use up (HOM-303): a Luhn card of 16 digits as four groups
-    of four or as one group next to another card or reading, a ``00`` number
-    at any group of a run, and a mobile with digits glued to it."""
-    readings: list[PiiSpan] = []
+    neighbour can use up (HOM-303), one list per digit run: Luhn cards of 16
+    digits (``_cards``), a ``00`` number at any group of a run, and a mobile
+    with digits glued to it."""
+    runs: list[list[PiiSpan]] = []
     if not wanted & {PiiClass.BANK_CARD, PiiClass.PHONE}:
-        return readings
+        return runs
     ordered: list[PiiSpan] | None = None
     for run in _DIGIT_RUN_RE.finditer(norm):
         if run.end() - run.start() < 11 or not _WRITTEN_HINT_RE.search(
@@ -564,52 +628,26 @@ def _written(norm: str, wanted: frozenset[PiiClass], found: list[PiiSpan]) -> li
             if match and canonical is not None:
                 phones.append(PiiSpan(match.start(), match.end(), PiiClass.PHONE, canonical))
         held += [(span.start, span.end, span.pii_class) for span in phones]
+        here: list[PiiSpan] = []
         if PiiClass.PHONE in wanted:
-            readings += phones
+            here += phones
             for start, end in groups:
-                # A mobile with glued digits, in a group that no reading holds.
+                # A mobile with glued digits, in a group that no reading of a
+                # requested class holds, and no longer reading of any class
+                # (one that ties the group to the group before or after it).
                 if 11 < end - start <= 11 + _GLUED_MOBILE and not any(
-                    s <= start and end <= e for s, e, _ in held
+                    s <= start and end <= e and (c in wanted or (s, e) != (start, end))
+                    for s, e, c in held
                 ):
                     i = _glued_mobile(norm[start:end])
                     if i is not None:
                         i += start
-                        readings.append(PiiSpan(i, i + 11, PiiClass.PHONE, norm[i : i + 11]))
-        if PiiClass.BANK_CARD not in wanted:
-            continue
-        single = {
-            x
-            for x, (start, end) in enumerate(groups)
-            if end - start == 16 and valid_luhn(norm[start:end])
-        }
-        fours = {
-            k
-            for k in range(len(groups) - 3)
-            if all(end - start == 4 for start, end in groups[k : k + 4])
-            and valid_luhn(_only_digits(norm[groups[k][0] : groups[k + 3][1]]))
-        }
-        # One group needs another card or reading next to it; four groups of
-        # four may also stand next to nothing or a number of at most two digits.
-        for k, width in [(x, 1) for x in sorted(single)] + [(k, 4) for k in sorted(fours)]:
-            card = (groups[k][0], groups[k + width - 1][1])
-            sides = (
-                _beside(groups, k - 1, True, single, fours, held, card),
-                _beside(groups, k + width, False, single, fours, held, card),
-            )
-            if 0 in sides or (width == 1 and 2 not in sides):
-                continue
-            # A card that a reading of another class holds, or that holds one,
-            # is a chance Luhn hit.
-            if any(
-                c is not PiiClass.BANK_CARD
-                and (s <= card[0] and card[1] <= e or card[0] <= s and e <= card[1])
-                for s, e, c in held
-            ):
-                continue
-            readings.append(
-                PiiSpan(card[0], card[1], PiiClass.BANK_CARD, _only_digits(norm[card[0] : card[1]]))
-            )
-    return readings
+                        here.append(PiiSpan(i, i + 11, PiiClass.PHONE, norm[i : i + 11]))
+        if PiiClass.BANK_CARD in wanted:
+            here += _cards(norm, groups, held)
+        if here:
+            runs.append(here)
+    return runs
 
 
 def _select(norm: str, matches: list[PiiSpan], pieces: list[PiiSpan]) -> list[PiiSpan]:
@@ -749,17 +787,21 @@ def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[P
     found = _matches(norm, folded)
     matches, pieces = _candidates(norm, wanted, found, folded)
     chosen = _select(norm, matches, pieces)
-    # A written-form reading is used only where it holds a digit left raw.
-    extra = _written(norm, wanted, found)
-    if extra:
+    # The written-form readings of a run are used, together, only where one of
+    # them holds a digit left raw.
+    extra: list[PiiSpan] = []
+    runs = _written(norm, wanted, found)
+    if runs:
         covered = bytearray(len(norm))
         for span in chosen:
             covered[span.start : span.end] = b"\x01" * (span.end - span.start)
-        extra = [
-            span
-            for span in extra
-            if any(not covered[i] and "0" <= norm[i] <= "9" for i in range(span.start, span.end))
-        ]
+        for spans in runs:
+            if any(
+                not covered[i] and "0" <= norm[i] <= "9"
+                for span in spans
+                for i in range(span.start, span.end)
+            ):
+                extra += spans
     if not extra:
         return chosen
     return _keep(chosen, _select(norm, matches, pieces + extra))
