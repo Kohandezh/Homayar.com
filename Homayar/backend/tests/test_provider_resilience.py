@@ -41,6 +41,7 @@ from backend.providers.openai_compatible import (
 )
 from backend.providers.registry import ModelManifest
 from backend.providers.resilience import CIRCUIT_OPEN, RATE_LIMITED, endpoint_key
+from backend.tests._cost import WIDE_BOUND_SECONDS
 from backend.tests._database import inspection_session_factory
 from backend.tests.test_ingestion_ledger import _get, _patch_media, _tenant, _upload
 from backend.tests.test_job_failure_policy import _make_due
@@ -512,7 +513,7 @@ class _SlowIntelligence(MockIntelligenceProvider):
         return ProviderIdentity(provider="slow_intelligence", model="sleepy")
 
     async def analyze(self, request):
-        await asyncio.sleep(5)
+        await asyncio.sleep(60)
         return await super().analyze(request)
 
 
@@ -536,7 +537,8 @@ def test_a_provider_call_never_outlives_the_job_deadline(
         settings=configured,
         providers=_bundle(_SlowIntelligence(allow_mock=True)),
     )
-    assert time.monotonic() - started < 4.5  # cut at the deadline, not after 5 s
+    # cut at the deadline, not after the 60 s provider call
+    assert time.monotonic() - started < WIDE_BOUND_SECONDS
     assert result == {"job_id": job_id, "status": "failed", "code": "job_deadline_exceeded"}
     job = _job(job_id)
     assert job.state == JobState.DEAD_LETTER and job.failure_class == "deadline"

@@ -43,6 +43,7 @@ from backend.observability.metrics import (
 from backend.observability.release import code_migration_head
 from backend.observability.scrub import diagnostic_text, scrub_text
 from backend.services.logging_service import JSONFormatter, exception_summary
+from backend.tests._cost import WIDE_BOUND_SECONDS, cpu_units
 from backend.tests._database import inspection_session_factory
 from backend.tests._transport import configured_redis_url
 from backend.tests.conftest import register_user
@@ -559,14 +560,24 @@ def test_a_hung_dependency_bounds_the_scrape_and_is_not_restarted(client, settin
         calls.append(1)
         gate.wait(30)
 
+    timeouts: list[float | None] = []
+    real_wait = metrics.wait
+
+    def recorded_wait(fs, timeout=None, **kwargs):
+        timeouts.append(timeout)
+        return real_wait(fs, timeout=timeout, **kwargs)
+
     monkeypatch.setattr(metrics, "collect_storage", hung)
-    collector = StateCollector(settings, cache_seconds=0, source_timeout=0.5)
+    monkeypatch.setattr(metrics, "wait", recorded_wait)
+    source_timeout = 0.5
+    collector = StateCollector(settings, cache_seconds=0, source_timeout=source_timeout)
     before = _counter("homayar_metrics_collection_errors_total", source="storage")
     try:
         for _ in range(2):
             started = time.monotonic()
             snapshot = collector.refresh()
-            assert time.monotonic() - started < 3.0  # two stages of 0.5 s, plus margin
+            # Waiting for the hung probe takes 30 s; a wide bound catches it, not runner speed.
+            assert time.monotonic() - started < WIDE_BOUND_SECONDS
             storage = [
                 value
                 for labels, value in snapshot.families["homayar_dependency_up"][2]
@@ -577,6 +588,8 @@ def test_a_hung_dependency_bounds_the_scrape_and_is_not_restarted(client, settin
                 labels for labels, _ in snapshot.families["homayar_dependency_up"][2]
             ]
         assert calls == [1]  # the hung probe is not started a second time
+        # every stage waits at most the source timeout
+        assert timeouts and all(t is not None and t <= source_timeout for t in timeouts), timeouts
         after = _counter("homayar_metrics_collection_errors_total", source="storage")
         assert after == before + 2
     finally:
@@ -829,11 +842,16 @@ def test_scrub_covers_dsn_users_url_passwords_and_dict_reprs(raw, leaked):
     assert leaked not in scrub_text(raw)
 
 
+# The old limit was 1.0 s on the wall clock per input.  In calibration units
+# (backend.tests._cost) that is 1.0 / LOCAL_CALIBRATION_SECONDS (0.013 s) = 77.
+# Measured today (best of 3 runs): a. 0.38, eyJ- 1.41, x:// 0.40.
+SCRUB_BUDGET_UNITS = 77
+
+
 def test_scrubbing_long_adversarial_input_is_bounded_and_fast():
     for hostile in ("a." * 8000, "eyJ-" * 4000, "x://" * 4000):
-        started = time.monotonic()
-        result = diagnostic_text(hostile)
-        assert time.monotonic() - started < 1.0
+        units, result = cpu_units(diagnostic_text, hostile)
+        assert units < SCRUB_BUDGET_UNITS, hostile[:4]
         assert len(result) <= 2100
 
 

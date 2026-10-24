@@ -6,7 +6,6 @@ Each defect has a case that produces it and the closest case that passes.
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -32,6 +31,7 @@ from backend.copilot_intents import (
     load_catalogue,
     route_request,
 )
+from backend.tests._cost import cpu_units
 
 NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
 WORKSPACE = "11111111-1111-4111-8111-111111111111"
@@ -779,10 +779,16 @@ def test_a_guarded_answer_keeps_its_rule(sql, refused) -> None:
         GuardedAnswer(refused, None).sentences = ()  # type: ignore[misc]
 
 
+# The old limit was 3 s on the wall clock.  In calibration units (backend.tests._cost)
+# that is 3 / LOCAL_CALIBRATION_SECONDS (0.013 s) = 231.  Measured today (best of 3
+# runs): 2.82.
+QUOTE_CHECK_BUDGET_UNITS = 231
+
+
 def test_a_long_letter_run_in_a_span_does_not_slow_the_quote_check(evidence) -> None:
     # A span is attacker text.  A plain substring search once cost run length x quote length.
     span = EvidenceSpan("s1", CONVERSATION, "x" + "a" * 200_000 + " " + "a" * 900)
     raw = _answer(*[('He said "' + "a" * 900 + '".', ["s1"])] * 19)
-    started = time.perf_counter()
-    _assert_passes(check_answer(evidence, raw, evidence=(span,)), evidence)
-    assert time.perf_counter() - started < 3
+    units, result = cpu_units(check_answer, evidence, raw, evidence=(span,))
+    _assert_passes(result, evidence)
+    assert units < QUOTE_CHECK_BUDGET_UNITS
