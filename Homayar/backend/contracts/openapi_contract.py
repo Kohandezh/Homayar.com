@@ -33,7 +33,7 @@ SNAPSHOT_PATH = Path(__file__).with_name("ingestion-v1.openapi.json")
 WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 
 # The major number follows the /api/v1 prefix. Additive change: bump the minor.
-CONTRACT_VERSION = "1.3.0"
+CONTRACT_VERSION = "1.4.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -67,6 +67,12 @@ session and refuse every API key with `401 api_key_not_accepted`: the team compa
 `/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates
 and the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort
 carries a `disclosure` block; a cohort of 1 to 4 agents is held back.
+
+**Supporting conversations (1.4.0).** `/api/v1/trends/conversations` lists the
+conversations behind one `computed` cell of `/api/v1/trends/issues`, `/api/v1/trends/teams`
+or `/api/v1/trends/me`, as ids only. It needs a signed-in user session too. Every trend
+answer carries `notices: ["correlation_not_cause"]`: a trend shows how often an issue was
+counted, not why.
 
 **Errors.** Every error body is `{"error": {"code", "message", "request_id",
 "details"?}}`. `code` is stable; branch on it, not on `message`. Every response
@@ -122,6 +128,16 @@ OPERATION_NOTES: dict[tuple[str, str], str] = {
         "session only: an API key is `401 api_key_not_accepted`. A workspace outside the "
         "caller's scope is `404 workspace_not_found`. The query of the executive aggregates."
     ),
+    ("get", "/api/v1/trends/conversations"): (
+        "Since 1.4.0. Who: any workspace member with `meeting:read`, inside their record "
+        "scope. A signed-in session only: an API key is `401 api_key_not_accepted`. "
+        "`trend_view` is `issues`, `teams` (one `team_id` the caller may compare, else `403 "
+        "team_scope_denied`) or `me`; the rest is that view's query, with `from` and `to` "
+        "required (`422 trend_window_required`). `row` names the cell, `point` a point, "
+        "`offset` and `limit` (at most 100) the page. Only a `computed` cell lists the "
+        "conversations of its numerator, by meeting id; every other cell is `403 "
+        "trend_links_withheld`. A link holds ids only, never text."
+    ),
     ("get", "/api/v1/meetings/{meeting_id}/transcript"): (
         "Since 1.1.0: `speaker_key` (repeatable), `start_ms` and `end_ms` filter the "
         "segments. A window whose `end_ms` is not after `start_ms` is "
@@ -163,6 +179,7 @@ OPERATIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("get", "/api/v1/meetings/{meeting_id}/export"): _READ_ERRORS,
     ("get", "/api/v1/trends/teams"): (401, 403, 422, 429, 503),
     ("get", "/api/v1/trends/me"): (401, 403, 422, 429, 503),
+    ("get", "/api/v1/trends/conversations"): (401, 403, 422, 429, 503),
     ("get", "/api/v1/organizations/{organization_id}/trends/issues"): (401, 404, 422, 429, 503),
     (
         "get",

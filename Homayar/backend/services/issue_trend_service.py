@@ -25,6 +25,9 @@ HOM-82: the same two statements serve the role views (``role_trend_service``), a
 disclosure rules live here (section "disclosure"): the cell kind comes from the agents of a
 cohort, an agent cohort is all or nothing per layer, team cohorts come from one canonical
 released set, and organization views decide per workspace and week.
+
+HOM-83: ``issue_cohort`` is the decision of ``GET /trends/issues``; the view and the
+supporting-conversation links (``trend_link_service``) both call it.
 """
 
 from __future__ import annotations
@@ -239,6 +242,8 @@ class JudgedConversation:
     language: str
     source_type: str  # an IngestionSourceType value
     judgment: ConversationJudgment
+    # The current run that was judged (HOM-83 reads its evidence).  No decision reads it.
+    analysis_run_id: str | None = None
 
     @property
     def included(self) -> bool:
@@ -472,6 +477,7 @@ def judge_population(
                 language=item.language,
                 source_type=IngestionSourceType(item.source_type).value,
                 judgment=judge_conversation(facts, definition),
+                analysis_run_id=item.run_id,
             )
         )
     return conversations
@@ -1003,33 +1009,29 @@ def organization_release(
     return True, None
 
 
-def compute_issue_trends(
+@dataclass(frozen=True)
+class CohortDecision:
+    """The cohort of one workspace trend view and what HOM-82 withholds of it.  The view
+    and the HOM-83 links both build their cells from it."""
+
+    conversations: Sequence[JudgedConversation]
+    kind: CellKind
+    masked: frozenset[str]
+
+
+def issue_cohort(
     db: Session,
     *,
     workspace_id: str,
     access: RecordAccess,
     filters: TrendFilters,
-    now: datetime,
-    grain: str = TREND_DEFAULT_GRAIN,
-    timezone: str = TREND_DEFAULT_TIMEZONE,
-) -> dict[str, Any]:
-    """The trend answer of the workspace for ``filters`` as ``access`` may see it.
-
-    ``now`` is the clock ``validate_filters`` used for the default window; it must have
-    a timezone (``ValueError``) and is not read otherwise.  Raises ``TrendSeriesError``
-    for a bad ``grain`` or ``timezone``, before any query.
-
-    HOM-82: the cell kind comes from the agents of the population (``cohort_kind``), not
-    from the filter, and an agent cohort is all or nothing per layer.  With ``team_id`` the
-    whole scope is loaded (still two statements) and the answer is released only when every
-    requested team with data is in the canonical released set.
-    """
-    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("now must be a datetime with a timezone")
-    zone = validate_series(grain, timezone)
-    definition = trend_definition()
-    window = filters.window
-    points = series_points(window.start, window.end, grain, zone)
+    points: Sequence[SeriesPoint],
+) -> CohortDecision:
+    """The cohort of ``GET /trends/issues`` and its decision (statements P and G).  The kind
+    comes from the agents of the population (``cohort_kind``), not from the filter, and an
+    agent cohort is all or nothing per layer.  With ``team_id`` the whole scope is loaded and
+    the cohort is released only when every requested team with data is in the canonical
+    released set."""
     point_of = point_finder(points) if points else None
     viewer = access.user_id
     requested = frozenset(filters.team_ids)
@@ -1057,8 +1059,43 @@ def compute_issue_trends(
         parts, rest = team_parts(judged, viewer, n_points=n_points, point_of=point_of)
         release = canonical_release(parts, rest, has_points=bool(points))
         masked |= team_filter_masks(requested, release, has_points=bool(points))
-    population, rows, series_answer = cohort_parts(cohort, definition, filters, kind, points, zone)
-    rows, series_answer = apply_masks(rows, series_answer, frozenset(masked))
+    return CohortDecision(cohort, kind, frozenset(masked))
+
+
+def compute_issue_trends(
+    db: Session,
+    *,
+    workspace_id: str,
+    access: RecordAccess,
+    filters: TrendFilters,
+    now: datetime,
+    grain: str = TREND_DEFAULT_GRAIN,
+    timezone: str = TREND_DEFAULT_TIMEZONE,
+) -> dict[str, Any]:
+    """The trend answer of the workspace for ``filters`` as ``access`` may see it.
+
+    ``now`` is the clock ``validate_filters`` used for the default window; it must have
+    a timezone (``ValueError``) and is not read otherwise.  Raises ``TrendSeriesError``
+    for a bad ``grain`` or ``timezone``, before any query.
+
+    HOM-82: the cell kind comes from the agents of the population (``cohort_kind``), not
+    from the filter, and an agent cohort is all or nothing per layer.  With ``team_id`` the
+    whole scope is loaded (still two statements) and the answer is released only when every
+    requested team with data is in the canonical released set (``issue_cohort``).
+    """
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be a datetime with a timezone")
+    zone = validate_series(grain, timezone)
+    definition = trend_definition()
+    window = filters.window
+    points = series_points(window.start, window.end, grain, zone)
+    decision = issue_cohort(
+        db, workspace_id=workspace_id, access=access, filters=filters, points=points
+    )
+    population, rows, series_answer = cohort_parts(
+        decision.conversations, definition, filters, decision.kind, points, zone
+    )
+    rows, series_answer = apply_masks(rows, series_answer, decision.masked)
 
     return {
         **trend_provenance(definition, SAMPLE_POLICY_V1),
@@ -1070,7 +1107,7 @@ def compute_issue_trends(
         "population": population,
         "rows": rows,
         "points": series_answer,
-        "disclosure": disclosure_block(kind, frozenset(masked)),
+        "disclosure": disclosure_block(decision.kind, decision.masked),
     }
 
 

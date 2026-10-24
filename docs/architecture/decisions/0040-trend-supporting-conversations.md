@@ -34,11 +34,12 @@ against the records. Three facts shape the answer:
    named by `row` (`family:<id>` or `issue:<id>`, a row the view shows for the same selectors)
    and an optional `point` (the index of a point; absent means the window).
 3. **Refusal order.** The credentials; `422 trend_view_invalid`; the view's own query checks
-   in the view's own order, then `422 trend_window_required` (`details.key` `from`, then
-   `to`); `422 trend_team_invalid` (`teams` only), then `422 trend_row_invalid`,
-   `422 trend_point_invalid`, `422 trend_page_invalid` (`offset`, then `limit`); the view's
-   scope checks (`403 agent_scope_denied`, `403 team_scope_denied`); then the cell
-   (`403 trend_links_withheld`). Only the last step reads data about the cell.
+   in the view's own order (for `issues` they end with `403 agent_scope_denied`, the one
+   helper of SPEC A5), then `422 trend_window_required` (`details.key` `from`, then `to`);
+   `422 trend_team_invalid` (`teams` only), then `422 trend_row_invalid`,
+   `422 trend_point_invalid`, `422 trend_page_invalid` (`offset`, then `limit`); the team
+   scope (`403 team_scope_denied`, `teams` only); then the cell (`403 trend_links_withheld`).
+   Only the last step reads data about the cell.
 4. **The decision is the view's own.** Each view's cohort decision is one function
    (`issue_cohort`, `team_scope` with `team_cohort`, `self_cohort`), cut out of the merged
    view with no logic change and called by the view and by the link route. The route then

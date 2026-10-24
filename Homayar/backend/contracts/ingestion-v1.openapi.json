@@ -2140,6 +2140,13 @@
           "filters": {
             "$ref": "#/components/schemas/TrendFiltersResponse"
           },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
           "organization_id": {
             "title": "Organization Id",
             "type": "string"
@@ -2187,6 +2194,7 @@
           "window",
           "filters",
           "series",
+          "notices",
           "workspaces"
         ],
         "title": "OrganizationTrendResponse",
@@ -2423,6 +2431,13 @@
           "missing_data": {
             "$ref": "#/components/schemas/AggregateMissingData"
           },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
           "points": {
             "items": {
               "$ref": "#/components/schemas/TrendPoint"
@@ -2478,6 +2493,7 @@
           "validator_versions",
           "sample_policy",
           "disclosure_policy",
+          "notices",
           "window",
           "filters",
           "subject",
@@ -3828,6 +3844,253 @@
         "title": "TrendGrid",
         "type": "object"
       },
+      "TrendLinkConversation": {
+        "description": "One conversation of the numerator, as ids only.  ``evidence_ids`` are the extraction\nevidence spans of the judged run that support the row; the list can be empty (no valid\nturn was cited) and that does not mean \"not counted\".",
+        "properties": {
+          "analysis_run_id": {
+            "title": "Analysis Run Id",
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "meeting_id": {
+            "title": "Meeting Id",
+            "type": "string"
+          },
+          "state": {
+            "const": "counted",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "meeting_id",
+          "state",
+          "analysis_run_id",
+          "evidence_ids"
+        ],
+        "title": "TrendLinkConversation",
+        "type": "object"
+      },
+      "TrendLinkPage": {
+        "description": "``total`` is the cell's numerator, a number the view shows already.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "offset",
+          "limit",
+          "total"
+        ],
+        "title": "TrendLinkPage",
+        "type": "object"
+      },
+      "TrendLinkPoint": {
+        "description": "The point of the cell, by its index in the view's ``points``.",
+        "properties": {
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "from",
+          "to",
+          "partial"
+        ],
+        "title": "TrendLinkPoint",
+        "type": "object"
+      },
+      "TrendLinkResponse": {
+        "description": "The conversations behind one ``computed`` cell of a workspace trend view.  They are\nthe conversations where the issue was counted, not a cause of the trend.",
+        "properties": {
+          "cell": {
+            "$ref": "#/components/schemas/TrendCell"
+          },
+          "conversations": {
+            "items": {
+              "$ref": "#/components/schemas/TrendLinkConversation"
+            },
+            "title": "Conversations",
+            "type": "array"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/TrendDefinitionRef"
+          },
+          "disclosure": {
+            "$ref": "#/components/schemas/TrendDisclosure"
+          },
+          "disclosure_policy": {
+            "$ref": "#/components/schemas/TrendDisclosurePolicy"
+          },
+          "extraction_policies": {
+            "items": {
+              "$ref": "#/components/schemas/TrendVersionRef"
+            },
+            "title": "Extraction Policies",
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/TrendFiltersResponse"
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "page": {
+            "$ref": "#/components/schemas/TrendLinkPage"
+          },
+          "point": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendLinkPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "row": {
+            "$ref": "#/components/schemas/TrendLinkRow"
+          },
+          "sample_policy": {
+            "$ref": "#/components/schemas/TrendVersionRef"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/TrendScope"
+          },
+          "series": {
+            "$ref": "#/components/schemas/TrendSeries"
+          },
+          "taxonomy": {
+            "$ref": "#/components/schemas/TrendTaxonomyRef"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendTeamRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trend_view": {
+            "enum": [
+              "issues",
+              "teams",
+              "me"
+            ],
+            "title": "Trend View",
+            "type": "string"
+          },
+          "trends_version": {
+            "title": "Trends Version",
+            "type": "string"
+          },
+          "validator_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validator Versions",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TrendWindowResponse"
+          }
+        },
+        "required": [
+          "trends_version",
+          "definition",
+          "taxonomy",
+          "extraction_policies",
+          "validator_versions",
+          "sample_policy",
+          "disclosure_policy",
+          "notices",
+          "trend_view",
+          "window",
+          "filters",
+          "scope",
+          "series",
+          "team",
+          "row",
+          "point",
+          "cell",
+          "disclosure",
+          "page",
+          "conversations"
+        ],
+        "title": "TrendLinkResponse",
+        "type": "object"
+      },
+      "TrendLinkRow": {
+        "description": "The row of the cell: a family row (``issue`` null) or an issue row.",
+        "properties": {
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "issue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue"
+          },
+          "level": {
+            "enum": [
+              "family",
+              "issue"
+            ],
+            "title": "Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "family",
+          "issue"
+        ],
+        "title": "TrendLinkRow",
+        "type": "object"
+      },
       "TrendMix": {
         "description": "Included conversations per language and per source type (F61).",
         "properties": {
@@ -4574,9 +4837,9 @@
     }
   },
   "info": {
-    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Role-scoped trend views (1.3.0).** Four read operations need a signed-in user\nsession and refuse every API key with `401 api_key_not_accepted`: the team comparison\n`/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates\nand the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort\ncarries a `disclosure` block; a cohort of 1 to 4 agents is held back.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
+    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Role-scoped trend views (1.3.0).** Four read operations need a signed-in user\nsession and refuse every API key with `401 api_key_not_accepted`: the team comparison\n`/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates\nand the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort\ncarries a `disclosure` block; a cohort of 1 to 4 agents is held back.\n\n**Supporting conversations (1.4.0).** `/api/v1/trends/conversations` lists the\nconversations behind one `computed` cell of `/api/v1/trends/issues`, `/api/v1/trends/teams`\nor `/api/v1/trends/me`, as ids only. It needs a signed-in user session too. Every trend\nanswer carries `notices: [\"correlation_not_cause\"]`: a trend shows how often an issue was\ncounted, not why.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
     "title": "Homayar Ingestion API",
-    "version": "1.3.0"
+    "version": "1.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6600,6 +6863,135 @@
         "summary": "Read Organization Drilldown",
         "tags": [
           "organizations"
+        ]
+      }
+    },
+    "/api/v1/trends/conversations": {
+      "get": {
+        "description": "The conversations behind one cell of a workspace trend view (HOM-83).\n\nSession only: every API key is ``401 api_key_not_accepted``.  Every workspace role with\n``meeting:read`` may call it, inside its record scope.  ``trend_view`` is ``issues``,\n``teams`` (exactly one ``team_id``, a team the caller may compare) or ``me``; the rest of\nthe query is that view's own, with ``from`` and ``to`` required.  ``row`` names the cell\n(``family:<id>`` or ``issue:<id>``), ``point`` a point of the series, ``offset`` and\n``limit`` (at most 100) the page.  Only a ``computed`` cell gives links: the\nconversations of its numerator, by meeting id.  Every other cell is\n``403 trend_links_withheld``.  A link holds ids only.\n\nSince 1.4.0. Who: any workspace member with `meeting:read`, inside their record scope. A signed-in session only: an API key is `401 api_key_not_accepted`. `trend_view` is `issues`, `teams` (one `team_id` the caller may compare, else `403 team_scope_denied`) or `me`; the rest is that view's query, with `from` and `to` required (`422 trend_window_required`). `row` names the cell, `point` a point, `offset` and `limit` (at most 100) the page. Only a `computed` cell lists the conversations of its numerator, by meeting id; every other cell is `403 trend_links_withheld`. A link holds ids only, never text.",
+        "operationId": "read_trend_conversations_api_v1_trends_conversations_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendLinkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Trend Conversations",
+        "tags": [
+          "trends"
         ]
       }
     },

@@ -25,7 +25,7 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, select, true
+from sqlalchemy import ColumnElement, and_, select, true
 from sqlalchemy.orm import Session
 
 from backend.database.saas_models import (
@@ -71,7 +71,11 @@ from backend.services.issue_trend_service import (
     TREND_DEFAULT_GRAIN,
     TREND_DEFAULT_TIMEZONE,
     TREND_WEEK_STARTS_ON,
+    CohortDecision,
     JudgedConversation,
+    SeriesPoint,
+    TeamPart,
+    TeamRelease,
     TrendSeriesError,
     WeekStats,
     apply_masks,
@@ -421,6 +425,49 @@ def compared_teams(
     return _team_order((team_id, names[team_id]) for team_id in chosen)
 
 
+@dataclass(frozen=True)
+class TeamScope:
+    """The caller's scope loaded once for team cohorts: every conversation judged once,
+    every team as a ``TeamPart`` and the canonical released set (``GET /trends/teams``)."""
+
+    judged: Sequence[JudgedConversation]
+    parts: Mapping[str, TeamPart]
+    release: TeamRelease
+    viewer: str
+    points: Sequence[SeriesPoint]
+
+
+def team_scope(
+    db: Session, *, context: WorkspaceContext, filters: TrendFilters, points: Sequence[SeriesPoint]
+) -> TeamScope:
+    """Statements P and G over the caller's whole scope (no team filter), then the
+    canonical released set over every team of it, whatever the compared teams."""
+    point_of = point_finder(points) if points else None
+    access = context.record_access
+    judged = judge_population(
+        db,
+        workspace_id=context.workspace.id,
+        scope=access.meeting_clause(),
+        filters=replace(filters, team_ids=()),
+    )
+    parts, rest = team_parts(judged, access.user_id, n_points=len(points), point_of=point_of)
+    release = canonical_release(parts, rest, has_points=bool(points))
+    return TeamScope(judged, parts, release, access.user_id, points)
+
+
+def team_cohort(scope: TeamScope, team_id: str) -> CohortDecision:
+    """One team block of ``GET /trends/teams``: its members, its kind, and the layers the
+    all-or-nothing rule and the canonical set withhold.  The HOM-83 links reuse it."""
+    points = scope.points
+    point_of = point_finder(points) if points else None
+    members = [c for c in scope.judged if c.team_id == team_id]
+    everyone = cohort_stats(members, n_points=len(points), point_of=point_of)
+    kind, _gated = cohort_kind(everyone.agents, scope.viewer)
+    masked = set(scope.parts[team_id].masked) if team_id in scope.parts else set()
+    masked |= team_filter_masks(frozenset({team_id}), scope.release, has_points=bool(points))
+    return CohortDecision(members, kind, frozenset(masked))
+
+
 def team_comparison(
     db: Session,
     *,
@@ -436,16 +483,10 @@ def team_comparison(
     zone = validate_series(grain, timezone)
     definition = trend_definition()
     points = series_points(filters.window.start, filters.window.end, grain, zone)
-    point_of = point_finder(points) if points else None
     access = context.record_access
-    viewer = access.user_id
     workspace_id = context.workspace.id
     scope_filters = replace(filters, team_ids=())
-    judged = judge_population(
-        db, workspace_id=workspace_id, scope=access.meeting_clause(), filters=scope_filters
-    )
-    parts, rest = team_parts(judged, viewer, n_points=len(points), point_of=point_of)
-    release = canonical_release(parts, rest, has_points=bool(points))
+    scope = team_scope(db, context=context, filters=filters, points=points)
     _whole, by_team = compute_coverage_by_team(
         db,
         workspace_id=workspace_id,
@@ -457,30 +498,26 @@ def team_comparison(
 
     blocks, compared = [], []
     for team_id, name in teams:
-        members = [c for c in judged if c.team_id == team_id]
-        everyone = cohort_stats(members, n_points=len(points), point_of=point_of)
-        kind, _gated = cohort_kind(everyone.agents, viewer)
-        masked = set(parts[team_id].masked) if team_id in parts else set()
-        masked |= team_filter_masks(frozenset({team_id}), release, has_points=bool(points))
+        decision = team_cohort(scope, team_id)
         population, rows, series_answer = cohort_parts(
-            members, definition, filters, kind, points, zone
+            decision.conversations, definition, filters, decision.kind, points, zone
         )
-        rows, series_answer = apply_masks(rows, series_answer, frozenset(masked))
+        rows, series_answer = apply_masks(rows, series_answer, decision.masked)
         block = complete_block(
             {
                 "team": {"id": team_id, "name": name},
                 "population": population,
-                "mix": cohort_mix(members),
+                "mix": cohort_mix(decision.conversations),
                 "rows": rows,
                 "points": series_answer,
-                "disclosure": disclosure_block(kind, frozenset(masked)),
+                "disclosure": disclosure_block(decision.kind, decision.masked),
             },
             coverage_block(
                 filters.window, COVERAGE_BASIS_TREND_POPULATION, by_team[team_id].counters
             ),
         )
         blocks.append(block)
-        compared.append(ComparedTeam(team_id, kind, LAYER_WINDOW in masked, rows))
+        compared.append(ComparedTeam(team_id, decision.kind, LAYER_WINDOW in decision.masked, rows))
 
     return {
         **trend_provenance(definition, SAMPLE_POLICY_V1),
@@ -493,6 +530,21 @@ def team_comparison(
         "teams": blocks,
         "comparisons": team_comparisons(compared),
     }
+
+
+def _self_clause(context: WorkspaceContext) -> ColumnElement[bool]:
+    """The caller's own meetings as agent, inside their record scope."""
+    access = context.record_access
+    return and_(access.meeting_clause(), Meeting.agent_user_id == access.user_id)
+
+
+def self_cohort(db: Session, *, context: WorkspaceContext, filters: TrendFilters) -> CohortDecision:
+    """The cohort of ``GET /trends/me`` (statements P and G): kind ``agent``, nothing
+    withheld beyond the HOM-79 agent cell.  The HOM-83 links reuse it."""
+    judged = judge_population(
+        db, workspace_id=context.workspace.id, scope=_self_clause(context), filters=filters
+    )
+    return CohortDecision(judged, CellKind.AGENT, frozenset())
 
 
 def self_view(
@@ -511,17 +563,16 @@ def self_view(
     access = context.record_access
     viewer = access.user_id
     workspace_id = context.workspace.id
-    scope = and_(access.meeting_clause(), Meeting.agent_user_id == viewer)
-    judged = judge_population(db, workspace_id=workspace_id, scope=scope, filters=filters)
+    decision = self_cohort(db, context=context, filters=filters)
     population, rows, series_answer = cohort_parts(
-        judged, definition, filters, CellKind.AGENT, points, zone
+        decision.conversations, definition, filters, decision.kind, points, zone
     )
     counters = compute_coverage(
         db,
         workspace_id=workspace_id,
         window=coverage_window(filters),
         recompute_max_attempts=recompute_max_attempts,
-        population=_accepted(filter_clauses(scope, filters)),
+        population=_accepted(filter_clauses(_self_clause(context), filters)),
     ).counters
     return complete_block(
         {
@@ -534,7 +585,7 @@ def self_view(
             "population": population,
             "rows": rows,
             "points": series_answer,
-            "disclosure": disclosure_block(CellKind.AGENT, frozenset()),
+            "disclosure": disclosure_block(decision.kind, decision.masked),
         },
         coverage_block(filters.window, COVERAGE_BASIS_TREND_POPULATION, counters),
     )
@@ -761,6 +812,7 @@ def organization_trends(
     return {
         "organization_id": organization.id,
         **_organization_answer(filters, grain),
+        "notices": [ASSOCIATION_NOTICE],
         "workspaces": items,
     }
 

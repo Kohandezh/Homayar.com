@@ -7,6 +7,9 @@ re-serialized: the window in UTC (``+00:00``), the points in the series timezone
 
 HOM-82 adds the role views (team comparison, self-view, executive aggregates, analyst
 drill-down), the ``disclosure`` block of every cohort and the ``withheld`` cell.
+
+HOM-83 adds the notice ``correlation_not_cause`` to every trend answer, and the answer of
+``GET /trends/conversations``: the conversations behind one cell, as ids only.
 """
 
 from __future__ import annotations
@@ -175,6 +178,7 @@ class TrendProvenance(BaseModel):
 
 class IssueTrendResponse(TrendProvenance):
     disclosure_policy: TrendDisclosurePolicy
+    notices: list[str]  # HOM-83: ``correlation_not_cause``
     window: TrendWindowResponse
     filters: TrendFiltersResponse
     scope: TrendScope
@@ -252,6 +256,7 @@ class TrendSubject(BaseModel):
 
 class SelfTrendResponse(TrendProvenance):
     disclosure_policy: TrendDisclosurePolicy
+    notices: list[str]  # HOM-83: ``correlation_not_cause``
     window: TrendWindowResponse
     filters: TrendFiltersResponse
     subject: TrendSubject
@@ -295,6 +300,7 @@ class OrganizationTrendResponse(TrendProvenance):
     window: TrendWindowResponse
     filters: TrendFiltersResponse
     series: TrendSeries
+    notices: list[str]  # HOM-83: ``correlation_not_cause``
     workspaces: list[OrganizationWorkspaceTrend]
 
 
@@ -310,3 +316,64 @@ class OrganizationDrilldownResponse(TrendProvenance):
     notices: list[str]
     workspace: OrganizationTrendBlock
     teams: list[OrganizationTeamTrend]
+
+
+# --- HOM-83 supporting conversations ----------------------------------------------------------
+
+
+class TrendLinkRow(BaseModel):
+    """The row of the cell: a family row (``issue`` null) or an issue row."""
+
+    level: Literal["family", "issue"]
+    family: str
+    issue: str | None
+
+
+class TrendLinkPoint(BaseModel):
+    """The point of the cell, by its index in the view's ``points``."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    index: int
+    from_: str = Field(alias="from")
+    to: str
+    partial: bool
+
+
+class TrendLinkPage(BaseModel):
+    """``total`` is the cell's numerator, a number the view shows already."""
+
+    offset: int
+    limit: int
+    total: int
+
+
+class TrendLinkConversation(BaseModel):
+    """One conversation of the numerator, as ids only.  ``evidence_ids`` are the extraction
+    evidence spans of the judged run that support the row; the list can be empty (no valid
+    turn was cited) and that does not mean "not counted"."""
+
+    meeting_id: str
+    state: Literal["counted"]
+    analysis_run_id: str
+    evidence_ids: list[str]
+
+
+class TrendLinkResponse(TrendProvenance):
+    """The conversations behind one ``computed`` cell of a workspace trend view.  They are
+    the conversations where the issue was counted, not a cause of the trend."""
+
+    disclosure_policy: TrendDisclosurePolicy
+    notices: list[str]
+    trend_view: Literal["issues", "teams", "me"]
+    window: TrendWindowResponse
+    filters: TrendFiltersResponse
+    scope: TrendScope
+    series: TrendSeries
+    team: TrendTeamRef | None
+    row: TrendLinkRow
+    point: TrendLinkPoint | None
+    cell: TrendCell
+    disclosure: TrendDisclosure
+    page: TrendLinkPage
+    conversations: list[TrendLinkConversation]
