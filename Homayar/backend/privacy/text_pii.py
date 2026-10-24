@@ -525,9 +525,12 @@ def _split_run(
     if len(at) < 20 or wanted.isdisjoint(_SPLIT_CLASSES):
         return []  # two identifiers need at least 10 + 10 digits
     count = len(at)
-    # The regex matches that share a character with the run.
-    first = bisect_left(match_starts, at[0] - longest)
-    near = [m for m in matches[first : bisect_left(match_starts, at[-1] + 1)] if m.end > at[0]]
+
+    def near(start: int, end: int) -> list[PiiSpan]:
+        # The regex matches that share a character with norm[start:end].
+        first = bisect_left(match_starts, start - longest)
+        return [m for m in matches[first : bisect_left(match_starts, end)] if m.end > start]
+
     # A group is digits written without a separator.  A split starts at the
     # first digit of a group and ends after the last digit of a group.
     group_start = [k == 0 or at[k] != at[k - 1] + 1 for k in range(count)]
@@ -538,17 +541,15 @@ def _split_run(
             return found  # every match is of the one wanted class
         # A piece that holds a whole match of another class is a chance
         # reading around a real identifier (a Luhn hit that holds an ID).
-        return [
-            (i, j, pii_class, value)
-            for i, j, pii_class, value in found
+        kept = []
+        for reading in found:
+            start, end = at[reading[0]], at[reading[1] - 1] + 1
+            inside = [m for m in near(start, end) if start <= m.start and m.end <= end]
             if not any(
-                m.pii_class is not pii_class
-                and at[i] <= m.start
-                and m.end <= at[j - 1] + 1
-                and (m.start, m.end) != (at[i], at[j - 1] + 1)
-                for m in near
-            )
-        ]
+                m.pii_class is not reading[2] and (m.start, m.end) != (start, end) for m in inside
+            ):
+                kept.append(reading)
+        return kept
 
     def split(
         edges: Callable[[int], list[tuple[int, int, PiiClass, str]]],
@@ -584,7 +585,8 @@ def _split_run(
         return pieces, kept
 
     first_pieces, kept = split(readings)
-    if not near:
+    touching = near(at[0], at[-1] + 1)
+    if not touching:
         return first_pieces  # no match to keep: the second pass would read the same pieces
     # A match that holds a piece or a match of another class reads across two
     # identifiers (``0012345679 0912`` as one international number): a piece
@@ -592,7 +594,7 @@ def _split_run(
     # cuts into it, lies in it or holds it is a chance reading.
     inner = sorted(
         [(start, end, pii_class) for start, end, pii_class, _ in first_pieces]
-        + [(m.start, m.end, m.pii_class) for m in near]
+        + [(m.start, m.end, m.pii_class) for m in touching]
     )
     inner_starts = [start for start, _, _ in inner]
     crossing: dict[tuple[int, int, PiiClass], bool] = {}
@@ -611,12 +613,8 @@ def _split_run(
 
     def allowed(start: int, end: int, pii_class: PiiClass) -> bool:
         return not any(
-            m.pii_class is pii_class
-            and m.start < end
-            and start < m.end
-            and (m.start, m.end) != (start, end)
-            and not across(m)
-            for m in near
+            m.pii_class is pii_class and (m.start, m.end) != (start, end) and not across(m)
+            for m in near(start, end)
         )
 
     # The second pass reaches only digits the first one reached, so it reads

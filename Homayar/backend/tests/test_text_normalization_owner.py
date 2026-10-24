@@ -4628,7 +4628,7 @@ BASE_FINGERPRINTS: dict = {
         ("_ten_digit_class", "fcc5a1c0dc0e59ec4be9b812"),  # HOM-291 split out of detect
         ("_Run", "368616489d07da4535e2866b"),  # HOM-302 class-free piece readings, read once
         ("_joins", "133f9d4789b5de9b579598ef"),  # HOM-302 the split test on state masks
-        ("_split_run", "67c6da81a682080681289071"),  # HOM-302 reached starts, pass 2 reuses pass 1
+        ("_split_run", "2c27e9d563db57ce6c13595c"),  # HOM-302 reached starts, pass 2 reuses pass 1
         ("_matches", "e40fcac009ad686897760ebc"),  # HOM-308 new IBAN readings after the base ones
         ("_runs", "da472995066bac940dfad86f"),  # HOM-302 the digit runs of one text
         ("_candidates", "9543360de4cb8bfd17d79385"),  # HOM-302 takes shared runs
