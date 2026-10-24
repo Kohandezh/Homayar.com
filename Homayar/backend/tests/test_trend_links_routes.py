@@ -24,9 +24,12 @@ from sqlalchemy import event, func, select, update
 from backend.database.relational import get_engine
 from backend.database.saas_models import (
     AnalysisRun,
+    ApiKey,
     AuditEvent,
     EvidenceSpan,
     Meeting,
+    OrganizationMembership,
+    OrganizationRole,
     RecordScope,
     TranscriptRevision,
     TranscriptSegment,
@@ -53,6 +56,7 @@ from backend.tests.test_role_trend_routes import (
     _assign,
     _deactivate,
     _expire_membership,
+    _install_member,
     _org_workspace,
 )
 from backend.tests.test_share_policies import _share, _token
@@ -591,8 +595,49 @@ def test_link_refusals_and_their_closest_allows(client, email_outbox, monkeypatc
         json={"email": analyst.email, "role": "analyst"},
     )
     assert granted.status_code == 201, granted.text
+    executive = _persona(client, email_outbox, email="links-exec@example.com", name="Executive")
+    granted = owner.post(
+        f"/api/v1/organizations/{place.organization_id}/members",
+        json={"email": executive.email, "role": "executive"},
+    )
+    assert granted.status_code == 201, granted.text
+    org_owner = _persona(client, email_outbox, email="links-org-owner@example.com", name="Owner2")
+    with inspection_session_factory()() as db:  # nobody grants owner through the API (ADR 0012)
+        db.add(
+            OrganizationMembership(
+                organization_id=place.organization_id,
+                user_id=org_owner.user_id,
+                role=OrganizationRole.OWNER,
+                is_active=True,
+                valid_from=datetime.now(UTC) - DAY,
+            )
+        )
+        db.commit()
+    # the organization roles are effective: their organization route answers
+    for persona in (analyst, executive, org_owner):
+        reached = persona.get(f"/api/v1/organizations/{place.organization_id}/trends/issues")
+        assert reached.status_code == 200, reached.text
     key = _mint(client, owner.headers, owner.cookies, scopes=["meeting:read"])
-    assert key.status_code == 201, key.text
+    revoked_key = _mint(client, owner.headers, owner.cookies, name="revoked")
+    expired_key = _mint(client, owner.headers, owner.cookies, name="expired")
+    assert {key.status_code, revoked_key.status_code, expired_key.status_code} == {201}, key.text
+    revoked = client.delete(
+        f"/api/v1/api-keys/{revoked_key.json()['id']}", headers=owner.headers, cookies=owner.cookies
+    )
+    assert revoked.status_code == 204, revoked.text
+    with inspection_session_factory()() as db:
+        db.get(ApiKey, expired_key.json()["id"]).expires_at = datetime.now(UTC) - timedelta(
+            seconds=1
+        )
+        db.commit()
+    # the keys really are revoked and expired: a route that takes keys refuses them
+    for dead in (revoked_key, expired_key):
+        client.cookies.clear()
+        refused = client.get(
+            "/api/v1/meetings",
+            headers=_bearer(dead.json()["key"], **{"X-Workspace-ID": owner.workspace_id}),
+        )
+        assert _answer(refused) == (401, "api_key_invalid", None), refused.text
 
     def params(*extra, view="issues", window=True, row="family:call_reason"):
         query = [("trend_view", view)] if view else []
@@ -623,6 +668,16 @@ def test_link_refusals_and_their_closest_allows(client, email_outbox, monkeypatc
             (401, "api_key_not_accepted", None),
         ),
         (
+            "2 a revoked key",
+            anonymous(headers=_bearer(revoked_key.json()["key"])),
+            (401, "api_key_not_accepted", None),
+        ),
+        (
+            "2 an expired key",
+            anonymous(headers=_bearer(expired_key.json()["key"])),
+            (401, "api_key_not_accepted", None),
+        ),
+        (
             "1, 2 allow: the key's user with a session",
             owner.get(LINKS, params=params()),
             (200, None, None),
@@ -635,6 +690,16 @@ def test_link_refusals_and_their_closest_allows(client, email_outbox, monkeypatc
         (
             "3 an organization analyst",
             analyst.get(LINKS, params=params(), workspace_id=owner.workspace_id),
+            (403, "workspace_access_denied", None),
+        ),
+        (
+            "3 an organization executive",
+            executive.get(LINKS, params=params(), workspace_id=owner.workspace_id),
+            (403, "workspace_access_denied", None),
+        ),
+        (
+            "3 an organization owner",
+            org_owner.get(LINKS, params=params(), workspace_id=owner.workspace_id),
             (403, "workspace_access_denied", None),
         ),
         ("3 allow: a viewer", viewer.get(LINKS, params=params()), (200, None, None)),
@@ -872,6 +937,12 @@ def test_link_refusals_and_their_closest_allows(client, email_outbox, monkeypatc
     ]
     for label, response, expected in cases:
         assert _answer(response) == expected, (label, response.text)
+
+    # 3: the closest allow of each organization role is the same person with a membership
+    for persona in (analyst, executive, org_owner):
+        _install_member(place, persona.user_id)
+        allowed = persona.get(LINKS, params=params(), workspace_id=owner.workspace_id)
+        assert _answer(allowed) == (200, None, None), allowed.text
 
     # 4: the same user after the membership window ended
     stale = people["stale"]

@@ -91,8 +91,11 @@ against the records. Three facts shape the answer:
     run. A link request runs the view's count minus 9 plus at most 2. Pinned in a test.
 14. **Contract 1.4.0.** The operation is added to the contract snapshot (additive), and its
     description says who may call it and that an API key is refused. The executive
-    aggregates and `/trends/me` gain the `notices` key; `/trends/teams` and the analyst
-    drill-down carry it already.
+    aggregates, `/trends/issues` and `/trends/me` gain the `notices` key
+    (`["correlation_not_cause"]`); `/trends/issues` is not in the snapshot. `/trends/teams`
+    and the analyst drill-down carry it already, unchanged
+    (`["correlation_not_cause", "unadjusted_comparison"]`). The new link answer carries
+    `["correlation_not_cause"]`.
 
 ## Product defaults (proposed)
 
