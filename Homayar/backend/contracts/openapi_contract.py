@@ -33,7 +33,7 @@ SNAPSHOT_PATH = Path(__file__).with_name("ingestion-v1.openapi.json")
 WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 
 # The major number follows the /api/v1 prefix. Additive change: bump the minor.
-CONTRACT_VERSION = "1.4.0"
+CONTRACT_VERSION = "1.5.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -73,6 +73,13 @@ conversations behind one `computed` cell of `/api/v1/trends/issues`, `/api/v1/tr
 or `/api/v1/trends/me`, as ids only. It needs a signed-in user session too. Every trend
 answer carries `notices: ["correlation_not_cause"]`: a trend shows how often an issue was
 counted, not why.
+
+**Aggregate metadata (1.5.0).** `/api/v1/voicemails/analytics` adds `coverage` (the
+`coverage/1` processing and evaluation counters of the voicemails it counts), `scorecard`
+and `missing_data`. Each item of `/api/v1/organizations/{organization_id}/aggregates` adds
+the `coverage`, `scorecard`, `missing_data` and `disclosure` of the matching executive
+trend block: a block of 1 to 4 agents in some closed week is withheld, with `coverage` and
+`missing_data` null. Every existing field keeps its name and value.
 
 **Errors.** Every error body is `{"error": {"code", "message", "request_id",
 "details"?}}`. `code` is stable; branch on it, not on `message`. Every response
@@ -138,6 +145,24 @@ OPERATION_NOTES: dict[tuple[str, str], str] = {
         "conversations of its numerator, by meeting id; every other cell is `403 "
         "trend_links_withheld`. A link holds ids only, never text."
     ),
+    ("get", "/api/v1/voicemails/analytics"): (
+        "Since 1.5.0: `coverage` (basis `voicemail_population`, window basis "
+        "`voicemail_received_at`), `scorecard` and `missing_data` over the voicemails that "
+        "`total` counts, so `coverage.processing.denominator` equals `total`. A window "
+        "longer than 366 days or not after its start is `422 invalid_window`."
+    ),
+    ("get", "/api/v1/organizations/{organization_id}/aggregates"): (
+        "Since 1.5.0. Who: an organization owner, admin, analyst or executive "
+        "(`organization:analytics:read`), over the workspaces they may see. A signed-in "
+        "session only: an API key is `401 api_key_not_accepted`. Each item adds "
+        "`coverage`, `scorecard`, `missing_data` and `disclosure`: exactly those of the "
+        "workspace block of `GET /api/v1/organizations/{organization_id}/trends/issues` for "
+        "the same caller, grant and window. `coverage_window` is the window that "
+        "`GET /api/v1/organizations/{organization_id}/trends/issues` would use for "
+        "`from=since` and `to=until`, or its default (the 4 closed weeks before this week) "
+        "when that route would refuse them. A withheld item has `coverage` and "
+        "`missing_data` null; its other fields keep their values and their own window."
+    ),
     ("get", "/api/v1/meetings/{meeting_id}/transcript"): (
         "Since 1.1.0: `speaker_key` (repeatable), `start_ms` and `end_ms` filter the "
         "segments. A window whose `end_ms` is not after `start_ms` is "
@@ -185,6 +210,8 @@ OPERATIONS: dict[tuple[str, str], tuple[int, ...]] = {
         "get",
         "/api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues",
     ): _READ_ERRORS,
+    ("get", "/api/v1/voicemails/analytics"): (401, 403, 422, 429, 503),
+    ("get", "/api/v1/organizations/{organization_id}/aggregates"): (401, 404, 422, 429, 503),
 }
 
 # The route returns a plain ``Response``, so FastAPI documents it as empty JSON.

@@ -4774,8 +4774,8 @@ FROZEN_FILES: dict[str, str] = {
     "backend/voicemail/pipeline.py": (
         "5397c5ec3e9a428d6e047d93615e92dd4dbb4c0861c2ce26c0b6f53a09bce62d"
     ),
-    "backend/voicemail/search.py": (
-        "f719e23ba9c6124ca8fdf20efa3e3863f9edee1fa3f43b565b72ec23d1b0969a"
+    "backend/voicemail/search.py": (  # HOM-299: voicemail_analytics takes recompute_max_attempts
+        "edd276a11e4bdf227d866853776d21b5df705e16519cb821b30a2e81b2e90c1a"
     ),
     "backend/voicemail/models.py": (
         "45f50f49434fa6c8f8e80bf97ae33a17b6861b9db1434f2beb84636f4bf04760"

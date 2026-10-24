@@ -4,7 +4,8 @@ Routes (mounted under ``settings.api_prefix`` by the integrator):
 
 * ``POST  /voicemails``            import one voicemail (multipart), MEETING_CREATE
 * ``GET   /voicemails``            list / filter / search, MEETING_READ
-* ``GET   /voicemails/analytics``  aggregates for a window, MEETING_READ
+* ``GET   /voicemails/analytics``  aggregates for a window with coverage metadata
+  (HOM-299), MEETING_READ
 * ``GET   /voicemails/{id}``       one voicemail with a transcript excerpt, MEETING_READ
 * ``PATCH /voicemails/{id}``       follow-up state and assignment, MEETING_UPDATE
 """
@@ -270,7 +271,10 @@ def voicemail_analytics_route(
     received_to: datetime | None = Query(default=None),
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> VoicemailAnalyticsResponse:
+    """Counts of the window, and (HOM-299) the ``coverage/1`` processing and evaluation
+    counters of the same voicemails with ``scorecard`` and ``missing_data``."""
     end = received_to or datetime.now(UTC)
     start = received_from or end - timedelta(days=30)
     if start >= end or end - start > timedelta(days=_MAX_ANALYTICS_DAYS):
@@ -284,6 +288,7 @@ def voicemail_analytics_route(
         access=context.record_access,
         received_from=start,
         received_to=end,
+        recompute_max_attempts=settings.recompute_max_attempts,
     )
     return VoicemailAnalyticsResponse(
         received_from=start,
@@ -296,6 +301,9 @@ def voicemail_analytics_route(
         by_day=[DayCount(day=day, count=count) for day, count in stats.by_day],
         followed_up=stats.followed_up,
         median_follow_up_seconds=stats.median_follow_up_seconds,
+        coverage=stats.coverage,
+        scorecard=stats.scorecard,
+        missing_data=stats.missing_data,
     )
 
 

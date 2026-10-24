@@ -23,6 +23,8 @@ from backend.services.aggregate_metadata import (
     MISSING_DATA_INDICATORS,
     counter_indicators,
     coverage_missing_data,
+    population_coverage_block,
+    population_missing_data,
     scorecard_block,
     trend_missing_data,
 )
@@ -243,6 +245,46 @@ def test_coverage_response_rules():
     assert coverage_missing_data(counters, scorecard_block()) == {
         "indicators": ["empty_population", "review_unavailable", "scorecard_unavailable"]
     }
+
+
+def test_population_response_rules():
+    """HOM-299: the voicemail and organization blocks have only the two trend counters, and
+    ``empty_population`` follows the processing denominator."""
+    window = CoverageWindow(start=BASE, end=BASE + timedelta(days=1))
+    block = population_coverage_block(
+        window,
+        window_basis="voicemail_received_at",
+        basis="voicemail_population",
+        counters={
+            "ingestion": _counter(3, 3),
+            "processing": _counter(2, 3),
+            "evaluation": _counter(2, 2),
+            "review": _counter(None, 2, "not_computable", "review_records_unavailable"),
+        },
+    )
+    assert set(block) == {"version", "window", "basis", "processing", "evaluation"}
+    assert block["window"] == {
+        "from": window.start,
+        "to": window.end,
+        "basis": "voicemail_received_at",
+    }
+    assert population_missing_data(block, scorecard_block()) == {
+        "indicators": ["processing_incomplete", "scorecard_unavailable"]
+    }
+    empty = _counter(0, 0, "not_computable", "empty_denominator")
+    block = {"processing": empty, "evaluation": empty}
+    assert population_missing_data(block, scorecard_block()) == {
+        "indicators": ["empty_population", "scorecard_unavailable"]
+    }
+    unavailable = _counter(None, 1, "not_computable", "source_down")
+    block = {"processing": _counter(1, 1), "evaluation": unavailable}
+    assert population_missing_data(block, scorecard_block())["indicators"] == [
+        "evaluation_unavailable",
+        "scorecard_unavailable",
+    ]
+    assert set(population_missing_data(block, scorecard_block())["indicators"]) <= (
+        MISSING_DATA_INDICATORS
+    )
 
 
 # --- the service: scope, filters, other workspaces, cost -------------------------------------

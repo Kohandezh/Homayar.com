@@ -19,6 +19,10 @@ A meeting is fully evaluated exactly when its call report is complete
 report's ``completeness.notices``.  The facts are loaded with a fixed number
 of set-based queries (the count does not grow with the number of meetings) and
 assessed with the same pure functions the report uses.
+
+HOM-299: ``compute_population_coverage`` applies the same rules to meetings that are not
+ledger rows (the voicemail rows of ``GET /voicemails/analytics``), so its counters reconcile
+with the ``total`` that route shows.
 """
 
 from __future__ import annotations
@@ -27,9 +31,9 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, Select, and_, func, select
 from sqlalchemy.orm import Session
 
 from backend.database.saas_models import (
@@ -431,10 +435,13 @@ def _load_facts(
     workspace_id: str,
     window: CoverageWindow,
     population: Sequence[ColumnElement[bool]] = (),
+    candidates: Select[Any] | None = None,
 ) -> _Facts:
     """Everything the quality assessment and the report count read, for every
-    candidate meeting at once: eight statements, whatever the meeting count."""
-    candidates = _candidate_meetings(workspace_id, window, population)
+    candidate meeting at once: eight statements, whatever the meeting count.
+    ``candidates`` (a select of meeting ids) replaces the ledger candidates (HOM-299)."""
+    if candidates is None:
+        candidates = _candidate_meetings(workspace_id, window, population)
     facts = _Facts()
     for revision in db.scalars(
         select(TranscriptRevision).where(
@@ -740,3 +747,58 @@ def compute_coverage_by_team(
         return _count(subset, facts, window=window, recompute_max_attempts=recompute_max_attempts)
 
     return count(rows), {team_id: count(team_rows) for team_id, team_rows in grouped.items()}
+
+
+class _PopulationRow(NamedTuple):
+    """A meeting of a population that is not the ledger, with the attributes of a
+    ``_ledger_rows`` row: always accepted, no rejection reason."""
+
+    status: IngestionStatus
+    reason: str | None
+    meeting_id: str
+    meeting_status: MeetingStatus
+    deleted_at: datetime | None
+    team_id: str | None
+    agent_user_id: str | None
+    source: str
+    language: str
+
+
+def compute_population_coverage(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    rows: Iterable[Any],
+    candidates: Select[Any],
+    recompute_max_attempts: int,
+) -> Coverage:
+    """The ``coverage/1`` counters over meetings that are not ledger rows (HOM-299).
+
+    ``rows`` are the meetings of the population (``meeting_id``, ``meeting_status``,
+    ``deleted_at``, ``team_id``, ``agent_user_id``, ``source``, ``language``), each one
+    accepted event; ``candidates`` selects the ids of those that are live and completed or
+    partial.  The same buckets and assessment as ``compute_coverage``, with 8 fact
+    statements only when a candidate exists.  Only ``processing`` and ``evaluation`` are
+    meant to be read: ``ingestion`` is all accepted and ``review`` has no source.
+    """
+    population = [
+        _PopulationRow(
+            IngestionStatus.ACCEPTED,
+            None,
+            row.meeting_id,
+            row.meeting_status,
+            row.deleted_at,
+            row.team_id,
+            row.agent_user_id,
+            row.source,
+            row.language,
+        )
+        for row in rows
+    ]
+    facts = (
+        _load_facts(db, workspace_id=workspace_id, window=window, candidates=candidates)
+        if any(_is_candidate(row) for row in population)
+        else _Facts()
+    )
+    return _count(population, facts, window=window, recompute_max_attempts=recompute_max_attempts)

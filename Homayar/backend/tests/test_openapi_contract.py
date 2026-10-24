@@ -36,6 +36,9 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues"),
     # HOM-83: the supporting conversations of a trend cell (contract 1.4.0)
     ("get", "/api/v1/trends/conversations"),
+    # HOM-299: the voicemail and organization aggregates with their metadata (contract 1.5.0)
+    ("get", "/api/v1/voicemails/analytics"),
+    ("get", "/api/v1/organizations/{organization_id}/aggregates"),
 }
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 ERROR_REF = "#/components/schemas/ErrorResponse"
@@ -219,7 +222,7 @@ def test_write_cli_regenerates_the_snapshot(tmp_path):
 
 def test_snapshot_is_openapi_3_with_the_contract_version_and_exact_operations(snapshot):
     assert snapshot["openapi"].startswith("3.")
-    assert snapshot["info"]["version"] == "1.4.0"
+    assert snapshot["info"]["version"] == "1.5.0"
     assert _operations(snapshot) == EXPECTED_OPERATIONS
     raw = contract.SNAPSHOT_PATH.read_text(encoding="utf-8")
     assert raw.endswith("}\n") and not raw.endswith("\n\n")

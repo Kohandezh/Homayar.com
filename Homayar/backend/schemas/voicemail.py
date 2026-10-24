@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.schemas.coverage import AggregateMissingData, AggregateScorecard, PopulationCoverage
 from backend.schemas.meetings import JobResponse
 from backend.voicemail.models import FollowUpState
 
@@ -85,3 +86,7 @@ class VoicemailAnalyticsResponse(BaseModel):
     by_day: list[DayCount]
     followed_up: int
     median_follow_up_seconds: float | None
+    # HOM-299: the coverage/1 counters of the voicemails ``total`` counts
+    coverage: PopulationCoverage
+    scorecard: AggregateScorecard
+    missing_data: AggregateMissingData

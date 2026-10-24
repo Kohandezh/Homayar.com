@@ -839,8 +839,8 @@ def test_a10_the_openapi_contract_is_current_and_summary_keeps_its_shape():
     assert contract.main(["--check"]) == 0
     snapshot = contract.load_snapshot()
     # 1.3.0: HOM-82 added the role trend routes; 1.4.0: HOM-83 added the supporting
-    # conversations.  SummaryResponse is unchanged.
-    assert snapshot["info"]["version"] == "1.4.0"
+    # conversations; 1.5.0: HOM-299 added aggregate metadata.  SummaryResponse is unchanged.
+    assert snapshot["info"]["version"] == "1.5.0"
     assert sorted(snapshot["components"]["schemas"]["SummaryResponse"]["properties"]) == [
         "analysis_run",
         "analysis_run_id",
