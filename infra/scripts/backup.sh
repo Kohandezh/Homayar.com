@@ -65,6 +65,7 @@ BACKUP_ROOT="$(compose_path "${BACKUP_ROOT}")"
 BACKUP_KEY_FILE="$(compose_path "${BACKUP_KEY_FILE}")"
 export BACKUP_ROOT BACKUP_KEY_FILE
 [[ -r "${BACKUP_KEY_FILE}" ]] || die "Backup key file is not readable: ${BACKUP_KEY_FILE}"
+compose_env_default BACKUP_DATABASE_URL_FILE
 if [[ -n "${BACKUP_DATABASE_URL_FILE:-}" ]]; then
   BACKUP_DATABASE_URL_FILE="$(compose_path "${BACKUP_DATABASE_URL_FILE}")"
   export BACKUP_DATABASE_URL_FILE

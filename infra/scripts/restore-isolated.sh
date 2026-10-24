@@ -73,6 +73,7 @@ require_env COMPOSE_PROJECT_NAME
 require_env POSTGRES_DB
 require_env BACKUP_KEY_FILE
 [[ -r "${BACKUP_KEY_FILE}" ]] || die "Backup key file is not readable: ${BACKUP_KEY_FILE}"
+compose_env_default BACKUP_DATABASE_URL_FILE
 if [[ -n "${BACKUP_DATABASE_URL_FILE:-}" ]]; then
   [[ "${BACKUP_DATABASE_URL_FILE}" == /* ]] ||
     BACKUP_DATABASE_URL_FILE="$(cd -- "$(dirname -- "${COMPOSE_FILE}")" && pwd -P)/${BACKUP_DATABASE_URL_FILE}"
