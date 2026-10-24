@@ -316,6 +316,33 @@ def test_a_structured_decision_with_an_unreadable_basis_is_never_explicit(
     assert report["outcome"]["state"] == "inferred"
 
 
+@pytest.mark.parametrize(
+    ("basis", "shown", "state"),
+    [
+        pytest.param("explicit", "explicit", "explicit", id="known-string"),
+        pytest.param("certain", None, "inferred", id="unknown-string"),
+        pytest.param(["explicit"], None, "inferred", id="list"),
+        pytest.param({"value": "explicit"}, None, "inferred", id="dict"),
+    ],
+)
+def test_a_decision_with_a_non_string_basis_is_treated_like_an_unknown_one(
+    client, email_outbox, settings, monkeypatch, basis, shown, state
+):
+    # HOM-309: a stored basis that is not hashable is not a 500; it reads
+    # exactly like the unknown-string case.
+    result = _structured(decisions=[_decision("explicit", [1])])
+    workspace_id, meeting_id = _run(client, email_outbox, settings, monkeypatch, result)
+    assert _report(client, workspace_id, meeting_id)["outcome"]["state"] == "explicit"
+    with inspection_session_factory()() as db:
+        summary = db.scalar(select(MeetingSummary).where(MeetingSummary.meeting_id == meeting_id))
+        summary.decisions = [{**summary.decisions[0], "basis": basis}]
+        db.commit()
+    report = _report(client, workspace_id, meeting_id)
+    (decision,) = report["outcome"]["decisions"]
+    assert decision["basis"] == shown and decision["supported"] is True
+    assert report["outcome"]["state"] == state
+
+
 # --- A6: legacy results ---------------------------------------------------------------
 
 

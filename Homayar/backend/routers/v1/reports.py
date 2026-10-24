@@ -177,7 +177,7 @@ def _confidence(point: object) -> float | None:
 
 def _basis(point: object) -> str | None:
     value = point.get("basis") if isinstance(point, dict) else None
-    return value if value in _BASES else None
+    return value if isinstance(value, str) and value in _BASES else None
 
 
 def _detail(point: object, key: str) -> ReportDecisionDetail:
@@ -588,13 +588,19 @@ def _extraction(db: Session, *, meeting: Meeting, view: MeetingView, render) -> 
         raw_values = raw_values if isinstance(raw_values, list) else []
         first, index = index, index + len(raw_values)
         status = stored_field.get("status")
-        if stored_field.get("verdict") == "rejected" or status not in _FIELD_STATUSES:
+        if (
+            stored_field.get("verdict") == "rejected"
+            or not isinstance(status, str)
+            or status not in _FIELD_STATUSES
+        ):
             fields[name] = _unavailable_field()
             continue
         reason = stored_field.get("abstain_reason")
         fields[name] = ReportExtractionField(
             status=status,
-            abstain_reason=reason if reason in _ABSTAIN_REASONS else None,
+            abstain_reason=reason
+            if isinstance(reason, str) and reason in _ABSTAIN_REASONS
+            else None,
             review_required=stored_field.get("review_required") is True,
             values=[
                 _extraction_value(
