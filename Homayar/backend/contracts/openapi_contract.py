@@ -33,7 +33,7 @@ SNAPSHOT_PATH = Path(__file__).with_name("ingestion-v1.openapi.json")
 WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 
 # The major number follows the /api/v1 prefix. Additive change: bump the minor.
-CONTRACT_VERSION = "1.2.0"
+CONTRACT_VERSION = "1.3.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -62,6 +62,12 @@ payload is `409 ingestion_conflict`. A malformed key is
 `400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never
 create a second job.
 
+**Role-scoped trend views (1.3.0).** Four read operations need a signed-in user
+session and refuse every API key with `401 api_key_not_accepted`: the team comparison
+`/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates
+and the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort
+carries a `disclosure` block; a cohort of 1 to 4 agents is held back.
+
 **Errors.** Every error body is `{"error": {"code", "message", "request_id",
 "details"?}}`. `code` is stable; branch on it, not on `message`. Every response
 carries `X-Request-ID`.
@@ -89,6 +95,32 @@ OPERATION_NOTES: dict[tuple[str, str], str] = {
     ("get", "/api/v1/meetings/{meeting_id}/job"): (
         "The meeting's latest processing job. Poll it after an upload until `state` is "
         "`completed`, `failed`, `cancelled` or `dead_letter`."
+    ),
+    ("get", "/api/v1/trends/teams"): (
+        "Since 1.3.0. Who: a workspace owner or admin (every active team) or a member or "
+        "viewer with an effective supervisor assignment (only those teams); `meeting:read`. "
+        "A signed-in session only: an API key is `401 api_key_not_accepted`. `403 "
+        "team_scope_denied` for a team the caller may not compare, `422 "
+        "trend_too_many_teams` over 10 teams, `422 trend_parameter_not_allowed` for "
+        "`agent_user_id`. No rank: teams in a fixed order, differences left minus right."
+    ),
+    ("get", "/api/v1/trends/me"): (
+        "Since 1.3.0. Who: any workspace member with `meeting:read`; the caller's own "
+        "meetings as agent. A signed-in session only: an API key is "
+        "`401 api_key_not_accepted`. `422 trend_parameter_not_allowed` for `agent_user_id`."
+    ),
+    ("get", "/api/v1/organizations/{organization_id}/trends/issues"): (
+        "Since 1.3.0. Who: an organization owner, admin, analyst or executive "
+        "(`organization:analytics:read`), over the workspaces they may see. A signed-in "
+        "session only: an API key is `401 api_key_not_accepted`; no membership is `404 "
+        "organization_not_found`. Whole closed weeks from Saturday 00:00 Asia/Tehran "
+        "(`422 trend_window_not_aligned` otherwise), grain `none` or `week`."
+    ),
+    ("get", "/api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues"): (
+        "Since 1.3.0. Who: an organization owner, admin or analyst "
+        "(`organization:records:read`); an executive is `403 permission_denied`. A signed-in "
+        "session only: an API key is `401 api_key_not_accepted`. A workspace outside the "
+        "caller's scope is `404 workspace_not_found`. The query of the executive aggregates."
     ),
     ("get", "/api/v1/meetings/{meeting_id}/transcript"): (
         "Since 1.1.0: `speaker_key` (repeatable), `start_ms` and `end_ms` filter the "
@@ -129,6 +161,13 @@ OPERATIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("get", "/api/v1/meetings/{meeting_id}/evidence"): _READ_ERRORS,
     ("get", "/api/v1/meetings/{meeting_id}/quality"): _READ_ERRORS,
     ("get", "/api/v1/meetings/{meeting_id}/export"): _READ_ERRORS,
+    ("get", "/api/v1/trends/teams"): (401, 403, 422, 429, 503),
+    ("get", "/api/v1/trends/me"): (401, 403, 422, 429, 503),
+    ("get", "/api/v1/organizations/{organization_id}/trends/issues"): (401, 404, 422, 429, 503),
+    (
+        "get",
+        "/api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues",
+    ): _READ_ERRORS,
 }
 
 # The route returns a plain ``Response``, so FastAPI documents it as empty JSON.

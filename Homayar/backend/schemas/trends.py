@@ -4,6 +4,9 @@ The shapes are the HOM-79 ones (``backend/issue_trends/README.md``, "A trend ans
 ``trend_provenance``, ``TrendWindow.to_json()``, ``TrendFilters.to_json()`` and
 ``TrendRow.to_json()``.  Instants are the strings those functions write, never
 re-serialized: the window in UTC (``+00:00``), the points in the series timezone.
+
+HOM-82 adds the role views (team comparison, self-view, executive aggregates, analyst
+drill-down), the ``disclosure`` block of every cohort and the ``withheld`` cell.
 """
 
 from __future__ import annotations
@@ -82,7 +85,10 @@ class TrendPopulation(BaseModel):
 
 
 class TrendCell(BaseModel):
-    status: Literal["computed", "not_computable", "insufficient_sample"]
+    """``withheld`` (HOM-82): the counts are held back so that no hidden count of a small
+    group can be rebuilt; the denominator stays."""
+
+    status: Literal["computed", "not_computable", "insufficient_sample", "withheld"]
     numerator: int | None
     denominator: int
     ratio: float | None
@@ -126,13 +132,49 @@ class TrendCoverage(BaseModel):
     evaluation: CoverageCounter
 
 
-class IssueTrendResponse(BaseModel):
+class TrendDisclosurePolicy(BaseModel):
+    """The disclosure rules of the answer (HOM-82): a small group has fewer than
+    ``min_cohort_agents`` distinct agents."""
+
+    version: str
+    min_cohort_agents: int
+
+
+class TrendGrid(BaseModel):
+    """The fixed weekly grid of the organization views."""
+
+    unit: Literal["week"]
+    timezone: str
+    week_starts_on: Literal["saturday"]
+    closed_weeks_only: bool
+
+
+class OrganizationDisclosurePolicy(TrendDisclosurePolicy):
+    grid: TrendGrid
+
+
+class TrendDisclosure(BaseModel):
+    """What HOM-82 held back in one cohort.  ``released``: nothing; ``masked``: the
+    ``masked`` layers are withheld (workspace views); ``withheld``: no count at all
+    (organization views)."""
+
+    status: Literal["released", "masked", "withheld"]
+    reason: Literal["small_group", "complementary_disclosure"] | None
+    kind: Literal["rate", "agent"] | None
+    masked: list[Literal["points", "window"]]
+
+
+class TrendProvenance(BaseModel):
     trends_version: str
     definition: TrendDefinitionRef
     taxonomy: TrendTaxonomyRef
     extraction_policies: list[TrendVersionRef]
     validator_versions: list[str]
     sample_policy: TrendVersionRef
+
+
+class IssueTrendResponse(TrendProvenance):
+    disclosure_policy: TrendDisclosurePolicy
     window: TrendWindowResponse
     filters: TrendFiltersResponse
     scope: TrendScope
@@ -143,3 +185,128 @@ class IssueTrendResponse(BaseModel):
     coverage: TrendCoverage
     scorecard: AggregateScorecard
     missing_data: AggregateMissingData
+    disclosure: TrendDisclosure
+
+
+# --- HOM-82 role views ----------------------------------------------------------------------
+
+
+class TrendCohortBlock(BaseModel):
+    """One cohort of a workspace view, with the HOM-81 blocks over its own population."""
+
+    population: TrendPopulation
+    rows: list[TrendRowResponse]
+    points: list[TrendPoint]
+    coverage: TrendCoverage
+    scorecard: AggregateScorecard
+    missing_data: AggregateMissingData
+    disclosure: TrendDisclosure
+
+
+class TrendTeamRef(BaseModel):
+    id: str
+    name: str
+
+
+class TrendMix(BaseModel):
+    """Included conversations per language and per source type (F61)."""
+
+    language: dict[str, int]
+    source_type: dict[str, int]
+
+
+class TeamTrendBlock(TrendCohortBlock):
+    team: TrendTeamRef
+    mix: TrendMix
+
+
+class TeamComparison(BaseModel):
+    """``compare_cells`` of two teams for one window row: left minus right, in the fixed
+    team order.  A difference, never a rank or a cause."""
+
+    left_team_id: str
+    right_team_id: str
+    level: Literal["family", "issue"]
+    family: str
+    issue: str | None
+    status: Literal["computed", "not_computable", "insufficient_sample", "withheld"]
+    reason: str | None
+    difference: float | None
+    minimum_sample: int
+
+
+class TeamComparisonResponse(TrendProvenance):
+    disclosure_policy: TrendDisclosurePolicy
+    window: TrendWindowResponse
+    filters: TrendFiltersResponse
+    scope: TrendScope
+    series: TrendSeries
+    notices: list[str]
+    teams: list[TeamTrendBlock]
+    comparisons: list[TeamComparison]
+
+
+class TrendSubject(BaseModel):
+    agent_user_id: str
+
+
+class SelfTrendResponse(TrendProvenance):
+    disclosure_policy: TrendDisclosurePolicy
+    window: TrendWindowResponse
+    filters: TrendFiltersResponse
+    subject: TrendSubject
+    series: TrendSeries
+    population: TrendPopulation
+    rows: list[TrendRowResponse]
+    points: list[TrendPoint]
+    coverage: TrendCoverage
+    scorecard: AggregateScorecard
+    missing_data: AggregateMissingData
+    disclosure: TrendDisclosure
+
+
+class OrganizationTrendBlock(BaseModel):
+    """One cohort of an organization view.  A withheld cohort has no count at all:
+    ``population``, ``coverage`` and ``missing_data`` are null, ``rows`` and ``points``
+    empty."""
+
+    population: TrendPopulation | None
+    rows: list[TrendRowResponse]
+    points: list[TrendPoint]
+    coverage: TrendCoverage | None
+    scorecard: AggregateScorecard
+    missing_data: AggregateMissingData | None
+    disclosure: TrendDisclosure
+
+
+class OrganizationWorkspaceTrend(OrganizationTrendBlock):
+    workspace_id: str
+    workspace_name: str
+    team_ids: list[str] | None
+
+
+class OrganizationTeamTrend(OrganizationTrendBlock):
+    team: TrendTeamRef
+
+
+class OrganizationTrendResponse(TrendProvenance):
+    organization_id: str
+    disclosure_policy: OrganizationDisclosurePolicy
+    window: TrendWindowResponse
+    filters: TrendFiltersResponse
+    series: TrendSeries
+    workspaces: list[OrganizationWorkspaceTrend]
+
+
+class OrganizationDrilldownResponse(TrendProvenance):
+    organization_id: str
+    workspace_id: str
+    workspace_name: str
+    team_ids: list[str] | None
+    disclosure_policy: OrganizationDisclosurePolicy
+    window: TrendWindowResponse
+    filters: TrendFiltersResponse
+    series: TrendSeries
+    notices: list[str]
+    workspace: OrganizationTrendBlock
+    teams: list[OrganizationTeamTrend]

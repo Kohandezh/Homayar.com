@@ -234,6 +234,20 @@ def effective_assignments(
     )
 
 
+def supervised_team_ids(
+    db: Session, *, workspace_id: str, user_id: str, now: datetime | None = None
+) -> frozenset[str]:
+    """Active teams where the user holds an effective ``supervisor`` assignment, whatever
+    the workspace's record scope (HOM-82 team comparisons)."""
+    return frozenset(
+        assignment.team_id
+        for assignment in effective_assignments(
+            db, workspace_id=workspace_id, user_id=user_id, now=now
+        )
+        if assignment.role == TeamRole.SUPERVISOR
+    )
+
+
 @dataclass(frozen=True)
 class RecordAccess:
     """Resolved record-level visibility for one actor inside one workspace."""
@@ -433,7 +447,7 @@ def resolve_organization_access(
         )
     # Under the organization context (no tenant bound) team rows are not
     # visible, so team activity is re-checked when a workspace is bound for
-    # aggregation (``organization_service._scoped_workspaces``).
+    # aggregation (``organization_service.scoped_workspaces``).
     grants = db.execute(
         select(OrganizationScopeGrant.workspace_id, OrganizationScopeGrant.team_id)
         .join(Workspace, Workspace.id == OrganizationScopeGrant.workspace_id)

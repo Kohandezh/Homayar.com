@@ -3,6 +3,12 @@
 Every route under ``/organizations/{organization_id}`` resolves the caller's
 *current* organization membership (``require_organization``) and an explicit
 organization permission; none of them grants workspace content access.
+
+HOM-82 adds the role-scoped trend views: executive aggregates
+(``/trends/issues``, ``organization:analytics:read``) and the analyst drill-down
+(``/workspaces/{workspace_id}/trends/issues``, ``organization:records:read``).  Both are
+session only, like every organization route, and withhold any cohort that rests on 1 to
+4 agents in some week (``role_trend_service``).
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ from sqlalchemy.orm import Session
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
 from backend.database.saas_models import OrganizationRole, WorkspaceRole
+from backend.issue_trends import TrendFilterError
 from backend.schemas.organizations import (
     AggregatesResponse,
     InstalledWorkspaceMemberResponse,
@@ -37,6 +44,7 @@ from backend.schemas.organizations import (
     WorkspaceAggregateResponse,
     WorkspaceMemberInstallRequest,
 )
+from backend.schemas.trends import OrganizationDrilldownResponse, OrganizationTrendResponse
 from backend.security.authorization import OrganizationPermission
 from backend.security.context import (
     Actor,
@@ -46,8 +54,10 @@ from backend.security.context import (
     require_organization_write_permission,
 )
 from backend.services import organization_service as service
+from backend.services import role_trend_service as roles
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
+from backend.services.issue_trend_service import TrendSeriesError
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -636,3 +646,89 @@ def list_scoped_records(
         for record in records
     ]
     return ScopedRecordListResponse(items=items, total=len(items), truncated=truncated)
+
+
+# --- role-scoped trend views (HOM-82) -----------------------------------------------------------
+
+
+def _trend_query(request: Request) -> tuple:
+    """The organization grid query, or a 422 with ``error.code`` and ``error.details.key``."""
+    try:
+        return roles.organization_query(
+            roles.query_dict(request.query_params.multi_items()), now=datetime.now(UTC)
+        )
+    except (TrendFilterError, TrendSeriesError, roles.TrendViewError) as exc:
+        code = exc.code.value if isinstance(exc, TrendFilterError) else exc.code
+        raise HTTPException(
+            status_code=422,
+            detail={"code": code, "message": str(exc), "details": {"key": exc.key}},
+        ) from exc
+
+
+@router.get("/{organization_id}/trends/issues", response_model=OrganizationTrendResponse)
+def read_organization_trends(
+    request: Request,
+    context: OrganizationContext = Depends(
+        require_organization_permission(OrganizationPermission.ANALYTICS_READ)
+    ),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> OrganizationTrendResponse:
+    """Executive aggregates (HOM-82): one block per scoped workspace, no total.
+
+    Org owner, admin, analyst and executive; a session only (every API key is
+    ``401 api_key_not_accepted``).  Whole closed weeks from Saturday 00:00 Asia/Tehran,
+    grain ``none`` or ``week``.  ``team_id``, ``agent_user_id``, ``language``,
+    ``source_type`` and ``timezone`` are ``422 trend_parameter_not_allowed``.  A workspace
+    block is withheld when a week, or a row of a week, rests on 1 to 4 agents.
+    """
+    filters, grain = _trend_query(request)
+    answer = roles.organization_trends(
+        db,
+        organization=context.organization,
+        access=context.access,
+        filters=filters,
+        grain=grain,
+        recompute_max_attempts=settings.recompute_max_attempts,
+    )
+    return OrganizationTrendResponse.model_validate(answer)
+
+
+@router.get(
+    "/{organization_id}/workspaces/{workspace_id}/trends/issues",
+    response_model=OrganizationDrilldownResponse,
+)
+def read_organization_drilldown(
+    workspace_id: str,
+    request: Request,
+    context: OrganizationContext = Depends(
+        require_organization_permission(OrganizationPermission.RECORDS_READ)
+    ),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> OrganizationDrilldownResponse:
+    """Analyst drill-down (HOM-82): the grant unit of one workspace and one block per
+    active team inside it, decided per week.
+
+    Org owner, admin and analyst (an executive is ``403 permission_denied``); a session
+    only.  A workspace outside the caller's scope is ``404 workspace_not_found``.  The
+    query is the one of the executive aggregates.  No list of conversations.
+    """
+    filters, grain = _trend_query(request)
+    scope = service.scoped_workspace(
+        db, organization=context.organization, access=context.access, workspace_id=workspace_id
+    )
+    if scope is None:
+        _raise(service.OrganizationWorkspaceNotFoundError())
+    workspace, team_ids = scope
+    answer = roles.organization_drilldown(
+        db,
+        organization=context.organization,
+        workspace=workspace,
+        team_ids=team_ids,
+        user_id=context.access.user_id,
+        filters=filters,
+        grain=grain,
+        recompute_max_attempts=settings.recompute_max_attempts,
+    )
+    return OrganizationDrilldownResponse.model_validate(answer)

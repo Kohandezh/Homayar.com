@@ -26,7 +26,7 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 - The organization is a path segment (`/api/v1/organizations/{organization_id}/...`); it never confers access. A caller without an effective membership of that organization gets `404 organization_not_found`, whether the organization exists or not.
 - Organization roles administer; they do not read content. An organization owner/admin is a stranger to every workspace they were not explicitly installed in (`403 workspace_access_denied` on the workspace routes).
 - **Delegated administration** installs an organization member (the caller included) in a workspace of the organization with a workspace role from §4a (never `owner`). The result is an ordinary `Membership` row: the workspace routes, §5 record scope and row-level security govern it afterwards; the workspace owner sees it in the member list; the organization route can withdraw it again. Users without an effective organization membership cannot be installed this way.
-- **Scope grants** authorize an `analyst` or `executive` for one workspace, optionally narrowed to one active team. Executives read aggregates only (`organization:analytics:read`); analysts additionally read meeting metadata (`organization:records:read`) — never transcript text, summaries, recordings or exports. Owners/admins see aggregates and metadata of every workspace of the organization. Grants to owners/admins, foreign workspaces and foreign teams are refused; revoking the membership revokes its grants.
+- **Scope grants** authorize an `analyst` or `executive` for one workspace, optionally narrowed to one active team. Executives read aggregates only (`organization:analytics:read`); analysts additionally read meeting metadata (`organization:records:read`) — never transcript text, summaries, recordings or exports. The role-scoped trend views (HOM-82) follow the same split: `GET /api/v1/organizations/{organization_id}/trends/issues` (`organization:analytics:read`, one block per scoped workspace) and the drill-down `GET /api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues` (`organization:records:read`, so not executives; a workspace outside the scope is `404 workspace_not_found`). Both withhold every cohort that rests on 1 to 4 agents in some week, for every organization role; for a caller who also holds an effective, restricted membership in that workspace (not owner or admin, `record_scope=team`), also every cohort that would rest on 1 to 4 agents once the conversations of that membership's scope are removed (HOM-82, SPEC A6). Owners/admins see aggregates and metadata of every workspace of the organization. Grants to owners/admins, foreign workspaces and foreign teams are refused; revoking the membership revokes its grants.
 - Workspaces created inside an organization (`organization:workspace:create`) carry no trial subscription or entitlement; the creator becomes the workspace owner.
 - Platform administration stays separate (`User.system_role`). No organization role confers it. Only the `+operator` routes (the voice node routes and `GET /api/v1/admin/system-health`) and the deployment data of `GET /api/v1/voice/capacity` use it (§1); everything else denies by default.
 
@@ -134,7 +134,7 @@ Which **workspace** roles an organization role may install in (or withdraw from)
 | `workspace` (default; trial and personal workspaces) | all records | all records |
 | `team` | all records | union of: meetings of teams where the caller holds an **effective** `supervisor` assignment; meetings with `agent_user_id = caller`; meetings with `created_by_user_id = caller`. No assignment → own records only. |
 
-An assignment is effective when `revoked_at IS NULL AND valid_from ≤ now < valid_until (or NULL)` and its team is active. The predicate is applied to **every** meeting lookup (list, detail, job, recording, transcript, summary, actions, speakers, search, export, share create/list/revoke); an invisible record answers `404`, never `403`, so existence is not disclosed. The issue trends (`GET /trends/issues`, HOM-80) count only the meetings of this predicate; a `team_id` filter is ANDed with it, so a team outside the caller's scope answers `200` narrowed to what they may see (often empty), never `403`.
+An assignment is effective when `revoked_at IS NULL AND valid_from ≤ now < valid_until (or NULL)` and its team is active. The predicate is applied to **every** meeting lookup (list, detail, job, recording, transcript, summary, actions, speakers, search, export, share create/list/revoke); an invisible record answers `404`, never `403`, so existence is not disclosed. The issue trends (`GET /trends/issues`, HOM-80) count only the meetings of this predicate; a `team_id` filter is ANDed with it, so a team outside the caller's scope answers `200` narrowed to what they may see (often empty), never `403`. HOM-82 keeps that answer and adds: `agent_user_id` on `GET /trends/issues` accepts only the caller's own id (`403 agent_scope_denied` otherwise); the team comparison `GET /trends/teams` compares every active team for an owner or admin and, for a member or viewer, only the active teams where they hold an effective `supervisor` assignment, whatever the record scope (`403 team_scope_denied` otherwise, also for a named `team_id` outside that set); the self-view `GET /trends/me` counts only `agent_user_id = caller`. `team_scope_denied` and `agent_scope_denied` therefore mean two things: a refused attribution write (below) and a refused read scope on the trend views. A team or a small group of agents is released only as the role views' disclosure rules allow (`backend/issue_trends/README.md`, "HOM-82: role views and disclosure").
 
 Attribution writes (`PATCH /meetings/{id}` with `team_id` / `agent_user_id`, permission `meeting:update`):
 
@@ -151,6 +151,8 @@ Teams of another workspace or inactive teams are `422 invalid_team`; non-members
 Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a permission from §3, with `+csrf` when the route is a cookie-authenticated write. Workspace routes additionally require an effective membership (§1) and, where the resource is a meeting, the record predicate (§5).
 
 `+operator` additionally requires `User.system_role = "operator"` from a signed-in session (never an API key): deployment-wide voice media nodes (P0 wave) and the installation's system-health summary (HOM-227).
+
+`+session` (HOM-82) is a read from a signed-in session only: every bearer that looks like an API key (valid, unknown, revoked, expired, over its rate limit) gets `401 api_key_not_accepted` before any key lookup, the workspace and the permission. Today: the team comparison `GET /api/v1/trends/teams` and the agent self-view `GET /api/v1/trends/me`.
 
 <!-- matrix:routes:start -->
 | Method | Path | Policy |
@@ -188,6 +190,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/teams/{team_id}/assignments | team:manage +csrf |
 | DELETE | /api/v1/teams/{team_id}/assignments/{assignment_id} | team:manage +csrf |
 | GET | /api/v1/trends/issues | meeting:read |
+| GET | /api/v1/trends/teams | meeting:read +session |
+| GET | /api/v1/trends/me | meeting:read +session |
 | GET | /api/v1/admin/audit-events | audit:read |
 | GET | /api/v1/admin/audit-event-types | audit:read |
 | GET | /api/v1/admin/shares | workspace:manage |
@@ -270,6 +274,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | DELETE | /api/v1/organizations/{organization_id}/scope-grants/{grant_id} | organization:member:manage +csrf |
 | GET | /api/v1/organizations/{organization_id}/aggregates | organization:analytics:read |
 | GET | /api/v1/organizations/{organization_id}/records | organization:records:read |
+| GET | /api/v1/organizations/{organization_id}/trends/issues | organization:analytics:read |
+| GET | /api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues | organization:records:read |
 | GET | /api/v1/locations | meeting:read |
 | POST | /api/v1/locations | workspace:manage +csrf |
 | POST | /api/v1/locations/resolve | meeting:read |

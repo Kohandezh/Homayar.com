@@ -569,27 +569,33 @@ def _assess(
     )
 
 
-def compute_coverage(
-    db: Session,
+def _is_candidate(row: Any) -> bool:
+    """An accepted row whose live meeting is completed or partial: its processing
+    bucket is decided by the transcript."""
+    return (
+        row.status != IngestionStatus.REJECTED
+        and row.meeting_id is not None
+        and row.deleted_at is None
+        and row.meeting_status not in IN_PROGRESS_STATUSES
+        and row.meeting_status not in FAILED_STATUSES
+    )
+
+
+def _count(
+    rows: Iterable[Any],
+    facts: _Facts,
     *,
-    workspace_id: str,
     window: CoverageWindow,
     recompute_max_attempts: int,
-    population: Sequence[ColumnElement[bool]] = (),
 ) -> Coverage:
-    """The four ``coverage/1`` counters of the workspace for ``window``.
-
-    ``population`` narrows the ledger rows with the same rules (HOM-81): extra clauses on
-    ``IngestionRecord`` joined to ``Meeting``, ANDed.  A ledger row then counts only if it
-    joins to a meeting of the workspace (live or soft-deleted) and passes every clause.
-    Empty (the default) is the whole workspace, ``GET /admin/coverage``.
-    """
+    """The four counters of ``rows`` (ledger rows of ``_ledger_rows``) with ``facts``
+    loaded for every candidate among them."""
     ingestion = dict.fromkeys(INGESTION_BUCKETS, 0)
     rejected_reasons: Counter[str] = Counter()
     processing = dict.fromkeys(PROCESSING_BUCKETS, 0)
     evaluation = dict.fromkeys(EVALUATION_BUCKETS, 0)
     candidates = []
-    for row in _ledger_rows(db, workspace_id=workspace_id, window=window, population=population):
+    for row in rows:
         if row.status == IngestionStatus.REJECTED:
             ingestion["rejected"] += 1
             rejected_reasons[row.reason] += 1
@@ -604,11 +610,6 @@ def compute_coverage(
         else:
             candidates.append(row)  # completed or partial: decided by the transcript
 
-    facts = (
-        _load_facts(db, workspace_id=workspace_id, window=window, population=population)
-        if candidates
-        else _Facts()
-    )
     evaluated: list[EvaluatedMeeting] = []
     for row in candidates:
         revision = facts.revisions.get(row.meeting_id)
@@ -670,3 +671,72 @@ def compute_coverage(
         "review": _review_counter(evaluation[BUCKET_FULLY_EVALUATED]),
     }
     return Coverage(window=window, counters=counters, evaluated=evaluated)
+
+
+def _rows_and_facts(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    population: Sequence[ColumnElement[bool]],
+) -> tuple[Sequence[Any], _Facts]:
+    rows = _ledger_rows(db, workspace_id=workspace_id, window=window, population=population)
+    facts = (
+        _load_facts(db, workspace_id=workspace_id, window=window, population=population)
+        if any(_is_candidate(row) for row in rows)
+        else _Facts()
+    )
+    return rows, facts
+
+
+def compute_coverage(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    recompute_max_attempts: int,
+    population: Sequence[ColumnElement[bool]] = (),
+) -> Coverage:
+    """The four ``coverage/1`` counters of the workspace for ``window``.
+
+    ``population`` narrows the ledger rows with the same rules (HOM-81): extra clauses on
+    ``IngestionRecord`` joined to ``Meeting``, ANDed.  A ledger row then counts only if it
+    joins to a meeting of the workspace (live or soft-deleted) and passes every clause.
+    Empty (the default) is the whole workspace, ``GET /admin/coverage``.
+    """
+    rows, facts = _rows_and_facts(
+        db, workspace_id=workspace_id, window=window, population=population
+    )
+    return _count(rows, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+
+
+def compute_coverage_by_team(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    recompute_max_attempts: int,
+    population: Sequence[ColumnElement[bool]] = (),
+    teams: Iterable[str | None] = (),
+) -> tuple[Coverage, dict[str | None, Coverage]]:
+    """``compute_coverage`` once more, also split by team (HOM-82): the same statements
+    (1 ledger statement, plus 8 fact statements when a candidate exists).
+
+    Each ledger row counts in the whole and in the group of its meeting's ``team_id``; the
+    key ``None`` holds the meetings with no team.  A ledger row with no meeting (possible
+    only with an empty ``population``, where the meeting join is outer) counts in the whole
+    and in no group.  Every id of ``teams`` has a group, empty when it has no row.
+    """
+    rows, facts = _rows_and_facts(
+        db, workspace_id=workspace_id, window=window, population=population
+    )
+    grouped: dict[str | None, list[Any]] = {team_id: [] for team_id in teams}
+    grouped = defaultdict(list, grouped)
+    for row in rows:
+        if row.meeting_id is not None:
+            grouped[row.team_id].append(row)
+
+    def count(subset: Iterable[Any]) -> Coverage:
+        return _count(subset, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+
+    return count(rows), {team_id: count(team_rows) for team_id, team_rows in grouped.items()}

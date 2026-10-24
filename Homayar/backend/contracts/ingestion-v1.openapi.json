@@ -171,6 +171,91 @@
         "title": "ActionItemResponse",
         "type": "object"
       },
+      "AggregateMissingData": {
+        "description": "Sorted, distinct codes, each a pure function of the same response\n(``services/aggregate_metadata.py``).",
+        "properties": {
+          "indicators": {
+            "items": {
+              "enum": [
+                "ingestion_incomplete",
+                "processing_incomplete",
+                "evaluation_incomplete",
+                "review_incomplete",
+                "ingestion_unavailable",
+                "processing_unavailable",
+                "evaluation_unavailable",
+                "review_unavailable",
+                "scorecard_unavailable",
+                "empty_population",
+                "missing_values",
+                "pending_review",
+                "insufficient_sample",
+                "source_unavailable"
+              ],
+              "type": "string"
+            },
+            "title": "Indicators",
+            "type": "array"
+          }
+        },
+        "required": [
+          "indicators"
+        ],
+        "title": "AggregateMissingData",
+        "type": "object"
+      },
+      "AggregateScorecard": {
+        "description": "The scorecard state of an aggregate.  Scorecards (HOM-54) do not exist yet, so it\nis always ``not_available``; HOM-54 adds ``available`` with a version and digest.",
+        "properties": {
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "const": "scorecard_results_unavailable",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "const": "not_available",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "digest",
+          "reason"
+        ],
+        "title": "AggregateScorecard",
+        "type": "object"
+      },
       "AnalysisRunResponse": {
         "description": "Provenance of the analysis pass that produced a summary / AI actions.",
         "properties": {
@@ -527,6 +612,88 @@
           "policy_digest"
         ],
         "title": "ContentRedactionInfo",
+        "type": "object"
+      },
+      "CoverageCounter": {
+        "description": "One counter: a written definition, a numerator over a denominator, and\nmutually exclusive buckets that sum to the denominator.",
+        "properties": {
+          "buckets": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Buckets",
+            "type": "object"
+          },
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "denominator": {
+            "title": "Denominator",
+            "type": "integer"
+          },
+          "denominator_label": {
+            "title": "Denominator Label",
+            "type": "string"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "numerator_label": {
+            "title": "Numerator Label",
+            "type": "string"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "computed",
+              "not_computable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition",
+          "numerator_label",
+          "denominator_label",
+          "numerator",
+          "denominator",
+          "ratio",
+          "status",
+          "reason",
+          "buckets"
+        ],
+        "title": "CoverageCounter",
         "type": "object"
       },
       "DegradationResponse": {
@@ -1691,6 +1858,430 @@
         "title": "MeetingResponse",
         "type": "object"
       },
+      "OrganizationDisclosurePolicy": {
+        "properties": {
+          "grid": {
+            "$ref": "#/components/schemas/TrendGrid"
+          },
+          "min_cohort_agents": {
+            "title": "Min Cohort Agents",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "min_cohort_agents",
+          "grid"
+        ],
+        "title": "OrganizationDisclosurePolicy",
+        "type": "object"
+      },
+      "OrganizationDrilldownResponse": {
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/TrendDefinitionRef"
+          },
+          "disclosure_policy": {
+            "$ref": "#/components/schemas/OrganizationDisclosurePolicy"
+          },
+          "extraction_policies": {
+            "items": {
+              "$ref": "#/components/schemas/TrendVersionRef"
+            },
+            "title": "Extraction Policies",
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/TrendFiltersResponse"
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "organization_id": {
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "sample_policy": {
+            "$ref": "#/components/schemas/TrendVersionRef"
+          },
+          "series": {
+            "$ref": "#/components/schemas/TrendSeries"
+          },
+          "taxonomy": {
+            "$ref": "#/components/schemas/TrendTaxonomyRef"
+          },
+          "team_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Ids"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/OrganizationTeamTrend"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "trends_version": {
+            "title": "Trends Version",
+            "type": "string"
+          },
+          "validator_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validator Versions",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TrendWindowResponse"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/OrganizationTrendBlock"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "workspace_name": {
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trends_version",
+          "definition",
+          "taxonomy",
+          "extraction_policies",
+          "validator_versions",
+          "sample_policy",
+          "organization_id",
+          "workspace_id",
+          "workspace_name",
+          "team_ids",
+          "disclosure_policy",
+          "window",
+          "filters",
+          "series",
+          "notices",
+          "workspace",
+          "teams"
+        ],
+        "title": "OrganizationDrilldownResponse",
+        "type": "object"
+      },
+      "OrganizationTeamTrend": {
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disclosure": {
+            "$ref": "#/components/schemas/TrendDisclosure"
+          },
+          "missing_data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AggregateMissingData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrendPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "population": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendPopulation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TrendRowResponse"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scorecard": {
+            "$ref": "#/components/schemas/AggregateScorecard"
+          },
+          "team": {
+            "$ref": "#/components/schemas/TrendTeamRef"
+          }
+        },
+        "required": [
+          "population",
+          "rows",
+          "points",
+          "coverage",
+          "scorecard",
+          "missing_data",
+          "disclosure",
+          "team"
+        ],
+        "title": "OrganizationTeamTrend",
+        "type": "object"
+      },
+      "OrganizationTrendBlock": {
+        "description": "One cohort of an organization view.  A withheld cohort has no count at all:\n``population``, ``coverage`` and ``missing_data`` are null, ``rows`` and ``points``\nempty.",
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disclosure": {
+            "$ref": "#/components/schemas/TrendDisclosure"
+          },
+          "missing_data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AggregateMissingData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrendPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "population": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendPopulation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TrendRowResponse"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scorecard": {
+            "$ref": "#/components/schemas/AggregateScorecard"
+          }
+        },
+        "required": [
+          "population",
+          "rows",
+          "points",
+          "coverage",
+          "scorecard",
+          "missing_data",
+          "disclosure"
+        ],
+        "title": "OrganizationTrendBlock",
+        "type": "object"
+      },
+      "OrganizationTrendResponse": {
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/TrendDefinitionRef"
+          },
+          "disclosure_policy": {
+            "$ref": "#/components/schemas/OrganizationDisclosurePolicy"
+          },
+          "extraction_policies": {
+            "items": {
+              "$ref": "#/components/schemas/TrendVersionRef"
+            },
+            "title": "Extraction Policies",
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/TrendFiltersResponse"
+          },
+          "organization_id": {
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "sample_policy": {
+            "$ref": "#/components/schemas/TrendVersionRef"
+          },
+          "series": {
+            "$ref": "#/components/schemas/TrendSeries"
+          },
+          "taxonomy": {
+            "$ref": "#/components/schemas/TrendTaxonomyRef"
+          },
+          "trends_version": {
+            "title": "Trends Version",
+            "type": "string"
+          },
+          "validator_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validator Versions",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TrendWindowResponse"
+          },
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/OrganizationWorkspaceTrend"
+            },
+            "title": "Workspaces",
+            "type": "array"
+          }
+        },
+        "required": [
+          "trends_version",
+          "definition",
+          "taxonomy",
+          "extraction_policies",
+          "validator_versions",
+          "sample_policy",
+          "organization_id",
+          "disclosure_policy",
+          "window",
+          "filters",
+          "series",
+          "workspaces"
+        ],
+        "title": "OrganizationTrendResponse",
+        "type": "object"
+      },
+      "OrganizationWorkspaceTrend": {
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disclosure": {
+            "$ref": "#/components/schemas/TrendDisclosure"
+          },
+          "missing_data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AggregateMissingData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrendPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "population": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendPopulation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TrendRowResponse"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scorecard": {
+            "$ref": "#/components/schemas/AggregateScorecard"
+          },
+          "team_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Ids"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "workspace_name": {
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "population",
+          "rows",
+          "points",
+          "coverage",
+          "scorecard",
+          "missing_data",
+          "disclosure",
+          "workspace_id",
+          "workspace_name",
+          "team_ids"
+        ],
+        "title": "OrganizationWorkspaceTrend",
+        "type": "object"
+      },
       "RecordingResponse": {
         "properties": {
           "channel_count": {
@@ -1803,6 +2394,103 @@
           "evidence"
         ],
         "title": "ReportCompleteness",
+        "type": "object"
+      },
+      "SelfTrendResponse": {
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/TrendCoverage"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/TrendDefinitionRef"
+          },
+          "disclosure": {
+            "$ref": "#/components/schemas/TrendDisclosure"
+          },
+          "disclosure_policy": {
+            "$ref": "#/components/schemas/TrendDisclosurePolicy"
+          },
+          "extraction_policies": {
+            "items": {
+              "$ref": "#/components/schemas/TrendVersionRef"
+            },
+            "title": "Extraction Policies",
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/TrendFiltersResponse"
+          },
+          "missing_data": {
+            "$ref": "#/components/schemas/AggregateMissingData"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrendPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "population": {
+            "$ref": "#/components/schemas/TrendPopulation"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TrendRowResponse"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "sample_policy": {
+            "$ref": "#/components/schemas/TrendVersionRef"
+          },
+          "scorecard": {
+            "$ref": "#/components/schemas/AggregateScorecard"
+          },
+          "series": {
+            "$ref": "#/components/schemas/TrendSeries"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/TrendSubject"
+          },
+          "taxonomy": {
+            "$ref": "#/components/schemas/TrendTaxonomyRef"
+          },
+          "trends_version": {
+            "title": "Trends Version",
+            "type": "string"
+          },
+          "validator_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validator Versions",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TrendWindowResponse"
+          }
+        },
+        "required": [
+          "trends_version",
+          "definition",
+          "taxonomy",
+          "extraction_policies",
+          "validator_versions",
+          "sample_policy",
+          "disclosure_policy",
+          "window",
+          "filters",
+          "subject",
+          "series",
+          "population",
+          "rows",
+          "points",
+          "coverage",
+          "scorecard",
+          "missing_data",
+          "disclosure"
+        ],
+        "title": "SelfTrendResponse",
         "type": "object"
       },
       "SpeakerResponse": {
@@ -2140,6 +2828,228 @@
           "updated_at"
         ],
         "title": "SummaryResponse",
+        "type": "object"
+      },
+      "TeamComparison": {
+        "description": "``compare_cells`` of two teams for one window row: left minus right, in the fixed\nteam order.  A difference, never a rank or a cause.",
+        "properties": {
+          "difference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "issue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue"
+          },
+          "left_team_id": {
+            "title": "Left Team Id",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "family",
+              "issue"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "minimum_sample": {
+            "title": "Minimum Sample",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "right_team_id": {
+            "title": "Right Team Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "computed",
+              "not_computable",
+              "insufficient_sample",
+              "withheld"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "left_team_id",
+          "right_team_id",
+          "level",
+          "family",
+          "issue",
+          "status",
+          "reason",
+          "difference",
+          "minimum_sample"
+        ],
+        "title": "TeamComparison",
+        "type": "object"
+      },
+      "TeamComparisonResponse": {
+        "properties": {
+          "comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/TeamComparison"
+            },
+            "title": "Comparisons",
+            "type": "array"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/TrendDefinitionRef"
+          },
+          "disclosure_policy": {
+            "$ref": "#/components/schemas/TrendDisclosurePolicy"
+          },
+          "extraction_policies": {
+            "items": {
+              "$ref": "#/components/schemas/TrendVersionRef"
+            },
+            "title": "Extraction Policies",
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/TrendFiltersResponse"
+          },
+          "notices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "sample_policy": {
+            "$ref": "#/components/schemas/TrendVersionRef"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/TrendScope"
+          },
+          "series": {
+            "$ref": "#/components/schemas/TrendSeries"
+          },
+          "taxonomy": {
+            "$ref": "#/components/schemas/TrendTaxonomyRef"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/TeamTrendBlock"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "trends_version": {
+            "title": "Trends Version",
+            "type": "string"
+          },
+          "validator_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validator Versions",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TrendWindowResponse"
+          }
+        },
+        "required": [
+          "trends_version",
+          "definition",
+          "taxonomy",
+          "extraction_policies",
+          "validator_versions",
+          "sample_policy",
+          "disclosure_policy",
+          "window",
+          "filters",
+          "scope",
+          "series",
+          "notices",
+          "teams",
+          "comparisons"
+        ],
+        "title": "TeamComparisonResponse",
+        "type": "object"
+      },
+      "TeamTrendBlock": {
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/TrendCoverage"
+          },
+          "disclosure": {
+            "$ref": "#/components/schemas/TrendDisclosure"
+          },
+          "missing_data": {
+            "$ref": "#/components/schemas/AggregateMissingData"
+          },
+          "mix": {
+            "$ref": "#/components/schemas/TrendMix"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrendPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "population": {
+            "$ref": "#/components/schemas/TrendPopulation"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TrendRowResponse"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scorecard": {
+            "$ref": "#/components/schemas/AggregateScorecard"
+          },
+          "team": {
+            "$ref": "#/components/schemas/TrendTeamRef"
+          }
+        },
+        "required": [
+          "population",
+          "rows",
+          "points",
+          "coverage",
+          "scorecard",
+          "missing_data",
+          "disclosure",
+          "team",
+          "mix"
+        ],
+        "title": "TeamTrendBlock",
         "type": "object"
       },
       "TranscriptFilters": {
@@ -2598,6 +3508,623 @@
         "title": "TranscriptSegmentResponse",
         "type": "object"
       },
+      "TrendCell": {
+        "description": "``withheld`` (HOM-82): the counts are held back so that no hidden count of a small\ngroup can be rebuilt; the denominator stays.",
+        "properties": {
+          "denominator": {
+            "title": "Denominator",
+            "type": "integer"
+          },
+          "minimum_sample": {
+            "title": "Minimum Sample",
+            "type": "integer"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "computed",
+              "not_computable",
+              "insufficient_sample",
+              "withheld"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "numerator",
+          "denominator",
+          "ratio",
+          "reason",
+          "minimum_sample"
+        ],
+        "title": "TrendCell",
+        "type": "object"
+      },
+      "TrendCoverage": {
+        "description": "The ``coverage/1`` processing and evaluation counters of the trend window (HOM-81).\n\n``workspace``: the counters of ``GET /admin/coverage``.  ``trend_population``: the same\nrules over the ledger rows whose meeting passes the caller's scope and the population\nfilters.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "workspace",
+              "trend_population"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/CoverageCounter"
+          },
+          "processing": {
+            "$ref": "#/components/schemas/CoverageCounter"
+          },
+          "version": {
+            "const": "coverage/1",
+            "title": "Version",
+            "type": "string"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TrendWindowResponse"
+          }
+        },
+        "required": [
+          "version",
+          "window",
+          "basis",
+          "processing",
+          "evaluation"
+        ],
+        "title": "TrendCoverage",
+        "type": "object"
+      },
+      "TrendDefinitionRef": {
+        "properties": {
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "title": "TrendDefinitionRef",
+        "type": "object"
+      },
+      "TrendDisclosure": {
+        "description": "What HOM-82 held back in one cohort.  ``released``: nothing; ``masked``: the\n``masked`` layers are withheld (workspace views); ``withheld``: no count at all\n(organization views).",
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "rate",
+                  "agent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "masked": {
+            "items": {
+              "enum": [
+                "points",
+                "window"
+              ],
+              "type": "string"
+            },
+            "title": "Masked",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "small_group",
+                  "complementary_disclosure"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "released",
+              "masked",
+              "withheld"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "kind",
+          "masked"
+        ],
+        "title": "TrendDisclosure",
+        "type": "object"
+      },
+      "TrendDisclosurePolicy": {
+        "description": "The disclosure rules of the answer (HOM-82): a small group has fewer than\n``min_cohort_agents`` distinct agents.",
+        "properties": {
+          "min_cohort_agents": {
+            "title": "Min Cohort Agents",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "min_cohort_agents"
+        ],
+        "title": "TrendDisclosurePolicy",
+        "type": "object"
+      },
+      "TrendExcluded": {
+        "properties": {
+          "duplicate_media": {
+            "title": "Duplicate Media",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "duplicate_media"
+        ],
+        "title": "TrendExcluded",
+        "type": "object"
+      },
+      "TrendFiltersResponse": {
+        "description": "The normalized filters; an empty list means no restriction.",
+        "properties": {
+          "agent_user_id": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Agent User Id",
+            "type": "array"
+          },
+          "family": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Family",
+            "type": "array"
+          },
+          "issue": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Issue",
+            "type": "array"
+          },
+          "language": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Language",
+            "type": "array"
+          },
+          "service_area": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Service Area",
+            "type": "array"
+          },
+          "source_type": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Type",
+            "type": "array"
+          },
+          "team_id": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Team Id",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/TrendWindowResponse"
+          }
+        },
+        "required": [
+          "window",
+          "team_id",
+          "agent_user_id",
+          "language",
+          "source_type",
+          "family",
+          "issue",
+          "service_area"
+        ],
+        "title": "TrendFiltersResponse",
+        "type": "object"
+      },
+      "TrendGrid": {
+        "description": "The fixed weekly grid of the organization views.",
+        "properties": {
+          "closed_weeks_only": {
+            "title": "Closed Weeks Only",
+            "type": "boolean"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "unit": {
+            "const": "week",
+            "title": "Unit",
+            "type": "string"
+          },
+          "week_starts_on": {
+            "const": "saturday",
+            "title": "Week Starts On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "timezone",
+          "week_starts_on",
+          "closed_weeks_only"
+        ],
+        "title": "TrendGrid",
+        "type": "object"
+      },
+      "TrendMix": {
+        "description": "Included conversations per language and per source type (F61).",
+        "properties": {
+          "language": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Language",
+            "type": "object"
+          },
+          "source_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Source Type",
+            "type": "object"
+          }
+        },
+        "required": [
+          "language",
+          "source_type"
+        ],
+        "title": "TrendMix",
+        "type": "object"
+      },
+      "TrendPoint": {
+        "description": "One point of a series: ``from <= received_at < to``, in the series timezone.",
+        "properties": {
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "population": {
+            "$ref": "#/components/schemas/TrendPopulation"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TrendRowResponse"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "partial",
+          "population",
+          "rows"
+        ],
+        "title": "TrendPoint",
+        "type": "object"
+      },
+      "TrendPopulation": {
+        "description": "Conversations counted, and the copies of a media group left out.",
+        "properties": {
+          "excluded": {
+            "$ref": "#/components/schemas/TrendExcluded"
+          },
+          "included": {
+            "title": "Included",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "included",
+          "excluded"
+        ],
+        "title": "TrendPopulation",
+        "type": "object"
+      },
+      "TrendRowResponse": {
+        "properties": {
+          "absent_pending_review": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Absent Pending Review"
+          },
+          "cell": {
+            "$ref": "#/components/schemas/TrendCell"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "issue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue"
+          },
+          "level": {
+            "enum": [
+              "family",
+              "issue"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "missing": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Missing",
+            "type": "object"
+          },
+          "pending_review": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Review"
+          }
+        },
+        "required": [
+          "level",
+          "family",
+          "issue",
+          "cell",
+          "pending_review",
+          "absent_pending_review",
+          "missing"
+        ],
+        "title": "TrendRowResponse",
+        "type": "object"
+      },
+      "TrendScope": {
+        "description": "``restricted``: the caller sees only the meetings of their record scope.",
+        "properties": {
+          "restricted": {
+            "title": "Restricted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "restricted"
+        ],
+        "title": "TrendScope",
+        "type": "object"
+      },
+      "TrendSeries": {
+        "properties": {
+          "calendar": {
+            "const": "gregorian",
+            "title": "Calendar",
+            "type": "string"
+          },
+          "grain": {
+            "enum": [
+              "none",
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Grain",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "week_starts_on": {
+            "const": "saturday",
+            "title": "Week Starts On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grain",
+          "timezone",
+          "calendar",
+          "week_starts_on"
+        ],
+        "title": "TrendSeries",
+        "type": "object"
+      },
+      "TrendSubject": {
+        "properties": {
+          "agent_user_id": {
+            "title": "Agent User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_user_id"
+        ],
+        "title": "TrendSubject",
+        "type": "object"
+      },
+      "TrendTaxonomyRef": {
+        "properties": {
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "title": "TrendTaxonomyRef",
+        "type": "object"
+      },
+      "TrendTeamRef": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "TrendTeamRef",
+        "type": "object"
+      },
+      "TrendVersionRef": {
+        "description": "An extraction policy or the sample policy: a version and its digest.",
+        "properties": {
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "digest"
+        ],
+        "title": "TrendVersionRef",
+        "type": "object"
+      },
+      "TrendWindowResponse": {
+        "description": "``from <= received_at < to`` of the ingestion ledger, ISO 8601 in UTC.",
+        "properties": {
+          "basis": {
+            "const": "ingestion_received_at",
+            "title": "Basis",
+            "type": "string"
+          },
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "basis"
+        ],
+        "title": "TrendWindowResponse",
+        "type": "object"
+      },
       "UploadAcceptedResponse": {
         "properties": {
           "idempotent_replay": {
@@ -3047,9 +4574,9 @@
     }
   },
   "info": {
-    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
+    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Role-scoped trend views (1.3.0).** Four read operations need a signed-in user\nsession and refuse every API key with `401 api_key_not_accepted`: the team comparison\n`/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates\nand the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort\ncarries a `disclosure` block; a cohort of 1 to 4 agents is held back.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
     "title": "Homayar Ingestion API",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4810,6 +6337,527 @@
         "summary": "Get Transcript",
         "tags": [
           "meeting intelligence"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organization_id}/trends/issues": {
+      "get": {
+        "description": "Executive aggregates (HOM-82): one block per scoped workspace, no total.\n\nOrg owner, admin, analyst and executive; a session only (every API key is\n``401 api_key_not_accepted``).  Whole closed weeks from Saturday 00:00 Asia/Tehran,\ngrain ``none`` or ``week``.  ``team_id``, ``agent_user_id``, ``language``,\n``source_type`` and ``timezone`` are ``422 trend_parameter_not_allowed``.  A workspace\nblock is withheld when a week, or a row of a week, rests on 1 to 4 agents.\n\nSince 1.3.0. Who: an organization owner, admin, analyst or executive (`organization:analytics:read`), over the workspaces they may see. A signed-in session only: an API key is `401 api_key_not_accepted`; no membership is `404 organization_not_found`. Whole closed weeks from Saturday 00:00 Asia/Tehran (`422 trend_window_not_aligned` otherwise), grain `none` or `week`.",
+        "operationId": "read_organization_trends_api_v1_organizations__organization_id__trends_issues_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "organization_id",
+            "required": true,
+            "schema": {
+              "title": "Organization Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationTrendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Organization Trends",
+        "tags": [
+          "organizations"
+        ]
+      }
+    },
+    "/api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues": {
+      "get": {
+        "description": "Analyst drill-down (HOM-82): the grant unit of one workspace and one block per\nactive team inside it, decided per week.\n\nOrg owner, admin and analyst (an executive is ``403 permission_denied``); a session\nonly.  A workspace outside the caller's scope is ``404 workspace_not_found``.  The\nquery is the one of the executive aggregates.  No list of conversations.\n\nSince 1.3.0. Who: an organization owner, admin or analyst (`organization:records:read`); an executive is `403 permission_denied`. A signed-in session only: an API key is `401 api_key_not_accepted`. A workspace outside the caller's scope is `404 workspace_not_found`. The query of the executive aggregates.",
+        "operationId": "read_organization_drilldown_api_v1_organizations__organization_id__workspaces__workspace_id__trends_issues_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "organization_id",
+            "required": true,
+            "schema": {
+              "title": "Organization Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationDrilldownResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Organization Drilldown",
+        "tags": [
+          "organizations"
+        ]
+      }
+    },
+    "/api/v1/trends/me": {
+      "get": {
+        "description": "Agent self-view (HOM-82): the caller's own meetings as agent, kind ``agent``.\n\nSession only: every API key is ``401 api_key_not_accepted``.  Every workspace role may\ncall it.  Uploads the caller made for someone else do not count.  ``agent_user_id`` is\n``422 trend_parameter_not_allowed``; ``team_id``, ``language`` and ``source_type``\nnarrow the own meetings.\n\nSince 1.3.0. Who: any workspace member with `meeting:read`; the caller's own meetings as agent. A signed-in session only: an API key is `401 api_key_not_accepted`. `422 trend_parameter_not_allowed` for `agent_user_id`.",
+        "operationId": "read_self_trends_api_v1_trends_me_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfTrendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Self Trends",
+        "tags": [
+          "trends"
+        ]
+      }
+    },
+    "/api/v1/trends/teams": {
+      "get": {
+        "description": "Supervisor team comparison (HOM-82): one block per team, compared in pairs.\n\nSession only: every API key is ``401 api_key_not_accepted``.  Owners and admins\ncompare every active team (none: ``200`` with no team); members and viewers only the\nactive teams they supervise (``403 team_scope_denied`` otherwise, also for a ``team_id``\nthey may not compare).  At\nmost 10 teams (``422 trend_too_many_teams``).  ``agent_user_id`` is\n``422 trend_parameter_not_allowed``.  A team is shown only when it is in the canonical\nreleased set of the caller's scope.  No rank: teams in a fixed order by name.\n\nSince 1.3.0. Who: a workspace owner or admin (every active team) or a member or viewer with an effective supervisor assignment (only those teams); `meeting:read`. A signed-in session only: an API key is `401 api_key_not_accepted`. `403 team_scope_denied` for a team the caller may not compare, `422 trend_too_many_teams` over 10 teams, `422 trend_parameter_not_allowed` for `agent_user_id`. No rank: teams in a fixed order, differences left minus right.",
+        "operationId": "read_team_comparison_api_v1_trends_teams_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Workspace-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Workspace-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "homayar_access",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Homayar Access"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamComparisonResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key (`api_key_invalid`)."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Scope or permission refused (`api_key_scope_denied`, `permission_denied`, `verified_identity_required`)."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request or media validation failed (`validation_error` and media codes)."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with rate limits and transient failures; absent on quota 429s.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Team Comparison",
+        "tags": [
+          "trends"
         ]
       }
     },

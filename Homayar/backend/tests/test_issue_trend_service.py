@@ -79,6 +79,8 @@ ANSWER_KEYS = {
     "population",
     "rows",
     "points",
+    "disclosure_policy",  # HOM-82
+    "disclosure",  # HOM-82
 }
 
 
@@ -703,8 +705,15 @@ def test_one_agent_filter_gives_agent_cells(client, email_outbox):
     assert one["cell"]["status"] == "insufficient_sample"
     assert one["cell"]["numerator"] is None and one["pending_review"] is None
     assert one["cell"]["denominator"] == 1
+    # HOM-82 (L1 closed): the kind comes from the agents of the population, not from the
+    # filter, so two agents are still a small group: an agent cell
     both = row(trends(tenant, agent_user_id=[agent, other]), family="service_complaint")
-    assert both["cell"]["numerator"] == 2  # a rate cell keeps its counts
+    assert both["cell"]["status"] == "insufficient_sample" and both["cell"]["numerator"] is None
+    # allow-control: five agents other than the viewer are a rate cohort that keeps its counts
+    for name in ("third", "fourth", "fifth"):
+        seed(tenant, agent_user_id=add_user(name))
+    many = row(trends(tenant), family="service_complaint")
+    assert many["cell"]["numerator"] == 5 and trends(tenant)["disclosure"]["kind"] == "rate"
 
 
 # --- deny-case 14: the half-open window -----------------------------------------------------
