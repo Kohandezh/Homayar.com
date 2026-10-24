@@ -130,6 +130,23 @@ def _row_columns(row: AnalysisExtraction) -> dict:
     return {column: getattr(row, column) for column in ROW_COLUMNS}
 
 
+def _rewrite_field(meeting_id: str, name: str, **change) -> None:
+    """Rewrite keys of one stored field of the row through a SQL UPDATE: the
+    ORM refuses to update the stored extraction row, a statement does not."""
+    (row,) = _rows(meeting_id)
+    result = dict(row.result)
+    fields = dict(result["fields"])
+    fields[name] = {**fields[name], **change}
+    result["fields"] = fields
+    with inspection_session_factory()() as db:
+        db.execute(
+            update(AnalysisExtraction)
+            .where(AnalysisExtraction.meeting_id == meeting_id)
+            .values(result=result)
+        )
+        db.commit()
+
+
 def _span_ids(run_id: str) -> dict[int, list[str]]:
     """finding_index -> extraction span ids of ``run_id``, in the report's ref order."""
     with inspection_session_factory()() as db:
@@ -595,6 +612,87 @@ def test_abstained_fields_are_shown_as_they_are(
         "entity": ("not_stated", None, []),
         "outcome": ("contradictory", "model", []),
     }
+
+
+ABSTAINED = _extraction(
+    intent=_stated(_value("cancel_service", [0], 0.9)),
+    topic={"status": "insufficient_evidence", "values": []},
+)
+
+
+@pytest.mark.parametrize(
+    ("status", "label"),
+    [
+        pytest.param(["stated"], "report-status-list", id="list"),
+        pytest.param({"value": "stated"}, "report-status-dict", id="dict"),
+    ],
+)
+def test_a_field_whose_status_is_not_a_string_is_shown_as_unavailable(
+    client,
+    email_outbox,
+    monkeypatch,
+    settings,  # noqa: F811
+    status,
+    label,
+):
+    # HOM-309: a stored status that is not hashable is not a 500; the field is
+    # unavailable, exactly like an unknown status string, the others unchanged.
+    tenant, meeting_id, before = _meeting(
+        client, email_outbox, monkeypatch, settings, _fixed(MIXED), label
+    )
+    assert before["extraction"]["fields"]["intent"]["status"] == "stated"
+    _rewrite_field(meeting_id, "intent", status=status)
+    block = _report(client, tenant["workspace_id"], meeting_id)["extraction"]
+    assert block["fields"]["intent"] == UNAVAILABLE_FIELD
+    for name in FIELDS[1:]:
+        assert block["fields"][name] == before["extraction"]["fields"][name]
+
+
+@pytest.mark.parametrize(
+    ("reason", "label"),
+    [
+        pytest.param(["model"], "report-reason-list", id="list"),
+        pytest.param({"value": "model"}, "report-reason-dict", id="dict"),
+    ],
+)
+def test_a_field_whose_abstain_reason_is_not_a_string_keeps_its_status(
+    client,
+    email_outbox,
+    monkeypatch,
+    settings,  # noqa: F811
+    reason,
+    label,
+):
+    # HOM-309: a stored abstain_reason that is not hashable is not a 500; the
+    # reason reads as null, the status and the other fields are unchanged.
+    tenant, meeting_id, before = _meeting(
+        client, email_outbox, monkeypatch, settings, _fixed(ABSTAINED), label
+    )
+    assert before["extraction"]["fields"]["topic"]["abstain_reason"] == "model"
+    _rewrite_field(meeting_id, "topic", abstain_reason=reason)
+    block = _report(client, tenant["workspace_id"], meeting_id)["extraction"]
+    topic = block["fields"]["topic"]
+    assert topic["status"] == "insufficient_evidence" and topic["abstain_reason"] is None
+    assert topic["values"] == []
+    for name in ("intent", "entity", "outcome"):
+        assert block["fields"][name] == before["extraction"]["fields"][name]
+
+
+def test_a_known_status_and_a_known_abstain_reason_still_show(
+    client,
+    email_outbox,
+    monkeypatch,
+    settings,  # noqa: F811
+):
+    # Allow-control for the two tests above: the same SQL rewrite with the
+    # known values changes nothing.
+    tenant, meeting_id, before = _meeting(
+        client, email_outbox, monkeypatch, settings, _fixed(ABSTAINED), "report-known-values"
+    )
+    _rewrite_field(meeting_id, "intent", status="stated")
+    _rewrite_field(meeting_id, "topic", abstain_reason="model")
+    block = _report(client, tenant["workspace_id"], meeting_id)["extraction"]
+    assert block["fields"] == before["extraction"]["fields"]
 
 
 def test_the_block_changes_no_other_part_of_the_report(
