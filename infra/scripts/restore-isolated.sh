@@ -73,6 +73,13 @@ require_env COMPOSE_PROJECT_NAME
 require_env POSTGRES_DB
 require_env BACKUP_KEY_FILE
 [[ -r "${BACKUP_KEY_FILE}" ]] || die "Backup key file is not readable: ${BACKUP_KEY_FILE}"
+if [[ -n "${BACKUP_DATABASE_URL_FILE:-}" ]]; then
+  [[ "${BACKUP_DATABASE_URL_FILE}" == /* ]] ||
+    BACKUP_DATABASE_URL_FILE="$(cd -- "$(dirname -- "${COMPOSE_FILE}")" && pwd -P)/${BACKUP_DATABASE_URL_FILE}"
+  export BACKUP_DATABASE_URL_FILE
+  [[ -f "${BACKUP_DATABASE_URL_FILE}" && -r "${BACKUP_DATABASE_URL_FILE}" ]] ||
+    die "Backup admin DSN file (BACKUP_DATABASE_URL_FILE) is missing or not a readable file: ${BACKUP_DATABASE_URL_FILE}"
+fi
 live_project="${LIVE_COMPOSE_PROJECT:-homayar-onprem}"
 [[ "${COMPOSE_PROJECT_NAME}" != "${live_project}" ]] ||
   die "Refusing to restore into the live project ${live_project}; use a separate COMPOSE_PROJECT_NAME."

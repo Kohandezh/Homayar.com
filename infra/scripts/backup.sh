@@ -65,6 +65,12 @@ BACKUP_ROOT="$(compose_path "${BACKUP_ROOT}")"
 BACKUP_KEY_FILE="$(compose_path "${BACKUP_KEY_FILE}")"
 export BACKUP_ROOT BACKUP_KEY_FILE
 [[ -r "${BACKUP_KEY_FILE}" ]] || die "Backup key file is not readable: ${BACKUP_KEY_FILE}"
+if [[ -n "${BACKUP_DATABASE_URL_FILE:-}" ]]; then
+  BACKUP_DATABASE_URL_FILE="$(compose_path "${BACKUP_DATABASE_URL_FILE}")"
+  export BACKUP_DATABASE_URL_FILE
+  [[ -f "${BACKUP_DATABASE_URL_FILE}" && -r "${BACKUP_DATABASE_URL_FILE}" ]] ||
+    die "Backup admin DSN file (BACKUP_DATABASE_URL_FILE) is missing or not a readable file: ${BACKUP_DATABASE_URL_FILE}"
+fi
 if [[ -n "${BACKUP_OFFSITE_PATH:-}" ]]; then
   BACKUP_OFFSITE_PATH="$(compose_path "${BACKUP_OFFSITE_PATH}")"
   export BACKUP_OFFSITE_PATH

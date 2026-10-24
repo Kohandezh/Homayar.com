@@ -45,8 +45,12 @@ on every restore.
    sudo chmod 0400 /etc/homayar/backup-database-url
    ```
 
-   Create the file before you set the variable: for a path that does not exist, Docker creates
-   a root-owned directory there and the run fails. Set `BACKUP_DATABASE_URL_FILE` to its host
+   Create the file before you set the variable. `backup.sh` and `restore-isolated.sh` stop
+   before they start Docker when `BACKUP_DATABASE_URL_FILE` is set and the file is missing,
+   is not a regular file, or cannot be read. The check sees the variable only when it is set
+   in the script's environment. A value only in `COMPOSE_ENV_FILE` is not checked. A direct
+   `docker compose ... run backup-tool` does not check. Docker then creates a root-owned
+   directory at that path and the run fails. Set `BACKUP_DATABASE_URL_FILE` to its host
    path. A relative path resolves against `infra/compose/`, like the other bind mounts.
    Compose mounts it read-only at `/run/secrets/homayar-backup-database-url` in `backup-tool`
    only. When it is unset, the tool falls back to `DATABASE_URL`, which must then log in as
