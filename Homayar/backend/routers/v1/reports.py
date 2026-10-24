@@ -32,7 +32,7 @@ from backend.database.saas_models import (
     TranscriptRevision,
 )
 from backend.privacy.transcript_view import MeetingView
-from backend.providers.schemas import SUMMARY_FIELD_NAMES, ClaimBasis
+from backend.providers.schemas import SUMMARY_FIELD_NAMES
 from backend.routers.v1 import insights, shares
 from backend.routers.v1.insights import (
     _VIEW_QUERY,
@@ -144,7 +144,7 @@ def _ref(span: EvidenceSpan, *, current_revision_id: str | None, view: MeetingVi
     )
 
 
-_BASES = frozenset(basis.value for basis in ClaimBasis)
+_BASES = insights._BASES
 _UNAVAILABLE_DETAIL = ReportDecisionDetail(status="unavailable", value=None)
 
 
