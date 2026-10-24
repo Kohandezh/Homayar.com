@@ -52,9 +52,10 @@ describe("contact copy (A11)", () => {
     expect(fa.contact.form.privacyNote).toMatch(/نسخهٔ ذخیره‌شده را پس از ۱۸۰ روز حذف می‌کنیم/);
   });
 
-  it("retry, the Turnstile load error and the new field errors exist in both languages", () => {
+  it("retry, the Turnstile load error, the Turnstile error and the new field errors exist in both languages", () => {
     for (const d of [en, fa]) {
       expect(d.contact.form.turnstileLoadFailed).toBeTruthy();
+      expect(d.contact.form.turnstileError).toBeTruthy();
       expect(d.contact.form.retry).toBeTruthy();
       expect(d.contact.form.errors.phone).toBeTruthy();
       expect(d.contact.form.errors.minutes).toBeTruthy();

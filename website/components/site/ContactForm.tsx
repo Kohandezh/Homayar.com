@@ -12,8 +12,9 @@ type FieldKey = "name" | "email" | "company" | "phone" | "deployment" | "minutes
 // "waiting": the visitor sent the form before the bot check gave a token. It is sent
 // as soon as the token arrives.
 type Status = "idle" | "waiting" | "sending" | "sent" | "failed";
-// A problem with the bot check: the server refused the token, or the script did not load.
-type Notice = "turnstileFailed" | "turnstileLoadFailed" | null;
+// A problem with the bot check: the server refused the token, the script did not
+// load, or the widget itself reported an error.
+type Notice = "turnstileFailed" | "turnstileLoadFailed" | "turnstileError" | null;
 
 const fieldKeys: FieldKey[] = ["name", "email", "company", "phone", "deployment", "minutes"];
 
@@ -68,6 +69,7 @@ export function ContactForm({ copy, locale }: { copy: Copy; locale: Locale }) {
 
   function onToken(next: string | null) {
     token.current = next;
+    if (next) setNotice((n) => (n === "turnstileError" ? null : n));
     if (next && submitWhenTokenArrives.current) {
       submitWhenTokenArrives.current = false;
       formRef.current?.requestSubmit();
@@ -81,6 +83,17 @@ export function ContactForm({ copy, locale }: { copy: Copy; locale: Locale }) {
     setNotice("turnstileLoadFailed");
   }
 
+  function onTurnstileError() {
+    submitWhenTokenArrives.current = false;
+    setStatus((s) => (s === "waiting" ? "idle" : s));
+    setNotice("turnstileError");
+  }
+
+  function retryTurnstile() {
+    turnstileRef.current?.reset();
+    formRef.current?.requestSubmit();
+  }
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (status === "sending") return;
@@ -88,6 +101,7 @@ export function ContactForm({ copy, locale }: { copy: Copy; locale: Locale }) {
     const body = toBody(new FormData(form));
     const parsed = contactSchema.safeParse(body);
     if (!parsed.success) {
+      setStatus((s) => (s === "waiting" ? "idle" : s));
       const fields = parsed.error.issues.map((i) => String(i.path[0] ?? ""));
       showErrors(errorsFor(fields));
       return;
@@ -204,8 +218,14 @@ export function ContactForm({ copy, locale }: { copy: Copy; locale: Locale }) {
       ) : null}
 
       {notice ? (
-        <div role="alert" className="rounded-xl border border-danger/50 bg-danger/10 p-4">
+        <div role="alert" className="flex flex-col items-start gap-3 rounded-xl border border-danger/50 bg-danger/10 p-4">
           <p className="text-sm font-semibold text-danger">{copy[notice]}</p>
+          {notice === "turnstileError" ? (
+            <button type="button" className="btn btn-secondary" onClick={retryTurnstile} data-testid="contact-turnstile-retry">
+              <Icon name="rotate" size={16} />
+              {copy.retry}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -260,7 +280,7 @@ export function ContactForm({ copy, locale }: { copy: Copy; locale: Locale }) {
         <textarea id={id("message")} name="message" rows={4} maxLength={2000} className="field-input" aria-describedby={`${id("message")}-hint`} />
       </Field>
 
-      <Turnstile ref={turnstileRef} locale={locale} onToken={onToken} onLoadError={onTurnstileLoadError} />
+      <Turnstile ref={turnstileRef} locale={locale} onToken={onToken} onLoadError={onTurnstileLoadError} onError={onTurnstileError} />
 
       <div className="flex flex-wrap items-center gap-4">
         <button type="submit" className="btn btn-primary min-w-40" disabled={status === "sending" || status === "waiting"} aria-busy={status === "sending" || status === "waiting"}>
