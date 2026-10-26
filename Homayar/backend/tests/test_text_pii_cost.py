@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gc
 import random
+import types
 
 import pytest
 
@@ -214,27 +215,58 @@ def test_a_phone_piece_in_a_digit_run_has_11_12_or_14_digits(size):
     assert reads > 0 or size not in text_pii._PHONE_DIGITS
 
 
+def test_any_phone_reading_in_a_digit_run_has_11_12_or_14_digits():
+    # Not only the prefixes the phone regexes know today: any digits that start
+    # with 0 or 9, written with the run separators.
+    rng = random.Random(3021)  # noqa: S311 - deterministic test inputs, not security
+    reads = 0
+    for _ in range(20_000):
+        digits = rng.choice("09") + _random_digits(rng, rng.randint(9, 18))
+        raw = digits[0] + "".join(rng.choice(SEPARATORS) + d for d in digits[1:])
+        if MOBILE_RE.fullmatch(raw) or LANDLINE_RE.fullmatch(raw):
+            assert len(digits) in text_pii._PHONE_DIGITS, raw
+            reads += 1
+    assert reads > 0
+
+
 # --- S1: nothing of a text outlives the call -------------------------------------------
 
 
 OWN_MODULES = (text_pii.__name__, subject_export.__name__)
 
 
-def _strings(value, seen: set[int], depth: int = 0):
+def _reachable(value, seen: set[int], depth: int = 0):
+    """Every object a module or class attribute keeps alive, as far as a
+    cache could hide text: containers, classes of our modules, the object of a
+    bound method, and our functions with their closure cells, defaults and
+    wrapped functions."""
     if id(value) in seen or depth > 6:
         return
     seen.add(id(value))
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
+    yield value
+    if isinstance(value, dict):
         for key, item in value.items():
-            yield from _strings(key, seen, depth + 1)
-            yield from _strings(item, seen, depth + 1)
+            yield from _reachable(key, seen, depth + 1)
+            yield from _reachable(item, seen, depth + 1)
     elif isinstance(value, (list, tuple, set, frozenset)):
         for item in value:
-            yield from _strings(item, seen, depth + 1)
+            yield from _reachable(item, seen, depth + 1)
     elif isinstance(value, type) and value.__module__ in OWN_MODULES:
-        yield from _strings(dict(vars(value)), seen, depth + 1)
+        yield from _reachable(dict(vars(value)), seen, depth + 1)
+    elif isinstance(value, (staticmethod, classmethod)):
+        yield from _reachable(value.__func__, seen, depth + 1)
+    elif isinstance(value, property):
+        yield from _reachable([value.fget, value.fset, value.fdel], seen, depth + 1)
+    elif isinstance(value, (types.MethodType, types.BuiltinMethodType)) and not isinstance(
+        value.__self__, types.ModuleType
+    ):
+        yield from _reachable(value.__self__, seen, depth + 1)  # a bound method keeps its object
+    elif callable(value) and getattr(value, "__module__", None) in OWN_MODULES:
+        cells = [cell.cell_contents for cell in getattr(value, "__closure__", None) or ()]
+        defaults = [getattr(value, "__defaults__", None), getattr(value, "__kwdefaults__", None)]
+        yield from _reachable(
+            [cells, defaults, getattr(value, "__wrapped__", None)], seen, depth + 1
+        )
 
 
 def test_no_module_or_class_attribute_keeps_a_text_or_a_value():
@@ -247,7 +279,9 @@ def test_no_module_or_class_attribute_keeps_a_text_or_a_value():
     assert matcher.classes(text) == ["phone"]
     del spans, matcher
     gc.collect()
-    seen: set[int] = set()
     for module in (text_pii, subject_export):
-        for value in _strings(dict(vars(module)), seen):
+        kept = list(_reachable(dict(vars(module)), set()))
+        # A functools cache (lru_cache, cache) keeps its arguments and results.
+        assert not [item for item in kept if hasattr(item, "cache_info")], module.__name__
+        for value in [item for item in kept if isinstance(item, str)]:
             assert secret_id not in value and secret_phone not in value and text not in value
