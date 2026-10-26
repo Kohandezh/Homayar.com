@@ -47,10 +47,12 @@ recorded here as proposals.
    Narrowband means a sample rate below 16 kHz; such files are accepted as before.
 7. **Storage.** The mapping lives in the existing `Workspace.settings_json`, so it needs no
    migration. The per-recording record goes to a write-once JSON column
-   `media_objects.channel_inspection` (owner decision). Its migration waits for a free slot.
-   Until then all storage sits behind `backend/media/channel_store.py`: storing is a no-op,
-   loading returns nothing, and meeting detail shows `channel_inspection: null`. The audit
-   log is not used as a result store.
+   `media_objects.channel_inspection` (owner decision, migration `a7c3e9f5b2d1`). The column
+   exists and is set once, on the ORIGINAL media object before its insert. It is a content
+   column, so the ORM guard refuses a later change. All storage sits behind
+   `backend/media/channel_store.py`, and meeting detail fills `channel_inspection` from it.
+   Objects registered before the migration keep `null`. The audit log is not used as a
+   result store.
 8. **Exposure.** Read-only, as a new `channel_inspection` field on
    `GET /api/v1/meetings/{id}`. Upload and voicemail responses, stage completion and the
    quality assessment (ADR 0015) do not change.

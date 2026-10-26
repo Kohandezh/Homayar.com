@@ -57,6 +57,7 @@ from backend.tests.test_privacy_routing import NID_FA, SEGMENTS, _SegmentedASR
 
 NEW_REVISION = "c7e2a9d4f1b6"
 BASE_REVISION = "e6c3a9f1d4b8"
+HEAD_REVISION = "a7c3e9f5b2d1"  # HOM-37: media_objects.channel_inspection follows NEW_REVISION
 TABLE = "analysis_extractions"
 
 
@@ -136,7 +137,7 @@ def test_the_migration_round_trips_with_a_row_present(client, email_outbox, monk
     from backend.config import reset_settings_cache
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == NEW_REVISION
+    assert code_migration_head() == HEAD_REVISION
     _, meeting_id = _process(
         client, email_outbox, monkeypatch, settings, _fixed(MIXED), label="mig"
     )
@@ -160,7 +161,7 @@ def test_the_migration_round_trips_with_a_row_present(client, email_outbox, monk
         _copy_span(meeting_id, "summary")
 
         command.upgrade(config, "head")
-        assert _scalar("SELECT version_num FROM alembic_version") == NEW_REVISION
+        assert _scalar("SELECT version_num FROM alembic_version") == HEAD_REVISION
         assert _scalar("SELECT to_regclass('public.analysis_extractions')") is not None
         assert _rls_flags() == (True, True)
         _copy_span(meeting_id, "extraction")

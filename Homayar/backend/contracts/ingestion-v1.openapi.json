@@ -648,6 +648,344 @@
         "title": "Body_upload_meeting_api_v1_uploads_post",
         "type": "object"
       },
+      "ChannelAudioStreamResponse": {
+        "properties": {
+          "channel_layout": {
+            "title": "Channel Layout",
+            "type": "string"
+          },
+          "channels": {
+            "title": "Channels",
+            "type": "integer"
+          },
+          "codec": {
+            "title": "Codec",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "sample_rate_hz": {
+            "title": "Sample Rate Hz",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "codec",
+          "channels",
+          "channel_layout",
+          "sample_rate_hz",
+          "duration_seconds"
+        ],
+        "title": "ChannelAudioStreamResponse",
+        "type": "object"
+      },
+      "ChannelInspectionResponse": {
+        "description": "Channel metadata, signal flags and trusted roles recorded at ingest (HOM-37).\n\nRead-only and as stored: a later change of the workspace's channel-role\nmapping does not change it.  Signal measures are a heuristic, not speech\ndetection; see ``backend/media/README.md``.",
+        "properties": {
+          "analysis_sample_rate_hz": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Sample Rate Hz"
+          },
+          "analysis_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Seconds"
+          },
+          "audio_streams": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelAudioStreamResponse"
+            },
+            "title": "Audio Streams",
+            "type": "array"
+          },
+          "channel_count": {
+            "title": "Channel Count",
+            "type": "integer"
+          },
+          "channel_layout": {
+            "title": "Channel Layout",
+            "type": "string"
+          },
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelResultResponse"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "codec": {
+            "title": "Codec",
+            "type": "string"
+          },
+          "duplicate_pairs": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Duplicate Pairs",
+            "type": "array"
+          },
+          "duration_seconds": {
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "mapping_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mapping Digest"
+          },
+          "mapping_source_provider": {
+            "title": "Mapping Source Provider",
+            "type": "string"
+          },
+          "mapping_source_type": {
+            "title": "Mapping Source Type",
+            "type": "string"
+          },
+          "mapping_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mapping Version"
+          },
+          "narrowband": {
+            "title": "Narrowband",
+            "type": "boolean"
+          },
+          "sample_rate_hz": {
+            "title": "Sample Rate Hz",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "thresholds": {
+            "$ref": "#/components/schemas/ChannelThresholdsResponse"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "status",
+          "unavailable_reason",
+          "channel_count",
+          "channel_layout",
+          "sample_rate_hz",
+          "codec",
+          "duration_seconds",
+          "narrowband",
+          "audio_streams",
+          "analysis_seconds",
+          "analysis_sample_rate_hz",
+          "thresholds",
+          "flags",
+          "duplicate_pairs",
+          "mapping_source_type",
+          "mapping_source_provider",
+          "mapping_version",
+          "mapping_digest",
+          "channels"
+        ],
+        "title": "ChannelInspectionResponse",
+        "type": "object"
+      },
+      "ChannelResultResponse": {
+        "description": "One channel: its signal measures and its role attribution (HOM-37).",
+        "properties": {
+          "active_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Share"
+          },
+          "attribution": {
+            "enum": [
+              "trusted",
+              "unknown"
+            ],
+            "title": "Attribution",
+            "type": "string"
+          },
+          "duplicated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicated"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rms_dbfs": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rms Dbfs"
+          },
+          "role": {
+            "enum": [
+              "agent",
+              "customer",
+              "unknown"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "silent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent"
+          }
+        },
+        "required": [
+          "index",
+          "rms_dbfs",
+          "active_share",
+          "silent",
+          "duplicated",
+          "role",
+          "attribution",
+          "reason"
+        ],
+        "title": "ChannelResultResponse",
+        "type": "object"
+      },
+      "ChannelThresholdsResponse": {
+        "properties": {
+          "active_threshold_dbfs": {
+            "title": "Active Threshold Dbfs",
+            "type": "number"
+          },
+          "duplicate_max_lag_ms": {
+            "title": "Duplicate Max Lag Ms",
+            "type": "number"
+          },
+          "duplicate_min_correlation": {
+            "title": "Duplicate Min Correlation",
+            "type": "number"
+          },
+          "frame_ms": {
+            "title": "Frame Ms",
+            "type": "integer"
+          },
+          "narrowband_below_hz": {
+            "title": "Narrowband Below Hz",
+            "type": "integer"
+          },
+          "silent_max_active_share": {
+            "title": "Silent Max Active Share",
+            "type": "number"
+          }
+        },
+        "required": [
+          "frame_ms",
+          "active_threshold_dbfs",
+          "silent_max_active_share",
+          "duplicate_min_correlation",
+          "duplicate_max_lag_ms",
+          "narrowband_below_hz"
+        ],
+        "title": "ChannelThresholdsResponse",
+        "type": "object"
+      },
       "ContentRedactionInfo": {
         "description": "How a summary, action item or evidence text was redacted (gap G10).\n\nPresent only when ``view == \"redacted\"``: the texts passed through the same\ndeterministic detector and classes as the transcript (placeholders share\nthe transcript's numbering).  It says nothing about identifiers the\ndetector does not cover (names, addresses) and nothing about the audio.",
         "properties": {
@@ -1626,6 +1964,16 @@
               }
             ],
             "title": "Agent User Id"
+          },
+          "channel_inspection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChannelInspectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "created_at": {
             "format": "date-time",
@@ -5157,9 +5505,9 @@
     }
   },
   "info": {
-    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Role-scoped trend views (1.3.0).** Four read operations need a signed-in user\nsession and refuse every API key with `401 api_key_not_accepted`: the team comparison\n`/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates\nand the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort\ncarries a `disclosure` block; a cohort of 1 to 4 agents is held back.\n\n**Supporting conversations (1.4.0).** `/api/v1/trends/conversations` lists the\nconversations behind one `computed` cell of `/api/v1/trends/issues`, `/api/v1/trends/teams`\nor `/api/v1/trends/me`, as ids only. It needs a signed-in user session too. Every trend\nanswer carries `notices: [\"correlation_not_cause\"]`: a trend shows how often an issue was\ncounted, not why.\n\n**Aggregate metadata (1.5.0).** `/api/v1/voicemails/analytics` adds `coverage` (the\n`coverage/1` processing and evaluation counters of the voicemails it counts), `scorecard`\nand `missing_data`. Each item of `/api/v1/organizations/{organization_id}/aggregates` adds\nthe `coverage`, `scorecard`, `missing_data` and `disclosure` of the matching executive\ntrend block: a block of 1 to 4 agents in some closed week is withheld, with `coverage` and\n`missing_data` null. Every existing field keeps its name and value.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
+    "description": "Asynchronous ingestion API of Homayar, contract version 1.\n\n**Auth.** Send an API key on every request: `Authorization: Bearer <api key>`.\nA workspace admin creates keys in the console. A key acts in one workspace with\nthe scopes it was given: `meeting:create` to upload, `meeting:read` to read. A\nrevoked or expired key gets `401 api_key_invalid`. A missing scope gets\n`403 api_key_scope_denied`. The cookie and CSRF parameters below belong to the\nbrowser console; API clients do not send them.\n\n**Flow.** 1) `POST /api/v1/uploads` (or `/api/v1/voicemails`) answers `202`\nwith the meeting and its processing job. 2) Poll\n`GET /api/v1/meetings/{meeting_id}/job` until `state` is terminal: `completed`,\n`failed`, `cancelled` or `dead_letter` (`queued` and `running` are not). 3) After\n`completed`, read the results: `/transcript`, `/summary`, `/actions`,\n`/evidence`, `/quality`, `/export`.\n\n**Idempotency.** Every upload sends an `Idempotency-Key` header\n(8 to 128 characters from `A-Z a-z 0-9 . _ : -`). The same key with the same\nfile and fields is a replay: `202` with the original job and\n`idempotent_replay: true`, and no new job. The same key with a different\npayload is `409 ingestion_conflict`. A malformed key is\n`400 invalid_idempotency_key`. Keep the key when you retry, so a retry can never\ncreate a second job.\n\n**Role-scoped trend views (1.3.0).** Four read operations need a signed-in user\nsession and refuse every API key with `401 api_key_not_accepted`: the team comparison\n`/api/v1/trends/teams`, the agent self-view `/api/v1/trends/me`, the executive aggregates\nand the analyst drill-down under `/api/v1/organizations/{organization_id}`. Each cohort\ncarries a `disclosure` block; a cohort of 1 to 4 agents is held back.\n\n**Supporting conversations (1.4.0).** `/api/v1/trends/conversations` lists the\nconversations behind one `computed` cell of `/api/v1/trends/issues`, `/api/v1/trends/teams`\nor `/api/v1/trends/me`, as ids only. It needs a signed-in user session too. Every trend\nanswer carries `notices: [\"correlation_not_cause\"]`: a trend shows how often an issue was\ncounted, not why.\n\n**Aggregate metadata (1.5.0).** `/api/v1/voicemails/analytics` adds `coverage` (the\n`coverage/1` processing and evaluation counters of the voicemails it counts), `scorecard`\nand `missing_data`. Each item of `/api/v1/organizations/{organization_id}/aggregates` adds\nthe `coverage`, `scorecard`, `missing_data` and `disclosure` of the matching executive\ntrend block: a block of 1 to 4 agents in some closed week is withheld, with `coverage` and\n`missing_data` null. Every existing field keeps its name and value.\n\n**Channel inspection (1.6.0).** `GET /api/v1/meetings/{meeting_id}` adds\n`channel_inspection`: the channel facts measured once at ingest (layout, sample rate, the\nlevel of each channel, and the silent and duplicated flags) and a role per channel:\n`agent`, `customer`, or `unknown` with a reason code. A role comes only from a workspace\nadmin's mapping for the recording's source, never from the upload request or the file. The\nfield is null for recordings ingested before this version. Every existing field keeps its\nname and value.\n\n**Errors.** Every error body is `{\"error\": {\"code\", \"message\", \"request_id\",\n\"details\"?}}`. `code` is stable; branch on it, not on `message`. Every response\ncarries `X-Request-ID`.\n\n**Retries.** When a `429` or `503` carries `Retry-After` (seconds), wait at\nleast that long before the next attempt. A `429` without `Retry-After` is a\nquota (`audio_quota_exceeded`, `concurrent_job_limit_reached`): waiting does\nnot help, so do not retry it. `502`, `503`, `504` and network errors are safe\nto retry with backoff. Other `4xx` and `500` are not.\n",
     "title": "Homayar Ingestion API",
-    "version": "1.5.0"
+    "version": "1.6.0"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -198,9 +198,18 @@ change is audited as `workspace.settings.updated`.
 
 `backend.media.channel_store` is the only code that knows where the record lives:
 `store_channel_inspection(db, *, media_object, record)` and
-`load_channel_inspection(db, *, recording)`. The target is a write-once JSON column
-`media_objects.channel_inspection` (owner decision). Until its migration is applied, the
-store keeps nothing and `channel_inspection` is `null` on meeting detail.
+`load_channel_inspection(db, *, recording)`. The record lives in the write-once JSON column
+`media_objects.channel_inspection` (owner decision, migration `a7c3e9f5b2d1`). The store sets
+it on the ORIGINAL media object before the insert. It loads it by media object id and
+workspace. Meeting detail serves it as `channel_inspection`.
+
+The column is a content column of `MediaObject`: it is not in `MUTABLE_MEDIA_COLUMNS`, so the
+ORM guard refuses any change after the insert (`MediaImmutableError`). Like the other content
+columns, this is an ORM guard; a raw SQL `UPDATE` is not refused by the database.
+
+`channel_inspection` is `null` on meeting detail for objects registered before the migration,
+and when the ingest code passed no inspection. A window of 0 still gives a record
+(`analysis_disabled`).
 
 The record is attributed and written once, in the ingest transaction, with the mapping read
 in that transaction. A later mapping change never rewrites it: the record keeps the

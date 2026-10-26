@@ -2585,13 +2585,14 @@ def _span_rows(meeting_id: str) -> dict[str, tuple]:
 
 def test_exactly_one_new_migration_follows_the_base_head():
     script = _script()
-    head = _new_head()
-    assert head != BASE_HEAD
-    revision = script.get_revision(head)
-    assert revision.down_revision == BASE_HEAD
-    assert Path(revision.path).name == f"{head}_analysis_extractions.py"
+    assert _new_head() != BASE_HEAD
+    # HOM-37 adds a later revision on top, so the extraction revision is found as the
+    # only child of the base head, not as the head itself.
     children = [item.revision for item in script.walk_revisions() if BASE_HEAD in _parents(item)]
-    assert children == [head]
+    assert len(children) == 1, children
+    revision = script.get_revision(children[0])
+    assert revision.down_revision == BASE_HEAD
+    assert Path(revision.path).name == f"{revision.revision}_analysis_extractions.py"
 
 
 @pytest.mark.postgres

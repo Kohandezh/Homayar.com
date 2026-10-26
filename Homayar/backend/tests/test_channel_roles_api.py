@@ -3,9 +3,8 @@
 Admin writes (``workspace:manage`` + CSRF, audited) set a mapping per ingestion
 source; uploads and voicemail imports attribute channels with the mapping of
 their own source, once, at ingest.  The per-recording record is kept by
-``backend.media.channel_store``; until its column exists the production store
-keeps nothing, so these tests install an in-memory store keyed by media object
-id (the store's seam) and read the record back through meeting detail.
+``backend.media.channel_store`` in ``media_objects.channel_inspection``; these
+tests read it back through meeting detail and from the column.
 """
 
 from __future__ import annotations
@@ -46,30 +45,22 @@ AGENT_CUSTOMER = {"channels": [{"channel": 0, "role": "agent"}, {"channel": 1, "
 CUSTOMER_AGENT = {"channels": [{"channel": 0, "role": "customer"}, {"channel": 1, "role": "agent"}]}
 
 
-class InMemoryChannelStore:
-    """Write-once records keyed by media object id, scoped by workspace."""
-
-    def __init__(self) -> None:
-        self.records: dict[str, tuple[str, dict]] = {}
-
-    def store(self, db, *, media_object, record) -> None:
-        assert media_object.id is not None, "the record is kept before the insert, with an id"
-        assert media_object.id not in self.records, "a record is written once"
-        self.records[media_object.id] = (media_object.workspace_id, copy.deepcopy(record))
-
-    def load(self, db, *, workspace_id, media_object_id):
-        found = self.records.get(media_object_id)
-        if found is None or found[0] != workspace_id:
-            return None
-        return copy.deepcopy(found[1])
-
-
 @pytest.fixture
 def store():
-    memory = InMemoryChannelStore()
-    previous = channel_store.use_store(memory)
-    yield memory
-    channel_store.use_store(previous)
+    """The production store: the ``media_objects.channel_inspection`` column."""
+    return None
+
+
+def _kept_records(workspace_id: str) -> list[MediaObject]:
+    with inspection_session_factory()() as db:
+        return list(
+            db.scalars(
+                select(MediaObject).where(
+                    MediaObject.workspace_id == workspace_id,
+                    MediaObject.channel_inspection.is_not(None),
+                )
+            )
+        )
 
 
 @pytest.fixture(scope="module")
@@ -566,7 +557,7 @@ def test_a_mocked_validator_upload_is_accepted_as_before_and_trusts_nothing(
 
     replay = _upload(client, owner, key="evt-mocked-0001")
     assert replay.status_code == 202 and replay.json()["idempotent_replay"] is True
-    assert len(store.records) == 1  # a replay writes no second record
+    assert len(_kept_records(owner["workspace_id"])) == 1  # a replay writes no second record
 
 
 def test_the_record_is_kept_with_the_original_media_object(
@@ -582,8 +573,8 @@ def test_the_record_is_kept_with_the_original_media_object(
         )
         media = db.get(MediaObject, recording.media_object_id)
         assert media.kind.value == "original"
-    assert list(store.records) == [media.id]
-    assert store.records[media.id][0] == owner["workspace_id"]
+    assert [item.id for item in _kept_records(owner["workspace_id"])] == [media.id]
+    assert media.channel_inspection["version"] == "channel-inspection/1"
 
 
 # --- voicemail ------------------------------------------------------------------------

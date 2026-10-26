@@ -4727,7 +4727,7 @@ BASE_FINGERPRINTS: dict = {
         ("stage_bytes", "9bcd9486cc1d4f83e25f8fde"),
         ("voicemail_for_external_id", "893cc9de90050d76af471e50"),
         ("_replay", "bbcd801c39802fbe0f681504"),
-        ("import_voicemail", "8670484ea196aa3bb189d0f4"),
+        ("import_voicemail", "d3867808d415051ac6baa2e2"),  # HOM-37: channel inspection
     ],
     "locations/textnorm.py": {
         "NormalizedText": "a23569002673f9a66934443e",

@@ -1,26 +1,23 @@
 """Where a recording's channel-inspection record lives (HOM-37, ADR 0039).
 
 The two helpers below are the only code that knows the location of the
-record.  Its target is a write-once JSON column ``media_objects.channel_inspection``
-(owner decision, option B).  That column needs a migration, which is not
-booked yet, so until then the active store keeps nothing: storing is a no-op
-and loading returns ``None`` (``channel_inspection`` is ``null`` on meeting
-detail and nothing else changes).
+record: the write-once JSON column ``media_objects.channel_inspection``
+(owner decision, option B; migration ``a7c3e9f5b2d1``).
 
-The store is a seam: :func:`use_store` swaps in another implementation (the
-tests use an in-memory one keyed by media object id).  When the column
-exists, the column store replaces :class:`NoColumnStore` here and nothing
-else changes.
+The record is set on the ORIGINAL media object before it is inserted, in the
+ingest transaction, and is never rewritten: the column is a content column of
+``MediaObject``, so the ORM guard refuses any later change, and a later change
+of the workspace's channel-role mapping does not touch it.
 
-The record is written once, while the ORIGINAL media object is registered in
-the ingest transaction, and is never rewritten: a later change of the
-workspace's channel-role mapping does not touch it.
+The store stays a seam: :func:`use_store` swaps in another implementation.
 """
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Protocol
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.database.saas_models import MediaObject, Recording
@@ -36,8 +33,28 @@ class ChannelInspectionStore(Protocol):
         """The record kept for the media object, or None."""
 
 
+class ColumnStore:
+    """``media_objects.channel_inspection``: set at insert, read by id and tenant."""
+
+    def store(self, db: Session, *, media_object: MediaObject, record: dict[str, Any]) -> None:
+        if media_object.channel_inspection is not None:
+            raise RuntimeError("A channel inspection record is written once")
+        media_object.channel_inspection = copy.deepcopy(record)
+
+    def load(
+        self, db: Session, *, workspace_id: str, media_object_id: str
+    ) -> dict[str, Any] | None:
+        value = db.scalar(
+            select(MediaObject.channel_inspection).where(
+                MediaObject.id == media_object_id,
+                MediaObject.workspace_id == workspace_id,
+            )
+        )
+        return copy.deepcopy(value) if isinstance(value, dict) else None
+
+
 class NoColumnStore:
-    """Before the column exists: nothing is kept, nothing is found."""
+    """Before the column existed: nothing is kept, nothing is found."""
 
     def store(self, db: Session, *, media_object: MediaObject, record: dict[str, Any]) -> None:
         return None
@@ -48,7 +65,7 @@ class NoColumnStore:
         return None
 
 
-_store: ChannelInspectionStore = NoColumnStore()
+_store: ChannelInspectionStore = ColumnStore()
 
 
 def use_store(store: ChannelInspectionStore) -> ChannelInspectionStore:

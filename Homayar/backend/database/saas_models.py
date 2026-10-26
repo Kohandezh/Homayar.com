@@ -1044,7 +1044,7 @@ class MediaObject(Base):
     partial unique index); every other ``kind`` is derived from another
     object (``derived_from_id``) by a named ``producer`` under a job.  The
     content columns (kind, location, digest, size, type, duration, lineage,
-    provenance) are immutable (ORM guard); the lifecycle columns (state,
+    provenance, channel inspection) are immutable (ORM guard); the lifecycle columns (state,
     retention, deletion request, deletion, legal hold, integrity) are the
     only ones that change.  Rows are never removed: a deleted object is a
     ``DELETED`` row with ``deleted_at``; a held object keeps its bytes until
@@ -1085,6 +1085,10 @@ class MediaObject(Base):
     channel_count: Mapped[int | None] = mapped_column(Integer)
     sample_rate_hz: Mapped[int | None] = mapped_column(Integer)
     original_filename: Mapped[str | None] = mapped_column(String(300))
+    # Channel facts, signal flags and trusted roles measured at ingest (HOM-37,
+    # ADR 0039; backend/media/README.md). Write-once: set at insert through
+    # backend.media.channel_store, never changed (content column, ORM guard).
+    channel_inspection: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     producer: Mapped[str] = mapped_column(String(120), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
@@ -2655,6 +2659,8 @@ class MediaImmutableError(RuntimeError):
 
 # Lifecycle columns of a media object (WP05-T03); everything else — what the
 # bytes are, where they live, where they came from — is fixed at registration.
+# ``channel_inspection`` (HOM-37) is write-once content: it is deliberately not
+# listed here, so the guard refuses any change after the insert.
 MUTABLE_MEDIA_COLUMNS: frozenset[str] = frozenset(
     {
         "lifecycle_state",
