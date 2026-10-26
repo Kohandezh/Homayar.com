@@ -247,6 +247,7 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.INGESTION_DUPLICATE_MEDIA: "processing",
     AuditEventType.MEDIA_REGISTERED: "processing",
     AuditEventType.MEDIA_INTEGRITY_CHECKED: "processing",
+    AuditEventType.MEDIA_DERIVATIVE_UNAVAILABLE: "processing",
     AuditEventType.MEDIA_ORPHANS_REPORTED: "processing",
     AuditEventType.USAGE_RECONCILED: "processing",
     AuditEventType.TRANSCRIPT_REDACTION_CREATED: "processing",

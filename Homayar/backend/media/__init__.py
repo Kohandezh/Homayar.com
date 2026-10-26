@@ -1,5 +1,14 @@
 """Secure media inspection primitives used before object publication."""
 
+from backend.media.activity import (
+    ACTIVITY_VERSION,
+    ActivityMeter,
+    ActivityResult,
+    ChannelActivity,
+    activity_record,
+    measure_activity,
+    padded,
+)
 from backend.media.channels import (
     CHANNEL_INSPECTION_VERSION,
     ChannelAnalysisPolicy,
@@ -12,6 +21,19 @@ from backend.media.channels import (
     channel_inspection_record,
     inspect_channels,
 )
+from backend.media.derivatives import (
+    DERIVATIVE_PRODUCER,
+    DerivativeHeader,
+    DerivativeRecordInvalid,
+    DerivativeUnavailable,
+    DerivedAudio,
+    SourceFacts,
+    build_derivative_argv,
+    compose_wav_header,
+    derive_audio,
+    parse_derivative_header,
+)
+from backend.media.time_map import ORIGINAL_TIMELINE, TIME_MAP_VERSION, TimeMap
 from backend.media.validation import (
     AudioStreamMetadata,
     EmptyMediaError,
@@ -45,13 +67,24 @@ from backend.media.validation import (
 )
 
 __all__ = [
+    "ACTIVITY_VERSION",
     "CHANNEL_INSPECTION_VERSION",
+    "DERIVATIVE_PRODUCER",
+    "ORIGINAL_TIMELINE",
+    "TIME_MAP_VERSION",
+    "ActivityMeter",
+    "ActivityResult",
     "AudioStreamMetadata",
+    "ChannelActivity",
     "ChannelAnalysisPolicy",
     "ChannelAttribution",
     "ChannelInspection",
     "ChannelSignal",
     "ChannelSignalAnalysis",
+    "DerivativeHeader",
+    "DerivativeRecordInvalid",
+    "DerivativeUnavailable",
+    "DerivedAudio",
     "EmptyMediaError",
     "ExtensionContentMismatchError",
     "InvalidAudioStreamError",
@@ -73,15 +106,24 @@ __all__ = [
     "MediaValidationPolicy",
     "MimeTypeMismatchError",
     "MissingAudioStreamError",
+    "SourceFacts",
+    "TimeMap",
     "UnsafeFilenameError",
     "UnsupportedCodecError",
     "UnsupportedContainerError",
     "UnsupportedExtensionError",
     "UnsupportedMimeTypeError",
     "VideoStreamMetadata",
+    "activity_record",
     "analyze_channel_samples",
     "attribute_channels",
+    "build_derivative_argv",
     "channel_inspection_record",
+    "compose_wav_header",
+    "derive_audio",
     "inspect_channels",
+    "measure_activity",
+    "padded",
+    "parse_derivative_header",
     "validate_media_upload",
 ]

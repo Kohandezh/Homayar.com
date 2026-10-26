@@ -54,6 +54,7 @@ from backend.database.saas_models import (
 )
 from backend.database.tenant_context import bind_job_context, bind_tenant_context
 from backend.jobs import checkpoints as ckpt
+from backend.jobs.audio_derivatives import derive_audio_for_job
 from backend.jobs.failures import (
     ATTEMPTS_EXHAUSTED,
     JOB_DEADLINE_EXCEEDED,
@@ -2087,6 +2088,13 @@ def process_job(
                 target_directory=temporary_dir,
             )
             materialize.finish(StageState.COMPLETED)
+            derive_audio_for_job(
+                claim,
+                media_path,
+                storage=active_storage,
+                settings=settings,
+                heartbeat=heartbeat,
+            )
 
             context = _stage_context(claim)
 

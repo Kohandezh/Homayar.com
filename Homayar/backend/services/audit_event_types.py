@@ -54,6 +54,7 @@ class AuditEventType(StrEnum):
     INGESTION_REPLAYED = "ingestion.replayed", "ingestion"
     MEDIA_DELETED = "media.deleted", "media"
     MEDIA_DELETION_REQUESTED = "media.deletion_requested", "media"
+    MEDIA_DERIVATIVE_UNAVAILABLE = "media.derivative_unavailable", "media"
     MEDIA_INTEGRITY_CHECKED = "media.integrity_checked", "media"
     MEDIA_LEGAL_HOLD_PLACED = "media.legal_hold_placed", "media"
     MEDIA_LEGAL_HOLD_RELEASED = "media.legal_hold_released", "media"
