@@ -233,3 +233,223 @@ mapping version and digest it used.
   searched block, is not flagged.
 - `file_upload:console` is a weak source identity: anyone with `meeting:create` can upload
   a file that the mapping then trusts. The mapping is meant for real telephony sources.
+
+# Derivatives and signal activity (`backend.media.derivatives`, `backend.media.activity`, `backend.media.time_map`)
+
+HOM-38 (WP09-T02, features F25 to F28, ADR 0042). For a recording's ORIGINAL media object,
+the job makes one channel-preserving normalized derivative, measures signal activity per
+channel, and keeps an exact map between derivative samples and original time. The activity
+and the map are stored **inside the derivative's own bytes**. There is no migration.
+
+**With the default setting, HOM-38 produces nothing in production. Enabling it waits for W1,
+W2 and an owner decision.** The setting is `MEDIA_DERIVATIVES_ENABLED` (default `false`).
+W1 and W2 are named in "What is not claimed" below.
+
+- **Activity is a signal-level heuristic**, not speech detection. "Active" means "this
+  channel carries signal above its own noise floor". It never sets or implies a role. Roles
+  come only from the HOM-37 trusted mapping.
+- Channels are never mixed: no `-ac`, `pan`, `amix` or `amerge`, and no downmix in Python.
+  There is no gain: no `loudnorm`, `dynaudnorm` or `volume`.
+- Unknown stays unknown. A recording without a derivative has **no activity and no time
+  map**. T03, T04 and any API must treat it as unknown.
+
+Versions: the derivative and its record are `audio-derivative/1` (also the media object's
+`producer`), the map is `time-map/1` over the original timeline `decoded-primary-audio/1`,
+and the activity is `signal-activity/1` (kind `signal_level_heuristic`). A change to any
+field, definition or threshold below is a new version.
+
+## Where it runs
+
+`backend/jobs/processor.py` calls `derive_audio_for_job` (`backend/jobs/audio_derivatives.py`)
+once per attempt, right after MATERIALIZE and before transcribing, on the materialized
+ORIGINAL (its bytes are already checked against the stored digest). It never raises. It adds
+no stage record. ASR still receives the original file, so transcripts, checkpoint
+identities, stage runs, provider usage and meeting status do not change. It returns
+`registered` or a reason code.
+
+1. **Pre-checks**, read-only, before any decode. The first that applies wins:
+   `derivatives_disabled`, `audio_deleted_after_processing`, `source_not_registered`,
+   `source_not_live`, `source_legal_hold`, `source_changed`, `source_facts_unknown`,
+   `already_derived`, `derivative_too_large`.
+2. **The derivation** (`derive_audio`) in the job's temporary directory, then an upload under
+   a random storage key, so each attempt owns its object.
+3. **The fenced registration**: one transaction proves the job lease
+   (`lock_owned_or_cancelled`), locks the meeting row and the ORIGINAL row, checks
+   `source_not_live`, `source_legal_hold`, `source_changed` and `already_derived` again, and
+   then calls `register_derived` (which audits `media.registered`). A stale attempt can
+   upload bytes but can never register them.
+
+On a known refusal (a re-checked pre-check reason, a lost lease, a cancelled job, a deleted
+meeting, a unique-key conflict, a refusal from `register_derived`) the attempt removes the
+object it uploaded. On any other commit error the bytes stay, and the orphan sweep
+(`backend/jobs/media_reconciliation.py`) reports them.
+
+The registered object: `kind = NORMALIZED`, `derived_from_id` = the ORIGINAL,
+`producer = "audio-derivative/1"`, `content_type = "audio/wav"`, `container_format = "wav"`,
+`channel_count` = the original's, `sample_rate_hz = 16000`,
+`duration_seconds = ceil(samples / 16000)`, `job_id` = the job. Organization, workspace,
+meeting, ingestion and `retention_expires_at` come from the ORIGINAL. Retention, legal hold,
+conversation purge and integrity checks act on it like on any media object of the meeting.
+A reader selects a derivative by the exact `producer`. v1 never retires an object.
+
+### Reason codes
+
+Every reason except `derivatives_disabled`, `already_derived` and `stale_attempt` is written
+as the audit event `media.derivative_unavailable` (target type `media`, target id the
+ORIGINAL, details exactly `producer`, `reason`, `job_id`), under the job's fence. It is for
+operators only. Every outcome except `registered` and `derivatives_disabled` is also logged
+as `MEDIA_DERIVATIVE_UNAVAILABLE media_id=<id> reason=<code>`, with no key, path or filename.
+There is no read function for these reasons in v1.
+
+| Code | Stage | When |
+| --- | --- | --- |
+| `derivatives_disabled` | pre-check | the setting is off (not audited, not logged) |
+| `audio_deleted_after_processing` | pre-check | the workspace deletes audio after processing (W2) |
+| `source_not_registered` | pre-check, registration | the recording has no ORIGINAL media object (written before the media ledger); the audit target id is null |
+| `source_not_live` | pre-check, registration | the ORIGINAL is not active, retention-pending or held |
+| `source_legal_hold` | pre-check, registration | the ORIGINAL is under legal hold (W1) |
+| `source_changed` | pre-check, registration | the ORIGINAL's digest is not the digest the job claimed |
+| `source_facts_unknown` | pre-check | the ORIGINAL row has `channel_count` null or outside 1 to 8, or `sample_rate_hz` null or not above 0 (backfilled rows); not re-checked under the lock (content columns are immutable) |
+| `already_derived` | pre-check, registration | a derivative of this ORIGINAL with this producer exists and is not `DELETED` (not audited) |
+| `derivative_too_large` | pre-check, run | the predicted or the produced size is over the cap |
+| `derivative_tool_unavailable` | run | ffmpeg is not found or not runnable |
+| `derivative_timeout` | run | the decode did not finish within `MEDIA_DERIVATIVE_TIMEOUT_SECONDS` |
+| `derivative_failed` | run | non-zero exit, output that is not whole samples, an OS error, bytes ffmpeg cannot decode, or an unexpected error |
+| `derivative_empty` | run | less than one whole 20 ms frame (320 samples) was decoded |
+| `record_too_large` | run | the record JSON is over 4 MiB (reachable only with a raised `max_upload_size_mb`) |
+| `storage_failed` | run | the upload or its digest check failed |
+| `stale_attempt` | registration | the attempt lost its lease (log only: a stale attempt writes nothing) |
+| `job_cancelled` | registration | the job was cancelled while the attempt ran |
+| `meeting_deleted` | registration | the meeting was deleted while the attempt ran |
+| `storage_conflict` | registration | the insert hit a unique key |
+| `tenant_mismatch` | registration | `register_derived` refused another tenant's object |
+
+## The derivative
+
+One ffmpeg decode of the primary audio stream (`-map 0:a:0`) to signed 16-bit PCM at 16 kHz,
+every channel kept in its order. The resampler is pinned to the swr defaults of ffmpeg 6.1
+and 8.1: `aresample=osr=16000:resampler=swr:filter_size=32:phase_shift=10:linear_interp=1:exact_rational=1:dither_method=0:async=0`.
+Checked on both builds (ADR 0042): zero sample shift, and a length between `floor` and
+`ceil` of `N_o * 16000 / R_o`. The derivative keeps exactly the samples the resampler emits:
+never padded, never trimmed. A 16 kHz 16-bit source passes through unchanged. An 8 kHz
+(narrowband) source is upsampled; the band above 4 kHz is empty and the record says
+`narrowband: true`.
+
+The file is a plain PCM WAV written by our code: `RIFF`/`WAVE`, a 16-byte `fmt ` chunk
+(format tag 1, 16 000 Hz, 16 bits, no channel mask, so no reader infers speaker positions),
+one `hmyr` chunk with the record as canonical JSON padded with one space to an even length,
+then `data`. Sample `k` of channel `c` is at byte `data_offset + 2 * (C * k + c)`.
+`parse_derivative_header` reads the record back; any other shape raises
+`DerivativeRecordInvalid` (code `derivative_record_invalid`).
+
+**Size.** The cap is the storage cap of every object, `max_upload_size_mb * 1024 * 1024`
+(default 262 144 000 bytes), and at most 2 147 483 647 (`media_objects.size_bytes` is a 32-bit
+integer). The size is about `32 000 * C` bytes per second plus the record. With the default
+cap the longest call that gets a derivative is about 8 060 s for 1 channel, 4 030 s for 2
+channels and 1 007 s for 8 channels (4 MiB is reserved for the record). The size is checked
+before the decode from the probed duration (`ceil(duration) * 16000 * C * 2 + 4 MiB + 64`,
+no ffmpeg run when over) and again while reading. Over the cap is `derivative_too_large`,
+never a truncated derivative.
+
+**Bounds.** The decode has one thread, the probe limits of the upload validator, and the
+deadline `MEDIA_DERIVATIVE_TIMEOUT_SECONDS` (default 300, above 0 and at most 1800); at the
+deadline its process group is killed. The PCM streams through the activity meter in blocks;
+the meter keeps one float per channel and 20 ms frame. Disk: one temporary PCM file and the
+WAV, both at most the cap, in the job's private temporary directory.
+
+| Setting (env name) | Default | Range |
+| --- | --- | --- |
+| `MEDIA_DERIVATIVES_ENABLED` | `false` | `true` or `false` |
+| `MEDIA_DERIVATIVE_TIMEOUT_SECONDS` | 300 | above 0, at most 1800 |
+
+## The time map (`time-map/1`)
+
+**Original time** (`decoded-primary-audio/1`): sample index `n` of the primary audio stream
+as ffmpeg decodes it with default decoder settings, counted from the first decoded sample. A
+container start offset is ignored. An encoder delay the file signals (MP3 LAME tag, MP4 edit
+list, Opus pre-skip) is removed by the decoder; one it does not signal stays in the timeline
+and is never guessed. Original seconds are `n / R_o`, with `R_o` the probed rate.
+
+`TimeMap(original_rate_hz, derivative_rate_hz=16000, offset=0)`:
+
+- `to_original(k) = (k + offset) * R_o / R_d` and `to_derivative(n) = n * R_d / R_o - offset`,
+  both as `Fraction`, so every round trip is exact. Floats and bools are refused.
+- `original_seconds(k) = (k + offset) / R_d`.
+- `original_cover(start, end)`: the smallest whole range of original samples that holds a
+  derivative interval.
+- `shared_grid()`: `(R_d / g, R_o / g)`, `g = gcd(R_o, R_d)`; on this grid both sides are
+  whole numbers (10 ms at 44 100 Hz, 40 ms at 11 025 Hz).
+- `child(offset)`: the map of a chunk `[a, b)` (offset `a`); offsets add, so T04 chunks need
+  no new format.
+- `as_record(sample_count)` / `from_record(record)`: integers only.
+
+## The activity (`signal-activity/1`)
+
+Each channel is measured on its own over the whole derivative. A frame is 20 ms (320
+samples, no overlap); a trailing partial frame is not measured.
+
+- Frame AC energy `E = sum(x^2) - (sum x)^2 / 320` from exact integer sums. `E = 0` (digital
+  silence or a constant DC channel) has no level and is never active. The level is
+  `10 * log10(E / (320 * 32768^2))` dBFS.
+- Noise floor: the frame levels sorted ascending ("no level" first); the level at index
+  `(frames - 1) * 10 // 100`; `null` when that frame has no level.
+- `on_dbfs = max(-50.0, floor + 12.0)` (or `-50.0` without a floor); `off_dbfs = on_dbfs - 6.0`.
+- A run starts on a frame at or above `on_dbfs` and continues while the level stays at or
+  above `off_dbfs`. Gaps of fewer than 10 frames are merged, then runs of fewer than 5 frames
+  are dropped.
+- Intervals are half-open `[start, end)` in derivative samples, multiples of 320, not
+  padded. `padded(intervals, pad_samples, sample_count)` widens, clamps and merges for a
+  consumer; the record recommends 1600 samples (100 ms).
+- The HOM-37 flags (`silent`, `duplicated`) are copied per channel and **never remove an
+  interval**: HOM-37 measured only the first seconds of the file. A channel that is truly
+  silent gets no interval by itself. Duplicated channels are both measured.
+
+## The record (`audio-derivative/1`)
+
+Canonical JSON (sorted keys, no spaces, ASCII, no NaN), no timestamps, no job or attempt ids.
+
+| Field | Meaning |
+| --- | --- |
+| `version` | `audio-derivative/1` |
+| `source` | `media_id`, `sha256`, `channel_count`, `sample_rate_hz` of the ORIGINAL; `codec` from the HOM-37 record (or null); `narrowband` (`sample_rate_hz < 16000`) |
+| `format` | `container` `wav`, `codec` `pcm_s16le`, `sample_rate_hz` 16000, `channel_count`, `channel_map` (`[0, .., C-1]`: derivative channel `i` is original channel `i`), `gain` `none`, `resampler` (the pinned option string) |
+| `time_map` | `version`, `original_timeline`, `original_sample_rate_hz`, `derivative_sample_rate_hz`, `derivative_offset_samples` (0), `derivative_sample_count`, `shared_grid` |
+| `inspection_status` | `complete`, `unavailable` or `missing`: the HOM-37 record of the ORIGINAL |
+| `activity` | `version`, `kind` (`signal_level_heuristic`), `frame_samples` (320), `measured_samples`, `params` (`floor_dbfs`, `margin_db`, `hysteresis_db`, `noise_percentile`, `min_activity_frames`, `min_gap_frames`, `recommended_padding_samples`), `channels` |
+
+Each `activity.channels` entry: `index`, `source_channel` (equal to `index`),
+`noise_floor_dbfs` (2 decimals, or null), `on_dbfs`, `off_dbfs`, `active_frames`, `intervals`
+(list of `[start, end]`), `inspection_silent` and `inspection_duplicated` (bool, or null when
+the HOM-37 record is not complete), `duplicate_of` (the other channels of HOM-37 duplicate
+pairs; null when `inspection_duplicated` is null).
+
+## What is not claimed
+
+- No speech detection, no speaker identity, no role. Music, noise bursts, hold tones and
+  crosstalk are active. A channel active most of the time gets its floor inside its own
+  signal, so quieter parts can be missed. The thresholds are tested on synthetic `lavfi`
+  audio only.
+- That every decoder sees the same timeline is an inference: HOM-37 and this derivation
+  decode with ffmpeg, and the local faster-whisper adapter decodes with PyAV (the ffmpeg
+  libraries). Remote ASR providers are not verified.
+- The probed rate is used as `R_o`. A stream whose real rate differs from the probe (for
+  example HE-AAC signalling) or that changes rate in the middle is not detected.
+- The probed channel count (the ORIGINAL row) is used as the stride to split the decoded
+  samples into channels. A decoded channel count that differs from the probe (for example a
+  layout change in the middle of a stream) is not detected: the channels would be split
+  wrongly without an error.
+- Inter-sample peaks of a source near 0 dBFS can clip at the 16-bit limit.
+- A format tag 1 WAV with more than 2 channels is not `WAVE_FORMAT_EXTENSIBLE`. ffmpeg and
+  Python's `wave` read it; other readers are not checked.
+- Derivative bytes differ between ffmpeg builds (6.1 and 8.1 give other bytes for the same
+  input). Nothing depends on byte equality across builds.
+- Long calls get no derivative at the default cap (see Size). Raising the cap is an owner
+  decision (ADR 0042, R3).
+- **W1** (separate work unit, not fixed here): `register_derived` creates a derived object
+  `ACTIVE` even when its source is under legal hold, and the meeting hold route can miss a
+  derived row inserted at the same time. A hold call that waits on the ORIGINAL row lock does
+  not see a derivative inserted by the transaction that held the lock. HOM-38 skips held
+  originals (`source_legal_hold`), but this race remains.
+- **W2** (separate work unit, not fixed here): delete-after-processing requests deletion only
+  of the ORIGINAL. HOM-38 skips such workspaces (`audio_deleted_after_processing`), but a
+  workspace that turns the setting on after derivatives exist keeps them.

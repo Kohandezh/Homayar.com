@@ -523,6 +523,11 @@ class Settings(BaseSettings):
     media_channel_duplicate_min_correlation: float = 0.99
     # ...at some lag within +- this many milliseconds (0: aligned samples only).
     media_channel_duplicate_max_lag_ms: float = 5.0
+    # Channel-preserving derivative and signal activity in the job (HOM-38,
+    # backend.media.derivatives): off by default until W1 and W2 (ADR 0042) are
+    # fixed and the owner decides. The wall-time bound of its ffmpeg decode.
+    media_derivatives_enabled: bool = False
+    media_derivative_timeout_seconds: float = 300.0
     upload_rate_limit_per_hour: int = 30
     retention_days_default: int = 90
 
@@ -773,6 +778,8 @@ class Settings(BaseSettings):
             or not 0 <= self.media_channel_duplicate_max_lag_ms <= 20
         ):
             raise ValueError("Media channel analysis settings are out of range")
+        if not 0 < self.media_derivative_timeout_seconds <= 1800:
+            raise ValueError("MEDIA_DERIVATIVE_TIMEOUT_SECONDS must be above 0 and at most 1800")
         if (
             self.job_retry_delay_seconds <= 0
             or self.job_retry_max_delay_seconds < self.job_retry_delay_seconds
