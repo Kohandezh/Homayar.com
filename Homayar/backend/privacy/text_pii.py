@@ -130,6 +130,7 @@ only — it never masks audio.
 from __future__ import annotations
 
 import enum
+import operator
 import re
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterable
@@ -257,11 +258,12 @@ _IBAN_LENGTHS = {
 # "postal code of office"), then only separators up to the number.  Matched
 # on letter-folded text without harakat and tatweel, so Arabic kaf/yeh and
 # marked spellings are covered; a ZWNJ may stand where a space would.
+_POSTAL_WORD = r"(?:کد[\s\u200c]?پستی|postal\s+code|post\s?code|zip(?:\s+code)?)"
 _POSTAL_KEYWORD_RE = re.compile(
-    r"(?:کد[\s\u200c]?پستی|postal\s+code|post\s?code|zip(?:\s+code)?)"
-    r"(?:\s+[^\s\d]{1,12}){0,2}[\s:：\-]*$",
+    _POSTAL_WORD + r"(?:\s+[^\s\d]{1,12}){0,2}[\s:：\-]*$",
     re.IGNORECASE,
 )
+_POSTAL_WORD_RE = re.compile(_POSTAL_WORD, re.IGNORECASE)
 _POSTAL_WINDOW = 48
 _GLUED_MOBILE = 3  # at most this many digits glued to a mobile (HOM-303)
 _WRITTEN_CLASSES = frozenset({PiiClass.BANK_CARD, PiiClass.PHONE})
@@ -273,6 +275,21 @@ _LANDLINE_DIGITS_RE = re.compile(r"0[1-8][0-9]{9}")
 _WRITTEN_HINT_RE = re.compile(
     r"[0-9]{11}|[^0-9]00|(?<![0-9])[0-9]{4}(?:[^0-9][0-9]{4}){3}(?![0-9])"
 )
+# Inside a digit run there is no + and no bracket, so the phone regexes read
+# only 0, 98 or 0098 and then 10 digits there (HOM-302).
+_PHONE_DIGITS = (11, 12, 14)
+_SPLIT_CLASSES = frozenset(
+    {PiiClass.IR_NATIONAL_ID, PiiClass.IR_POSTAL_CODE, PiiClass.PHONE, PiiClass.BANK_CARD}
+)
+_END = operator.itemgetter(1)
+# Split states (_split_run) as bits: state s is bit 1 << s.
+_ANCHORS = (PiiClass.IR_NATIONAL_ID, PiiClass.PHONE)
+_START = 1 << 0  # at the first digit of a group, nothing held
+_EDGE = 1 << 2  # at the first or last digit of the run
+_HOLDS = (1 << 1) | (1 << 3)  # the states that hold an ID or a phone piece
+_TOUCHES = (1 << 2) | (1 << 3)  # the states that touch an edge of the run
+# After an ID or a phone piece, state s becomes s | 1.
+_ANCHORED = [(2 if mask & 0b0011 else 0) | (8 if mask & 0b1100 else 0) for mask in range(16)]
 
 
 @dataclass(frozen=True)
@@ -406,134 +423,178 @@ def _ten_digit_class(folded: str, start: int, digits: str) -> PiiClass | None:
     return PiiClass.IR_NATIONAL_ID if valid_national_id(digits) else None
 
 
+class _Run:
+    """A digit run not glued to letters, and the readings of its pieces on
+    their own.  Neither depends on the requested classes, so the class sets of
+    one call share them (HOM-302).  A piece is read on first use, and only for
+    the kinds a requested class needs.  It lives as long as that call."""
+
+    def __init__(self, norm: str, folded: str, start: int, end: int) -> None:
+        self.norm, self.folded, self.start, self.end = norm, folded, start, end
+        self.at = [i for i in range(start, end) if "0" <= norm[i] <= "9"]
+        self.digits = "".join(norm[k] for k in self.at)
+        self.keyword = True  # a postal keyword may stand in the text (set by _runs)
+        self._luhn: tuple[list[int], list[int]] | None = None
+        self._read: dict[tuple[int, int], list[tuple[int, int, PiiClass, str]]] = {}
+
+    def starting(self, i: int, wanted: frozenset[PiiClass]) -> list[tuple[int, int, PiiClass, str]]:
+        """The wanted readings of the pieces of 10 to 19 digits that start at
+        digit i, by end, then ID or postal code, phone, card."""
+        found: list[tuple[int, int, PiiClass, str]] = []
+        kinds = 0
+        if PiiClass.IR_NATIONAL_ID in wanted or PiiClass.IR_POSTAL_CODE in wanted:
+            found += [reading for reading in self._kind(i, 0) if reading[2] in wanted]
+            kinds += 1
+        if PiiClass.PHONE in wanted:
+            found += self._kind(i, 1)
+            kinds += 1
+        if PiiClass.BANK_CARD in wanted:
+            found += self._kind(i, 2)
+            kinds += 1
+        if kinds > 1:
+            found.sort(key=_END)  # stable: the kinds stay in their order at one end
+        return found
+
+    def _kind(self, i: int, kind: int) -> list[tuple[int, int, PiiClass, str]]:
+        if (i, kind) not in self._read:
+            self._read[i, kind] = (self._ten, self._phones, self._cards)[kind](i)
+        return self._read[i, kind]
+
+    def _ten(self, i: int) -> list[tuple[int, int, PiiClass, str]]:
+        piece = self.digits[i : i + 10]
+        if len(piece) < 10:
+            return []
+        if self.keyword:
+            pii_class = _ten_digit_class(self.folded, self.at[i], piece)
+        else:
+            pii_class = PiiClass.IR_NATIONAL_ID if valid_national_id(piece) else None
+        return [] if pii_class is None else [(i, i + 10, pii_class, piece)]
+
+    def _phones(self, i: int) -> list[tuple[int, int, PiiClass, str]]:
+        if self.digits[i] != "0" and not self.digits.startswith("98", i):
+            return []
+        found: list[tuple[int, int, PiiClass, str]] = []
+        for j in [i + size for size in _PHONE_DIGITS if i + size <= len(self.at)]:
+            raw = self.norm[self.at[i] : self.at[j - 1] + 1]
+            if _IR_MOBILE_RE.fullmatch(raw) or _IR_LANDLINE_RE.fullmatch(raw):
+                canonical = _canonical_phone(raw)
+                if canonical is not None:
+                    found.append((i, j, PiiClass.PHONE, canonical))
+        return found
+
+    def _cards(self, i: int) -> list[tuple[int, int, PiiClass, str]]:
+        if self._luhn is None:
+            # The Luhn total of any piece from two prefix sums: a digit is doubled
+            # when it stands an odd number of places before the last digit of the
+            # piece, so only the parity of its position matters.
+            self._luhn = ([0], [0])
+            for m, char in enumerate(self.digits):
+                value = int(char)
+                twice = 2 * value - 9 if value > 4 else 2 * value
+                self._luhn[0].append(self._luhn[0][-1] + (twice if m % 2 == 0 else value))
+                self._luhn[1].append(self._luhn[1][-1] + (twice if m % 2 == 1 else value))
+        luhn = self._luhn
+        ends = range(i + 13, min(i + 19, len(self.at)) + 1)
+        return [
+            (i, j, PiiClass.BANK_CARD, self.digits[i:j])
+            for j in ends
+            if (luhn[j % 2][j] - luhn[j % 2][i]) % 10 == 0 and valid_luhn(self.digits[i:j])
+        ]
+
+
+def _joins(left: int, right: int, anchored: bool) -> bool:
+    """Whether split states ``left`` before a piece and ``right`` after it
+    make a split.  Skipping whole groups at an edge of the run needs an ID or
+    a phone piece: a card-only split must span the whole run."""
+    return bool(left and right) and (
+        anchored or bool(left & _HOLDS or right & _HOLDS or (left & _TOUCHES and right & _TOUCHES))
+    )
+
+
 def _split_run(
-    norm: str,
-    folded: str,
-    at: list[int],
+    run: _Run,
     wanted: frozenset[PiiClass],
     matches: list[PiiSpan],
     match_starts: list[int],
     longest: int,
 ) -> list[tuple[int, int, PiiClass, str]]:
-    """Readings of the pieces of one digit run (its digits at ``at``) that lie
-    on a split of whole written groups of the run into two or more wanted
-    identifiers of 10 to 19 digits each."""
-    if len(at) < 20:
+    """Readings of the pieces of one digit run that lie on a split of whole
+    written groups of the run into two or more wanted identifiers of 10 to 19
+    digits each."""
+    at = run.at
+    if len(at) < 20 or wanted.isdisjoint(_SPLIT_CLASSES):
         return []  # two identifiers need at least 10 + 10 digits
     count = len(at)
-    digits = "".join(norm[k] for k in at)
-    # A group is digits written without a separator.  A split starts at the
-    # first digit of a group and ends after the last digit of a group.
-    group_start = [k == 0 or at[k] != at[k - 1] + 1 for k in range(count)]
-    group_end = [k == count or at[k] != at[k - 1] + 1 for k in range(1, count + 1)]
-    # The Luhn total of any piece from two prefix sums: a digit is doubled when
-    # it stands an odd number of places before the last digit of the piece,
-    # so only the parity of its position matters.
-    luhn: tuple[list[int], list[int]] = ([0], [0])
-    for m, char in enumerate(digits):
-        value = int(char)
-        twice = 2 * value - 9 if value > 4 else 2 * value
-        luhn[0].append(luhn[0][-1] + (twice if m % 2 == 0 else value))
-        luhn[1].append(luhn[1][-1] + (twice if m % 2 == 1 else value))
 
     def near(start: int, end: int) -> list[PiiSpan]:
         # The regex matches that share a character with norm[start:end].
         first = bisect_left(match_starts, start - longest)
         return [m for m in matches[first : bisect_left(match_starts, end)] if m.end > start]
 
-    known: dict[tuple[int, int], list[tuple[PiiClass, str]]] = {}
+    # A group is digits written without a separator.  A split starts at the
+    # first digit of a group and ends after the last digit of a group.
+    group_start = [k == 0 or at[k] != at[k - 1] + 1 for k in range(count)]
 
-    def readings(i: int, j: int) -> list[tuple[PiiClass, str]]:
-        # The wanted readings of digits[i:j] on their own.
-        if (i, j) in known:
-            return known[i, j]
-        piece = digits[i:j]
-        start, end = at[i], at[j - 1] + 1
-        found: list[tuple[PiiClass, str]] = []
-        if j - i == 10:
-            pii_class = _ten_digit_class(folded, start, piece)
-            if pii_class is not None:
-                found.append((pii_class, piece))
-        if piece[0] == "0" or piece[:2] == "98":
-            raw = norm[start:end]
-            if _IR_MOBILE_RE.fullmatch(raw) or _IR_LANDLINE_RE.fullmatch(raw):
-                canonical = _canonical_phone(raw)
-                if canonical is not None:
-                    found.append((PiiClass.PHONE, canonical))
-        sums = luhn[j % 2]
-        if j - i >= 13 and (sums[j] - sums[i]) % 10 == 0 and valid_luhn(piece):
-            found.append((PiiClass.BANK_CARD, piece))
+    def readings(i: int) -> list[tuple[int, int, PiiClass, str]]:
+        found = run.starting(i, wanted)
+        if len(wanted) == 1 or not found:
+            return found  # every match is of the one wanted class
         # A piece that holds a whole match of another class is a chance
         # reading around a real identifier (a Luhn hit that holds an ID).
-        inside = [m for m in near(start, end) if start <= m.start and m.end <= end] if found else []
-        known[i, j] = [
-            (pii_class, value)
-            for pii_class, value in found
-            if pii_class in wanted
-            and not any(
-                m.pii_class is not pii_class and (m.start, m.end) != (start, end) for m in inside
-            )
-        ]
-        return known[i, j]
+        kept = []
+        for reading in found:
+            start, end = at[reading[0]], at[reading[1] - 1] + 1
+            inside = [m for m in near(start, end) if start <= m.start and m.end <= end]
+            if not any(
+                m.pii_class is not reading[2] and (m.start, m.end) != (start, end) for m in inside
+            ):
+                kept.append(reading)
+        return kept
 
     def split(
-        allowed: Callable[[int, int, PiiClass], bool],
-    ) -> list[tuple[int, int, PiiClass, str]]:
-        # Forward and backward passes over the pieces; a state is (split
+        edges: Callable[[int], list[tuple[int, int, PiiClass, str]]],
+    ) -> tuple[list[tuple[int, int, PiiClass, str]], list[tuple[int, int, PiiClass, str]]]:
+        # Forward and backward passes over the pieces.  A state is (split
         # touches the run's first or last digit, split holds an ID or a phone
-        # piece), and its value the most pieces (-1 none, else up to 2).
-        anchor = (PiiClass.IR_NATIONAL_ID, PiiClass.PHONE)
-        upto = [[-1] * (count + 1) for _ in range(4)]
-        upto[2][0] = 0
-        for k in range(1, count):
-            if group_start[k]:
-                upto[0][k] = 0
-        edges: list[tuple[int, int, PiiClass, str]] = []
+        # piece), as bits 2 and 1 of a number s; a set of states is a mask of
+        # bits 1 << s.  At each digit, ``some`` holds the states of the splits
+        # that reach it, ``more`` those of the splits that reach it with a
+        # piece: a piece lies on a split of two or more pieces when a piece
+        # stands before or after it.
+        some = [_EDGE] + [_START if start else 0 for start in group_start[1:]] + [0]
+        more = [0] * (count + 1)
+        kept: list[tuple[int, int, PiiClass, str]] = []
         for i in range(count):
-            live = [state for state in range(4) if upto[state][i] >= 0]
-            if not live:
-                continue
-            for j in range(i + 10, min(i + 19, count) + 1):
-                for pii_class, value in readings(i, j):
-                    if not allowed(at[i], at[j - 1] + 1, pii_class):
-                        continue
-                    for state in live:
-                        target = state | 1 if pii_class in anchor else state
-                        upto[target][j] = max(upto[target][j], min(upto[state][i] + 1, 2))
-                    edges.append((i, j, pii_class, value))
-        after = [[-1] * (count + 1) for _ in range(4)]
-        after[2][count] = 0
-        for k in range(1, count):
-            if group_end[k - 1]:
-                after[0][k] = 0
+            if some[i]:
+                for edge in edges(i):
+                    j = edge[1]
+                    states = _ANCHORED[some[i]] if edge[2] in _ANCHORS else some[i]
+                    some[j] |= states
+                    more[j] |= states
+                    kept.append(edge)
+        some_after = [0] + [_START if start else 0 for start in group_start[1:]] + [_EDGE]
+        more_after = [0] * (count + 1)
         pieces: list[tuple[int, int, PiiClass, str]] = []
-        for i, j, pii_class, value in reversed(edges):
-            held = pii_class in anchor
-            if any(
-                upto[left][i] + 1 + after[right][j] >= 2
-                # Skipping whole groups at an edge of the run needs an ID or
-                # a phone piece: a card-only split must span the whole run.
-                and (left & right & 2 or left & 1 or right & 1 or held)
-                for left in range(4)
-                if upto[left][i] >= 0
-                for right in range(4)
-                if after[right][j] >= 0
-            ):
+        for i, j, pii_class, value in reversed(kept):
+            anchored = pii_class in _ANCHORS
+            if _joins(more[i], some_after[j], anchored) or _joins(some[i], more_after[j], anchored):
                 pieces.append((at[i], at[j - 1] + 1, pii_class, value))
-            for right in range(4):
-                if after[right][j] >= 0:
-                    target = right | 1 if held else right
-                    after[target][i] = max(after[target][i], min(after[right][j] + 1, 2))
-        return pieces
+            states = _ANCHORED[some_after[j]] if anchored else some_after[j]
+            some_after[i] |= states
+            more_after[i] |= states
+        return pieces, kept
 
+    first_pieces, kept = split(readings)
+    touching = near(at[0], at[-1] + 1)
+    if not touching:
+        return first_pieces  # no match to keep: the second pass would read the same pieces
     # A match that holds a piece or a match of another class reads across two
     # identifiers (``0012345679 0912`` as one international number): a piece
     # may cut it.  Any other match keeps its class: a piece of that class that
     # cuts into it, lies in it or holds it is a chance reading.
-    first = split(lambda start, end, pii_class: True)
     inner = sorted(
-        [(start, end, pii_class) for start, end, pii_class, _ in first]
-        + [(m.start, m.end, m.pii_class) for m in near(at[0], at[-1] + 1)]
+        [(start, end, pii_class) for start, end, pii_class, _ in first_pieces]
+        + [(m.start, m.end, m.pii_class) for m in touching]
     )
     inner_starts = [start for start, _, _ in inner]
     crossing: dict[tuple[int, int, PiiClass], bool] = {}
@@ -556,7 +617,15 @@ def _split_run(
             for m in near(start, end)
         )
 
-    return split(allowed)
+    # The second pass reaches only digits the first one reached, so it reads
+    # the pieces the first one kept, in the same order, less those not allowed.
+    second: dict[int, list[tuple[int, int, PiiClass, str]]] = {}
+    for edge in kept:
+        if allowed(at[edge[0]], at[edge[1] - 1] + 1, edge[2]):
+            second.setdefault(edge[0], []).append(edge)
+    if sum(len(edges) for edges in second.values()) == len(kept):
+        return first_pieces  # every piece is allowed: the second pass is the first
+    return split(lambda i: second.get(i, []))[0]
 
 
 def _matches(norm: str, folded: str) -> list[PiiSpan]:
@@ -595,12 +664,34 @@ def _matches(norm: str, folded: str) -> list[PiiSpan]:
     return found
 
 
+def _runs(norm: str, folded: str) -> list[_Run]:
+    """The digit runs of 11 characters or more that are not glued to letters
+    (a shorter run holds no split and no written reading)."""
+    runs: list[_Run] = []
+    for run in _DIGIT_RUN_RE.finditer(norm):
+        if run.end() - run.start() < 11:
+            continue
+        before, after = norm[run.start() - 1 : run.start()], norm[run.end() : run.end() + 1]
+        if (before.isascii() and before.isalnum()) or (after.isascii() and after.isalnum()):
+            continue  # glued to letters, like every match
+        runs.append(_Run(norm, folded, run.start(), run.end()))
+    if any(len(run.at) >= 20 for run in runs):
+        # The keyword part of _POSTAL_KEYWORD_RE needs no context, and a keyword
+        # window is a piece of the text: without it in the text, no window holds
+        # it, and a piece of 10 digits is an ID or nothing.
+        keyword = bool(_POSTAL_WORD_RE.search(strip_diacritics(folded)))
+        for run in runs:
+            run.keyword = keyword
+    return runs
+
+
 def _candidates(
     norm: str,
     wanted: frozenset[PiiClass],
     found: list[PiiSpan] | None = None,
     folded: str | None = None,
     runs: list[tuple[int, int]] | None = None,
+    digit_runs: list[_Run] | None = None,
 ) -> tuple[list[PiiSpan], list[PiiSpan]]:
     """Every validated reading: the matches of each class, then the pieces of
     a digit run whose whole groups split into two or more identifiers.  The
@@ -610,22 +701,20 @@ def _candidates(
         folded = unify_arabic_letters(norm)
     if found is None:
         found = _matches(norm, folded)
+    if digit_runs is None:
+        digit_runs = _runs(norm, folded)
     candidates = [span for span in found if span.pii_class in wanted]
     matches = sorted(candidates, key=lambda s: s.start)
     match_starts = [span.start for span in matches]
     longest = max((span.end - span.start for span in matches), default=0)
     pieces: list[PiiSpan] = []
-    for run in _DIGIT_RUN_RE.finditer(norm):
-        before, after = norm[run.start() - 1 : run.start()], norm[run.end() : run.end() + 1]
-        if (before.isascii() and before.isalnum()) or (after.isascii() and after.isalnum()):
-            continue  # glued to letters, like every match above
-        if runs is not None and run.end() - run.start() >= 11:
-            runs.append((run.start(), run.end()))
-        at = [i for i in range(run.start(), run.end()) if "0" <= norm[i] <= "9"]
+    for run in digit_runs:
+        if runs is not None:
+            runs.append((run.start, run.end))
         pieces.extend(
             PiiSpan(start, end, pii_class, value)
             for start, end, pii_class, value in _split_run(
-                norm, folded, at, wanted, matches, match_starts, longest
+                run, wanted, matches, match_starts, longest
             )
         )
     return candidates, pieces
@@ -775,7 +864,9 @@ def _written(
     return written
 
 
-def _select(norm: str, matches: list[PiiSpan], pieces: list[PiiSpan]) -> list[PiiSpan]:
+def _select(
+    norm: str, matches: list[PiiSpan], pieces: list[PiiSpan], shared: _Text
+) -> list[PiiSpan]:
     """Non-overlapping spans that leave no letter or digit of any candidate raw."""
 
     def rank(span: PiiSpan) -> tuple[int, int, int]:
@@ -788,15 +879,11 @@ def _select(norm: str, matches: list[PiiSpan], pieces: list[PiiSpan]) -> list[Pi
             greedy.append(span)
     greedy.sort(key=lambda s: s.start)
 
-    # Letters and digits carry the identifier; separators and brackets do not.
-    marks = [char.isascii() and char.isalnum() for char in norm]
-    mark_at = [i for i, mark in enumerate(marks) if mark]
-    marks_before = [0]  # marks_before[i]: letters and digits in norm[:i]
-    for mark in marks:
-        marks_before.append(marks_before[-1] + mark)
-
     def bare(start: int, end: int) -> bool:
-        return start >= end or marks_before[end] == marks_before[start]
+        if start >= end:
+            return True  # an empty stretch: no need for the letters and digits
+        marks_before = shared.marks()[1]
+        return marks_before[end] == marks_before[start]
 
     def covers(spans: list[PiiSpan], lo: int, hi: int) -> bool:
         cursor = lo
@@ -819,6 +906,7 @@ def _select(norm: str, matches: list[PiiSpan], pieces: list[PiiSpan]) -> list[Pi
         for k, span in enumerate(group):
             if bare(lo, span.start):
                 score[k] = (1, -_PRIORITY[span.pii_class])
+            mark_at, marks_before = shared.marks()
             count = marks_before[span.start]
             floor = mark_at[count - 1] + 1 if count else lo
             for e in range(bisect_left(ends, floor), bisect_right(ends, span.start)):
@@ -840,6 +928,7 @@ def _select(norm: str, matches: list[PiiSpan], pieces: list[PiiSpan]) -> list[Pi
     def widen(kept: list[PiiSpan], lo: int, hi: int) -> list[PiiSpan]:
         # One class only: keep the longest-first spans and their values, each
         # grown over the letters and digits up to the next one.
+        mark_at, marks_before = shared.marks()
         starts = [lo] + [span.start for span in kept[1:]]
         ends = [
             max(span.end, mark_at[marks_before[after.start] - 1] + 1)
@@ -904,15 +993,52 @@ def _keep(before: list[PiiSpan], spans: list[PiiSpan]) -> list[PiiSpan]:
     ]
 
 
+class _Text:
+    """The work on one text that does not depend on the requested classes,
+    done once and shared by the class sets of one call (HOM-302).  It is a
+    local of that call, so no text, digit or value outlives the call."""
+
+    def __init__(self, text: str) -> None:
+        self.norm = normalize_digits_extended(text)
+        # One-to-one letter folding: same length as ``norm``, so offsets carry over.
+        self.folded = unify_arabic_letters(self.norm)
+        self.found = _matches(self.norm, self.folded)
+        self.runs = _runs(self.norm, self.folded)
+        self._marks: tuple[list[int], list[int]] | None = None
+
+    def marks(self) -> tuple[list[int], list[int]]:
+        """Where the letters and digits of ``norm`` are, and marks_before[i]:
+        how many stand in norm[:i].  Built on first use, once for every class
+        set and selection of the call."""
+        if self._marks is None:
+            # Letters and digits carry the identifier; separators and brackets do not.
+            marks = [char.isascii() and char.isalnum() for char in self.norm]
+            mark_at = [i for i, mark in enumerate(marks) if mark]
+            marks_before = [0]  # marks_before[i]: letters and digits in norm[:i]
+            for mark in marks:
+                marks_before.append(marks_before[-1] + mark)
+            self._marks = (mark_at, marks_before)
+        return self._marks
+
+
 def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[PiiSpan]:
     """Non-overlapping spans of the requested classes, in text order."""
-    norm = normalize_digits_extended(text)
-    wanted = frozenset(classes)
-    folded = unify_arabic_letters(norm)
-    found = _matches(norm, folded)
+    return _detect_each(text, [classes])[0]
+
+
+def _detect_each(text: str, class_sets: Iterable[Iterable[PiiClass]]) -> list[list[PiiSpan]]:
+    """``detect(text, classes)`` for each of ``class_sets``.  Each class set is
+    read on its own; only the work that does not depend on the classes is
+    shared (HOM-302)."""
+    shared = _Text(text)
+    return [_detect_in(shared, frozenset(classes)) for classes in class_sets]
+
+
+def _detect_in(shared: _Text, wanted: frozenset[PiiClass]) -> list[PiiSpan]:
+    norm, found = shared.norm, shared.found
     runs: list[tuple[int, int]] = []
-    matches, pieces = _candidates(norm, wanted, found, folded, runs)
-    chosen = _select(norm, matches, pieces)
+    matches, pieces = _candidates(norm, wanted, found, shared.folded, runs, shared.runs)
+    chosen = _select(norm, matches, pieces, shared)
     # The written-form readings of a run are used, together, only where one of
     # them holds a digit left raw.
     extra: list[PiiSpan] = []
@@ -930,7 +1056,7 @@ def detect(text: str, classes: Iterable[PiiClass] = SUPPORTED_CLASSES) -> list[P
                 extra += spans
     if not extra:
         return chosen
-    return _keep(chosen, _select(norm, matches, pieces + extra))
+    return _keep(chosen, _select(norm, matches, pieces + extra, shared))
 
 
 @dataclass(frozen=True)
