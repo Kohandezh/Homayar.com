@@ -19,6 +19,7 @@ from backend.database.saas_models import (
     Workspace,
 )
 from backend.jobs.outbox import record_dispatch_intent
+from backend.media.channels import ChannelInspection, channel_inspection_record
 from backend.services.entitlement_service import reserve_usage
 from backend.services.media_lifecycle_service import register_original
 from backend.services.retention_policy import retention_expiry_for
@@ -74,6 +75,8 @@ def create_upload_job(
     settings: Settings | None = None,
     ingestion_id: str | None = None,
     producer: str = "upload",
+    channel_inspection: ChannelInspection | None = None,
+    source_type: str | None = None,
 ) -> CreatedUpload:
     if duration_seconds <= 0 or size_bytes <= 0:
         raise ValueError("Recording duration and size must be positive")
@@ -134,6 +137,19 @@ def create_upload_job(
         metric="concurrent_jobs",
     )
     active_settings = settings or get_settings()
+    # Channel roles (HOM-37) are attributed here, once, with the mapping the
+    # workspace holds for this source in this transaction; the record keeps
+    # that mapping's version, so a later mapping change never rewrites it.
+    channel_record = None
+    if channel_inspection is not None:
+        if source_type is None:
+            raise ValueError("A channel inspection needs its ingestion source type")
+        channel_record = channel_inspection_record(
+            channel_inspection,
+            source_type=source_type,
+            source_provider=producer,
+            workspace_settings=workspace.settings_json,
+        )
     job = ProcessingJob(
         workspace_id=workspace_id,
         meeting_id=meeting.id,
@@ -165,6 +181,7 @@ def create_upload_job(
         actor_user_id=user_id,
         now=datetime.now(UTC),
         settings=active_settings,
+        channel_inspection=channel_record,
     )
     return CreatedUpload(meeting=meeting, recording=recording, job=job, media=media)
 

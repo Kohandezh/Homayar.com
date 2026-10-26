@@ -36,7 +36,9 @@ from backend.database.saas_models import (
     Meeting,
     Recording,
     Workspace,
+    new_id,
 )
+from backend.media.channel_store import store_channel_inspection
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.logging_service import logger
@@ -86,14 +88,18 @@ def register_original(
     actor_user_id: str | None,
     now: datetime,
     settings: Settings,
+    channel_inspection: dict[str, Any] | None = None,
 ) -> MediaObject:
     """Record the ORIGINAL object of a conversation from its verified recording.
 
     Called inside the upload transaction after the object was stored with a
     verified digest; the recording row is linked to the media row.  The
     partial unique index refuses a second ORIGINAL for the same conversation.
+    ``channel_inspection`` (HOM-37) is kept with the object, once, before it is
+    inserted.
     """
     media = MediaObject(
+        id=new_id(),
         organization_id=workspace.organization_id,
         workspace_id=workspace.id,
         meeting_id=meeting.id,
@@ -116,6 +122,8 @@ def register_original(
         lifecycle_state=MediaLifecycleState.ACTIVE,
         retention_expires_at=meeting.retention_expires_at,
     )
+    if channel_inspection is not None:
+        store_channel_inspection(db, media_object=media, record=channel_inspection)
     db.add(media)
     db.flush()
     recording.media_object_id = media.id

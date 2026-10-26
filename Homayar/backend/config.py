@@ -510,6 +510,19 @@ class Settings(BaseSettings):
     media_decode_probe_seconds: float = 30.0
     # Compressed audio claiming fewer bytes per second is refused as implausible.
     media_min_bytes_per_second: int = 64
+    # Per-channel signal analysis on ingest (HOM-37, backend.media.channels): a
+    # signal-level heuristic over the first N seconds, never a refusal.
+    # Seconds analysed (0 disables) and the wall-time bound of its decode.
+    media_channel_analysis_seconds: float = 30.0
+    media_channel_analysis_timeout_seconds: float = 10.0
+    # A 20 ms frame at or above this level counts as active signal.
+    media_channel_active_threshold_dbfs: float = -50.0
+    # A channel whose active share is at most this is silent.
+    media_channel_silent_max_active_share: float = 0.01
+    # Two non-silent channels with |correlation| at least this are duplicates.
+    media_channel_duplicate_min_correlation: float = 0.99
+    # ...at some lag within +- this many milliseconds (0: aligned samples only).
+    media_channel_duplicate_max_lag_ms: float = 5.0
     upload_rate_limit_per_hour: int = 30
     retention_days_default: int = 90
 
@@ -751,6 +764,15 @@ class Settings(BaseSettings):
             raise ValueError("DEMO_QUOTA_SECONDS must be between 0 and 2147483647")
         if not 0 <= self.media_decode_probe_seconds <= 600 or self.media_min_bytes_per_second < 0:
             raise ValueError("Media decode probe and plausibility limits are out of range")
+        if (
+            not 0 <= self.media_channel_analysis_seconds <= 120
+            or not 0 < self.media_channel_analysis_timeout_seconds <= 60
+            or not -120 <= self.media_channel_active_threshold_dbfs < 0
+            or not 0 <= self.media_channel_silent_max_active_share < 1
+            or not 0 < self.media_channel_duplicate_min_correlation <= 1
+            or not 0 <= self.media_channel_duplicate_max_lag_ms <= 20
+        ):
+            raise ValueError("Media channel analysis settings are out of range")
         if (
             self.job_retry_delay_seconds <= 0
             or self.job_retry_max_delay_seconds < self.job_retry_delay_seconds

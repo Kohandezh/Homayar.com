@@ -15,9 +15,11 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
@@ -32,11 +34,19 @@ from backend.database.saas_models import (
 )
 from backend.jobs.failures import MEETING_DELETED, cancel_job
 from backend.jobs.outbox import cancel_dispatch, dispatch_job
-from backend.media import MediaValidationError, MediaValidationPolicy, validate_media_upload
+from backend.media import (
+    ChannelAnalysisPolicy,
+    MediaValidationError,
+    MediaValidationPolicy,
+    inspect_channels,
+    validate_media_upload,
+)
+from backend.media.channel_store import load_channel_inspection
 from backend.privacy.transcript_view import choose_view
 from backend.routers.v1.insights import _quality, invalid_time_range
 from backend.schemas.ingestions import IngestionResponse
 from backend.schemas.meetings import (
+    ChannelInspectionResponse,
     JobResponse,
     LegalHoldReleaseRequest,
     LegalHoldRequest,
@@ -151,6 +161,21 @@ def _meeting_response(meeting: Meeting) -> MeetingResponse:
 
 def _job_response(job) -> JobResponse | None:
     return JobResponse.model_validate(job) if job is not None else None
+
+
+def _channel_inspection_response(db: Session, meeting: Meeting) -> ChannelInspectionResponse | None:
+    """The ingest-time channel record of the meeting's recording, as stored."""
+    recording = meeting.recording
+    if recording is None or recording.deleted_at is not None:
+        return None
+    record = load_channel_inspection(db, recording=recording)
+    if record is None:
+        return None
+    try:
+        return ChannelInspectionResponse.model_validate(record)
+    except ValidationError:
+        logger.warning("CHANNEL_INSPECTION_UNREADABLE recording_id=%s", recording.id)
+        return None
 
 
 def _usage_response(snapshot) -> UsageResponse:
@@ -532,6 +557,15 @@ async def upload_meeting(
             ffmpeg_path=settings.ffmpeg_path,
             ffmpeg_timeout_seconds=settings.ffmpeg_timeout_seconds,
         )
+        # HOM-37: bounded, never refuses; an analysis failure is "unavailable".
+        # Run on a worker thread so the decode does not block the event loop.
+        channel_inspection = await run_in_threadpool(
+            inspect_channels,
+            staged.path,
+            metadata=metadata,
+            policy=ChannelAnalysisPolicy.from_settings(settings),
+            ffmpeg_path=settings.ffmpeg_path,
+        )
         with staged.path.open("rb") as source:
             stored = storage.put_stream(
                 workspace_id,
@@ -567,6 +601,8 @@ async def upload_meeting(
                 settings=settings,
                 ingestion_id=_record.id,
                 producer=identity.source_provider,
+                channel_inspection=channel_inspection,
+                source_type=identity.source_type.value,
             )
 
         try:
@@ -772,6 +808,7 @@ def get_meeting(
             ).as_dict()
         ),
         ingestion=IngestionResponse.model_validate(ingestion) if ingestion is not None else None,
+        channel_inspection=_channel_inspection_response(db, meeting),
     )
 
 

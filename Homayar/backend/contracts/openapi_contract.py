@@ -33,7 +33,7 @@ SNAPSHOT_PATH = Path(__file__).with_name("ingestion-v1.openapi.json")
 WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 
 # The major number follows the /api/v1 prefix. Additive change: bump the minor.
-CONTRACT_VERSION = "1.5.0"
+CONTRACT_VERSION = "1.6.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -80,6 +80,14 @@ and `missing_data`. Each item of `/api/v1/organizations/{organization_id}/aggreg
 the `coverage`, `scorecard`, `missing_data` and `disclosure` of the matching executive
 trend block: a block of 1 to 4 agents in some closed week is withheld, with `coverage` and
 `missing_data` null. Every existing field keeps its name and value.
+
+**Channel inspection (1.6.0).** `GET /api/v1/meetings/{meeting_id}` adds
+`channel_inspection`: the channel facts measured once at ingest (layout, sample rate, the
+level of each channel, and the silent and duplicated flags) and a role per channel:
+`agent`, `customer`, or `unknown` with a reason code. A role comes only from a workspace
+admin's mapping for the recording's source, never from the upload request or the file. The
+field is null for recordings ingested before this version. Every existing field keeps its
+name and value.
 
 **Errors.** Every error body is `{"error": {"code", "message", "request_id",
 "details"?}}`. `code` is stable; branch on it, not on `message`. Every response

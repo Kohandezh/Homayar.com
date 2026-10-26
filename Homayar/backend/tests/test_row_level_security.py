@@ -543,3 +543,48 @@ def test_api_works_when_logged_in_directly_as_the_low_privilege_role(
         assert public.json()["title"] == "Direct meeting"
         assert api.get(f"/api/v1/shares/{'x' * 40}").status_code == 404
     reset_database_state()
+
+
+def test_channel_role_mappings_stay_inside_their_workspace(client, email_outbox, probe_role):
+    """HOM-37: the trusted mapping lives in workspaces.settings_json; under RLS
+    another tenant can neither read nor overwrite it (criterion 8)."""
+    one, two = _two_tenants(client, email_outbox)
+    mapping = {
+        "channel_role_mappings": {
+            "file_upload:console": {"source_type": "file_upload", "version": 1, "active": True}
+        }
+    }
+    with inspection_session_factory()() as db:
+        db.get(Workspace, one["workspace_id"]).settings_json = mapping
+        db.commit()
+
+    def settings_of(connection, workspace_id: str) -> list:
+        return (
+            connection.execute(
+                text("SELECT settings_json FROM workspaces WHERE id = :ws"), {"ws": workspace_id}
+            )
+            .scalars()
+            .all()
+        )
+
+    engine = create_engine(probe_role, pool_size=1, max_overflow=0, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            # Allow-control: tenant one reads its own mapping.
+            _bind(connection, workspace_id=one["workspace_id"])
+            assert settings_of(connection, one["workspace_id"]) == [mapping]
+            connection.rollback()
+
+            # Tenant two sees no row of tenant one and its write changes nothing.
+            _bind(connection, workspace_id=two["workspace_id"])
+            assert settings_of(connection, one["workspace_id"]) == []
+            overwritten = connection.execute(
+                text("UPDATE workspaces SET settings_json = CAST(:value AS json) WHERE id = :ws"),
+                {"value": '{"channel_role_mappings": {}}', "ws": one["workspace_id"]},
+            )
+            assert overwritten.rowcount == 0
+            connection.commit()
+    finally:
+        engine.dispose()
+    with inspection_session_factory()() as db:
+        assert db.get(Workspace, one["workspace_id"]).settings_json == mapping

@@ -272,6 +272,67 @@ class PlaybackResponse(BaseModel):
     audio_redacted: Literal[False] = False
 
 
+class ChannelAudioStreamResponse(BaseModel):
+    index: int
+    codec: str
+    channels: int
+    channel_layout: str
+    sample_rate_hz: int
+    duration_seconds: float | None
+
+
+class ChannelThresholdsResponse(BaseModel):
+    frame_ms: int
+    active_threshold_dbfs: float
+    silent_max_active_share: float
+    duplicate_min_correlation: float
+    duplicate_max_lag_ms: float
+    narrowband_below_hz: int
+
+
+class ChannelResultResponse(BaseModel):
+    """One channel: its signal measures and its role attribution (HOM-37)."""
+
+    index: int
+    rms_dbfs: float | None
+    active_share: float | None
+    silent: bool | None
+    duplicated: bool | None
+    role: Literal["agent", "customer", "unknown"]
+    attribution: Literal["trusted", "unknown"]
+    reason: str | None
+
+
+class ChannelInspectionResponse(BaseModel):
+    """Channel metadata, signal flags and trusted roles recorded at ingest (HOM-37).
+
+    Read-only and as stored: a later change of the workspace's channel-role
+    mapping does not change it.  Signal measures are a heuristic, not speech
+    detection; see ``backend/media/README.md``.
+    """
+
+    version: str
+    status: Literal["complete", "unavailable"]
+    unavailable_reason: str | None
+    channel_count: int
+    channel_layout: str
+    sample_rate_hz: int
+    codec: str
+    duration_seconds: float
+    narrowband: bool
+    audio_streams: list[ChannelAudioStreamResponse]
+    analysis_seconds: float | None
+    analysis_sample_rate_hz: int | None
+    thresholds: ChannelThresholdsResponse
+    flags: list[str]
+    duplicate_pairs: list[list[int]]
+    mapping_source_type: str
+    mapping_source_provider: str
+    mapping_version: int | None
+    mapping_digest: str | None
+    channels: list[ChannelResultResponse]
+
+
 class MeetingDetailResponse(MeetingResponse):
     recording: RecordingResponse | None = None
     latest_job: JobResponse | None = None
@@ -279,6 +340,9 @@ class MeetingDetailResponse(MeetingResponse):
     # The ledger row that brought the conversation in (WP05-T01); null for
     # conversations that predate the ledger and were not backfilled.
     ingestion: IngestionResponse | None = None
+    # Channel facts and roles recorded at ingest (HOM-37); null when no
+    # record is kept for the recording.
+    channel_inspection: ChannelInspectionResponse | None = None
 
 
 class MeetingListResponse(BaseModel):

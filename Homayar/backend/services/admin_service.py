@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import base64
 import binascii
+import copy
 import ipaddress
 import json
 import re
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from backend.database.saas_models import (
     AuditEvent,
@@ -19,6 +22,20 @@ from backend.database.saas_models import (
     RecordScope,
     RetentionMode,
     Workspace,
+)
+from backend.media.channel_roles import (
+    SETTINGS_KEY,
+    ChannelRoleMapping,
+    InvalidChannelRoleMapping,
+    active_mappings,
+    mapping_digest,
+    mapping_entry,
+    mapping_from_settings,
+    readable_entries,
+    source_key,
+    stored_version,
+    validate_mapping_channels,
+    validate_source,
 )
 from backend.privacy.text_pii import parse_classes
 from backend.services.retention_policy import (
@@ -364,3 +381,167 @@ def _apply_retention_policy(workspace: Workspace, *, mode: Any, retention_days: 
         raise InvalidWorkspaceSettings(str(exc)) from exc
     workspace.retention_mode = new_mode
     workspace.retention_days = new_days
+
+
+# --- Trusted channel-role mappings (HOM-37, ADR 0039) -----------------------------------
+
+
+class ChannelRoleMappingNotFound(LookupError):
+    pass
+
+
+@dataclass(frozen=True)
+class ChannelRoleMappingRemoval:
+    """What a removal recorded: the new version number and the removed content.
+
+    ``removed`` is None when the removed entry was unreadable; then ``digest`` is
+    None and ``channels`` is empty.
+    """
+
+    source_type: str
+    source_provider: str
+    version: int
+    digest: str | None
+    channels: tuple[tuple[int, str], ...]
+    previous_version: int | None
+    removed: ChannelRoleMapping | None
+
+
+def _locked_workspace(db: Session, *, workspace_id: str) -> Workspace:
+    """The caller's workspace row, locked so concurrent mapping writes serialise."""
+    workspace = db.scalar(
+        select(Workspace)
+        .where(Workspace.id == workspace_id, Workspace.status == "active")
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if workspace is None:
+        raise WorkspaceNotFoundError("Workspace not found")
+    return workspace
+
+
+def _stored_entry(workspace: Workspace, key: str) -> tuple[bool, ChannelRoleMapping | None]:
+    """``(present, mapping)`` for one source key.
+
+    Raises :class:`UnreadableChannelRoleMappings` when the settings or the
+    whole mapping value are not an object (a write must not replace them).
+    ``mapping`` is None for a removed entry and for an unreadable one.
+    """
+    entries = readable_entries(workspace.settings_json)
+    if key not in entries:
+        return False, None
+    try:
+        source_type, source_provider = key.split(":", 1)
+        return True, mapping_from_settings(
+            workspace.settings_json, source_type=source_type, source_provider=source_provider
+        )
+    except InvalidChannelRoleMapping:
+        return True, None
+
+
+def _entry_is_active(workspace: Workspace, key: str) -> bool:
+    entry = readable_entries(workspace.settings_json).get(key)
+    return not (isinstance(entry, dict) and entry.get("active") is False)
+
+
+def _write_entry(workspace: Workspace, key: str, entry: dict[str, Any]) -> None:
+    settings_json = copy.deepcopy(dict(workspace.settings_json or {}))
+    entries = dict(readable_entries(settings_json))
+    entries[key] = entry
+    settings_json[SETTINGS_KEY] = entries
+    workspace.settings_json = settings_json
+    flag_modified(workspace, "settings_json")
+
+
+def list_channel_role_mappings(db: Session, *, workspace_id: str) -> list[ChannelRoleMapping]:
+    """Readable active mappings; unreadable ones are left out, never an error."""
+    return active_mappings(get_workspace_settings(db, workspace_id=workspace_id).settings_json)
+
+
+def set_channel_role_mapping(
+    db: Session,
+    *,
+    workspace_id: str,
+    source_type: str,
+    source_provider: str,
+    channels: Sequence[tuple[int, str]],
+    actor_user_id: str,
+    now: datetime,
+    max_channels: int,
+) -> tuple[ChannelRoleMapping, ChannelRoleMapping | None, bool]:
+    """Set or replace a source's mapping: ``(current, previous, changed)``.
+
+    The same content as the active mapping changes nothing (``changed`` False).
+    An unreadable entry of this source is replaced; unreadable settings as a
+    whole raise :class:`UnreadableChannelRoleMappings` and nothing changes.
+    """
+    source_type, source_provider = validate_source(source_type, source_provider)
+    ordered = validate_mapping_channels(channels, max_channels=max_channels)
+    workspace = _locked_workspace(db, workspace_id=workspace_id)
+    key = source_key(source_type, source_provider)
+    _, previous = _stored_entry(workspace, key)
+    digest = mapping_digest(source_type, source_provider, ordered)
+    if previous is not None and previous.digest == digest:
+        return previous, previous, False
+    mapping = ChannelRoleMapping(
+        source_type=source_type,
+        source_provider=source_provider,
+        version=stored_version(workspace.settings_json, key) + 1,
+        digest=digest,
+        channels=ordered,
+        updated_at=now,
+        updated_by_user_id=actor_user_id,
+    )
+    _write_entry(workspace, key, mapping_entry(mapping))
+    db.flush()
+    return mapping, previous, True
+
+
+def remove_channel_role_mapping(
+    db: Session,
+    *,
+    workspace_id: str,
+    source_type: str,
+    source_provider: str,
+    actor_user_id: str,
+    now: datetime,
+) -> ChannelRoleMappingRemoval:
+    """Remove a source's active (or unreadable) entry.
+
+    The removal takes the next version number of the source, so no number is
+    reused.  An unreadable entry can be removed too, so an administrator can
+    clear it; unreadable settings as a whole raise
+    :class:`UnreadableChannelRoleMappings` and nothing changes.
+    """
+    source_type, source_provider = validate_source(source_type, source_provider)
+    workspace = _locked_workspace(db, workspace_id=workspace_id)
+    key = source_key(source_type, source_provider)
+    present, removed = _stored_entry(workspace, key)
+    if not present or (removed is None and not _entry_is_active(workspace, key)):
+        raise ChannelRoleMappingNotFound("No active channel role mapping for this source")
+    previous_version = stored_version(workspace.settings_json, key)
+    removal = ChannelRoleMappingRemoval(
+        source_type=source_type,
+        source_provider=source_provider,
+        version=previous_version + 1,
+        digest=removed.digest if removed else None,
+        channels=removed.channels if removed else (),
+        previous_version=previous_version or None,
+        removed=removed,
+    )
+    _write_entry(
+        workspace,
+        key,
+        {
+            "source_type": source_type,
+            "source_provider": source_provider,
+            "version": removal.version,
+            "digest": removal.digest,
+            "active": False,
+            "channels": [{"channel": channel, "role": role} for channel, role in removal.channels],
+            "updated_at": now.isoformat(),
+            "updated_by_user_id": actor_user_id,
+        },
+    )
+    db.flush()
+    return removal

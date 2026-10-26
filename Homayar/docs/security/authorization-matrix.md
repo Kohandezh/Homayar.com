@@ -198,6 +198,9 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/admin/shares | workspace:manage |
 | GET | /api/v1/admin/workspace-settings | workspace:manage |
 | PATCH | /api/v1/admin/workspace-settings | workspace:manage +csrf |
+| GET | /api/v1/admin/channel-role-mappings | workspace:manage |
+| PUT | /api/v1/admin/channel-role-mappings/{source_type}/{source_provider} | workspace:manage +csrf |
+| DELETE | /api/v1/admin/channel-role-mappings/{source_type}/{source_provider} | workspace:manage +csrf |
 | GET | /api/v1/admin/jobs | workspace:manage |
 | GET | /api/v1/admin/jobs/summary | workspace:manage |
 | GET | /api/v1/admin/coverage | workspace:manage |
@@ -503,6 +506,14 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | Enforcement (WP08-T03, ADR 0028): every stage candidate is filtered by the policy (endpoint kind, region, manifest allowlist, licence) and capability (explicit language) before any ranking; a refused adapter is never called and nothing substitutes for it — refused ASR fails the attempt permanently (reservation released), refused diarization/analysis end `unavailable` with the typed reason and the meeting is `partial` | `backend.providers.routing`, `process_job` | `test_provider_routing.py` |
 | A cloud analysis endpoint receives the redacted transcript (every class) unless the policy allows the original; the workspace redaction policy applies to every endpoint; a redaction failure never falls back to the original; permission for text never covers audio | `analysis_text_classes`, `_analysis_input` | `test_provider_routing.py` |
 | A policy or redaction change during an attempt ends it with the retryable `policy_changed` before the next stage; the next attempt runs under the current policy | `_ensure_policy_current` | `test_provider_routing.py` |
+
+## 6n. Trusted channel-role mappings (HOM-37, ADR 0039)
+
+| Rule | Enforcement | Test |
+|---|---|---|
+| A channel role (`agent`, `customer`) is trusted only from the workspace's mapping for the recording's own source (`source_type` + `source_provider`); it is never taken from the upload request, file metadata, an API-key scope or a heuristic. Only `workspace:manage` (+CSRF, session only: never an API-key scope) reads, sets or removes a mapping, always in the caller's own workspace; every set or removal is audited (`workspace.settings.updated`, `fields: channel_role_mappings`, version and digest); an invalid mapping (also a `null` or empty body) is `422 invalid_channel_role_mapping`; unreadable stored mappings (settings or the whole mapping value not an object) are never replaced: a write is `409 channel_role_mappings_unreadable`, while one unreadable entry can be removed by `DELETE` | `GET/PUT/DELETE /admin/channel-role-mappings`, `set_channel_role_mapping` / `remove_channel_role_mapping`, `backend/media/channel_roles.py` | `test_channel_roles_api.py` |
+| The mapping lives in `workspaces.settings_json`: another tenant can neither read nor overwrite it, also under RLS as `homayar_app` | `workspaces` tenant policy | `test_channel_roles_api.py`, `test_row_level_security.py` |
+| Attribution happens once, at ingest, and records the mapping version and digest it used; a later mapping change never rewrites a recording's roles. A mono, silent, duplicated, unmapped or unanalysed channel stays `unknown` with a reason code | `channel_inspection_record`, `backend/media/channel_store.py` | `test_channel_inspection.py`, `test_channel_roles_api.py` |
 
 ## 7. Escalation paths and where they are refused
 
