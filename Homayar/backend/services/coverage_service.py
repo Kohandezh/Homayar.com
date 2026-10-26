@@ -23,12 +23,13 @@ assessed with the same pure functions the report uses.
 HOM-299: ``compute_population_coverage`` applies the same rules to meetings that are not
 ledger rows (the voicemail rows of ``GET /voicemails/analytics``), so its counters reconcile
 with the ``total`` that route shows.
+
 """
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
@@ -208,11 +209,30 @@ class EvaluatedMeeting:
     bucket: str
 
 
-@dataclass(frozen=True)
 class Coverage:
-    window: CoverageWindow
-    counters: dict[str, dict[str, Any]]
-    evaluated: list[EvaluatedMeeting] = field(default_factory=list)
+    """The counters of a window, and the assessed ``transcribed`` meetings.
+
+    HOM-312: ``evaluated`` may be built only when it is read (``evaluate``), from facts that
+    were already loaded, so a caller that needs only the counters pays nothing for it."""
+
+    def __init__(
+        self,
+        window: CoverageWindow,
+        counters: dict[str, dict[str, Any]],
+        evaluated: list[EvaluatedMeeting] | None = None,
+        *,
+        evaluate: Callable[[], list[EvaluatedMeeting]] | None = None,
+    ) -> None:
+        self.window = window
+        self.counters = counters
+        self._evaluated = evaluated
+        self._evaluate = evaluate
+
+    @property
+    def evaluated(self) -> list[EvaluatedMeeting]:
+        if self._evaluated is None:
+            self._evaluated = self._evaluate() if self._evaluate is not None else []
+        return self._evaluated
 
     @property
     def fully_evaluated(self) -> list[EvaluatedMeeting]:
@@ -254,6 +274,9 @@ def _review_counter(denominator: int) -> dict[str, Any]:
 
 
 # --- the report's unsupported findings count -----------------------------------
+
+# The finding types whose spans ``unsupported_finding_count`` reads (HOM-312).
+REPORT_FINDING_TYPES = (FINDING_SUMMARY, FINDING_INSIGHT, FINDING_ACTION_ITEM)
 
 
 def _cited_count(point: object, spans: Mapping[str, Any], finding_type: str) -> int:
@@ -436,29 +459,74 @@ def _load_facts(
     window: CoverageWindow,
     population: Sequence[ColumnElement[bool]] = (),
     candidates: Select[Any] | None = None,
+    slim: bool = False,
 ) -> _Facts:
     """Everything the quality assessment and the report count read, for every
     candidate meeting at once: eight statements, whatever the meeting count.
-    ``candidates`` (a select of meeting ids) replaces the ledger candidates (HOM-299)."""
+    ``candidates`` (a select of meeting ids) replaces the ledger candidates (HOM-299).
+
+    ``slim`` (HOM-312): the revisions and runs come as rows of the columns the assessment
+    reads, not as ORM objects; only revisions with a segment (the ``transcribed`` meetings),
+    each with its meeting's columns (``meeting_status``, ``team_id``, ``agent_user_id``,
+    ``meeting_source``, ``language``)."""
     if candidates is None:
         candidates = _candidate_meetings(workspace_id, window, population)
     facts = _Facts()
-    for revision in db.scalars(
-        select(TranscriptRevision).where(
-            TranscriptRevision.workspace_id == workspace_id,
-            TranscriptRevision.is_current.is_(True),
-            TranscriptRevision.meeting_id.in_(candidates),
+    if slim:
+        revisions: Select[Any] = (
+            select(
+                TranscriptRevision.meeting_id,
+                TranscriptRevision.id,
+                TranscriptRevision.segment_count,
+                TranscriptRevision.is_mock,
+                TranscriptRevision.source,
+                TranscriptRevision.diarization_status,
+                Meeting.status.label("meeting_status"),
+                Meeting.team_id,
+                Meeting.agent_user_id,
+                Meeting.source.label("meeting_source"),
+                Meeting.language,
+            )
+            .join(Meeting, Meeting.id == TranscriptRevision.meeting_id)
+            .where(
+                TranscriptRevision.workspace_id == workspace_id,
+                TranscriptRevision.is_current.is_(True),
+                TranscriptRevision.segment_count > 0,
+                TranscriptRevision.meeting_id.in_(candidates),
+            )
         )
-    ):
-        facts.revisions[revision.meeting_id] = revision
-    for run in db.scalars(
-        select(AnalysisRun).where(
+        runs: Select[Any] = select(
+            AnalysisRun.meeting_id,
+            AnalysisRun.id,
+            AnalysisRun.state,
+            AnalysisRun.transcript_revision_id,
+            AnalysisRun.is_mock,
+        ).where(
             AnalysisRun.workspace_id == workspace_id,
             AnalysisRun.is_current.is_(True),
             AnalysisRun.meeting_id.in_(candidates),
         )
-    ):
-        facts.runs[run.meeting_id] = run
+        for revision in db.execute(revisions):
+            facts.revisions[revision.meeting_id] = revision
+        for run in db.execute(runs):
+            facts.runs[run.meeting_id] = run
+    else:
+        for revision in db.scalars(
+            select(TranscriptRevision).where(
+                TranscriptRevision.workspace_id == workspace_id,
+                TranscriptRevision.is_current.is_(True),
+                TranscriptRevision.meeting_id.in_(candidates),
+            )
+        ):
+            facts.revisions[revision.meeting_id] = revision
+        for run in db.scalars(
+            select(AnalysisRun).where(
+                AnalysisRun.workspace_id == workspace_id,
+                AnalysisRun.is_current.is_(True),
+                AnalysisRun.meeting_id.in_(candidates),
+            )
+        ):
+            facts.runs[run.meeting_id] = run
     for meeting_id, revision_id, count in db.execute(
         select(AnalysisRun.meeting_id, AnalysisRun.transcript_revision_id, func.count())
         .where(
@@ -532,19 +600,22 @@ def _load_facts(
         )
     ):
         facts.actions[row.meeting_id].append(row)
-    for row in db.execute(
-        select(
-            EvidenceSpan.meeting_id,
-            EvidenceSpan.id,
-            EvidenceSpan.finding_type,
-            EvidenceSpan.finding_index,
-            EvidenceSpan.finding_id,
-            EvidenceSpan.analysis_run_id,
-        ).where(
-            EvidenceSpan.workspace_id == workspace_id,
-            EvidenceSpan.meeting_id.in_(candidates),
-        )
-    ):
+    spans_statement = select(
+        EvidenceSpan.meeting_id,
+        EvidenceSpan.id,
+        EvidenceSpan.finding_type,
+        EvidenceSpan.finding_index,
+        EvidenceSpan.finding_id,
+        EvidenceSpan.analysis_run_id,
+    ).where(
+        EvidenceSpan.workspace_id == workspace_id,
+        EvidenceSpan.meeting_id.in_(candidates),
+    )
+    if slim:
+        # HOM-312: only the finding types ``unsupported_finding_count`` counts; the others
+        # (``extraction``) never change a count.
+        spans_statement = spans_statement.where(EvidenceSpan.finding_type.in_(REPORT_FINDING_TYPES))
+    for row in db.execute(spans_statement):
         facts.spans[row.meeting_id].append(row)
     return facts
 
@@ -656,12 +727,23 @@ def _count(
             )
         )
 
+    counters = _counters(ingestion, rejected_reasons, processing, evaluation)
+    return Coverage(window=window, counters=counters, evaluated=evaluated)
+
+
+def _counters(
+    ingestion: Mapping[str, int],
+    rejected_reasons: Counter[str],
+    processing: Mapping[str, int],
+    evaluation: Mapping[str, int],
+) -> dict[str, dict[str, Any]]:
+    """The four counters from the bucket counts."""
     ingested = sum(ingestion.values())
     ingestion_counter = _counter(
         "ingestion", numerator=ingestion["accepted"], denominator=ingested, buckets=ingestion
     )
     ingestion_counter["rejected_reasons"] = dict(sorted(rejected_reasons.items()))
-    counters = {
+    return {
         "ingestion": ingestion_counter,
         "processing": _counter(
             "processing",
@@ -677,7 +759,6 @@ def _count(
         ),
         "review": _review_counter(evaluation[BUCKET_FULLY_EVALUATED]),
     }
-    return Coverage(window=window, counters=counters, evaluated=evaluated)
 
 
 def _rows_and_facts(
@@ -696,6 +777,171 @@ def _rows_and_facts(
     return rows, facts
 
 
+def reference_coverage(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    recompute_max_attempts: int,
+    population: Sequence[ColumnElement[bool]] = (),
+) -> Coverage:
+    """The HOM-72 Python path: the facts as ORM objects and every transcribed meeting
+    assessed with ``_assess`` (``assess_quality`` and the report's completeness rules).
+    HOM-312 keeps it as the oracle of the parity test (``test_coverage_sql_parity.py``);
+    ``compute_coverage`` must give the same counters."""
+    rows, facts = _rows_and_facts(
+        db, workspace_id=workspace_id, window=window, population=population
+    )
+    return _count(rows, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+
+
+def reference_coverage_by_team(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    recompute_max_attempts: int,
+    population: Sequence[ColumnElement[bool]] = (),
+    teams: Iterable[str | None] = (),
+) -> tuple[Coverage, dict[str | None, Coverage]]:
+    """The HOM-72 Python path of ``compute_coverage_by_team`` (the parity oracle)."""
+    rows, facts = _rows_and_facts(
+        db, workspace_id=workspace_id, window=window, population=population
+    )
+
+    def count(subset: Iterable[Any]) -> Coverage:
+        return _count(subset, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+
+    return count(rows), {
+        team_id: count(team_rows) for team_id, team_rows in _by_team(rows, teams).items()
+    }
+
+
+def _by_team(rows: Iterable[Any], teams: Iterable[str | None]) -> dict[str | None, list[Any]]:
+    """The ledger rows of each team: every id of ``teams``, and every ``team_id`` (``None``
+    for no team) of a row that has a meeting."""
+    grouped: dict[str | None, list[Any]] = {team_id: [] for team_id in teams}
+    grouped = defaultdict(list, grouped)
+    for row in rows:
+        if row.meeting_id is not None:
+            grouped[row.team_id].append(row)
+    return grouped
+
+
+def _evaluation_bucket(row: Any, facts: _Facts) -> str:
+    """The evaluation bucket of one ``transcribed`` meeting (HOM-312): the first notice of
+    ``completeness_notices`` (``report_service.py``), from the same facts ``_assess`` reads,
+    without building the quality response.  ``row`` is its ledger row; its current revision
+    has a segment.  The rules, in the notices' order:
+
+    * ``transcript_partial``: the ASR stage of the newest job's current attempt is partial
+      (``assess_quality``: the last ``asr`` stage run wins);
+    * ``analysis_unavailable``: no current run, or its state is not completed or partial;
+    * ``analysis_partial``: the run is partial, or the meeting status is partial;
+    * ``analysis_stale``: the run read another revision than the current one;
+    * ``analysis_recompute_failed``: stale and the failed recomputes of the current revision
+      reached the limit (never first: stale comes before it);
+    * ``mock_analysis``: the current revision or the run is a mock;
+    * ``unsupported_findings``: ``unsupported_finding_count`` is not zero;
+    * else ``fully_evaluated`` (``is_report_complete``).
+    """
+    meeting_id = row.meeting_id
+    notice = _notice_before_verdict(
+        facts.revisions[meeting_id],
+        facts.runs.get(meeting_id),
+        facts.stage_runs.get(meeting_id, ()),
+        partial_meeting=MeetingStatus(row.meeting_status) == MeetingStatus.PARTIAL,
+    )
+    if notice is not None:
+        return notice
+    unsupported = unsupported_finding_count(
+        summary=facts.summaries.get(meeting_id),
+        actions=[a for a in facts.actions.get(meeting_id, ()) if a.created_by == "ai"],
+        spans=facts.spans.get(meeting_id, ()),
+    )
+    if unsupported:
+        return NOTICE_UNSUPPORTED_FINDINGS
+    return BUCKET_FULLY_EVALUATED
+
+
+def _notice_before_verdict(
+    revision: Any, run: Any | None, stage_runs: Iterable[Any], *, partial_meeting: bool
+) -> str | None:
+    """The first notice of the rules before ``unsupported_findings`` (``_evaluation_bucket``),
+    or ``None`` when ``unsupported_finding_count`` decides the bucket."""
+    by_stage = {stage: state for stage, state, _reason in stage_runs}
+    if by_stage.get("asr") == StageState.PARTIAL:
+        return NOTICE_TRANSCRIPT_PARTIAL
+    if run is None or run.state not in (StageState.COMPLETED, StageState.PARTIAL):
+        return NOTICE_ANALYSIS_UNAVAILABLE
+    if run.state == StageState.PARTIAL or partial_meeting:
+        return NOTICE_ANALYSIS_PARTIAL
+    if run.transcript_revision_id != revision.id:
+        # ``analysis_recompute_failed`` needs a stale run, and stale is the earlier notice.
+        return NOTICE_ANALYSIS_STALE
+    if revision.is_mock or run.is_mock:
+        return NOTICE_MOCK_ANALYSIS
+    return None
+
+
+def _tally(
+    rows: Iterable[Any], facts: _Facts, bucket_of: Callable[[Any], str]
+) -> dict[str, dict[str, Any]]:
+    """The four counters of ``rows``, as ``_count`` counts them, with the evaluation bucket
+    of each ``transcribed`` meeting from ``bucket_of``."""
+    ingestion = dict.fromkeys(INGESTION_BUCKETS, 0)
+    rejected_reasons: Counter[str] = Counter()
+    processing = dict.fromkeys(PROCESSING_BUCKETS, 0)
+    evaluation = dict.fromkeys(EVALUATION_BUCKETS, 0)
+    for row in rows:
+        if row.status == IngestionStatus.REJECTED:
+            ingestion["rejected"] += 1
+            rejected_reasons[row.reason] += 1
+            continue
+        ingestion["accepted"] += 1
+        if row.meeting_id is None or row.deleted_at is not None:
+            processing["deleted"] += 1
+        elif row.meeting_status in IN_PROGRESS_STATUSES:
+            processing["in_progress"] += 1
+        elif row.meeting_status in FAILED_STATUSES:
+            processing["failed"] += 1
+        else:
+            revision = facts.revisions.get(row.meeting_id)
+            if not has_segments(revision.segment_count if revision is not None else None):
+                processing["no_transcript"] += 1
+                continue
+            processing[BUCKET_TRANSCRIBED] += 1
+            evaluation[bucket_of(row)] += 1
+    return _counters(ingestion, rejected_reasons, processing, evaluation)
+
+
+def _counting(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    population: Sequence[ColumnElement[bool]],
+) -> tuple[Sequence[Any], _Facts, Callable[[Any], str]]:
+    """The ledger rows, the slim facts (8 statements, only when a candidate exists) and a
+    function giving each ``transcribed`` meeting's evaluation bucket, worked out once per
+    meeting however many groups count it."""
+    rows = _ledger_rows(db, workspace_id=workspace_id, window=window, population=population)
+    facts = (
+        _load_facts(db, workspace_id=workspace_id, window=window, population=population, slim=True)
+        if any(_is_candidate(row) for row in rows)
+        else _Facts()
+    )
+    buckets: dict[str, str] = {}
+
+    def bucket_of(row: Any) -> str:
+        bucket = buckets.get(row.meeting_id)
+        if bucket is None:
+            bucket = buckets[row.meeting_id] = _evaluation_bucket(row, facts)
+        return bucket
+
+    return rows, facts, bucket_of
+
+
 def compute_coverage(
     db: Session,
     *,
@@ -710,11 +956,29 @@ def compute_coverage(
     ``IngestionRecord`` joined to ``Meeting``, ANDed.  A ledger row then counts only if it
     joins to a meeting of the workspace (live or soft-deleted) and passes every clause.
     Empty (the default) is the whole workspace, ``GET /admin/coverage``.
+
+    HOM-312: the same statements as ``reference_coverage`` (1 ledger statement, plus 8 fact
+    statements when a candidate exists), with slim revision and run rows, and each meeting's
+    bucket from ``_evaluation_bucket``.  ``evaluated`` (review sampling) is built only when
+    read, by ``_count`` over the same facts, so it is the reference path's list.
     """
-    rows, facts = _rows_and_facts(
-        db, workspace_id=workspace_id, window=window, population=population
+    rows, facts, bucket_of = _counting(
+        db,
+        workspace_id=workspace_id,
+        window=window,
+        population=population,
     )
-    return _count(rows, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+
+    def evaluate() -> list[EvaluatedMeeting]:
+        return _count(
+            rows, facts, window=window, recompute_max_attempts=recompute_max_attempts
+        ).evaluated
+
+    return Coverage(
+        window,
+        _tally(rows, facts, bucket_of),
+        evaluate=evaluate,
+    )
 
 
 def compute_coverage_by_team(
@@ -733,20 +997,30 @@ def compute_coverage_by_team(
     key ``None`` holds the meetings with no team.  A ledger row with no meeting (possible
     only with an empty ``population``, where the meeting join is outer) counts in the whole
     and in no group.  Every id of ``teams`` has a group, empty when it has no row.
+    HOM-312: each meeting is assessed once, for the whole and its team.
     """
-    rows, facts = _rows_and_facts(
-        db, workspace_id=workspace_id, window=window, population=population
+    rows, facts, bucket_of = _counting(
+        db,
+        workspace_id=workspace_id,
+        window=window,
+        population=population,
     )
-    grouped: dict[str | None, list[Any]] = {team_id: [] for team_id in teams}
-    grouped = defaultdict(list, grouped)
-    for row in rows:
-        if row.meeting_id is not None:
-            grouped[row.team_id].append(row)
 
-    def count(subset: Iterable[Any]) -> Coverage:
-        return _count(subset, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+    def coverage(subset: Sequence[Any]) -> Coverage:
+        def evaluate() -> list[EvaluatedMeeting]:
+            return _count(
+                subset, facts, window=window, recompute_max_attempts=recompute_max_attempts
+            ).evaluated
 
-    return count(rows), {team_id: count(team_rows) for team_id, team_rows in grouped.items()}
+        return Coverage(
+            window,
+            _tally(subset, facts, bucket_of),
+            evaluate=evaluate,
+        )
+
+    return coverage(rows), {
+        team_id: coverage(team_rows) for team_id, team_rows in _by_team(rows, teams).items()
+    }
 
 
 class _PopulationRow(NamedTuple):
