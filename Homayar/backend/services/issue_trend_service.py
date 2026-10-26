@@ -35,13 +35,22 @@ from __future__ import annotations
 from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from functools import cache
 from typing import Any
 from zoneinfo import ZoneInfo, available_timezones
 
-from sqlalchemy import ColumnElement, and_, select, union
+from sqlalchemy import (
+    ColumnElement,
+    and_,
+    case,
+    null,
+    select,
+    type_coerce,
+    union,
+)
 from sqlalchemy.orm import Session, aliased
 
 from backend.database.saas_models import (
@@ -60,22 +69,25 @@ from backend.issue_trends import (
     ConversationFacts,
     ConversationJudgment,
     IssueState,
+    JudgedContent,
     MediaGroupMember,
+    SignatureJudge,
     TrendDefinition,
     TrendFilters,
     build_rows,
     counted_copy_id,
-    judge_conversation,
     load_definition,
     tally,
     trend_provenance,
 )
+from backend.issue_trends.judgment_cache import JudgmentCache, judgment_key
 from backend.issue_trends.samples import DISCLOSURE_VERSION, MIN_COHORT_AGENTS
 from backend.security.authorization import RecordAccess
 from backend.services.aggregate_metadata import scorecard_block, trend_missing_data
 from backend.services.coverage_service import (
     COVERAGE_VERSION,
     CoverageWindow,
+    among_ids,
     compute_coverage,
     has_segments,
     transcribable_clauses,
@@ -303,30 +315,40 @@ def _population_clauses(
     ]
 
 
-def _population_rows(db: Session, workspace_id: str, clauses: Sequence[ColumnElement[bool]]):
+def _population_rows(
+    db: Session,
+    workspace_id: str,
+    clauses: Sequence[ColumnElement[bool]],
+    cached_runs: Sequence[str] | None = None,
+):
     """Statement P: one row per conversation.  The joins cannot repeat a meeting:
     ``uq_ingestion_meeting``, ``uq_transcript_revision_current``,
     ``uq_analysis_run_current`` and ``uq_analysis_extraction_run`` (if one ever broke,
-    ``tally`` refuses a meeting judged twice).  Only the current run and its own row."""
-    return db.execute(
-        select(
-            IngestionRecord.id.label("ingestion_id"),
-            IngestionRecord.received_at,
-            IngestionRecord.source_type,
-            Meeting.id.label("meeting_id"),
-            Meeting.team_id,
-            Meeting.agent_user_id,
-            Meeting.language,
-            TranscriptRevision.id.label("revision_id"),
-            TranscriptRevision.is_mock.label("revision_is_mock"),
-            TranscriptRevision.segment_count,
-            AnalysisRun.id.label("run_id"),
-            AnalysisRun.state.label("run_state"),
-            AnalysisRun.transcript_revision_id.label("run_revision_id"),
-            AnalysisRun.is_mock.label("run_is_mock"),
-            AnalysisExtraction.analysis_run_id.label("extraction_run_id"),
-            AnalysisExtraction.result,
-        )
+    ``tally`` refuses a meeting judged twice).  Only the current run and its own row.
+
+    ``cached_runs`` (HOM-312, the judgment cache): the runs whose stored row the caller
+    already judged.  For them ``result`` is NULL and ``extraction_run_id`` is the run (a
+    cached judgment means the row exists; rows are never removed while their run lives);
+    the other runs read their row with a subquery, so the wide extraction table is read only
+    for them.  Still one statement: the ids are one parameter."""
+    columns = [
+        IngestionRecord.id.label("ingestion_id"),
+        IngestionRecord.received_at,
+        IngestionRecord.source_type,
+        Meeting.id.label("meeting_id"),
+        Meeting.team_id,
+        Meeting.agent_user_id,
+        Meeting.language,
+        TranscriptRevision.id.label("revision_id"),
+        TranscriptRevision.is_mock.label("revision_is_mock"),
+        TranscriptRevision.segment_count,
+        AnalysisRun.id.label("run_id"),
+        AnalysisRun.state.label("run_state"),
+        AnalysisRun.transcript_revision_id.label("run_revision_id"),
+        AnalysisRun.is_mock.label("run_is_mock"),
+    ]
+    statement = (
+        select(*columns)
         .select_from(IngestionRecord)
         .join(Meeting, Meeting.id == IngestionRecord.meeting_id)
         .outerjoin(TranscriptRevision, _current_revision(workspace_id))
@@ -338,15 +360,43 @@ def _population_rows(db: Session, workspace_id: str, clauses: Sequence[ColumnEle
                 AnalysisRun.workspace_id == workspace_id,
             ),
         )
-        .outerjoin(
+    )
+    if cached_runs is None:
+        statement = statement.add_columns(
+            AnalysisExtraction.analysis_run_id.label("extraction_run_id"),
+            AnalysisExtraction.result,
+        ).outerjoin(
             AnalysisExtraction,
             and_(
                 AnalysisExtraction.analysis_run_id == AnalysisRun.id,
                 AnalysisExtraction.workspace_id == workspace_id,
             ),
         )
-        .where(*clauses)
-    ).all()
+    else:
+        cached = _among_runs(db, cached_runs)
+        own_row = and_(
+            AnalysisExtraction.analysis_run_id == AnalysisRun.id,
+            AnalysisExtraction.workspace_id == workspace_id,
+        )
+        statement = statement.add_columns(
+            case(
+                (cached, AnalysisRun.id),
+                else_=select(AnalysisExtraction.analysis_run_id).where(own_row).scalar_subquery(),
+            ).label("extraction_run_id"),
+            type_coerce(
+                case(
+                    (cached, null()),
+                    else_=select(AnalysisExtraction.result).where(own_row).scalar_subquery(),
+                ),
+                AnalysisExtraction.result.type,
+            ).label("result"),
+        )
+    return db.execute(statement.where(*clauses)).all()
+
+
+def _among_runs(db: Session, run_ids: Sequence[str]) -> ColumnElement[bool]:
+    """``AnalysisRun.id`` is one of ``run_ids``, sent as one statement parameter."""
+    return among_ids(db, AnalysisRun.id, run_ids, "trend_cached_runs")
 
 
 def _group_members(db: Session, workspace_id: str, clauses: Sequence[ColumnElement[bool]]):
@@ -429,14 +479,56 @@ def judge_population(
     scope: ColumnElement[bool],
     filters: TrendFilters,
     teams: bool = True,
+    judge: SignatureJudge | None = None,
+    cache: JudgmentCache | None = None,
+    organization_id: str | None = None,
 ) -> list[JudgedConversation]:
     """Statements P and G for the window's population under ``scope`` and the population
-    filters (``teams=False`` leaves out ``team_id``), every conversation judged once."""
+    filters (``teams=False`` leaves out ``team_id``), every conversation judged once.
+
+    HOM-312: ``judge`` (a ``SignatureJudge`` of the trend definition, a new one when None)
+    gives judgments equal to ``judge_conversation``'s, sharing equal parts.  With ``cache``
+    (the app's ``JudgmentCache``; ``organization_id`` names the workspace's organization in
+    its key), the stored rows of runs judged before are not read again: only their cached
+    ``JudgedContent``, pinned for this request, is used."""
     definition = trend_definition()
+    with cache.request() if cache is not None else nullcontext():
+        return _judge_population(
+            db,
+            workspace_id=workspace_id,
+            scope=scope,
+            filters=filters,
+            teams=teams,
+            judge=judge,
+            cache=cache,
+            organization_id=organization_id,
+            definition=definition,
+        )
+
+
+def _judge_population(
+    db: Session,
+    *,
+    workspace_id: str,
+    scope: ColumnElement[bool],
+    filters: TrendFilters,
+    teams: bool,
+    judge: SignatureJudge | None,
+    cache: JudgmentCache | None,
+    organization_id: str | None,
+    definition: TrendDefinition,
+) -> list[JudgedConversation]:
+    pinned: dict[str, JudgedContent] = {}
+    key = judgment_key(organization_id, workspace_id, definition)
+    if cache is not None:
+        judge = cache.judge(definition)
+        pinned = cache.pin(key, filters.window.start, filters.window.end)
+    elif judge is None:
+        judge = SignatureJudge(definition)
     clauses = _population_clauses(
         workspace_id, filter_clauses(scope, filters, teams=teams), filters
     )
-    rows = _population_rows(db, workspace_id, clauses)
+    rows = _population_rows(db, workspace_id, clauses, None if cache is None else sorted(pinned))
     groups: dict[str, list[MediaGroupMember]] = defaultdict(list)
     for item in _group_members(db, workspace_id, clauses):
         groups[item.root_id].append(
@@ -448,6 +540,20 @@ def judge_population(
         )
     root_of = {member.ingestion_id: root for root, group in groups.items() for member in group}
     counted = {root: counted_copy_id(group) for root, group in groups.items()}
+
+    contents: dict[str, JudgedContent] = {}
+    if cache is not None:
+        hits: list[str] = []
+        misses: dict[str, tuple[datetime, object]] = {}
+        for item in rows:
+            if not has_segments(item.segment_count) or item.extraction_run_id is None:
+                continue
+            if item.run_id in pinned:
+                hits.append(item.run_id)
+            else:
+                misses[item.run_id] = (_utc(item.received_at), item.result)
+        contents = {run_id: pinned[run_id] for run_id in hits}
+        contents.update(cache.resolve(key, hits=hits, misses=misses, build=judge.content))
 
     conversations = []
     for item in rows:
@@ -476,11 +582,69 @@ def judge_population(
                 agent_user_id=item.agent_user_id,
                 language=item.language,
                 source_type=IngestionSourceType(item.source_type).value,
-                judgment=judge_conversation(facts, definition),
+                judgment=judge.judge(
+                    facts, contents.get(item.run_id) if item.extraction_run_id else None
+                ),
                 analysis_run_id=item.run_id,
             )
         )
     return conversations
+
+
+def warm_judgments(
+    db: Session,
+    *,
+    cache: JudgmentCache,
+    workspace_id: str,
+    organization_id: str | None,
+    start: datetime,
+    end: datetime,
+    batch: int = 256,
+    between: Callable[[], None] | None = None,
+) -> int:
+    """The warm-up's work for one workspace (HOM-312, ``judgment_warmup``): statement P over
+    every transcribable conversation received in ``[start, end)``, with the runs already in
+    ``cache`` left out, and the stored rows of the others judged with the cache's
+    ``SignatureJudge`` and kept, the most recent first.  The workspace must be bound as the
+    tenant.  Returns the number of entries added.
+
+    The runs go to ``cache.resolve`` in batches of at most ``batch``, each also at most the
+    free room, with ``evict=False``: the warm-up never evicts, and it stops when the cache is
+    full.  ``between`` runs before each batch, when this thread holds no claim, so the
+    warm-up can wait for requests there: a request never waits on a run the warm-up claimed
+    for longer than one batch."""
+    definition = trend_definition()
+    key = judgment_key(organization_id, workspace_id, definition)
+    clauses = [
+        *transcribable_clauses(workspace_id),
+        IngestionRecord.received_at >= start,
+        IngestionRecord.received_at < end,
+    ]
+    pinned = cache.pin(key, start, end)
+    misses = sorted(
+        (
+            (_utc(item.received_at), item.run_id, item.result)
+            for item in _population_rows(db, workspace_id, clauses, sorted(pinned))
+            if has_segments(item.segment_count)
+            and item.extraction_run_id is not None
+            and item.run_id not in pinned
+        ),
+        key=lambda miss: miss[:2],
+        reverse=True,
+    )
+    build = cache.judge(definition).content
+    added = done = 0
+    while done < len(misses):
+        if between is not None:
+            between()
+        size = min(batch, cache.room())
+        if size <= 0:
+            break  # full
+        chunk = {run_id: (at, result) for at, run_id, result in misses[done : done + size]}
+        done += size
+        cache.resolve(key, hits=(), misses=chunk, build=build, evict=False)
+        added += cache.held(key, chunk)
+    return added
 
 
 def scope_meeting_ids(
@@ -597,6 +761,22 @@ def denominator_rows(judgment: ConversationJudgment) -> frozenset[RowKey]:
     )
 
 
+def _denominator_rows_by_shape() -> Callable[[ConversationJudgment], frozenset[RowKey]]:
+    """``denominator_rows``, worked out once per issue and family tuple (HOM-312): equal
+    judgments of a ``SignatureJudge`` share their tuples.  For one loop only: the tuples it
+    keys on are kept alive with the cached rows, so their ids stay unique."""
+    cache: dict[tuple[int, int], tuple[ConversationJudgment, frozenset[RowKey]]] = {}
+
+    def rows_of(judgment: ConversationJudgment) -> frozenset[RowKey]:
+        shape = (id(judgment.issues), id(judgment.families))
+        cached = cache.get(shape)
+        if cached is None:
+            cached = cache[shape] = (judgment, denominator_rows(judgment))
+        return cached[1]
+
+    return rows_of
+
+
 @dataclass(frozen=True)
 class Layer:
     """The cells of one layer: per row, its denominator, and whether it holds a
@@ -657,6 +837,7 @@ def cohort_stats(
     window_agent: set[RowKey] = set()
     points: list[dict[RowKey, int]] = [defaultdict(int) for _ in range(n_points)]
     points_agent: list[set[RowKey]] = [set() for _ in range(n_points)]
+    rows_of = _denominator_rows_by_shape()
     for conversation in conversations:
         if not conversation.included:
             continue
@@ -666,7 +847,7 @@ def cohort_stats(
         included += 1
         if agent is not None:
             agents.add(agent)
-        rows = denominator_rows(conversation.judgment)
+        rows = rows_of(conversation.judgment)
         index = point_of(conversation.received_at) if point_of is not None and n_points else None
         for key in rows:
             window[key] += 1
@@ -936,6 +1117,7 @@ def week_stats(conversations: Iterable[JudgedConversation]) -> WeekStats:
     included = 0
     agents: set[str] = set()
     rows: dict[RowKey, set[str]] = defaultdict(set)
+    rows_of = _denominator_rows_by_shape()
     for conversation in conversations:
         if not conversation.included:
             continue
@@ -944,7 +1126,7 @@ def week_stats(conversations: Iterable[JudgedConversation]) -> WeekStats:
         if agent is None:
             continue
         agents.add(agent)
-        for key in denominator_rows(conversation.judgment):
+        for key in rows_of(conversation.judgment):
             rows[key].add(agent)
     return WeekStats(included, capped(agents), {key: capped(ids) for key, ids in rows.items()})
 
@@ -1026,6 +1208,8 @@ def issue_cohort(
     access: RecordAccess,
     filters: TrendFilters,
     points: Sequence[SeriesPoint],
+    cache: JudgmentCache | None = None,
+    organization_id: str | None = None,
 ) -> CohortDecision:
     """The cohort of ``GET /trends/issues`` and its decision (statements P and G).  The kind
     comes from the agents of the population (``cohort_kind``), not from the filter, and an
@@ -1042,6 +1226,8 @@ def issue_cohort(
         scope=access.meeting_clause(),
         filters=filters,
         teams=not requested,
+        cache=cache,
+        organization_id=organization_id,
     )
     cohort = [c for c in judged if c.team_id in requested] if requested else judged
     n_points = len(points)
@@ -1071,6 +1257,8 @@ def compute_issue_trends(
     now: datetime,
     grain: str = TREND_DEFAULT_GRAIN,
     timezone: str = TREND_DEFAULT_TIMEZONE,
+    cache: JudgmentCache | None = None,
+    organization_id: str | None = None,
 ) -> dict[str, Any]:
     """The trend answer of the workspace for ``filters`` as ``access`` may see it.
 
@@ -1090,7 +1278,13 @@ def compute_issue_trends(
     window = filters.window
     points = series_points(window.start, window.end, grain, zone)
     decision = issue_cohort(
-        db, workspace_id=workspace_id, access=access, filters=filters, points=points
+        db,
+        workspace_id=workspace_id,
+        access=access,
+        filters=filters,
+        points=points,
+        cache=cache,
+        organization_id=organization_id,
     )
     population, rows, series_answer = cohort_parts(
         decision.conversations, definition, filters, decision.kind, points, zone
@@ -1142,6 +1336,8 @@ def trend_coverage(
     access: RecordAccess,
     filters: TrendFilters,
     recompute_max_attempts: int,
+    cache: JudgmentCache | None = None,
+    organization_id: str | None = None,
 ) -> dict[str, Any]:
     """The ``coverage/1`` processing and evaluation counters of the trend window.
 
@@ -1151,7 +1347,8 @@ def trend_coverage(
     caller's scope and the population filters, so no count is about a meeting outside the
     scope.  Selectors, grain and timezone never change it.  At most 9 statements (1 ledger
     statement, plus 8 fact statements when a meeting may be transcribed), whatever the
-    number of conversations.
+    number of conversations.  ``cache`` and ``organization_id``: the app's cache of the
+    unsupported findings verdicts (HOM-312, U2; ``compute_coverage``).
     """
     if access.restricted or _has_population_filter(filters):
         basis = COVERAGE_BASIS_TREND_POPULATION
@@ -1167,6 +1364,8 @@ def trend_coverage(
         window=coverage_window(filters),
         recompute_max_attempts=recompute_max_attempts,
         population=population,
+        cache=cache,
+        organization_id=organization_id,
     ).counters
     return coverage_block(filters.window, basis, counters)
 
@@ -1187,6 +1386,8 @@ def add_trend_metadata(
     access: RecordAccess,
     filters: TrendFilters,
     recompute_max_attempts: int,
+    cache: JudgmentCache | None = None,
+    organization_id: str | None = None,
 ) -> dict[str, Any]:
     """``answer`` of ``compute_issue_trends`` (same workspace, access and filters) with
     ``coverage``, ``scorecard`` and ``missing_data`` added.  A new dict; every existing
@@ -1199,5 +1400,7 @@ def add_trend_metadata(
             access=access,
             filters=filters,
             recompute_max_attempts=recompute_max_attempts,
+            cache=cache,
+            organization_id=organization_id,
         ),
     )

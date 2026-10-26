@@ -195,6 +195,7 @@ def settings(tmp_path: Path) -> Settings:
         trusted_hosts="testserver,localhost,127.0.0.1",
         frontend_url="http://testserver/app",
         public_url="http://testserver",
+        trend_judgment_warmup_enabled=False,
         _env_file=None,
     )
 
