@@ -215,13 +215,12 @@ class JudgmentWarmup:
                 between=self._between_batches,
             )
             if self.cache.verdict_ttl_seconds > 0 and self.cache.room() > 0:
-                db.rollback()  # no open transaction while waiting
-                self._between_batches()
                 added += warm_verdicts(
                     db,
                     cache=self.cache,
                     workspace_id=workspace_id,
                     organization_id=organization_id,
                     window=CoverageWindow(start=start, end=end),
+                    between=self._between_batches,
                 )
         return added

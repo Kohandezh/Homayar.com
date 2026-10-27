@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
 
-from sqlalchemy import ColumnElement, Select, String, and_, any_, bindparam, func, select
+from sqlalchemy import ColumnElement, Select, String, and_, any_, bindparam, func, select, true
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
@@ -487,41 +487,66 @@ def among_ids(
     return column.in_(select(values.table_valued("value").c.value))
 
 
-def _fingerprint_joins(workspace_id: str, candidates: Select[Any]):
-    """The verdict inputs of each candidate meeting, in a form that changes whenever they
-    change through the application (U2): its AI action items and its spans of
-    ``REPORT_FINDING_TYPES``, each as (count, latest change, largest id)."""
-    actions = (
-        select(
-            ActionItem.meeting_id,
-            func.count().label("count"),
-            func.max(ActionItem.updated_at).label("changed"),
-            func.max(ActionItem.id).label("last"),
-        )
-        .where(
-            ActionItem.workspace_id == workspace_id,
-            ActionItem.created_by == "ai",
-            ActionItem.meeting_id.in_(candidates),
-        )
-        .group_by(ActionItem.meeting_id)
-        .subquery("verdict_actions")
+def _with_fingerprint(db: Session, revisions: Select[Any], workspace_id: str) -> Select[Any]:
+    """``revisions`` (the slim revision statement) with each meeting's verdict fingerprint (U2):
+    its summary (id, ``updated_at``, run), and its AI action items and its spans of
+    ``REPORT_FINDING_TYPES``, each as (count, latest change, largest id).
+
+    The action items and spans are aggregated per meeting row, through the index on the
+    meeting (a ``LATERAL`` aggregate on PostgreSQL, correlated subqueries on SQLite), so the
+    memory does not grow with the window.  (A grouped aggregate of the whole window, joined
+    back, needed a large shared-memory hash on PostgreSQL and failed with ``DiskFull`` on
+    Docker's default 64 MB ``/dev/shm`` for the 12-week organization routes at 100k.)  Still
+    one statement."""
+    of_actions = (
+        ActionItem.workspace_id == workspace_id,
+        ActionItem.meeting_id == TranscriptRevision.meeting_id,
+        ActionItem.created_by == "ai",
     )
-    spans = (
-        select(
-            EvidenceSpan.meeting_id,
-            func.count().label("count"),
-            func.max(EvidenceSpan.created_at).label("changed"),
-            func.max(EvidenceSpan.id).label("last"),
-        )
-        .where(
-            EvidenceSpan.workspace_id == workspace_id,
-            EvidenceSpan.finding_type.in_(REPORT_FINDING_TYPES),
-            EvidenceSpan.meeting_id.in_(candidates),
-        )
-        .group_by(EvidenceSpan.meeting_id)
-        .subquery("verdict_spans")
+    of_spans = (
+        EvidenceSpan.workspace_id == workspace_id,
+        EvidenceSpan.meeting_id == TranscriptRevision.meeting_id,
+        EvidenceSpan.finding_type.in_(REPORT_FINDING_TYPES),
     )
-    return actions, spans
+    revisions = revisions.add_columns(
+        MeetingSummary.id.label("summary_id"),
+        MeetingSummary.updated_at.label("summary_changed"),
+        MeetingSummary.analysis_run_id.label("summary_run"),
+    ).outerjoin(
+        MeetingSummary,
+        and_(
+            MeetingSummary.meeting_id == TranscriptRevision.meeting_id,
+            MeetingSummary.workspace_id == workspace_id,
+        ),
+    )
+    parts = (
+        ("action", ActionItem.updated_at, ActionItem.id, of_actions),
+        ("span", EvidenceSpan.created_at, EvidenceSpan.id, of_spans),
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        for name, changed, last, where in parts:
+            per_meeting = (
+                select(
+                    func.count().label("count"),
+                    func.max(changed).label("changed"),
+                    func.max(last).label("last"),
+                )
+                .where(*where)
+                .lateral(f"verdict_{name}s")
+            )
+            revisions = revisions.add_columns(
+                per_meeting.c.count.label(f"{name}_count"),
+                per_meeting.c.changed.label(f"{name}_changed"),
+                per_meeting.c.last.label(f"{name}_last"),
+            ).join(per_meeting, true())  # an aggregate always has one row
+        return revisions
+    for name, changed, last, where in parts:
+        revisions = revisions.add_columns(
+            select(func.count()).where(*where).scalar_subquery().label(f"{name}_count"),
+            select(func.max(changed)).where(*where).scalar_subquery().label(f"{name}_changed"),
+            select(func.max(last)).where(*where).scalar_subquery().label(f"{name}_last"),
+        )
+    return revisions
 
 
 def _fingerprint(revision: Any) -> tuple[Any, ...]:
@@ -620,29 +645,7 @@ def _load_facts(
             )
         )
         if verdicts is not None:
-            actions, spans = _fingerprint_joins(workspace_id, candidates)
-            revisions = (
-                revisions.add_columns(
-                    MeetingSummary.id.label("summary_id"),
-                    MeetingSummary.updated_at.label("summary_changed"),
-                    MeetingSummary.analysis_run_id.label("summary_run"),
-                    actions.c.count.label("action_count"),
-                    actions.c.changed.label("action_changed"),
-                    actions.c.last.label("action_last"),
-                    spans.c.count.label("span_count"),
-                    spans.c.changed.label("span_changed"),
-                    spans.c.last.label("span_last"),
-                )
-                .outerjoin(
-                    MeetingSummary,
-                    and_(
-                        MeetingSummary.meeting_id == TranscriptRevision.meeting_id,
-                        MeetingSummary.workspace_id == workspace_id,
-                    ),
-                )
-                .outerjoin(actions, actions.c.meeting_id == TranscriptRevision.meeting_id)
-                .outerjoin(spans, spans.c.meeting_id == TranscriptRevision.meeting_id)
-            )
+            revisions = _with_fingerprint(db, revisions, workspace_id)
         runs: Select[Any] = select(
             AnalysisRun.meeting_id,
             AnalysisRun.id,
@@ -1207,21 +1210,41 @@ def warm_verdicts(
     workspace_id: str,
     organization_id: str | None,
     window: CoverageWindow,
+    batch: int = 1000,
+    between: Callable[[], None] | None = None,
 ) -> int:
     """The warm-up's verdict work for one workspace (HOM-312, U2; ``judgment_warmup``): the
-    eight fact statements of ``compute_coverage`` over every candidate meeting of ``window``,
-    with ``cache``, so the verdicts not kept yet are judged and kept, only in the free room
+    fact statements of ``compute_coverage`` with ``cache`` over the candidate meetings of
+    ``window``, so the verdicts not kept yet are judged and kept, only in the free room
     (never an eviction).  The workspace must be bound as the tenant.  Returns the number of
-    entries added."""
+    entries added.
+
+    One statement lists the candidate meetings; then the eight fact statements run per batch
+    of at most ``batch`` meetings, so the report rows held at once are those of one batch.
+    Before each batch the read transaction is ended and ``between`` runs (the warm-up may
+    wait there, holding no transaction and no row)."""
     key = VerdictKey(organization_id, workspace_id, VERDICT_VERSION)
-    facts = _load_facts(
-        db,
-        workspace_id=workspace_id,
-        window=window,
-        slim=True,
-        verdicts=_VerdictCache(cache, key, evict=False),
-    )
-    return facts.verdicts_kept
+    meeting_ids = sorted(db.scalars(_candidate_meetings(workspace_id, window)))
+    added = 0
+    for start in range(0, len(meeting_ids), batch):
+        db.rollback()
+        if between is not None:
+            between()
+        if cache.room() <= 0:
+            break
+        part = meeting_ids[start : start + batch]
+        facts = _load_facts(
+            db,
+            workspace_id=workspace_id,
+            window=window,
+            slim=True,
+            verdicts=_VerdictCache(cache, key, evict=False),
+            candidates=select(Meeting.id).where(
+                among_ids(db, Meeting.id, part, "coverage_warm_meetings")
+            ),
+        )
+        added += facts.verdicts_kept
+    return added
 
 
 def _no_evaluated() -> list[EvaluatedMeeting]:
