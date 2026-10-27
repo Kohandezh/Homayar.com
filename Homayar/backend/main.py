@@ -53,6 +53,7 @@ from backend.routers.v1 import voicemail as voicemail_v1
 from backend.services.auth_service import ensure_development_demo_account
 from backend.services.logging_service import install_server_log_filter, logger, tag_exception
 from backend.services.tenancy_service import ensure_plan_catalog
+from backend.services.trend_judgment_cache import JudgmentCache
 
 METRICS_PATH = "/metrics"
 
@@ -160,7 +161,18 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             settings.environment,
             settings.deployment_mode,
         )
+        # HOM-312: warm the trend judgment cache in the background (never blocks startup).
+        app.state.trend_judgment_warmup = None
+        if settings.trend_judgment_warmup_enabled:
+            from backend.database.relational import get_session_factory
+            from backend.services.trend_judgment_warmup import JudgmentWarmup
+
+            warmup = JudgmentWarmup(app.state.trend_judgment_cache, get_session_factory())
+            app.state.trend_judgment_warmup = warmup
+            warmup.start()
         yield
+        if app.state.trend_judgment_warmup is not None:
+            app.state.trend_judgment_warmup.stop()
         if settings.enable_neo4j_projection:
             from backend.database.neo4j_connection import Neo4jConnection
 
@@ -184,6 +196,12 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.dependency_overrides[get_settings] = lambda: settings
+    # HOM-312: the trend judgment cache of this app (one per worker process, ADR 0043).
+    app.state.trend_judgment_cache = JudgmentCache(
+        settings.trend_judgment_cache_max_entries,
+        verdict_ttl_seconds=settings.trend_coverage_verdict_ttl_seconds,
+    )
+    app.state.trend_judgment_warmup = None
 
     app.add_middleware(
         _TrustedHostExceptMetrics,

@@ -541,15 +541,30 @@ def _conversation_bucket(
     facts: ConversationFacts, definition: TrendDefinition
 ) -> tuple[MissingBucket | None, UnreadableReason | None]:
     """Steps 2 to 9 (README "The steps per conversation")."""
+    live = _live_bucket(facts)
+    if live is not None:
+        return live, None
+    return _content_bucket(facts.extraction, definition)
+
+
+def _live_bucket(facts: ConversationFacts) -> MissingBucket | None:
+    """Steps 2 to 5: what the current run and transcript say, not the stored row."""
     if facts.analysis_run_id is None or facts.analysis_state in NO_ANALYSIS_STATES:
-        return MissingBucket.ANALYSIS_UNAVAILABLE, None
+        return MissingBucket.ANALYSIS_UNAVAILABLE
     if facts.analysis_revision_id != facts.current_revision_id:
-        return MissingBucket.ANALYSIS_STALE, None
+        return MissingBucket.ANALYSIS_STALE
     if facts.transcript_is_mock or facts.analysis_is_mock:
-        return MissingBucket.MOCK_ANALYSIS, None
+        return MissingBucket.MOCK_ANALYSIS
     if facts.extraction_run_id is None:
-        return MissingBucket.EXTRACTION_UNAVAILABLE, None
-    result = facts.extraction
+        return MissingBucket.EXTRACTION_UNAVAILABLE
+    return None
+
+
+def _content_bucket(
+    result: object, definition: TrendDefinition
+) -> tuple[MissingBucket | None, UnreadableReason | None]:
+    """Steps 6 to 9: what the stored row of the current run says.  It depends only on that
+    row (immutable, ``services/analysis_extraction.py``) and on ``definition``."""
     if not _version_fields_readable(result):
         return MissingBucket.EXTRACTION_UNREADABLE, UnreadableReason.VERSION_FIELDS
     assert isinstance(result, Mapping)
@@ -730,6 +745,181 @@ def judge_conversation(
     )
 
 
+# HOM-312: the version of the judging rules above.  A stored or cached judgment is reused only
+# under the same version.  Bump it with any change to what ``judge_conversation`` returns for
+# a stored row: the version check, the shape walk and its reasons, the consistency rules, the
+# dimension buckets, ``_judge_issue``, ``_judge_family``, or ``JudgedContent``.  A raw SQL change
+# to a stored row (outside the application) needs a bump too, or a restart of the API.
+# ``test_trend_judgment_cache_judge.py`` pins a digest of the judgments of a fixed corpus to
+# this value, so a judging change without a bump fails there.
+JUDGMENT_VERSION = "judgment/1"
+
+
+@dataclass(frozen=True)
+class JudgedContent:
+    """What the stored row of a conversation's current run decides (steps 6 to 9 and the
+    per-issue states), with no conversation-level fact: the same for every conversation whose
+    current run has this row.  ``bucket`` is a content bucket (``version_mismatch``,
+    ``extraction_unreadable``, ``extraction_invalid``) or None for an assessed row."""
+
+    bucket: MissingBucket | None
+    unreadable: UnreadableReason | None
+    dimensions: tuple[DimensionJudgment, ...]
+    issues: tuple[IssueJudgment, ...]
+    families: tuple[FamilyJudgment, ...]
+
+
+class SignatureJudge:
+    """``judge_conversation`` for many conversations of one definition (HOM-312).
+
+    It runs the same steps with the same functions (``_check_facts``, ``_live_bucket``,
+    ``_content_bucket`` with the shape walk, ``_judge_issue``, ``_judge_family``), so every
+    judgment equals ``judge_conversation``'s.  What it saves: the issue and family judgments of
+    an assessed row depend only on its signature (per reference dimension, the abstain bucket,
+    or the label sets of auto-accepted, review-required and withheld values), so they are
+    worked out once per signature and shared.  ``content`` gives a row's ``JudgedContent``, and
+    ``judge`` accepts it in place of the row (a cached judgment).
+
+    Not thread-safe for writes from many threads at once beyond the GIL's guarantees: its
+    tables only grow with equal values, so a race at worst works one value out twice.
+    """
+
+    MAX_SIGNATURES = 50_000  # past it the tables start again (entries keep their objects)
+
+    def __init__(self, definition: TrendDefinition) -> None:
+        self.definition = definition
+        self._counted = _counted_issues(definition)
+        self._families = _available_families(definition)
+        self._missing: dict[Any, JudgedContent] = {}
+        self._contents: dict[Any, JudgedContent] = {}
+
+    def _missing_content(
+        self, bucket: MissingBucket, unreadable: UnreadableReason | None = None
+    ) -> JudgedContent:
+        key = (bucket, unreadable)
+        content = self._missing.get(key)
+        if content is None:
+            content = JudgedContent(
+                bucket=bucket,
+                unreadable=unreadable,
+                dimensions=tuple(DimensionJudgment(name, bucket) for name in REFERENCE_DIMENSIONS),
+                issues=tuple(
+                    IssueJudgment(issue.id, IssueState.MISSING, bucket, False)
+                    for issue in self._counted
+                ),
+                families=tuple(
+                    FamilyJudgment(family_id, IssueState.MISSING, bucket, False)
+                    for family_id in self._families
+                ),
+            )
+            self._missing[key] = content
+        return content
+
+    def content(self, result: object) -> JudgedContent:
+        """The ``JudgedContent`` of a stored row (``extraction``), as if no earlier step
+        applied."""
+        bucket, unreadable = _content_bucket(result, self.definition)
+        if bucket is not None:
+            return self._missing_content(bucket, unreadable)
+        assert isinstance(result, Mapping)
+        fields: Any = result["fields"]
+        signature = []
+        for name in REFERENCE_DIMENSIONS:
+            field = fields[name]
+            if field["verdict"] == "abstained":
+                signature.append((field["abstain_reason"], field["status"]))
+                continue
+            values = field["values"]
+            signature.append(
+                (
+                    frozenset(v["label"] for v in values if v["disposition"] == "auto_accepted"),
+                    frozenset(v["label"] for v in values if v["disposition"] == "review_required"),
+                    frozenset(v["label"] for v in field["withheld"]),
+                )
+            )
+        key = tuple(signature)
+        content = self._contents.get(key)
+        if content is None:
+            if len(self._contents) >= self.MAX_SIGNATURES:
+                self._contents = {}
+            content = self._contents[key] = self._assessed(fields)
+        return content
+
+    def _assessed(self, fields: Any) -> JudgedContent:
+        """``judge_conversation``'s assessed branch."""
+        buckets: dict[str, MissingBucket | None] = {}
+        for name in REFERENCE_DIMENSIONS:
+            field = fields[name]
+            if field["verdict"] == "abstained":
+                buckets[name] = _DIMENSION_BUCKET[(field["abstain_reason"], field["status"])]
+            else:
+                buckets[name] = None
+        issues = tuple(_judge_issue(issue, fields, buckets) for issue in self._counted)
+        return JudgedContent(
+            bucket=None,
+            unreadable=None,
+            dimensions=tuple(
+                DimensionJudgment(name, buckets[name]) for name in REFERENCE_DIMENSIONS
+            ),
+            issues=issues,
+            families=tuple(
+                _judge_family(
+                    family_id,
+                    [
+                        judgment
+                        for issue, judgment in zip(self._counted, issues, strict=True)
+                        if issue.family == family_id
+                    ],
+                )
+                for family_id in self._families
+            ),
+        )
+
+    def judge(
+        self, facts: ConversationFacts, content: JudgedContent | None = None
+    ) -> ConversationJudgment:
+        """Equal to ``judge_conversation(facts, definition)``.  ``content``: the stored row's
+        ``JudgedContent`` when the caller has it (``facts.extraction`` is then not read)."""
+        _check_facts(facts)
+        definition = self.definition
+        if not facts.is_counted_copy:
+            return ConversationJudgment(
+                meeting_id=facts.meeting_id,
+                media_group_id=facts.media_group_id,
+                trends_version=TRENDS_VERSION,
+                definition_id=definition.definition_id,
+                definition_version=definition.version,
+                definition_digest=definition.digest,
+                exclusion=Exclusion.DUPLICATE_MEDIA,
+                bucket=None,
+                unreadable=None,
+                dimensions=(),
+                issues=(),
+                families=(),
+            )
+        live = _live_bucket(facts)
+        if live is not None:
+            judged = self._missing_content(live)
+        elif content is not None:
+            judged = content
+        else:
+            judged = self.content(facts.extraction)
+        return ConversationJudgment(
+            meeting_id=facts.meeting_id,
+            media_group_id=facts.media_group_id,
+            trends_version=TRENDS_VERSION,
+            definition_id=definition.definition_id,
+            definition_version=definition.version,
+            definition_digest=definition.digest,
+            exclusion=None,
+            bucket=judged.bucket,
+            unreadable=judged.unreadable,
+            dimensions=judged.dimensions,
+            issues=judged.issues,
+            families=judged.families,
+        )
+
+
 @dataclass(frozen=True)
 class StateCounts:
     """Distinct conversations of the included population in each state.
@@ -774,6 +964,7 @@ def tally(judgments: Iterable[ConversationJudgment], definition: TrendDefinition
     counters = {key: _Counter() for key in [*issue_ids, *family_ids]}
     meetings: set[str] = set()
     groups: set[str] = set()
+    shapes: dict[tuple[int, int], list[Any]] = {}
     expected = (definition.definition_id, definition.version, definition.digest)
     for judgment in judgments:
         if (
@@ -792,6 +983,15 @@ def tally(judgments: Iterable[ConversationJudgment], definition: TrendDefinition
             raise ValueError(f"media group {judgment.media_group_id} has two counted copies")
         groups.add(judgment.media_group_id)
         included += 1
+        # HOM-312: judgments that share their issue and family tuples (``SignatureJudge``)
+        # are counted once, times their number.  The tuples are kept alive in ``shapes``, so
+        # their ids stay unique while they count.
+        shape = (id(judgment.issues), id(judgment.families))
+        if shape in shapes:
+            shapes[shape][1] += 1
+        else:
+            shapes[shape] = [judgment, 1]
+    for judgment, count in shapes.values():
         states = [
             *(
                 (issue.issue_id, issue.state, issue.bucket, issue.absent_pending_review)
@@ -803,7 +1003,7 @@ def tally(judgments: Iterable[ConversationJudgment], definition: TrendDefinition
             ),
         ]
         for key, state, bucket, rests in states:
-            counters[key].add(state, bucket, rests)
+            counters[key].add(state, bucket, rests, count)
     return TrendTally(
         trends_version=TRENDS_VERSION,
         definition_id=definition.definition_id,
@@ -824,17 +1024,19 @@ class _Counter:
         self.absent_pending_review = 0
         self.missing = dict.fromkeys(MissingBucket, 0)
 
-    def add(self, state: IssueState, bucket: MissingBucket | None, rests: bool) -> None:
+    def add(
+        self, state: IssueState, bucket: MissingBucket | None, rests: bool, count: int = 1
+    ) -> None:
         if state is IssueState.COUNTED:
-            self.confirmed += 1
+            self.confirmed += count
         elif state is IssueState.PENDING_REVIEW:
-            self.pending_review += 1
+            self.pending_review += count
         elif state is IssueState.ABSENT:
-            self.absent += 1
-            self.absent_pending_review += int(rests)
+            self.absent += count
+            self.absent_pending_review += int(rests) * count
         else:
             assert bucket is not None
-            self.missing[bucket] += 1
+            self.missing[bucket] += count
 
     def counts(self) -> StateCounts:
         return StateCounts(

@@ -525,6 +525,7 @@ def summarize_jobs(
 
 @router.get("/coverage", response_model=CoverageResponse)
 def read_coverage(
+    request: Request,
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = Query(default=None),
     context: WorkspaceContext = Depends(require_workspace_admin_context),
@@ -549,6 +550,9 @@ def read_coverage(
         workspace_id=context.workspace.id,
         window=window,
         recompute_max_attempts=settings.recompute_max_attempts,
+        # HOM-312 (U2): the app's cache keeps each meeting's unsupported findings verdict
+        cache=getattr(request.app.state, "trend_judgment_cache", None),
+        organization_id=context.workspace.organization_id,
     )
     scorecard = scorecard_block()
     return CoverageResponse.model_validate(

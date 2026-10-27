@@ -23,18 +23,28 @@ assessed with the same pure functions the report uses.
 HOM-299: ``compute_population_coverage`` applies the same rules to meetings that are not
 ledger rows (the voicemail rows of ``GET /voicemails/analytics``), so its counters reconcile
 with the ``total`` that route shows.
+
+HOM-312 (U2): with the app's ``JudgmentCache``, the ``unsupported_findings`` verdict of a
+meeting (``unsupported_finding_count``) is kept per meeting and reused while its fingerprint
+(read in the revisions statement) is unchanged and the entry is younger than the time limit.
+The summary, AI action item and span statements then read only the meetings whose verdict is
+needed and not kept.  ADR 0043 says what can still be stale, and for how long.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
 
-from sqlalchemy import ColumnElement, Select, and_, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, Select, String, and_, any_, bindparam, func, select, true
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from backend.database.saas_models import (
     ActionItem,
@@ -77,6 +87,7 @@ from backend.services.report_service import (
     is_report_complete,
     is_supported,
 )
+from backend.services.trend_judgment_cache import JudgmentCache, VerdictKey
 
 COVERAGE_VERSION = "coverage/1"
 WINDOW_BASIS = "ingestion_received_at"
@@ -208,11 +219,30 @@ class EvaluatedMeeting:
     bucket: str
 
 
-@dataclass(frozen=True)
 class Coverage:
-    window: CoverageWindow
-    counters: dict[str, dict[str, Any]]
-    evaluated: list[EvaluatedMeeting] = field(default_factory=list)
+    """The counters of a window, and the assessed ``transcribed`` meetings.
+
+    HOM-312: ``evaluated`` may be built only when it is read (``evaluate``), from facts that
+    were already loaded, so a caller that needs only the counters pays nothing for it."""
+
+    def __init__(
+        self,
+        window: CoverageWindow,
+        counters: dict[str, dict[str, Any]],
+        evaluated: list[EvaluatedMeeting] | None = None,
+        *,
+        evaluate: Callable[[], list[EvaluatedMeeting]] | None = None,
+    ) -> None:
+        self.window = window
+        self.counters = counters
+        self._evaluated = evaluated
+        self._evaluate = evaluate
+
+    @property
+    def evaluated(self) -> list[EvaluatedMeeting]:
+        if self._evaluated is None:
+            self._evaluated = self._evaluate() if self._evaluate is not None else []
+        return self._evaluated
 
     @property
     def fully_evaluated(self) -> list[EvaluatedMeeting]:
@@ -254,6 +284,12 @@ def _review_counter(denominator: int) -> dict[str, Any]:
 
 
 # --- the report's unsupported findings count -----------------------------------
+
+# The finding types whose spans ``unsupported_finding_count`` reads (HOM-312).
+REPORT_FINDING_TYPES = (FINDING_SUMMARY, FINDING_INSIGHT, FINDING_ACTION_ITEM)
+# The rules of a cached verdict (HOM-312, U2): bump it when ``unsupported_finding_count`` or
+# what it reads changes, so no verdict judged by the old rules is reused.
+VERDICT_VERSION = "verdict/1"
 
 
 def _cited_count(point: object, spans: Mapping[str, Any], finding_type: str) -> int:
@@ -427,6 +463,135 @@ class _Facts:
     summaries: dict[str, Any] = field(default_factory=dict)
     actions: dict[str, list[Any]] = field(default_factory=lambda: defaultdict(list))
     spans: dict[str, list[Any]] = field(default_factory=lambda: defaultdict(list))
+    # with the verdict cache (U2): the unsupported count of every meeting whose bucket needs
+    # it; ``summaries``, ``actions`` and ``spans`` then hold only the meetings judged now
+    verdicts: dict[str, int] | None = None
+    verdicts_kept: int = 0  # entries added to the cache (the warm-up counts them)
+
+
+@dataclass(frozen=True)
+class _VerdictCache:
+    cache: JudgmentCache
+    key: VerdictKey
+    evict: bool = True  # False for the warm-up: fill only the free room
+
+
+def among_ids(
+    db: Session, column: InstrumentedAttribute[Any], ids: Sequence[str], name: str
+) -> ColumnElement[bool]:
+    """``column`` is one of ``ids``, sent as one statement parameter whatever their number
+    (HOM-312): a PostgreSQL array, or a JSON array read with SQLite's ``json_each``."""
+    if db.get_bind().dialect.name == "postgresql":
+        return column == any_(bindparam(name, list(ids), type_=ARRAY(String)))
+    values = func.json_each(bindparam(name, json.dumps(list(ids))))
+    return column.in_(select(values.table_valued("value").c.value))
+
+
+def _with_fingerprint(db: Session, revisions: Select[Any], workspace_id: str) -> Select[Any]:
+    """``revisions`` (the slim revision statement) with each meeting's verdict fingerprint (U2):
+    its summary (id, ``updated_at``, run), and its AI action items and its spans of
+    ``REPORT_FINDING_TYPES``, each as (count, latest change, largest id).
+
+    The action items and spans are aggregated per meeting row, through the index on the
+    meeting (a ``LATERAL`` aggregate on PostgreSQL, correlated subqueries on SQLite), so the
+    memory does not grow with the window.  (A grouped aggregate of the whole window, joined
+    back, needed a large shared-memory hash on PostgreSQL and failed with ``DiskFull`` on
+    Docker's default 64 MB ``/dev/shm`` for the 12-week organization routes at 100k.)  Still
+    one statement."""
+    of_actions = (
+        ActionItem.workspace_id == workspace_id,
+        ActionItem.meeting_id == TranscriptRevision.meeting_id,
+        ActionItem.created_by == "ai",
+    )
+    of_spans = (
+        EvidenceSpan.workspace_id == workspace_id,
+        EvidenceSpan.meeting_id == TranscriptRevision.meeting_id,
+        EvidenceSpan.finding_type.in_(REPORT_FINDING_TYPES),
+    )
+    revisions = revisions.add_columns(
+        MeetingSummary.id.label("summary_id"),
+        MeetingSummary.updated_at.label("summary_changed"),
+        MeetingSummary.analysis_run_id.label("summary_run"),
+    ).outerjoin(
+        MeetingSummary,
+        and_(
+            MeetingSummary.meeting_id == TranscriptRevision.meeting_id,
+            MeetingSummary.workspace_id == workspace_id,
+        ),
+    )
+    parts = (
+        ("action", ActionItem.updated_at, ActionItem.id, of_actions),
+        ("span", EvidenceSpan.created_at, EvidenceSpan.id, of_spans),
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        for name, changed, last, where in parts:
+            per_meeting = (
+                select(
+                    func.count().label("count"),
+                    func.max(changed).label("changed"),
+                    func.max(last).label("last"),
+                )
+                .where(*where)
+                .lateral(f"verdict_{name}s")
+            )
+            revisions = revisions.add_columns(
+                per_meeting.c.count.label(f"{name}_count"),
+                per_meeting.c.changed.label(f"{name}_changed"),
+                per_meeting.c.last.label(f"{name}_last"),
+            ).join(per_meeting, true())  # an aggregate always has one row
+        return revisions
+    for name, changed, last, where in parts:
+        revisions = revisions.add_columns(
+            select(func.count()).where(*where).scalar_subquery().label(f"{name}_count"),
+            select(func.max(changed)).where(*where).scalar_subquery().label(f"{name}_changed"),
+            select(func.max(last)).where(*where).scalar_subquery().label(f"{name}_last"),
+        )
+    return revisions
+
+
+def _fingerprint(revision: Any) -> tuple[Any, ...]:
+    """The verdict fingerprint of a meeting, from its slim revision row (U2)."""
+    return (
+        revision.summary_id,
+        revision.summary_changed,
+        revision.summary_run,
+        revision.action_count or 0,
+        revision.action_changed,
+        revision.action_last,
+        revision.span_count or 0,
+        revision.span_changed,
+        revision.span_last,
+    )
+
+
+def _fingerprint_of(summary: Any | None, actions: Sequence[Any], spans: Sequence[Any]):
+    """``_fingerprint`` of the rows a verdict was judged from: equal to the revision row's
+    exactly when nothing changed between the two statements."""
+    return (
+        summary.id if summary is not None else None,
+        summary.updated_at if summary is not None else None,
+        summary.analysis_run_id if summary is not None else None,
+        len(actions),
+        max((action.updated_at for action in actions), default=None),
+        max((action.id for action in actions), default=None),
+        len(spans),
+        max((span.created_at for span in spans), default=None),
+        max((span.id for span in spans), default=None),
+    )
+
+
+def _digest(fingerprint: tuple[Any, ...]) -> bytes:
+    """What a verdict entry keeps of a fingerprint: a 128-bit ``blake2b`` digest of its
+    canonical text (ADR 0043: a collision chance of 2^-128 per compare; the whole tuple would
+    cost 171% more memory per entry).  The text is ``repr`` of the tuple, which is exact for its
+    values (str, int, None, datetime), with every aware datetime in UTC first: two aware
+    datetimes at the same instant are equal whatever their zone, so they must give the same
+    text."""
+    canonical = tuple(
+        value.astimezone(UTC) if isinstance(value, datetime) and value.tzinfo else value
+        for value in fingerprint
+    )
+    return hashlib.blake2b(repr(canonical).encode(), digest_size=16).digest()
 
 
 def _load_facts(
@@ -436,29 +601,83 @@ def _load_facts(
     window: CoverageWindow,
     population: Sequence[ColumnElement[bool]] = (),
     candidates: Select[Any] | None = None,
+    slim: bool = False,
+    verdicts: _VerdictCache | None = None,
 ) -> _Facts:
     """Everything the quality assessment and the report count read, for every
     candidate meeting at once: eight statements, whatever the meeting count.
-    ``candidates`` (a select of meeting ids) replaces the ledger candidates (HOM-299)."""
+    ``candidates`` (a select of meeting ids) replaces the ledger candidates (HOM-299).
+
+    ``slim`` (HOM-312): the revisions and runs come as rows of the columns the assessment
+    reads, not as ORM objects; only revisions with a segment (the ``transcribed`` meetings),
+    each with its meeting's columns (``meeting_status``, ``team_id``, ``agent_user_id``,
+    ``meeting_source``, ``language``).
+
+    ``verdicts`` (U2, slim only): the revision rows also carry each meeting's verdict
+    fingerprint; after the runs and stage runs, the meetings whose bucket reaches the
+    ``unsupported_findings`` step take their kept verdict, and the summary, AI action item and
+    span statements read only the others (one parameter), whose verdicts are judged and kept.
+    Still eight statements."""
     if candidates is None:
         candidates = _candidate_meetings(workspace_id, window, population)
     facts = _Facts()
-    for revision in db.scalars(
-        select(TranscriptRevision).where(
-            TranscriptRevision.workspace_id == workspace_id,
-            TranscriptRevision.is_current.is_(True),
-            TranscriptRevision.meeting_id.in_(candidates),
+    if slim:
+        revisions: Select[Any] = (
+            select(
+                TranscriptRevision.meeting_id,
+                TranscriptRevision.id,
+                TranscriptRevision.segment_count,
+                TranscriptRevision.is_mock,
+                TranscriptRevision.source,
+                TranscriptRevision.diarization_status,
+                Meeting.status.label("meeting_status"),
+                Meeting.team_id,
+                Meeting.agent_user_id,
+                Meeting.source.label("meeting_source"),
+                Meeting.language,
+            )
+            .join(Meeting, Meeting.id == TranscriptRevision.meeting_id)
+            .where(
+                TranscriptRevision.workspace_id == workspace_id,
+                TranscriptRevision.is_current.is_(True),
+                TranscriptRevision.segment_count > 0,
+                TranscriptRevision.meeting_id.in_(candidates),
+            )
         )
-    ):
-        facts.revisions[revision.meeting_id] = revision
-    for run in db.scalars(
-        select(AnalysisRun).where(
+        if verdicts is not None:
+            revisions = _with_fingerprint(db, revisions, workspace_id)
+        runs: Select[Any] = select(
+            AnalysisRun.meeting_id,
+            AnalysisRun.id,
+            AnalysisRun.state,
+            AnalysisRun.transcript_revision_id,
+            AnalysisRun.is_mock,
+        ).where(
             AnalysisRun.workspace_id == workspace_id,
             AnalysisRun.is_current.is_(True),
             AnalysisRun.meeting_id.in_(candidates),
         )
-    ):
-        facts.runs[run.meeting_id] = run
+        for revision in db.execute(revisions):
+            facts.revisions[revision.meeting_id] = revision
+        for run in db.execute(runs):
+            facts.runs[run.meeting_id] = run
+    else:
+        for revision in db.scalars(
+            select(TranscriptRevision).where(
+                TranscriptRevision.workspace_id == workspace_id,
+                TranscriptRevision.is_current.is_(True),
+                TranscriptRevision.meeting_id.in_(candidates),
+            )
+        ):
+            facts.revisions[revision.meeting_id] = revision
+        for run in db.scalars(
+            select(AnalysisRun).where(
+                AnalysisRun.workspace_id == workspace_id,
+                AnalysisRun.is_current.is_(True),
+                AnalysisRun.meeting_id.in_(candidates),
+            )
+        ):
+            facts.runs[run.meeting_id] = run
     for meeting_id, revision_id, count in db.execute(
         select(AnalysisRun.meeting_id, AnalysisRun.transcript_revision_id, func.count())
         .where(
@@ -507,6 +726,8 @@ def _load_facts(
         if meeting_id is not None:
             facts.stage_runs[meeting_id].append((stage, state, reason))
 
+    if verdicts is not None:
+        return _load_verdicts(db, facts, workspace_id=workspace_id, verdicts=verdicts)
     for row in db.execute(
         select(
             MeetingSummary.meeting_id,
@@ -532,6 +753,79 @@ def _load_facts(
         )
     ):
         facts.actions[row.meeting_id].append(row)
+    spans_statement = select(
+        EvidenceSpan.meeting_id,
+        EvidenceSpan.id,
+        EvidenceSpan.finding_type,
+        EvidenceSpan.finding_index,
+        EvidenceSpan.finding_id,
+        EvidenceSpan.analysis_run_id,
+    ).where(
+        EvidenceSpan.workspace_id == workspace_id,
+        EvidenceSpan.meeting_id.in_(candidates),
+    )
+    if slim:
+        # HOM-312: only the finding types ``unsupported_finding_count`` counts; the others
+        # (``extraction``) never change a count.
+        spans_statement = spans_statement.where(EvidenceSpan.finding_type.in_(REPORT_FINDING_TYPES))
+    for row in db.execute(spans_statement):
+        facts.spans[row.meeting_id].append(row)
+    return facts
+
+
+def _load_verdicts(
+    db: Session, facts: _Facts, *, workspace_id: str, verdicts: _VerdictCache
+) -> _Facts:
+    """The last three fact statements of ``_load_facts`` with the verdict cache (U2).
+
+    The meetings that need a verdict are those whose bucket is not decided before the
+    ``unsupported_findings`` step (``_notice_before_verdict``, without the meeting's partial
+    status, so the set never misses one ``_evaluation_bucket`` asks for).  A verdict is kept
+    only when the rows it was judged from have the fingerprint the lookup used."""
+    needed = {
+        meeting_id: _fingerprint(revision)
+        for meeting_id, revision in facts.revisions.items()
+        if _notice_before_verdict(
+            revision,
+            facts.runs.get(meeting_id),
+            facts.stage_runs.get(meeting_id, ()),
+            partial_meeting=False,
+        )
+        is None
+    }
+    found = verdicts.cache.verdicts(
+        verdicts.key, {meeting_id: _digest(print_) for meeting_id, print_ in needed.items()}
+    )
+    misses = [meeting_id for meeting_id in needed if meeting_id not in found]
+    for row in db.execute(
+        select(
+            MeetingSummary.meeting_id,
+            MeetingSummary.id,
+            MeetingSummary.updated_at,
+            MeetingSummary.evidence_status,
+            MeetingSummary.key_points,
+            MeetingSummary.schema_version,
+            MeetingSummary.analysis_run_id,
+        ).where(
+            MeetingSummary.workspace_id == workspace_id,
+            among_ids(db, MeetingSummary.meeting_id, misses, "coverage_verdict_misses"),
+        )
+    ):
+        facts.summaries[row.meeting_id] = row
+    for row in db.execute(
+        select(
+            ActionItem.meeting_id,
+            ActionItem.id,
+            ActionItem.evidence_status,
+            ActionItem.created_by,
+            ActionItem.updated_at,
+        ).where(
+            ActionItem.workspace_id == workspace_id,
+            ActionItem.created_by == "ai",
+            among_ids(db, ActionItem.meeting_id, misses, "coverage_verdict_misses"),
+        )
+    ):
+        facts.actions[row.meeting_id].append(row)
     for row in db.execute(
         select(
             EvidenceSpan.meeting_id,
@@ -540,12 +834,28 @@ def _load_facts(
             EvidenceSpan.finding_index,
             EvidenceSpan.finding_id,
             EvidenceSpan.analysis_run_id,
+            EvidenceSpan.created_at,
         ).where(
             EvidenceSpan.workspace_id == workspace_id,
-            EvidenceSpan.meeting_id.in_(candidates),
+            EvidenceSpan.finding_type.in_(REPORT_FINDING_TYPES),
+            among_ids(db, EvidenceSpan.meeting_id, misses, "coverage_verdict_misses"),
         )
     ):
         facts.spans[row.meeting_id].append(row)
+    hits = list(found)  # moved to the recent end after the new entries (``keep_verdicts``)
+    judged: dict[str, tuple[Any, int]] = {}
+    for meeting_id in misses:
+        summary = facts.summaries.get(meeting_id)
+        actions = facts.actions.get(meeting_id, [])
+        spans = facts.spans.get(meeting_id, [])
+        verdict = unsupported_finding_count(summary=summary, actions=actions, spans=spans)
+        found[meeting_id] = verdict
+        unchanged = _fingerprint_of(summary, actions, spans) == needed[meeting_id]
+        judged[meeting_id] = (_digest(needed[meeting_id]) if unchanged else None, verdict)
+    facts.verdicts_kept = verdicts.cache.keep_verdicts(
+        verdicts.key, judged, evict=verdicts.evict, recent=hits
+    )
+    facts.verdicts = found
     return facts
 
 
@@ -656,12 +966,23 @@ def _count(
             )
         )
 
+    counters = _counters(ingestion, rejected_reasons, processing, evaluation)
+    return Coverage(window=window, counters=counters, evaluated=evaluated)
+
+
+def _counters(
+    ingestion: Mapping[str, int],
+    rejected_reasons: Counter[str],
+    processing: Mapping[str, int],
+    evaluation: Mapping[str, int],
+) -> dict[str, dict[str, Any]]:
+    """The four counters from the bucket counts."""
     ingested = sum(ingestion.values())
     ingestion_counter = _counter(
         "ingestion", numerator=ingestion["accepted"], denominator=ingested, buckets=ingestion
     )
     ingestion_counter["rejected_reasons"] = dict(sorted(rejected_reasons.items()))
-    counters = {
+    return {
         "ingestion": ingestion_counter,
         "processing": _counter(
             "processing",
@@ -677,7 +998,6 @@ def _count(
         ),
         "review": _review_counter(evaluation[BUCKET_FULLY_EVALUATED]),
     }
-    return Coverage(window=window, counters=counters, evaluated=evaluated)
 
 
 def _rows_and_facts(
@@ -696,7 +1016,7 @@ def _rows_and_facts(
     return rows, facts
 
 
-def compute_coverage(
+def reference_coverage(
     db: Session,
     *,
     workspace_id: str,
@@ -704,17 +1024,280 @@ def compute_coverage(
     recompute_max_attempts: int,
     population: Sequence[ColumnElement[bool]] = (),
 ) -> Coverage:
+    """The HOM-72 Python path: the facts as ORM objects and every transcribed meeting
+    assessed with ``_assess`` (``assess_quality`` and the report's completeness rules).
+    HOM-312 keeps it as the oracle of the parity test (``test_coverage_sql_parity.py``);
+    ``compute_coverage`` must give the same counters."""
+    rows, facts = _rows_and_facts(
+        db, workspace_id=workspace_id, window=window, population=population
+    )
+    return _count(rows, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+
+
+def reference_coverage_by_team(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    recompute_max_attempts: int,
+    population: Sequence[ColumnElement[bool]] = (),
+    teams: Iterable[str | None] = (),
+) -> tuple[Coverage, dict[str | None, Coverage]]:
+    """The HOM-72 Python path of ``compute_coverage_by_team`` (the parity oracle)."""
+    rows, facts = _rows_and_facts(
+        db, workspace_id=workspace_id, window=window, population=population
+    )
+
+    def count(subset: Iterable[Any]) -> Coverage:
+        return _count(subset, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+
+    return count(rows), {
+        team_id: count(team_rows) for team_id, team_rows in _by_team(rows, teams).items()
+    }
+
+
+def _by_team(rows: Iterable[Any], teams: Iterable[str | None]) -> dict[str | None, list[Any]]:
+    """The ledger rows of each team: every id of ``teams``, and every ``team_id`` (``None``
+    for no team) of a row that has a meeting."""
+    grouped: dict[str | None, list[Any]] = {team_id: [] for team_id in teams}
+    grouped = defaultdict(list, grouped)
+    for row in rows:
+        if row.meeting_id is not None:
+            grouped[row.team_id].append(row)
+    return grouped
+
+
+def _evaluation_bucket(row: Any, facts: _Facts) -> str:
+    """The evaluation bucket of one ``transcribed`` meeting (HOM-312): the first notice of
+    ``completeness_notices`` (``report_service.py``), from the same facts ``_assess`` reads,
+    without building the quality response.  ``row`` is its ledger row; its current revision
+    has a segment.  The rules, in the notices' order:
+
+    * ``transcript_partial``: the ASR stage of the newest job's current attempt is partial
+      (``assess_quality``: the last ``asr`` stage run wins);
+    * ``analysis_unavailable``: no current run, or its state is not completed or partial;
+    * ``analysis_partial``: the run is partial, or the meeting status is partial;
+    * ``analysis_stale``: the run read another revision than the current one;
+    * ``analysis_recompute_failed``: stale and the failed recomputes of the current revision
+      reached the limit (never first: stale comes before it);
+    * ``mock_analysis``: the current revision or the run is a mock;
+    * ``unsupported_findings``: ``unsupported_finding_count`` is not zero (with the verdict
+      cache, the count ``_load_verdicts`` found or judged);
+    * else ``fully_evaluated`` (``is_report_complete``).
+    """
+    meeting_id = row.meeting_id
+    notice = _notice_before_verdict(
+        facts.revisions[meeting_id],
+        facts.runs.get(meeting_id),
+        facts.stage_runs.get(meeting_id, ()),
+        partial_meeting=MeetingStatus(row.meeting_status) == MeetingStatus.PARTIAL,
+    )
+    if notice is not None:
+        return notice
+    if facts.verdicts is not None:
+        unsupported = facts.verdicts[meeting_id]
+    else:
+        unsupported = unsupported_finding_count(
+            summary=facts.summaries.get(meeting_id),
+            actions=[a for a in facts.actions.get(meeting_id, ()) if a.created_by == "ai"],
+            spans=facts.spans.get(meeting_id, ()),
+        )
+    if unsupported:
+        return NOTICE_UNSUPPORTED_FINDINGS
+    return BUCKET_FULLY_EVALUATED
+
+
+def _notice_before_verdict(
+    revision: Any, run: Any | None, stage_runs: Iterable[Any], *, partial_meeting: bool
+) -> str | None:
+    """The first notice of the rules before ``unsupported_findings`` (``_evaluation_bucket``),
+    or ``None`` when the bucket is decided by the verdict."""
+    by_stage = {stage: state for stage, state, _reason in stage_runs}
+    if by_stage.get("asr") == StageState.PARTIAL:
+        return NOTICE_TRANSCRIPT_PARTIAL
+    if run is None or run.state not in (StageState.COMPLETED, StageState.PARTIAL):
+        return NOTICE_ANALYSIS_UNAVAILABLE
+    if run.state == StageState.PARTIAL or partial_meeting:
+        return NOTICE_ANALYSIS_PARTIAL
+    if run.transcript_revision_id != revision.id:
+        # ``analysis_recompute_failed`` needs a stale run, and stale is the earlier notice.
+        return NOTICE_ANALYSIS_STALE
+    if revision.is_mock or run.is_mock:
+        return NOTICE_MOCK_ANALYSIS
+    return None
+
+
+def _tally(
+    rows: Iterable[Any], facts: _Facts, bucket_of: Callable[[Any], str]
+) -> dict[str, dict[str, Any]]:
+    """The four counters of ``rows``, as ``_count`` counts them, with the evaluation bucket
+    of each ``transcribed`` meeting from ``bucket_of``."""
+    ingestion = dict.fromkeys(INGESTION_BUCKETS, 0)
+    rejected_reasons: Counter[str] = Counter()
+    processing = dict.fromkeys(PROCESSING_BUCKETS, 0)
+    evaluation = dict.fromkeys(EVALUATION_BUCKETS, 0)
+    for row in rows:
+        if row.status == IngestionStatus.REJECTED:
+            ingestion["rejected"] += 1
+            rejected_reasons[row.reason] += 1
+            continue
+        ingestion["accepted"] += 1
+        if row.meeting_id is None or row.deleted_at is not None:
+            processing["deleted"] += 1
+        elif row.meeting_status in IN_PROGRESS_STATUSES:
+            processing["in_progress"] += 1
+        elif row.meeting_status in FAILED_STATUSES:
+            processing["failed"] += 1
+        else:
+            revision = facts.revisions.get(row.meeting_id)
+            if not has_segments(revision.segment_count if revision is not None else None):
+                processing["no_transcript"] += 1
+                continue
+            processing[BUCKET_TRANSCRIBED] += 1
+            evaluation[bucket_of(row)] += 1
+    return _counters(ingestion, rejected_reasons, processing, evaluation)
+
+
+def _verdict_cache(
+    cache: JudgmentCache | None, organization_id: str | None, workspace_id: str
+) -> _VerdictCache | None:
+    if cache is None:
+        return None
+    return _VerdictCache(cache, VerdictKey(organization_id, workspace_id, VERDICT_VERSION))
+
+
+def _counting(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    population: Sequence[ColumnElement[bool]],
+    verdicts: _VerdictCache | None = None,
+) -> tuple[Sequence[Any], _Facts, Callable[[Any], str]]:
+    """The ledger rows, the slim facts (8 statements, only when a candidate exists) and a
+    function giving each ``transcribed`` meeting's evaluation bucket, worked out once per
+    meeting however many groups count it.  With ``verdicts`` the request is marked as using
+    the cache while it runs (``JudgmentCache.request``: the warm-up waits)."""
+    with verdicts.cache.request() if verdicts is not None else nullcontext():
+        rows = _ledger_rows(db, workspace_id=workspace_id, window=window, population=population)
+        facts = (
+            _load_facts(
+                db,
+                workspace_id=workspace_id,
+                window=window,
+                population=population,
+                slim=True,
+                verdicts=verdicts,
+            )
+            if any(_is_candidate(row) for row in rows)
+            else _Facts()
+        )
+    buckets: dict[str, str] = {}
+
+    def bucket_of(row: Any) -> str:
+        bucket = buckets.get(row.meeting_id)
+        if bucket is None:
+            bucket = buckets[row.meeting_id] = _evaluation_bucket(row, facts)
+        return bucket
+
+    return rows, facts, bucket_of
+
+
+def warm_verdicts(
+    db: Session,
+    *,
+    cache: JudgmentCache,
+    workspace_id: str,
+    organization_id: str | None,
+    window: CoverageWindow,
+    batch: int = 1000,
+    between: Callable[[], None] | None = None,
+) -> int:
+    """The warm-up's verdict work for one workspace (HOM-312, U2; ``trend_judgment_warmup``): the
+    fact statements of ``compute_coverage`` with ``cache`` over the candidate meetings of
+    ``window``, so the verdicts not kept yet are judged and kept, only in the free room
+    (never an eviction).  The workspace must be bound as the tenant.  Returns the number of
+    entries added.
+
+    One statement lists the candidate meetings; then the eight fact statements run per batch
+    of at most ``batch`` meetings, so the report rows held at once are those of one batch.
+    Before each batch the read transaction is ended and ``between`` runs (the warm-up may
+    wait there, holding no transaction and no row)."""
+    key = VerdictKey(organization_id, workspace_id, VERDICT_VERSION)
+    meeting_ids = sorted(db.scalars(_candidate_meetings(workspace_id, window)))
+    added = 0
+    for start in range(0, len(meeting_ids), batch):
+        db.rollback()
+        if between is not None:
+            between()
+        if cache.room() <= 0:
+            break
+        part = meeting_ids[start : start + batch]
+        facts = _load_facts(
+            db,
+            workspace_id=workspace_id,
+            window=window,
+            slim=True,
+            verdicts=_VerdictCache(cache, key, evict=False),
+            candidates=select(Meeting.id).where(
+                among_ids(db, Meeting.id, part, "coverage_warm_meetings")
+            ),
+        )
+        added += facts.verdicts_kept
+    return added
+
+
+def _no_evaluated() -> list[EvaluatedMeeting]:
+    raise RuntimeError(
+        "coverage counted with the verdict cache has no evaluated list "
+        "(its facts hold only the meetings judged now); count it without the cache"
+    )
+
+
+def compute_coverage(
+    db: Session,
+    *,
+    workspace_id: str,
+    window: CoverageWindow,
+    recompute_max_attempts: int,
+    population: Sequence[ColumnElement[bool]] = (),
+    cache: JudgmentCache | None = None,
+    organization_id: str | None = None,
+) -> Coverage:
     """The four ``coverage/1`` counters of the workspace for ``window``.
 
     ``population`` narrows the ledger rows with the same rules (HOM-81): extra clauses on
     ``IngestionRecord`` joined to ``Meeting``, ANDed.  A ledger row then counts only if it
     joins to a meeting of the workspace (live or soft-deleted) and passes every clause.
     Empty (the default) is the whole workspace, ``GET /admin/coverage``.
+
+    HOM-312: the same statements as ``reference_coverage`` (1 ledger statement, plus 8 fact
+    statements when a candidate exists), with slim revision and run rows, and each meeting's
+    bucket from ``_evaluation_bucket``.  ``evaluated`` (review sampling) is built only when
+    read, by ``_count`` over the same facts, so it is the reference path's list.
+
+    ``cache`` (U2): the app's ``JudgmentCache``, for the counters only (the same counters,
+    the same statements); reading ``evaluated`` then raises.  ``organization_id`` is the
+    workspace's organization, part of the cache key.
     """
-    rows, facts = _rows_and_facts(
-        db, workspace_id=workspace_id, window=window, population=population
+    rows, facts, bucket_of = _counting(
+        db,
+        workspace_id=workspace_id,
+        window=window,
+        population=population,
+        verdicts=_verdict_cache(cache, organization_id, workspace_id),
     )
-    return _count(rows, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+
+    def evaluate() -> list[EvaluatedMeeting]:
+        return _count(
+            rows, facts, window=window, recompute_max_attempts=recompute_max_attempts
+        ).evaluated
+
+    return Coverage(
+        window,
+        _tally(rows, facts, bucket_of),
+        evaluate=_no_evaluated if facts.verdicts is not None else evaluate,
+    )
 
 
 def compute_coverage_by_team(
@@ -725,6 +1308,8 @@ def compute_coverage_by_team(
     recompute_max_attempts: int,
     population: Sequence[ColumnElement[bool]] = (),
     teams: Iterable[str | None] = (),
+    cache: JudgmentCache | None = None,
+    organization_id: str | None = None,
 ) -> tuple[Coverage, dict[str | None, Coverage]]:
     """``compute_coverage`` once more, also split by team (HOM-82): the same statements
     (1 ledger statement, plus 8 fact statements when a candidate exists).
@@ -733,20 +1318,32 @@ def compute_coverage_by_team(
     key ``None`` holds the meetings with no team.  A ledger row with no meeting (possible
     only with an empty ``population``, where the meeting join is outer) counts in the whole
     and in no group.  Every id of ``teams`` has a group, empty when it has no row.
+    HOM-312: each meeting is assessed once, for the whole and its team; ``cache`` and
+    ``organization_id`` as in ``compute_coverage``.
     """
-    rows, facts = _rows_and_facts(
-        db, workspace_id=workspace_id, window=window, population=population
+    rows, facts, bucket_of = _counting(
+        db,
+        workspace_id=workspace_id,
+        window=window,
+        population=population,
+        verdicts=_verdict_cache(cache, organization_id, workspace_id),
     )
-    grouped: dict[str | None, list[Any]] = {team_id: [] for team_id in teams}
-    grouped = defaultdict(list, grouped)
-    for row in rows:
-        if row.meeting_id is not None:
-            grouped[row.team_id].append(row)
 
-    def count(subset: Iterable[Any]) -> Coverage:
-        return _count(subset, facts, window=window, recompute_max_attempts=recompute_max_attempts)
+    def coverage(subset: Sequence[Any]) -> Coverage:
+        def evaluate() -> list[EvaluatedMeeting]:
+            return _count(
+                subset, facts, window=window, recompute_max_attempts=recompute_max_attempts
+            ).evaluated
 
-    return count(rows), {team_id: count(team_rows) for team_id, team_rows in grouped.items()}
+        return Coverage(
+            window,
+            _tally(subset, facts, bucket_of),
+            evaluate=_no_evaluated if facts.verdicts is not None else evaluate,
+        )
+
+    return coverage(rows), {
+        team_id: coverage(team_rows) for team_id, team_rows in _by_team(rows, teams).items()
+    }
 
 
 class _PopulationRow(NamedTuple):

@@ -54,6 +54,12 @@ from backend.services.issue_trend_service import (
 
 router = APIRouter(prefix="/trends", tags=["trends"])
 
+
+def _judgment_cache(request: Request):
+    """The app's trend judgment cache (HOM-312), handed to the services."""
+    return getattr(request.app.state, "trend_judgment_cache", None)
+
+
 SERIES_KEYS = ("grain", "timezone")
 
 
@@ -166,6 +172,8 @@ def read_issue_trends(
             now=now,
             grain=grain,
             timezone=timezone,
+            cache=_judgment_cache(request),
+            organization_id=context.workspace.organization_id,
         )
     except TrendSeriesError as exc:  # a window that cannot be shown in the zone
         raise _refused(exc.code, exc.key, str(exc)) from exc
@@ -176,6 +184,8 @@ def read_issue_trends(
         access=context.record_access,
         filters=filters,
         recompute_max_attempts=settings.recompute_max_attempts,
+        cache=_judgment_cache(request),
+        organization_id=context.workspace.organization_id,
     )
     return IssueTrendResponse.model_validate({**answer, "notices": [ASSOCIATION_NOTICE]})
 
@@ -212,6 +222,7 @@ def read_team_comparison(
             grain=grain,
             timezone=timezone,
             recompute_max_attempts=settings.recompute_max_attempts,
+            cache=_judgment_cache(request),
         )
     except roles.TrendViewError as exc:
         raise _refused(exc.code, exc.key, str(exc), exc.status_code) from exc
@@ -243,6 +254,7 @@ def read_self_trends(
             grain=grain,
             timezone=timezone,
             recompute_max_attempts=settings.recompute_max_attempts,
+            cache=_judgment_cache(request),
         )
     except TrendSeriesError as exc:  # a window that cannot be shown in the zone
         raise _refused(exc.code, exc.key, str(exc)) from exc
@@ -305,6 +317,7 @@ def read_trend_conversations(
             offset=offset,
             limit=limit,
             team=team,
+            cache=_judgment_cache(request),
         )
     except roles.TrendViewError as exc:
         raise _refused(exc.code, exc.key, str(exc), exc.status_code) from exc

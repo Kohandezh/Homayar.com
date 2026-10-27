@@ -18,7 +18,7 @@ workspace as the tenant before they read it (row-level security), like
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, time, timedelta
@@ -42,6 +42,7 @@ from backend.issue_trends import (
     SAMPLE_POLICY_V1,
     CellKind,
     CellReason,
+    SignatureJudge,
     TrendFilterError,
     TrendFilters,
     TrendWindow,
@@ -105,6 +106,7 @@ from backend.services.issue_trend_service import (
     withheld_block,
 )
 from backend.services.organization_service import scoped_workspaces
+from backend.services.trend_judgment_cache import JudgmentCache
 
 MAX_COMPARED_TEAMS = 10  # at most 45 pairs per selected row
 UNADJUSTED_NOTICE = "unadjusted_comparison"  # a raw difference, not adjusted for the mix
@@ -435,10 +437,16 @@ class TeamScope:
     release: TeamRelease
     viewer: str
     points: Sequence[SeriesPoint]
+    members: Mapping[str | None, Sequence[JudgedConversation]]  # by team id, in load order
 
 
 def team_scope(
-    db: Session, *, context: WorkspaceContext, filters: TrendFilters, points: Sequence[SeriesPoint]
+    db: Session,
+    *,
+    context: WorkspaceContext,
+    filters: TrendFilters,
+    points: Sequence[SeriesPoint],
+    cache: JudgmentCache | None = None,
 ) -> TeamScope:
     """Statements P and G over the caller's whole scope (no team filter), then the
     canonical released set over every team of it, whatever the compared teams."""
@@ -449,10 +457,23 @@ def team_scope(
         workspace_id=context.workspace.id,
         scope=access.meeting_clause(),
         filters=replace(filters, team_ids=()),
+        cache=cache,
+        organization_id=context.workspace.organization_id,
     )
     parts, rest = team_parts(judged, access.user_id, n_points=len(points), point_of=point_of)
     release = canonical_release(parts, rest, has_points=bool(points))
-    return TeamScope(judged, parts, release, access.user_id, points)
+    return TeamScope(judged, parts, release, access.user_id, points, _by_team(judged))
+
+
+def _by_team(
+    conversations: Iterable[JudgedConversation],
+) -> dict[str | None, list[JudgedConversation]]:
+    """The conversations of each team id, in their order (HOM-312: one pass, not one per
+    team)."""
+    members: dict[str | None, list[JudgedConversation]] = defaultdict(list)
+    for conversation in conversations:
+        members[conversation.team_id].append(conversation)
+    return members
 
 
 def team_cohort(scope: TeamScope, team_id: str) -> CohortDecision:
@@ -460,7 +481,7 @@ def team_cohort(scope: TeamScope, team_id: str) -> CohortDecision:
     all-or-nothing rule and the canonical set withhold.  The HOM-83 links reuse it."""
     points = scope.points
     point_of = point_finder(points) if points else None
-    members = [c for c in scope.judged if c.team_id == team_id]
+    members = list(scope.members.get(team_id, ()))
     everyone = cohort_stats(members, n_points=len(points), point_of=point_of)
     kind, _gated = cohort_kind(everyone.agents, scope.viewer)
     masked = set(scope.parts[team_id].masked) if team_id in scope.parts else set()
@@ -477,6 +498,7 @@ def team_comparison(
     grain: str,
     timezone: str,
     recompute_max_attempts: int,
+    cache: JudgmentCache | None = None,
 ) -> dict[str, Any]:
     """``GET /trends/teams``: one block per compared team, released from the canonical set
     of the caller's scope (every team of the scope, not only the compared ones)."""
@@ -486,7 +508,7 @@ def team_comparison(
     access = context.record_access
     workspace_id = context.workspace.id
     scope_filters = replace(filters, team_ids=())
-    scope = team_scope(db, context=context, filters=filters, points=points)
+    scope = team_scope(db, context=context, filters=filters, points=points, cache=cache)
     _whole, by_team = compute_coverage_by_team(
         db,
         workspace_id=workspace_id,
@@ -494,6 +516,8 @@ def team_comparison(
         recompute_max_attempts=recompute_max_attempts,
         population=_accepted(filter_clauses(access.meeting_clause(), scope_filters)),
         teams=[team_id for team_id, _ in teams],
+        cache=cache,
+        organization_id=context.workspace.organization_id,
     )
 
     blocks, compared = [], []
@@ -538,11 +562,22 @@ def _self_clause(context: WorkspaceContext) -> ColumnElement[bool]:
     return and_(access.meeting_clause(), Meeting.agent_user_id == access.user_id)
 
 
-def self_cohort(db: Session, *, context: WorkspaceContext, filters: TrendFilters) -> CohortDecision:
+def self_cohort(
+    db: Session,
+    *,
+    context: WorkspaceContext,
+    filters: TrendFilters,
+    cache: JudgmentCache | None = None,
+) -> CohortDecision:
     """The cohort of ``GET /trends/me`` (statements P and G): kind ``agent``, nothing
     withheld beyond the HOM-79 agent cell.  The HOM-83 links reuse it."""
     judged = judge_population(
-        db, workspace_id=context.workspace.id, scope=_self_clause(context), filters=filters
+        db,
+        workspace_id=context.workspace.id,
+        scope=_self_clause(context),
+        filters=filters,
+        cache=cache,
+        organization_id=context.workspace.organization_id,
     )
     return CohortDecision(judged, CellKind.AGENT, frozenset())
 
@@ -555,6 +590,7 @@ def self_view(
     grain: str,
     timezone: str,
     recompute_max_attempts: int,
+    cache: JudgmentCache | None = None,
 ) -> dict[str, Any]:
     """``GET /trends/me``: the caller's own meetings as agent, kind ``agent``."""
     zone = validate_series(grain, timezone)
@@ -563,7 +599,7 @@ def self_view(
     access = context.record_access
     viewer = access.user_id
     workspace_id = context.workspace.id
-    decision = self_cohort(db, context=context, filters=filters)
+    decision = self_cohort(db, context=context, filters=filters, cache=cache)
     population, rows, series_answer = cohort_parts(
         decision.conversations, definition, filters, decision.kind, points, zone
     )
@@ -573,6 +609,8 @@ def self_view(
         window=coverage_window(filters),
         recompute_max_attempts=recompute_max_attempts,
         population=_accepted(filter_clauses(_self_clause(context), filters)),
+        cache=cache,
+        organization_id=context.workspace.organization_id,
     ).counters
     return complete_block(
         {
@@ -759,8 +797,22 @@ def _granted(team_ids: frozenset[str] | None) -> list[Any]:
     return [] if team_ids is None else _accepted([Meeting.team_id.in_(sorted(team_ids))])
 
 
-def _workspace_population(db: Session, workspace: Workspace, filters: TrendFilters):
-    return judge_population(db, workspace_id=workspace.id, scope=true(), filters=filters)
+def _workspace_population(
+    db: Session,
+    workspace: Workspace,
+    filters: TrendFilters,
+    judge: SignatureJudge | None = None,
+    cache: JudgmentCache | None = None,
+):
+    return judge_population(
+        db,
+        workspace_id=workspace.id,
+        scope=true(),
+        filters=filters,
+        judge=judge,
+        cache=cache,
+        organization_id=workspace.organization_id,
+    )
 
 
 def organization_workspace_block(
@@ -773,13 +825,15 @@ def organization_workspace_block(
     grain: str,
     weeks: Sequence[Any],
     recompute_max_attempts: int,
+    judge: SignatureJudge | None = None,
+    cache: JudgmentCache | None = None,
 ) -> dict[str, Any]:
     """The executive view's block of one scoped workspace or team grant, with the workspace
     already bound as the tenant: statements P and G, at most 3 for A6, and 9 coverage
     statements when released.  The executive view and the HOM-299 metadata of
     ``/aggregates`` both run it, so their ``coverage``, ``scorecard``, ``missing_data`` and
     ``disclosure`` are the same (ADR 0041, L2)."""
-    judged = _workspace_population(db, workspace, filters)
+    judged = _workspace_population(db, workspace, filters, judge, cache)
     known = known_meetings(db, workspace=workspace, user_id=user_id, filters=filters)
     parts = week_parts(judged, weeks)
     members = judged if team_ids is None else [c for c in judged if c.team_id in team_ids]
@@ -793,6 +847,8 @@ def organization_workspace_block(
             window=coverage_window(filters),
             recompute_max_attempts=recompute_max_attempts,
             population=_granted(team_ids),
+            cache=cache,
+            organization_id=workspace.organization_id,
         ).counters
         basis = COVERAGE_BASIS_WORKSPACE if team_ids is None else COVERAGE_BASIS_TREND_POPULATION
         coverage = coverage_block(filters.window, basis, counters)
@@ -815,11 +871,13 @@ def organization_trends(
     filters: TrendFilters,
     grain: str,
     recompute_max_attempts: int,
+    cache: JudgmentCache | None = None,
 ) -> dict[str, Any]:
     """Executive aggregates: one block per scoped workspace (the grant unit).  Each
     workspace is loaded whole, also for a team grant: the release decision is one per
     workspace and week (design 4.3, M1)."""
     weeks = _weeks(filters)
+    judge = SignatureJudge(trend_definition())
     items = []
     for workspace, team_ids in scoped_workspaces(db, organization=organization, access=access):
         bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
@@ -837,6 +895,8 @@ def organization_trends(
                     grain=grain,
                     weeks=weeks,
                     recompute_max_attempts=recompute_max_attempts,
+                    judge=judge,
+                    cache=cache,
                 ),
             }
         )
@@ -858,6 +918,7 @@ def organization_drilldown(
     filters: TrendFilters,
     grain: str,
     recompute_max_attempts: int,
+    cache: JudgmentCache | None = None,
 ) -> dict[str, Any]:
     """Analyst drill-down: the grant unit and one block per active team inside it.  Every
     block is released per week over the window (design 4.3), and tested against what the
@@ -865,7 +926,7 @@ def organization_drilldown(
     bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
     weeks = _weeks(filters)
     teams = active_teams(db, workspace_id=workspace.id, team_ids=team_ids)
-    judged = _workspace_population(db, workspace, filters)
+    judged = _workspace_population(db, workspace, filters, cache=cache)
     known = known_meetings(db, workspace=workspace, user_id=user_id, filters=filters)
     parts = week_parts(judged, weeks)
     rel = caller_release(judged, parts, known, weeks)
@@ -876,6 +937,8 @@ def organization_drilldown(
         recompute_max_attempts=recompute_max_attempts,
         population=_granted(team_ids),
         teams=[team_id for team_id, _ in teams],
+        cache=cache,
+        organization_id=organization.id,
     )
     options = {"filters": filters, "grain": grain, "weeks": weeks}
     members = judged if team_ids is None else [c for c in judged if c.team_id in team_ids]
@@ -889,8 +952,9 @@ def organization_drilldown(
         **options,
     )
     team_blocks = []
+    members_by_team = _by_team(judged)
     for team_id, name in teams:
-        team_members = [c for c in judged if c.team_id == team_id]
+        team_members = list(members_by_team.get(team_id, ()))
         team_released, team_reason = _decide(
             parts, rel, frozenset({team_id}), team_members, known, weeks
         )

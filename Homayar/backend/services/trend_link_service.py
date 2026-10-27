@@ -55,6 +55,7 @@ from backend.services.issue_trend_service import (
     trend_definition,
     validate_series,
 )
+from backend.services.trend_judgment_cache import JudgmentCache
 
 TREND_VIEWS = ("issues", "teams", "me")
 LINK_KEYS = ("trend_view", "row", "point", "offset", "limit")
@@ -284,20 +285,24 @@ def _decision(
     filters: TrendFilters,
     points: Sequence[SeriesPoint],
     team_id: str | None,
+    cache: JudgmentCache | None = None,
 ) -> CohortDecision:
-    """The cohort decision of the view the cell comes from: the view's own function."""
+    """The cohort decision of the view the cell comes from: the view's own function.
+    ``cache``: the app's trend judgment cache (HOM-312), handed on."""
     if trend_view == "teams":
         assert team_id is not None
-        scope = roles.team_scope(db, context=context, filters=filters, points=points)
+        scope = roles.team_scope(db, context=context, filters=filters, points=points, cache=cache)
         return roles.team_cohort(scope, team_id)
     if trend_view == "me":
-        return roles.self_cohort(db, context=context, filters=filters)
+        return roles.self_cohort(db, context=context, filters=filters, cache=cache)
     return issue_cohort(
         db,
         workspace_id=context.workspace.id,
         access=context.record_access,
         filters=filters,
         points=points,
+        cache=cache,
+        organization_id=context.workspace.organization_id,
     )
 
 
@@ -314,6 +319,7 @@ def trend_links(
     offset: int,
     limit: int,
     team: tuple[str, str] | None = None,
+    cache: JudgmentCache | None = None,
 ) -> dict[str, Any]:
     """The conversations behind one cell, or ``withheld()`` (a ``TrendViewError``).
 
@@ -330,6 +336,7 @@ def trend_links(
         filters=filters,
         points=points,
         team_id=team[0] if team is not None else None,
+        cache=cache,
     )
     _population, rows, series_answer = cohort_parts(
         decision.conversations, definition, filters, decision.kind, points, zone

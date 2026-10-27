@@ -595,6 +595,11 @@ def revoke_scope_grant(
 # --- scoped analytics -------------------------------------------------------------------------
 
 
+def _judgment_cache(request: Request):
+    """The app's trend judgment cache (HOM-312), handed to the services."""
+    return getattr(request.app.state, "trend_judgment_cache", None)
+
+
 def _aggregate_filters(
     since: datetime | None, until: datetime | None, now: datetime
 ) -> TrendFilters:
@@ -615,6 +620,7 @@ def _aggregate_filters(
 
 @router.get("/{organization_id}/aggregates", response_model=AggregatesResponse)
 def read_aggregates(
+    request: Request,
     since: datetime | None = Query(default=None),
     until: datetime | None = Query(default=None),
     context: OrganizationContext = Depends(
@@ -643,6 +649,7 @@ def read_aggregates(
             grain="none",
             weeks=roles.organization_weeks(filters),
             recompute_max_attempts=settings.recompute_max_attempts,
+            cache=_judgment_cache(request),
         ),
     )
     return AggregatesResponse(
@@ -736,6 +743,7 @@ def read_organization_trends(
         filters=filters,
         grain=grain,
         recompute_max_attempts=settings.recompute_max_attempts,
+        cache=_judgment_cache(request),
     )
     return OrganizationTrendResponse.model_validate(answer)
 
@@ -776,5 +784,6 @@ def read_organization_drilldown(
         filters=filters,
         grain=grain,
         recompute_max_attempts=settings.recompute_max_attempts,
+        cache=_judgment_cache(request),
     )
     return OrganizationDrilldownResponse.model_validate(answer)

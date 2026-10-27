@@ -621,6 +621,21 @@ class Settings(BaseSettings):
     recompute_sweep_interval_seconds: int = 300
     # Manual recompute requests per workspace and minute (429 over it).
     recompute_manual_rate_limit_per_minute: int = 10
+    # HOM-312: the trend judgment cache of each API worker (ADR 0043).  At most this many
+    # entries of both kinds together (judgments of analysis runs and coverage verdicts of
+    # meetings: about 2 per conversation; measured about 1,444 bytes per judgment and 270 per
+    # verdict, so 100,000 hold about 50,000 conversations, about 86 MB; the 4-week window at
+    # 100k conversations is about 66,000).  Larger servers raise it.  Requests evict the least
+    # recently used first.  0 keeps nothing (every trend request judges again).
+    trend_judgment_cache_max_entries: int = 100_000
+    # Warm that cache in a background thread at startup (most recently active workspaces
+    # first, only in free room: it never evicts and stops when the cache is full; it yields to
+    # requests).  Off: the first requests are cold.
+    trend_judgment_warmup_enabled: bool = True
+    # A cached coverage verdict (unsupported findings of a meeting) older than this many
+    # seconds is judged again: the backstop for a change made outside the application.
+    # 0 reuses none.
+    trend_coverage_verdict_ttl_seconds: int = 600
     allow_mock_providers: bool = False
     asr_provider: str = "local_whisper"
     diarization_provider: str = "unavailable"
@@ -851,6 +866,10 @@ class Settings(BaseSettings):
             or self.recompute_manual_rate_limit_per_minute <= 0
         ):
             raise ValueError("Recompute attempts, sweep interval and rate limit must be positive")
+        if self.trend_judgment_cache_max_entries < 0:
+            raise ValueError("TREND_JUDGMENT_CACHE_MAX_ENTRIES must be 0 or more")
+        if self.trend_coverage_verdict_ttl_seconds < 0:
+            raise ValueError("TREND_COVERAGE_VERDICT_TTL_SECONDS must be 0 or more")
         if self.database_app_role and not re.fullmatch(
             r"[a-z_][a-z0-9_]{0,62}", self.database_app_role
         ):
