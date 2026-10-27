@@ -25,12 +25,12 @@ from backend.database.saas_models import (
     ProcessingJob,
     UsageReservation,
 )
-from backend.issue_trends import judgment_warmup
 from backend.issue_trends.counting import SignatureJudge
-from backend.issue_trends.judgment_cache import JUDGMENTS, JudgmentCache, judgment_key
-from backend.issue_trends.judgment_warmup import JudgmentWarmup
 from backend.main import create_app
+from backend.services import trend_judgment_warmup
 from backend.services.issue_trend_service import trend_definition
+from backend.services.trend_judgment_cache import JUDGMENTS, JudgmentCache, judgment_key
+from backend.services.trend_judgment_warmup import JudgmentWarmup
 from backend.tests._database import inspection_session_factory
 from backend.tests._trend_reference import EXTRACTIONS, Reference, build_reference
 
@@ -239,7 +239,7 @@ def test_a_request_never_waits_on_a_paused_warmup(client, email_outbox, monkeypa
     expected = _issues(owner, ref.a.workspace_id, ref.window())
     from backend.database.relational import get_session_factory
 
-    monkeypatch.setattr(judgment_warmup, "YIELD_EVERY", 1)
+    monkeypatch.setattr(trend_judgment_warmup, "YIELD_EVERY", 1)
     cache = JudgmentCache(max_entries=100_000, wait_seconds=3600)
     client.app.state.trend_judgment_cache = cache
     warmup = JudgmentWarmup(cache, get_session_factory())

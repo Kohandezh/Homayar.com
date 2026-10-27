@@ -22,7 +22,6 @@ from backend.database.relational import (
     session_scope,
 )
 from backend.database.rls import assert_production_posture, describe_current_role
-from backend.issue_trends.judgment_cache import JudgmentCache
 from backend.observability.access_log import install_access_log_filter
 from backend.observability.correlation import correlation_scope, request_correlation_id
 from backend.observability.metrics import (
@@ -54,6 +53,7 @@ from backend.routers.v1 import voicemail as voicemail_v1
 from backend.services.auth_service import ensure_development_demo_account
 from backend.services.logging_service import install_server_log_filter, logger, tag_exception
 from backend.services.tenancy_service import ensure_plan_catalog
+from backend.services.trend_judgment_cache import JudgmentCache
 
 METRICS_PATH = "/metrics"
 
@@ -165,7 +165,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
         app.state.trend_judgment_warmup = None
         if settings.trend_judgment_warmup_enabled:
             from backend.database.relational import get_session_factory
-            from backend.issue_trends.judgment_warmup import JudgmentWarmup
+            from backend.services.trend_judgment_warmup import JudgmentWarmup
 
             warmup = JudgmentWarmup(app.state.trend_judgment_cache, get_session_factory())
             app.state.trend_judgment_warmup = warmup

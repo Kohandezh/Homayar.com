@@ -39,7 +39,7 @@ conditions written in D5.
 
 ### D2. The judgment cache (N)
 
-1. **Where.** `issue_trends/judgment_cache.py`, class `JudgmentCache`. `create_app` creates one
+1. **Where.** `services/trend_judgment_cache.py`, class `JudgmentCache`. `create_app` creates one
    and stores it as `app.state.trend_judgment_cache`, so there is one per worker process. It is
    never a module global: tests reuse fixed ids across datasets.
 2. **What an entry is.** Per analysis run: `(received_at, JudgedContent)`. `JudgedContent`
@@ -93,7 +93,7 @@ conditions written in D5.
 
 ### D3. The warm-up
 
-`issue_trends/judgment_warmup.py`, class `JudgmentWarmup`. The lifespan of `create_app` starts it
+`services/trend_judgment_warmup.py`, class `JudgmentWarmup`. The lifespan of `create_app` starts it
 after startup when `TREND_JUDGMENT_WARMUP_ENABLED` is true (default), and stops it on shutdown.
 It is `app.state.trend_judgment_warmup`, or `None` when it is off.
 

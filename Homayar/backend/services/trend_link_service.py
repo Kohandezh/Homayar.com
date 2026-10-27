@@ -35,7 +35,6 @@ from backend.issue_trends import (
     trend_provenance,
 )
 from backend.issue_trends.filters import selected_family_ids, selected_issue_ids
-from backend.issue_trends.judgment_cache import JudgmentCache
 from backend.issue_trends.samples import ASSOCIATION_NOTICE
 from backend.security.context import WorkspaceContext
 from backend.services import role_trend_service as roles
@@ -56,6 +55,7 @@ from backend.services.issue_trend_service import (
     trend_definition,
     validate_series,
 )
+from backend.services.trend_judgment_cache import JudgmentCache
 
 TREND_VIEWS = ("issues", "teams", "me")
 LINK_KEYS = ("trend_view", "row", "point", "offset", "limit")

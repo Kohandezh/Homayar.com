@@ -51,7 +51,6 @@ from backend.issue_trends import (
     validate_filters,
 )
 from backend.issue_trends.filters import SCOPE_KEYS, FilterErrorCode
-from backend.issue_trends.judgment_cache import JudgmentCache
 from backend.issue_trends.samples import ASSOCIATION_NOTICE
 from backend.security.authorization import (
     UNRESTRICTED_ROLES,
@@ -107,6 +106,7 @@ from backend.services.issue_trend_service import (
     withheld_block,
 )
 from backend.services.organization_service import scoped_workspaces
+from backend.services.trend_judgment_cache import JudgmentCache
 
 MAX_COMPARED_TEAMS = 10  # at most 45 pairs per selected row
 UNADJUSTED_NOTICE = "unadjusted_comparison"  # a raw difference, not adjusted for the mix

@@ -27,9 +27,9 @@ from backend.database.saas_models import (
     StageState,
     TranscriptRevision,
 )
-from backend.issue_trends.judgment_cache import JudgmentCache
 from backend.services import coverage_service as coverage
 from backend.services.coverage_service import CoverageWindow
+from backend.services.trend_judgment_cache import JudgmentCache
 from backend.tests._coverage_generated import seed_generated
 from backend.tests._database import inspection_session_factory
 from backend.tests.test_coverage import BASE, WINDOW, Tenant, seed_call

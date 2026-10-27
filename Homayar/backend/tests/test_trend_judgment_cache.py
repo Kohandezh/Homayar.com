@@ -29,7 +29,8 @@ from backend.database.saas_models import (
 )
 from backend.issue_trends import counting, validate_filters
 from backend.issue_trends.counting import SignatureJudge
-from backend.issue_trends.judgment_cache import (
+from backend.services.issue_trend_service import judge_population, trend_definition
+from backend.services.trend_judgment_cache import (
     JUDGMENTS,
     VERDICTS,
     CacheKey,
@@ -37,7 +38,6 @@ from backend.issue_trends.judgment_cache import (
     VerdictKey,
     judgment_key,
 )
-from backend.services.issue_trend_service import judge_population, trend_definition
 from backend.tests._database import inspection_session_factory
 from backend.tests._trend_reference import EXTRACTIONS, build_reference
 from backend.tests.test_api_keys import _bearer

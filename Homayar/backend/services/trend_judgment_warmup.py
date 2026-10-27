@@ -50,7 +50,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.issue_trends.judgment_cache import JudgmentCache
+from backend.services.trend_judgment_cache import JudgmentCache
 
 WARM_DAYS = 35
 POLL_SECONDS = 0.05
@@ -187,9 +187,9 @@ class JudgmentWarmup:
         (verdicts, then judgments) to ``warmed``."""
         from backend.database.saas_models import Workspace
         from backend.database.tenant_context import bind_tenant_context
-        from backend.issue_trends.judgment_cache import VerdictKey, judgment_key
         from backend.services.coverage_service import VERDICT_VERSION, CoverageWindow, warm_verdicts
         from backend.services.issue_trend_service import trend_definition, warm_judgments
+        from backend.services.trend_judgment_cache import VerdictKey, judgment_key
 
         end = self.now()
         start = end - timedelta(days=self.days)

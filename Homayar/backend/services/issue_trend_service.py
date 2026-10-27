@@ -80,7 +80,6 @@ from backend.issue_trends import (
     tally,
     trend_provenance,
 )
-from backend.issue_trends.judgment_cache import JudgmentCache, judgment_key
 from backend.issue_trends.samples import DISCLOSURE_VERSION, MIN_COHORT_AGENTS
 from backend.security.authorization import RecordAccess
 from backend.services.aggregate_metadata import scorecard_block, trend_missing_data
@@ -92,6 +91,7 @@ from backend.services.coverage_service import (
     has_segments,
     transcribable_clauses,
 )
+from backend.services.trend_judgment_cache import JudgmentCache, judgment_key
 
 TREND_DEFINITION_ID = "trends"
 TREND_DEFINITION_VERSION = 1
@@ -606,7 +606,7 @@ def warm_judgments(
     batch: int = 256,
     between: Callable[[], None] | None = None,
 ) -> int:
-    """The warm-up's work for one workspace (HOM-312, ``judgment_warmup``): statement P over
+    """The warm-up's work for one workspace (HOM-312, ``trend_judgment_warmup``): statement P over
     every transcribable conversation received in ``[start, end)``, with the runs already in
     ``cache`` left out, and the stored rows of the others judged with the cache's
     ``SignatureJudge`` and kept, the most recent first.  The workspace must be bound as the

@@ -61,7 +61,6 @@ from backend.database.saas_models import (
     TranscriptRevision,
     TranscriptSource,
 )
-from backend.issue_trends.judgment_cache import JudgmentCache, VerdictKey
 from backend.providers.schemas import SUMMARY_FIELD_NAMES
 from backend.schemas.meetings import MeetingQualityResponse
 from backend.services.analysis_claims import (
@@ -88,6 +87,7 @@ from backend.services.report_service import (
     is_report_complete,
     is_supported,
 )
+from backend.services.trend_judgment_cache import JudgmentCache, VerdictKey
 
 COVERAGE_VERSION = "coverage/1"
 WINDOW_BASIS = "ingestion_received_at"
@@ -1213,7 +1213,7 @@ def warm_verdicts(
     batch: int = 1000,
     between: Callable[[], None] | None = None,
 ) -> int:
-    """The warm-up's verdict work for one workspace (HOM-312, U2; ``judgment_warmup``): the
+    """The warm-up's verdict work for one workspace (HOM-312, U2; ``trend_judgment_warmup``): the
     fact statements of ``compute_coverage`` with ``cache`` over the candidate meetings of
     ``window``, so the verdicts not kept yet are judged and kept, only in the free room
     (never an eviction).  The workspace must be bound as the tenant.  Returns the number of
