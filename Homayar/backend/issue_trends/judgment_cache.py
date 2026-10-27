@@ -307,6 +307,20 @@ class JudgmentCache:
         with self._lock:
             return max(0, self.max_entries - self._entries)
 
+    def touch(self, key: CacheKey | VerdictKey, ids: Iterable[str] = ()) -> None:
+        """Move ``ids`` (in that order) to the recent end of the map of ``key``, then the map
+        to the recent end of the LRU.  The warm-up uses it to leave the order a request would
+        leave: the newest conversations last in a map, the most active workspace last of all."""
+        kind = JUDGMENTS if isinstance(key, CacheKey) else VERDICTS
+        with self._lock:
+            entries = self._maps.get((kind, key))
+            if entries is None:
+                return
+            for item_id in ids:
+                if item_id in entries:
+                    entries.move_to_end(item_id)
+            self._maps.move_to_end((kind, key))
+
     def held(self, key: CacheKey | VerdictKey, ids: Iterable[str]) -> int:
         """How many of ``ids`` have an entry under ``key`` now."""
         kind = JUDGMENTS if isinstance(key, CacheKey) else VERDICTS

@@ -119,6 +119,7 @@ class JudgmentWarmup:
         from backend.services.logging_service import logger
 
         state = "done"
+        warmed: list[tuple[Any, ...]] = []  # the maps of each warmed workspace, most active first
         try:
             for workspace_id in self._active_workspaces():
                 if self._stop.is_set():
@@ -127,7 +128,7 @@ class JudgmentWarmup:
                 if self.cache.room() == 0:
                     break  # full: the warm-up never evicts
                 self._wait_for_requests()
-                built = self._warm(workspace_id)
+                built = self._warm(workspace_id, warmed)
                 with self._lock:
                     self._workspaces_warmed += 1
                     self._entries_built += built
@@ -139,6 +140,12 @@ class JudgmentWarmup:
                 self._error = type(exc).__name__
             logger.warning("TREND_JUDGMENT_WARMUP_FAILED error=%s", type(exc).__name__)
         finally:
+            # Leave the order a request would leave: the least active workspace's maps first,
+            # the most active last (the verdicts before the judgments of each), so a request
+            # that must evict takes the least active and oldest first.
+            for keys in reversed(warmed):
+                for key in keys:
+                    self.cache.touch(key)
             with self._lock:
                 self._state = "stopped" if self._stop.is_set() and state == "done" else state
             self._done.set()
@@ -175,12 +182,14 @@ class JudgmentWarmup:
         self._wait_for_requests()
         time.sleep(0)
 
-    def _warm(self, workspace_id: str) -> int:
-        """Warm one workspace; returns the number of entries added."""
+    def _warm(self, workspace_id: str, warmed: list[tuple[Any, ...]]) -> int:
+        """Warm one workspace; returns the number of entries added.  Appends its map keys
+        (verdicts, then judgments) to ``warmed``."""
         from backend.database.saas_models import Workspace
         from backend.database.tenant_context import bind_tenant_context
-        from backend.services.coverage_service import CoverageWindow, warm_verdicts
-        from backend.services.issue_trend_service import warm_judgments
+        from backend.issue_trends.judgment_cache import VerdictKey, judgment_key
+        from backend.services.coverage_service import VERDICT_VERSION, CoverageWindow, warm_verdicts
+        from backend.services.issue_trend_service import trend_definition, warm_judgments
 
         end = self.now()
         start = end - timedelta(days=self.days)
@@ -188,6 +197,12 @@ class JudgmentWarmup:
             bind_tenant_context(db, workspace_id=workspace_id)
             organization_id = db.scalar(
                 select(Workspace.organization_id).where(Workspace.id == workspace_id)
+            )
+            warmed.append(
+                (
+                    VerdictKey(organization_id, workspace_id, VERDICT_VERSION),
+                    judgment_key(organization_id, workspace_id, trend_definition()),
+                )
             )
             added = warm_judgments(
                 db,
@@ -200,6 +215,7 @@ class JudgmentWarmup:
                 between=self._between_batches,
             )
             if self.cache.verdict_ttl_seconds > 0 and self.cache.room() > 0:
+                db.rollback()  # no open transaction while waiting
                 self._between_batches()
                 added += warm_verdicts(
                     db,

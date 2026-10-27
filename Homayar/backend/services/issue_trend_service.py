@@ -320,6 +320,8 @@ def _population_rows(
     workspace_id: str,
     clauses: Sequence[ColumnElement[bool]],
     cached_runs: Sequence[str] | None = None,
+    *,
+    results: bool = True,
 ):
     """Statement P: one row per conversation.  The joins cannot repeat a meeting:
     ``uq_ingestion_meeting``, ``uq_transcript_revision_current``,
@@ -330,7 +332,9 @@ def _population_rows(
     already judged.  For them ``result`` is NULL and ``extraction_run_id`` is the run (a
     cached judgment means the row exists; rows are never removed while their run lives);
     the other runs read their row with a subquery, so the wide extraction table is read only
-    for them.  Still one statement: the ids are one parameter."""
+    for them.  Still one statement: the ids are one parameter.
+
+    ``results=False`` (the warm-up): no ``result`` column, so no JSON is read or decoded."""
     columns = [
         IngestionRecord.id.label("ingestion_id"),
         IngestionRecord.received_at,
@@ -362,10 +366,10 @@ def _population_rows(
         )
     )
     if cached_runs is None:
-        statement = statement.add_columns(
-            AnalysisExtraction.analysis_run_id.label("extraction_run_id"),
-            AnalysisExtraction.result,
-        ).outerjoin(
+        extraction = [AnalysisExtraction.analysis_run_id.label("extraction_run_id")]
+        if results:
+            extraction.append(AnalysisExtraction.result)
+        statement = statement.add_columns(*extraction).outerjoin(
             AnalysisExtraction,
             and_(
                 AnalysisExtraction.analysis_run_id == AnalysisRun.id,
@@ -608,11 +612,15 @@ def warm_judgments(
     ``SignatureJudge`` and kept, the most recent first.  The workspace must be bound as the
     tenant.  Returns the number of entries added.
 
-    The runs go to ``cache.resolve`` in batches of at most ``batch``, each also at most the
-    free room, with ``evict=False``: the warm-up never evicts, and it stops when the cache is
-    full.  ``between`` runs before each batch, when this thread holds no claim, so the
-    warm-up can wait for requests there: a request never waits on a run the warm-up claimed
-    for longer than one batch."""
+    Statement P runs without the JSON (``results=False``): it only chooses the runs, the
+    newest first, at most the free room.  They go to ``cache.resolve`` in batches of at most
+    ``batch``, each also at most the free room, with ``evict=False``: the warm-up never
+    evicts, and it stops when the cache is full.  Each batch reads and decodes only its own
+    stored rows (one statement, the run ids as one parameter).  Before each batch the read
+    transaction is ended and ``between`` runs: there the warm-up may wait for requests, and
+    it holds no transaction, no claim and no decoded row, only the chosen run ids and times.
+    At the end the runs it added move to the recent end of the map, oldest first
+    (``JudgmentCache.touch``), so a request that must evict takes the oldest first."""
     definition = trend_definition()
     key = judgment_key(organization_id, workspace_id, definition)
     clauses = [
@@ -621,29 +629,44 @@ def warm_judgments(
         IngestionRecord.received_at < end,
     ]
     pinned = cache.pin(key, start, end)
-    misses = sorted(
+    chosen = sorted(
         (
-            (_utc(item.received_at), item.run_id, item.result)
-            for item in _population_rows(db, workspace_id, clauses, sorted(pinned))
+            (_utc(item.received_at), item.run_id)
+            for item in _population_rows(db, workspace_id, clauses, results=False)
             if has_segments(item.segment_count)
             and item.extraction_run_id is not None
             and item.run_id not in pinned
         ),
-        key=lambda miss: miss[:2],
         reverse=True,
-    )
+    )[: cache.room()]
     build = cache.judge(definition).content
     added = done = 0
-    while done < len(misses):
+    while done < len(chosen):
+        db.rollback()  # no open transaction while waiting (the tenant is bound again on use)
         if between is not None:
             between()
         size = min(batch, cache.room())
         if size <= 0:
             break  # full
-        chunk = {run_id: (at, result) for at, run_id, result in misses[done : done + size]}
+        part = chosen[done : done + size]
         done += size
+        rows = dict(
+            db.execute(
+                select(AnalysisExtraction.analysis_run_id, AnalysisExtraction.result).where(
+                    AnalysisExtraction.workspace_id == workspace_id,
+                    among_ids(
+                        db,
+                        AnalysisExtraction.analysis_run_id,
+                        [run_id for _at, run_id in part],
+                        "trend_warm_runs",
+                    ),
+                )
+            ).all()
+        )
+        chunk = {run_id: (at, rows[run_id]) for at, run_id in part if run_id in rows}
         cache.resolve(key, hits=(), misses=chunk, build=build, evict=False)
         added += cache.held(key, chunk)
+    cache.touch(key, [run_id for _at, run_id in reversed(chosen[:done])])
     return added
 
 

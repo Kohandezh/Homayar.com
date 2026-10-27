@@ -27,11 +27,12 @@ from backend.database.saas_models import (
 )
 from backend.issue_trends import judgment_warmup
 from backend.issue_trends.counting import SignatureJudge
-from backend.issue_trends.judgment_cache import JudgmentCache
+from backend.issue_trends.judgment_cache import JUDGMENTS, JudgmentCache, judgment_key
 from backend.issue_trends.judgment_warmup import JudgmentWarmup
 from backend.main import create_app
+from backend.services.issue_trend_service import trend_definition
 from backend.tests._database import inspection_session_factory
-from backend.tests._trend_reference import Reference, build_reference
+from backend.tests._trend_reference import EXTRACTIONS, Reference, build_reference
 
 WAIT = 60.0
 
@@ -184,6 +185,46 @@ def test_the_warmup_never_evicts(client, email_outbox, settings):
         assert stats["entries"] == cap == warmup.status()["entries_built"]
         for key, ids in of_b.items():
             assert set(cache._maps[key]) == ids  # B keeps every entry it warmed
+
+
+def test_after_the_warmup_a_request_evicts_the_least_active_and_oldest_first(
+    client, email_outbox, settings
+):
+    """Final review finding 1: the warm-up leaves the order a request would leave.  With the
+    cache full after a warm-up of two workspaces (B the most active), a request that needs 2
+    entries evicts the 2 oldest conversations of the less active workspace A, and B keeps
+    everything.  (Verdicts off, so the maps hold judgments only.)"""
+    ref = build_reference(client, email_outbox)
+    _activity(ref, ref.a.workspace_id, minutes_ago=60)
+    _activity(ref, ref.b.workspace_id, minutes_ago=1)
+    roomy = _warm_app(settings, trend_coverage_verdict_ttl_seconds=0)
+    with TestClient(roomy):
+        assert roomy.state.trend_judgment_warmup.wait(WAIT)
+        full = roomy.state.trend_judgment_cache.stats()["entries"]
+    app = _warm_app(
+        settings, trend_coverage_verdict_ttl_seconds=0, trend_judgment_cache_max_entries=full
+    )
+    with TestClient(app):
+        assert app.state.trend_judgment_warmup.wait(WAIT)
+        cache = app.state.trend_judgment_cache
+        assert cache.stats()["entries"] == full and cache.stats()["evictions"] == 0
+        maps = {key.workspace_id: entries for (kind, key), entries in cache._maps.items()}
+        assert set(maps) == {ref.a.workspace_id, ref.b.workspace_id}
+        of_a = dict(maps[ref.a.workspace_id])
+        of_b = set(maps[ref.b.workspace_id])
+        oldest_of_a = sorted(of_a, key=lambda run_id: (of_a[run_id][0], run_id))[:2]
+        cold = judgment_key(None, "a-cold-workspace", trend_definition())
+        cache.resolve(
+            cold,
+            hits=(),
+            misses={f"cold-{n}": (datetime.now(UTC), EXTRACTIONS["C"]) for n in range(2)},
+            build=cache.judge(trend_definition()).content,
+        )
+        assert cache.stats()["evictions"] == 2
+        after = {key.workspace_id: set(entries) for (kind, key), entries in cache._maps.items()}
+        assert after[ref.b.workspace_id] == of_b  # the most active keeps everything
+        assert set(of_a) - after[ref.a.workspace_id] == set(oldest_of_a)
+        assert all(kind == JUDGMENTS for kind, _key in cache._maps)
 
 
 def test_a_request_never_waits_on_a_paused_warmup(client, email_outbox, monkeypatch):
