@@ -113,8 +113,12 @@ def derive_audio_for_job(
 
 
 def _max_bytes(settings: Settings) -> int:
-    """The storage cap of every object (``max_upload_size_mb``), at most the size column."""
-    return min(settings.max_upload_size_mb * 1024 * 1024, _SIZE_COLUMN_MAX)
+    """The derivative cap (owner ruling R3), within the storage cap and the size column."""
+    return min(
+        settings.media_derivative_max_size_mb * 1024 * 1024,
+        settings.max_upload_size_mb * 1024 * 1024,
+        _SIZE_COLUMN_MAX,
+    )
 
 
 def _existing(db: Session, original_id: str) -> bool:
@@ -179,9 +183,9 @@ def _precheck(claim: Any, settings: Settings) -> tuple[str | None, _Source]:
         facts = _facts(original, inspection) if original is not None else None
         source = _Source(media_id=media_id, facts=facts, inspection=inspection)
         reason: str | None = None
-        if claim.delete_audio_after_processing:
-            reason = media.AUDIO_DELETED_AFTER_PROCESSING
-        elif original is None:
+        # A workspace that deletes audio after processing is derived too: the
+        # job's delete-after-processing covers every object of the meeting (HOM-314).
+        if original is None:
             reason = media.SOURCE_NOT_REGISTERED
         else:
             refusal = _source_refusal(db, original, claim)

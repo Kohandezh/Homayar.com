@@ -241,11 +241,11 @@ the job makes one channel-preserving normalized derivative, measures signal acti
 channel, and keeps an exact map between derivative samples and original time. The activity
 and the map are stored **inside the derivative's own bytes**. There is no migration.
 
-**With the default setting, HOM-38 produces nothing in production. Enabling it waits for W2
-(HOM-314).** The owner ruled on 2026-10-28 that it may be turned on once HOM-313 and HOM-314
-are merged (ADR 0042, owner ruling). The setting is `MEDIA_DERIVATIVES_ENABLED` (default
-`false`).
-W1 and W2 are named in "What is not claimed" below.
+**With the default setting, HOM-38 produces nothing in production.** W1 (HOM-313) and W2
+(HOM-314) are fixed. The owner ruled on 2026-10-28 that it may be turned on once HOM-313 and
+HOM-314 are merged (ADR 0042, owner ruling). The setting is `MEDIA_DERIVATIVES_ENABLED`
+(default `false`).
+W1 and W2 are described in "What is not claimed" below.
 
 - **Activity is a signal-level heuristic**, not speech detection. "Active" means "this
   channel carries signal above its own noise floor". It never sets or implies a role. Roles
@@ -270,9 +270,8 @@ identities, stage runs, provider usage and meeting status do not change. It retu
 `registered` or a reason code.
 
 1. **Pre-checks**, read-only, before any decode. The first that applies wins:
-   `derivatives_disabled`, `audio_deleted_after_processing`, `source_not_registered`,
-   `source_not_live`, `source_changed`, `source_facts_unknown`, `already_derived`,
-   `derivative_too_large`.
+   `derivatives_disabled`, `source_not_registered`, `source_not_live`, `source_changed`,
+   `source_facts_unknown`, `already_derived`, `derivative_too_large`.
 2. **The derivation** (`derive_audio`) in the job's temporary directory, then an upload under
    a random storage key, so each attempt owns its object.
 3. **The fenced registration**: one transaction proves the job lease
@@ -307,12 +306,13 @@ ORIGINAL, details exactly `producer`, `reason`, `job_id`), under the job's fence
 operators only. Every outcome except `registered` and `derivatives_disabled` is also logged
 as `MEDIA_DERIVATIVE_UNAVAILABLE media_id=<id> reason=<code>`, with no key, path or filename.
 There is no read function for these reasons in v1. Audit rows written before HOM-313 may
-still carry `source_legal_hold` (the ORIGINAL was under legal hold); nothing writes it now.
+still carry `source_legal_hold` (the ORIGINAL was under legal hold), and audit rows written
+before HOM-314 may still carry `audio_deleted_after_processing` (the workspace deleted audio
+after processing); nothing writes them now.
 
 | Code | Stage | When |
 | --- | --- | --- |
 | `derivatives_disabled` | pre-check | the setting is off (not audited, not logged) |
-| `audio_deleted_after_processing` | pre-check | the workspace deletes audio after processing (W2) |
 | `source_not_registered` | pre-check, registration | the recording has no ORIGINAL media object (written before the media ledger); the audit target id is null |
 | `source_not_live` | pre-check, registration | the ORIGINAL is not active, retention-pending or held, or it is held with a recorded deletion request (the hold only delays that deletion) |
 | `source_changed` | pre-check, registration | the ORIGINAL's digest is not the digest the job claimed |
@@ -323,7 +323,7 @@ still carry `source_legal_hold` (the ORIGINAL was under legal hold); nothing wri
 | `derivative_timeout` | run | the decode did not finish within `MEDIA_DERIVATIVE_TIMEOUT_SECONDS` |
 | `derivative_failed` | run | non-zero exit, output that is not whole samples, an OS error, bytes ffmpeg cannot decode, or an unexpected error |
 | `derivative_empty` | run | less than one whole 20 ms frame (320 samples) was decoded |
-| `record_too_large` | run | the record JSON is over 4 MiB (reachable only with a raised `max_upload_size_mb`) |
+| `record_too_large` | run | the record JSON is over 4 MiB (reachable only with a raised cap, see Size) |
 | `storage_failed` | run | the upload or its digest check failed |
 | `stale_attempt` | registration | the attempt lost its lease (log only: a stale attempt writes nothing) |
 | `job_cancelled` | registration | the job was cancelled while the attempt ran |
@@ -349,11 +349,13 @@ then `data`. Sample `k` of channel `c` is at byte `data_offset + 2 * (C * k + c)
 `parse_derivative_header` reads the record back; any other shape raises
 `DerivativeRecordInvalid` (code `derivative_record_invalid`).
 
-**Size.** The cap is the storage cap of every object, `max_upload_size_mb * 1024 * 1024`
-(default 262 144 000 bytes), and at most 2 147 483 647 (`media_objects.size_bytes` is a 32-bit
-integer). The size is about `32 000 * C` bytes per second plus the record. With the default
-cap the longest call that gets a derivative is about 8 060 s for 1 channel, 4 030 s for 2
-channels and 1 007 s for 8 channels (4 MiB is reserved for the record). The size is checked
+**Size.** The cap is `MEDIA_DERIVATIVE_MAX_SIZE_MB` in MiB (default 200, that is
+209 715 200 bytes; owner ruling R3, HOM-314). It is never more than the storage cap of every
+object, `max_upload_size_mb * 1024 * 1024` (default 262 144 000 bytes), or 2 147 483 647
+(`media_objects.size_bytes` is a 32-bit integer). The same cap bounds the decode and the
+upload. The size is about `32 000 * C` bytes per second plus the record. With the default
+cap the longest call that gets a derivative is about 6 422 s for 1 channel, 3 211 s for 2
+channels and 802 s for 8 channels (4 MiB is reserved for the record). The size is checked
 before the decode from the probed duration (`ceil(duration) * 16000 * C * 2 + 4 MiB + 64`,
 no ffmpeg run when over) and again while reading. Over the cap is `derivative_too_large`,
 never a truncated derivative.
@@ -368,6 +370,7 @@ WAV, both at most the cap, in the job's private temporary directory.
 | --- | --- | --- |
 | `MEDIA_DERIVATIVES_ENABLED` | `false` | `true` or `false` |
 | `MEDIA_DERIVATIVE_TIMEOUT_SECONDS` | 300 | above 0, at most 1800 |
+| `MEDIA_DERIVATIVE_MAX_SIZE_MB` | 200 (MiB) | 1 to 2047; `max_upload_size_mb` still applies |
 
 ## The time map (`time-map/1`)
 
@@ -472,6 +475,17 @@ pairs; null when `inspection_duplicated` is null).
   gives 409 `not_held`, and the reconciliation sweep removes the remaining bytes. Rows whose
   removal had already started stay removed. The meeting hold had the same limit before
   HOM-313. The fix belongs to the sweep's lock order, outside this change.
-- **W2** (separate work unit, not fixed here): delete-after-processing requests deletion only
-  of the ORIGINAL. HOM-38 skips such workspaces (`audio_deleted_after_processing`), but a
-  workspace that turns the setting on after derivatives exist keeps them.
+- **W2** (fixed by HOM-314): delete-after-processing covers every media object of the
+  meeting, derived ones included, also those made before the workspace turned the setting
+  on. The completion transaction records the `processed` deletion request on every object
+  that is not deleted, in the same commit as COMPLETED, after its meeting row lock; a worker
+  killed later leaves `deletion_pending` rows that the reconciliation sweep closes. The
+  post-success step locks the meeting row (`FOR KEY SHARE`, like the hold paths), records the
+  request again (idempotent) and removes the bytes of every pending row through
+  `delete_objects`, which locks and reads each row again first. A held object keeps its bytes
+  and its recorded request; a release by its id resumes the request. Such workspaces are
+  derived too: the `audio_deleted_after_processing` pre-check is gone. After the request
+  nothing more is derived from the meeting: `register_derived` also checks the ORIGINAL at the
+  root of the source's lineage, and refuses (`source_not_live`) when it is not live or is held
+  with a recorded deletion request. When the source is not held but that ORIGINAL is, the new
+  object takes the ORIGINAL's hold.

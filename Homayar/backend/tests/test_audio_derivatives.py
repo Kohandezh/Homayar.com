@@ -647,7 +647,6 @@ ADR = (
 )
 SPEC_REASONS = {
     "derivatives_disabled",
-    "audio_deleted_after_processing",
     "source_not_registered",
     "source_not_live",
     "source_changed",

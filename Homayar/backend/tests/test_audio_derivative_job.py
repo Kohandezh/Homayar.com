@@ -441,7 +441,8 @@ def test_refused_sources_get_no_derivative_and_leave_their_reason(
     assert _derivatives(meeting_id) == []
     assert [event.details["reason"] for event in _unavailable(None)] == ["source_not_registered"]
 
-    # A workspace that deletes audio after processing is never derived (W2).
+    # A workspace that deletes audio after processing gets its derivative, and the job then
+    # deletes the derivative with the ORIGINAL (HOM-314).
     other = _tenant(client, email_outbox, "derive-deletes-audio")
     with inspection_session_factory()() as db:
         db.get(Workspace, other["workspace_id"]).delete_audio_after_processing = True
@@ -449,10 +450,15 @@ def test_refused_sources_get_no_derivative_and_leave_their_reason(
     job_id, meeting_id = _upload(client, other, wav, key="deny-deletes-audio")
     original_id = _original(meeting_id).id
     assert _run(job_id, enabled, label="deletes-audio")["status"] == "completed"
-    assert outcomes[-1] == "audio_deleted_after_processing"
-    assert _derivatives(meeting_id) == []
-    assert _reasons(original_id) == ["audio_deleted_after_processing"]
-    assert _original(meeting_id).lifecycle_state == MediaLifecycleState.DELETED
+    assert outcomes[-1] == "registered"
+    assert _reasons(original_id) == []
+    (derived,) = _derivatives(meeting_id)
+    assert derived.derived_from_id == original_id
+    storage = create_object_storage(settings)
+    for media in (_original(meeting_id), derived):
+        assert media.lifecycle_state == MediaLifecycleState.DELETED
+        assert media.deletion_reason == "processed" and media.deleted_at is not None
+        assert not storage.exists(media.workspace_id, media.storage_key)
 
     for event in _unavailable(original_id):
         assert set(event.details) == {"producer", "reason", "job_id"}
@@ -541,3 +547,137 @@ def test_a_stale_attempt_registers_nothing_and_removes_its_object(
     assert _unavailable(original.id) == []  # a stale attempt writes nothing
     keys = {item.key for item in storage.iter_objects(tenant["workspace_id"])}
     assert keys == {original.storage_key}  # its uploaded object was removed
+
+
+# --- HOM-314 E: the derivative's own size cap --------------------------------------------
+
+
+def _mono_wav(path: Path, *, seconds: int) -> bytes:
+    """One 16 kHz channel: a 700 Hz tone in the first half of every 2 s (lavfi)."""
+    subprocess.run(  # noqa: S603 - fixed argv, test-only fixture generation
+        [  # noqa: S607
+            "ffmpeg",
+            "-y",
+            "-nostdin",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"aevalsrc=exprs='0.5*sin(2*PI*700*t)*lt(mod(t,2),1)':s=16000:d={seconds}",
+            "-c:a",
+            "pcm_s16le",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    return path.read_bytes()
+
+
+def _set_duration(media_id: str, seconds: int | None) -> None:
+    """The probed duration of a row (content columns are immutable through the ORM)."""
+    with inspection_session_factory()() as db:
+        db.execute(
+            text("UPDATE media_objects SET duration_seconds = :seconds WHERE id = :id"),
+            {"seconds": seconds, "id": media_id},
+        )
+        db.commit()
+
+
+def _stored_keys(storage, workspace_id: str, job_id: str) -> set[str]:
+    """The tenant's object keys, without the stage checkpoints of ``job_id``."""
+    with inspection_session_factory()() as db:
+        checkpoints = set(
+            db.scalars(
+                text("SELECT artifact_key FROM stage_checkpoints WHERE job_id = :job"),
+                {"job": job_id},
+            )
+        )
+    return {item.key for item in storage.iter_objects(workspace_id)} - checkpoints
+
+
+def test_the_derivative_cap_setting_decides_and_a_refusal_keeps_the_original(
+    client, email_outbox, settings, outcomes, tmp_path: Path
+) -> None:
+    tenant = _tenant(client, email_outbox, "derive-cap")
+    storage = create_object_storage(settings)
+    assert settings.max_upload_size_mb == 250
+    # 5 MiB is 5 242 880 bytes; 4 MiB + 64 are reserved, so about 32.7 s of mono PCM fit.
+    capped = settings.model_copy(
+        update={"media_derivatives_enabled": True, "media_derivative_max_size_mb": 5}
+    )
+
+    job_id, meeting_id = _upload(
+        client, tenant, _mono_wav(tmp_path / "short.wav", seconds=30), key="cap-under"
+    )
+    assert _run(job_id, capped, label="cap-under")["status"] == "completed"
+    assert outcomes[-1] == "registered"
+    (derived,) = _derivatives(meeting_id)
+    assert derived.channel_count == 1 and derived.size_bytes <= 5 * 1024 * 1024
+    assert _unavailable(_original(meeting_id).id) == []
+
+    # 40 s does not fit: refused from the probed duration, and without one while decoding.
+    long_wav = _mono_wav(tmp_path / "long.wav", seconds=40)
+    for label, duration in (("cap-predicted", 40), ("cap-produced", None)):
+        job_id, meeting_id = _upload(client, tenant, long_wav, key=label)
+        original_id = _original(meeting_id).id
+        _set_duration(original_id, duration)
+        before = _columns(_original(meeting_id))
+        digest_before = _digest(storage, _original(meeting_id))
+        keys_before = _stored_keys(storage, tenant["workspace_id"], job_id)
+
+        assert _run(job_id, capped, label=label)["status"] == "completed", label
+        assert outcomes[-1] == "derivative_too_large", label
+
+        assert _derivatives(meeting_id) == [], label
+        (event,) = _unavailable(original_id)
+        assert event.target_type == "media"
+        assert event.details == {
+            "producer": DERIVATIVE_PRODUCER,
+            "reason": "derivative_too_large",
+            "job_id": job_id,
+        }
+        assert _stored_keys(storage, tenant["workspace_id"], job_id) == keys_before, label
+        assert _columns(_original(meeting_id)) == before, label
+        assert _digest(storage, _original(meeting_id)) == digest_before, label
+        assert _transcript(meeting_id) == [TRANSCRIPT], label
+
+
+def test_the_default_derivative_cap_is_200_mib(
+    client, email_outbox, settings, outcomes, tmp_path: Path, monkeypatch
+) -> None:
+    from backend.media import derivatives
+
+    tenant = _tenant(client, email_outbox, "derive-default-cap")
+    assert (settings.media_derivative_max_size_mb, settings.max_upload_size_mb) == (200, 250)
+    enabled = settings.model_copy(update={"media_derivatives_enabled": True})
+    decodes: list[int] = []
+    real_decode = derivatives._decode
+
+    def counted(*args, **kwargs):
+        decodes.append(1)
+        return real_decode(*args, **kwargs)
+
+    monkeypatch.setattr(derivatives, "_decode", counted)
+    mono = _mono_wav(tmp_path / "mono.wav", seconds=3)
+
+    # 6423 s predicts 6423 * 32 000 + 4 194 368 = 209 730 368 bytes, over 209 715 200.
+    job_id, meeting_id = _upload(client, tenant, mono, key="default-over")
+    original_id = _original(meeting_id).id
+    _set_duration(original_id, 6423)
+    assert _run(job_id, enabled, label="default-over")["status"] == "completed"
+    assert outcomes[-1] == "derivative_too_large"
+    assert decodes == []  # refused before any decode
+    assert _derivatives(meeting_id) == []
+    assert _reasons(original_id) == ["derivative_too_large"]
+
+    # 6422 s predicts 209 698 368 bytes: not refused for size.
+    job_id, meeting_id = _upload(client, tenant, mono, key="default-under")
+    original_id = _original(meeting_id).id
+    _set_duration(original_id, 6422)
+    assert _run(job_id, enabled, label="default-under")["status"] == "completed"
+    assert outcomes[-1] == "registered"
+    assert decodes == [1]
+    assert _reasons(original_id) == []
