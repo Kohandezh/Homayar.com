@@ -5,7 +5,8 @@
 executive view would use for ``from=since`` and ``to=until``, or its default (decision 13).
 Leader decision L2: the item metadata is the HOM-82 block of the same workspace, grant and
 ``W``, field by field, so the two routes never differ and a withheld block stays withheld.
-The existing fields keep their values on every request.
+HOM-320: the existing count fields count the live meetings received in ``W`` (the HOM-82
+population), and are null when the block is withheld.
 """
 
 from __future__ import annotations
@@ -193,7 +194,7 @@ def test_released_item_metadata_is_the_hom82_block(client, email_outbox):
 
     answer = _get(owner, org, _span(week))
     item = _same_as_hom82(owner, org, place, _span(week))
-    # the existing fields, as on base (live meetings by created_at)
+    # the existing fields: the live meetings received in W  # HOM-320
     assert item["meetings_total"] == 8
     assert item["meetings_by_status"] == {"completed": 6, "failed": 1, "queued": 1}
     assert item["audio_seconds_total"] == 240 and item["action_items_total"] == 0
@@ -245,11 +246,11 @@ def test_a_meeting_received_in_another_week_is_counted_as_hom82_counts_it(client
     assert item["disclosure"] == RELEASED
     assert item["coverage"]["evaluation"]["buckets"]["mock_analysis"] == 0
     assert item["coverage"]["processing"]["denominator"] == 5
-    assert item["meetings_total"] == 6  # the existing field, by created_at, as on base
+    assert item["meetings_total"] == 5  # HOM-320: F's call was received outside W
     # weeks k-2 to k: F alone in week k-2, so both routes withhold the block
     item = _same_as_hom82(owner, org, place, _span(two_before, 3))
     assert _released(item) == ("withheld", "small_group")
-    assert item["meetings_total"] == 6
+    assert item["meetings_total"] is None  # HOM-320
 
 
 # --- deny-cases: small groups, grants, restricted memberships, deleted meetings ------------------
@@ -272,12 +273,12 @@ def test_every_item_metadata_equals_the_hom82_block(client, email_outbox):
         )
     }
 
-    # 4 agents: withheld; the existing fields keep their values
+    # 4 agents: withheld, and the existing fields are null  # HOM-320
     small = _org_workspace(owner, org, "Small")
     _meetings(small, week, None, _agents(4, "as"))
     item = _same_as_hom82(owner, org, small, window)
     assert _released(item) == ("withheld", "small_group")
-    assert item["meetings_total"] == 4 and item["meetings_by_status"] == {"completed": 4}
+    assert item["meetings_total"] is None and item["meetings_by_status"] is None  # HOM-320
     # allow-control: a fifth agent releases it with full counts
     _meeting(small, week, agent=add_user("as4"))
     item = _same_as_hom82(owner, org, small, window)
@@ -290,7 +291,7 @@ def test_every_item_metadata_equals_the_hom82_block(client, email_outbox):
     _meetings(mixed, week, None, agents[2:], status=MeetingStatus.PROCESSING)
     item = _same_as_hom82(owner, org, mixed, window)
     assert _released(item) == ("withheld", "small_group")
-    assert item["meetings_by_status"] == {"completed": 2, "processing": 3}
+    assert item["meetings_by_status"] is None  # HOM-320
     _meetings(mixed, week, None, agents[2:])  # allow-control
     assert _released(_same_as_hom82(owner, org, mixed, window)) == ("released", None)
 
@@ -349,7 +350,7 @@ def test_every_item_metadata_equals_the_hom82_block(client, email_outbox):
     _assign(probe, p, analyst.user_id, "supervisor", by=owner.user_id)
     withheld = _same_as_hom82(analyst, org, probe, window)
     assert _released(withheld) == ("withheld", "complementary_disclosure")
-    assert withheld["meetings_total"] == 5
+    assert withheld["meetings_total"] is None  # HOM-320
     # allow-control: the executive has no workspace membership
     assert _released(_same_as_hom82(executive, org, probe, window)) == ("released", None)
 
@@ -430,23 +431,24 @@ def test_the_window_follows_the_hom82_parser(client, email_outbox):
         return value.astimezone(UTC).replace(tzinfo=None).isoformat()
 
     after = second + WEEK
-    # (label, params, meetings_total as on base, W)
+    # (label, params, meetings_total: the live meetings received in W, W)  # HOM-320
     cases = [
         ("both aligned", {"since": first.isoformat(), "until": after.isoformat()}, 10,
          (first, after)),
-        ("only since", {"since": first.isoformat()}, 11, (first, week_start)),
+        ("only since", {"since": first.isoformat()}, 10, (first, week_start)),  # HOM-320
         ("only until", {"until": after.isoformat()}, 10, (after - 4 * WEEK, after)),
-        ("no window", {}, 11, default),
+        ("no window", {}, 10, default),  # HOM-320
         ("unaligned since",
          {"since": (first + timedelta(hours=1)).isoformat(), "until": after.isoformat()}, 10,
          default),
         ("naive bounds", {"since": naive(first), "until": naive(after)}, 10, default),
         ("53 weeks", {"since": (week_start - 53 * WEEK).isoformat(),
                       "until": week_start.isoformat()}, 10, default),
-        ("since after until", {"since": second.isoformat(), "until": first.isoformat()}, 0,
-         default),
-        ("until in the open week", {"since": first.isoformat(),
-                                    "until": (week_start + WEEK).isoformat()}, 11, default),
+        ("since after until",  # HOM-320
+         {"since": second.isoformat(), "until": first.isoformat()}, 10, default),  # HOM-320
+        ("until in the open week",  # HOM-320
+         {"since": first.isoformat(), "until": (week_start + WEEK).isoformat()},  # HOM-320
+         10, default),  # HOM-320
     ]  # fmt: skip
     for label, params, total, expected in cases:
         answer = _get(owner, org, params)
@@ -464,6 +466,7 @@ def test_the_window_follows_the_hom82_parser(client, email_outbox):
 # caller's workspace membership, so 3.  A released block: plus the coverage ledger statement,
 # and 8 fact statements when a meeting may be transcribed.  A restricted workspace membership
 # (A6): plus the assignments and the known meetings.
+# HOM-320 (LD2): only a released item runs the 2 base statements.
 BASE_PER_WORKSPACE = 2
 METADATA_PER_WORKSPACE = 3
 LEDGER_STATEMENT = 1
@@ -503,7 +506,7 @@ def test_statements_per_workspace(client, email_outbox):
     steps = [after - before for before, after in zip(counts, counts[1:], strict=False)]
     released = BASE_PER_WORKSPACE + METADATA_PER_WORKSPACE + LEDGER_STATEMENT + FACT_STATEMENTS
     assert steps == [
-        BASE_PER_WORKSPACE + METADATA_PER_WORKSPACE,
+        METADATA_PER_WORKSPACE,  # HOM-320: a withheld item runs no count statement
         released,
         released,
         released + A6_STATEMENTS,

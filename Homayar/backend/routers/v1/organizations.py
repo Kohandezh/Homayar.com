@@ -12,7 +12,8 @@ session only, like every organization route, and withhold any cohort that rests 
 
 HOM-299 (ADR 0041, L2) adds ``coverage``, ``scorecard``, ``missing_data`` and ``disclosure``
 to each ``/aggregates`` item: those of the executive view's block for the same workspace,
-grant and closed-week window.  Its existing counts stay.
+grant and closed-week window.  HOM-320 (ADR 0041 R1, owner ruling B'): the item's counts are
+those of that block's population and window, and ``null`` when the block is withheld.
 """
 
 from __future__ import annotations
@@ -603,9 +604,10 @@ def _judgment_cache(request: Request):
 def _aggregate_filters(
     since: datetime | None, until: datetime | None, now: datetime
 ) -> TrendFilters:
-    """The window ``W`` of the ``/aggregates`` metadata (HOM-299, ADR 0041 decision 13): the
-    organization grid query of ``since`` and ``until`` when the HOM-82 parser accepts it,
-    else its default, the 4 closed weeks before this week.  Never a 422."""
+    """The window ``W`` of the ``/aggregates`` metadata and counts (HOM-299, ADR 0041
+    decision 13; HOM-320): the organization grid query of ``since`` and ``until`` when the
+    HOM-82 parser accepts it, else its default, the 4 closed weeks before this week.  Never
+    a 422."""
     raw: dict[str, str | list[str]] = {}
     if since is not None:
         raw["from"] = since.isoformat()
@@ -632,15 +634,19 @@ def read_aggregates(
     """Counts per scoped workspace, and (HOM-299) each item's ``coverage``, ``scorecard``,
     ``missing_data`` and ``disclosure``: those of the executive view's block for the same
     workspace, grant and window ``coverage_window`` (ADR 0041, L2).  A block HOM-82 withholds
-    is withheld here too; the existing counts keep their values."""
+    is withheld here too.
+
+    HOM-320 (owner ruling B', a breaking change of contract 1.7.0): the counts are over the
+    block's population in ``coverage_window``: the live meetings received in it (ledger
+    ``received_at``), of the granted teams for a team grant.  A withheld item's counts are
+    ``null``.  ``since`` and ``until`` only choose ``coverage_window`` and are echoed."""
     now = datetime.now(UTC)
     filters = _aggregate_filters(since, until, now)
     aggregates = service.workspace_aggregates(
         db,
         organization=context.organization,
         access=context.access,
-        since=since,
-        until=until,
+        window=filters.window,
         trend_block=partial(
             roles.organization_workspace_block,
             db,

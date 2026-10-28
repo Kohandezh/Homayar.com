@@ -80,8 +80,9 @@ test.describe("organization admin area (real backend, read only)", () => {
     const totals = page.getByRole("grid", { name: "Workspace totals" });
     await expect(totals).toBeVisible();
     const workspaceRow = totals.getByRole("row").filter({ hasText: ORG_NAME });
-    await expect(workspaceRow.getByRole("gridcell").first()).toHaveText("30");
-    await expect(page.getByRole("img", { name: /Meetings per workspace/ })).toHaveAttribute("aria-label", /: 30/);
+    // HOM-320: the demo seed writes no ledger rows (HOM-326)
+    await expect(workspaceRow.getByRole("gridcell").first()).toHaveText("0");
+    await expect(page.getByRole("img", { name: /Meetings per workspace/ })).toHaveAttribute("aria-label", /: 0/);
 
     // The organization group in the sidebar leads to the other pages.
     const group = page.getByRole("group", { name: "Organization" });

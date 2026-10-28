@@ -158,13 +158,16 @@ class WorkspaceAggregateResponse(BaseModel):
     workspace_id: str
     workspace_name: str
     team_ids: list[str] | None
-    meetings_total: int
-    meetings_by_status: dict[str, int]
-    audio_seconds_total: int
-    action_items_total: int
+    # HOM-320 (ADR 0041 R1, owner ruling B'): the live meetings of the item's HOM-82
+    # population, received (ledger ``received_at``) in ``coverage_window``; null when
+    # ``disclosure`` is withheld.
+    meetings_total: int | None
+    meetings_by_status: dict[str, int] | None
+    audio_seconds_total: int | None
+    action_items_total: int | None
     # HOM-299 (ADR 0041, L2): the executive view's block for the same workspace, grant and
-    # window.  A withheld item has no count: ``coverage`` and ``missing_data`` are null; the
-    # fields above keep their values.
+    # window.  A withheld item has no count: ``coverage``, ``missing_data`` and the four
+    # fields above are null.
     coverage: TrendCoverage | None
     scorecard: AggregateScorecard
     missing_data: AggregateMissingData | None
@@ -173,6 +176,7 @@ class WorkspaceAggregateResponse(BaseModel):
 
 class AggregatesResponse(BaseModel):
     organization_id: str
+    # the request, echoed; HOM-320: they only choose ``coverage_window``, which every count uses
     since: datetime | None
     until: datetime | None
     generated_at: datetime
