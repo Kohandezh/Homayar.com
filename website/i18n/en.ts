@@ -1,7 +1,7 @@
 const en = {
   locale: "en",
   brand: "Homayar",
-  tagline: "Post-call voice intelligence",
+  tagline: "Post-call analysis",
   titleSuffix: "Homayar",
 
   common: {
@@ -66,22 +66,22 @@ const en = {
 
   home: {
     meta: {
-      title: "Homayar: post-call review for contact centers",
+      title: "Homayar: post-call analysis for contact centers",
       description:
-        "Homayar transcribes authorized call recordings and gives your team a summary, action items and insights linked to the transcript. QC scoring and coaching are planned. Persian and English, self-hosted, with managed cloud planned.",
+        "Your supervisors can't listen to every call. Homayar uses AI to turn each recording into a full transcript, a summary and action items, with every point linked to the line it came from. Persian and English, on your own servers.",
     },
     particles: {
       brand: "Homayar",
       slogan: "Every call, an insight.",
     },
     hero: {
-      title: "Turn call recordings into reviews you can check against the transcript.",
+      title: "Know what happened on every call, and what needs follow-up.",
       headlines: [
-        "Turning call recordings",
-        "into review reports",
-        "with summaries and actions",
-        "linked to the transcript",
-        "with artificial intelligence.",
+        "Can't get to every call?",
+        "Homayar can.",
+        "Summaries and action items.",
+        "Backed by the transcript.",
+        "On your own servers.",
         "In Persian and English.",
       ],
       hint: "Scroll: a call becomes a report",
@@ -93,23 +93,23 @@ const en = {
       items: [
         {
           icon: "gauge",
-          title: "Quality control score",
-          text: "Planned: empathy, problem solving, clarity, tone, call closing and silence handling, scored per call with an overall result.",
+          title: "A quality score for every call",
+          text: "Planned: every call is scored on six criteria, from empathy to silence handling, and every agent is judged by the same ones.",
         },
         {
           icon: "alert",
-          title: "Problem detection",
-          text: "Planned: root causes, system failures, issue severity and problems that keep coming back across calls.",
+          title: "Root causes",
+          text: "Planned: see the root cause of each complaint, how serious it is, and which problems keep coming back in other calls.",
         },
         {
           icon: "trend",
-          title: "Business insight",
-          text: "Insights from the call, each with a confidence and the transcript lines behind it. Upsell and churn-risk signals are planned.",
+          title: "Insights from every call",
+          text: "Insights drawn from the call itself, each with a confidence level and the lines that back it up. Upsell and churn-risk signals are planned.",
         },
         {
           icon: "book",
-          title: "Training package",
-          text: "Planned: a coaching package generated from each agent's weak points, with behavioral recommendations.",
+          title: "Coaching for each agent",
+          text: "Planned: each agent gets clear coaching tips, based on their own weak points.",
         },
       ],
     },
@@ -128,35 +128,36 @@ const en = {
       eyebrow: "A working console, not a concept",
       title: "Built for the daily work of a QA team",
       items: [
-        { icon: "layout", title: "Dashboard", text: "Recent calls, calls with results, calls in processing and audio used." },
-        { icon: "file", title: "Call reports", text: "Summary, action items and insights linked to the transcript lines, plus the full transcript." },
-        { icon: "download", title: "Exports", text: "Download a call as TXT, JSON, SRT or VTT. PDF is planned." },
-        { icon: "users", title: "Roles", text: "Owner, admin, member and viewer roles, teams with supervisors and agents, and invitations." },
-        { icon: "phone", title: "VOIP webhooks", text: "Planned: receivers for Asterisk and FreePBX; agents are created from the extension number." },
-        { icon: "bot", title: "AI copilot", text: "Planned: ask questions about your call data in plain language." },
+        { icon: "layout", title: "Your calls at a glance", text: "See which calls are ready, which are still processing, and how much audio has been analyzed so far, on one screen." },
+        { icon: "file", title: "Reports you can check", text: "A summary, action items and insights, each linked to the line it came from, with the full transcript one tab away." },
+        { icon: "download", title: "Share links and exports", text: "Send a call to an agent or their manager with a share link, or download it as TXT, JSON, SRT or VTT. PDF export is planned." },
+        { icon: "users", title: "Access by role", text: "Everyone gets the access their role allows: owner, admin, member or viewer. Teams have supervisors and agents, and you invite your own colleagues." },
+        { icon: "phone", title: "Phone system connection", text: "Planned: calls arrive straight from Asterisk and FreePBX, and each extension number becomes an agent in Homayar." },
+        { icon: "bot", title: "Ask your call data", text: "Planned: ask about your calls in plain words and get an answer." },
       ],
-      link: "Explore the product",
+      link: "All features",
     },
     deployment: {
       eyebrow: "Your data, your choice of where it lives",
       title: "Self-hosted or hybrid today, cloud planned",
       items: [
-        { title: "SaaS", text: "Planned: managed by us in a qualified cloud, with tenant isolation enforced in the application and in the database." },
-        { title: "Self-hosted", text: "A Docker Compose package on your own servers. No application container has a route to the internet." },
-        { title: "Hybrid", text: "Recordings and transcripts stay local. Optional cloud reasoning gets masked text by default, and runs only if you turn it on." },
+        { title: "Managed cloud", text: "Planned: we run Homayar for you in the cloud, with each organization's data kept apart in the application and in the database." },
+        { title: "Self-hosted", text: "A Docker Compose package on your own servers. No application container can reach the internet." },
+        { title: "Hybrid", text: "Recordings and transcripts stay with you. Cloud analysis runs only if you turn it on, and by default it gets text with personal data masked." },
       ],
-      link: "Compare deployment options",
+      modes: ["We run it", "You run it", "You run it, plus cloud"],
+      link: "Find the right setup",
     },
     trust: {
       eyebrow: "Privacy is a product feature",
       title: "Designed so the recording never leaves your control",
       items: [
-        { icon: "eyeOff", title: "Personal-data masking", text: "Phone numbers, e-mails, national IDs, card and IBAN numbers are replaced in the transcript. The limits are stated, not hidden." },
-        { icon: "layers", title: "Tenant isolation", text: "Workspace checks in the application plus PostgreSQL row-level security under a non-bypass role." },
-        { icon: "trash", title: "Deletion that purges", text: "A delete denies access at once, then a durable purge removes transcripts, analyses and media bytes." },
-        { icon: "shield", title: "No hidden cloud fallback", text: "If a local model fails, the stage is reported as unavailable. Nothing is quietly sent elsewhere." },
+        { icon: "eyeOff", title: "Personal-data masking", text: "Phone numbers, e-mails, national IDs, card numbers and IBANs are replaced with placeholders in the transcript. Where there are limits, we say so." },
+        { icon: "layers", title: "Each organization kept apart", text: "The application checks each workspace's access, and PostgreSQL row-level security blocks access to another organization's data." },
+        { icon: "trash", title: "Delete really means delete", text: "When you delete a call, access ends at once. Then its transcript, analyses and audio file are purged for good." },
+        { icon: "shield", title: "No hidden trips to the cloud", text: "If a local model fails, that step is marked unavailable. No data is quietly sent anywhere else." },
       ],
-      link: "Read the security page",
+      link: "Security details",
     },
   },
 
@@ -710,11 +711,11 @@ const en = {
       source: "Upload",
       app: "Homayar",
       models: "Local models",
-      cloud: "Cloud reasoning, masked by default",
+      cloud: "Cloud analysis, masked by default",
       internet: "Internet",
       blocked: "No route",
       allowlist: "Allowlist proxy only",
-      optIn: "Opt-in per tenant",
+      optIn: "Opt-in per org",
       region: "Planned: cloud region",
     },
     zones: {
@@ -1050,10 +1051,10 @@ const en = {
     },
     report: "Call Report",
     agents: {
-      qc: { name: "Quality Control", agent: "QC Agent · planned", note: "Six criteria and an overall score." },
+      qc: { name: "Quality Control", agent: "QC scoring · planned", note: "Six criteria and an overall score." },
       problems: {
         name: "Problem Detection",
-        agent: "Problem Detection · planned",
+        agent: "Root causes · planned",
         severity: "Severity",
         items: [
           { label: "Delivery status not updated", severity: "High" },
@@ -1062,7 +1063,7 @@ const en = {
       },
       insights: {
         name: "Business Insight",
-        agent: "Business Insight · planned",
+        agent: "Insights · partly planned",
         items: [
           { label: "Churn Risk", value: "Medium" },
           { label: "Upsell", value: "No" },
@@ -1070,8 +1071,8 @@ const en = {
         ],
       },
       teacher: {
-        name: "Training Package",
-        agent: "QC Teacher · planned",
+        name: "Coaching",
+        agent: "Coaching · planned",
         items: [
           "Acknowledge a repeat contact before checking the system.",
           "Give a concrete follow-up time instead of 'soon'.",
@@ -1084,35 +1085,35 @@ const en = {
   },
 
   story: {
-    eyebrow: "Planned: the four agents",
-    title: "One transcript. Four readings.",
-    text: "A simulation with sample data. Each planned agent reads the same transcript and writes one part of the report.",
+    eyebrow: "Planned: the full report",
+    title: "One call. Four answers.",
+    text: "Four questions every supervisor asks: how did the agent do, what went wrong, how does the customer feel, what should we coach? A simulation with sample data; apart from per-call insights, everything here is planned.",
     surfaces: {
       eyebrow: "Simulated console",
-      title: "A simulated console with sample data",
-      text: "These screens use sample data. QC scores, incidents, analytics, the copilot and the graph are planned, not in the console today.",
+      title: "Your team's recent calls on one screen",
+      text: "These screens are a simulation with sample data. QC scores, incidents, analytics, the copilot and the graph are planned and not in the console yet.",
     },
     flow: {
-      eyebrow: "Where the data goes",
-      title: "The recording stays where you decide",
-      text: "Self-hosted and hybrid today; managed cloud is planned. In the self-hosted package no application container has a route to the internet.",
+      eyebrow: "Deployment",
+      title: "You decide where your data lives",
+      text: "Install Homayar on your own servers, or choose hybrid. Managed cloud is planned.",
     },
     trust: {
-      eyebrow: "Built in, not bolted on",
-      title: "Privacy is a product feature",
+      eyebrow: "From day one",
+      title: "Your customers' privacy, built into the product",
     },
   },
 
   palette: {
     eyebrow: "Next step",
-    title: "Ask for a real call report",
+    title: "See a real call report",
     placeholder: "Ask Homayar…",
     hint: "Pick an action",
     actions: [
-      { label: "Request a demo", meta: "We reply by e-mail, then a short call", path: "/contact", kbd: "D" },
-      { label: "See the pipeline", meta: "Step by step, with truthful states", path: "/how-it-works", kbd: "P" },
-      { label: "Read the security page", meta: "Masking, isolation, deletion, egress", path: "/security", kbd: "S" },
-      { label: "Compare deployments", meta: "Self-hosted, hybrid, SaaS planned", path: "/deployment", kbd: "C" },
+      { label: "Request a demo", meta: "We reply by e-mail and set up a short call", path: "/contact", kbd: "D" },
+      { label: "How Homayar works", meta: "Step by step, from recording to report", path: "/how-it-works", kbd: "P" },
+      { label: "Data security", meta: "Masking, isolation, deletion and egress control", path: "/security", kbd: "S" },
+      { label: "Choose your setup", meta: "Self-hosted or hybrid; managed cloud planned", path: "/deployment", kbd: "C" },
     ],
   },
 
@@ -1122,14 +1123,14 @@ const en = {
 
   scene: {
     warp: {
-      eyebrow: "Space to space",
-      title: "The call ends. The analysis space opens.",
-      text: "Keep scrolling. You are entering the network that reads the conversation.",
+      eyebrow: "Read, not replay",
+      title: "Conversations analyzed after the call ends",
+      text: "Skip the replay. Read the summary and the action items, and know what to do next.",
     },
     brain: {
-      eyebrow: "Inside the analysis",
-      title: "The core reads every line of the call",
-      text: "A simulation with a sample call. Each line lights up the part of the network that reads it. At the end the report comes to you.",
+      eyebrow: "A sample call",
+      title: "From the customer's words to your report",
+      text: "A simulation with sample data: a customer whose order is nine days late. The quality scores, root causes and coaching tip are planned.",
       conversation: "Sample conversation",
       analyzing: "Analyzing the conversation",
       ready: "Report ready",
@@ -1150,8 +1151,8 @@ const en = {
     sentiment: "Sentiment distribution",
     sentimentLabels: ["Positive", "Neutral", "Negative"],
     report: "Call Report",
-    qc: "Quality Control",
-    problems: "Problem Detection",
+    qc: "Quality score",
+    problems: "Root causes",
     insights: "Business Insight",
     transcript: "Transcript",
     actions: "Recommended Actions",
