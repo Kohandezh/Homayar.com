@@ -53,6 +53,8 @@ For each ticket:
 1. Move it to In Progress in Linear.
 2. Run `scripts/launch.sh <TICKET> "<prompt>"`. It opens a Herdr tab named after the ticket, starts `claudepersonal`, and sends the prompt.
 
+`launch.sh` checks that the first prompt started a turn, for up to 60 s after sending it. If the agent is still at the empty `❯ Try "` prompt, it closes the tab and launches once more. If the second try also fails, it exits 1 with a message that names the ticket and the pane, and leaves that tab open. Then read that pane, close the tab, and launch again or tell the owner. Every `herdr` call in the script has a time limit, so the script never hangs. The test: `bash .claude/skills/homlead/scripts/test-launch.sh` (a fake `herdr`, about one minute).
+
 The prompt starts with `/foreus <TICKET> (Linear ticket in team HOM, read it with the Linear MCP).` Then it gives:
 
 - What to build, in two or three sentences, with the endpoints or files.
