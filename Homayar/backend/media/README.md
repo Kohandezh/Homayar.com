@@ -294,8 +294,21 @@ meeting, ingestion and `retention_expires_at` come from the ORIGINAL. Retention,
 conversation purge and integrity checks act on it like on any media object of the meeting.
 A legal hold follows lineage (HOM-313): the derivative of a held ORIGINAL is created held, in
 the same transaction, with the ORIGINAL's owner, reason and review date (audit
-`media.legal_hold_inherited`); a hold or a release by id also covers the object's
-descendants. A reader selects a derivative by the exact `producer`. v1 never retires an
+`media.legal_hold_inherited`); a hold by id also covers the object's descendants that are
+not held yet. A release by id covers only the descendants whose hold was inherited from the
+released object, or from a descendant released with it (HOM-329). A hold placed directly on a
+derived object (for another matter, or by the meeting hold) stays until it is released by its
+own id; the release writes `media.legal_hold_kept` for it. The row does not store where its
+hold came from, so the release reads the audit trail: every `media.legal_hold_placed` and
+`media.legal_hold_inherited` event records the row's exact `legal_hold_at`. A hold is
+inherited only when an inherited event matches that time exactly and no placed event does.
+Any other hold counts as direct and stays, also when the evidence is missing or unclear. A
+direct hold request on a row whose hold is inherited makes that row's hold direct. This is
+true for a hold by id and for the meeting hold, also when the request is repeated. A later
+release of the row's source then keeps the row held. Holds inherited before HOM-329 have no
+`legal_hold_at` in their event. They count as `unknown` and stay held when their source is
+released. Deploy note: in any environment where derivatives were ever on, release such rows
+by their own id. A reader selects a derivative by the exact `producer`. v1 never retires an
 object.
 
 ### Reason codes
@@ -459,9 +472,13 @@ pairs; null when `inspection_duplicated` is null).
   meeting row, then the source row, reads the source again, and creates the derived object
   of a held source held in the same transaction (`media.legal_hold_inherited`). It refuses a
   held source with a recorded deletion request (`source_not_live`). The meeting hold covers
-  every object of the meeting that is not deleted; a hold or a release by id also covers the
-  object's descendants. Registration and every hold path lock the meeting row before any
-  media row and read the media rows after that lock, so a hold never misses a derived row
+  every object of the meeting that is not deleted; a hold by id also covers the object's
+  descendants, and a release by id covers the descendants whose hold was inherited (HOM-329,
+  see the lineage paragraph above). Known limit (HOM-331): a row has one hold at a time. A
+  hold by id does not re-point a descendant that is already held, so when that descendant's
+  own hold is released later, the newer hold on an ancestor does not cover it. Registration
+  and every hold path lock the meeting row before any media row and read the media rows
+  after that lock, so a hold never misses a derived row
   inserted at the same time (an object without a meeting has no meeting row; then the source
   row lock serializes them). Known limit: a hold or a release by id locks the object's
   descendants in creation order. The media reconciliation sweep
