@@ -47,7 +47,6 @@ export function Footer({ locale, dict }: { locale: Locale; dict: Dictionary }) {
       <div className="container-x grid grid-cols-2 gap-8 py-14 md:grid-cols-[1.5fr_repeat(4,1fr)] md:gap-10 md:py-20">
         <div className="col-span-2 flex flex-col gap-5 md:col-span-1">
           <Logo locale={locale} brand={dict.brand} tagline={dict.tagline} />
-          <p className="max-w-sm text-sm text-ink-2">{dict.footer.note}</p>
         </div>
         {columns.map((col) => (
           <div key={col.title}>

@@ -46,7 +46,6 @@ const en = {
     trust: "Trust",
     company: "Company",
     legal: "Legal",
-    note: "Homayar analyzes call recordings you are authorized to process. This website loads no third-party scripts, except the Cloudflare Turnstile check on the contact page, and sets no tracking cookies.",
     rights: "Homayar. All rights reserved.",
   },
 
@@ -348,19 +347,19 @@ const en = {
     meta: {
       title: "Solutions by role: QA, supervisors, operations, IT",
       description:
-        "How QA managers, supervisors, contact-center operations leaders and IT or security teams use Homayar's call summaries, evidence links, search and private deployment, and what is planned for each role.",
+        "What Homayar does for QA, supervisors, operations and IT: a summary of every call, each point linked to the transcript, search across calls and installation on your own servers. For each role, we also say what is planned.",
     },
     hero: {
       eyebrow: "By role",
-      title: "The same call, seen from four seats",
-      text: "Homayar serves the people who score calls, the people who coach agents, the people who own the numbers and the people who approve where data goes.",
+      title: "One call, four points of view",
+      text: "Each role wants something different from a call: QA wants fair reviews, supervisors want the calls that matter, operations wants patterns and IT wants to know where the data lives. Here is what Homayar gives each of them today, and what is planned.",
     },
     ring: {
-      eyebrow: "Four seats, one call",
-      hint: "Scroll: the ring turns and the report re-filters",
-      seat: "Seat",
-      sees: "What this role sees",
-      open: "Open the page",
+      eyebrow: "Four roles, one call",
+      hint: "Simulation: each role, its own view",
+      seat: "Role",
+      sees: "What each one gets",
+      open: "More details",
       views: {
         "qa-managers": "Simulation: planned scores on six criteria",
         supervisors: "Simulation: planned root causes by severity",
@@ -373,14 +372,14 @@ const en = {
         slug: "qa-managers",
         icon: "gauge",
         name: "QA managers",
-        short: "Review every analyzed call with its transcript and evidence. Scoring on fixed criteria is planned.",
+        short: "Review each call with its summary and transcript, and trace every point to its line. Scoring is planned.",
         meta: {
           title: "Homayar for QA managers",
-          description: "Call summaries, action items and the transcript behind every finding today. Scores on six criteria and coaching packages are planned.",
+          description: "Get a summary and action items for every call, and check each finding against the line it came from. Quality scores on six criteria and coaching are planned.",
         },
         hero: {
-          title: "Every finding, with the conversation one click away",
-          text: "Manual sampling reviews a few calls a week. Homayar writes a summary for every analyzed call and links each point to the transcript, so a disputed result can be checked instead of argued. Scoring on six criteria is planned.",
+          title: "Every finding, one click from the transcript",
+          text: "Manual sampling covers only a few calls a week. Homayar summarizes every analyzed call and links each point to the transcript, so a disputed result gets checked, not argued. Scoring on six criteria is planned.",
         },
         needs: {
           title: "What a QA manager needs",
@@ -391,42 +390,42 @@ const en = {
           ],
         },
         gets: {
-          title: "What Homayar does today",
+          title: "What you get today",
           items: [
-            "A summary, action items and insights for every analyzed call, each linked to the transcript.",
-            "The transcript one tab away from the results.",
-            "Search across transcripts, with each hit linked to its moment in the call.",
-            "Share links and TXT, JSON, SRT or VTT exports to send a call to an agent or a manager.",
+            "A summary, action items and insights for every call, each linked to the line it came from.",
+            "The full transcript, one tab away from the results.",
+            "Search across transcripts; each hit takes you to that moment in the call.",
+            "Send a call to an agent or their manager with a share link, or download it as TXT, JSON, SRT or VTT.",
           ],
         },
         day: {
           title: "A simulated day with Homayar",
-          hint: "Simulation with sample data. Scroll through the day",
+          hint: "Simulation with sample data",
           items: [
-            { time: "08:30", task: "Open the dashboard", text: "Yesterday's calls are on the overview, with their processing state. Scores on six criteria are planned.", screen: "kpis" },
-            { time: "10:00", task: "Check a disputed finding", text: "Each point in the summary links to the transcript lines it came from, so it can be checked against the words. Score bars are planned.", screen: "report" },
-            { time: "12:30", task: "Share a report", text: "A share link or an export of the call goes to the agent and their manager. PDF is planned.", screen: "pdf" },
-            { time: "15:00", task: "Turn weak points into coaching", text: "Planned: the training package lists behavioral recommendations built from the agent's weak points.", screen: "training" },
-            { time: "17:30", task: "Look at the trend", text: "Planned: the QC trend chart shows whether the week moved in the right direction.", screen: "trend" },
+            { time: "08:30", task: "Yesterday's calls", text: "The overview shows which of yesterday's calls are ready and which are processing. Six-criteria scores are planned.", screen: "kpis" },
+            { time: "10:00", task: "Check a disputed finding", text: "Each point in the summary links to the line it came from, so you check it against what the agent and the customer actually said. Score bars are planned.", screen: "report" },
+            { time: "12:30", task: "Share a report", text: "Send the call to the agent and their manager with a share link or an export. PDF export is planned.", screen: "pdf" },
+            { time: "15:00", task: "Turn weak points into coaching", text: "Planned: each agent gets clear coaching tips, based on their own weak points.", screen: "training" },
+            { time: "17:30", task: "The week's trend", text: "Planned: the quality trend chart shows whether call quality got better or worse this week.", screen: "trend" },
           ],
         },
         roadmap: {
           title: "Planned for this role",
-          items: ["Custom scorecards per workspace.", "Supervisor review, calibration and appeals workflow.", "Six QC criteria per call and a training package per agent."],
+          items: ["Your own scorecard for each workspace.", "Supervisor review, reviewer calibration and agent appeals.", "A quality score on six criteria for every call, and coaching for each agent."],
         },
       },
       supervisors: {
         slug: "supervisors",
         icon: "users",
         name: "Supervisors",
-        short: "Find the calls that need attention through summaries, action items and search. Coaching packages are planned.",
+        short: "Find the calls that need follow-up through summaries, action items and search. Coaching is planned.",
         meta: {
           title: "Homayar for supervisors",
-          description: "Summaries, action items and search across calls today. Incidents by severity, agent comparison and coaching packages are planned.",
+          description: "Can't get to every call? Read each call's summary and action items, and find the calls that matter with search. Incidents by severity, agent comparison and coaching are planned.",
         },
         hero: {
           title: "Spend your review time where it matters",
-          text: "A supervisor cannot listen to everything. Homayar summarizes each call and lists its action items, with the evidence attached. Incidents by severity and agent comparison are planned.",
+          text: "No supervisor can listen to every call. Homayar summarizes each one and lists its action items, each with its evidence in the transcript. Incidents by severity and agent comparison are planned.",
         },
         needs: {
           title: "What a supervisor needs",
@@ -437,88 +436,88 @@ const en = {
           ],
         },
         gets: {
-          title: "What Homayar does today",
+          title: "What you get today",
           items: [
             "A summary and action items for every analyzed call.",
-            "Search across transcripts to find calls that mention the same problem.",
-            "Teams with supervisors and agents, so each supervisor sees their team's calls.",
-            "Evidence links from every finding to the transcript lines behind it.",
+            "Search the transcripts to find calls that mention the same problem.",
+            "Teams have supervisors and agents, and each supervisor sees their own team's calls.",
+            "Every finding links to the line of the call it came from.",
           ],
         },
         day: {
           title: "A simulated day with Homayar",
-          hint: "Simulation with sample data. Scroll through the day",
+          hint: "Simulation with sample data",
           items: [
-            { time: "08:30", task: "Start with the incidents", text: "Planned: the incidents view is filtered by severity, so the few calls worth listening to are at the top.", screen: "incidents" },
-            { time: "10:00", task: "Read the root causes", text: "Planned: each detected problem has a root cause and a severity, tied to the call it came from.", screen: "issues" },
-            { time: "12:30", task: "Compare the team", text: "Planned: agent comparison charts in the analytics view show who needs time this week.", screen: "compare" },
-            { time: "15:00", task: "Coach with a package", text: "Planned: the training package for one agent gives specific behavioral recommendations for the next conversation.", screen: "training" },
-            { time: "17:30", task: "Ask the copilot", text: "Planned: one question in plain language returns the issues that came up most this week.", screen: "copilot" },
+            { time: "08:30", task: "Start with the incidents", text: "Planned: incidents are sorted by severity, so the few calls worth hearing come first.", screen: "incidents" },
+            { time: "10:00", task: "Read the root causes", text: "Planned: see the root cause and severity of each problem, one click from its call.", screen: "issues" },
+            { time: "12:30", task: "Compare the team", text: "Planned: agent comparison charts show who needs your time this week.", screen: "compare" },
+            { time: "15:00", task: "Coach an agent", text: "Planned: each agent gets specific tips for their next call.", screen: "training" },
+            { time: "17:30", task: "Ask the copilot", text: "Planned: ask one plain question and learn which issues came up most this week.", screen: "copilot" },
           ],
         },
         roadmap: {
           title: "Planned for this role",
-          items: ["Coaching assignments with follow-up.", "Alerts for high-severity findings.", "Incidents by severity, agent comparison and training packages."],
+          items: ["Coaching assignments with follow-up.", "Alerts for high-severity findings.", "Incidents by severity, agent comparison and coaching."],
         },
       },
       "contact-center-operations": {
         slug: "contact-center-operations",
         icon: "trend",
         name: "Contact-center operations",
-        short: "Search the whole queue and see what each call was about. Trend views are planned.",
+        short: "Search all your calls and know what each one was about. Trend charts are planned.",
         meta: {
           title: "Homayar for contact-center operations",
-          description: "Call summaries, insights, search and usage across the queue today. Quality trends, sentiment, issue tracking and a copilot are planned.",
+          description: "See each call's summary and insights, search across all calls and track usage per workspace in one place. Quality trends, customer sentiment, issue tracking and a copilot are planned.",
         },
         hero: {
-          title: "Search the whole queue, not one call at a time",
-          text: "Operations leaders need the pattern, not the single call. Today Homayar gives you summaries, insights and search across calls. Aggregated quality scores, sentiment and issue trends are planned.",
+          title: "Search every call at once, not one at a time",
+          text: "Operations leaders need the pattern, not a single call. Today Homayar gives you each call's summary and insights, and search across all of them. Aggregated quality scores, customer sentiment and issue trends are planned.",
         },
         needs: {
-          title: "What operations needs",
+          title: "What an operations leader needs",
           items: [
             "Which problems keep coming back, and how often.",
-            "Whether quality and satisfaction are moving in the right direction.",
-            "Answers without waiting for an analyst.",
+            "Whether quality and satisfaction are getting better or worse.",
+            "Fast answers, without waiting for an analyst.",
           ],
         },
         gets: {
-          title: "What Homayar does today",
+          title: "What you get today",
           items: [
-            "An overview of recent calls, calls in processing and audio used.",
-            "Insights per call, each with a confidence and its evidence.",
-            "Search across call transcripts, with each hit linked to its moment in the call.",
-            "Usage per workspace: audio used against the plan limits.",
+            "One screen with recent calls, calls still processing and the audio analyzed so far.",
+            "Insights from each call, each with a confidence level and the lines that back it up.",
+            "Search across transcripts; each hit takes you to that moment in the call.",
+            "Usage per workspace: how much audio is analyzed and how much is left in your plan.",
           ],
         },
         day: {
           title: "A simulated day with Homayar",
-          hint: "Simulation with sample data. Scroll through the day",
+          hint: "Simulation with sample data",
           items: [
-            { time: "08:30", task: "Read the KPI cards", text: "Planned: total calls, average QC score, open issues and calls today, for the period you choose.", screen: "kpis" },
-            { time: "10:00", task: "Check the sentiment", text: "Planned: the sentiment distribution shows how the queue felt, not one call.", screen: "sentiment" },
-            { time: "12:30", task: "Track recurring issues", text: "Planned: issue tracking groups detected problems with root causes and severity.", screen: "issues" },
-            { time: "15:00", task: "Read the business signals", text: "Planned: upsell, churn-risk and satisfaction-trend signals per call.", screen: "signals" },
-            { time: "17:30", task: "Ask the data", text: "Planned: the copilot answers from stored call data and explains the result in plain language.", screen: "copilot" },
+            { time: "08:30", task: "KPIs at a glance", text: "Planned: total calls, average quality score, open issues and today's calls, for any period you choose.", screen: "kpis" },
+            { time: "10:00", task: "How customers feel", text: "Planned: the sentiment chart shows how customers felt across all calls, not just one.", screen: "sentiment" },
+            { time: "12:30", task: "Track recurring issues", text: "Planned: similar problems are grouped together, each with its root cause and severity.", screen: "issues" },
+            { time: "15:00", task: "Upsell and churn signals", text: "Planned: upsell chances, churn risk and the satisfaction trend for each call.", screen: "signals" },
+            { time: "17:30", task: "Ask the data", text: "Planned: ask your question; the copilot answers from your call data and explains it in plain words.", screen: "copilot" },
           ],
         },
         roadmap: {
           title: "Planned for this role",
-          items: ["Coverage-adjusted trend statistics.", "Executive briefs built from reviewed findings.", "QC trends, sentiment, issue tracking and a copilot over call data."],
+          items: ["Trend statistics adjusted for how many calls were analyzed.", "Short briefs for executives, built from reviewed findings.", "Quality trends, customer sentiment, issue tracking and a copilot for your call data."],
         },
       },
       "it-security": {
         slug: "it-security",
         icon: "shield",
         name: "IT and security",
-        short: "Deploy on your servers, control every outbound route and keep every recording under your control. PBX connection and single sign-on are planned.",
+        short: "Install Homayar on your own servers, control every outbound route and keep recordings inside your organization. PBX connection and single sign-on are planned.",
         meta: {
           title: "Homayar for IT and security teams",
-          description: "Self-hosted Docker Compose package, role-based access, tenant isolation with row-level security and no outbound route from application containers. PBX connection and single sign-on are planned.",
+          description: "Install Homayar on your own servers with Docker Compose. Each organization's data is kept apart with PostgreSQL row-level security, and no application container can reach the internet. PBX connection and single sign-on are planned.",
         },
         hero: {
-          title: "A bounded stack you can install, back up and audit",
-          text: "IT approves the integration; security approves the data flow. Homayar is built to answer both without a slide of promises.",
+          title: "A compact stack you install, back up and audit yourself",
+          text: "IT signs off on the integration, security signs off on the data flow. Homayar gives both a clear answer: real configuration, not slides and promises.",
         },
         needs: {
           title: "What IT and security need",
@@ -529,23 +528,23 @@ const en = {
           ],
         },
         gets: {
-          title: "What Homayar does today",
+          title: "What you get today",
           items: [
-            "Self-hosted Docker Compose package with PostgreSQL, a Redis-compatible broker, S3-compatible object storage, API, workers and the console behind one nginx origin.",
-            "No application container has a route out; optional outbound traffic goes through a deny-by-default proxy with an exact allowlist.",
-            "Sign-in with e-mail and password or Google, and API keys for scripts. PBX webhooks are planned.",
+            "One Docker Compose package for your own servers: PostgreSQL, a Redis-compatible broker, S3-compatible object storage, the API, the workers and the console, all behind one nginx origin.",
+            "No application container has a route out. If you need outbound traffic, it goes only through an allowlist proxy; everything is closed except the destinations you allow.",
+            "Log in with e-mail and password or Google, and API keys for scripts. PBX webhooks are planned.",
             "JWT sessions, Argon2 password hashing, role-based access, per-route rate limits and PostgreSQL row-level security.",
           ],
         },
         day: {
           title: "A simulated day with Homayar",
-          hint: "Simulation with sample data. Scroll through the day",
+          hint: "Simulation with sample data",
           items: [
-            { time: "08:30", task: "Connect the PBX", text: "Planned: the VOIP webhook receives each finished call. Every call is verified with a shared secret.", screen: "webhook" },
-            { time: "10:00", task: "Set up the roles", text: "Members join by invitation and sign in with e-mail or Google. Roles include admin, and teams have supervisors and agents.", screen: "ldap" },
-            { time: "12:30", task: "Confirm there is no route out", text: "No application container has a route to the internet. Optional outbound traffic goes only through a deny-by-default proxy.", screen: "egress" },
-            { time: "15:00", task: "Check the isolation", text: "Row-level security is forced. A connection with no tenant context sees no tenant rows.", screen: "roles" },
-            { time: "17:30", task: "Run the runbook", text: "Health and readiness endpoints, the migration job, drain and rollback steps are documented.", screen: "runbook" },
+            { time: "08:30", task: "Connect the PBX", text: "Planned: a VOIP webhook receives each finished call from your PBX; a shared secret verifies every request.", screen: "webhook" },
+            { time: "10:00", task: "Set up the roles", text: "Colleagues join by invitation and log in with e-mail or Google. Roles: owner, admin, member or viewer; teams have supervisors and agents.", screen: "ldap" },
+            { time: "12:30", task: "Confirm there is no route out", text: "No application container has a route to the internet. Outbound traffic, if you need it, goes only through an allowlist proxy.", screen: "egress" },
+            { time: "15:00", task: "Check the isolation", text: "Row-level security (RLS) is forced. A connection with no organization set sees no rows.", screen: "roles" },
+            { time: "17:30", task: "Run the runbook", text: "Health and readiness checks, the migration job, drain and rollback are all documented.", screen: "runbook" },
           ],
         },
         roadmap: {
@@ -561,42 +560,42 @@ const en = {
     meta: {
       title: "Security and privacy at Homayar",
       description:
-        "Personal-data masking with stated limits, tenant isolation with PostgreSQL row-level security, explicit retention and durable deletion, and self-hosted deployment with no outbound route. No certifications are claimed.",
+        "You can mask personal data in transcripts, and we state the limits. Each organization's data is kept apart, deletion really deletes and the self-hosted package has no route to the internet. We claim no certifications.",
     },
     hero: {
       eyebrow: "Security and privacy",
       title: "What we built, and what we do not claim",
-      text: "Call recordings are among the most sensitive data a company holds. This page describes the controls that exist in the product today, as they are described in our architecture decisions, and lists what we do not claim.",
+      text: "Call recordings are among the most sensitive data any company holds. Here is how Homayar protects them today, and what we do not claim.",
     },
     layers: {
-      eyebrow: "Through the layers",
-      title: "Four layers between a recording and anyone who should not see it",
-      hint: "Scroll: pass through each layer",
+      eyebrow: "Layered protection",
+      title: "Four layers between your recording and anyone who should not hear it",
+      hint: "All four are in the product today",
       items: [
-        { icon: "server", title: "Network wall", text: "In the self-hosted package no application container has a route to the internet." },
-        { icon: "layers", title: "Tenant isolation", text: "The application's authorization matrix and PostgreSQL row-level security, enforced twice." },
-        { icon: "eyeOff", title: "Personal-data masking", text: "Phone numbers, e-mails, IDs and card numbers become stable placeholders in the transcript." },
-        { icon: "trash", title: "Retention and deletion", text: "Explicit retention modes and a tombstone-first deletion that removes the bytes." },
+        { icon: "server", title: "Network wall", text: "In the self-hosted package, no application container can reach the internet." },
+        { icon: "layers", title: "Org isolation", text: "Two separate locks: access checks in the application and row-level security in PostgreSQL." },
+        { icon: "eyeOff", title: "Personal-data masking", text: "Phone numbers, e-mails, IDs and card numbers are replaced with fixed placeholders in the transcript." },
+        { icon: "trash", title: "Retention and deletion", text: "You set how long data stays. Deletion blocks access, then erases it." },
       ],
     },
     maskDemo: {
       eyebrow: "Masking, simulated",
-      title: "Watch a phone number disappear from the transcript",
+      title: "With masking on, phone numbers are hidden in transcripts",
       original: "Original transcript",
       masked: "Masked version",
       who: "Customer",
       before: "You can reach me at 0912 345 6789 after five.",
       after: "You can reach me at [PHONE_1] after five.",
       badge: "1 phone number masked",
-      hint: "Scroll: the number dissolves",
+      hint: "Made-up number, sample data",
     },
     sections: {
       redaction: {
         id: "redaction",
         title: "Personal-data masking in transcripts",
-        text: "A workspace can turn on masking. Personal data in the transcript is replaced by stable placeholders such as [PHONE_1], and analysis, search and exports then use the masked version.",
+        text: "You turn masking on per workspace. From then on, personal data in the transcript is replaced with a stable placeholder such as [PHONE_1], and analysis, search and exports use the masked version.",
         detected: {
-          title: "What is detected",
+          title: "What it finds",
           items: [
             "E-mail addresses.",
             "Phone numbers: Iranian mobile and landline in every common spelling, and international numbers with a + or 00 prefix.",
@@ -607,7 +606,7 @@ const en = {
           ],
         },
         limits: {
-          title: "What is not detected, stated plainly",
+          title: "What it does not find",
           items: [
             "Names, addresses, dates of birth and license plates.",
             "Numbers written in words, or split across transcript segments.",
@@ -626,23 +625,23 @@ const en = {
       },
       isolation: {
         id: "isolation",
-        title: "Tenant isolation",
-        text: "Isolation is enforced twice: by the application's authorization matrix and by PostgreSQL row-level security.",
+        title: "Org isolation",
+        text: "Each organization's data is protected twice: once by the application's authorization checks and once by PostgreSQL row-level security.",
         items: [
           "Every query runs under a database role that cannot bypass row-level security. Production start-up refuses a superuser or bypass role.",
-          "Policies are forced, so even the table owner is subject to them. A connection with no tenant context sees no tenant rows.",
-          "Tenant context is bound per transaction from the validated session, job or share token, so it cannot survive connection-pool reuse.",
-          "The backend test suite runs as the restricted role and includes cross-tenant read, write and re-homing tests.",
+          "Policies are forced, so even the table owner is subject to them. A connection with no organization context sees no organization rows.",
+          "The organization for each transaction comes from the validated session, job or share token, so it cannot carry over when a pooled connection is reused.",
+          "The backend tests run as the same restricted role and include cross-organization read, write and re-homing tests.",
         ],
       },
       retention: {
         id: "retention",
         title: "Retention and deletion",
-        text: "Retention has three explicit modes, and deletion is designed to actually remove data, not only hide it.",
+        text: "You get three clear retention modes, and deletion actually removes data instead of only hiding it.",
         items: [
           "Retention modes: finite (1 to 3650 days after ingestion), indefinite (only an explicit deletion removes data) or immediate (eligible as soon as processing ends). Ambiguous values are refused, never guessed.",
           "A legal hold overrides retention. Retention never removes a held conversation.",
-          "Deletion is tombstone-first: access is denied at once, share links are revoked, and a durable purge then removes transcripts, analyses, evidence, summaries and media bytes in retried attempts.",
+          "Deletion happens in two steps: access ends at once and share links are revoked; then transcripts, analyses, evidence, summaries and media files are purged, with retries if a step fails.",
           "What remains is a non-content receipt: ids, counters, timestamps and an error code. Titles and file names are emptied.",
           "Tombstones are journaled outside the database so a restored backup re-applies deletions.",
           "A presigned download URL issued before a deletion stays valid until its own short expiry or until the bytes are removed. We say this instead of promising instant revocation.",
@@ -651,7 +650,7 @@ const en = {
       egress: {
         id: "egress",
         title: "Self-hosted: no route to the internet",
-        text: "In the on-premise package, denial is enforced at the application layer and at the network layer.",
+        text: "In the self-hosted package, data is stopped from leaving twice: once in the application and once in the network.",
         items: [
           "No application container has a route out. Application networks are internal; only nginx publishes a port.",
           "Optional outbound HTTP(S) goes only through a deny-by-default proxy that forwards to the exact host and port lines of an allowlist you control. The air-gapped default runs no proxy at all.",
@@ -661,8 +660,8 @@ const en = {
       },
       routing: {
         id: "routing",
-        title: "AI providers and routing",
-        text: "Which model sees your data is a policy decision recorded with every run.",
+        title: "Which AI sees your data",
+        text: "Your workspace's AI policy decides, and the decision is recorded with every run.",
         items: [
           "Each workspace has an AI policy: allowed endpoint kinds, regions and models per stage, and every model passes a license check. Candidates are filtered by the policy before anything else, and a refused candidate is never called and never a fallback.",
           "If speech to text is refused, the attempt fails with the reason and nothing is sent. If analysis is refused, the stage is reported unavailable and the transcript is kept.",
@@ -675,9 +674,9 @@ const en = {
         id: "access",
         title: "Access and authentication",
         items: [
-          "JWT session tokens on signed-in API routes, checked against a live session; passwords hashed with Argon2.",
+          "JWT session tokens on API routes for logged-in users, checked against a live session; passwords hashed with Argon2.",
           "Role-based access with owner, admin, member and viewer roles, plus team supervisors and agents.",
-          "Rate limits per route, for example on sign-in, uploads and API keys.",
+          "Rate limits per route, for example on login, uploads and API keys.",
           "Google sign-in with PKCE and ID-token checks, next to e-mail and password.",
           "A global exception handler so stack traces are never returned to a client.",
         ],
@@ -685,7 +684,7 @@ const en = {
       notClaimed: {
         id: "not-claimed",
         title: "What we do not claim",
-        text: "We publish tested behavior only.",
+        text: "We only state what we have tested.",
         items: [
           "No ISO 27001 or SOC 2 certification or attestation is claimed.",
           "No penetration-test report is published.",
@@ -835,12 +834,12 @@ const en = {
   contact: {
     meta: {
       title: "Contact and demo request",
-      description: "Request a demo of Homayar. Tell us about your queue, your recording setup and where the data must stay, and we will scope a pilot with you.",
+      description: "See Homayar with a sample call. Tell us about your calls, your recording setup and where the data must stay, and we will scope a pilot with you.",
     },
     hero: {
       eyebrow: "Contact",
       title: "Request a demo",
-      text: "Tell us a little about your operation. We reply by e-mail and propose a short call.",
+      text: "Tell us a little about your contact center. We reply by e-mail and set up a short call.",
     },
     form: {
       name: "Full name",
@@ -858,7 +857,7 @@ const en = {
       deployment: "Where should the data stay?",
       deploymentOptions: [
         { value: "", label: "Choose one" },
-        { value: "saas", label: "SaaS is fine" },
+        { value: "saas", label: "Managed cloud is fine" },
         { value: "self-hosted", label: "Self-hosted on our servers" },
         { value: "hybrid", label: "Hybrid" },
         { value: "unsure", label: "Not sure yet" },
@@ -874,7 +873,7 @@ const en = {
       ],
       phone: "Phone",
       message: "Anything else we should know?",
-      messageHint: "Optional. For example your PBX, languages spoken on your calls, or a deadline.",
+      messageHint: "Optional. For example your PBX, the languages of your calls, or a date you need it by.",
       required: "Required",
       optional: "Optional",
       submit: "Send request",
@@ -889,7 +888,7 @@ const en = {
         minutes: "Choose a value from the list.",
       },
       successTitle: "Request received",
-      successText: "Thank you. We have your request and will reply to the e-mail address you gave.",
+      successText: "Thank you. We will reply to the e-mail address you gave.",
       referenceLabel: "Your reference number",
       failedTitle: "The request could not be sent",
       failedText: "Please try again in a moment.",
@@ -904,9 +903,9 @@ const en = {
       title: "What happens next",
       steps: [
         "We reply by e-mail, usually within a few business days.",
-        "A short call to understand your queue, recording access and data constraints.",
-        "A walkthrough of the console with a sample call, including how partial results look.",
-        "If it fits, a scoped pilot proposal with agreed success criteria.",
+        "On a short call, we ask about your calls, your access to recordings and your data constraints.",
+        "We show you the Homayar console with a sample call, including how a partial result looks.",
+        "If Homayar fits, we propose a pilot with a clear scope and success criteria we agree on.",
       ],
       linksTitle: "Useful before the call",
     },
@@ -915,21 +914,21 @@ const en = {
   pricing: {
     meta: {
       title: "Pricing",
-      description: "Homayar pricing is being prepared. This page will list plans and amounts once the commercial model is final. Nothing on it is an offer.",
+      description: "Homayar pricing is not final yet. Plans and amounts will appear here once the commercial model is set. Until then, ask us for a written proposal. Nothing on this page is an offer.",
     },
     hero: {
       eyebrow: "Pricing",
-      title: "Pricing is being prepared",
+      title: "Get a written proposal for your budget",
       text: "We are finalizing the commercial model and payment options. Until then this page shows the plan structure only, without amounts. Nothing on this page is an offer.",
     },
     notice: "Amounts, billing units and terms will be published here once they are final. If you need numbers for a budget today, contact us and we will send a written proposal.",
     deployments: [
-      { name: "SaaS", text: "Planned. We run it." },
+      { name: "Managed cloud", text: "Planned. We run it." },
       { name: "Self-hosted", text: "You run it." },
     ],
     plans: [
-      { name: "Monthly", text: "Planned: pay month by month.", amount: "To be announced" },
-      { name: "Yearly", text: "Planned: commit for a year.", amount: "To be announced" },
+      { name: "Monthly", text: "Planned: pay month by month.", amount: "Not announced yet" },
+      { name: "Yearly", text: "Planned: commit for a year.", amount: "Not announced yet" },
       { name: "Enterprise", text: "Planned: contract terms, private deployment and support.", amount: "On request" },
     ],
     cta: "Ask for a written proposal",
@@ -938,14 +937,14 @@ const en = {
   roi: {
     meta: {
       title: "Review time calculator",
-      description: "Type your own numbers and count the review hours per month, today and with Homayar. Every formula is on the page, so you can check the result by hand.",
+      description: "Use your own numbers to work out how many hours your QA team spends reviewing calls each month, today and with Homayar. Every formula is on the page, so you can check the result yourself.",
     },
     hero: {
       eyebrow: "Review time calculator",
-      title: "Count your review hours",
-      text: "Type your own numbers. Every formula is shown, so you can check the result by hand.",
+      title: "How many hours does call review cost your team?",
+      text: "Type your own numbers. Every formula is on screen, so you can check the result with a calculator.",
     },
-    sample: "The values below are sample data, not measurements. Every value is your own estimate. Change them to your numbers.",
+    sample: "The numbers below are sample data, not measurements. Replace them with your own estimates.",
     fields: {
       agents: { label: "Agents whose calls are reviewed", hint: "", unit: "people" },
       calls: { label: "Calls reviewed per agent each month", hint: "", unit: "calls" },
@@ -970,7 +969,7 @@ const en = {
     },
     formulas: {
       title: "The formulas",
-      text: "Each line uses the numbers above. You can check every line with a calculator.",
+      text: "Each line uses the numbers above, and you can check it with a calculator.",
       items: {
         T: "Reviewed calls per month",
         H1: "Review hours per month today",
@@ -991,7 +990,7 @@ const en = {
     },
     product: {
       title: "What a reviewer gets from Homayar",
-      text: "For each call recording you upload, Homayar writes a transcript and a summary, with action items and insights linked to the transcript.",
+      text: "For each recording you upload, you get the full transcript and a summary, with action items and insights each linked to a line of the call. Your reviewer reads instead of listening.",
     },
   },
 
@@ -1000,6 +999,10 @@ const en = {
       meta: { title: "Privacy policy", description: "The Homayar privacy policy is being prepared with legal review and is not yet published." },
       title: "Privacy policy",
       notice: "This document is being prepared with legal review and is not yet in force. It will describe what data this website and the Homayar product process, on what basis, for how long, and who to contact. Until it is published, please contact us for the current data handling terms.",
+      site: {
+        title: "What holds today",
+        text: "Homayar analyzes only the call recordings you are authorized to process. This website loads no third-party scripts except the Cloudflare Turnstile check on the contact page, and it sets no tracking cookies. A request you send through the contact form is stored; the note next to the form says where and for how long.",
+      },
     },
     terms: {
       meta: { title: "Terms of service", description: "The Homayar terms of service are being prepared with legal review and are not yet published." },

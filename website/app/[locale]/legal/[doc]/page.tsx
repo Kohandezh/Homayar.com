@@ -45,6 +45,12 @@ export default async function LegalPage({ params }: PageProps<"/[locale]/legal/[
         <div className="mt-8">
           <Notice title={dict.common.inProgress}>{page.notice}</Notice>
         </div>
+        {"site" in page ? (
+          <section className="mt-8" data-reveal>
+            <h2 className="text-xl font-bold">{page.site.title}</h2>
+            <p className="mt-3 text-ink-2">{page.site.text}</p>
+          </section>
+        ) : null}
         <div className="mt-8 flex flex-wrap gap-3" data-reveal>
           <Link href={`/${locale}/contact`} className="btn btn-primary">
             {dict.nav.contact}
