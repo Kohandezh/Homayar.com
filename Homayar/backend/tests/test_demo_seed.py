@@ -6,6 +6,13 @@ inspection session, run it a second time to prove it is idempotent, log in
 with the printed accounts and read the console endpoints. Production (and
 every environment except development and test) is refused before any engine
 or connection exists.
+
+HOM-326: every demo meeting enters through the ingestion ledger, with a
+``received_at`` in the 4 closed weeks before the current Asia/Tehran week, and
+carries a team and an agent from ``MEETING_ATTRIBUTION``. Five extra agents
+(no password, not logins) give the ``Call Center`` team 5 distinct agents a
+week, so the demo workspace, that team and the trend views are released while
+``Sales`` and ``Support`` (1 agent each) are withheld as small groups.
 """
 
 from __future__ import annotations
@@ -14,8 +21,9 @@ import os
 import re
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import func, select
@@ -29,6 +37,8 @@ from backend.database.saas_models import (
     DuplicateMediaPolicy,
     Entitlement,
     EvidenceSpan,
+    IngestionRecord,
+    IngestionStatus,
     JobState,
     MediaObject,
     Meeting,
@@ -55,11 +65,16 @@ from backend.database.saas_models import (
     WorkspaceInvitation,
     WorkspaceRole,
 )
+from backend.services.role_trend_service import current_week_start
 from backend.tests._database import inspection_session_factory
 
 PERSIAN = re.compile(r"[؀-ۿ]")
 LATIN = re.compile(r"[A-Za-z]")
 ROLES = ("owner", "admin", "member", "viewer")
+AGENT_KEYS = tuple(key for key, _name in demo_seed.DEMO_AGENTS)
+# Workspace members of a clean run: the 4 logins and the 5 agents (role member).
+MEMBERSHIPS = {"owner": 1, "admin": 1, "member": 1 + len(AGENT_KEYS), "viewer": 1}
+INVITED = 3 + len(AGENT_KEYS)
 UNREACHABLE_DATABASE = "postgresql+psycopg://nobody:nothing@127.0.0.1:1/nothing"
 HOMAYAR_ROOT = Path(__file__).resolve().parents[2]
 
@@ -83,6 +98,7 @@ WORKSPACE_TABLES = (
     AuditEvent,
     ApiKey,
     ShareLink,
+    IngestionRecord,
 )
 
 
@@ -157,13 +173,17 @@ def _assert_clean_run_state(workspace_id: str) -> None:
     state = _state(workspace_id)
     assert state["meetings"] == _planned_meeting_statuses()
     assert state["jobs"] == _planned_job_states()
-    assert state["memberships"] == dict.fromkeys(ROLES, 1)
-    assert state["invitations"] == {"accepted": 3, "revoked": 0, "total": 3}
+    assert state["memberships"] == MEMBERSHIPS
+    assert state["invitations"] == {"accepted": INVITED, "revoked": 0, "total": INVITED}
     audit = state["audit"]
-    assert audit["member.invitation.created"] == 3
-    assert audit["member.invitation.accepted"] == 3
+    assert audit["member.invitation.created"] == INVITED
+    assert audit["member.invitation.accepted"] == INVITED
     assert "member.invitation.revoked" not in audit
-    assert audit["meeting.uploaded"] == sum(count for _, count in demo_seed.MEETING_PLAN)
+    planned = sum(count for _, count in demo_seed.MEETING_PLAN)
+    assert audit["meeting.uploaded"] == planned
+    assert audit["ingestion.accepted"] == planned
+    assert "ingestion.replayed" not in audit
+    assert "meeting.updated" not in audit
     assert audit["workspace.settings.updated"] == 1
 
 
@@ -531,9 +551,281 @@ def test_main_seeds_in_development_and_prints_logins(client, settings, monkeypat
     output = capsys.readouterr().out
     assert code == 0
     with inspection_session_factory()() as db:
-        emails = list(db.scalars(select(User.email)))
-    assert len(emails) == len(ROLES)
-    for email in emails:
+        emails = set(db.scalars(select(User.email)))
+    logins = {f"{role}@{demo_seed.DEMO_EMAIL_DOMAIN}" for role in ROLES}
+    agents = {f"{key}@{demo_seed.DEMO_EMAIL_DOMAIN}" for key in AGENT_KEYS}
+    assert emails == logins | agents
+    for email in logins:
         assert email in output
+    # The agents are not logins: never printed.
+    for email in agents:
+        assert email not in output
+    assert output.count(demo_seed.DEMO_PASSWORD) == len(ROLES)
     assert demo_seed.DEMO_PASSWORD in output
     assert "http://testserver/app" in output
+
+
+# --- HOM-326: ledger rows, agents, weeks and the trend views -------------------------------
+
+
+INCLUDED_STATUSES = (MeetingStatus.COMPLETED, MeetingStatus.PARTIAL)
+
+
+def _team_names(db, workspace_id: str) -> dict[str, str]:
+    rows = db.execute(select(Team.id, Team.name).where(Team.workspace_id == workspace_id))
+    return {team_id: name for team_id, name in rows}
+
+
+def test_attribution_plan_covers_every_meeting():
+    plan = demo_seed.MEETING_ATTRIBUTION
+    assert len(plan) == sum(count for _, count in demo_seed.MEETING_PLAN)
+    team_names = {name for name, _supervisor, _agents in demo_seed.TEAMS}
+    agents_of = {name: set(agents) for name, _supervisor, agents in demo_seed.TEAMS}
+    for team, agent, weeks_back in plan:
+        assert team is None or team in team_names
+        # A team meeting's agent is an agent of that team.
+        if team is not None and agent is not None:
+            assert agent in agents_of[team]
+        assert 1 <= weeks_back <= 4
+
+
+def test_every_meeting_has_one_accepted_ledger_row(client, settings):
+    result = seed_demo_workspace(settings)
+
+    with inspection_session_factory()() as db:
+        meetings = list(
+            db.scalars(select(Meeting).where(Meeting.workspace_id == result.workspace_id))
+        )
+        assert len(meetings) == 30
+        for meeting in meetings:
+            rows = list(
+                db.scalars(select(IngestionRecord).where(IngestionRecord.meeting_id == meeting.id))
+            )
+            assert len(rows) == 1, meeting.title
+            row = rows[0]
+            assert row.status == IngestionStatus.ACCEPTED
+            assert row.job_id is not None
+            job = db.get(ProcessingJob, row.job_id)
+            assert job is not None and job.meeting_id == meeting.id
+            assert row.source_provider == "console"
+            assert row.media_hash == meeting.recording.checksum_sha256
+            audits = db.scalar(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(
+                    AuditEvent.workspace_id == result.workspace_id,
+                    AuditEvent.event_type == "ingestion.accepted",
+                    AuditEvent.target_id == row.id,
+                )
+            )
+            assert audits == 1
+
+
+def test_ledger_rows_fall_in_the_four_closed_weeks(client, settings):
+    result = seed_demo_workspace(settings)
+    week_start = current_week_start(datetime.now(UTC))
+
+    with inspection_session_factory()() as db:
+        rows = db.execute(
+            select(Meeting.title, IngestionRecord.received_at)
+            .join(IngestionRecord, IngestionRecord.meeting_id == Meeting.id)
+            .where(Meeting.workspace_id == result.workspace_id)
+        ).all()
+    titles = {title: index for index, _outcome, _script, title in demo_seed._meeting_specs()}
+    weeks: dict[int, int] = {}
+    for title, received_at in rows:
+        received_at = _as_utc(received_at)
+        assert week_start - timedelta(days=28) <= received_at < week_start, title
+        # A pure function of the meeting index and the week start.
+        assert received_at == demo_seed._received_at(titles[title], week_start), title
+        week = (week_start - received_at) // timedelta(days=7) + 1
+        weeks[week] = weeks.get(week, 0) + 1
+    assert len(weeks) >= 3
+    assert sum(weeks.values()) == 30
+
+
+def test_meetings_carry_the_planned_team_and_agent(client, settings):
+    result = seed_demo_workspace(settings)
+
+    with inspection_session_factory()() as db:
+        names = _team_names(db, result.workspace_id)
+        emails = {user_id: email for user_id, email in db.execute(select(User.id, User.email))}
+        planned = {
+            title: demo_seed.MEETING_ATTRIBUTION[index]
+            for index, _outcome, _script, title in demo_seed._meeting_specs()
+        }
+        meetings = list(
+            db.scalars(select(Meeting).where(Meeting.workspace_id == result.workspace_id))
+        )
+        for meeting in meetings:
+            team, agent, _weeks_back = planned[meeting.title]
+            assert names.get(meeting.team_id) == team, meeting.title
+            expected = f"{agent}@{demo_seed.DEMO_EMAIL_DOMAIN}" if agent else None
+            assert emails.get(meeting.agent_user_id) == expected, meeting.title
+            if meeting.agent_user_id is None:
+                continue
+            # The agent is an effective member, and holds the agent role in the team.
+            assert db.scalar(
+                select(Membership.id).where(
+                    Membership.workspace_id == result.workspace_id,
+                    Membership.user_id == meeting.agent_user_id,
+                    Membership.is_active.is_(True),
+                )
+            )
+            if meeting.team_id is not None:
+                assert db.scalar(
+                    select(TeamAssignment.id).where(
+                        TeamAssignment.team_id == meeting.team_id,
+                        TeamAssignment.user_id == meeting.agent_user_id,
+                        TeamAssignment.role == TeamRole.AGENT,
+                        TeamAssignment.revoked_at.is_(None),
+                    )
+                ), meeting.title
+
+        # The released team has 5 distinct agents among its included meetings.
+        call_center = next(team_id for team_id, name in names.items() if name == "Call Center")
+        agents = set(
+            db.scalars(
+                select(Meeting.agent_user_id).where(
+                    Meeting.team_id == call_center, Meeting.status.in_(INCLUDED_STATUSES)
+                )
+            )
+        )
+        assert len(agents) == 5
+
+
+def test_agents_are_members_without_a_password_and_cannot_log_in(client, settings):
+    result = seed_demo_workspace(settings)
+
+    with inspection_session_factory()() as db:
+        for key, name in demo_seed.DEMO_AGENTS:
+            user = db.scalar(
+                select(User).where(User.email == f"{key}@{demo_seed.DEMO_EMAIL_DOMAIN}")
+            )
+            assert user is not None and user.password_hash is None
+            assert user.display_name == name
+            membership = db.scalar(
+                select(Membership).where(
+                    Membership.workspace_id == result.workspace_id,
+                    Membership.user_id == user.id,
+                )
+            )
+            assert membership is not None and membership.role == WorkspaceRole.MEMBER
+    assert set(result.accounts) == set(ROLES)
+
+    refused = client.post(
+        "/api/v1/auth/login",
+        json={
+            "identifier": f"{AGENT_KEYS[0]}@{demo_seed.DEMO_EMAIL_DOMAIN}",
+            "password": demo_seed.DEMO_PASSWORD,
+        },
+    )
+    assert refused.status_code == 401, refused.text
+    _login(client, result.accounts["owner"])
+
+
+def test_trend_views_release_the_demo_workspace(client, settings):
+    result = seed_demo_workspace(settings)
+    org, workspace_id = result.organization_id, result.workspace_id
+    _login(client, result.accounts["owner"])
+
+    # Organization overview: released, every meeting counted.
+    response = client.get(f"/api/v1/organizations/{org}/aggregates")
+    assert response.status_code == 200, response.text
+    (item,) = response.json()["items"]
+    assert item["disclosure"]["status"] == "released"
+    assert item["meetings_total"] == 30
+    assert sum(item["meetings_by_status"].values()) == 30
+
+    # Drill-down: Call Center released, the 1-agent teams withheld as small groups.
+    response = client.get(f"/api/v1/organizations/{org}/workspaces/{workspace_id}/trends/issues")
+    assert response.status_code == 200, response.text
+    drilldown = response.json()
+    assert drilldown["workspace"]["disclosure"]["status"] == "released"
+    teams = {block["team"]["name"]: block["disclosure"] for block in drilldown["teams"]}
+    assert teams["Call Center"]["status"] == "released"
+    for name in ("Sales", "Support"):
+        assert teams[name]["status"] == "withheld", name
+        assert teams[name]["reason"] == "small_group", name
+
+    # Team comparison: Call Center released with data; the small teams are agent cohorts.
+    teams_view = _get(client, workspace_id, "/api/v1/trends/teams")
+    blocks = {block["team"]["name"]: block for block in teams_view["teams"]}
+    call_center = blocks["Call Center"]
+    assert call_center["disclosure"]["status"] == "released"
+    assert call_center["disclosure"]["kind"] == "rate"
+    assert call_center["population"]["included"] > 0
+    for name in ("Sales", "Support"):
+        assert blocks[name]["disclosure"]["kind"] == "agent", name
+
+    # Workspace trends: a population, not withheld.
+    issues = _get(client, workspace_id, "/api/v1/trends/issues")
+    assert issues["population"]["included"] > 0
+    assert issues["disclosure"]["status"] == "released"
+
+
+# --- a database seeded by the seed before HOM-326 ------------------------------------------
+
+
+def _seed_as_before_hom326(settings, monkeypatch) -> str:
+    """Seed the way the seed did before HOM-326: no agents, the 2 old teams, no team or
+    agent on any meeting, and no ingestion ledger row (``accept_ingestion`` only runs
+    ``create``)."""
+    from backend.services import ingestion_service
+
+    def without_ledger(_db, *, create, **_kwargs):
+        record = SimpleNamespace(id=None)
+        return ingestion_service.IngestionOutcome(
+            ingestion_service.IngestionDecision.ACCEPTED, record, created=create(record)
+        )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(demo_seed, "DEMO_AGENTS", ())
+        patch.setattr(demo_seed, "TEAMS", demo_seed.TEAMS[:2])
+        patch.setattr(
+            demo_seed,
+            "MEETING_ATTRIBUTION",
+            ((None, None, 1),) * len(demo_seed.MEETING_ATTRIBUTION),
+        )
+        patch.setattr(ingestion_service, "accept_ingestion", without_ledger)
+        result = seed_demo_workspace(settings)
+    with inspection_session_factory()() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(IngestionRecord)
+                .where(IngestionRecord.workspace_id == result.workspace_id)
+            )
+            == 0
+        )
+    return result.workspace_id
+
+
+def test_seed_refuses_a_database_seeded_before_the_ledger(client, settings, monkeypatch):
+    workspace_id = _seed_as_before_hom326(settings, monkeypatch)
+    before = _counts(workspace_id)
+
+    with pytest.raises(demo_seed.DemoSeedRefused, match="older demo seed") as refused:
+        seed_demo_workspace(settings)
+
+    assert "Reset the database" in str(refused.value)
+    # Nothing new: no agent, member, team, assignment, meeting, ledger row or audit event.
+    assert _counts(workspace_id) == before
+
+
+def test_main_reports_a_database_seeded_before_the_ledger(client, settings, monkeypatch, capsys):
+    _seed_as_before_hom326(settings, monkeypatch)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DATABASE_URL", settings.database_url)
+    monkeypatch.setenv("DATABASE_APP_ROLE", settings.database_app_role)
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
+    monkeypatch.setenv("STORAGE_LOCAL_ROOT", settings.storage_local_root)
+
+    code = demo_seed.main([])
+
+    assert code != 0
+    captured = capsys.readouterr()
+    assert "older demo seed" in captured.err
+    assert "Reset the database" in captured.err
+    assert "Traceback" not in captured.err
+    assert demo_seed.DEMO_PASSWORD not in captured.out
