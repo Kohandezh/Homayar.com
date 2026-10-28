@@ -692,11 +692,11 @@ def test_the_readme_names_every_version_and_reason_code() -> None:
     assert "With the default setting, HOM-38 produces nothing in production." in text
 
 
-def test_the_adr_is_proposed_and_names_the_versions_and_work_units() -> None:
+def test_the_adr_is_accepted_and_names_the_versions_and_work_units() -> None:
     if not ADR.exists():
         pytest.skip("the repository docs are not next to this checkout")
     text = " ".join(ADR.read_text(encoding="utf-8").split())
-    assert "Status: Proposed" in text
+    assert "Status: Accepted" in text
     for name in ("audio-derivative/1", "time-map/1", "signal-activity/1", "**W1.**", "**W2.**"):
         assert name in text, name
     assert "With the default setting, HOM-38 produces nothing in production." in text

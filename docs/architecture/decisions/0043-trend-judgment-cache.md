@@ -1,8 +1,16 @@
 # ADR 0043: Trend judgment cache, its warm-up, and faster coverage counters
 
-Date: 2026-10-26 · Status: proposed (HOM-312) · Builds on: ADR 0038, ADR 0040, ADR 0041
+Date: 2026-10-26 · Status: Accepted 2026-10-28, decided by the owner (HOM-312) · Builds on: ADR 0038, ADR 0040, ADR 0041
 
 All code paths are under `Homayar/backend/` at base `73f6af9`.
+
+## Owner ruling (2026-10-28)
+
+Decided by the owner on 2026-10-28. The status is Accepted.
+
+- F61 (p95 under 1 s at 100,000 conversations) is not met. The owner accepts the current
+  speed for now.
+- HOM-317 (the next speed step) stays in Backlog.
 
 ## Context
 
