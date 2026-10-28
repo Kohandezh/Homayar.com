@@ -1,11 +1,17 @@
 # ADR 0038: Role-scoped trend views and small-group disclosure
 
-Date: 2026-10-23 · Status: proposed (HOM-82, parent HOM-19, features F49 and F61) · Builds on: ADR 0004, ADR 0005, ADR 0012, ADR 0013, ADR 0015
+Date: 2026-10-23 · Status: Accepted 2026-10-28, decided by the owner (HOM-82, parent HOM-19, features F49 and F61) · Builds on: ADR 0004, ADR 0005, ADR 0012, ADR 0013, ADR 0015
 
 See also ADR 0040 (HOM-83): the supporting conversations of a cell follow these decisions.
 
 Parts changed after the design review carry "(D1-fix)". Parts changed by the leader
 amendments A1 to A5 (HOM-82 SPEC section 9) carry "(D3)".
+
+## Owner ruling (2026-10-28)
+
+Decided by the owner on 2026-10-28. The status is Accepted.
+
+- All 15 product defaults in "Product defaults" below are accepted as written.
 
 ## Context
 

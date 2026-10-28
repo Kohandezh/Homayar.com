@@ -1,6 +1,16 @@
 # ADR 0042: Channel-preserving derivatives, signal activity and the original-time map
 
-Date: 2026-10-26 · Status: Proposed (HOM-38, WP09-T02, parent HOM-13, features F25, F26, F27 and F28) · Builds on: ADR 0017, ADR 0039
+Date: 2026-10-26 · Status: Accepted 2026-10-28, decided by the owner (HOM-38, WP09-T02, parent HOM-13, features F25, F26, F27 and F28) · Builds on: ADR 0017, ADR 0039
+
+## Owner ruling (2026-10-28)
+
+Decided by the owner on 2026-10-28. The status is Accepted.
+
+- R3: the size cap is 200 MB per derivative. It replaces the storage cap named in the R3 row
+  below. The cap is code, so it is not in this ADR change. It is implemented in HOM-314.
+- R7: `MEDIA_DERIVATIVES_ENABLED` stays false until HOM-313 (W1) and HOM-314 (W2) are
+  merged. After that it may be turned on. This is the owner decision that decision 9 waits
+  for.
 
 ## Context
 

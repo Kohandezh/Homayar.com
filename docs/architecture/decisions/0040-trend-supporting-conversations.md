@@ -1,6 +1,14 @@
 # ADR 0040: Supporting conversations of a trend cell
 
-Date: 2026-10-24 · Status: proposed (HOM-83, parent HOM-19, features F49 and F61) · Builds on: ADR 0004, ADR 0006, ADR 0012, ADR 0023, ADR 0024, ADR 0038
+Date: 2026-10-24 · Status: Accepted 2026-10-28, decided by the owner (HOM-83, parent HOM-19, features F49 and F61) · Builds on: ADR 0004, ADR 0006, ADR 0012, ADR 0023, ADR 0024, ADR 0038
+
+## Owner ruling (2026-10-28)
+
+Decided by the owner on 2026-10-28. The status is Accepted.
+
+- The known limit in "Risks" below, "Rebuilding a refused list", is accepted. A caller can
+  rebuild a withheld group by subtracting link lists. This works only within records the
+  caller may open anyway. The limit stays documented in this ADR.
 
 ## Context
 

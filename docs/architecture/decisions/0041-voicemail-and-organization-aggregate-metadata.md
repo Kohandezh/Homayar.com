@@ -1,9 +1,21 @@
 # ADR 0041: Coverage, scorecard and missing-data metadata for voicemail and organization aggregates
 
-Date: 2026-10-24 · Status: proposed (HOM-299, follow-up of HOM-81) · Builds on: ADR 0012, ADR 0038, ADR 0040
+Date: 2026-10-24 · Status: Accepted 2026-10-28, decided by the owner (HOM-299, follow-up of HOM-81) · Builds on: ADR 0012, ADR 0038, ADR 0040
 
 All code paths are under `Homayar/backend/` at base `c5ef682`. Parts changed after the first design review carry "(D2-fix)". Parts changed by leader
 decision L2 (SPEC section 13, after the final review) carry "(L2)".
+
+## Owner ruling (2026-10-28)
+
+Decided by the owner on 2026-10-28. The status is Accepted. The rulings answer the "Open
+questions for the owner" below.
+
+1. The 4-closed-week fallback window for the `/aggregates` metadata is accepted.
+2. Yes. The existing organization `/aggregates` fields (risk R1 below) must also follow the
+   HOM-82 withholding rule. This is a breaking change. It is its own work: HOM-320 for the
+   backend, then a console ticket.
+3. Voicemail coverage keeps the `coverage/1` name, with the new `basis` field, as HOM-299
+   chose.
 
 ## Context
 
