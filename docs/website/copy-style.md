@@ -188,6 +188,7 @@ chosen by the owner on 2026-10-28 (question IDs from the Home doc).
 | pilot | پایلوت | pilot | |
 | written proposal | پیشنهاد کتبی | written proposal | |
 | sign in | ورود | log in | |
+| roadmap | نقشهٔ راه | roadmap | A heading for what comes next, for example «در نقشهٔ راه این نقش» / "On this role's roadmap". The planned chip or label next to it carries "planned"; never «برنامه‌ریزی‌شده» twice in one place |
 | planned (label) | برنامه‌ریزی‌شده | Planned / planned | See section 8 |
 | simulation (label) | شبیه‌سازی | simulation | |
 | sample data (label) | داده‌ی نمونه | sample data | Spelled «داده‌ی», not «دادهٔ» |
