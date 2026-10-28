@@ -130,20 +130,99 @@ export interface ScopeGrantInput {
   workspace_id: string;
 }
 
+/** The half-open window a count covers: `from <= received_at < to`, ISO UTC. */
+export interface CoverageWindow {
+  from: string;
+  to: string;
+  basis: "ingestion_received_at";
+}
+
+export interface CoverageCounter {
+  definition: string;
+  numerator_label: string;
+  denominator_label: string;
+  numerator: number | null;
+  denominator: number;
+  ratio: number | null;
+  status: "computed" | "not_computable";
+  reason: string | null;
+  buckets: Record<string, number>;
+}
+
+export interface TrendCoverage {
+  version: "coverage/1";
+  window: { from: string; to: string; basis: string };
+  basis: "workspace" | "trend_population";
+  processing: CoverageCounter;
+  evaluation: CoverageCounter;
+}
+
+export type MissingDataIndicator =
+  | "ingestion_incomplete"
+  | "processing_incomplete"
+  | "evaluation_incomplete"
+  | "review_incomplete"
+  | "ingestion_unavailable"
+  | "processing_unavailable"
+  | "evaluation_unavailable"
+  | "review_unavailable"
+  | "scorecard_unavailable"
+  | "empty_population"
+  | "missing_values"
+  | "pending_review"
+  | "insufficient_sample"
+  | "source_unavailable";
+
+/**
+ * Whether the counts of one workspace may be shown (contract 1.7.0, the
+ * HOM-82 small-group rule). Only `released` carries counts.
+ */
+export interface AggregateDisclosure {
+  status: "released" | "masked" | "withheld";
+  reason: "small_group" | "complementary_disclosure" | null;
+  kind: "rate" | "agent" | null;
+  masked: ("points" | "window")[];
+}
+
+/** One workspace. The four counts are null when the workspace is withheld. */
 export interface WorkspaceAggregate {
   workspace_id: string;
   workspace_name: string;
   team_ids: string[] | null;
-  meetings_total: number;
-  meetings_by_status: Record<string, number>;
-  audio_seconds_total: number;
-  action_items_total: number;
+  meetings_total: number | null;
+  meetings_by_status: Record<string, number> | null;
+  audio_seconds_total: number | null;
+  action_items_total: number | null;
+  coverage: TrendCoverage | null;
+  scorecard: {
+    status: "not_available";
+    version: string | null;
+    digest: string | null;
+    reason: "scorecard_results_unavailable" | null;
+  };
+  missing_data: { indicators: MissingDataIndicator[] } | null;
+  disclosure: AggregateDisclosure;
+}
+
+export interface AggregateDisclosurePolicy {
+  version: string;
+  /** Fewer agents than this in any week of the window withholds the workspace. */
+  min_cohort_agents: number;
+  grid: {
+    unit: "week";
+    timezone: string;
+    week_starts_on: "saturday";
+    closed_weeks_only: boolean;
+  };
 }
 
 export interface OrgAggregatesResponse {
   organization_id: string;
+  /** Echo of the request; `coverage_window` is the window really used. */
   since: string | null;
   until: string | null;
   generated_at: string;
   items: WorkspaceAggregate[];
+  disclosure_policy: AggregateDisclosurePolicy;
+  coverage_window: CoverageWindow;
 }
