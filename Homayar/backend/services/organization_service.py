@@ -37,6 +37,8 @@ from sqlalchemy.orm import Session
 from backend.config import Settings, get_settings
 from backend.database.saas_models import (
     ActionItem,
+    IngestionRecord,
+    IngestionStatus,
     Meeting,
     Membership,
     Organization,
@@ -50,6 +52,7 @@ from backend.database.saas_models import (
     new_id,
 )
 from backend.database.tenant_context import bind_tenant_context
+from backend.issue_trends import TrendWindow
 from backend.security.authorization import (
     SCOPED_ORGANIZATION_ROLES,
     OrganizationAccess,
@@ -60,6 +63,7 @@ from backend.security.authorization import (
     organization_membership_effective_clause,
 )
 from backend.security.normalization import normalize_workspace_slug
+from backend.services.issue_trend_service import STATUS_RELEASED
 
 RECORDS_LIMIT = 200
 
@@ -163,16 +167,25 @@ class OrganizationMemberRecord:
 class WorkspaceAggregate:
     workspace: Workspace
     team_ids: frozenset[str] | None
-    meetings_total: int
-    meetings_by_status: dict[str, int]
-    audio_seconds_total: int
-    action_items_total: int
+    # HOM-320: the counts of the HOM-82 population of the window; ``None`` when the item's
+    # HOM-82 block is withheld
+    meetings_total: int | None
+    meetings_by_status: dict[str, int] | None
+    audio_seconds_total: int | None
+    action_items_total: int | None
     # HOM-299: ``coverage``, ``scorecard``, ``missing_data`` and ``disclosure``
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # HOM-299 (ADR 0041, L2): the keys of an ``/aggregates`` item taken from the HOM-82 block.
 AGGREGATE_METADATA_KEYS = ("coverage", "scorecard", "missing_data", "disclosure")
+# HOM-320: the count keys of an ``/aggregates`` item, all ``None`` when its block is withheld.
+AGGREGATE_COUNT_KEYS = (
+    "meetings_total",
+    "meetings_by_status",
+    "audio_seconds_total",
+    "action_items_total",
+)
 
 
 @dataclass(frozen=True)
@@ -765,9 +778,8 @@ def workspace_aggregates(
     *,
     organization: Organization,
     access: OrganizationAccess,
-    since: datetime | None = None,
-    until: datetime | None = None,
-    trend_block: Callable[..., dict[str, Any]] | None = None,
+    window: TrendWindow,
+    trend_block: Callable[..., dict[str, Any]],
 ) -> list[WorkspaceAggregate]:
     """Counts and durations per authorized workspace (and team filter): no content.
 
@@ -775,67 +787,72 @@ def workspace_aggregates(
     that workspace's row-level security; a workspace outside the caller's
     scope is never bound.
 
-    HOM-299 (ADR 0041, L2): with ``trend_block(workspace=, team_ids=)`` (the HOM-82 block of
-    the executive view, from ``role_trend_service``, which imports this module) each item
-    also carries that block's ``coverage``, ``scorecard``, ``missing_data`` and
-    ``disclosure``, unchanged.  The workspace is bound again before it runs.  The existing
-    counts do not change.
+    HOM-299 (ADR 0041, L2): ``trend_block(workspace=, team_ids=)`` is the HOM-82 block of the
+    executive view over ``window`` (from ``role_trend_service``, which imports this module).
+    Each item carries that block's ``coverage``, ``scorecard``, ``missing_data`` and
+    ``disclosure``, unchanged.
+
+    HOM-320 (ADR 0041 R1, owner ruling B'): the block decides first, and its own
+    ``disclosure.status`` decides the counts too.  A withheld item has every count ``None``
+    and runs no count statement.  A released item counts the population the block tested
+    (``_population_counts``).  Both arguments are required, so no call gets a count without
+    that decision.  ``window`` must be the window of ``trend_block``.
     """
     results: list[WorkspaceAggregate] = []
     for workspace, team_ids in scoped_workspaces(db, organization=organization, access=access):
         bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
-        conditions = [Meeting.workspace_id == workspace.id, Meeting.deleted_at.is_(None)]
-        if team_ids is not None:
-            conditions.append(Meeting.team_id.in_(sorted(team_ids)))
-        if since is not None:
-            conditions.append(Meeting.created_at >= since)
-        if until is not None:
-            conditions.append(Meeting.created_at < until)
-        rows = db.execute(
-            select(Meeting.status, func.count(Meeting.id), func.sum(Meeting.duration_seconds))
-            .where(*conditions)
-            .group_by(Meeting.status)
-        ).all()
-        by_status = {status.value: int(count) for status, count, _ in rows}
-        audio_seconds = int(sum(int(seconds or 0) for _, _, seconds in rows))
-        actions = db.scalar(
-            select(func.count(ActionItem.id))
-            .join(Meeting, Meeting.id == ActionItem.meeting_id)
-            .where(ActionItem.workspace_id == workspace.id, *conditions)
-        )
+        block = trend_block(workspace=workspace, team_ids=team_ids)
+        counts: dict[str, Any] = dict.fromkeys(AGGREGATE_COUNT_KEYS)
+        if block["disclosure"]["status"] == STATUS_RELEASED:
+            counts = _population_counts(db, workspace=workspace, team_ids=team_ids, window=window)
         results.append(
             WorkspaceAggregate(
                 workspace=workspace,
                 team_ids=team_ids,
-                meetings_total=sum(by_status.values()),
-                meetings_by_status=by_status,
-                audio_seconds_total=audio_seconds,
-                action_items_total=int(actions or 0),
-                metadata=_item_metadata(
-                    db,
-                    organization=organization,
-                    workspace=workspace,
-                    team_ids=team_ids,
-                    trend_block=trend_block,
-                ),
+                metadata={key: block[key] for key in AGGREGATE_METADATA_KEYS},
+                **counts,
             )
         )
     return results
 
 
-def _item_metadata(
-    db: Session,
-    *,
-    organization: Organization,
-    workspace: Workspace,
-    team_ids: frozenset[str] | None,
-    trend_block: Callable[..., dict[str, Any]] | None,
+def _population_counts(
+    db: Session, *, workspace: Workspace, team_ids: frozenset[str] | None, window: TrendWindow
 ) -> dict[str, Any]:
-    if trend_block is None:
-        return {}
-    bind_tenant_context(db, workspace_id=workspace.id, organization_id=organization.id)
-    block = trend_block(workspace=workspace, team_ids=team_ids)
-    return {key: block[key] for key in AGGREGATE_METADATA_KEYS}
+    """The counts of the HOM-82 population of ``window`` (HOM-320): the live meetings of the
+    workspace, of the granted teams for a team grant, whose accepted ledger row was received
+    in ``window``.  ``created_at`` plays no part.  A rejected ledger row has no meeting, and
+    ``uq_ingestion_meeting`` allows one ledger row per meeting, so the join never repeats a
+    meeting.  Two statements; the workspace must be bound as the tenant."""
+    conditions = [
+        Meeting.workspace_id == workspace.id,
+        Meeting.deleted_at.is_(None),
+        IngestionRecord.workspace_id == workspace.id,
+        IngestionRecord.status == IngestionStatus.ACCEPTED,
+        IngestionRecord.received_at >= window.start,
+        IngestionRecord.received_at < window.end,
+    ]
+    if team_ids is not None:
+        conditions.append(Meeting.team_id.in_(sorted(team_ids)))
+    rows = db.execute(
+        select(Meeting.status, func.count(Meeting.id), func.sum(Meeting.duration_seconds))
+        .join(IngestionRecord, IngestionRecord.meeting_id == Meeting.id)
+        .where(*conditions)
+        .group_by(Meeting.status)
+    ).all()
+    by_status = {status.value: int(count) for status, count, _ in rows}
+    actions = db.scalar(
+        select(func.count(ActionItem.id))
+        .join(Meeting, Meeting.id == ActionItem.meeting_id)
+        .join(IngestionRecord, IngestionRecord.meeting_id == Meeting.id)
+        .where(ActionItem.workspace_id == workspace.id, *conditions)
+    )
+    return {
+        "meetings_total": sum(by_status.values()),
+        "meetings_by_status": by_status,
+        "audio_seconds_total": int(sum(int(seconds or 0) for _, _, seconds in rows)),
+        "action_items_total": int(actions or 0),
+    }
 
 
 def scoped_records(

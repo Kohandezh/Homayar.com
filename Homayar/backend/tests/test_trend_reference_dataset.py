@@ -90,16 +90,17 @@ Workspace B (owner, no team filter; record scope ``team``):
 Voicemails of A in the window: VM1 and VM2 (alpha-big, completed, no run), VM3 (beta-mid,
 failed): total 3, transcribed 2, failed 1, evaluation 0 / 2 (``analysis_unavailable`` 2).
 
-``/aggregates`` counts live meetings by ``created_at`` (all seeded now):
+``/aggregates`` (HOM-320) counts the live meetings whose ledger row was received in
+``coverage_window``, and shows null counts when the item is withheld:
 
-    no window (default, coverage over W0..W3): workspace A 83 = 35 + 4 live gaps + 31 + 6 +
-    the upload + the W0 call + the outside call + 4 voicemails; completed 80, failed 2 (gap +
-    VM3), queued 1; audio 79 * 30 + 4 * 10 = 2410 seconds; coverage transcribed 75 (the W0
-    call too).  Workspace B 47 meetings, 1410 seconds.  beta-mid alone: 31 + VM3 = 32
-    meetings, 31 * 30 + 10 = 940 seconds.
+    no window (default, coverage over W0..W3): workspace A 78 = 35 + 4 live gaps + 31 + 6 +
+    the upload + the W0 call (not the outside call, not the deleted gap, not the 4
+    voicemails: no ledger row); completed 76, failed 1, queued 1; audio 78 * 30 = 2340
+    seconds; coverage transcribed 75 (the W0 call too).  Workspace B 47 meetings, 1410
+    seconds.  beta-mid alone (``org_narrow``): withheld (3 agents), so every count is null.
     since = W1 start, until = W3 end: ``coverage_window`` is W1..W3, coverage transcribed 74
-    (the HOM-82 block of the same window), and every count is 0: no meeting was created in
-    that past window (ADR 0041 R6, two windows).
+    (the HOM-82 block of the same window); workspace A 77 = 78 - the W0 call: completed 75,
+    failed 1, queued 1.
 """
 
 from __future__ import annotations
@@ -601,8 +602,8 @@ def test_organization_views_reconcile_with_the_reference_dataset(client, email_o
     assert counted <= {c["meeting_id"] for c in whole_list["conversations"]}
     assert not counted & ref.meetings(team="mid") and not counted & ref.meetings(team="delta")
 
-    # /aggregates, no window: the existing counts by created_at, and the HOM-82 block's
-    # metadata over the default window (the 4 closed weeks before this week, W0..W3)
+    # /aggregates, no window: the existing counts and the HOM-82 block's metadata over the
+    # default window (the 4 closed weeks before this week, W0..W3)  # HOM-320
     summary = _ok(_get(ref, "owner", aggregates, workspace=None))
     assert summary["coverage_window"] == {
         "from": (ref.start - WEEK).isoformat(),
@@ -611,8 +612,8 @@ def test_organization_views_reconcile_with_the_reference_dataset(client, email_o
     }
     rows = {item["workspace_id"]: item for item in summary["items"]}
     item_a, item_b = rows[ref.a.workspace_id], rows[ref.b.workspace_id]
-    assert (item_a["meetings_total"], item_a["audio_seconds_total"]) == (83, 2410)
-    assert item_a["meetings_by_status"] == {"completed": 80, "failed": 2, "queued": 1}
+    assert (item_a["meetings_total"], item_a["audio_seconds_total"]) == (78, 2340)  # HOM-320
+    assert item_a["meetings_by_status"] == {"completed": 76, "failed": 1, "queued": 1}  # HOM-320
     assert item_a["action_items_total"] == 0
     assert (item_b["meetings_total"], item_b["audio_seconds_total"]) == (47, 1410)
     assert item_a["disclosure"] == a["disclosure"]
@@ -621,8 +622,8 @@ def test_organization_views_reconcile_with_the_reference_dataset(client, email_o
     assert item_b["missing_data"] == b["missing_data"]
 
     # /aggregates with since and until on the closed weeks W1..W3: the metadata window is
-    # that window (not the clock), so the W0 call leaves the counters; no meeting was
-    # created in that past window, so the existing counts are 0 (ADR 0041 R6)
+    # that window (not the clock), so the W0 call leaves the counters and the existing
+    # counts  # HOM-320
     dated = _ok(
         _get(ref, "owner", aggregates, workspace=None, since=window["from"], until=window["to"])
     )
@@ -637,11 +638,14 @@ def test_organization_views_reconcile_with_the_reference_dataset(client, email_o
     assert dated_a["coverage"]["processing"] == a["coverage"]["processing"]
     assert dated_a["coverage"]["evaluation"] == a["coverage"]["evaluation"]
     assert dated_rows[ref.b.workspace_id]["coverage"]["processing"]["buckets"] == BUCKETS_B
-    assert (dated_a["meetings_total"], dated_a["meetings_by_status"]) == (0, {})
+    assert (dated_a["meetings_total"], dated_a["meetings_by_status"]) == (  # HOM-320
+        77,  # HOM-320
+        {"completed": 75, "failed": 1, "queued": 1},  # HOM-320
+    )  # HOM-320
     narrowed = _ok(_get(ref, "org_narrow", aggregates, workspace=None))
     (item,) = narrowed["items"]
-    assert (item["meetings_total"], item["audio_seconds_total"]) == (32, 940)  # ADR 0041 R1
-    assert item["meetings_by_status"] == {"completed": 31, "failed": 1}
+    assert (item["meetings_total"], item["audio_seconds_total"]) == (None, None)  # HOM-320, R1
+    assert item["meetings_by_status"] is None  # HOM-320
     assert item["disclosure"]["status"] == "withheld"
     assert item["coverage"] is None and item["missing_data"] is None
 

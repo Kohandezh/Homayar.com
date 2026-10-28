@@ -32,8 +32,10 @@ from fastapi import FastAPI
 SNAPSHOT_PATH = Path(__file__).with_name("ingestion-v1.openapi.json")
 WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 
-# The major number follows the /api/v1 prefix. Additive change: bump the minor.
-CONTRACT_VERSION = "1.6.0"
+# The major number follows the /api/v1 prefix. Additive change: bump the minor. A deliberate
+# breaking change inside /api/v1 (owner-approved, no route moves to /api/v2) also bumps the
+# minor, and the description names it as breaking with the old and new meaning (1.7.0).
+CONTRACT_VERSION = "1.7.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -88,6 +90,16 @@ level of each channel, and the silent and duplicated flags) and a role per chann
 admin's mapping for the recording's source, never from the upload request or the file. The
 field is null for recordings ingested before this version. Every existing field keeps its
 name and value.
+
+**Aggregate counts follow the disclosure rule (1.7.0, breaking).** An owner-approved
+breaking change of `/api/v1/organizations/{organization_id}/aggregates`. Before 1.7.0, each
+item's `meetings_total`, `meetings_by_status`, `audio_seconds_total` and
+`action_items_total` counted the live meetings by creation time in the free `since`/`until`
+window (all time without one), and kept their values when the item was withheld. Since
+1.7.0 they count the population of the item's trend block: the live meetings received
+(ingestion `received_at`) in `coverage_window`, of the granted teams for a team grant. When
+the item's `disclosure` is withheld, the four fields are null (the keys stay). `since` and
+`until` are still echoed; they only choose `coverage_window`.
 
 **Errors.** Every error body is `{"error": {"code", "message", "request_id",
 "details"?}}`. `code` is stable; branch on it, not on `message`. Every response
@@ -168,8 +180,12 @@ OPERATION_NOTES: dict[tuple[str, str], str] = {
         "the same caller, grant and window. `coverage_window` is the window that "
         "`GET /api/v1/organizations/{organization_id}/trends/issues` would use for "
         "`from=since` and `to=until`, or its default (the 4 closed weeks before this week) "
-        "when that route would refuse them. A withheld item has `coverage` and "
-        "`missing_data` null; its other fields keep their values and their own window."
+        "when that route would refuse them. Since 1.7.0 (breaking): `meetings_total`, "
+        "`meetings_by_status`, `audio_seconds_total` and `action_items_total` count the "
+        "live meetings received (ingestion `received_at`) in `coverage_window`, of the "
+        "granted teams for a team grant: the population of the same block. A withheld item "
+        "has `coverage`, `missing_data` and these four fields null. `since` and `until` are "
+        "echoed and only choose `coverage_window`."
     ),
     ("get", "/api/v1/meetings/{meeting_id}/transcript"): (
         "Since 1.1.0: `speaker_key` (repeatable), `start_ms` and `end_ms` filter the "

@@ -563,8 +563,9 @@ def test_analysts_and_executives_see_granted_scopes_only_and_never_content(clien
     assert aggregates.status_code == 200, aggregates.text
     items = aggregates.json()["items"]
     assert [(i["workspace_id"], i["team_ids"]) for i in items] == [(support_id, [tier1])]
-    assert items[0]["meetings_total"] == 1 and items[0]["audio_seconds_total"] == 100
-    assert items[0]["meetings_by_status"] == {"completed": 1}
+    # HOM-320: these meetings have no ledger row, so they are not in the HOM-82 population
+    assert items[0]["meetings_total"] == 0 and items[0]["audio_seconds_total"] == 0  # HOM-320
+    assert items[0]["meetings_by_status"] == {}  # HOM-320
     assert executive.get(f"/api/v1/organizations/{org}/records").status_code == 403
     scoped = executive.get(f"/api/v1/organizations/{org}/workspaces").json()["items"]
     assert [(w["id"], w["scoped_team_ids"], w["my_workspace_role"]) for w in scoped] == [
@@ -588,7 +589,7 @@ def test_analysts_and_executives_see_granted_scopes_only_and_never_content(clien
     analyst_aggregates = analyst.get(f"/api/v1/organizations/{org}/aggregates").json()["items"]
     assert [
         (i["workspace_id"], i["team_ids"], i["audio_seconds_total"]) for i in analyst_aggregates
-    ] == [(sales_id, None, 30)]
+    ] == [(sales_id, None, 0)]  # HOM-320
     # ... and still no content access: the workspace routes need a membership
     assert analyst.get("/api/v1/meetings", workspace_id=sales_id).status_code == 403
     assert executive.get("/api/v1/meetings", workspace_id=support_id).status_code == 403
@@ -599,7 +600,7 @@ def test_analysts_and_executives_see_granted_scopes_only_and_never_content(clien
         support_id,
         sales_id,
     }
-    assert sum(i["audio_seconds_total"] for i in everything) == 187
+    assert sum(i["audio_seconds_total"] for i in everything) == 0  # HOM-320
     windowed = owner.get(
         f"/api/v1/organizations/{org}/aggregates", params={"until": "2000-01-01T00:00:00Z"}
     ).json()["items"]

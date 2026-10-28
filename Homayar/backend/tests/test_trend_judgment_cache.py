@@ -19,11 +19,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import event, select, true, update
 
 from backend.database.relational import get_engine
 from backend.database.saas_models import (
     AnalysisRun,
+    Meeting,
     StageState,
     TranscriptRevision,
 )
@@ -42,6 +44,7 @@ from backend.tests._database import inspection_session_factory
 from backend.tests._trend_reference import EXTRACTIONS, build_reference
 from backend.tests.test_api_keys import _bearer
 from backend.tests.test_issue_trend_service import _extraction_row
+from backend.tests.test_trend_judgment_warmup import WAIT, _activity, _warm_app
 from backend.tests.test_trend_statement_count import STATEMENTS, _requests
 
 STATS_KEYS = {"entries", "hits", "misses", "builds", "evictions"}
@@ -364,3 +367,89 @@ def test_a_new_run_is_judged_fresh(client, email_outbox, monkeypatch):
     assert after == answer()  # the same as with no cache at all
     row = "issue:intent_resolve_billing"
     assert cell(after, row) != cell(before, row)
+
+
+# --- HOM-320: the old /aggregates fields with the cache warm ---------------------------------
+
+# The old count fields of an ``/aggregates`` item (HOM-320, AC9).
+OLD_FIELDS = ("meetings_total", "meetings_by_status", "audio_seconds_total", "action_items_total")
+
+
+def _item_b(ref: Any) -> dict[str, Any]:
+    """The owner's ``/aggregates`` item of workspace B, no window (W0..W3)."""
+    owner = ref.people["owner"]
+    response = owner.get(f"/api/v1/organizations/{ref.organization_id}/aggregates")
+    assert response.status_code == 200, response.text
+    return next(i for i in response.json()["items"] if i["workspace_id"] == ref.b.workspace_id)
+
+
+def _old(item: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(item[name] for name in OLD_FIELDS)
+
+
+def _drop_a_delta_agent_from_w2(ref: Any) -> None:
+    """Soft-delete d1's W2 call: W2 of workspace B keeps 4 agents (d2..d5)."""
+    meeting_id = next(
+        item.meeting_id
+        for item in ref.conversations
+        if item.team == "delta" and item.agent_user_id == ref.agents["delta"][0] and item.week == 1
+    )
+    with inspection_session_factory()() as db:
+        db.execute(
+            update(Meeting).where(Meeting.id == meeting_id).values(deleted_at=datetime.now(UTC))
+        )
+        db.commit()
+
+
+def _assert_withheld(item: dict[str, Any]) -> None:
+    assert item["disclosure"]["status"] == "withheld"
+    assert item["disclosure"]["reason"] == "small_group"
+    assert _old(item) == (None, None, None, None)
+
+
+def test_aggregates_withhold_the_old_fields_after_a_change_with_the_cache_warm(
+    client, email_outbox
+):
+    """Workspace B, owner: 9 agents in W1, the 5 delta-b agents in W2 and W3 (released, 47
+    calls).  The released answer warms the cache; then one W2 call is soft-deleted."""
+    ref = build_reference(client, email_outbox)
+    cache: JudgmentCache = client.app.state.trend_judgment_cache
+    cache.clear()
+    cold = _item_b(ref)
+    assert cache.stats()["entries"] > 0
+    hits = cache.stats()["hits"]
+    # allow-control: no change, the warm answer is the cold one
+    warm = _item_b(ref)
+    assert cache.stats()["hits"] > hits
+    assert warm == cold
+    assert warm["disclosure"]["status"] == "released"
+    assert _old(warm) == (47, {"completed": 47}, 1410, 0)
+
+    _drop_a_delta_agent_from_w2(ref)
+    _assert_withheld(_item_b(ref))
+
+
+def test_aggregates_withhold_the_old_fields_after_a_change_once_the_warmup_ran(
+    client, email_outbox, settings
+):
+    ref = build_reference(client, email_outbox)
+    _activity(ref, ref.a.workspace_id, minutes_ago=30)
+    _activity(ref, ref.b.workspace_id, minutes_ago=1)
+    client.app.state.trend_judgment_cache.clear()
+    cold = _item_b(ref)  # the plain app, its cache empty before
+    app = _warm_app(settings)
+    with TestClient(app) as warm_client:
+        warmup = app.state.trend_judgment_warmup
+        assert warmup is not None and warmup.wait(WAIT)
+        assert warmup.status()["state"] == "done", warmup.status()
+        cache: JudgmentCache = app.state.trend_judgment_cache
+        hits = cache.stats()["hits"]
+        ref.people["owner"].client = warm_client
+        # allow-control: no change, the answer of the warmed app is the cold one
+        warm = _item_b(ref)
+        assert cache.stats()["hits"] > hits
+        assert warm == cold
+        assert _old(warm) == (47, {"completed": 47}, 1410, 0)
+
+        _drop_a_delta_agent_from_w2(ref)
+        _assert_withheld(_item_b(ref))
