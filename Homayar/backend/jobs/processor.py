@@ -38,6 +38,7 @@ from backend.database.saas_models import (
     AnalysisRun,
     EvidenceStatus,
     JobState,
+    MediaLifecycleState,
     Meeting,
     MeetingStatus,
     MeetingSummary,
@@ -151,9 +152,10 @@ from backend.services.evidence_service import (
 )
 from backend.services.logging_service import logger
 from backend.services.media_lifecycle_service import (
-    mark_deleted,
+    delete_objects,
+    lock_meeting,
     original_for_meeting,
-    request_deletion,
+    retire_meeting_media,
 )
 from backend.services.model_registry_service import register_resolved
 from backend.services.quality_service import assess_quality
@@ -1368,23 +1370,22 @@ def _persist_success(
         meeting.status = outcome
         persist_stage_runs(db, job, records)
         if claim.delete_audio_after_processing:
-            # Durable half of delete-after-processing (HOM-168): the request is
+            # Durable half of delete-after-processing (HOM-168): the request of
+            # every object of the meeting, derived ones too (HOM-314), is
             # committed with COMPLETED, so a worker killed before the removal
-            # below leaves a DELETION_PENDING row that the media reconciliation
-            # sweep closes (a held row only records it). The post-success step
-            # remains the fast path and is idempotent on this request.
-            media = original_for_meeting(
-                db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id
+            # below leaves DELETION_PENDING rows that the media reconciliation
+            # sweep closes (a held row only records it). The media rows are
+            # locked after the meeting row above. The post-success step remains
+            # the fast path and is idempotent on this request.
+            retire_meeting_media(
+                db,
+                workspace_id=claim.workspace_id,
+                meeting_id=claim.meeting_id,
+                reason="processed",
+                actor_user_id=None,
+                now=now,
+                settings=settings,
             )
-            if media is not None:
-                request_deletion(
-                    db,
-                    media=media,
-                    reason="processed",
-                    actor_user_id=None,
-                    now=now,
-                    settings=settings,
-                )
         record_audit_event(
             db,
             event_type=AuditEventType.MEETING_PROCESSING_COMPLETED,
@@ -1640,11 +1641,105 @@ def _delete_audio_after_success(
     if not authoritative:
         return
 
-    # The ORIGINAL media object records the request first (WP05-T03); a
-    # legal hold keeps the bytes and the recording.  The recording is marked
-    # deleted only once the bytes are gone (WP06 invariant: nothing is
+    # Every media object of the meeting records the request first (WP05-T03,
+    # HOM-314); a legal hold keeps the bytes of each object it holds.  The
+    # meeting row is locked before the media rows, as the hold paths lock it
+    # (FOR KEY SHARE): a registration in flight commits first and its row is
+    # covered.  Then the bytes of every pending row go through delete_objects,
+    # which locks and reads each row again right before its removal (a hold
+    # committed in between keeps the bytes).  The recording is marked deleted
+    # only once the ORIGINAL's bytes are gone (WP06 invariant: nothing is
     # pretended); a failed removal leaves the row pending for the sweep.
     now = datetime.now(UTC)
+    with factory() as db:
+        bind_tenant_context(db, workspace_id=claim.workspace_id)
+        lock_meeting(db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id)
+        # The meeting events describe the recording: none for one that was
+        # already deleted (by a conversation deletion, say) when this step began.
+        # A column read, so the recording row read below is fresh.
+        recorded = db.execute(
+            select(Recording.deleted_at).where(
+                Recording.workspace_id == claim.workspace_id,
+                Recording.meeting_id == claim.meeting_id,
+            )
+        ).first()
+        report = recorded is not None and recorded.deleted_at is None
+        pending = retire_meeting_media(
+            db,
+            workspace_id=claim.workspace_id,
+            meeting_id=claim.meeting_id,
+            reason="processed",
+            actor_user_id=None,
+            now=now,
+            settings=settings,
+        )
+        original = original_for_meeting(
+            db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id
+        )
+        db.commit()
+        if original is not None:
+            lock_meeting(db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id)
+            # The pending rows and the ORIGINAL, even when it is not pending, locked
+            # oldest first (created_at, id) as everywhere else.  The ORIGINAL is not
+            # always the oldest row: its time comes from the app clock, a job
+            # derivative's from the database clock.  delete_objects locks and reads
+            # the ORIGINAL again, and the lock is held until the commit, so the
+            # meeting event is decided on its current state (a release committed
+            # after the request may have removed its bytes already).
+            rows = {row.id: row for row in (original, *pending)}
+            delete_objects(
+                db,
+                storage,
+                objects=sorted(rows.values(), key=lambda row: (row.created_at, row.id)),
+                now=now,
+                settings=settings,
+            )
+            # A conversation deletion that committed after the first transaction
+            # marked the recording deleted on its own: no meeting event for it.
+            # One still in flight waits for the media rows locked here, so it
+            # commits after this transaction.
+            tombstoned = (
+                db.scalar(
+                    select(Meeting.deleted_at).where(
+                        Meeting.workspace_id == claim.workspace_id, Meeting.id == claim.meeting_id
+                    )
+                )
+                is not None
+            )
+            state = original.lifecycle_state if report and not tombstoned else None
+            if state is MediaLifecycleState.DELETED:
+                recording = db.scalar(
+                    select(Recording).where(
+                        Recording.workspace_id == claim.workspace_id,
+                        Recording.meeting_id == claim.meeting_id,
+                    )
+                )
+                if recording is not None and recording.deleted_at is None:
+                    recording.deleted_at = now
+                record_audit_event(
+                    db,
+                    event_type=AuditEventType.MEETING_RECORDING_DELETED_AFTER_PROCESSING,
+                    workspace_id=claim.workspace_id,
+                    target_type="meeting",
+                    target_id=claim.meeting_id,
+                    details={"media_retained": False},
+                    settings=settings,
+                )
+            elif state is MediaLifecycleState.LEGAL_HOLD:
+                record_audit_event(
+                    db,
+                    event_type=AuditEventType.MEETING_RECORDING_RETAINED_AFTER_PROCESSING,
+                    workspace_id=claim.workspace_id,
+                    target_type="meeting",
+                    target_id=claim.meeting_id,
+                    details={"media_retained": True, "reason": "legal_hold"},
+                    settings=settings,
+                )
+            db.commit()
+            return
+
+    # A recording written before the media ledger has no ORIGINAL row: its
+    # bytes are removed by the recording key.
     with factory() as db:
         bind_tenant_context(db, workspace_id=claim.workspace_id)
         recording = db.scalar(
@@ -1655,27 +1750,7 @@ def _delete_audio_after_success(
         )
         if recording is None or recording.deleted_at is not None:
             return
-        media = original_for_meeting(
-            db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id
-        )
-        may_delete = True
-        if media is not None:
-            may_delete = request_deletion(
-                db, media=media, reason="processed", actor_user_id=None, now=now, settings=settings
-            )
-        if not may_delete:
-            record_audit_event(
-                db,
-                event_type=AuditEventType.MEETING_RECORDING_RETAINED_AFTER_PROCESSING,
-                workspace_id=claim.workspace_id,
-                target_type="meeting",
-                target_id=claim.meeting_id,
-                details={"media_retained": True, "reason": "legal_hold"},
-                settings=settings,
-            )
-        db.commit()
-    if not may_delete:
-        return
+        db.rollback()
     try:
         storage.delete(claim.workspace_id, claim.recording_key)
     except Exception as exc:
@@ -1696,12 +1771,7 @@ def _delete_audio_after_success(
         )
         if recording is None or recording.deleted_at is not None:
             return
-        recording.deleted_at = datetime.now(UTC)
-        media = original_for_meeting(
-            db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id
-        )
-        if media is not None:
-            mark_deleted(db, media=media, now=datetime.now(UTC), settings=settings)
+        recording.deleted_at = now
         record_audit_event(
             db,
             event_type=AuditEventType.MEETING_RECORDING_DELETED_AFTER_PROCESSING,

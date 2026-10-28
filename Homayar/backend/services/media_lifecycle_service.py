@@ -18,6 +18,10 @@ state transition committed and is idempotent: a row stays
 
 A hold follows lineage (HOM-313): a derived object of a held source is
 created held, and a hold or release by id covers the object's descendants.
+A registration also reads the ORIGINAL at the root of the source's lineage
+(HOM-314): nothing is derived from a lineage whose ORIGINAL is not live or
+is held with a recorded deletion request, and a held ORIGINAL holds the new
+object when the source itself is not held.
 Lock order: the meeting row first, then media rows (as the derivative job
 and the purge paths do), so these paths serialize per conversation.
 """
@@ -171,18 +175,25 @@ def register_derived(
     retention from its source so a derived object can never outlive the
     retention of what it was made from.
 
-    The meeting row and then the source row are locked and the source is read
-    again (HOM-313), so the decision uses the committed state even when the
-    caller loaded ``source`` earlier.  A held source gives a held object in
-    the same transaction (``media.legal_hold_inherited``).
+    The meeting row and then the source row and the ORIGINAL at the root of
+    its lineage are locked and read again (HOM-313, HOM-314), so the decision
+    uses the committed state even when the caller loaded ``source`` earlier.
+    Both must be derivable (:func:`may_derive_from`); a lineage that does not
+    reach an ORIGINAL row is refused.  A held source, or else a held ORIGINAL,
+    gives a held object in the same transaction (``media.legal_hold_inherited``).
     """
     if kind is MediaKind.ORIGINAL:
         raise MediaLifecycleError("invalid_media_kind", "A derived object cannot be ORIGINAL")
     lock_meeting(db, workspace_id=source.workspace_id, meeting_id=source.meeting_id, exclusive=True)
     # The fresh read below drops unflushed changes; flush the caller's own first.
     db.flush()
-    locked = media_by_id(db, workspace_id=source.workspace_id, media_id=source.id, for_update=True)
-    if locked is None or not may_derive_from(locked):
+    locked, original = _locked_lineage(db, source=source)
+    if (
+        locked is None
+        or original is None
+        or not may_derive_from(locked)
+        or not may_derive_from(original)
+    ):
         raise MediaLifecycleError("source_not_live", "The source object is not live")
     source = locked
     if stored.tenant_id != source.workspace_id:
@@ -211,10 +222,15 @@ def register_derived(
         lifecycle_state=MediaLifecycleState.ACTIVE,
         retention_expires_at=source.retention_expires_at,
     )
-    held = source.lifecycle_state is MediaLifecycleState.LEGAL_HOLD
-    if held:
+    # The nearest hold wins: the source's own, or else the ORIGINAL's (a source
+    # released by its own id does not release what its ORIGINAL still holds).
+    held = [
+        row for row in (source, original) if row.lifecycle_state is MediaLifecycleState.LEGAL_HOLD
+    ]
+    holder = held[0] if held else None
+    if holder is not None:
         # Held when inserted: the commit never shows this row active.
-        _copy_hold(media, holder=source, now=now)
+        _copy_hold(media, holder=holder, now=now)
     db.add(media)
     db.flush()
     record_audit_event(
@@ -229,9 +245,9 @@ def register_derived(
         ),
         settings=settings,
     )
-    if held:
+    if holder is not None:
         _record_inherited(
-            db, media=media, holder=source, actor_user_id=actor_user_id, settings=settings
+            db, media=media, holder=holder, actor_user_id=actor_user_id, settings=settings
         )
     return media
 
@@ -248,6 +264,45 @@ def may_derive_from(source: MediaObject) -> bool:
         source.lifecycle_state is MediaLifecycleState.LEGAL_HOLD
         and source.deletion_requested_at is not None
     )
+
+
+def _locked_lineage(
+    db: Session, *, source: MediaObject
+) -> tuple[MediaObject | None, MediaObject | None]:
+    """The source and the ORIGINAL at the root of its lineage, locked and read again.
+
+    The links are followed with fresh reads after the caller's meeting lock;
+    then both rows are locked in one statement, oldest first (``created_at``,
+    ``id``), as the meeting's rows are elsewhere.  The ORIGINAL is ``None``
+    when the lineage ends without an ORIGINAL row of the same workspace (or
+    loops), so the caller fails closed.
+    """
+    original_id: str | None = None
+    current: str | None = source.id
+    seen: set[str] = set()
+    while current is not None and current not in seen:
+        seen.add(current)
+        link = db.execute(
+            select(MediaObject.kind, MediaObject.derived_from_id).where(
+                MediaObject.workspace_id == source.workspace_id, MediaObject.id == current
+            )
+        ).first()
+        if link is None:
+            break
+        if link.kind is MediaKind.ORIGINAL:
+            original_id = current
+            break
+        current = link.derived_from_id
+    statement = (
+        select(MediaObject)
+        .where(
+            MediaObject.workspace_id == source.workspace_id,
+            MediaObject.id.in_({source.id} | ({original_id} if original_id else set())),
+        )
+        .order_by(MediaObject.created_at.asc(), MediaObject.id.asc())
+    )
+    rows = {row.id: row for row in db.scalars(_locked(statement, True))}
+    return rows.get(source.id), rows.get(original_id) if original_id is not None else None
 
 
 def lock_meeting(

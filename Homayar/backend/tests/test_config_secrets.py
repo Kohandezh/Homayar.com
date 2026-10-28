@@ -1124,3 +1124,21 @@ def test_dotenv_value_still_works_and_environment_still_wins(
 
     assert settings.zai_api_key == f"dotenv-{MARK}"
     assert settings.gapgpt_api_key == f"environment-{MARK}"
+
+
+# --- HOM-314: the derivative size cap ---------------------------------------------------
+
+
+def test_the_derivative_size_cap_defaults_to_200_mib_and_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Settings(_env_file=None).media_derivative_max_size_mb == 200
+    for value in (1, 2047):
+        settings = Settings(_env_file=None, media_derivative_max_size_mb=value)
+        assert settings.media_derivative_max_size_mb == value
+    # 2047 MiB is the largest whole MiB that fits the 32-bit size column.
+    for value in (0, 2048, -1):
+        with pytest.raises(ValueError, match="MEDIA_DERIVATIVE_MAX_SIZE_MB"):
+            Settings(_env_file=None, media_derivative_max_size_mb=value)
+    monkeypatch.setenv("MEDIA_DERIVATIVE_MAX_SIZE_MB", "64")
+    assert Settings(_env_file=None).media_derivative_max_size_mb == 64

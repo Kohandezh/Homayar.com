@@ -524,10 +524,13 @@ class Settings(BaseSettings):
     # ...at some lag within +- this many milliseconds (0: aligned samples only).
     media_channel_duplicate_max_lag_ms: float = 5.0
     # Channel-preserving derivative and signal activity in the job (HOM-38,
-    # backend.media.derivatives): off by default until W1 and W2 (ADR 0042) are
-    # fixed and the owner decides. The wall-time bound of its ffmpeg decode.
+    # backend.media.derivatives): W1 and W2 (ADR 0042) are fixed by HOM-313 and
+    # HOM-314; off by default until the owner turns it on. The wall-time bound
+    # of its ffmpeg decode, and the size cap of one derivative in MiB (owner
+    # ruling R3; the storage cap max_upload_size_mb still applies).
     media_derivatives_enabled: bool = False
     media_derivative_timeout_seconds: float = 300.0
+    media_derivative_max_size_mb: int = 200
     upload_rate_limit_per_hour: int = 30
     retention_days_default: int = 90
 
@@ -795,6 +798,9 @@ class Settings(BaseSettings):
             raise ValueError("Media channel analysis settings are out of range")
         if not 0 < self.media_derivative_timeout_seconds <= 1800:
             raise ValueError("MEDIA_DERIVATIVE_TIMEOUT_SECONDS must be above 0 and at most 1800")
+        # 2047 MiB is the largest whole MiB that fits the 32-bit media_objects.size_bytes.
+        if not 1 <= self.media_derivative_max_size_mb <= 2047:
+            raise ValueError("MEDIA_DERIVATIVE_MAX_SIZE_MB must be between 1 and 2047")
         if (
             self.job_retry_delay_seconds <= 0
             or self.job_retry_max_delay_seconds < self.job_retry_delay_seconds

@@ -1008,3 +1008,167 @@ def test_race_a_hold_route_during_a_conversation_deletion_waits_and_does_not_dea
         assert row.lifecycle_state is MediaLifecycleState.DELETED
     else:
         assert row.lifecycle_state is MediaLifecycleState.LEGAL_HOLD
+
+
+# --- HOM-314 F: registration follows the ORIGINAL of the lineage ------------------------
+
+
+def _request(settings, media_id: str) -> None:
+    with inspection_session_factory()() as db:
+        request_deletion(
+            db,
+            media=db.get(MediaObject, media_id),
+            reason="owner asked",
+            actor_user_id=None,
+            now=datetime.now(UTC),
+            settings=settings,
+        )
+        db.commit()
+
+
+def _assert_refused(settings, tenant: dict, source_id: str, meeting_id: str) -> None:
+    """Registering from ``source_id`` is refused and writes nothing."""
+    rows_before = [row.id for row in _media_rows(meeting_id)]
+    registered_before = len(_events("media.registered"))
+    inherited_before = len(_events(INHERITED))
+    with pytest.raises(MediaLifecycleError) as refused:
+        _derive(settings, tenant, source_id)
+    assert refused.value.code == "source_not_live"
+    assert [row.id for row in _media_rows(meeting_id)] == rows_before
+    assert len(_events("media.registered")) == registered_before
+    assert len(_events(INHERITED)) == inherited_before
+
+
+def test_a_live_source_whose_original_is_not_live_or_deleting_is_refused(
+    client, email_outbox, monkeypatch, settings
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "lineage-refused")
+
+    # The ORIGINAL deletion pending, then deleted; its derived object is still active.
+    meeting_id, original_id = _conversation(client, tenant, "lineage-pending")
+    child_id = _derive(settings, tenant, original_id)
+    _request(settings, original_id)
+    assert _row(original_id).lifecycle_state is MediaLifecycleState.DELETION_PENDING
+    _assert_unheld(child_id)
+    _assert_refused(settings, tenant, child_id, meeting_id)
+    with inspection_session_factory()() as db:
+        mark_deleted(
+            db, media=db.get(MediaObject, original_id), now=datetime.now(UTC), settings=settings
+        )
+        db.commit()
+    _assert_refused(settings, tenant, child_id, meeting_id)
+
+    # The ORIGINAL held with a recorded deletion request; its derived object released by id.
+    meeting_id, original_id = _conversation(client, tenant, "lineage-held-deleting")
+    child_id = _derive(settings, tenant, original_id)
+    _hold(client, tenant, original_id)
+    _request(settings, original_id)
+    released = _post(
+        client, tenant, f"/api/v1/media/{child_id}/legal-hold/release", {"reason": "closed"}
+    )
+    assert released.status_code == 200, released.text
+    _assert_unheld(child_id)
+    assert _row(original_id).deletion_requested_at is not None
+    _assert_refused(settings, tenant, child_id, meeting_id)
+
+    # Fail closed: a lineage that does not reach an ORIGINAL row. A derived row always
+    # has a link (ck_media_lineage), so the broken lineage is a loop.
+    meeting_id, original_id = _conversation(client, tenant, "lineage-broken")
+    child_id = _derive(settings, tenant, original_id)
+    grandchild_id = _derive(settings, tenant, child_id)
+    with inspection_session_factory()() as db:
+        db.execute(
+            text("UPDATE media_objects SET derived_from_id = :loop WHERE id = :id"),
+            {"loop": grandchild_id, "id": child_id},
+        )
+        db.commit()
+    _assert_unheld(grandchild_id)
+    _assert_refused(settings, tenant, grandchild_id, meeting_id)
+
+
+def test_a_held_original_holds_an_object_derived_from_its_released_derivative(
+    client, email_outbox, monkeypatch, settings
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "lineage-held")
+    _meeting_id, original_id = _conversation(client, tenant, "lineage-held")
+    child_id = _derive(settings, tenant, original_id)
+    _hold(client, tenant, original_id)
+    _assert_inherited(child_id, original_id)
+    released = _post(
+        client, tenant, f"/api/v1/media/{child_id}/legal-hold/release", {"reason": "closed"}
+    )
+    assert released.status_code == 200, released.text
+    _assert_unheld(child_id)
+
+    registered_at = datetime.now(UTC)
+    grandchild_id = _derive(settings, tenant, child_id, now=registered_at)
+
+    row = _row(grandchild_id)
+    assert row.derived_from_id == child_id
+    assert _utc(row.legal_hold_at) == registered_at
+    assert row.legal_hold_reason == REASON
+    assert row.legal_hold_by_user_id == tenant["user_id"]
+    event = _assert_inherited(grandchild_id, original_id)
+    assert event.details["deletion_requested"] is False
+    (registered,) = _events("media.registered", grandchild_id)
+    assert registered.details["state"] == "legal_hold"
+
+
+def test_a_held_source_gives_its_own_hold_even_when_its_original_is_held(
+    client, email_outbox, monkeypatch, settings
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "lineage-nearest")
+    _meeting_id, original_id = _conversation(client, tenant, "lineage-nearest")
+    child_id = _derive(settings, tenant, original_id)
+    _hold(client, tenant, child_id, reason="derived matter")
+    _hold(client, tenant, original_id)
+    assert _row(child_id).legal_hold_reason == "derived matter"
+
+    grandchild_id = _derive(settings, tenant, child_id)
+
+    _assert_inherited(grandchild_id, child_id)
+    assert _row(grandchild_id).legal_hold_reason == "derived matter"
+
+
+def test_a_derived_source_of_a_live_unheld_original_gives_an_active_object(
+    client, email_outbox, monkeypatch, settings
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "lineage-allow")
+    _meeting_id, original_id = _conversation(client, tenant, "lineage-allow")
+    child_id = _derive(settings, tenant, original_id)
+
+    _assert_unheld(_derive(settings, tenant, child_id))
+    with inspection_session_factory()() as db:
+        db.get(MediaObject, original_id).lifecycle_state = MediaLifecycleState.RETENTION_PENDING
+        db.commit()
+    _assert_unheld(_derive(settings, tenant, child_id))
+    assert _events(INHERITED) == []
+
+
+def test_registration_reads_the_committed_state_of_an_original_loaded_earlier(
+    client, email_outbox, monkeypatch, settings
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "lineage-stale")
+    meeting_id, original_id = _conversation(client, tenant, "lineage-stale")
+    child_id = _derive(settings, tenant, original_id)
+    stored = _stored(settings, tenant["workspace_id"])
+
+    with _app_session(tenant) as db:
+        # Both loaded without a lock while the ORIGINAL is still active ...
+        source = media_by_id(db, workspace_id=tenant["workspace_id"], media_id=child_id)
+        original = media_by_id(db, workspace_id=tenant["workspace_id"], media_id=original_id)
+        assert source is not None and original is not None
+        assert original.lifecycle_state is MediaLifecycleState.ACTIVE
+        # ... then a deletion request commits in another session ...
+        _request(settings, original_id)
+        # ... and the registration still sees it.
+        with pytest.raises(MediaLifecycleError) as refused:
+            _register(db, settings, source, stored)
+        assert refused.value.code == "source_not_live"
+        db.rollback()
+    assert [row.id for row in _media_rows(meeting_id)] == [original_id, child_id]

@@ -72,7 +72,6 @@ _POSIX: Final = os.name == "posix"
 
 # Reason codes (SPEC 5.6). Pre-check, in order:
 DERIVATIVES_DISABLED: Final = "derivatives_disabled"
-AUDIO_DELETED_AFTER_PROCESSING: Final = "audio_deleted_after_processing"
 SOURCE_NOT_REGISTERED: Final = "source_not_registered"
 SOURCE_NOT_LIVE: Final = "source_not_live"
 SOURCE_CHANGED: Final = "source_changed"
@@ -95,7 +94,6 @@ TENANT_MISMATCH: Final = "tenant_mismatch"
 
 REASON_CODES: Final = (
     DERIVATIVES_DISABLED,
-    AUDIO_DELETED_AFTER_PROCESSING,
     SOURCE_NOT_REGISTERED,
     SOURCE_NOT_LIVE,
     SOURCE_CHANGED,
