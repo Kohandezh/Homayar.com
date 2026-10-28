@@ -81,7 +81,7 @@ const en = {
         "Homayar can.",
         "Summaries and action items.",
         "Backed by the transcript.",
-        "On your own servers.",
+        "With AI, on your own servers.",
         "In Persian and English.",
       ],
       hint: "Scroll: a call becomes a report",
@@ -128,7 +128,7 @@ const en = {
       eyebrow: "A working console, not a concept",
       title: "Built for the daily work of a QA team",
       items: [
-        { icon: "layout", title: "Your calls at a glance", text: "See which calls are ready, which are still processing, and how much audio has been analyzed so far, on one screen." },
+        { icon: "layout", title: "Your calls at a glance", text: "See which calls are ready, which are still processing, and how many minutes of audio have been analyzed so far, on one screen." },
         { icon: "file", title: "Reports you can check", text: "A summary, action items and insights, each linked to the line it came from, with the full transcript one tab away." },
         { icon: "download", title: "Share links and exports", text: "Send a call to an agent or their manager with a share link, or download it as TXT, JSON, SRT or VTT. PDF export is planned." },
         { icon: "users", title: "Access by role", text: "Everyone gets the access their role allows: owner, admin, member or viewer. Teams have supervisors and agents, and you invite your own colleagues." },
@@ -1049,7 +1049,7 @@ const en = {
         { who: "customer", text: "Okay. Please make sure this time." },
       ],
     },
-    report: "Call Report",
+    report: "Call report",
     agents: {
       qc: { name: "Quality Control", agent: "QC scoring · planned", note: "Six criteria and an overall score." },
       problems: {
@@ -1065,7 +1065,7 @@ const en = {
         name: "Business Insight",
         agent: "Insights · partly planned",
         items: [
-          { label: "Churn Risk", value: "Medium" },
+          { label: "Churn risk", value: "Medium" },
           { label: "Upsell", value: "No" },
           { label: "Satisfaction trend", value: "Falling" },
         ],
@@ -1125,7 +1125,7 @@ const en = {
     warp: {
       eyebrow: "Read, not replay",
       title: "Conversations analyzed after the call ends",
-      text: "Skip the replay. Read the summary and the action items, and know what to do next.",
+      text: "Get the summary and the action items, and decide without hearing the whole call.",
     },
     brain: {
       eyebrow: "A sample call",
@@ -1142,15 +1142,15 @@ const en = {
     nav: ["Overview", "Calls", "Incidents", "Analytics", "Copilot", "Graph", "Settings"],
     workspace: "Sample queue",
     kpis: [
-      { label: "Total Calls", value: "1,284" },
-      { label: "Avg QC Score", value: "78", unit: "/ 100" },
-      { label: "Open Issues", value: "37" },
-      { label: "Calls Today", value: "96" },
+      { label: "Total calls", value: "1,284" },
+      { label: "Avg QC score", value: "78", unit: "/ 100" },
+      { label: "Open issues", value: "37" },
+      { label: "Calls today", value: "96" },
     ],
     trend: "QC trend",
     sentiment: "Sentiment distribution",
     sentimentLabels: ["Positive", "Neutral", "Negative"],
-    report: "Call Report",
+    report: "Call report",
     qc: "Quality score",
     problems: "Root causes",
     insights: "Business Insight",
@@ -1160,9 +1160,9 @@ const en = {
     scores: [
       { label: "Overall QC", value: 82 },
       { label: "Empathy", value: 88 },
-      { label: "Problem Solving", value: 74 },
+      { label: "Problem solving", value: 74 },
       { label: "Clarity", value: 91 },
-      { label: "Call Closing", value: 79 },
+      { label: "Call closing", value: 79 },
       { label: "Silence Handling", value: 70 },
       { label: "Tone", value: 86 },
     ],

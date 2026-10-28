@@ -5,13 +5,13 @@
 | Ticket | HOM-327 (Urgent), stage H1 |
 | Base commit | `e111e669c2a8a08c863e11616db6b70c596afc51` |
 | Date | 2026-10-28 |
-| Status | Home page: waiting for the owner |
+| Status | Approved by the owner on 2026-10-28. Stage H2 changes applied (see "After the owner's approval") |
 | See it | `http://localhost:4960/fa` and `http://localhost:4960/en` |
-| How to answer | Name a row ID (`H-001` to `H-219`) or a question ID (`Q-01` ...) and say: keep, change to ..., or remove |
+| Rows | `H-001` to `H-219`. The owner's answers to `Q-01` to `Q-10` are in the last column of the owner questions |
 | Code | `website/i18n/fa.ts` and `website/i18n/en.ts`: string values, plus one new array `home.deployment.modes` (3 strings, both locales). `website/app/[locale]/page.tsx:128`: the label text only (Addendum 2, E1). No other key, array length, component or scene changed |
 
-This page is the first step. The owner reads the real page, names the lines to change, and the
-accepted style then goes to every other page (stage P).
+The owner approved the Home page on 2026-10-28 ("excellent, go ahead the same way"). Its style is now
+written down in `docs/website/copy-style.md`, the contract for every other page (stage P).
 
 What changed, in short:
 
@@ -27,29 +27,39 @@ What changed, in short:
   at the end of this document. Stage P decides on them.
 - Planned features keep a visible «برنامه‌ریزی‌شده» / "Planned" label, and simulated screens keep
   «شبیه‌سازی» / «داده‌ی نمونه» / "Simulation" / "sample data".
-- 219 rows. Persian changed in 89 rows, English in 79 rows. `KEEP` rows are
+- 219 rows. Persian changed in 89 rows, English in 88 rows. `KEEP` rows are
   interface text, legal notices, sample data inside the simulations, or a marketing line that
   already sells (its Reason says why).
 
 ## Owner questions
 
-| ID | Question | Rows | Evidence | Applied now | Options |
-| --- | --- | --- | --- | --- | --- |
-| Q-01 | Which word for the product's web app: «پنل» or «کنسول»? Iranian buyers say «پنل»; «کنسول» sounds technical. | H-097, H-099, H-100 | Term choice, no claim | «پنل» in Persian. English keeps "console" | (a) Keep «پنل». (b) Go back to «کنسول». |
-| Q-02 | Which word for conversation: «مکالمه» (your example «تحلیل مکالمات») or «گفت‌وگو» (the product console's word)? | H-001, H-002, H-036, H-040, H-046, H-048, and every line with «متن مکالمه» | Console: `Homayar/frontend/src/components/admin/privacy/privacy-copy.ts:223` uses «گفت‌وگو» | «مکالمه» everywhere on the home page | (a) Keep «مکالمه». (b) Use «گفت‌وگو», as in the console. |
-| Q-03 | The hero opens with «به همهٔ تماس‌ها نمی‌رسید؟ / همایار می‌رسد.» ("Can't get to every call? Homayar can."). Today calls reach Homayar by upload; direct intake from the phone system is planned. Is the promise fair? | H-033, H-034 | Uploads: HOME-08. Planned PBX intake: HOME-18, HOME-28. Supervisor cannot listen to everything: SUP-03. Slogan "Every call, an insight": HOME-10 | Used as written | (a) Keep. (b) Change H-034 to «همایار کمکتان می‌کند.» / "Homayar helps." |
-| Q-04 | The warp title follows your direction: «تحلیل مکالمه‌ها، بعد از پایان تماس». It does not say the analysis starts by itself when the call ends, because that needs the planned PBX intake. Is this wording right? | H-040 | Post-call product: CHR-01. Planned PBX intake: HOME-18 | Used as written | (a) Keep. (b) Your exact words «شروع تحلیل مکالمات بعد از اتمام تماس». |
-| Q-05 | The share image shows the Latin name "Homayar" on `/fa` too. It is one literal for both languages, so a Persian name needs a small code change. | H-005 | `website/app/[locale]/opengraph-image/[id]/route.tsx:72` | Not changed | (a) Leave it. (b) Show «همایار» on `/fa` (code change in stage P). |
-| Q-06 | The three deployment cards now carry a small label that says who runs it: «ما اجرا می‌کنیم»، «شما اجرا می‌کنید»، «شما، با ابر اختیاری» / We run it, You run it, You run it, plus cloud. The words come from the pricing page. They replace the raw ids saas, self-hosted, hybrid, and they no longer repeat the card title. Are these right? | H-167, H-168, H-169 | `website/app/[locale]/page.tsx:128` (label); `pricing.deployments` in `website/i18n/fa.ts` uses «ما اجرا می‌کنیم» and «شما اجرا می‌کنید»; SPEC Addendum 2, E1 | Applied | (a) Keep. (b) Short mode names instead («ابری»، «روی سرور»، «ترکیبی»), which repeat the titles. |
-| Q-07 | Which word for a contact-center agent: «کارشناس» (the console's word) or «اپراتور» (the old site word)? The change also shows on the product and how-it-works pages, which share these keys. | H-050, H-066, H-130, and every line with «کارشناس» | Console: `Homayar/frontend/src/components/admin/teams/teams-copy.ts:96` | «کارشناس» | (a) Keep «کارشناس». (b) Go back to «اپراتور». |
-| Q-08 | The old hero line «با استفاده از هوش مصنوعی.» is gone; AI is now named in the meta description only. Do you want AI named in the hero? | H-037, H-002 | AI analysis: HOME-06 | AI in the meta description only | (a) Keep. (b) Bring AI back into a hero line, for example «با هوش مصنوعی، روی سرور شما.» |
-| Q-09 | The particle slogan «هر تماس، یک بینش» / "Every call, an insight." is kept. «بینش» is a common translated business word. Keep it, or choose a plainer word? | H-031 | Insights per call: HOME-10 | Kept | (a) Keep. (b) «هر تماس، یک درس» / "Every call, a lesson." (fits the dot text). |
-| Q-10 | The brand line under the logo changed from «هوش صوتی پس از تماس» / "Post-call voice intelligence" to «تحلیل پس از تماس» / "Post-call analysis". It also shows in the footer and on the `/en` share image. | H-009 | Post-call product: CHR-01 | Applied | (a) Keep the new line. (b) Go back to «هوش صوتی پس از تماس» / "Post-call voice intelligence". |
+| ID | Question | Rows | Evidence | Applied now | Options | Owner answer (2026-10-28) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Q-01 | Which word for the product's web app: «پنل» or «کنسول»? Iranian buyers say «پنل»; «کنسول» sounds technical. | H-097, H-099, H-100 | Term choice, no claim | «پنل» in Persian. English keeps "console" | (a) Keep «پنل». (b) Go back to «کنسول». | (a) «پنل». Kept |
+| Q-02 | Which word for conversation: «مکالمه» (your example «تحلیل مکالمات») or «گفت‌وگو» (the product console's word)? | H-001, H-002, H-036, H-040, H-046, H-048, and every line with «متن مکالمه» | Console: `Homayar/frontend/src/components/admin/privacy/privacy-copy.ts:223` uses «گفت‌وگو» | «مکالمه» everywhere on the home page | (a) Keep «مکالمه». (b) Use «گفت‌وگو», as in the console. | (a) «مکالمه». Kept |
+| Q-03 | The hero opens with «به همهٔ تماس‌ها نمی‌رسید؟ / همایار می‌رسد.» ("Can't get to every call? Homayar can."). Today calls reach Homayar by upload; direct intake from the phone system is planned. Is the promise fair? | H-033, H-034 | Uploads: HOME-08. Planned PBX intake: HOME-18, HOME-28. Supervisor cannot listen to everything: SUP-03. Slogan "Every call, an insight": HOME-10 | Used as written | (a) Keep. (b) Change H-034 to «همایار کمکتان می‌کند.» / "Homayar helps." | (a) Keep. Kept |
+| Q-04 | The warp title follows your direction: «تحلیل مکالمه‌ها، بعد از پایان تماس». It does not say the analysis starts by itself when the call ends, because that needs the planned PBX intake. Is this wording right? | H-040 | Post-call product: CHR-01. Planned PBX intake: HOME-18 | Used as written | (a) Keep. (b) Your exact words «شروع تحلیل مکالمات بعد از اتمام تماس». | (a) Keep. Kept |
+| Q-05 | The share image shows the Latin name "Homayar" on `/fa` too. It is one literal for both languages, so a Persian name needs a small code change. | H-005 | `website/app/[locale]/opengraph-image/[id]/route.tsx:72` | Not changed | (a) Leave it. (b) Show «همایار» on `/fa` (code change in stage P). | (b) Show «همایار» on `/fa`. Done in stage P, in the share-image route |
+| Q-06 | The three deployment cards now carry a small label that says who runs it: «ما اجرا می‌کنیم»، «شما اجرا می‌کنید»، «شما، با ابر اختیاری» / We run it, You run it, You run it, plus cloud. The words come from the pricing page. They replace the raw ids saas, self-hosted, hybrid, and they no longer repeat the card title. Are these right? | H-167, H-168, H-169 | `website/app/[locale]/page.tsx:128` (label); `pricing.deployments` in `website/i18n/fa.ts` uses «ما اجرا می‌کنیم» and «شما اجرا می‌کنید»; SPEC Addendum 2, E1 | Applied | (a) Keep. (b) Short mode names instead («ابری»، «روی سرور»، «ترکیبی»), which repeat the titles. | (a) Keep. Kept |
+| Q-07 | Which word for a contact-center agent: «کارشناس» (the console's word) or «اپراتور» (the old site word)? The change also shows on the product and how-it-works pages, which share these keys. | H-050, H-066, H-130, and every line with «کارشناس» | Console: `Homayar/frontend/src/components/admin/teams/teams-copy.ts:96` | «کارشناس» | (a) Keep «کارشناس». (b) Go back to «اپراتور». | (a) «کارشناس». Kept |
+| Q-08 | The old hero line «با استفاده از هوش مصنوعی.» is gone; AI is now named in the meta description only. Do you want AI named in the hero? | H-037, H-002 | AI analysis: HOME-06 | AI in the meta description only | (a) Keep. (b) Bring AI back into a hero line, for example «با هوش مصنوعی، روی سرور شما.» | (b) AI back into a hero line. Applied in H2: H-037 is «با هوش مصنوعی، روی سرور شما.» / "With AI, on your own servers." |
+| Q-09 | The particle slogan «هر تماس، یک بینش» / "Every call, an insight." is kept. «بینش» is a common translated business word. Keep it, or choose a plainer word? | H-031 | Insights per call: HOME-10 | Kept | (a) Keep. (b) «هر تماس، یک درس» / "Every call, a lesson." (fits the dot text). | (a) Keep «هر تماس، یک بینش». Kept |
+| Q-10 | The brand line under the logo changed from «هوش صوتی پس از تماس» / "Post-call voice intelligence" to «تحلیل پس از تماس» / "Post-call analysis". It also shows in the footer and on the `/en` share image. | H-009 | Post-call product: CHR-01 | Applied | (a) Keep the new line. (b) Go back to «هوش صوتی پس از تماس» / "Post-call voice intelligence". | (a) Keep «تحلیل پس از تماس». Kept |
 
 No row uses a claim outside the register except the framing in Q-03 and Q-04. One line is a little
 stronger than its register row: «مستند به متن مکالمه» / "Backed by the transcript"
 (H-036) says more than "linked to the transcript" (HOME-05). Every point links to its
 source line, so it stays; its Reason gives the softer option.
+
+## After the owner's approval (stage H2)
+
+| Row | Change | Why |
+| --- | --- | --- |
+| H-037 | «روی سرور خودتان.» became «با هوش مصنوعی، روی سرور شما.»; "On your own servers." became "With AI, on your own servers." | Owner answer Q-08 (b) |
+| H-041 | Starts with the result («خلاصه و اقدام‌ها را بخوانید ...»); English "Get the summary and the action items, and decide without hearing the whole call." | Review 2: the eyebrow and the body both used «به‌جای» |
+| H-147 | «... و تا امروز چند دقیقه صدا تحلیل شده است.»; English "how many minutes of audio" | Review 2: the old ending stacked nouns. The console shows audio in minutes |
+| H-056, H-085, H-110 to H-117, H-124, H-061, H-126 | English sample labels in sentence case ("Call report", "Churn risk", "Total calls", ...) | Review 2: Title Case next to sentence case on the same page |
+| H-211 | Marked `REMOVE` | Owner, 2026-10-28 (Addendum 4). The facts move to the privacy page. Team t2 makes the code change |
 
 ## Lines in the order the visitor meets them
 
@@ -97,11 +107,11 @@ text and `Key` is `file:line`.
 | H-034 | Flight hero | `home.hero.headlines[1]` | به گزارش بازبینی | همایار می‌رسد. | Homayar can. | Q-03 | The answer in two words. Owner question Q-03: today calls arrive by upload. |
 | H-035 | Flight hero | `home.hero.headlines[2]` | با خلاصه و اقدام‌ها | خلاصه و اقدام‌ها. | Summaries and action items. | HOME-04 | What the buyer gets, without the stiff «با» chain of the old split sentence. Ends with a period like the other five lines. Keeps the glossary word «اقدام‌ها». |
 | H-036 | Flight hero | `home.hero.headlines[3]` | متصل به متن مکالمه | مستند به متن مکالمه. | Backed by the transcript. | HOME-05, HOME-24 | Why the buyer can trust it. Slightly stronger than HOME-05 («linked»): every point links to its source line, so the owner may prefer «وصل به متن مکالمه.». Ends with a period like the others. |
-| H-037 | Flight hero | `home.hero.headlines[4]` | با استفاده از هوش مصنوعی. | روی سرور خودتان. | On your own servers. | HOME-32 | The answer to the IT question every Iranian buyer asks. AI moved to the meta description and the slogan context. |
+| H-037 | Flight hero | `home.hero.headlines[4]` | با استفاده از هوش مصنوعی. | با هوش مصنوعی، روی سرور شما. | With AI, on your own servers. | HOME-06, HOME-32, Q-08 | Owner answer Q-08 (b): AI back in the hero, in the owner's own words. «سرور شما» is the short form of «روی سرور خودتان», because the full phrase breaks the length rule here. |
 | H-038 | Flight hero | `home.hero.headlines[5]` | به فارسی و انگلیسی. | KEEP | KEEP | HOME-07 | Keeps: short, concrete, and a real reason to choose Homayar in Iran. |
 | H-039 | Warp band | `scene.warp.eyebrow` | از فضایی به فضای دیگر | خواندن به‌جای شنیدن | Read, not replay | SUP-03 | Old line named the scene («از فضایی به فضای دیگر»). Now the benefit: read the result instead of replaying the call. |
 | H-040 | Warp band | `scene.warp.title` | تماس تمام می‌شود. فضای تحلیل باز می‌شود. | تحلیل مکالمه‌ها، بعد از پایان تماس | Conversations analyzed after the call ends | CHR-01, Q-04 | Owner's direction («شروع تحلیل مکالمات بعد از اتمام تماس»). Does not say the start is automatic (Q-04). |
-| H-041 | Warp band | `scene.warp.text` | اسکرول را ادامه دهید. وارد شبکه‌ای می‌شوید که گفت‌وگو را می‌خواند. | به‌جای گوش دادن به کل تماس، خلاصه و اقدام‌ها را بخوانید و تصمیم بگیرید. | Skip the replay. Read the summary and the action items, and know what to do next. | SUP-03, HOME-02, HOME-24 | Old line was a stage direction and scene narration (owner example 2). Now the outcome for the supervisor. |
+| H-041 | Warp band | `scene.warp.text` | اسکرول را ادامه دهید. وارد شبکه‌ای می‌شوید که گفت‌وگو را می‌خواند. | خلاصه و اقدام‌ها را بخوانید و بدون گوش دادن به کل تماس تصمیم بگیرید. | Get the summary and the action items, and decide without hearing the whole call. | SUP-03, HOME-02, HOME-24 | Old line was a stage direction and scene narration (owner example 2). Now the outcome for the supervisor. Starts with the result, so it does not repeat «به‌جای» from the eyebrow. |
 | H-042 | Brain scene | `scene.brain.eyebrow` | درون تحلیل | تماس نمونه | A sample call | SCN-02 | «درون تحلیل» narrated the camera. Now it says what the visitor reads: a sample call. |
 | H-043 | Brain scene | `scene.brain.title` | هستهٔ همایار هر جملهٔ تماس را می‌خواند | از حرف مشتری تا گزارش سرپرست | From the customer's words to your report | HOME-09, HOME-24 | Owner example 3. «هستهٔ همایار» described internals; the new line follows the buyer's call to the buyer's report. |
 | H-044 | Brain scene | `scene.brain.text` | یک شبیه‌سازی با تماس نمونه. هر جمله بخشی از شبکه را روشن می‌کند که آن را می‌خواند. در پایان، گزارش به سمت شما می‌آید. | شبیه‌سازی با داده‌ی نمونه: مشتری‌ای که نه روز است سفارشش نرسیده. امتیاز کیفیت، ریشهٔ مشکل و نکتهٔ آموزشی برنامه‌ریزی‌شده‌اند. | A simulation with sample data: a customer whose order is nine days late. The quality scores, root causes and coaching tip are planned. | SCN-02, HOME-13, HOME-14, HOME-16 | Keeps the simulation label and adds the planned label for the report below. Drops the network narration. |
@@ -116,12 +126,12 @@ text and `Key` is `file:line`.
 | H-053 | Brain scene | `demo.transcript.{fa,en}[2].text` (shared) | هفتهٔ پیش هم تماس گرفتم و کسی پیگیری نکرد. | KEEP | KEEP | MOCK-10 | Sample customer line. |
 | H-054 | Brain scene | `demo.transcript.{fa,en}[3].text` (shared) | یادداشت را می‌بینم. وضعیت ارسال از طرف ما به‌روز نشده بود. امروز پیگیری می‌کنم و پیش از ساعت شش با شما تماس می‌گیرم. | KEEP | KEEP | MOCK-10 | Sample agent line. |
 | H-055 | Brain scene | `demo.transcript.{fa,en}[4].text` (shared) | باشد. لطفاً این بار حتماً. | KEEP | KEEP | MOCK-10 | Sample customer line. |
-| H-056 | Brain scene | `demo.report` (shared) | گزارش تماس | KEEP | KEEP | MOCK-24 | Heading of the sample report. |
+| H-056 | Brain scene | `demo.report` (shared) | گزارش تماس | KEEP | Call report | MOCK-24 | Heading of the sample report. English: Sentence case, like the rest of the page. |
 | H-057 | Brain scene | `demo.sample` (shared) | داده‌ی نمونه | KEEP | KEEP | MOCK-02 | Sample data label. |
 | H-058 | Brain scene | `mock.qc` (shared) | کنترل کیفیت | امتیاز کیفیت | Quality score | MOCK-23 | Heading over the sample scores. Glossary: QC scoring is «امتیاز کیفیت» everywhere. |
 | H-059 | Brain scene | `mock.scores[0].label` (shared) | امتیاز کلی | KEEP | KEEP | MOCK-15 | Sample score label. |
 | H-060 | Brain scene | `mock.scores[1].label` (shared) | همدلی | KEEP | KEEP | MOCK-15 | Sample score label. |
-| H-061 | Brain scene | `mock.scores[2].label` (shared) | حل مسئله | KEEP | KEEP | MOCK-15 | Sample score label. |
+| H-061 | Brain scene | `mock.scores[2].label` (shared) | حل مسئله | KEEP | Problem solving | MOCK-15 | Sample score label. English: Sentence case, like the rest of the page. |
 | H-062 | Brain scene | `mock.scores[3].label` (shared) | شفافیت | KEEP | KEEP | MOCK-15 | Sample score label. |
 | H-063 | Brain scene | `mock.problems` (shared) | تشخیص مشکل | ریشهٔ مشکل | Root causes | MOCK-23 | Heading over the sample problems. Glossary «ریشهٔ مشکل», the same name as the planned panel. |
 | H-064 | Brain scene | `mock.rootCauses[0].label` (shared) | وضعیت ارسال به‌روز نشده | KEEP | KEEP | MOCK-15 | Sample problem. Short and concrete. |
@@ -145,7 +155,7 @@ text and `Key` is `file:line`.
 | H-082 | Planned report | `home.outputs.items[2].icon` | trend | KEEP | KEEP | none | Icon name, not text. |
 | H-083 | Planned report | `home.outputs.items[2].title` | بینش کسب‌وکار | بینش از هر تماس | Insights from every call | HOME-15 | Insights exist today; the title says what the buyer gets from each call. Longer: fa 13 to 15, en 16 to 24. |
 | H-084 | Planned report | `home.outputs.items[2].text` | بینش‌هایی از همان تماس، هر کدام با میزان اطمینان و خطوطی از متن که پشت آن است. نشانه‌های فروش بیشتر و ریزش مشتری برنامه‌ریزی‌شده‌اند. | بینش‌هایی از خود تماس، هر کدام با میزان اطمینان و جمله‌هایی از مکالمه که پشتوانهٔ آن‌اند. نشانه‌های فروش بیشتر و ریزش مشتری برنامه‌ریزی‌شده‌اند. | Insights drawn from the call itself, each with a confidence level and the lines that back it up. Upsell and churn-risk signals are planned. | HOME-15, OD-03 | Simpler sentence. Keeps the planned part marked. |
-| H-085 | Planned report | `demo.agents.insights.items[0].label` (shared) | ریسک از دست دادن مشتری | خطر ریزش مشتری | KEEP | MOCK-10 | Glossary «ریزش مشتری». «ریسک» is a borrowed word. |
+| H-085 | Planned report | `demo.agents.insights.items[0].label` (shared) | ریسک از دست دادن مشتری | خطر ریزش مشتری | Churn risk | MOCK-10 | Glossary «ریزش مشتری». «ریسک» is a borrowed word. English: Sentence case, like the rest of the page. |
 | H-086 | Planned report | `demo.agents.insights.items[0].value` (shared) | متوسط | KEEP | KEEP | MOCK-10 | Sample value. |
 | H-087 | Planned report | `demo.agents.insights.items[1].label` (shared) | فرصت فروش | KEEP | KEEP | MOCK-10 | Sample label. «فرصت فروش بیشتر» would break the length rule in this small slot. |
 | H-088 | Planned report | `demo.agents.insights.items[1].value` (shared) | ندارد | KEEP | KEEP | MOCK-10 | Sample value. |
@@ -170,23 +180,23 @@ text and `Key` is `file:line`.
 | H-107 | Console | `mock.nav[5]` (shared) | گراف | KEEP | KEEP | MOCK-16 | Sample menu label. |
 | H-108 | Console | `mock.nav[6]` (shared) | تنظیمات | KEEP | KEEP | MOCK-16 | Sample menu label. |
 | H-109 | Console | `mock.workspace` (shared) | صف نمونه | KEEP | KEEP | MOCK-11 | Simulation label in the window header. |
-| H-110 | Console | `mock.kpis[0].label` (shared) | کل تماس‌ها | KEEP | KEEP | MOCK-15 | Sample card label. |
+| H-110 | Console | `mock.kpis[0].label` (shared) | کل تماس‌ها | KEEP | Total calls | MOCK-15 | Sample card label. English: Sentence case, like the rest of the page. |
 | H-111 | Console | `mock.kpis[0].value` (shared) | ۱٬۲۸۴ | KEEP | KEEP | MOCK-15 | Invented sample number. |
-| H-112 | Console | `mock.kpis[1].label` (shared) | میانگین امتیاز کیفیت | KEEP | KEEP | MOCK-15 | Sample card label. Already uses «امتیاز کیفیت». |
+| H-112 | Console | `mock.kpis[1].label` (shared) | میانگین امتیاز کیفیت | KEEP | Avg QC score | MOCK-15 | Sample card label. Already uses «امتیاز کیفیت». English: Sentence case, like the rest of the page. |
 | H-113 | Console | `mock.kpis[1].value` (shared) | ۷۸ | KEEP | KEEP | MOCK-15 | Invented sample number. |
 | H-114 | Console | `mock.kpis[1].unit` (shared) | / ۱۰۰ | KEEP | KEEP | MOCK-15 | Unit of the sample number. |
-| H-115 | Console | `mock.kpis[2].label` (shared) | مسائل باز | KEEP | KEEP | MOCK-15 | Sample card label. |
+| H-115 | Console | `mock.kpis[2].label` (shared) | مسائل باز | KEEP | Open issues | MOCK-15 | Sample card label. English: Sentence case, like the rest of the page. |
 | H-116 | Console | `mock.kpis[2].value` (shared) | ۳۷ | KEEP | KEEP | MOCK-15 | Invented sample number. |
-| H-117 | Console | `mock.kpis[3].label` (shared) | تماس‌های امروز | KEEP | KEEP | MOCK-15 | Sample card label. |
+| H-117 | Console | `mock.kpis[3].label` (shared) | تماس‌های امروز | KEEP | Calls today | MOCK-15 | Sample card label. English: Sentence case, like the rest of the page. |
 | H-118 | Console | `mock.kpis[3].value` (shared) | ۹۶ | KEEP | KEEP | MOCK-15 | Invented sample number. |
 | H-119 | Console | `mock.trend` (shared) | روند کیفیت | KEEP | KEEP | MOCK-23 | Sample chart label. |
 | H-120 | Console | `mock.sentiment` (shared) | توزیع احساس | KEEP | KEEP | MOCK-23 | Sample chart label. |
 | H-121 | Console | `mock.sentimentLabels[0]` (shared) | مثبت | KEEP | KEEP | MOCK-23 | Sample chart label. |
 | H-122 | Console | `mock.sentimentLabels[1]` (shared) | خنثی | KEEP | KEEP | MOCK-23 | Sample chart label. |
 | H-123 | Console | `mock.sentimentLabels[2]` (shared) | منفی | KEEP | KEEP | MOCK-23 | Sample chart label. |
-| H-124 | Console | `mock.report` (shared) | گزارش تماس | KEEP | KEEP | MOCK-23 | Sample panel label. |
+| H-124 | Console | `mock.report` (shared) | گزارش تماس | KEEP | Call report | MOCK-23 | Sample panel label. English: Sentence case, like the rest of the page. |
 | H-125 | Console | `mock.exportPdf` (shared) | خروجی | KEEP | KEEP | MOCK-13 | Sample button label, already without PDF. |
-| H-126 | Console | `mock.scores[4].label` (shared) | پایان تماس | KEEP | KEEP | MOCK-15 | Sample score label (the window shows five). |
+| H-126 | Console | `mock.scores[4].label` (shared) | پایان تماس | KEEP | Call closing | MOCK-15 | Sample score label (the window shows five). English: Sentence case, like the rest of the page. |
 | H-127 | Console | `mock.transcript` (shared) | متن مکالمه | KEEP | KEEP | MOCK-23 | Sample panel label. Glossary «متن مکالمه». |
 | H-128 | Console | `mock.transcriptLines[0].who` (shared) | مشتری | KEEP | KEEP | MOCK-10 | Speaker label. |
 | H-129 | Console | `mock.transcriptLines[0].text` (shared) | سفارشم بعد از نه روز هنوز «در حال ارسال» است. | KEEP | KEEP | MOCK-10 | Sample line, same as the brain scene. |
@@ -207,7 +217,7 @@ text and `Key` is `file:line`.
 | H-144 | Console | `mock.phoneTabs[3]` (shared) | دستیار | KEEP | KEEP | MOCK-23 | Sample tab label. |
 | H-145 | Console | `home.product.items[0].icon` | layout | KEEP | KEEP | none | Icon name, not text. |
 | H-146 | Console | `home.product.items[0].title` | داشبورد | وضعیت تماس‌ها در یک نگاه | Your calls at a glance | HOME-23 | The benefit of the overview, inside HOME-23. «همه‌چیز» promised more than the four facts below. Longer: fa 7 to 24, en 9 to 22. |
-| H-147 | Console | `home.product.items[0].text` | تماس‌های اخیر، تماس‌های دارای نتیجه، تماس‌های در حال پردازش و مقدار صدای مصرف‌شده. | در یک صفحه بدانید کدام تماس‌ها آماده‌اند، کدام هنوز در حال پردازش‌اند و مدت صدای تحلیل‌شده تا امروز چقدر است. | See which calls are ready, which are still processing, and how much audio has been analyzed so far, on one screen. | HOME-23 | Same four facts, said as answers to the manager's questions. Longer: fa 82 to 109, en 69 to 114. |
+| H-147 | Console | `home.product.items[0].text` | تماس‌های اخیر، تماس‌های دارای نتیجه، تماس‌های در حال پردازش و مقدار صدای مصرف‌شده. | در یک صفحه بدانید کدام تماس‌ها آماده‌اند، کدام هنوز در حال پردازش‌اند و تا امروز چند دقیقه صدا تحلیل شده است. | See which calls are ready, which are still processing, and how many minutes of audio have been analyzed so far, on one screen. | HOME-23 | Same four facts, said as answers to the manager's questions. The console shows audio in minutes (`Homayar/frontend/src/lib/format.ts:83-91`). Longer: fa 82 to 109, en 69 to 126. |
 | H-148 | Console | `home.product.items[1].icon` | file | KEEP | KEEP | none | Icon name, not text. |
 | H-149 | Console | `home.product.items[1].title` | گزارش تماس | گزارش با سند | Reports you can check | HOME-24 | Why this report is different: every point comes with its source line. «مستند» alone reads as a documentary. Longer: fa 10 to 12, en 12 to 21. |
 | H-150 | Console | `home.product.items[1].text` | خلاصه، اقدام‌ها و بینش‌هایی که به خطوط متن وصل‌اند، به‌علاوهٔ متن کامل مکالمه. | خلاصه، اقدام‌ها و بینش‌ها، هر کدام وصل به جمله‌ای از مکالمه که از آن آمده است؛ متن کامل هم کنارش است. | A summary, action items and insights, each linked to the line it came from, with the full transcript one tab away. | HOME-24, PROD-37 | Plain sentence instead of a noun list with «به‌علاوهٔ». Longer: fa 78 to 101, en 92 to 114. |
@@ -271,7 +281,7 @@ text and `Key` is `file:line`.
 | H-208 | Command CTA | `palette.actions[2].meta` (shared) | پوشاندن، جداسازی، حذف، خروج داده | پوشاندن داده‌های شخصی، جداسازی، حذف و کنترل خروج داده | Masking, isolation, deletion and egress control | CHR-08 | Glossary «پوشاندن داده‌های شخصی». A list a security lead can scan. Longer: fa 32 to 53, en 36 to 47. |
 | H-209 | Command CTA | `palette.actions[3].label` (shared) | مقایسهٔ گزینه‌های استقرار | انتخاب روش استقرار | Choose your setup | none | A choice the buyer makes, not a comparison chore. |
 | H-210 | Command CTA | `palette.actions[3].meta` (shared) | روی سرور شما، ترکیبی، SaaS برنامه‌ریزی‌شده | روی سرور خودتان یا ترکیبی؛ نسخهٔ ابری برنامه‌ریزی‌شده | Self-hosted or hybrid; managed cloud planned | CHR-06, OD-04 | Glossary phrases. Keeps the planned label. Longer: fa 42 to 53, en 33 to 44. |
-| H-211 | Footer | `footer.note` (shared) | همایار فقط فایل‌های صوتی تماسی را تحلیل می‌کند که مجوز پردازش آن‌ها را دارید. این وب‌سایت جز بررسی Cloudflare Turnstile در صفحهٔ تماس، هیچ اسکریپت شخص ثالثی بارگذاری نمی‌کند و کوکی ردیابی نمی‌گذارد. | KEEP | KEEP | CHR-02 | Legal notice. Tests guard the Turnstile wording. |
+| H-211 | Footer | `footer.note` (shared) | همایار فقط فایل‌های صوتی تماسی را تحلیل می‌کند که مجوز پردازش آن‌ها را دارید. این وب‌سایت جز بررسی Cloudflare Turnstile در صفحهٔ تماس، هیچ اسکریپت شخص ثالثی بارگذاری نمی‌کند و کوکی ردیابی نمی‌گذارد. | REMOVE (owner, 2026-10-28) | REMOVE (owner, 2026-10-28) | CHR-02 | Removed by the owner on 2026-10-28 (Addendum 4). Its true facts move to the privacy page. Team t2 makes that code change; this branch does not touch the key. |
 | H-212 | Footer | `footer.product` (shared) | محصول | KEEP | KEEP | none | Column heading. |
 | H-213 | Footer | `footer.trust` (shared) | اعتماد | KEEP | KEEP | none | Column heading. |
 | H-214 | Footer | `footer.company` (shared) | شرکت | KEEP | KEEP | none | Column heading. |
@@ -308,7 +318,7 @@ of its Reason. Check them on the running page.
 | H-083 | `home.outputs.items[2].title` | fa 13 to 15, en 16 to 24 |
 | H-093 | `home.outputs.items[3].title` | fa 12 to 21, en 16 to 23 |
 | H-146 | `home.product.items[0].title` | fa 7 to 24, en 9 to 22 |
-| H-147 | `home.product.items[0].text` | fa 82 to 109, en 69 to 114 |
+| H-147 | `home.product.items[0].text` | fa 82 to 109, en 69 to 126 |
 | H-149 | `home.product.items[1].title` | fa 10 to 12, en 12 to 21 |
 | H-150 | `home.product.items[1].text` | fa 78 to 101, en 92 to 114 |
 | H-152 | `home.product.items[2].title` | fa 8 to 19, en 7 to 23 |
