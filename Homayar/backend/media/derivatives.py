@@ -75,7 +75,6 @@ DERIVATIVES_DISABLED: Final = "derivatives_disabled"
 AUDIO_DELETED_AFTER_PROCESSING: Final = "audio_deleted_after_processing"
 SOURCE_NOT_REGISTERED: Final = "source_not_registered"
 SOURCE_NOT_LIVE: Final = "source_not_live"
-SOURCE_LEGAL_HOLD: Final = "source_legal_hold"
 SOURCE_CHANGED: Final = "source_changed"
 SOURCE_FACTS_UNKNOWN: Final = "source_facts_unknown"
 ALREADY_DERIVED: Final = "already_derived"
@@ -99,7 +98,6 @@ REASON_CODES: Final = (
     AUDIO_DELETED_AFTER_PROCESSING,
     SOURCE_NOT_REGISTERED,
     SOURCE_NOT_LIVE,
-    SOURCE_LEGAL_HOLD,
     SOURCE_CHANGED,
     SOURCE_FACTS_UNKNOWN,
     ALREADY_DERIVED,

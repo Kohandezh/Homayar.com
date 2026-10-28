@@ -241,8 +241,10 @@ the job makes one channel-preserving normalized derivative, measures signal acti
 channel, and keeps an exact map between derivative samples and original time. The activity
 and the map are stored **inside the derivative's own bytes**. There is no migration.
 
-**With the default setting, HOM-38 produces nothing in production. Enabling it waits for W1,
-W2 and an owner decision.** The setting is `MEDIA_DERIVATIVES_ENABLED` (default `false`).
+**With the default setting, HOM-38 produces nothing in production. Enabling it waits for W2
+(HOM-314).** The owner ruled on 2026-10-28 that it may be turned on once HOM-313 and HOM-314
+are merged (ADR 0042, owner ruling). The setting is `MEDIA_DERIVATIVES_ENABLED` (default
+`false`).
 W1 and W2 are named in "What is not claimed" below.
 
 - **Activity is a signal-level heuristic**, not speech detection. "Active" means "this
@@ -269,15 +271,16 @@ identities, stage runs, provider usage and meeting status do not change. It retu
 
 1. **Pre-checks**, read-only, before any decode. The first that applies wins:
    `derivatives_disabled`, `audio_deleted_after_processing`, `source_not_registered`,
-   `source_not_live`, `source_legal_hold`, `source_changed`, `source_facts_unknown`,
-   `already_derived`, `derivative_too_large`.
+   `source_not_live`, `source_changed`, `source_facts_unknown`, `already_derived`,
+   `derivative_too_large`.
 2. **The derivation** (`derive_audio`) in the job's temporary directory, then an upload under
    a random storage key, so each attempt owns its object.
 3. **The fenced registration**: one transaction proves the job lease
    (`lock_owned_or_cancelled`), locks the meeting row and the ORIGINAL row, checks
-   `source_not_live`, `source_legal_hold`, `source_changed` and `already_derived` again, and
-   then calls `register_derived` (which audits `media.registered`). A stale attempt can
-   upload bytes but can never register them.
+   `source_not_live`, `source_changed` and `already_derived` again, and then calls
+   `register_derived` (which audits `media.registered`). A stale attempt can upload bytes but
+   can never register them. A held ORIGINAL is derived; its derivative is created held (see
+   below).
 
 On a known refusal (a re-checked pre-check reason, a lost lease, a cancelled job, a deleted
 meeting, a unique-key conflict, a refusal from `register_derived`) the attempt removes the
@@ -290,7 +293,11 @@ The registered object: `kind = NORMALIZED`, `derived_from_id` = the ORIGINAL,
 `duration_seconds = ceil(samples / 16000)`, `job_id` = the job. Organization, workspace,
 meeting, ingestion and `retention_expires_at` come from the ORIGINAL. Retention, legal hold,
 conversation purge and integrity checks act on it like on any media object of the meeting.
-A reader selects a derivative by the exact `producer`. v1 never retires an object.
+A legal hold follows lineage (HOM-313): the derivative of a held ORIGINAL is created held, in
+the same transaction, with the ORIGINAL's owner, reason and review date (audit
+`media.legal_hold_inherited`); a hold or a release by id also covers the object's
+descendants. A reader selects a derivative by the exact `producer`. v1 never retires an
+object.
 
 ### Reason codes
 
@@ -299,15 +306,15 @@ as the audit event `media.derivative_unavailable` (target type `media`, target i
 ORIGINAL, details exactly `producer`, `reason`, `job_id`), under the job's fence. It is for
 operators only. Every outcome except `registered` and `derivatives_disabled` is also logged
 as `MEDIA_DERIVATIVE_UNAVAILABLE media_id=<id> reason=<code>`, with no key, path or filename.
-There is no read function for these reasons in v1.
+There is no read function for these reasons in v1. Audit rows written before HOM-313 may
+still carry `source_legal_hold` (the ORIGINAL was under legal hold); nothing writes it now.
 
 | Code | Stage | When |
 | --- | --- | --- |
 | `derivatives_disabled` | pre-check | the setting is off (not audited, not logged) |
 | `audio_deleted_after_processing` | pre-check | the workspace deletes audio after processing (W2) |
 | `source_not_registered` | pre-check, registration | the recording has no ORIGINAL media object (written before the media ledger); the audit target id is null |
-| `source_not_live` | pre-check, registration | the ORIGINAL is not active, retention-pending or held |
-| `source_legal_hold` | pre-check, registration | the ORIGINAL is under legal hold (W1) |
+| `source_not_live` | pre-check, registration | the ORIGINAL is not active, retention-pending or held, or it is held with a recorded deletion request (the hold only delays that deletion) |
 | `source_changed` | pre-check, registration | the ORIGINAL's digest is not the digest the job claimed |
 | `source_facts_unknown` | pre-check | the ORIGINAL row has `channel_count` null or outside 1 to 8, or `sample_rate_hz` null or not above 0 (backfilled rows); not re-checked under the lock (content columns are immutable) |
 | `already_derived` | pre-check, registration | a derivative of this ORIGINAL with this producer exists and is not `DELETED` (not audited) |
@@ -445,11 +452,26 @@ pairs; null when `inspection_duplicated` is null).
   input). Nothing depends on byte equality across builds.
 - Long calls get no derivative at the default cap (see Size). Raising the cap is an owner
   decision (ADR 0042, R3).
-- **W1** (separate work unit, not fixed here): `register_derived` creates a derived object
-  `ACTIVE` even when its source is under legal hold, and the meeting hold route can miss a
-  derived row inserted at the same time. A hold call that waits on the ORIGINAL row lock does
-  not see a derivative inserted by the transaction that held the lock. HOM-38 skips held
-  originals (`source_legal_hold`), but this race remains.
+- **W1** (fixed by HOM-313): a legal hold follows lineage. `register_derived` locks the
+  meeting row, then the source row, reads the source again, and creates the derived object
+  of a held source held in the same transaction (`media.legal_hold_inherited`). It refuses a
+  held source with a recorded deletion request (`source_not_live`). The meeting hold covers
+  every object of the meeting that is not deleted; a hold or a release by id also covers the
+  object's descendants. Registration and every hold path lock the meeting row before any
+  media row and read the media rows after that lock, so a hold never misses a derived row
+  inserted at the same time (an object without a meeting has no meeting row; then the source
+  row lock serializes them). Known limit: a hold or a release by id locks the object's
+  descendants in creation order. The media reconciliation sweep
+  (`backend/jobs/media_reconciliation.py`, through `delete_objects`) locks `deletion_pending`
+  rows in deletion-request order, all in one transaction. When both work on two such
+  descendants at the same moment and lock them in opposite orders, PostgreSQL aborts one side
+  with a deadlock error. An aborted hold returns 500, changes nothing, and can be sent again.
+  A release saves the released state first and removes bytes in a second step. If it is
+  aborted in the first step, it returns 500 and changes nothing. If it is aborted while it
+  removes bytes, it still returns 500, but the hold is already released: sending it again
+  gives 409 `not_held`, and the reconciliation sweep removes the remaining bytes. Rows whose
+  removal had already started stay removed. The meeting hold had the same limit before
+  HOM-313. The fix belongs to the sweep's lock order, outside this change.
 - **W2** (separate work unit, not fixed here): delete-after-processing requests deletion only
   of the ORIGINAL. HOM-38 skips such workspaces (`audio_deleted_after_processing`), but a
   workspace that turns the setting on after derivatives exist keeps them.

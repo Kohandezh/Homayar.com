@@ -269,15 +269,16 @@ def test_only_objects_currently_on_hold_are_listed(client, email_outbox, monkeyp
     meeting_id, original_id = _upload_media(client, tenant, "register-rows-0001")
     held_id = _seed_media(workspace_id, meeting_id=meeting_id, derived_from_id=original_id)
     never_held_id = _seed_media(workspace_id, meeting_id=meeting_id, derived_from_id=original_id)
+    released_id = _seed_media(workspace_id, meeting_id=meeting_id, derived_from_id=original_id)
     _, other_original_id = _upload_media(client, tenant, "register-rows-0002")
     review_at = _base_review()
 
-    _hold(client, tenant, original_id, review_at)
     _hold(client, tenant, held_id, review_at + timedelta(days=1))
-    assert set(_ids(_get(client, tenant))) == {original_id, held_id}
+    _hold(client, tenant, released_id, review_at)
+    assert set(_ids(_get(client, tenant))) == {held_id, released_id}
 
     released = _post(
-        client, tenant, f"/api/v1/media/{original_id}/legal-hold/release", {"reason": "closed"}
+        client, tenant, f"/api/v1/media/{released_id}/legal-hold/release", {"reason": "closed"}
     )
     assert released.status_code == 200 and released.json()["lifecycle_state"] == "active"
 
@@ -286,7 +287,7 @@ def test_only_objects_currently_on_hold_are_listed(client, email_outbox, monkeyp
     assert listed == [held_id]
     item = _get(client, tenant).json()["items"][0]
     assert item["kind"] == "normalized" and item["meeting_id"] == meeting_id
-    for absent in (original_id, never_held_id, other_original_id):
+    for absent in (original_id, never_held_id, released_id, other_original_id):
         assert absent not in listed
 
 

@@ -226,6 +226,7 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.MEDIA_DELETED: "deletion",
     AuditEventType.MEDIA_ORPHAN_REMOVED: "deletion",
     AuditEventType.MEDIA_LEGAL_HOLD_PLACED: "deletion",
+    AuditEventType.MEDIA_LEGAL_HOLD_INHERITED: "deletion",
     AuditEventType.MEDIA_LEGAL_HOLD_RELEASED: "deletion",
     # Content and processing lifecycle
     AuditEventType.MEETING_UPLOADED: "processing",

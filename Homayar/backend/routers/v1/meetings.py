@@ -26,7 +26,6 @@ from backend.database.relational import get_db
 from backend.database.saas_models import (
     IngestionRecord,
     IngestionSourceType,
-    MediaLifecycleState,
     Meeting,
     MeetingStatus,
     ProcessingJob,
@@ -104,10 +103,12 @@ from backend.services.logging_service import logger
 from backend.services.media_lifecycle_service import (
     MediaLifecycleError,
     delete_objects,
+    hold_meeting_objects,
+    hold_with_descendants,
+    lock_meeting,
     media_by_id,
     media_for_meeting,
-    place_legal_hold,
-    release_legal_hold,
+    release_with_descendants,
     verify_integrity,
 )
 from backend.services.meeting_service import (
@@ -1040,30 +1041,26 @@ def hold_meeting_media(
     released; already deleted objects cannot be held and are reported as such.
     """
     meeting = _get_meeting(db, context=context, meeting_id=meeting_id)
-    now = datetime.now(UTC)
-    # Locked, fresh rows (WP07-T03): a removal that already started is seen
-    # as ``deleted`` instead of being overwritten by the hold.
-    objects = media_for_meeting(
-        db, workspace_id=context.workspace.id, meeting_id=meeting.id, for_update=True
-    )
-    if not objects:
-        raise _media_not_found()
     try:
-        for media in objects:
-            if media.lifecycle_state is MediaLifecycleState.DELETED:
-                continue
-            place_legal_hold(
-                db,
-                media=media,
-                reason=payload.reason,
-                review_at=payload.review_at,
-                actor_user_id=context.actor.user.id,
-                now=now,
-                settings=settings,
-            )
+        # Locked, fresh rows (WP07-T03): a removal that already started is seen
+        # as ``deleted`` instead of being overwritten by the hold.  The meeting
+        # row is locked first (HOM-313), so a derived object registered at the
+        # same time is held too.
+        objects = hold_meeting_objects(
+            db,
+            workspace_id=context.workspace.id,
+            meeting_id=meeting.id,
+            reason=payload.reason,
+            review_at=payload.review_at,
+            actor_user_id=context.actor.user.id,
+            now=datetime.now(UTC),
+            settings=settings,
+        )
     except MediaLifecycleError as exc:
         db.rollback()
         raise _hold_refused(exc) from exc
+    if not objects:
+        raise _media_not_found()
     db.commit()
     for media in objects:
         db.refresh(media)
@@ -1081,14 +1078,15 @@ def hold_media_object(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> MediaObjectResponse:
-    """Hold one object by id — also reachable for objects of a deleted conversation."""
-    media = media_by_id(db, workspace_id=context.workspace.id, media_id=media_id, for_update=True)
-    if media is None:
-        raise _media_not_found()
+    """Hold one object by id and its descendants that are not deleted (HOM-313).
+
+    Also reachable for objects of a deleted conversation.
+    """
     try:
-        place_legal_hold(
+        media = hold_with_descendants(
             db,
-            media=media,
+            workspace_id=context.workspace.id,
+            media_id=media_id,
             reason=payload.reason,
             review_at=payload.review_at,
             actor_user_id=context.actor.user.id,
@@ -1098,6 +1096,8 @@ def hold_media_object(
     except MediaLifecycleError as exc:
         db.rollback()
         raise _hold_refused(exc) from exc
+    if media is None:
+        raise _media_not_found()
     db.commit()
     db.refresh(media)
     return MediaObjectResponse.model_validate(media)
@@ -1112,37 +1112,37 @@ def release_media_hold(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> MediaObjectResponse:
-    """Release a hold with an audited reason; a recorded deletion request then runs."""
-    media = media_by_id(db, workspace_id=context.workspace.id, media_id=media_id, for_update=True)
-    if media is None:
-        raise _media_not_found()
-    if media.lifecycle_state is not MediaLifecycleState.LEGAL_HOLD:
-        raise HTTPException(
-            status_code=409, detail={"code": "not_held", "message": "The object is not held"}
-        )
+    """Release a hold with an audited reason; a recorded deletion request then runs.
+
+    The held descendants of the object are released with it (HOM-313).
+    """
     now = datetime.now(UTC)
     try:
-        pending = release_legal_hold(
+        media, pending = release_with_descendants(
             db,
-            media=media,
+            workspace_id=context.workspace.id,
+            media_id=media_id,
             reason=payload.reason,
             actor_user_id=context.actor.user.id,
-            now=now,
             settings=settings,
         )
     except MediaLifecycleError as exc:
         db.rollback()
         raise _hold_refused(exc) from exc
+    if media is None:
+        raise _media_not_found()
     # A purge deferred by this hold becomes due now (WP07-T03).
     nudge_purge(db, workspace_id=context.workspace.id, meeting_id=media.meeting_id, now=now)
     db.commit()  # state first (ADR 0017) ...
     if pending:
-        # ... bytes second: the recorded deletion request resumes now; a
+        # ... bytes second: the recorded deletion requests resume now; a
         # failed removal leaves the row pending for the reconciliation sweep.
+        # The meeting row is locked before the media rows again (HOM-313).
+        lock_meeting(db, workspace_id=context.workspace.id, meeting_id=media.meeting_id)
         delete_objects(
             db,
             create_object_storage(settings),
-            objects=[media],
+            objects=pending,
             now=now,
             settings=settings,
             actor_user_id=context.actor.user.id,
