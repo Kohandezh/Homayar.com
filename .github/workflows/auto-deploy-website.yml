@@ -1,0 +1,146 @@
+name: Auto-deploy website
+
+run-name: Auto-deploy website at ${{ github.event.workflow_run.head_sha }}
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+# Do not add the concurrency group deploy-website here: a caller and its called
+# job in one group deadlock, and GitHub cancels the run.
+jobs:
+  changes:
+    name: Find website changes
+    # A failed or cancelled CI run never deploys. A fork pull request can have a
+    # head branch named main, so the branch alone proves nothing. A CI run started
+    # by hand is not a merge.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      website: ${{ steps.detect.outputs.website }}
+      sha: ${{ steps.detect.outputs.sha }}
+      base: ${{ steps.detect.outputs.base }}
+    steps:
+      - name: Check out the CI commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # CI on main cancels an older run when a newer push comes. So the base is the
+      # nearest earlier commit whose CI passed on main, not only the parent commit.
+      # Otherwise the website change of a merge with a cancelled CI run would be lost.
+      - name: Detect website changes
+        id: detect
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          CI_WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          trap 'echo "::error title=Detect website changes failed::Line ${LINENO}: ${BASH_COMMAND}"' ERR
+
+          if [[ ! "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=Bad commit SHA::HEAD_SHA is not a full, lowercase commit SHA."
+            exit 1
+          fi
+          if [[ "$(git rev-parse HEAD)" != "${HEAD_SHA}" ]]; then
+            echo "::error title=Wrong checkout::The checkout is not at ${HEAD_SHA}."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${HEAD_SHA}" refs/remotes/origin/main; then
+            echo "::error title=Commit is not on main::Commit ${HEAD_SHA} is not on origin/main."
+            exit 1
+          fi
+
+          runs_path="repos/${GITHUB_REPOSITORY}/actions/workflows/${CI_WORKFLOW_ID}/runs?branch=main&event=push&status=success&per_page=100"
+          if ! runs="$(gh api "${runs_path}" --jq '.workflow_runs[] | select(.conclusion == "success" and .event == "push" and .head_branch == "main") | "\(.id) \(.head_sha)"')"; then
+            echo "::error title=Cannot list CI runs::gh api ${runs_path} failed."
+            exit 1
+          fi
+
+          # Do not trust the API filter or its order. Keep the passing runs whose
+          # commit is an earlier commit of HEAD_SHA, and take the nearest one.
+          base=""
+          while read -r run_id run_sha; do
+            [[ "${run_id}" != "${CI_RUN_ID}" ]] || continue
+            [[ "${run_sha}" =~ ^[0-9a-f]{40}$ && "${run_sha}" != "${HEAD_SHA}" ]] || continue
+            git cat-file -e "${run_sha}^{commit}" 2>/dev/null || continue
+            git merge-base --is-ancestor "${run_sha}" "${HEAD_SHA}" || continue
+            if [[ -z "${base}" ]] || git merge-base --is-ancestor "${base}" "${run_sha}"; then
+              base="${run_sha}"
+            fi
+          done < <(sort -u <<< "${runs}")
+
+          if [[ -z "${base}" ]]; then
+            if base="$(git rev-parse --verify --quiet "${HEAD_SHA}^1")"; then
+              echo "::notice title=No earlier passing CI run::No passing CI run on main is an earlier commit of ${HEAD_SHA}. The base is its first parent, ${base}."
+            else
+              base=""
+              echo "::notice title=No parent commit::${HEAD_SHA} has no parent. It counts as a website change."
+            fi
+          fi
+
+          website=false
+          matches=()
+          if [[ -z "${base}" ]]; then
+            website=true
+          else
+            # --no-renames: a file moved out of website/ must count as a website change.
+            # -z: a path with a special character is not quoted, so it still matches.
+            changed="$(mktemp)"
+            git diff --name-only --no-renames -z "${base}" "${HEAD_SHA}" > "${changed}"
+            while IFS= read -r -d '' path; do
+              case "${path}" in
+                website/* | .github/workflows/deploy-website.yml | .github/workflows/auto-deploy-website.yml)
+                  matches+=("${path}")
+                  ;;
+              esac
+            done < "${changed}"
+            rm -f -- "${changed}"
+            if (( ${#matches[@]} > 0 )); then
+              website=true
+            fi
+          fi
+
+          echo "Base: ${base:-none}"
+          echo "Head: ${HEAD_SHA}"
+          if (( ${#matches[@]} > 0 )); then
+            echo "Website paths changed:"
+            printf '  %q\n' "${matches[@]}"
+          elif [[ "${website}" == true ]]; then
+            echo "No base commit, so this counts as a website change."
+          else
+            echo "No website change."
+          fi
+
+          {
+            echo "website=${website}"
+            echo "sha=${HEAD_SHA}"
+            echo "base=${base}"
+          } >> "${GITHUB_OUTPUT}"
+
+  deploy:
+    name: Deploy
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-website.yml
+    with:
+      ref: ${{ needs.changes.outputs.sha }}
+    secrets: inherit

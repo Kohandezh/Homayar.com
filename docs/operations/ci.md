@@ -12,6 +12,11 @@
 | Secret scan | full Git history scan with Gitleaks and redacted findings |
 | Container config | Actionlint, on-prem (with and without the egress profile)/cloud Compose, live Neo4j health, nginx, ShellCheck, Hadolint, image builds (including the egress proxy) and runtime smoke tests, the container-boundary egress test (`infra/egress/tests/test-egress-network.sh`) the air-gapped gate of the model preflight (`infra/ci/airgap_egress_check.py`), and promtool on the alert rules, their unit tests and the example Prometheus configuration (`infra/observability/prometheus`, HOM-126) |
 
+Two other workflows deploy the public website: **Auto-deploy website**
+(`auto-deploy-website.yml`, after CI passes on `main`) and **Release website**
+(`release-website.yml`, by hand). Both call `deploy-website.yml`. See
+[website/DEPLOY.md](../../website/DEPLOY.md).
+
 The product source is tracked in this repository under `Homayar/`
 ([ADR 0033](../architecture/decisions/0033-product-source-in-this-repository.md), which
 supersedes the external pin of ADR 0002). The `source-contract` job runs first:

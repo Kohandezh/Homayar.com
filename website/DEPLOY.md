@@ -3,8 +3,19 @@
 The public site runs on Cloudflare Workers through the OpenNext adapter
 (`@opennextjs/cloudflare`). It is served on `https://homayar.com`.
 
-A deploy happens only when a person runs the GitHub Actions workflow
-**Release website** by hand. A push or a pull request never deploys.
+There are two ways to deploy. Both run the same job, in
+`.github/workflows/deploy-website.yml`:
+
+- **Auto-deploy website** starts after every completed CI run on the `main`
+  branch. It deploys only when CI passed on a merged push to `main` and the
+  commit changes the website. Then it waits for an approval. Every other run
+  (a failed CI run, a CI run started by hand, a fork pull request whose branch
+  is named `main`) shows its jobs as skipped. See "Automatic deploy after a
+  merge".
+- **Release website** is the manual backup. A person starts it by hand. See
+  "Run a release by hand".
+
+A pull request never deploys.
 
 ## One-time setup (a person does this once)
 
@@ -40,16 +51,89 @@ A deploy happens only when a person runs the GitHub Actions workflow
    the secret. The workflow also fails before install when `ref` is not on `main`,
    so a branch that nobody reviewed is never deployed.
 
-   Optional: add required reviewers to `production`. Then every release waits
-   until a reviewer approves it. Turn this on when anyone besides the owner has
-   write access to the repository.
+   Also add required reviewers to `production` (see "Approval gate" below).
+   Without a reviewer, an automatic deploy starts as soon as CI passes.
+
+   Do this before the change that adds the automatic deploy is merged, because
+   that merge is itself a website change. If `production` does not exist, the
+   first run that uses it creates it with no rules and no secrets. So create
+   `production` and add the required reviewers and the `main` branch rule first.
+   Only then add the two secrets and the variable `TURNSTILE_SITE_KEY`.
 
 6. **Contact form.** Do the steps in "Contact form delivery" below before the
    first release that contains the contact form code.
 
 Never write the token or the account ID in a file in this repository.
 
-## Run a release
+## Automatic deploy after a merge
+
+The workflow **Auto-deploy website** (`.github/workflows/auto-deploy-website.yml`)
+works like this:
+
+1. A pull request is merged. This is a push to `main`.
+2. **CI** runs on that commit and passes.
+3. GitHub starts **Auto-deploy website** for the same commit. The run name shows
+   the commit SHA, so the approver sees which commit waits.
+4. The job **Find website changes** checks if the commit changes the website.
+   This job gets no secret.
+5. If it does, the job **Deploy** starts and waits for an approval on the
+   environment `production`.
+6. A reviewer approves. Then the job builds, deploys and runs the smoke test,
+   the same steps as a manual release (see "Run a release by hand").
+
+When the commit has no website change, the run stops after step 4, and the job
+**Deploy** shows as skipped.
+
+### What counts as a website change
+
+A commit is a website change when it changes one of these paths:
+
+- any file under `website/`
+- `.github/workflows/deploy-website.yml`
+- `.github/workflows/auto-deploy-website.yml`
+
+A deleted file counts. A file moved out of `website/` counts too. A path that only
+looks similar does not count, for example `docs/website/x` or `website-old/x`.
+A change to `ci.yml` or `release-website.yml` does not count.
+
+The job compares the commit with the nearest earlier commit on `main` whose CI
+passed. Why: when two merges land close together, CI cancels the older run. So
+the newer merge still counts the website change of the older one. If there is
+no such commit, the job compares with the parent commit and writes a notice in
+the log.
+
+### What never deploys
+
+- A CI run that failed or was cancelled.
+- A CI run of a pull request. This includes a pull request from a fork, even
+  when its branch is named `main`.
+- A CI run started by hand (Actions › CI › Run workflow). It is not a merge.
+- A commit with no website change.
+- A commit that is not on `main`. The deploy job also checks this before it
+  installs anything.
+
+### Approval gate (one-time setup)
+
+Open Settings › Environments › `production`:
+
+1. Turn on **Required reviewers**. Add the people who may approve a deploy. For
+   now this is the owner. One approval is enough.
+2. Keep **Deployment branches and tags** on "Selected branches and tags", with
+   only `main`. An automatic deploy passes this rule, because a run that another
+   workflow starts runs on the default branch, `main`.
+3. **Prevent self-review**: with this setting on, nobody can approve a deploy
+   from a run that they started. For a manual release, that is the person who
+   clicked Run workflow. An automatic deploy starts from the merge, so GitHub
+   counts the person who merged the pull request (check the name on the page of
+   the first automatic run). So when the only reviewer also merged the pull
+   request, GitHub blocks the approval. Turn this setting on only when a second
+   reviewer exists.
+
+To approve, open the run, click **Review deployments**, select `production`, and
+click **Approve and deploy**. **Reject** stops the deploy, and the run fails.
+A deploy that nobody approves fails after 30 days.
+
+## Run a release by hand
 
 1. Open the repository on GitHub, then Actions › **Release website** › Run workflow.
 2. `ref` is the branch, tag or commit SHA to release. The default is `main`.
@@ -68,7 +152,45 @@ Never write the token or the account ID in a file in this repository.
    Each check retries for up to 5 minutes, because DNS and the certificate of a
    new custom domain can take a few minutes. The job fails if a check still fails.
 
-Only one release runs at a time. A second run waits for the first one.
+With required reviewers on `production`, a manual release also waits for an
+approval.
+
+## Only one deploy at a time
+
+Manual and automatic deploys use one concurrency group, `deploy-website`, on
+the deploy job. A concurrency group lets only one job of the group run at a
+time. A running deploy is never cancelled.
+
+- While a deploy runs, the next one waits with the status **Pending**.
+- GitHub keeps only one pending job in the group. When one more deploy comes,
+  GitHub cancels the pending one, and the new one takes its place. An automatic
+  deploy ships all of `main` up to its commit, so the cancelled change still
+  ships with it. (A manual release of an older `ref` can also take that place.)
+- A deploy that waits for approval holds the group. GitHub's docs do not say
+  this directly, but GitHub users report it. So a newer deploy waits as
+  **Pending** behind an older one that waits for approval, and you cannot
+  approve the newer one yet. Reject the older one first. Then the newer one asks
+  for approval.
+
+## Re-run a deploy
+
+- **Re-run jobs** on an **Auto-deploy website** run deploys the same commit
+  again. It waits for an approval again. With **Prevent self-review** on, the
+  person who clicks **Re-run jobs** starts the deployment, so that person cannot
+  approve it.
+- Or run **Release website** by hand with any `ref` on `main`.
+
+## Known limits
+
+- A later merge that does not change the website does not retry a failed or
+  rejected deploy. The later merge compares with the last commit whose CI
+  passed, so it finds no website change. Re-run the failed run, or run
+  **Release website** by hand.
+- Approving an old waiting deploy deploys that old commit. Re-running an old CI
+  run on `main` also starts an automatic deploy of that old commit. So approve
+  the newest commit, and reject an older one.
+- Nothing skips a deploy because a newer commit is on `main`. The approval is
+  that check.
 
 ## Expected error lines in the logs
 
@@ -249,6 +371,10 @@ Pick one:
   (`npx wrangler rollback <VERSION_ID>`).
 
 - Or run **Release website** again with `ref` set to an older commit SHA or tag on `main`.
+
+A rollback lasts only until the next automatic deploy. The next merge that
+changes the website ships the newest `main` again. So fix `main` first (for
+example, revert the bad pull request), or reject that deploy.
 
 ## Local build and preview
 
