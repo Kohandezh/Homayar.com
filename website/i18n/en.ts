@@ -402,7 +402,7 @@ const en = {
           title: "A simulated day with Homayar",
           hint: "Simulation with sample data",
           items: [
-            { time: "08:30", task: "Yesterday's calls", text: "The overview shows which of yesterday's calls are ready and which are processing. Six-criteria scores are planned.", screen: "kpis" },
+            { time: "08:30", task: "Yesterday's calls", text: "The overview shows which of yesterday's calls are ready and which are still processing. Quality scores are planned.", screen: "kpis" },
             { time: "10:00", task: "Check a disputed finding", text: "Each point in the summary links to the line it came from, so you check it against what the agent and the customer actually said. Score bars are planned.", screen: "report" },
             { time: "12:30", task: "Share a report", text: "Send the call to the agent and their manager with a share link or an export. PDF export is planned.", screen: "pdf" },
             { time: "15:00", task: "Turn weak points into coaching", text: "Planned: each agent gets clear coaching tips, based on their own weak points.", screen: "training" },
@@ -410,7 +410,7 @@ const en = {
           ],
         },
         roadmap: {
-          title: "Planned for this role",
+          title: "On this role's roadmap",
           items: ["Your own scorecard for each workspace.", "Supervisor review, reviewer calibration and agent appeals.", "A quality score on six criteria for every call, and coaching for each agent."],
         },
       },
@@ -456,7 +456,7 @@ const en = {
           ],
         },
         roadmap: {
-          title: "Planned for this role",
+          title: "On this role's roadmap",
           items: ["Coaching assignments with follow-up.", "Alerts for high-severity findings.", "Incidents by severity, agent comparison and coaching."],
         },
       },
@@ -502,7 +502,7 @@ const en = {
           ],
         },
         roadmap: {
-          title: "Planned for this role",
+          title: "On this role's roadmap",
           items: ["Trend statistics adjusted for how many calls were analyzed.", "Short briefs for executives, built from reviewed findings.", "Quality trends, customer sentiment, issue tracking and a copilot for your call data."],
         },
       },
@@ -548,7 +548,7 @@ const en = {
           ],
         },
         roadmap: {
-          title: "Planned for this role",
+          title: "On this role's roadmap",
           items: ["OIDC single sign-on through an identity broker.", "Kubernetes manifests for customers who already run Kubernetes.", "VOIP webhooks for Asterisk and FreePBX, verified with a shared secret."],
         },
       },
