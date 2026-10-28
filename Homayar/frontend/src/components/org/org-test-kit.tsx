@@ -17,6 +17,7 @@ import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } 
 import type {
   OrgMember,
   OrgWorkspace,
+  OrgAggregatesResponse,
   Organization,
   OrganizationSummary,
   ScopeGrant,
@@ -100,6 +101,28 @@ export function grant(overrides: Partial<ScopeGrant> = {}): ScopeGrant {
   };
 }
 
+/** The server's default window on 2026-10-28: the 4 closed weeks before Saturday 2026-10-24, Tehran. */
+export const DEFAULT_WINDOW = {
+  from: "2026-09-25T20:30:00.000Z",
+  to: "2026-10-23T20:30:00.000Z",
+  basis: "ingestion_received_at",
+} as const;
+
+function counter(definition: string) {
+  return {
+    definition,
+    numerator_label: "done",
+    denominator_label: "received",
+    numerator: 30,
+    denominator: 30,
+    ratio: 1,
+    status: "computed" as const,
+    reason: null,
+    buckets: {},
+  };
+}
+
+/** A released workspace (contract 1.7.0): every count is a number. */
 export function aggregate(overrides: Partial<WorkspaceAggregate> = {}): WorkspaceAggregate {
   return {
     workspace_id: "ws-1",
@@ -109,6 +132,54 @@ export function aggregate(overrides: Partial<WorkspaceAggregate> = {}): Workspac
     meetings_by_status: { completed: 25, failed: 2 },
     audio_seconds_total: 1165,
     action_items_total: 27,
+    coverage: {
+      version: "coverage/1",
+      window: DEFAULT_WINDOW,
+      basis: "workspace",
+      processing: counter("processing"),
+      evaluation: counter("evaluation"),
+    },
+    scorecard: { status: "not_available", version: null, digest: null, reason: "scorecard_results_unavailable" },
+    missing_data: { indicators: [] },
+    disclosure: { status: "released", reason: null, kind: null, masked: [] },
+    ...overrides,
+  };
+}
+
+/** A withheld workspace: the four counts, the coverage and the missing data are null. */
+export function withheld(
+  reason: WorkspaceAggregate["disclosure"]["reason"],
+  overrides: Partial<WorkspaceAggregate> = {},
+): WorkspaceAggregate {
+  return aggregate({
+    meetings_total: null,
+    meetings_by_status: null,
+    audio_seconds_total: null,
+    action_items_total: null,
+    coverage: null,
+    missing_data: null,
+    disclosure: { status: "withheld", reason, kind: null, masked: [] },
+    ...overrides,
+  });
+}
+
+/** A whole aggregates answer around `items`, with the 1.7.0 policy and the default window. */
+export function aggregatesResponse(
+  items: WorkspaceAggregate[],
+  overrides: Partial<OrgAggregatesResponse> = {},
+): OrgAggregatesResponse {
+  return {
+    organization_id: ORG_ID,
+    since: null,
+    until: null,
+    generated_at: T,
+    items,
+    disclosure_policy: {
+      version: "disclosure/1",
+      min_cohort_agents: 5,
+      grid: { unit: "week", timezone: "Asia/Tehran", week_starts_on: "saturday", closed_weeks_only: true },
+    },
+    coverage_window: DEFAULT_WINDOW,
     ...overrides,
   };
 }
@@ -126,6 +197,8 @@ export interface OrgReads {
   workspaces?: Answer<OrgWorkspace[]>;
   grants?: Answer<ScopeGrant[]>;
   aggregates?: Answer<WorkspaceAggregate[]>;
+  /** The rest of the aggregates answer (the window, the policy); the items come from `aggregates`. */
+  aggregatesBody?: Partial<Omit<OrgAggregatesResponse, "items">>;
 }
 
 function answer<T>(value: Answer<T>, wrap: (data: T) => unknown) {
@@ -163,13 +236,7 @@ export function mockOrgReads(reads: OrgReads = {}) {
       return answer(reads.grants ?? [], (items) => ({ items, total: items.length }));
     }
     if (url === `${base}/aggregates`) {
-      return answer(reads.aggregates ?? [aggregate()], (items) => ({
-        organization_id: ORG_ID,
-        since: null,
-        until: null,
-        generated_at: T,
-        items,
-      }));
+      return answer(reads.aggregates ?? [aggregate()], (items) => aggregatesResponse(items, reads.aggregatesBody));
     }
     return Promise.reject(apiError(404, "not_found"));
   });

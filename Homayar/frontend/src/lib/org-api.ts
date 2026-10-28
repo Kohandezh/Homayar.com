@@ -78,7 +78,11 @@ export async function listScopeGrants(organizationId: string, signal?: AbortSign
   return response.data;
 }
 
-/** `since` null means all time: no `since` and no `until` is sent. */
+/**
+ * `since` null asks for the server default: the 4 closed weeks before the
+ * current week. No `since` and no `until` is sent then. The window really
+ * used is `coverage_window` in the answer (contract 1.7.0).
+ */
 export async function getOrgAggregates(
   organizationId: string,
   since: string | null,

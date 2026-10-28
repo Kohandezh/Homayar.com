@@ -230,7 +230,17 @@ async function answer(route: Route, state: MockOrg) {
         meetings_by_status: {},
         audio_seconds_total: 0,
         action_items_total: 0,
+        coverage: null,
+        scorecard: { status: "not_available", version: null, digest: null, reason: "scorecard_results_unavailable" },
+        missing_data: { indicators: ["empty_population"] },
+        disclosure: { status: "released", reason: null, kind: null, masked: [] },
       })),
+      disclosure_policy: {
+        version: "disclosure/1",
+        min_cohort_agents: 5,
+        grid: { unit: "week", timezone: "Asia/Tehran", week_starts_on: "saturday", closed_weeks_only: true },
+      },
+      coverage_window: { from: "2026-09-25T20:30:00.000Z", to: "2026-10-23T20:30:00.000Z", basis: "ingestion_received_at" },
     });
   }
 

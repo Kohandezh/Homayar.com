@@ -1,6 +1,21 @@
-import { CalendarDate, GregorianCalendar, getLocalTimeZone, toCalendar } from "@internationalized/date";
+import {
+  CalendarDate,
+  GregorianCalendar,
+  fromDate,
+  getLocalTimeZone,
+  startOfWeek,
+  toCalendar,
+  toCalendarDate,
+} from "@internationalized/date";
 
-import type { OrgMember, OrgMemberUpdateInput, OrgWorkspace, ScopeGrant, WorkspaceAggregate } from "@/types/organizations";
+import type {
+  CoverageWindow,
+  OrgMember,
+  OrgMemberUpdateInput,
+  OrgWorkspace,
+  ScopeGrant,
+  WorkspaceAggregate,
+} from "@/types/organizations";
 
 /** What one membership row shows, decided in this order (SPEC 4.4). */
 export type OrgMemberStatus = "revoked" | "inactive" | "active" | "scheduled" | "expired";
@@ -73,8 +88,33 @@ export function membershipPatch(
   return patch;
 }
 
+/** A workspace whose counts may be shown: released, with all four counts present. */
+export type ReleasedAggregate = WorkspaceAggregate & {
+  meetings_total: number;
+  meetings_by_status: Record<string, number>;
+  audio_seconds_total: number;
+  action_items_total: number;
+};
+
+/**
+ * Only `released` carries counts (contract 1.7.0). `masked` or a null count
+ * is treated as withheld, so a count the server withheld is never shown.
+ */
+export function isReleased(item: WorkspaceAggregate): item is ReleasedAggregate {
+  return (
+    item.disclosure.status === "released" &&
+    item.meetings_total !== null &&
+    item.meetings_by_status !== null &&
+    item.audio_seconds_total !== null &&
+    item.action_items_total !== null
+  );
+}
+
 export interface OrgTotals {
+  /** Every workspace, released and hidden. */
   workspaces: number;
+  hidden: number;
+  /** The sums below cover released workspaces only. */
   meetings: number;
   audioSeconds: number;
   actionItems: number;
@@ -82,29 +122,51 @@ export interface OrgTotals {
 
 export function orgTotals(items: WorkspaceAggregate[]): OrgTotals {
   return items.reduce<OrgTotals>(
-    (sum, item) => ({
-      workspaces: sum.workspaces + 1,
-      meetings: sum.meetings + item.meetings_total,
-      audioSeconds: sum.audioSeconds + item.audio_seconds_total,
-      actionItems: sum.actionItems + item.action_items_total,
-    }),
-    { workspaces: 0, meetings: 0, audioSeconds: 0, actionItems: 0 },
+    (sum, item) =>
+      isReleased(item)
+        ? {
+            ...sum,
+            workspaces: sum.workspaces + 1,
+            meetings: sum.meetings + item.meetings_total,
+            audioSeconds: sum.audioSeconds + item.audio_seconds_total,
+            actionItems: sum.actionItems + item.action_items_total,
+          }
+        : { ...sum, workspaces: sum.workspaces + 1, hidden: sum.hidden + 1 },
+    { workspaces: 0, hidden: 0, meetings: 0, audioSeconds: 0, actionItems: 0 },
   );
 }
 
 /** A count from `meetings_by_status`; 0 when the status is absent. */
-export function statusCount(item: WorkspaceAggregate, status: string): number {
+export function statusCount(item: ReleasedAggregate, status: string): number {
   return Object.hasOwn(item.meetings_by_status, status) ? item.meetings_by_status[status] : 0;
 }
 
-export type OrgPeriod = "all" | "7" | "30" | "90";
+/** How many closed weeks the overview asks for; 4 is the server default. */
+export type OrgWeeks = "4" | "13" | "26" | "52";
 
-export const ORG_PERIODS: readonly OrgPeriod[] = ["all", "7", "30", "90"];
+export const ORG_WEEKS: readonly OrgWeeks[] = ["4", "13", "26", "52"];
 
-/** `since` for a period: now minus N days as ISO; all time sends none. */
-export function sinceFor(period: OrgPeriod, now: number = Date.now()): string | null {
-  if (period === "all") return null;
-  return new Date(now - Number(period) * 86_400_000).toISOString();
+/** The aggregates grid: weeks start Saturday 00:00 in Tehran, whatever the browser's zone. */
+const GRID_ZONE = "Asia/Tehran";
+
+/**
+ * `since` for N closed weeks: Saturday 00:00 Tehran of the current week,
+ * minus N weeks, as ISO. The default 4 weeks sends none, so the server
+ * picks its own default window.
+ */
+export function sinceForWeeks(weeks: OrgWeeks, now: number = Date.now()): string | null {
+  if (weeks === "4") return null;
+  const today = toCalendarDate(fromDate(new Date(now), GRID_ZONE));
+  return startOfWeek(today, "en", "sat").subtract({ weeks: Number(weeks) }).toDate(GRID_ZONE).toISOString();
+}
+
+/**
+ * The window the server used, as two days in Tehran time: its first day and
+ * its last included day (`to` is exclusive, so 1 ms before it).
+ */
+export function windowDays(window: CoverageWindow, lang: "en" | "fa"): { from: string; last: string } {
+  const format = new Intl.DateTimeFormat(lang === "fa" ? "fa-IR" : "en", { dateStyle: "medium", timeZone: GRID_ZONE });
+  return { from: format.format(new Date(window.from)), last: format.format(new Date(Date.parse(window.to) - 1)) };
 }
 
 /** A scope grant with its member and workspace, when the lists still have them. */

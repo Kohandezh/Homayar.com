@@ -29,10 +29,22 @@ export const ORG_COPY = {
     none: "—",
 
     period: "Period",
-    allTime: "All time",
-    last7: "Last 7 days",
-    last30: "Last 30 days",
-    last90: "Last 90 days",
+    weeks4: "Last 4 closed weeks (default)",
+    weeks13: "Last 13 closed weeks",
+    weeks26: "Last 26 closed weeks",
+    weeks52: "Last 52 closed weeks",
+    periodHelp: "Counts use whole closed weeks, Saturday to Friday, Tehran time. The current week is not counted until it ends.",
+    showingWindow: (from: string, last: string) => `Showing ${from} to ${last}.`,
+    hidden: "Hidden",
+    chartHiddenRow: (name: string) => `${name}: hidden to protect privacy`,
+    /** `{name}` is rendered by `NamedText`; `min` and `n` are already formatted numbers. */
+    hiddenSmallGroup: (min: string) =>
+      `{name}: hidden to protect privacy. In at least one week of this period, fewer than ${min} agents had calls in this workspace.`,
+    hiddenComplementary:
+      "{name}: hidden to protect privacy. Showing these counts could reveal the counts of a smaller group by subtraction.",
+    hiddenOther: "{name}: hidden to protect privacy.",
+    totalsLeaveOut: (count: number, n: string) =>
+      `Totals leave out ${n} ${count === 1 ? "workspace" : "workspaces"} hidden to protect privacy.`,
     cardWorkspaces: "Workspaces",
     cardMeetings: "Meetings",
     cardAudio: "Audio",
@@ -160,10 +172,21 @@ export const ORG_COPY = {
     none: "—",
 
     period: "بازه",
-    allTime: "همهٔ زمان‌ها",
-    last7: "۷ روز گذشته",
-    last30: "۳۰ روز گذشته",
-    last90: "۹۰ روز گذشته",
+    weeks4: "۴ هفتهٔ کامل گذشته (پیش‌فرض)",
+    weeks13: "۱۳ هفتهٔ کامل گذشته",
+    weeks26: "۲۶ هفتهٔ کامل گذشته",
+    weeks52: "۵۲ هفتهٔ کامل گذشته",
+    periodHelp:
+      "شمارش‌ها فقط هفته‌های کامل را در بر می‌گیرند، از شنبه تا جمعه به وقت تهران. هفتهٔ جاری تا تمام نشود شمرده نمی‌شود.",
+    showingWindow: (from: string, last: string) => `نمایش از ${from} تا ${last}.`,
+    hidden: "پنهان",
+    chartHiddenRow: (name: string) => `${name}: پنهان برای حفظ حریم خصوصی`,
+    hiddenSmallGroup: (min: string) =>
+      `{name}: برای حفظ حریم خصوصی پنهان است. در دست‌کم یک هفته از این بازه، کمتر از ${min} کارشناس در این فضای کاری تماس داشته‌اند.`,
+    hiddenComplementary:
+      "{name}: برای حفظ حریم خصوصی پنهان است. نمایش این شمارش‌ها می‌تواند با یک تفریق ساده، شمارش‌های یک گروه کوچک‌تر را آشکار کند.",
+    hiddenOther: "{name}: برای حفظ حریم خصوصی پنهان است.",
+    totalsLeaveOut: (_count: number, n: string) => `جمع‌ها ${n} فضای کاری را که برای حفظ حریم خصوصی پنهان است در بر نمی‌گیرند.`,
     cardWorkspaces: "فضاهای کاری",
     cardMeetings: "جلسه‌ها",
     cardAudio: "صدا",
