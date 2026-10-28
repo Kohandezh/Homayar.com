@@ -125,7 +125,7 @@ export default async function HomePage({ params }: PageProps<"/[locale]">) {
         <div className="naked mt-16 grid gap-14 lg:grid-cols-3 lg:gap-10">
           {h.deployment.items.map((item, i) => (
             <article key={item.title} className="flex flex-col items-center gap-5 text-center" data-depth={String(220 + i * 80)}>
-              <p className="label text-xs font-semibold text-accent-text">{flowModes[i]}</p>
+              <p className="label text-xs font-semibold text-accent-text">{h.deployment.modes[i]}</p>
               <h3 className={`text-2xl font-bold ${i === 1 ? "text-accent-text" : ""}`}>{item.title}</h3>
               <div className="w-full max-w-xs">
                 <FlowDiagram flow={dict.deployment.flow} mode={flowModes[i]} compact naked />

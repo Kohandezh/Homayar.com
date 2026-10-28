@@ -8,10 +8,11 @@ There are two ways to deploy. Both run the same job, in
 
 - **Auto-deploy website** starts after every completed CI run on the `main`
   branch. It deploys only when CI passed on a merged push to `main` and the
-  commit changes the website. Then it waits for an approval. Every other run
-  (a failed CI run, a CI run started by hand, a fork pull request whose branch
-  is named `main`) shows its jobs as skipped. See "Automatic deploy after a
-  merge".
+  commit changes the website. Then it waits for an approval. When CI passed on
+  a merged push but the website did not change, only the Deploy job is
+  skipped. Any other run (a failed CI run, a CI run started by hand, a fork
+  pull request whose branch is named `main`) shows both jobs as skipped. See
+  "Automatic deploy after a merge".
 - **Release website** is the manual backup. A person starts it by hand. See
   "Run a release by hand".
 

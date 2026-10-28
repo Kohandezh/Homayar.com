@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import { getDictionary } from "@/i18n";
 import { isLocale, locales, type Locale } from "@/lib/i18n";
@@ -31,6 +33,13 @@ function wave() {
     pts.push(`${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`);
   }
   return pts.join("");
+}
+
+// next/og reads ttf, not woff2. The Persian name needs a font with Persian glyphs; it is read once, only for /fa.
+let brandFont: Promise<Buffer> | undefined;
+function vazirmatnBold() {
+  brandFont ??= readFile(join(process.cwd(), "fonts/Vazirmatn-Bold.ttf"));
+  return brandFont;
 }
 
 export function generateStaticParams() {
@@ -69,13 +78,17 @@ export async function GET(_request: Request, { params }: { params: Promise<{ loc
             </svg>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ fontSize: 76, fontWeight: 700, letterSpacing: -2, lineHeight: 1 }}>Homayar</div>
+            {locale === "fa" ? (
+              <div style={{ fontSize: 76, fontWeight: 700, lineHeight: 1, fontFamily: "Vazirmatn" }}>{dict.brand}</div>
+            ) : (
+              <div style={{ fontSize: 76, fontWeight: 700, letterSpacing: -2, lineHeight: 1 }}>Homayar</div>
+            )}
             <div style={{ fontSize: 30, color: "#b7c9cc" }}>{locale === "fa" ? "homayar.com" : dict.tagline}</div>
           </div>
         </div>
         <div style={{ position: "absolute", right: 72, bottom: 78, fontSize: 24, color: "#22bec6", display: "flex" }}>{locale === "fa" ? "FA" : "EN"}</div>
       </div>
     ),
-    { width: W, height: H },
+    { width: W, height: H, fonts: locale === "fa" ? [{ name: "Vazirmatn", data: await vazirmatnBold(), weight: 700, style: "normal" }] : undefined },
   );
 }

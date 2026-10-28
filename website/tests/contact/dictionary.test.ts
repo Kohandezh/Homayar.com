@@ -33,9 +33,12 @@ describe("contact copy (A11)", () => {
     expect(strings(fa).filter((s) => /فرم تماس هنوز وصل|وقتی فرم تماس وصل شود|فرم هنوز وصل/.test(s))).toEqual([]);
   });
 
-  it("the footer names the one third-party script (Turnstile on the contact page)", () => {
-    expect(en.footer.note).toMatch(/except the Cloudflare Turnstile check on the contact page/);
-    expect(fa.footer.note).toMatch(/Cloudflare Turnstile/);
+  it("the privacy page names the one third-party script (Turnstile on the contact page), and the footer has no note", () => {
+    expect(en.legal.privacy.site.text).toMatch(/except the Cloudflare Turnstile check on the contact page/);
+    expect(en.legal.privacy.site.text).toMatch(/no tracking cookies/);
+    expect(fa.legal.privacy.site.text).toMatch(/Cloudflare Turnstile/);
+    expect(fa.legal.privacy.site.text).toMatch(/کوکی ردیابی/);
+    for (const d of [en, fa]) expect(d.footer).not.toHaveProperty("note");
   });
 
   it("privacyNote names Turnstile, Cloudflare and 180 days in both languages", () => {
