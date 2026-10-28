@@ -650,7 +650,6 @@ SPEC_REASONS = {
     "audio_deleted_after_processing",
     "source_not_registered",
     "source_not_live",
-    "source_legal_hold",
     "source_changed",
     "source_facts_unknown",
     "already_derived",

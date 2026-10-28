@@ -313,8 +313,56 @@ def test_refused_sources_get_no_derivative_and_leave_their_reason(
     )
     now = datetime.now(UTC)
 
-    # A held ORIGINAL (otherwise live and valid) is not derived; after release it is.
+    # A held ORIGINAL (otherwise live and valid) is derived, and the derivative is held
+    # with the ORIGINAL's owner, reason and review date (HOM-313).
     job_id, meeting_id = _upload(client, tenant, wav, key="deny-held")
+    original_id = _original(meeting_id).id
+    with inspection_session_factory()() as db:
+        held = db.get(MediaObject, original_id)
+        place_legal_hold(
+            db,
+            media=held,
+            reason="litigation",
+            review_at=now + timedelta(days=30),
+            actor_user_id=tenant["user_id"],
+            now=now,
+            settings=settings,
+        )
+        db.commit()
+    assert _run(job_id, enabled, label="held")["status"] == "completed"
+    assert outcomes[-1] == "registered"
+    (derived,) = _derivatives(meeting_id)
+    original = _original(meeting_id)
+    assert derived.lifecycle_state == MediaLifecycleState.LEGAL_HOLD
+    assert derived.legal_hold_reason == original.legal_hold_reason == "litigation"
+    assert derived.legal_hold_by_user_id == original.legal_hold_by_user_id == tenant["user_id"]
+    assert derived.legal_hold_review_at == original.legal_hold_review_at
+    with inspection_session_factory()() as db:
+        inherited = list(
+            db.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.event_type == "media.legal_hold_inherited",
+                    AuditEvent.target_id == derived.id,
+                )
+            )
+        )
+    assert [event.details["source_id"] for event in inherited] == [original_id]
+    assert _reasons(original_id) == []
+    # The single-row release lifts only the ORIGINAL's hold; the derivative stays held.
+    with inspection_session_factory()() as db:
+        release_legal_hold(
+            db,
+            media=db.get(MediaObject, original_id),
+            reason="case closed",
+            actor_user_id=None,
+            now=now,
+            settings=settings,
+        )
+        db.commit()
+    assert _derivatives(meeting_id)[0].lifecycle_state == MediaLifecycleState.LEGAL_HOLD
+
+    # A held ORIGINAL with a recorded deletion request is not copied again.
+    job_id, meeting_id = _upload(client, tenant, wav, key="deny-held-deleting")
     original_id = _original(meeting_id).id
     with inspection_session_factory()() as db:
         held = db.get(MediaObject, original_id)
@@ -327,26 +375,14 @@ def test_refused_sources_get_no_derivative_and_leave_their_reason(
             now=now,
             settings=settings,
         )
-        db.commit()
-    flaky = _FlakyASR()
-    assert _run(job_id, enabled, asr=flaky, label="held-1")["status"] == "retry_scheduled"
-    assert outcomes[-1] == "source_legal_hold"
-    assert _derivatives(meeting_id) == []
-    assert _reasons(original_id) == ["source_legal_hold"]
-    with inspection_session_factory()() as db:
-        release_legal_hold(
-            db,
-            media=db.get(MediaObject, original_id),
-            reason="case closed",
-            actor_user_id=None,
-            now=now,
-            settings=settings,
+        request_deletion(
+            db, media=held, reason="test", actor_user_id=None, now=now, settings=settings
         )
         db.commit()
-    _make_due(job_id)
-    assert _run(job_id, enabled, asr=flaky, label="held-2")["status"] == "completed"
-    assert outcomes[-1] == "registered"
-    assert len(_derivatives(meeting_id)) == 1
+    assert _run(job_id, enabled, label="held-deleting")["status"] == "completed"
+    assert outcomes[-1] == "source_not_live"
+    assert _derivatives(meeting_id) == []
+    assert _reasons(original_id) == ["source_not_live"]
 
     # A live control was registered above; an ORIGINAL that is not live is refused.
     job_id, meeting_id = _upload(client, tenant, wav, key="deny-not-live")

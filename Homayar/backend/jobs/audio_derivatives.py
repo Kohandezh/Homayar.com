@@ -52,8 +52,8 @@ from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.logging_service import logger
 from backend.services.media_lifecycle_service import (
-    LIVE_STATES,
     MediaLifecycleError,
+    may_derive_from,
     media_by_id,
     original_for_meeting,
     register_derived,
@@ -133,11 +133,13 @@ def _existing(db: Session, original_id: str) -> bool:
 
 
 def _source_refusal(db: Session, original: MediaObject, claim: Any) -> str | None:
-    """The source checks repeated under the lock (``source_facts_unknown`` is not one)."""
-    if original.lifecycle_state not in LIVE_STATES:
+    """The source checks repeated under the lock (``source_facts_unknown`` is not one).
+
+    A held ORIGINAL is derived, and its derivative is created held (HOM-313);
+    a held one with a recorded deletion request is not live for this.
+    """
+    if not may_derive_from(original):
         return media.SOURCE_NOT_LIVE
-    if original.lifecycle_state is MediaLifecycleState.LEGAL_HOLD:
-        return media.SOURCE_LEGAL_HOLD
     if original.sha256 != claim.recording_sha256:
         return media.SOURCE_CHANGED
     if _existing(db, original.id):
@@ -183,7 +185,7 @@ def _precheck(claim: Any, settings: Settings) -> tuple[str | None, _Source]:
             reason = media.SOURCE_NOT_REGISTERED
         else:
             refusal = _source_refusal(db, original, claim)
-            if refusal in (media.SOURCE_NOT_LIVE, media.SOURCE_LEGAL_HOLD, media.SOURCE_CHANGED):
+            if refusal in (media.SOURCE_NOT_LIVE, media.SOURCE_CHANGED):
                 reason = refusal
             elif facts is None:
                 reason = media.SOURCE_FACTS_UNKNOWN

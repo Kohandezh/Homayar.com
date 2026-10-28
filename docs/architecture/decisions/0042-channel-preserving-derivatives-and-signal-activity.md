@@ -81,7 +81,7 @@ to T03.
 | R1 | Loudness or gain normalization of the derivative? | None (gain 1). T03 decides model input gain. A constant per-channel gain would keep every sample in place, but it is a new version. |
 | R2 | What does a narrowband source become? | 16 kHz by upsampling; the record keeps `narrowband: true`; no bandwidth is made up. |
 | R3 | Derivative size cap and long calls | Keep the existing per-object storage cap. Above it: no derivative, reason `derivative_too_large`. See the cost table below. |
-| R4 | Derivative of a held ORIGINAL | Not made (`source_legal_hold`). W1 is the separate fix. |
+| R4 | Derivative of a held ORIGINAL | Not made (`source_legal_hold`). W1 is the separate fix. Status: fixed by HOM-313, see `backend/media/README.md`. |
 | R5 | Workspaces that delete audio after processing | Not made (`audio_deleted_after_processing`). W2 is the separate fix. |
 | R6 | HOM-37 "silent" (first 30 s) against full-length activity | Measure every channel over the whole derivative, copy the HOM-37 flags, and never remove an interval because of them. A truly silent channel gets no interval by itself. |
 | R7 | Enabled by default? | No (`MEDIA_DERIVATIVES_ENABLED=false`). |
@@ -112,7 +112,7 @@ Raising the cap is an owner decision. It is listed in the pull request.
   legal hold. The meeting hold route can also miss a derived row inserted at the same time:
   a hold call that waits on the ORIGINAL row lock does not see a derivative inserted by the
   transaction that held the lock (shown on PostgreSQL). HOM-38 skips held originals, but
-  this race remains until W1.
+  this race remains until W1. Status: fixed by HOM-313, see `backend/media/README.md`.
 - **W2.** Delete-after-processing (`backend/jobs/processor.py`, the completion request and
   the post-success removal) requests deletion only of the ORIGINAL. It must cover every live
   object of the meeting. HOM-38 skips such workspaces, but a workspace that turns the setting
