@@ -4800,8 +4800,8 @@ FROZEN_FILES: dict[str, str] = {
     "backend/privacy/redaction_service.py": (
         "6facb81af9244730d104e6e12a5bd3491141245dab66f144c38c14dd1b25053a"
     ),
-    "backend/privacy/subject_export.py": (  # HOM-302: _Matcher shares the class-free work
-        "c7930b00c98f7aab94b3862959d56d371d4fe11f90b592965e161ce28ecf338f"
+    "backend/privacy/subject_export.py": (  # HOM-298: _Matcher re-reads a cut mobile
+        "377c245f4a4a97001cf31999de14b3c700d60d6673d641a75d7632c65c05b317"
     ),
     "backend/privacy/transcript_view.py": (
         "b65c3629ac444112d593f3c2e7071a4d27b4f229f09fcf9a5c3803d0533aa44e"
