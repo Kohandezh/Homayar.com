@@ -175,16 +175,34 @@ def test_the_shared_path_gives_each_class_set_its_own_spans(text):
 
 
 def _classes_one_by_one(identifiers: list[SubjectIdentifier], text: str) -> list[str]:
-    # The HOM-291 rule as main wrote it: one detect per class, then the union.
+    # HOM-298: the HOM-291 rule (one detect per class, then the union), plus the
+    # re-cut rule of subject_export for a mobile, read from separate detect
+    # calls of each pair of cutting classes: no shared work and no first test of the
+    # digits.
     wanted = {(item.pii_class, item.value) for item in identifiers}
-    return sorted(
-        {
-            span.pii_class.value
-            for pii_class in {item.pii_class for item in identifiers}
-            for span in detect(text, {pii_class})
-            if (span.pii_class, span.value) in wanted
-        }
-    )
+    single = {pii_class: detect(text, {pii_class}) for pii_class in SUBJECT_CLASSES}
+    found = {
+        (span.pii_class, span.value)
+        for spans in single.values()
+        for span in spans
+        if (span.pii_class, span.value) in wanted
+    }
+    norm = normalize_digits_extended(text)
+    written = subject_export._written_identifiers(norm)
+    classes = sorted(subject_export._CUTTING_CLASSES, key=lambda c: c.value)
+    for mask in range(1, 1 << len(classes)):
+        combo = {c for bit, c in enumerate(classes) if mask >> bit & 1}
+        reading = detect(text, combo) if len(combo) == 2 else []
+        for k, span in enumerate(reading):
+            key = (span.pii_class, span.value)
+            if (
+                key in wanted
+                and key not in found
+                and span.pii_class in subject_export._REREAD_CLASSES
+                and subject_export._recut(norm, reading, k, single.__getitem__, written)
+            ):
+                found.add(key)
+    return sorted({pii_class.value for pii_class, _ in found})
 
 
 @pytest.mark.parametrize("text", SHAPES + DENSE[:20], ids=range(len(SHAPES) + 20))
