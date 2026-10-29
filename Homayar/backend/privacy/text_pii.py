@@ -74,7 +74,16 @@ national IDs are not requested, a ``00`` reading that starts at an ID still
 takes the start of the next number: the span grows over both numbers and keeps
 that reading's value (``0039626921 0090 453 3473 896 2`` gives one phone span,
 valued ``00396269210090453`` as before), so a phone search does not find the
-second number on its own.
+second number on its own.  A phone reading (a ``00`` number or a landline)
+that starts in a card of four groups of four that pass Luhn, with a ``00``
+group, and runs into a mobile or landline in a usual written form right after
+the card, reads across two identifiers and is not used:
+``164,490,000 6278 6106 1842 0051 0905 918 6194 31`` gives the phone
+``09059186194``, and its span grows over the digits that reading covered.
+When a second written phone starts inside that phone and ends after it
+(``0917 087-0441 9135``), or a written phone starts in the card and runs out of
+it, the digits read two ways and the reading stays as before.  It also stays
+when reading again would give any new value other than that phone.
 
 NOT detected (disclosed residual risk): person and company names, street
 addresses, dates of birth, licence plates, passport and account numbers
@@ -152,7 +161,9 @@ from backend.speech.text_normalize import (
 # text-pii/6 (HOM-303): a card, a 00 number or a glued mobile is read where a neighbour
 # used up its digits.
 # text-pii/7 (HOM-308): an IBAN followed by a separator and a Latin word is read.
-DETECTOR_VERSION = "text-pii/7"
+# text-pii/8 (HOM-315): a 00 reading that starts in a card is not read over the phone
+# after it.
+DETECTOR_VERSION = "text-pii/8"
 
 
 class PiiClass(str, enum.Enum):
@@ -275,6 +286,12 @@ _LANDLINE_DIGITS_RE = re.compile(r"0[1-8][0-9]{9}")
 _WRITTEN_HINT_RE = re.compile(
     r"[0-9]{11}|[^0-9]00|(?<![0-9])[0-9]{4}(?:[^0-9][0-9]{4}){3}(?![0-9])"
 )
+# Four groups of four digits, then a group that starts like a phone (``0`` and an
+# area or mobile digit): a card a 00 reading can start in (HOM-315).
+_CARD_THEN_PHONE_RE = re.compile(r"(?<![0-9])(?=(?:[0-9]{4}" + _SEP[:-1] + r"){4}0[1-9])")
+# Usual written forms of a phone, as the sizes of its digit groups (HOM-315).
+_MOBILE_FORMS = frozenset({(11,), (4, 3, 4), (4, 7), (4, 3, 2, 2)})  # 0912 345 6789
+_LANDLINE_FORMS = frozenset({(11,), (3, 4, 4), (3, 8)})  # 021 2345 6789
 # Inside a digit run there is no + and no bracket, so the phone regexes read
 # only 0, 98 or 0098 and then 10 digits there (HOM-302).
 _PHONE_DIGITS = (11, 12, 14)
@@ -993,6 +1010,86 @@ def _keep(before: list[PiiSpan], spans: list[PiiSpan]) -> list[PiiSpan]:
     ]
 
 
+def _card_tails(norm: str, found: list[PiiSpan]) -> list[tuple[frozenset[int], int, str]]:
+    """Cards written as four groups of four that pass Luhn, with a group that
+    starts with ``00`` and a mobile or landline in a usual written form at the
+    group right after them (HOM-315): the starts of the card's groups, where the
+    phone starts and its value.  Found from the text alone, whatever the requested classes.
+    A phone that a second written phone starts inside and outlasts reads two ways,
+    and so does a card with a written phone that starts in it and runs out of it
+    (a chance card one group late): neither makes a tail."""
+    tails: list[tuple[frozenset[int], int, str]] = []
+    phones: dict[int, list[PiiSpan]] | None = None
+
+    def written(span: PiiSpan) -> bool:
+        groups = _GROUP_RE.findall(norm, span.start, span.end)
+        sizes = tuple(len(group) for group in groups)
+        return "".join(groups) == span.value and bool(
+            (_MOBILE_DIGITS_RE.fullmatch(span.value) and sizes in _MOBILE_FORMS)
+            or (_LANDLINE_DIGITS_RE.fullmatch(span.value) and sizes in _LANDLINE_FORMS)
+        )
+
+    for match in _CARD_THEN_PHONE_RE.finditer(norm):
+        starts = [match.start() + 5 * k for k in range(4)]
+        if not any(norm.startswith("00", start) for start in starts):
+            continue  # no 00 reading starts in this card
+        if not valid_luhn("".join(norm[start : start + 4] for start in starts)):
+            continue
+        if phones is None:
+            phones = {}
+            for span in found:
+                if span.pii_class is PiiClass.PHONE:
+                    phones.setdefault(span.start, []).append(span)
+        if any(
+            other.end > match.start() + 19 and written(other)
+            for start in starts
+            for other in phones.get(start, [])
+        ):
+            continue  # a written phone starts in the card and runs out of it
+        for span in phones.get(match.start() + 20, []):
+            if written(span) and not any(
+                other.end > span.end and written(other)
+                for at in range(span.start + 1, span.end)
+                for other in phones.get(at, [])
+            ):
+                tails.append((frozenset(starts), span.start, span.value))
+    return tails
+
+
+def _untailed(
+    shared: _Text, matches: list[PiiSpan], pieces: list[PiiSpan], chosen: list[PiiSpan]
+) -> list[PiiSpan]:
+    """``chosen`` read again without the phone readings that start in a card of
+    ``_card_tails`` and run into the phone after it (HOM-315): such a reading
+    reads across two identifiers, whether it is a ``00`` number or a landline
+    (``0309 0938 524`` in ``0018 0309 0938 524 6112``).  The new spans grow over
+    ``chosen``, so nothing redacted before is shown again.  Only the phones after
+    the cards may be new values: any other new value is a chance reading that the
+    dropped readings held, and then ``chosen`` stays."""
+    norm, tails = shared.norm, shared.tails()
+
+    def tail(span: PiiSpan) -> bool:
+        return span.pii_class is PiiClass.PHONE and any(
+            span.start in starts and phone < span.end for starts, phone, _ in tails
+        )
+
+    kept = [span for span in matches if not tail(span)]
+    rest = [span for span in pieces if not tail(span)]
+    if len(kept) == len(matches) and len(rest) == len(pieces):
+        return chosen
+    spans = _select(norm, kept, rest, shared)
+    before = {(span.pii_class, span.value) for span in chosen}
+    allowed = {(PiiClass.PHONE, value) for _, _, value in tails}
+    if not {(span.pii_class, span.value) for span in spans} - before <= allowed:
+        return chosen
+    starts, ends = [span.start for span in spans], [span.end for span in spans]
+    # _keep grows the new spans over each old one, so each old one must share a
+    # character with a new one.
+    if any(bisect_right(ends, old.start) >= bisect_left(starts, old.end) for old in chosen):
+        return chosen
+    return _keep(chosen, spans)
+
+
 class _Text:
     """The work on one text that does not depend on the requested classes,
     done once and shared by the class sets of one call (HOM-302).  It is a
@@ -1005,6 +1102,13 @@ class _Text:
         self.found = _matches(self.norm, self.folded)
         self.runs = _runs(self.norm, self.folded)
         self._marks: tuple[list[int], list[int]] | None = None
+        self._tails: list[tuple[frozenset[int], int, str]] | None = None
+
+    def tails(self) -> list[tuple[frozenset[int], int, str]]:
+        """The ``_card_tails`` of the text, built on first use (HOM-315)."""
+        if self._tails is None:
+            self._tails = _card_tails(self.norm, self.found)
+        return self._tails
 
     def marks(self) -> tuple[list[int], list[int]]:
         """Where the letters and digits of ``norm`` are, and marks_before[i]:
@@ -1054,9 +1158,11 @@ def _detect_in(shared: _Text, wanted: frozenset[PiiClass]) -> list[PiiSpan]:
                 for i in range(span.start, span.end)
             ):
                 extra += spans
-    if not extra:
-        return chosen
-    return _keep(chosen, _select(norm, matches, pieces + extra, shared))
+    if extra:
+        chosen = _keep(chosen, _select(norm, matches, pieces + extra, shared))
+    if PiiClass.PHONE in wanted and shared.tails():
+        chosen = _untailed(shared, matches, pieces + extra, chosen)
+    return chosen
 
 
 @dataclass(frozen=True)

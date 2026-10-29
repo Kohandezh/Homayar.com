@@ -761,4 +761,18 @@ def test_detector_version_covers_the_glued_runs():
 def test_detector_version_covers_the_iban_before_a_latin_word():
     # HOM-308: stored redactions made before an IBAN was read without the word after it
     # are derived again.
-    assert DETECTOR_VERSION == "text-pii/7"
+    # HOM-315: any version after text-pii/6 holds the IBAN before a Latin word.
+    assert DETECTOR_VERSION not in {
+        "text-pii/1",
+        "text-pii/2",
+        "text-pii/3",
+        "text-pii/4",
+        "text-pii/5",
+        "text-pii/6",
+    }
+
+
+def test_detector_version_covers_the_phone_after_a_card():
+    # HOM-315: stored redactions made before a 00 reading that starts in a card stopped
+    # taking the phone after it are derived again.
+    assert DETECTOR_VERSION == "text-pii/8"
