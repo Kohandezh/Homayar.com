@@ -44,8 +44,16 @@ compares a catalog fingerprint with the one taken after the last build and, when
 only removes the rows. A test that changed the schema, ran a migration, dropped the tables or
 changed a role gets a full rebuild before the next test, without a marker. A test with
 `settings` but without `client` starts from an empty schema, as before.
-`backend/tests/test_database_isolation.py` proves these rules. The backend job runs the suite
-with four pytest-xdist workers (`-n 4 --dist loadfile`): each worker uses its own database
+`backend/tests/test_database_isolation.py` proves these rules. The backend job is a matrix of
+two shards (`Backend tests and migrations (shard 1/2)` and `(shard 2/2)`), each on its own runner
+with its own PostgreSQL and Redis. The pytest option `--test-shard <index>/<count>` keeps the
+tests of the files whose shard is `index`; the shard of a file is CRC-32 of its file name modulo
+the count (`backend/tests/_shard.py`), so every test runs in exactly one shard and a new file
+needs no list. Each shard prints `shard i/2: collected N tests, selected M`. Without the option
+every test runs; a nested pytest run that a test starts gets no option and is not sharded. The
+MinIO contract step runs in shard 1 only. Each shard runs its tests with four
+pytest-xdist workers (`-n 4 --dist loadfile`, the slowest files first): each worker uses its own
+database
 (`homayar_test_gw0` to `homayar_test_gw3`) and Redis index, and a test whose source changes
 roles, role memberships or runs an Alembic upgrade or downgrade runs alone under a cluster-wide
 lock (`backend/tests/_parallel.py`). A test that reads a wall clock and checks a time budget

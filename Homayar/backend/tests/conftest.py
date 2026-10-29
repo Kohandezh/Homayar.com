@@ -44,6 +44,7 @@ from backend.tests._parallel import (
     unconfigure_worker,
     worker_id,
 )
+from backend.tests._shard import SHARD_OPTION, parse_shard, shard_of
 from backend.tests._transport import APP_REDIS_URL, TEST_REDIS_ENV, configured_redis_url
 
 REQUIRE_MEDIA_TOOLS_ENV = "HOMAYAR_REQUIRE_MEDIA_TOOLS"
@@ -60,6 +61,15 @@ def media_tools_required() -> bool:
 
 def minio_tests_required() -> bool:
     return os.environ.get(REQUIRE_MINIO_TESTS_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        SHARD_OPTION,
+        default=None,
+        metavar="INDEX/COUNT",
+        help="HOM-292: run only the test files of this CI shard (backend/tests/_shard.py)",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -137,6 +147,7 @@ def pytest_report_header(config: pytest.Config) -> str:
 
 
 _WORKER_SUMMARIES: list[str] = []
+_SHARD_LINES: list[str] = []
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
@@ -145,6 +156,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         lock = cluster_lock()
         lock_lines = lock.summary() if lock is not None else []
         workeroutput["database_isolation"] = summary_lines() + lock_lines
+        workeroutput["shard"] = list(_SHARD_LINES)
 
 
 @pytest.hookimpl(optionalhook=True)
@@ -160,10 +172,14 @@ def pytest_testnodedown(node, error) -> None:
     worker = node.gateway.id
     for line in getattr(node, "workeroutput", {}).get("database_isolation", []):
         _WORKER_SUMMARIES.append(f"[{worker}] {line}")
+    # Every worker collects the same tests: one shard line is enough.
+    for line in getattr(node, "workeroutput", {}).get("shard", []):
+        if line not in _SHARD_LINES:
+            _SHARD_LINES.append(line)
 
 
 def pytest_terminal_summary(terminalreporter) -> None:
-    for line in summary_lines() + sorted(_WORKER_SUMMARIES):
+    for line in _SHARD_LINES + summary_lines() + sorted(_WORKER_SUMMARIES):
         terminalreporter.write_line(line)
 
 
@@ -190,6 +206,26 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for marker, skip in skips:
             if item.get_closest_marker(marker) is not None:
                 item.add_marker(skip)
+    # HOM-292: a CI shard keeps the tests of its own files (``_shard.py``).
+    try:
+        shard = parse_shard(config.getoption(SHARD_OPTION))
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+    if shard is not None:
+        index, count = shard
+        keep = [item for item in items if shard_of(item.path.name, count) == index]
+        dropped = [item for item in items if shard_of(item.path.name, count) != index]
+        if dropped:
+            config.hook.pytest_deselected(items=dropped)
+        _SHARD_LINES[:] = [
+            f"shard {index}/{count}: collected {len(items)} tests, selected {len(keep)} "
+            f"in {len({item.path.name for item in keep})} files"
+        ]
+        items[:] = keep
+
+
+def pytest_report_collectionfinish(config: pytest.Config) -> list[str]:
+    return list(_SHARD_LINES)
 
 
 _CLUSTER_STATE_BEFORE = pytest.StashKey["str | None"]()

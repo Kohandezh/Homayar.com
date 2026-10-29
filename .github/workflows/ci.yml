@@ -293,8 +293,15 @@ jobs:
         run: npm test
 
   backend:
-    name: Backend tests and migrations
+    name: Backend tests and migrations (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-24.04
+    # HOM-292: two shards, each on its own runner with its own PostgreSQL and Redis. A test
+    # file's shard is a function of its name (backend/tests/_shard.py), so every test runs
+    # in exactly one shard. fail-fast is off so both shards always report.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     # HOM-292: the test step took 1:19:49 on run 40769280687 (every test rebuilt the
     # schema). With the schema built once per process it took 48:00 (job 49:15) on run
     # 40795356019, serially. The step now runs on four pytest-xdist workers; the estimate
@@ -394,7 +401,9 @@ jobs:
       # HOM-36: the storage contract against a disposable MinIO container. The
       # credentials stay in this step's shell; they never go to $GITHUB_ENV, so the
       # s3-minio cases skip as NOT_RUN in the full test step below.
+      # Shard 1 only.
       - name: Qualify the storage contract against MinIO
+        if: matrix.shard == 1
         run: |
           ../infra/ci/minio-contract-target.sh up 9000 "${RUNNER_TEMP}/minio-contract.env"
           set -a
@@ -403,15 +412,18 @@ jobs:
           HOMAYAR_REQUIRE_MINIO_TESTS=1 uv run pytest backend/tests/test_storage_contract.py -m minio_s3 -v -rs
 
       - name: Remove the MinIO contract target
-        if: always()
+        if: always() && matrix.shard == 1
         run: |
           ../infra/ci/minio-contract-target.sh down 9000
           rm -f -- "${RUNNER_TEMP}/minio-contract.env"
 
-      # HOM-292: four pytest-xdist workers, one database and Redis index each; a module stays
-      # on one worker in file order. Tests that change roles run alone (backend/tests/_parallel.py).
+      # HOM-292: this shard's files on four pytest-xdist workers, one database and Redis index
+      # each; a module stays on one worker in file order, the slowest files start first, and
+      # tests that change roles run alone (backend/tests/_parallel.py).
       - name: Run backend tests
-        run: uv run pytest backend/tests --quiet -rs -n 4 --dist loadfile --durations=30
+        run: >-
+          uv run pytest backend/tests --quiet -rs -n 4 --dist loadfile --durations=30
+          --test-shard ${{ matrix.shard }}/2
 
   secret-scan:
     name: Secret scan
