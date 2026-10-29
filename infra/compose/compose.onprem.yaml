@@ -223,10 +223,14 @@ services:
     stop_grace_period: 30s
     init: true
     read_only: true
+    # uid/gid/mode: the image user (10001, infra/docker/api.Dockerfile) must own these.
+    # Without them runc gives a tmpfs the mode of an existing mount point, owned by
+    # root: after a restart /run/homayar-metrics was root 755 and every uvicorn
+    # worker died on its metrics file. /tmp keeps the image's 1777.
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
-      - /app/logs:rw,noexec,nosuid,size=64m
-      - /run/homayar-metrics:rw,noexec,nosuid,size=32m
+      - /app/logs:rw,noexec,nosuid,size=64m,uid=10001,gid=10001,mode=0700
+      - /run/homayar-metrics:rw,noexec,nosuid,size=32m,uid=10001,gid=10001,mode=0700
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [ingress, backend, egress]
@@ -291,7 +295,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=1g
-      - /app/logs:rw,noexec,nosuid,size=64m
+      # Owned by the image user 10001, as on the api (see there).
+      - /app/logs:rw,noexec,nosuid,size=64m,uid=10001,gid=10001,mode=0700
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend, egress]
