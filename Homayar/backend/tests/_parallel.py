@@ -42,6 +42,7 @@ import sys
 import textwrap
 import time
 import types
+from collections import OrderedDict
 from typing import Any
 
 import psycopg
@@ -87,6 +88,55 @@ SELECT md5(string_agg(line, ',' ORDER BY line)) FROM (
     FROM pg_db_role_setting s WHERE s.setdatabase = 0
 ) cluster
 """
+
+# The files that take longest under xdist, slowest first (busy time per file in a local
+# ``-n 4 --dist loadfile`` run of 2026-10-29).  xdist hands out whole files, the largest
+# test count first, so a file with few but slow tests (the transport drills, the backup
+# drills) used to start last and end the run alone.  Only the order of the files changes,
+# never the order of the tests in a file; a name that no longer exists is ignored, and a
+# new slow file only starts later than it could.
+SLOW_FILES_FIRST = (
+    "test_hom284_partial_pii_oracle.py",
+    "test_backup_restore.py",
+    "test_hom288_correction_placeholder_oracle.py",
+    "test_transport_drills.py",
+    "test_hom53_extraction_oracle.py",
+    "test_hom53_report_oracle.py",
+    "test_text_normalization_owner.py",
+    "test_demo_seed.py",
+    "test_hom289_due_date_view_oracle.py",
+    "test_trend_judgment_cache.py",
+    "test_system_health.py",
+    "test_transcript_correction_placeholders.py",
+    "test_analysis_claims_oracle.py",
+    "test_trend_links_routes.py",
+    "test_trend_judgment_warmup.py",
+    "test_playback_navigation.py",
+    "test_role_trend_routes.py",
+    "test_channel_roles_api.py",
+    "test_plan_catalog.py",
+    "test_analysis_extraction_report.py",
+    "test_analysis_extraction_stage.py",
+    "test_coverage_oracle.py",
+    "test_free_text_partial_pii.py",
+    "test_ingestion_ledger.py",
+    "test_hom294_decision_detail_allowlist.py",
+    "test_analysis_claims_report.py",
+    "test_processed_media_deletion.py",
+    "test_derived_legal_hold.py",
+    "test_coverage_sql_parity.py",
+    "test_organization_aggregate_metadata.py",
+    "test_hom306_decision_allowlist.py",
+    "test_audit_event_types.py",
+    "test_call_report.py",
+    "test_hom304_key_point_allowlist.py",
+    "test_stage_checkpoints.py",
+    "test_audio_derivative_job.py",
+    "test_organization_aggregate_withholding.py",
+    "test_analysis_recompute.py",
+    "test_retention_purge.py",
+    "test_database_isolation.py",
+)
 
 _lock: ClusterLock | None = None
 
@@ -138,6 +188,27 @@ def unconfigure_worker() -> None:
 
 def cluster_lock() -> ClusterLock | None:
     return _lock
+
+
+def make_scheduler(config: Any, log: Any) -> Any:
+    """``--dist loadfile`` with the files of ``SLOW_FILES_FIRST`` handed out first."""
+    from xdist.scheduler import LoadFileScheduling
+
+    class SlowFilesFirstScheduling(LoadFileScheduling):
+        _reordered = False
+
+        def _assign_work_unit(self, node: Any) -> None:
+            if not self._reordered:
+                self._reordered = True
+                rank = {name: index for index, name in enumerate(SLOW_FILES_FIRST)}
+                # A stable sort: the other files keep xdist's order.
+                scopes = sorted(
+                    self.workqueue, key=lambda scope: rank.get(scope.rsplit("/", 1)[-1], len(rank))
+                )
+                self.workqueue = OrderedDict((scope, self.workqueue[scope]) for scope in scopes)
+            super()._assign_work_unit(node)
+
+    return SlowFilesFirstScheduling(config, log)
 
 
 class ClusterLock:

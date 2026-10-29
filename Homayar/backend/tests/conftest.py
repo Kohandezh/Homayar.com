@@ -39,6 +39,7 @@ from backend.tests._minio_s3 import minio_unavailable_reason
 from backend.tests._parallel import (
     cluster_lock,
     configure_worker,
+    make_scheduler,
     runs_alone,
     unconfigure_worker,
     worker_id,
@@ -144,6 +145,14 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         lock = cluster_lock()
         lock_lines = lock.summary() if lock is not None else []
         workeroutput["database_isolation"] = summary_lines() + lock_lines
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_make_scheduler(config: pytest.Config, log):
+    # HOM-292: the slowest files first under ``--dist loadfile`` (``_parallel.py``).
+    if config.getvalue("dist") == "loadfile":
+        return make_scheduler(config, log)
+    return None
 
 
 @pytest.hookimpl(optionalhook=True)
