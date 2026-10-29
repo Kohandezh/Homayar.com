@@ -34,7 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import Select, delete, func, select, update
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
@@ -144,8 +144,9 @@ def tombstone_meeting(
 ) -> ConversationPurge:
     """Commit-ready logical deletion of ``meeting`` (the caller commits).
 
-    The caller holds the meeting (locked for the retention sweep; job
-    cancellation for an explicit deletion happens before this call).
+    The caller has locked the meeting row, and before it the job rows it
+    cancels (lock order, ``backend/media/README.md``); the media rows are
+    locked here, and the purge row is written last.
     Idempotent: a second call returns the existing purge row.
     """
     existing = purge_for_meeting(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
@@ -332,18 +333,22 @@ def _remove_reappeared(
     return removed, failed
 
 
+def _due(*, purge_id: str, workspace_id: str, now: datetime) -> Select:
+    """The purge when it is PENDING and due (no lock)."""
+    return select(ConversationPurge).where(
+        ConversationPurge.id == purge_id,
+        ConversationPurge.workspace_id == workspace_id,
+        ConversationPurge.state == PurgeState.PENDING,
+        ConversationPurge.next_attempt_at <= now,
+    )
+
+
 def _claim(
     db: Session, *, purge_id: str, workspace_id: str, now: datetime
 ) -> ConversationPurge | None:
     """Lock a due PENDING purge; a concurrent sweeper skips it (SKIP LOCKED)."""
     return db.scalar(
-        select(ConversationPurge)
-        .where(
-            ConversationPurge.id == purge_id,
-            ConversationPurge.workspace_id == workspace_id,
-            ConversationPurge.state == PurgeState.PENDING,
-            ConversationPurge.next_attempt_at <= now,
-        )
+        _due(purge_id=purge_id, workspace_id=workspace_id, now=now)
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
     )
@@ -360,21 +365,34 @@ def run_purge_attempt(
 ) -> PurgeOutcome:
     """One bounded attempt on one purge (tenant-bound session; commits itself).
 
-    Transaction 1 claims the row (moves ``next_attempt_at`` forward, counts
-    the attempt unless a hold or an active job defers it) and removes content
-    rows; the bytes are removed afterwards, each behind its row lock; the
-    last transaction recounts every store and closes, reschedules or fails
-    the purge.
+    Transaction 1 locks the meeting row and the media rows, then claims the
+    row (moves ``next_attempt_at`` forward, counts the attempt unless a hold
+    or an active job defers it) and removes content rows; the bytes are
+    removed afterwards, each behind its row lock; the last transaction
+    recounts every store and closes, reschedules or fails the purge.  The
+    purge row comes after the meeting and media rows in the lock order
+    (``backend/media/README.md``, HOM-330): a first read without a lock finds
+    the meeting and skips a purge that is not due.
     """
     outcome = PurgeOutcome(purge_id=purge_id)
 
     # --- 1. claim + content (one transaction) -------------------------
+    due = db.scalar(_due(purge_id=purge_id, workspace_id=workspace_id, now=now))
+    if due is None:
+        db.rollback()
+        outcome.skipped = True
+        return outcome
+    meeting = _lock_meeting(db, workspace_id=workspace_id, meeting_id=due.meeting_id)
+    media: list[MediaObject] = []
+    if meeting is not None and meeting.deleted_at is not None:
+        media = media_for_meeting(
+            db, workspace_id=workspace_id, meeting_id=meeting.id, for_update=True
+        )
     purge = _claim(db, purge_id=purge_id, workspace_id=workspace_id, now=now)
     if purge is None:
         db.rollback()
         outcome.skipped = True
         return outcome
-    meeting = _lock_meeting(db, workspace_id=workspace_id, meeting_id=purge.meeting_id)
     if meeting is None or meeting.deleted_at is None:
         # Never purge a live conversation (a restore must re-tombstone first).
         purge.attempts += 1
@@ -387,7 +405,6 @@ def run_purge_attempt(
         outcome.failures.append(ERROR_NOT_TOMBSTONED)
         return outcome
 
-    media = media_for_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id, for_update=True)
     held = [m for m in media if m.lifecycle_state is MediaLifecycleState.LEGAL_HOLD]
     job_active = active_job_exists(db, workspace_id=workspace_id, meeting_id=meeting.id)
     purge.last_attempt_at = now
@@ -572,7 +589,13 @@ def requeue_failed_purge(
 
 
 def nudge_purge(db: Session, *, workspace_id: str, meeting_id: str | None, now: datetime) -> None:
-    """Make a deferred purge due now (after a hold release); no-op otherwise."""
+    """Make a deferred purge due now (after a hold release); no-op otherwise.
+
+    The caller has locked the meeting row and the released media rows: the
+    purge row comes last in the lock order (``backend/media/README.md``).  An
+    attempt decides to defer under its meeting ``FOR UPDATE`` lock, so either
+    its deferral is committed and seen here, or it starts after this commit.
+    """
     if meeting_id is None:
         return
     db.execute(

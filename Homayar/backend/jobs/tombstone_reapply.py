@@ -32,7 +32,8 @@ import json
 import sys
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
+from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_session_factory
@@ -70,6 +71,44 @@ def _journal(settings: Settings, journal: TombstoneJournal | None) -> TombstoneJ
     return journal
 
 
+# Passes of the job and meeting locks in ``_reapply_one``. A pass is repeated only
+# when a job of the conversation became active between its job read and its
+# meeting lock (an operator replay, ``jobs/replay.py``, commits in between); the
+# next pass locks that job first. So every repeat needs one more such commit in
+# that short window. The reapply runs before the workers and the API take
+# traffic, so even one repeat is rare; the limit stops a run on a conversation
+# whose jobs keep changing, and the reapply is idempotent, so it can run again.
+_JOB_LOCK_PASSES = 3
+
+
+def _active_jobs(record: TombstoneRecord) -> Select:
+    return (
+        select(ProcessingJob)
+        .where(
+            ProcessingJob.workspace_id == record.workspace_id,
+            ProcessingJob.meeting_id == record.meeting_id,
+            ProcessingJob.state.in_(ACTIVE_JOB_STATES),
+        )
+        .order_by(ProcessingJob.id.asc())
+    )
+
+
+def _lock_jobs(db: Session, record: TombstoneRecord) -> list[ProcessingJob]:
+    """The conversation's queued and running jobs, locked, ascending ``id``.
+
+    The job rows come before the meeting row (``backend/media/README.md``
+    "Lock order", HOM-330).
+    """
+    return list(
+        db.scalars(_active_jobs(record).with_for_update().execution_options(populate_existing=True))
+    )
+
+
+def _active_job_ids(db: Session, record: TombstoneRecord) -> set[str]:
+    """The ids of the conversation's queued and running jobs, read again (no lock)."""
+    return {job.id for job in db.scalars(_active_jobs(record))}
+
+
 def _reapply_one(
     record: TombstoneRecord,
     *,
@@ -83,11 +122,29 @@ def _reapply_one(
     with get_session_factory()() as db:
         bind_tenant_context(db, workspace_id=record.workspace_id)
         current = now or database_now(db)
-        meeting = db.scalar(
-            select(Meeting)
-            .where(Meeting.id == record.meeting_id, Meeting.workspace_id == record.workspace_id)
-            .with_for_update()
-        )
+        # Lock order (backend/media/README.md, HOM-330): the job rows that may be
+        # cancelled below, then the meeting row, then (in tombstone_meeting) the
+        # media rows. A job made active between the two locks is found by the
+        # second read, and the next pass locks it first.
+        for _ in range(_JOB_LOCK_PASSES):
+            jobs = _lock_jobs(db, record)
+            meeting = db.scalar(
+                select(Meeting)
+                .where(Meeting.id == record.meeting_id, Meeting.workspace_id == record.workspace_id)
+                .with_for_update()
+            )
+            if meeting is None or meeting.deleted_at is not None:
+                break
+            if _active_job_ids(db, record) <= {job.id for job in jobs}:
+                break
+            db.rollback()
+        else:
+            logger.error(
+                "TOMBSTONE_REAPPLY_JOBS_CHANGING meeting_id=%s passes=%s",
+                record.meeting_id,
+                _JOB_LOCK_PASSES,
+            )
+            raise RuntimeError("Jobs of a conversation kept becoming active; run the reapply again")
         if meeting is None:
             counts["meeting_absent"] += 1
             workspace_known = db.get(Workspace, record.workspace_id) is not None
@@ -123,13 +180,7 @@ def _reapply_one(
             return
 
         if meeting.deleted_at is None:
-            for job in db.scalars(
-                select(ProcessingJob).where(
-                    ProcessingJob.workspace_id == record.workspace_id,
-                    ProcessingJob.meeting_id == meeting.id,
-                    ProcessingJob.state.in_(ACTIVE_JOB_STATES),
-                )
-            ):
+            for job in jobs:
                 if cancel_job(
                     db,
                     job,
