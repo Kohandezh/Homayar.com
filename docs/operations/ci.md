@@ -147,3 +147,79 @@ same non-root/read-only assumptions used by Compose. It verifies console `/app/i
 basic process viability; they do not replace a release pipeline that emits SBOMs, scans
 packages and layers, signs digest references, starts the full selected Compose profile, and
 runs same-origin upload and tenant-isolation smoke tests without live providers.
+
+## Branch protection on main (HOM-270)
+
+`main` is protected. A pull request is required before merging, with 0 approving reviews. All
+10 required checks below must pass before a collaborator can merge (missions merge as
+collaborators). Force pushes to `main` are blocked and `main` cannot be deleted. Merge
+commits stay allowed (`required_linear_history` is false); the repo merge settings are not
+touched.
+
+The rule exists because of HOM-223: PR #67 merged while its own CI was red, and `main`
+stayed red after it. A required check now blocks that merge. Only the owner account can
+still merge past it, by ticking the bypass box on purpose (see the emergency paragraph).
+
+The 10 required checks, next to the job id in `.github/workflows/ci.yml` that reports each:
+
+| Job id | Required check name |
+| --- | --- |
+| `source-contract` | `Product source contract` |
+| `website` | `Website lint and Cloudflare build` |
+| `console-web` | `Product console lint, build, and tests` |
+| `console-e2e` | `Product console end-to-end tests` |
+| `linear-agent` | `Linear agent typecheck, lint, and tests` |
+| `backend` (shard 1) | `Backend tests and migrations (shard 1/2)` |
+| `backend` (shard 2) | `Backend tests and migrations (shard 2/2)` |
+| `secret-scan` | `Secret scan` |
+| `container-config` | `Container configuration` |
+| `release-manifest` | `Release manifest and build identity` |
+
+Each check is pinned to the GitHub Actions app (app id 15368) in the payload. Only a GitHub
+Actions check run with that exact name can satisfy it. The payload file is
+`infra/ci/branch-protection-main.json`: the source of truth for the rule. This section and
+that file must always list the same checks.
+
+`strict` (the branch must be up to date with `main` before merge) is false on purpose during
+the sprint. Six or more missions run at once. With strict on, every merge would force every
+other open PR to merge `main` in and re-run CI, and the backend shards take about 15 minutes.
+Homlead already tests the merged state when two PRs touch the same files. To turn it on
+later, set `"strict": true` in the file in a PR, then apply it again with the command below.
+
+In an emergency, `enforce_admins` is false, so the owner account can merge past a red check
+with the "bypass branch protections" box on the merge button. Missions and other
+collaborators cannot bypass.
+
+Only the owner account `Kohandezh` can apply or change the rule. The repo belongs to a
+personal account; protecting a branch needs admin or owner permission, and collaborators
+have write. For a collaborator the protection endpoint returns 404.
+
+To apply, from the repository root, logged in as `Kohandezh`:
+
+```bash
+gh api --method PUT -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  repos/Kohandezh/Homayar.com/branches/main/protection \
+  --input infra/ci/branch-protection-main.json
+```
+
+PUT replaces the whole rule, so always send the full file. To read the rule back:
+
+- the owner: `gh api repos/Kohandezh/Homayar.com/branches/main/protection`
+- anyone: `gh api repos/Kohandezh/Homayar.com/branches/main --jq '{protected: .protected, checks: .protection.required_status_checks.contexts}'`
+
+How to change the list of required checks, and the traps:
+
+- A check name is the job's `name:` after GitHub fills in the matrix values. Renaming a job,
+  or changing the backend shard count, changes the check name.
+- If a required name is no longer reported, every PR waits for it ("Expected, waiting for
+  status to be reported") and cannot merge. A PR that renames, adds or removes a CI job must
+  update `infra/ci/branch-protection-main.json` and this section in the same PR. The owner
+  applies the new file when that PR merges. Other open PRs then merge `main` in so they
+  report the new names.
+- Do not add a path, branch or commit-message filter to the `pull_request` trigger in
+  `ci.yml` while its jobs are required. A skipped workflow leaves its required checks pending
+  and blocks every PR it skips. The existing `push: branches: [main, master]` filter is fine.
+- A job skipped because a job in its `needs` failed counts as passing. That is safe here
+  only because `Product source contract`, the job the others need, is required itself. A new
+  job with `needs` keeps that property only if every job it needs is also required.
