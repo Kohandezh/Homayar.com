@@ -47,9 +47,10 @@ changed a role gets a full rebuild before the next test, without a marker. A tes
 `backend/tests/test_database_isolation.py` proves these rules. The backend job is a matrix of
 two shards (`Backend tests and migrations (shard 1/2)` and `(shard 2/2)`), each on its own runner
 with its own PostgreSQL and Redis. The pytest option `--test-shard <index>/<count>` keeps the
-tests of the files whose shard is `index`; the shard of a file is CRC-32 of its file name modulo
-the count (`backend/tests/_shard.py`), so every test runs in exactly one shard and a new file
-needs no list. Each shard prints `shard i/2: collected N tests, selected M`. Without the option
+tests of the files whose shard is `index`; the shard of a file is CRC-32 of a fixed prefix and its
+file name, modulo the count (`backend/tests/_shard.py`; the prefix was chosen with measured
+per-file times so the two shards get about the same work), so every test runs in exactly one
+shard and a new file needs no list. Each shard prints `shard i/2: collected N tests, selected M`. Without the option
 every test runs; a nested pytest run that a test starts gets no option and is not sharded. The
 MinIO contract step runs in shard 1 only. Each shard runs its tests with four
 pytest-xdist workers (`-n 4 --dist loadfile`, the slowest files first): each worker uses its own
@@ -83,10 +84,12 @@ backend job has no `prom/prometheus` image. The *Container configuration* job ru
 promtool commands and is the gate for the alert rules; do not drop its steps because pytest seems
 to cover them.
 
-The backend job may run for 50 minutes. Its test step took 1:19:49 on run 40769280687, when every
-test rebuilt the schema, and 48:00 on run 40795356019 with the schema built once and the tests run
-serially (HOM-292). With four xdist workers the job is estimated at about 25 minutes; the limit
-is about twice the measured job time, rounded up to a multiple of 5, and follows the PR runs.
+Each backend shard job may run for 35 minutes. The test step took 1:19:49 on run 40769280687,
+when every test rebuilt the schema, and 48:00 on run 40795356019 with the schema built once and
+the tests run serially (HOM-292). One job with four xdist workers took 27:10, 18:43 and 28:09 on
+the same configuration (runs 40805797597, 40808843162 and 40809285732): shared runners vary by
+about 1.5 times. With two shards the steps took 14:40 (job 16:02) and 9:52 (job 10:44) on run
+40814581688. The limit is about twice the slower job, rounded up to a multiple of 5.
 
 The golden text-normalization module (`test_text_normalization_golden.py`, HOM-120/HOM-172) has a
 wall-clock budget, enforced by

@@ -37,11 +37,11 @@ def test_the_shard_is_a_pure_function_of_the_file_name():
     # the function moves files between CI jobs, which should be a visible decision.
     assert {
         name: shard_of(name, 2)
-        for name in ("test_api.py", "test_backup_restore.py", "test_a_new_file.py")
+        for name in ("test_api.py", "test_speech_normalize.py", "test_a_new_file.py")
     } == {
-        "test_api.py": 1,
-        "test_backup_restore.py": 2,
-        "test_a_new_file.py": 1,
+        "test_api.py": 2,
+        "test_speech_normalize.py": 1,
+        "test_a_new_file.py": 2,
     }
 
 
@@ -61,7 +61,7 @@ def test_the_shard_option_is_read_and_checked():
 
 def _collected(shard: str | None) -> set[str]:
     """Node ids a ``--collect-only`` run collects from three files, with this shard."""
-    files = ["test_api.py", "test_backup_restore.py", "test_shard_assignment.py"]
+    files = ["test_api.py", "test_speech_normalize.py", "test_shard_assignment.py"]
     option = [SHARD_OPTION, shard] if shard is not None else []
     result = subprocess.run(  # noqa: S603 - a fixed pytest command line
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"]
@@ -86,6 +86,6 @@ def test_the_two_shards_split_the_collection_and_together_are_the_whole():
     for shard, nodeids in ((1, first), (2, second)):
         assert {nodeid.split("::")[0].rsplit("/", 1)[-1] for nodeid in nodeids} == {
             name
-            for name in ("test_api.py", "test_backup_restore.py", "test_shard_assignment.py")
+            for name in ("test_api.py", "test_speech_normalize.py", "test_shard_assignment.py")
             if shard_of(name, 2) == shard
         }

@@ -5,7 +5,8 @@ CI runs the suite as a matrix of jobs, each on its own runner, and passes
 files whose shard is ``index``.  Without the option every test runs, as before.  It is an
 option, not an environment variable, so a nested pytest run that a test starts (the
 golden-module budget, the audit runtime guard) is not sharded.  The shard of a file is a
-pure function of its file name (CRC-32 of the name, modulo the count), so every test runs
+pure function of its file name (CRC-32 of a fixed prefix and the name, modulo the count), so
+every test runs
 in exactly one shard and a new test file lands in a shard with nothing to update.
 """
 
@@ -14,13 +15,17 @@ from __future__ import annotations
 import zlib
 
 SHARD_OPTION = "--test-shard"
+# Chosen so that two shards get about the same work: with the per-file times of CI run
+# 40814581688 and of a local -n 4 run, 50.0 and 50.1 % for the larger shard (without a
+# prefix: 60.1 and 52.8 %).  Changing it moves files between the CI jobs.
+SHARD_PREFIX = "hom292-118:"
 
 
 def shard_of(file_name: str, count: int) -> int:
     """The shard (1 to ``count``) of the test file ``file_name`` (a name, not a path)."""
     if count < 1:
         raise ValueError(f"a shard count must be at least 1, got {count}")
-    return zlib.crc32(file_name.encode("utf-8")) % count + 1
+    return zlib.crc32((SHARD_PREFIX + file_name).encode("utf-8")) % count + 1
 
 
 def parse_shard(value: str | None) -> tuple[int, int] | None:

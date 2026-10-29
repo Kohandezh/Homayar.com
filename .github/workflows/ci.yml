@@ -302,12 +302,13 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2]
-    # HOM-292: the test step took 1:19:49 on run 40769280687 (every test rebuilt the
-    # schema). With the schema built once per process it took 48:00 (job 49:15) on run
-    # 40795356019, serially. The step now runs on four pytest-xdist workers; the estimate
-    # from local runs is a job of about 25 minutes. The limit is about twice the job time,
-    # rounded up to a multiple of 5; replace the estimate with the measured PR runs.
-    timeout-minutes: 50
+    # HOM-292: the test step took 1:19:49 on run 40769280687, when every test rebuilt the
+    # schema, and 48:00 serially with the schema built once (run 40795356019). One job with
+    # four xdist workers took 27:10, 18:43 and 28:09 on the same configuration (runs
+    # 40805797597, 40808843162, 40809285732): shared runners vary by about 1.5 times. Two
+    # shards took 14:40 (job 16:02) and 9:52 (job 10:44) on run 40814581688. The limit is
+    # about twice the slower job, rounded up to a multiple of 5.
+    timeout-minutes: 35
     needs: source-contract
     services:
       postgres:
