@@ -84,7 +84,11 @@ HOM291 = "0012345679 0912 345 6789"
 @pytest.mark.parametrize("script", SCRIPTS)
 def test_the_ticket_phone_is_found_in_every_export_that_holds_phones(script):
     text = TICKET.translate(SCRIPTS[script])
-    assert combined_only(text, PHONE, "09313970789")
+    # HOM-315: phones alone read the mobile; the 00 reading that starts in the card is not used.
+    spans = detect(text, {PHONE})
+    assert [(s.start, s.end, s.pii_class, s.value) for s in spans] == [
+        (15, 33, PHONE, "09313970789")
+    ]
     assert all(exports(text, PHONE, "09313970789").values())
     assert all(exports(text, CARD, "6219699769010086").values())
 
@@ -98,9 +102,12 @@ def test_the_hom291_phone_and_id_are_found_in_every_export(script):
 
 @pytest.mark.parametrize("script", SCRIPTS)
 def test_the_international_reading_of_the_class_alone_still_matches(script):
-    # The re-cut rule adds values; it takes none away (X2).
+    # HOM-315: in TICKET the 16-digit Luhn card owns 0086, so the international reading
+    # reuses card digits and does not match.  A false export match is the worse privacy
+    # error, as in HOM-291.
     text = TICKET.translate(SCRIPTS[script])
-    assert all(exports(text, PHONE, "008609313970789").values())
+    assert not any(exports(text, PHONE, "008609313970789").values())
+    # The re-cut rule adds values; it takes none away (X2).
     text = HOM291.translate(SCRIPTS[script])
     assert all(exports(text, PHONE, "00123456790912345").values())
 
@@ -120,10 +127,20 @@ ALLOW = {
 }
 
 
+# HOM-315: phones alone read this mobile (the 00 reading starts in the card), at this span.
+READ_ALONE = {"card_00_then_mobile": (15, 33)}
+
+
 @pytest.mark.parametrize("case", ALLOW)
 def test_a_phone_that_its_own_reading_cut_wrongly_is_found_in_every_export(case):
     text, value = ALLOW[case]
-    assert combined_only(text, PHONE, value)
+    if case in READ_ALONE:
+        spans = detect(text, {PHONE})
+        assert [(s.start, s.end, s.pii_class, s.value) for s in spans] == [
+            (*READ_ALONE[case], PHONE, value)
+        ]
+    else:
+        assert combined_only(text, PHONE, value)
     assert all(exports(text, PHONE, value).values())
 
 
@@ -305,9 +322,27 @@ def test_no_other_reading_when_no_wanted_value_can_be_re_cut(monkeypatch):
     assert all(len(classes) == 1 for classes in calls)
 
 
+def _record_recuts(monkeypatch) -> list[set[tuple[PiiClass, str]]]:
+    """What each call of the re-cut rule returns (HOM-315)."""
+    results: list[set[tuple[PiiClass, str]]] = []
+    real = subject_export._recut_values
+
+    def recorded(*args):
+        results.append(real(*args))
+        return results[-1]
+
+    monkeypatch.setattr(subject_export, "_recut_values", recorded)
+    return results
+
+
 def test_the_re_cut_rule_reads_more_only_for_a_value_its_class_covered(monkeypatch):
     calls = _count_readings(monkeypatch)
-    assert _Matcher([SubjectIdentifier(PHONE, "09313970789")]).classes(TICKET) == ["phone"]
+    recuts = _record_recuts(monkeypatch)
+    # HOM-315: phones alone read the TICKET mobile, so a card in four groups is used here.
+    text, value = ALLOW["card_then_mobile"]
+    assert _Matcher([SubjectIdentifier(PHONE, value)]).classes(text) == ["phone"]
+    # The re-cut rule ran and gave the value.
+    assert recuts == [{(PHONE, value)}]
     # Phones, then phones with cards, then cards alone to check the cut: found.
     assert calls == [frozenset({PHONE}), frozenset({PHONE, CARD}), frozenset({CARD})]
     calls.clear()

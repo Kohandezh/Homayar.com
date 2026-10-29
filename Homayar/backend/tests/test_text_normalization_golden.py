@@ -408,10 +408,12 @@ BASE_POLICY_DIGEST_EMAIL = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d
 # HOM-303 text-pii/6 reads a card, a 00 number or a glued mobile where a neighbour used
 # up its digits.
 # HOM-308 text-pii/7 reads an IBAN followed by a separator and a Latin word.
-# HOM-308: the version and the two current digests below.
-CURRENT_DETECTOR_VERSION = "text-pii/7"
-CURRENT_POLICY_DIGEST_ALL = "6f541a32e767395e11877a20831d684133f10a26f78b45a1a51e93e73a69194d"
-CURRENT_POLICY_DIGEST_EMAIL = "de632e686197390ae7eaa5960a339ae96d3d929b4621f8520f2c2a69aa3ba449"
+# HOM-315 text-pii/8 does not read a 00 reading that starts in a card over the phone
+# after it.
+# HOM-315: the version and the two current digests below.
+CURRENT_DETECTOR_VERSION = "text-pii/8"
+CURRENT_POLICY_DIGEST_ALL = "60c31deb99c231ca64d7e45fc1c22fe4c7b9e887105f66ebf4a9a28ff4469d79"
+CURRENT_POLICY_DIGEST_EMAIL = "de3c95425653bd68bce73c14c39321469ebd46207a85f33509df80fe5e1d46d3"
 # (input, speech.normalize_fa, locations stream text, stream offsets,
 #  locations.normalize_text, voicemail.normalize_text)
 PROFILE_TABLE = [

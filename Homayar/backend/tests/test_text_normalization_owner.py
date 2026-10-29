@@ -3970,10 +3970,12 @@ EMAIL_ONLY_DIGEST = "39f06a1d558b0deec7a12df2d3abaf5688443ae31aa770d3e78d333058c
 # HOM-303 bumped it to text-pii/6 (a card, a 00 number or a glued mobile is read where
 # a neighbour used up its digits).
 # HOM-308 bumped it to text-pii/7 (an IBAN followed by a separator and a Latin word is read).
-# HOM-308: the version and the two current digests below.
-CURRENT_DETECTOR_VERSION = "text-pii/7"
-CURRENT_ALL_CLASSES_DIGEST = "6f541a32e767395e11877a20831d684133f10a26f78b45a1a51e93e73a69194d"
-CURRENT_EMAIL_ONLY_DIGEST = "de632e686197390ae7eaa5960a339ae96d3d929b4621f8520f2c2a69aa3ba449"
+# HOM-315 bumped it to text-pii/8 (a 00 reading that starts in a card is not read over the
+# phone after it).
+# HOM-315: the version and the two current digests below.
+CURRENT_DETECTOR_VERSION = "text-pii/8"
+CURRENT_ALL_CLASSES_DIGEST = "60c31deb99c231ca64d7e45fc1c22fe4c7b9e887105f66ebf4a9a28ff4469d79"
+CURRENT_EMAIL_ONLY_DIGEST = "de3c95425653bd68bce73c14c39321469ebd46207a85f33509df80fe5e1d46d3"
 
 
 class TestGoldenDivergenceTable:
@@ -4579,8 +4581,8 @@ def _mobile_masked() -> str:
 
 BASE_FINGERPRINTS: dict = {
     "privacy/text_pii.py": [
-        ("Expr", "29ba4438938f9afd4c0d35c4"),  # HOM-164/165/171/291/303/308 docstring
-        ("DETECTOR_VERSION", "3c729a129ba65bf83ea786f7"),  # HOM-308 text-pii/7
+        ("Expr", "dd8ddcc2f15ae54c5ee96710"),  # HOM-164/165/171/291/303/308/315 docstring
+        ("DETECTOR_VERSION", "b4c857b3a53f82fe01a07973"),  # HOM-315 text-pii/8
         ("PiiClass", "2208d70f589c46100ffb7c83"),
         ("SUPPORTED_CLASSES", "12bdf0f16f6092f467ef3258"),
         ("_PRIORITY", "3266f57d52c974fe017bac21"),
@@ -4607,6 +4609,9 @@ BASE_FINGERPRINTS: dict = {
         ("_MOBILE_DIGITS_RE", "ea768f85cc63f061da633be1"),  # HOM-303
         ("_LANDLINE_DIGITS_RE", "8c3534ea3ecc12408b94eb6d"),  # HOM-303
         ("_WRITTEN_HINT_RE", "97afcdba3f31f9ce4413e0fb"),  # HOM-303
+        ("_CARD_THEN_PHONE_RE", "53afc53e0fb8beca3712b25c"),  # HOM-315 a card before a phone
+        ("_MOBILE_FORMS", "c768bca28a1faed3ef979747"),  # HOM-315 usual mobile groups
+        ("_LANDLINE_FORMS", "438c85d37d5831e03b007ee4"),  # HOM-315 usual landline groups
         ("_PHONE_DIGITS", "1f4d41913bbb138d1c6ac359"),  # HOM-302 phone lengths in a run
         ("_SPLIT_CLASSES", "9a27ef2f74ee784a5583bb6c"),  # HOM-302 classes a run can split into
         ("_END", "b29533655c9ea6fc08367767"),  # HOM-302 sort key of piece readings
@@ -4638,10 +4643,12 @@ BASE_FINGERPRINTS: dict = {
         ("_written", "13a55f307ff0f1461bc5baab"),  # HOM-303 written-form readings
         ("_select", "2bb79ac1071c9bab8b3e9224"),  # HOM-302 marks built once per call
         ("_keep", "137ffd296d48bf705921b724"),  # HOM-303 no base character lost
-        ("_Text", "94cc07b98e990d8e58079b30"),  # HOM-302 class-free work of one call
+        ("_card_tails", "1495625cb748ac552317c188"),  # HOM-315 no tail when a reading overlaps
+        ("_untailed", "a848c06d5f0560a0f9abe7ea"),  # HOM-315 read again, adds only the phones
+        ("_Text", "db1f2f10accdb644c919e0fc"),  # HOM-315 card tails built once per text
         ("detect", "336fc65f2833b39061cdd4ea"),  # HOM-302 one class set of _detect_each
         ("_detect_each", "b7e9ddc5a5e0a225b4faabb0"),  # HOM-302 shares class-free work
-        ("_detect_in", "fb142378ba433d6de009994c"),  # HOM-302 the old detect body
+        ("_detect_in", "da91bdf0643fda473065fe5e"),  # HOM-315 reads again without card tails
         ("Replacement", "60da30a0d0afa1499c894471"),
         ("Pseudonymizer", "b5abda68aef66e9336da0554"),
         ("redact", "d9707542ae7464ec191d9235"),
