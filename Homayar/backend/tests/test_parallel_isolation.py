@@ -64,6 +64,10 @@ def _creates_a_user() -> str:
     return "CREATE USER hom292_probe_user"
 
 
+def _creates_a_user_mapping() -> str:
+    return "CREATE USER MAPPING FOR homayar_app SERVER hom292_probe"
+
+
 def _drops_a_group() -> str:
     return "DROP GROUP hom292_probe_group"
 
@@ -112,6 +116,15 @@ def _helper_module(tmp_path):
     return module
 
 
+def _with_globals(function, **names):
+    """A copy of ``function`` that sees ``names`` as module globals.  A new object, so the
+    scan's per-function cache (filled when this test itself was classified) does not
+    hold an older view of the module."""
+    return types.FunctionType(
+        function.__code__, {**function.__globals__, **names}, function.__name__
+    )
+
+
 def _item(function, **fixtures):
     return types.SimpleNamespace(
         obj=function,
@@ -148,6 +161,8 @@ def test_a_wall_clock_budget_runs_alone_and_a_plain_wait_does_not():
 def test_user_and_group_ddl_make_the_test_exclusive():
     assert _parallel.runs_alone(_item(_creates_a_user))
     assert _parallel.runs_alone(_item(_drops_a_group))
+    # A user mapping belongs to one database (foreign data), not to the cluster.
+    assert not _parallel.runs_alone(_item(_creates_a_user_mapping))
 
 
 def test_a_grant_or_revoke_of_several_roles_makes_the_test_exclusive():
@@ -159,16 +174,16 @@ def test_a_method_called_through_self_is_followed():
     assert _parallel.runs_alone(_item(_ProbeCase.run))
 
 
-def test_a_function_of_a_helper_module_is_followed(tmp_path, monkeypatch):
+def test_a_function_of_a_helper_module_is_followed(tmp_path):
     module = _helper_module(tmp_path)
-    monkeypatch.setitem(globals(), "_helper_function", module.make_and_drop_role)
-    assert _parallel.runs_alone(_item(_calls_a_helper_by_name))
+    start = _with_globals(_calls_a_helper_by_name, _helper_function=module.make_and_drop_role)
+    assert _parallel.runs_alone(_item(start))
 
 
-def test_a_function_reached_as_a_module_attribute_is_followed(tmp_path, monkeypatch):
+def test_a_function_reached_as_a_module_attribute_is_followed(tmp_path):
     module = _helper_module(tmp_path)
-    monkeypatch.setitem(globals(), "_helper_module", module)
-    assert _parallel.runs_alone(_item(_calls_a_helper_module_attribute))
+    start = _with_globals(_calls_a_helper_module_attribute, _helper_module=module)
+    assert _parallel.runs_alone(_item(start))
 
 
 def test_the_fixture_plumbing_is_not_followed():

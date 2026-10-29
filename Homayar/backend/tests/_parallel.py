@@ -59,7 +59,7 @@ CLUSTER_LOCK_KEY = 4_292_000_001
 
 _ROLE_LIST = r"[^\s,;(]+(?:\s*,\s*[^\s,;(]+)*"
 CLUSTER_CHANGES = re.compile(
-    r"\b(CREATE|ALTER|DROP)\s+(ROLE|USER|GROUP)\b"
+    r"\b(CREATE|ALTER|DROP)\s+(ROLE|USER(?!\s+MAPPING)|GROUP)\b"
     r"|\b(DROP|REASSIGN)\s+OWNED\b"
     r"|\bALTER\s+(DATABASE|SYSTEM)\b"
     # a role grant: GRANT <role>[, <role>...] TO <role> (an object grant has ON before TO)
@@ -300,33 +300,50 @@ _verdicts: dict[Any, bool] = {}
 _PLUMBING = frozenset({"backend.tests._isolation", "backend.tests._parallel"})
 
 
+# Per function or class, read once per worker: does its own source match, and what does
+# it reach.  A helper reached by many tests is parsed once, not once per test.
+_nodes: dict[Any, tuple[bool, tuple[Any, ...]]] = {}
+
+
 def _reaches_exclusive_code(function: Any) -> bool:
     function = _unwrap(function)
     if function in _verdicts:
         return _verdicts[function]
-    _verdicts[function] = False  # cycles
     seen: set[Any] = set()
     todo = [function]
     found = False
-    while todo and not found:
+    while todo:
         current = todo.pop()
         if current in seen:
             continue
         seen.add(current)
-        try:
-            source = textwrap.dedent(inspect.getsource(current))
-        except (OSError, TypeError):
-            continue
-        if CLUSTER_CHANGES.search(source) or TIME_BUDGET.search(source):
+        matches, references = _node(current)
+        if matches:
             found = True
             break
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            continue
-        todo.extend(target for target in _references(current, tree) if target not in seen)
+        todo.extend(target for target in references if target not in seen)
     _verdicts[function] = found
     return found
+
+
+def _node(target: Any) -> tuple[bool, tuple[Any, ...]]:
+    cached = _nodes.get(target)
+    if cached is not None:
+        return cached
+    try:
+        source = textwrap.dedent(inspect.getsource(target))
+    except (OSError, TypeError):
+        cached = (False, ())
+    else:
+        if CLUSTER_CHANGES.search(source) or TIME_BUDGET.search(source):
+            cached = (True, ())
+        else:
+            try:
+                cached = (False, tuple(_references(target, ast.parse(source))))
+            except SyntaxError:
+                cached = (False, ())
+    _nodes[target] = cached
+    return cached
 
 
 def _references(current: Any, tree: ast.AST) -> list[Any]:
