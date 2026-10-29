@@ -39,6 +39,7 @@ from sqlalchemy.pool import NullPool
 
 from backend.config import Settings, get_settings
 from backend.database import relational
+from backend.database.rls import audit_reader_statements
 from backend.tests._database import (
     TEST_APP_ROLE,
     check_engine,
@@ -353,6 +354,34 @@ def canonical_database_url(tmp_path: Path) -> str:
     return url
 
 
+def repair_cluster_state() -> None:
+    """Put ``homayar_app`` and ``homayar_audit_reader`` back, and nothing else.
+
+    Used after a test that changed cluster-wide state under the exclusive xdist lock: the
+    schema stays as it is (the next test of the same module may still need it).  The
+    reader statement is the cluster-wide first step of ``audit_reader_statements``.
+    """
+    url = configured_database_url()
+    if _state.baseline is None or not is_postgres_url(url):
+        return
+    engine = admin_engine(url)
+    try:
+        with engine.begin() as connection:
+            _restore_app_role(connection, _state.baseline)
+            connection.execute(text(audit_reader_statements(app_role=TEST_APP_ROLE)[0]))
+    finally:
+        engine.dispose()
+
+
+def rebuild_now(cause: str) -> None:
+    """A full build right now (an xdist worker's first build, ``_parallel.py``)."""
+    url = configured_database_url()
+    if is_postgres_url(url):
+        dispose_inspection_engine()
+        _state.pending_cause = cause
+        _full_build(url)
+
+
 def empty_database_url(tmp_path: Path) -> str:
     """The base start state for a test with ``settings`` but without ``client`` (R3)."""
     url = test_database_url(tmp_path)
@@ -652,6 +681,12 @@ def _restore_baseline(connection: Connection, baseline: _Baseline) -> None:
         for statement in _set_statements(f"DATABASE {database}", baseline.database_settings):
             connection.execute(statement)
 
+    _restore_app_role(connection, baseline)
+
+
+def _restore_app_role(connection: Connection, baseline: _Baseline) -> None:
+    """``homayar_app``'s attributes, settings and memberships back to the first build's."""
+    database = _quoted_database(connection)
     role = {"role": TEST_APP_ROLE}
     app = TEST_APP_ROLE
     current = connection.execute(_APP_ROLE, role).one_or_none()

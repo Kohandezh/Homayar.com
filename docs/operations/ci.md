@@ -37,6 +37,21 @@ to SQLite, so a green backend job always means PostgreSQL. Locally, run
 inside `Homayar/`; without the variable the suite uses temporary SQLite files and skips the
 `postgres`-marked tests. The console and backend jobs still fail explicitly when their product
 files are absent from the commit.
+
+On PostgreSQL the suite builds the schema once per process (HOM-292,
+`backend/tests/_isolation.py`). Before each test that uses `client`, the `settings` fixture
+compares a catalog fingerprint with the one taken after the last build and, when it is equal,
+only removes the rows. A test that changed the schema, ran a migration, dropped the tables or
+changed a role gets a full rebuild before the next test, without a marker. A test with
+`settings` but without `client` starts from an empty schema, as before.
+`backend/tests/test_database_isolation.py` proves these rules. The backend job runs the suite
+with four pytest-xdist workers (`-n 4 --dist loadfile`): each worker uses its own database
+(`homayar_test_gw0` to `homayar_test_gw3`) and Redis index, and a test whose source changes
+roles, role memberships or runs an Alembic upgrade or downgrade runs alone under a cluster-wide
+lock (`backend/tests/_parallel.py`). A test that reads a wall clock and checks a time budget
+(the golden-module budget below) also runs alone, so the other workers do not slow it down. A
+guard fails a test that changes roles without being seen by that scan. Without `-n` the suite
+runs serially exactly as before.
 Before the full test step, the step "Qualify the storage contract against MinIO" starts a
 disposable MinIO container with `infra/ci/minio-contract-target.sh` and runs the `minio_s3`
 cases with `HOMAYAR_REQUIRE_MINIO_TESTS=1`, so it stops with a usage error instead of skipping
@@ -56,8 +71,10 @@ backend job has no `prom/prometheus` image. The *Container configuration* job ru
 promtool commands and is the gate for the alert rules; do not drop its steps because pytest seems
 to cover them.
 
-The backend job may run for 40 minutes. The test step alone took about 22 minutes on `2f5f666`,
-which left too little room under the earlier 25-minute limit.
+The backend job may run for 50 minutes. Its test step took 1:19:49 on run 40769280687, when every
+test rebuilt the schema, and 48:00 on run 40795356019 with the schema built once and the tests run
+serially (HOM-292). With four xdist workers the job is estimated at about 25 minutes; the limit
+is about twice the measured job time, rounded up to a multiple of 5, and follows the PR runs.
 
 The golden text-normalization module (`test_text_normalization_golden.py`, HOM-120/HOM-172) has a
 wall-clock budget, enforced by

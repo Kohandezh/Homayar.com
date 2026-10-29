@@ -295,10 +295,12 @@ jobs:
   backend:
     name: Backend tests and migrations
     runs-on: ubuntu-24.04
-    # The whole job took 37 minutes on main on 2026-10-22 and the test step alone
-    # 54 minutes on 469e330 on 2026-10-23, as the suite grew (each test builds a
-    # fresh app and schema). 90 leaves room until the tests get faster (HOM-292).
-    timeout-minutes: 90
+    # HOM-292: the test step took 1:19:49 on run 40769280687 (every test rebuilt the
+    # schema). With the schema built once per process it took 48:00 (job 49:15) on run
+    # 40795356019, serially. The step now runs on four pytest-xdist workers; the estimate
+    # from local runs is a job of about 25 minutes. The limit is about twice the job time,
+    # rounded up to a multiple of 5; replace the estimate with the measured PR runs.
+    timeout-minutes: 50
     needs: source-contract
     services:
       postgres:
@@ -406,8 +408,10 @@ jobs:
           ../infra/ci/minio-contract-target.sh down 9000
           rm -f -- "${RUNNER_TEMP}/minio-contract.env"
 
+      # HOM-292: four pytest-xdist workers, one database and Redis index each; a module stays
+      # on one worker in file order. Tests that change roles run alone (backend/tests/_parallel.py).
       - name: Run backend tests
-        run: uv run pytest backend/tests --quiet -rs
+        run: uv run pytest backend/tests --quiet -rs -n 4 --dist loadfile
 
   secret-scan:
     name: Secret scan

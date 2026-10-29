@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event, update
 
-from backend.config import Settings
+from backend.config import Settings, reset_settings_cache
 from backend.database.relational import reset_database_state
 from backend.database.saas_models import AuditEvent, Plan, PlanVersion, Subscription
 from backend.main import create_app
@@ -29,10 +29,19 @@ from backend.tests._isolation import (
     canonical_database_url,
     create_schema_unless_canonical,
     empty_database_url,
+    rebuild_now,
+    repair_cluster_state,
     summary_lines,
 )
 from backend.tests._live_s3 import live_s3_unavailable_reason
 from backend.tests._minio_s3 import minio_unavailable_reason
+from backend.tests._parallel import (
+    cluster_lock,
+    configure_worker,
+    runs_alone,
+    unconfigure_worker,
+    worker_id,
+)
 from backend.tests._transport import APP_REDIS_URL, TEST_REDIS_ENV, configured_redis_url
 
 REQUIRE_MEDIA_TOOLS_ENV = "HOMAYAR_REQUIRE_MEDIA_TOOLS"
@@ -49,6 +58,19 @@ def media_tools_required() -> bool:
 
 def minio_tests_required() -> bool:
     return os.environ.get(REQUIRE_MINIO_TESTS_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    # HOM-292: a pytest-xdist worker gets its own database, Redis index and directories.
+    worker = worker_id(config)
+    if worker is not None:
+        configure_worker(worker)
+        reset_settings_cache()
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    if worker_id(config) is not None:
+        unconfigure_worker()
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -91,6 +113,14 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         session.config.stash[_DB_BACKEND] = (
             f"postgresql {version} ({describe_database_url(configured)})"
         )
+        lock = cluster_lock()
+        if lock is not None:
+            # A worker's first build runs CREATE ROLE and the reader role statements.
+            lock.acquire(exclusive=True)
+            try:
+                rebuild_now("first")
+            finally:
+                lock.release(exclusive=True)
     else:
         session.config.stash[_DB_BACKEND] = (
             f"sqlite (per-test temporary file; set {TEST_DATABASE_ENV} for PostgreSQL)"
@@ -104,8 +134,24 @@ def pytest_report_header(config: pytest.Config) -> str:
     return f"database backend: {config.stash.get(_DB_BACKEND, 'unknown')}"
 
 
+_WORKER_SUMMARIES: list[str] = []
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    workeroutput = getattr(session.config, "workeroutput", None)
+    if workeroutput is not None:
+        workeroutput["database_isolation"] = summary_lines()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error) -> None:
+    worker = node.gateway.id
+    for line in getattr(node, "workeroutput", {}).get("database_isolation", []):
+        _WORKER_SUMMARIES.append(f"[{worker}] {line}")
+
+
 def pytest_terminal_summary(terminalreporter) -> None:
-    for line in summary_lines():
+    for line in summary_lines() + sorted(_WORKER_SUMMARIES):
         terminalreporter.write_line(line)
 
 
@@ -132,6 +178,55 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for marker, skip in skips:
             if item.get_closest_marker(marker) is not None:
                 item.add_marker(skip)
+
+
+_CLUSTER_STATE_BEFORE = pytest.StashKey["str | None"]()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None):
+    """HOM-292 with pytest-xdist: hold the cluster-wide state lock for the whole item.
+
+    The item protocol includes the setup and teardown of higher-scope fixtures, so a
+    module-scoped fixture that runs Alembic is inside the lock of its first and last test.
+    """
+    lock = cluster_lock()
+    if lock is None:
+        return (yield)
+    exclusive = runs_alone(item)
+    lock.hold(exclusive=exclusive)
+    try:
+        before = lock.cluster_state()
+        item.stash[_CLUSTER_STATE_BEFORE] = None if exclusive else before
+        result = yield
+        if lock.cluster_state() != before:
+            # Put the app and reader roles back before another worker can see them; a
+            # role the test created and did not drop stays, as on the base.
+            repair_cluster_state()
+        return result
+    finally:
+        # A shared hold is given back after every test, so an exclusive request waits for
+        # one test at most on this worker.
+        if not (exclusive and nextitem is not None and runs_alone(nextitem)):
+            lock.release_held()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
+    """HOM-292 guard: a test that held only the shared lock must not change roles."""
+    report = yield
+    lock = cluster_lock()
+    before = item.stash.get(_CLUSTER_STATE_BEFORE, None)
+    if call.when == "teardown" and lock is not None and before is not None:
+        if lock.cluster_state() != before:
+            report.outcome = "failed"
+            report.longrepr = (
+                "HOM-292 guard: this test changed cluster-wide PostgreSQL state (roles, role "
+                "memberships or role settings) while other pytest-xdist workers were running. "
+                "The scan in backend/tests/_parallel.py did not see it: put the statement in "
+                "the test, a function it calls, or one of its fixtures."
+            )
+    return report
 
 
 # HOM-185 runtime guard: every audit row the ORM inserts or updates during a
