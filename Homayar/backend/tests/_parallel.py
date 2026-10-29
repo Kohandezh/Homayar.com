@@ -39,6 +39,7 @@ import os
 import re
 import sys
 import textwrap
+import time
 import types
 from typing import Any
 
@@ -112,6 +113,7 @@ def configure_worker(worker: str) -> None:
         os.environ[TEST_DATABASE_ENV] = own_url
         os.environ["DATABASE_URL"] = own_url
         _lock = ClusterLock(url)
+        _lock.started = time.perf_counter()
     redis_url = configured_redis_url()
     if redis_url:
         index = redis_database_index(redis_url) + number
@@ -147,14 +149,47 @@ class ClusterLock:
     def __init__(self, url: str) -> None:
         self._connection = psycopg.connect(_libpq(url), autocommit=True)
         self._held: bool | None = None  # True: exclusive, False: shared, None: not held
+        # Time accounting for the worker's summary line.
+        self.started = time.perf_counter()
+        self.waited = {False: 0.0, True: 0.0}
+        self.exclusive_seconds = 0.0
+        self.exclusive_tests = 0
+        self._exclusive_since: float | None = None
+        self.file_seconds: dict[str, float] = {}
+        self.file_ends: dict[str, float] = {}
+
+    def note_test(self, path: str, seconds: float) -> None:
+        name = path.rsplit("/", 1)[-1]
+        self.file_seconds[name] = self.file_seconds.get(name, 0.0) + seconds
+        self.file_ends[name] = time.perf_counter() - self.started
 
     def acquire(self, *, exclusive: bool) -> None:
         function = "pg_advisory_lock" if exclusive else "pg_advisory_lock_shared"
+        started = time.perf_counter()
         self._connection.execute(f"SELECT {function}(%s)", (CLUSTER_LOCK_KEY,))
+        now = time.perf_counter()
+        self.waited[exclusive] += now - started
+        if exclusive:
+            self._exclusive_since = now
 
     def release(self, *, exclusive: bool) -> None:
         function = "pg_advisory_unlock" if exclusive else "pg_advisory_unlock_shared"
         self._connection.execute(f"SELECT {function}(%s)", (CLUSTER_LOCK_KEY,))
+        if exclusive and self._exclusive_since is not None:
+            self.exclusive_seconds += time.perf_counter() - self._exclusive_since
+            self._exclusive_since = None
+
+    def summary(self) -> list[str]:
+        slowest = sorted(self.file_seconds.items(), key=lambda pair: -pair[1])[:10]
+        last = sorted(self.file_ends.items(), key=lambda pair: pair[1])[-3:]
+        return [
+            f"cluster lock: waited {self.waited[False]:.1f} s for shared and "
+            f"{self.waited[True]:.1f} s for exclusive holds; held exclusive "
+            f"{self.exclusive_seconds:.1f} s for {self.exclusive_tests} tests; worker session "
+            f"{time.perf_counter() - self.started:.1f} s",
+            "slowest files: " + ", ".join(f"{name} {sec:.0f} s" for name, sec in slowest),
+            "last files (ended at s): " + ", ".join(f"{name} {end:.0f}" for name, end in last),
+        ]
 
     def hold(self, *, exclusive: bool) -> None:
         """Hold the lock in this mode; a worker keeps an exclusive hold between two

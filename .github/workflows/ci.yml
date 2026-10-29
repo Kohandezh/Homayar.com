@@ -411,7 +411,7 @@ jobs:
       # HOM-292: four pytest-xdist workers, one database and Redis index each; a module stays
       # on one worker in file order. Tests that change roles run alone (backend/tests/_parallel.py).
       - name: Run backend tests
-        run: uv run pytest backend/tests --quiet -rs -n 4 --dist loadfile
+        run: uv run pytest backend/tests --quiet -rs -n 4 --dist loadfile --durations=30
 
   secret-scan:
     name: Secret scan

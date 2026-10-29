@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -140,7 +141,9 @@ _WORKER_SUMMARIES: list[str] = []
 def pytest_sessionfinish(session: pytest.Session) -> None:
     workeroutput = getattr(session.config, "workeroutput", None)
     if workeroutput is not None:
-        workeroutput["database_isolation"] = summary_lines()
+        lock = cluster_lock()
+        lock_lines = lock.summary() if lock is not None else []
+        workeroutput["database_isolation"] = summary_lines() + lock_lines
 
 
 @pytest.hookimpl(optionalhook=True)
@@ -195,6 +198,8 @@ def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None):
         return (yield)
     exclusive = runs_alone(item)
     lock.hold(exclusive=exclusive)
+    lock.exclusive_tests += exclusive
+    started = time.perf_counter()
     try:
         before = lock.cluster_state()
         item.stash[_CLUSTER_STATE_BEFORE] = None if exclusive else before
@@ -205,6 +210,7 @@ def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None):
             repair_cluster_state()
         return result
     finally:
+        lock.note_test(item.nodeid.split("::")[0], time.perf_counter() - started)
         # A shared hold is given back after every test, so an exclusive request waits for
         # one test at most on this worker.
         if not (exclusive and nextitem is not None and runs_alone(nextitem)):
