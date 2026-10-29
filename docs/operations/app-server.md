@@ -493,9 +493,9 @@ Found during HOM-328 (plan review):
 - A foreign `Host` header on `127.0.0.1:8080` still gets the static console HTML (the API part
   answers 400). Through the relay such a request is closed by the host nginx.
 - The tombstone journal is on a local Docker volume, not replicated (backups ticket).
-- `compose.cloud.yaml` has the same api and worker tmpfs mounts without `uid`/`mode`
-  (`/app/logs`, `/run/homayar-metrics`), so a cloud install has the same restart failure. Fixed
-  here only in `compose.onprem.yaml`.
+- `compose.cloud.yaml` had the same api and worker tmpfs mounts without `uid`/`mode`
+  (`/app/logs`, `/run/homayar-metrics`). They get the same `uid=10001,gid=10001,mode=0700` fix.
+  It is checked with `config --quiet` only; no cloud install runs from this repository.
 - The bundled nginx warns that its 2048 `worker_connections` exceed the container's open-file
   limit of 1024 (the Docker 29 default soft limit). Fine at today's traffic. A fix is
   `worker_rlimit_nofile` in `infra/nginx/nginx.conf` or `ulimits: nofile` in the overlay.
