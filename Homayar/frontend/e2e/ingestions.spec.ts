@@ -5,9 +5,10 @@ import type { IngestionRecord } from "../src/types/ingestions";
 /**
  * The ingestions ledger (HOM-251). The first and last tests run against the
  * real demo backend (read-only). The middle one answers
- * `/api/v1/ingestions**` from in-memory fixtures, because the demo seed has
- * no ingestion rows and the ledger needs a full page to page through: auth
- * and every other request stay real. Any non-GET to that route is aborted
+ * `/api/v1/ingestions**` from in-memory fixtures, because it needs a full
+ * page of rows in every state (rejected, duplicate) to page through and
+ * filter, which the demo seed's accepted uploads do not give: auth and every
+ * other request stay real. Any non-GET to that route is aborted
  * in the browser and fails the test, so nothing is ever written.
  */
 
