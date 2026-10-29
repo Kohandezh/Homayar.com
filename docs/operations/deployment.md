@@ -335,7 +335,7 @@ curl --fail --silent --show-error http://127.0.0.1:8080/healthz
 curl --fail --silent --show-error http://127.0.0.1:8080/readyz
 ```
 
-The production server for `app.homayar.com` (one shared host behind a host nginx TLS front) has its own runbook: [app-server.md](app-server.md). Its relay part is in `relay-tunnel.md` (PR #170, merge that first).
+The production server for `app.homayar.com` (one shared host behind a host nginx TLS front) has its own runbook: [app-server.md](app-server.md). Its relay part is in [relay-tunnel.md](relay-tunnel.md).
 
 For an HTTP-only local session, bind to loopback, set `APP_ENVIRONMENT=development`, and
 set `SECURE_COOKIES=false`. Production remains `APP_ENVIRONMENT=production` with secure

@@ -4,9 +4,8 @@ This runbook covers the production server that runs the product console and the 
 `https://app.homayar.com` (HOM-328). No secret value is in this file.
 
 The relay and the tunnel in front of this server have their own runbook:
-[`relay-tunnel.md`](relay-tunnel.md). It arrives with PR #170, so this page must merge after
-PR #170. General on-prem rules (secret names, image policy, database roles, upgrade rules) are in
-[`deployment.md`](deployment.md).
+[`relay-tunnel.md`](relay-tunnel.md). General on-prem rules (secret names, image policy, database
+roles, upgrade rules) are in [`deployment.md`](deployment.md).
 
 ## Status and How to Read This Page
 
@@ -328,7 +327,8 @@ How the stack was started on 2026-10-29 (measured). As `gpu`, in this order:
    ~/homayar/hc run --rm -T --no-deps minio-bootstrap 2>&1 | sed -E 's/[0-9a-f]{20,}/<redacted>/g'
    ```
 
-6. Schema: `~/homayar/hc --profile migrate run --rm -T migrate`.
+6. Schema (the filter hides any long hex value in the output):
+   `~/homayar/hc --profile migrate run --rm -T migrate 2>&1 | sed -E 's/[0-9a-f]{20,}/<redacted>/g'`.
 7. The runtime database role (once), with the password from its file through stdin, and the
    statement kept out of the server log:
 
@@ -373,12 +373,13 @@ uses up to 4 CPUs and 3 GiB.
 
 1. On the admin Mac, send the new source as in "First Start", step 1, but only create the new
    `releases/$S12` folder and do not switch `current` yet. Keep the old release folder.
-2. Images: build both with the new tag (step 4), or re-tag if no image input changed. The inputs
-   are `Homayar/`, `infra/docker/` and `infra/nginx/console.conf` (the `COPY` lines of the two
-   Dockerfiles). If
-   `git diff --name-only <old sha> <new sha> -- Homayar infra/docker infra/nginx/console.conf`
-   prints nothing, run `docker tag homayar/api:<old sha12> homayar/api:<new sha12>`, and the same
-   for `homayar/console-web`. Check `docker images 'homayar/*'`.
+2. Images: build both with the new tag (step 4, on the server), or re-tag if no image input
+   changed. The inputs are `Homayar/`, `infra/docker/` and `infra/nginx/console.conf` (the `COPY`
+   lines of the two Dockerfiles). On the admin Mac, in the repository checkout, run
+   `git diff --name-only <old sha> <new sha> -- Homayar infra/docker infra/nginx/console.conf`.
+   If it prints nothing, run on the server, as `gpu`:
+   `docker tag homayar/api:<old sha12> homayar/api:<new sha12>`, and the same for
+   `homayar/console-web`. Check `docker images 'homayar/*'` on the server.
 3. Read the release notes and `deployment.md`, "Upgrade and Rollback" (migration rules, backups).
 4. Switch: `ln -sfn releases/$S12 ~/homayar/current`, then `~/homayar/hc config --quiet`.
 5. If the commit has a migration: `~/homayar/hc stop worker scheduler`, then
@@ -645,8 +646,9 @@ Found during HOM-328:
   command line. This lasts 1 to 2 seconds on every `up`, and any local user can read it. The ops
   scripts `backup-minio.sh` and `restore-minio.sh` do the same. Must be fixed before uploads go
   live.
-- **Follow-up ticket for O1 and O7** (MinIO keys on the command line and download links to
-  `http://minio:9000`): marked "must be fixed before uploads go live", filed by homlead.
+- **O1 and O7 follow-up** (follow-up ticket, number to be added): MinIO keys on the
+  command line and download links to `http://minio:9000`. Marked "must be fixed before uploads go
+  live".
 - The bundled nginx warns that its 2048 `worker_connections` exceed the container's open-file
   limit of 1024 (the Docker 29 default soft limit). Fine at today's traffic. A fix is
   `worker_rlimit_nofile` in `infra/nginx/nginx.conf` or `ulimits: nofile` in the overlay.
