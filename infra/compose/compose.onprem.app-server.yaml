@@ -62,8 +62,9 @@ services:
     cpus: "${MINIO_CPUS:-2}"
 
   minio-bootstrap:
-    mem_limit: 128m
-    memswap_limit: 128m
+    # One-shot. mc needs about 150 MiB (130 MiB anonymous); 128m was OOM-killed.
+    mem_limit: 256m
+    memswap_limit: 256m
 
   egress-proxy:
     mem_limit: "${EGRESS_PROXY_MEM_LIMIT:-128m}"
