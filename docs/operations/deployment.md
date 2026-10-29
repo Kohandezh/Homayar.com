@@ -290,9 +290,31 @@ defaults. Do not override them for a release; re-pin them on purpose
 `proxy` service also reads `NGINX_IMAGE`, but its own default is still the tag
 `nginx:1.28-alpine`; a value you set changes both the proxy and the console-web build.
 
-The state images (`POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `MINIO_MC_IMAGE`,
-`NEO4J_IMAGE`) still default to tags. Production deployments must override them with reviewed
-digest references and record the digests with the release.
+The state images (`POSTGRES_IMAGE`, `REDIS_IMAGE`, `NEO4J_IMAGE`) still default to tags.
+Production deployments must override them with reviewed digest references and record the
+digests with the release.
+
+`MINIO_IMAGE` and `MINIO_MC_IMAGE` default to the Bitnami legacy references
+`bitnamilegacy/minio:2025.4.22@sha256:50cec18…` and
+`bitnamilegacy/minio-client:2025.4.16@sha256:8a86e44…` (tag and short digest), the same
+images CI's storage contract runs. They are public: `docker compose ... --profile onprem
+pull` needs no registry login. The official `quay.io/minio` images now need a login and
+their Docker Hub copies are gone. **These images get no more updates (no security fixes);
+a later ticket may move them to our own registry.** Do not override them for a release;
+the release manifest records both digests under `bundled_images`, and `verify` refuses a
+manifest where one is not pinned.
+
+For an existing install: the image runs as uid 1001 and keeps its data in
+`/bitnami/minio/data`. A `minio_data` volume written by the old image, which ran as
+root, is owned by root. Give it to uid 1001 before the first start with the new image:
+
+```bash
+docker run --rm --user 0 --volume <project>_minio_data:/v <MINIO_IMAGE reference> chown -R 1001:0 /v
+```
+
+`<project>` is the Compose project name, `homayar-onprem` by default (line 1 of the
+Compose file, `name: homayar-onprem`), so the volume is usually
+`homayar-onprem_minio_data`; `docker volume ls` shows the real name.
 
 Never place provider API keys in Docker build arguments. Add optional runtime providers in
 a deployment-specific Compose override whose secret values also use required substitutions.

@@ -18,9 +18,9 @@
 # anonymous volumes, never named volumes.
 set -Eeuo pipefail
 
-# The official quay.io/minio images now need a login and the Docker Hub copies are gone.
-# These Bitnami legacy images run the same MinIO and mc commits as the Compose defaults
-# (RELEASE.2025-04-22T22-12-26Z, RELEASE.2025-04-16T18-13-26Z); the digests pin them.
+# The official quay.io/minio images need a login and the Docker Hub copies are gone.
+# The on-prem Compose file ships these same two references as its defaults (HOM-286),
+# and test_release_manifest.py fails when they differ; the digests pin them.
 MINIO_IMAGE="bitnamilegacy/minio:2025.4.22@sha256:50cec18ac4184af4671a78aedd5554942c8ae105d51a465fa82037949046da01"
 MC_IMAGE="bitnamilegacy/minio-client:2025.4.16@sha256:8a86e441decf053093c5977d49290298295f850c7843652f93e970ab15871dd1"
 BUCKET="homayar-private"
