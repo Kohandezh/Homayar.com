@@ -24,7 +24,12 @@ from backend.tests._database import (
     inspection_session_factory,
     is_postgres_url,
     postgres_required,
-    test_database_url,
+)
+from backend.tests._isolation import (
+    canonical_database_url,
+    create_schema_unless_canonical,
+    empty_database_url,
+    summary_lines,
 )
 from backend.tests._live_s3 import live_s3_unavailable_reason
 from backend.tests._minio_s3 import minio_unavailable_reason
@@ -99,6 +104,11 @@ def pytest_report_header(config: pytest.Config) -> str:
     return f"database backend: {config.stash.get(_DB_BACKEND, 'unknown')}"
 
 
+def pytest_terminal_summary(terminalreporter) -> None:
+    for line in summary_lines():
+        terminalreporter.write_line(line)
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     skips: list[tuple[str, pytest.MarkDecorator]] = []
     if not is_postgres_url(configured_database_url()):
@@ -168,12 +178,34 @@ def audit_event_guard() -> Generator[list[str], None, None]:
     fail_on_unregistered_audit_writes(found)
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _lifespan_schema_call_skips_the_canonical_schema() -> Generator[None, None, None]:
+    """The app's lifespan skips the schema DDL only when the schema is canonical (HOM-292).
+
+    Only ``backend.main``'s reference is replaced; a test that calls
+    ``create_schema_for_test_or_development`` itself still runs the real function.
+    """
+    import backend.main
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            backend.main, "create_schema_for_test_or_development", create_schema_unless_canonical
+        )
+        yield
+
+
 @pytest.fixture
-def settings(tmp_path: Path) -> Settings:
+def settings(request: pytest.FixtureRequest, tmp_path: Path) -> Settings:
+    # HOM-292: a test that uses ``client`` gets the schema built once per process with its
+    # rows removed; any other test starts from the base drop (no tables), as before.
+    if "client" in request.fixturenames:
+        database_url = canonical_database_url(tmp_path)
+    else:
+        database_url = empty_database_url(tmp_path)
     return Settings(
         environment="test",
         deployment_mode="cloud",
-        database_url=test_database_url(tmp_path),
+        database_url=database_url,
         database_app_role=TEST_APP_ROLE,
         redis_url=APP_REDIS_URL,
         jwt_secret="j" * 48,
