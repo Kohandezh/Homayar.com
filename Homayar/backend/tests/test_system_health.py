@@ -281,6 +281,17 @@ def _within_one_deadline(waits: _WaitRecorder) -> None:
         assert wait.timeout <= system_health.DEADLINE_SECONDS, wait
 
 
+def _until_older_than_one_deadline(call) -> None:
+    """Wait until ``call`` is older than one deadline, so the next request does not share it.
+
+    The request that started the call waited one deadline from its own start, but the call
+    started a little later (the sources start one after another), and a pause there (CPU
+    contention, a garbage collection) moves the call's expiry past the end of that request.
+    """
+    while (left := call.expires - time.monotonic()) >= 0:
+        time.sleep(left + 0.001)
+
+
 def _not_waited_on(waits: _WaitRecorder, future) -> None:
     """The given future was never given to a wait (R3)."""
     for wait in waits.calls:
@@ -936,6 +947,7 @@ def test_a_source_still_hung_from_an_earlier_request_is_reported_at_once(
     collector = client.app.state.system_health_collector
     hung_call = collector._inflight[source]
     assert any(hung_call.future in wait.futures for wait in waits.calls)  # it was waited on
+    _until_older_than_one_deadline(hung_call)
     waits.clear()
     second = collector.collect()
     # Still running from the first request: reported at once, not waited on again.
@@ -986,6 +998,9 @@ def test_a_call_started_by_an_earlier_request_never_answers_a_later_one(
     heartbeats.use_heartbeat_store(ReleasingStore())
     try:
         assert _health(client, workspace_id)["dependencies"]["storage"]["status"] == "timeout"
+        _until_older_than_one_deadline(
+            client.app.state.system_health_collector._inflight["storage"]
+        )
         release_old_call.set()
         body = _health(client, workspace_id)
     finally:

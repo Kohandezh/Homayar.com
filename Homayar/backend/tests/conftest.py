@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event, update
 
-from backend.config import Settings
+from backend.config import Settings, reset_settings_cache
 from backend.database.relational import reset_database_state
 from backend.database.saas_models import AuditEvent, Plan, PlanVersion, Subscription
 from backend.main import create_app
@@ -24,10 +25,26 @@ from backend.tests._database import (
     inspection_session_factory,
     is_postgres_url,
     postgres_required,
-    test_database_url,
+)
+from backend.tests._isolation import (
+    canonical_database_url,
+    create_schema_unless_canonical,
+    empty_database_url,
+    rebuild_now,
+    repair_cluster_state,
+    summary_lines,
 )
 from backend.tests._live_s3 import live_s3_unavailable_reason
 from backend.tests._minio_s3 import minio_unavailable_reason
+from backend.tests._parallel import (
+    cluster_lock,
+    configure_worker,
+    make_scheduler,
+    runs_alone,
+    unconfigure_worker,
+    worker_id,
+)
+from backend.tests._shard import SHARD_OPTION, parse_shard, shard_of
 from backend.tests._transport import APP_REDIS_URL, TEST_REDIS_ENV, configured_redis_url
 
 REQUIRE_MEDIA_TOOLS_ENV = "HOMAYAR_REQUIRE_MEDIA_TOOLS"
@@ -44,6 +61,28 @@ def media_tools_required() -> bool:
 
 def minio_tests_required() -> bool:
     return os.environ.get(REQUIRE_MINIO_TESTS_ENV, "").strip().lower() in {"1", "true", "yes"}
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        SHARD_OPTION,
+        default=None,
+        metavar="INDEX/COUNT",
+        help="HOM-292: run only the test files of this CI shard (backend/tests/_shard.py)",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    # HOM-292: a pytest-xdist worker gets its own database, Redis index and directories.
+    worker = worker_id(config)
+    if worker is not None:
+        configure_worker(worker)
+        reset_settings_cache()
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    if worker_id(config) is not None:
+        unconfigure_worker()
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -86,6 +125,14 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         session.config.stash[_DB_BACKEND] = (
             f"postgresql {version} ({describe_database_url(configured)})"
         )
+        lock = cluster_lock()
+        if lock is not None:
+            # A worker's first build runs CREATE ROLE and the reader role statements.
+            lock.acquire(exclusive=True)
+            try:
+                rebuild_now("first")
+            finally:
+                lock.release(exclusive=True)
     else:
         session.config.stash[_DB_BACKEND] = (
             f"sqlite (per-test temporary file; set {TEST_DATABASE_ENV} for PostgreSQL)"
@@ -97,6 +144,43 @@ _DB_BACKEND = pytest.StashKey[str]()
 
 def pytest_report_header(config: pytest.Config) -> str:
     return f"database backend: {config.stash.get(_DB_BACKEND, 'unknown')}"
+
+
+_WORKER_SUMMARIES: list[str] = []
+_SHARD_LINES: list[str] = []
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    workeroutput = getattr(session.config, "workeroutput", None)
+    if workeroutput is not None:
+        lock = cluster_lock()
+        lock_lines = lock.summary() if lock is not None else []
+        workeroutput["database_isolation"] = summary_lines() + lock_lines
+        workeroutput["shard"] = list(_SHARD_LINES)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_make_scheduler(config: pytest.Config, log):
+    # HOM-292: the slowest files first under ``--dist loadfile`` (``_parallel.py``).
+    if config.getvalue("dist") == "loadfile":
+        return make_scheduler(config, log)
+    return None
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error) -> None:
+    worker = node.gateway.id
+    for line in getattr(node, "workeroutput", {}).get("database_isolation", []):
+        _WORKER_SUMMARIES.append(f"[{worker}] {line}")
+    # Every worker collects the same tests: one shard line is enough.
+    for line in getattr(node, "workeroutput", {}).get("shard", []):
+        if line not in _SHARD_LINES:
+            _SHARD_LINES.append(line)
+
+
+def pytest_terminal_summary(terminalreporter) -> None:
+    for line in _SHARD_LINES + summary_lines() + sorted(_WORKER_SUMMARIES):
+        terminalreporter.write_line(line)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -122,6 +206,78 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for marker, skip in skips:
             if item.get_closest_marker(marker) is not None:
                 item.add_marker(skip)
+    # HOM-292: a CI shard keeps the tests of its own files (``_shard.py``).
+    try:
+        shard = parse_shard(config.getoption(SHARD_OPTION))
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+    if shard is not None:
+        index, count = shard
+        keep = [item for item in items if shard_of(item.path.name, count) == index]
+        dropped = [item for item in items if shard_of(item.path.name, count) != index]
+        if dropped:
+            config.hook.pytest_deselected(items=dropped)
+        _SHARD_LINES[:] = [
+            f"shard {index}/{count}: collected {len(items)} tests, selected {len(keep)} "
+            f"in {len({item.path.name for item in keep})} files"
+        ]
+        items[:] = keep
+
+
+def pytest_report_collectionfinish(config: pytest.Config) -> list[str]:
+    return list(_SHARD_LINES)
+
+
+_CLUSTER_STATE_BEFORE = pytest.StashKey["str | None"]()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None):
+    """HOM-292 with pytest-xdist: hold the cluster-wide state lock for the whole item.
+
+    The item protocol includes the setup and teardown of higher-scope fixtures, so a
+    module-scoped fixture that runs Alembic is inside the lock of its first and last test.
+    """
+    lock = cluster_lock()
+    if lock is None:
+        return (yield)
+    exclusive = runs_alone(item)
+    lock.hold(exclusive=exclusive)
+    lock.exclusive_tests += exclusive
+    started = time.perf_counter()
+    try:
+        before = lock.cluster_state()
+        item.stash[_CLUSTER_STATE_BEFORE] = None if exclusive else before
+        result = yield
+        if lock.cluster_state() != before:
+            # Put the app and reader roles back before another worker can see them; a
+            # role the test created and did not drop stays, as on the base.
+            repair_cluster_state()
+        return result
+    finally:
+        lock.note_test(item.nodeid.split("::")[0], time.perf_counter() - started)
+        # A shared hold is given back after every test, so an exclusive request waits for
+        # one test at most on this worker.
+        if not (exclusive and nextitem is not None and runs_alone(nextitem)):
+            lock.release_held()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
+    """HOM-292 guard: a test that held only the shared lock must not change roles."""
+    report = yield
+    lock = cluster_lock()
+    before = item.stash.get(_CLUSTER_STATE_BEFORE, None)
+    if call.when == "teardown" and lock is not None and before is not None:
+        if lock.cluster_state() != before:
+            report.outcome = "failed"
+            report.longrepr = (
+                "HOM-292 guard: this test changed cluster-wide PostgreSQL state (roles, role "
+                "memberships or role settings) while other pytest-xdist workers were running. "
+                "The scan in backend/tests/_parallel.py did not see it: put the statement in "
+                "the test, a function it calls, or one of its fixtures."
+            )
+    return report
 
 
 # HOM-185 runtime guard: every audit row the ORM inserts or updates during a
@@ -168,12 +324,34 @@ def audit_event_guard() -> Generator[list[str], None, None]:
     fail_on_unregistered_audit_writes(found)
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _lifespan_schema_call_skips_the_canonical_schema() -> Generator[None, None, None]:
+    """The app's lifespan skips the schema DDL only when the schema is canonical (HOM-292).
+
+    Only ``backend.main``'s reference is replaced; a test that calls
+    ``create_schema_for_test_or_development`` itself still runs the real function.
+    """
+    import backend.main
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            backend.main, "create_schema_for_test_or_development", create_schema_unless_canonical
+        )
+        yield
+
+
 @pytest.fixture
-def settings(tmp_path: Path) -> Settings:
+def settings(request: pytest.FixtureRequest, tmp_path: Path) -> Settings:
+    # HOM-292: a test that uses ``client`` gets the schema built once per process with its
+    # rows removed; any other test starts from the base drop (no tables), as before.
+    if "client" in request.fixturenames:
+        database_url = canonical_database_url(tmp_path)
+    else:
+        database_url = empty_database_url(tmp_path)
     return Settings(
         environment="test",
         deployment_mode="cloud",
-        database_url=test_database_url(tmp_path),
+        database_url=database_url,
         database_app_role=TEST_APP_ROLE,
         redis_url=APP_REDIS_URL,
         jwt_secret="j" * 48,
