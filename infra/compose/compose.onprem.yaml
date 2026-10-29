@@ -493,15 +493,21 @@ services:
     networks: [backend]
     logging: *default-logging
 
+  # The official quay.io/minio images need a login now and the Docker Hub copies are
+  # gone (HOM-286). These Bitnami legacy images run the same MinIO and mc commits and
+  # get no more updates. They are pinned by digest and the release manifest records
+  # them under bundled_images. The image runs as uid 1001, whose writable data
+  # directory is /bitnami/minio/data. With "server" as the first argument the
+  # entrypoint runs minio server directly, without Bitnami's setup step.
   minio:
-    image: "${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z}"
+    image: "${MINIO_IMAGE:-bitnamilegacy/minio:2025.4.22@sha256:50cec18ac4184af4671a78aedd5554942c8ae105d51a465fa82037949046da01}"
     profiles: [onprem]
-    command: [server, /data, --console-address, ":9001"]
+    command: [server, /bitnami/minio/data, --console-address, ":9001"]
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:?Set a random MinIO root access key}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?Set a random MinIO root secret key}"
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
     healthcheck:
       test: [CMD-SHELL, "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null"]
       interval: 10s
@@ -515,7 +521,7 @@ services:
     logging: *default-logging
 
   minio-bootstrap:
-    image: "${MINIO_MC_IMAGE:-quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z}"
+    image: "${MINIO_MC_IMAGE:-bitnamilegacy/minio-client:2025.4.16@sha256:8a86e441decf053093c5977d49290298295f850c7843652f93e970ab15871dd1}"
     profiles: [onprem]
     entrypoint: [/bin/sh, -ec]
     command:
@@ -554,7 +560,7 @@ services:
     logging: *default-logging
 
   minio-tools:
-    image: "${MINIO_MC_IMAGE:-quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z}"
+    image: "${MINIO_MC_IMAGE:-bitnamilegacy/minio-client:2025.4.16@sha256:8a86e441decf053093c5977d49290298295f850c7843652f93e970ab15871dd1}"
     profiles: [ops]
     user: "${BACKUP_UID:-1000}:${BACKUP_GID:-1000}"
     entrypoint: [/bin/sh, -ec]

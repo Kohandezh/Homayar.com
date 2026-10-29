@@ -21,8 +21,10 @@ variable, ``.env`` content or Git identity.
 ``build-args`` prints the ``KEY=VALUE`` Docker build arguments of the API image
 for the revision.  ``verify`` compares a manifest with the ``build-info.json``
 of an image (``backend/observability/release.py``) and, optionally, with the
-image's OCI labels, and refuses a manifest with a base image that is not pinned by
-digest; it exits 1 and prints each mismatch.
+image's OCI labels, and refuses a manifest with a base image that is not pinned
+by digest; the manifest also records the bundled on-prem Compose images, and
+``verify`` refuses one of those that is not pinned; it exits 1 and prints each
+mismatch.
 
 Standard library only (Python 3.12).
 """
@@ -67,6 +69,10 @@ IMAGES = {
     "console-web": "infra/docker/console-web.Dockerfile",
     "egress-proxy": "infra/docker/egress-proxy.Dockerfile",
 }
+# The on-prem Compose file and the variables of its bundled images: third-party
+# images the stack runs as they are, not built from a Dockerfile here (HOM-286).
+COMPOSE_ONPREM = "infra/compose/compose.onprem.yaml"
+BUNDLED_IMAGES = ("MINIO_IMAGE", "MINIO_MC_IMAGE")
 # Code the API image ships, relative to PRODUCT_DIR (api.Dockerfile.dockerignore); the
 # same rule as backend.observability.release.is_shipped, which hashes the image's copy.
 SHIPPED_PATHS = ("alembic.ini", "backend")
@@ -93,6 +99,8 @@ _NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 _TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 # One word of an ARG instruction: NAME, or NAME= with a default of non-space characters.
 _ARG_WORD = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(=(\S*))?")
+# An image line of the on-prem Compose file: image: "${NAME:-default}".
+_BUNDLED_IMAGE_LINE = re.compile(r'image: "\$\{(\w+):-([^}"]+)\}"')
 # A leading `# escape=` parser directive: it changes which character continues a line.
 _ESCAPE_DIRECTIVE = re.compile(r"#\s*escape\s*=", re.IGNORECASE)
 # Files Alembic loads as revisions (alembic.script.base._only_source_rev_file).
@@ -329,6 +337,36 @@ def dockerfile_args(text: str, path: str = "Dockerfile") -> dict[str, str]:
     return values
 
 
+def bundled_image_defaults(text: str, path: str = COMPOSE_ONPREM) -> dict[str, str]:
+    """The image default of each bundled Compose variable (HOM-286); refuses guessing.
+
+    An image line is a whole line of the form ``image: "${NAME:-default}"``. All lines
+    of one name must carry the same default (``MINIO_MC_IMAGE`` appears on two services);
+    a name without such a line, for example only ``${NAME:?message}``, is refused.
+    """
+    defaults: dict[str, str] = {}
+    defaulted_at: dict[str, int] = {}
+    for number, line in enumerate(text.splitlines(), start=1):
+        match = _BUNDLED_IMAGE_LINE.fullmatch(line.strip())
+        if match is None or match.group(1) not in BUNDLED_IMAGES:
+            continue
+        name, default = match.group(1), match.group(2)
+        if name in defaults:
+            if defaults[name] != default:
+                raise ManifestError(
+                    f"{path}: image variable {name} has a default on line {defaulted_at[name]} "
+                    f"and again on line {number} with another value; the release manifest "
+                    f"refuses to guess which one wins. Keep one default per name."
+                )
+            continue
+        defaults[name] = default
+        defaulted_at[name] = number
+    missing = [name for name in BUNDLED_IMAGES if name not in defaults]
+    if missing:
+        raise ManifestError(f"{path}: no image default for {', '.join(missing)}")
+    return {name: defaults[name] for name in BUNDLED_IMAGES}
+
+
 def image_reference(reference: str) -> dict[str, Any]:
     digest = reference.partition("@")[2]
     pinned = bool(_DIGEST.fullmatch(digest))
@@ -352,13 +390,15 @@ def _file(path: str, blob: bytes) -> dict[str, str]:
 
 def static_inputs() -> list[str]:
     """Every fixed path ``generate`` reads (the migration scripts are listed at the revision)."""
-    paths = set(DEPENDENCY_FILES.values()) | {PYTHON_VERSION_FILE}
+    paths = set(DEPENDENCY_FILES.values()) | {PYTHON_VERSION_FILE, COMPOSE_ONPREM}
     for dockerfile in IMAGES.values():
         paths |= {dockerfile, f"{dockerfile}.dockerignore"}
     return sorted(paths)
 
 
-def reproducibility(build_inputs: dict[str, Any]) -> dict[str, Any]:
+def reproducibility(
+    build_inputs: dict[str, Any], bundled_images: dict[str, Any]
+) -> dict[str, Any]:
     pinned, not_pinned = list(ALWAYS_PINNED), list(NEVER_PINNED)
     for image, inputs in sorted(build_inputs.items()):
         for arg, base in sorted(inputs["base_images"].items()):
@@ -366,6 +406,11 @@ def reproducibility(build_inputs: dict[str, Any]) -> dict[str, Any]:
             (pinned if base["pinned_by_digest"] else not_pinned).append(
                 entry if base["pinned_by_digest"] else f"{entry} (tag, not a digest)"
             )
+    for name, image in sorted(bundled_images.items()):
+        entry = f"bundled {name} {image['reference']}"
+        (pinned if image["pinned_by_digest"] else not_pinned).append(
+            entry if image["pinned_by_digest"] else f"{entry} (tag, not a digest)"
+        )
     return {"level": "inputs", "pinned": pinned, "not_pinned": not_pinned}
 
 
@@ -435,6 +480,15 @@ def build_manifest(
         }
     build_inputs["api"]["build_args"] = release_build_args(revision, project["version"], profile)
     build_inputs["api"]["code"] = shipped_code(revision)
+    bundled_images = {
+        "compose_file": _file(COMPOSE_ONPREM, blobs[COMPOSE_ONPREM]),
+        "images": {
+            name: image_reference(reference)
+            for name, reference in bundled_image_defaults(
+                _text(blobs[COMPOSE_ONPREM], COMPOSE_ONPREM)
+            ).items()
+        },
+    }
     body: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "source": {
@@ -457,10 +511,11 @@ def build_manifest(
             **migration_summary({path: blobs[path] for path in migration_files}),
         },
         "build_inputs": build_inputs,
+        "bundled_images": bundled_images,
         "artifacts": {"images": dict(sorted((images or {}).items()))},
         "validation": dict(sorted((validation or {}).items())),
         "compatibility": {"requires_python": project["requires-python"]},
-        "reproducibility": reproducibility(build_inputs),
+        "reproducibility": reproducibility(build_inputs, bundled_images["images"]),
     }
     return {**body, "manifest_sha256": sha256_bytes(canonical_json(body).encode("ascii"))}
 
@@ -492,6 +547,25 @@ def base_image_problems(manifest: dict[str, Any]) -> list[str]:
                 problems.append(
                     f"build_inputs.{image}.base_images.{arg}: not pinned by digest ({reference!r})"
                 )
+    return problems
+
+
+def bundled_image_problems(manifest: dict[str, Any]) -> list[str]:
+    """Each bundled on-prem Compose image that is not recorded or not pinned by digest."""
+    images = _get(manifest, "bundled_images.images")
+    problems = []
+    for name in BUNDLED_IMAGES:
+        entry = images.get(name) if isinstance(images, dict) else None
+        if not isinstance(entry, dict):
+            problems.append(f"bundled_images.images.{name}: not recorded")
+            continue
+        reference = _get(entry, "reference")
+        # Recomputed from the reference, so an edited pinned_by_digest flag cannot pass.
+        expected = image_reference(reference) if isinstance(reference, str) else None
+        if expected is None or not expected["pinned_by_digest"] or entry != expected:
+            problems.append(
+                f"bundled_images.images.{name}: not pinned by digest ({reference!r})"
+            )
     return problems
 
 
@@ -534,6 +608,7 @@ def verify_documents(
             f"runtime.python: manifest={python!r} build-info python_version={running!r}"
         )
     problems.extend(base_image_problems(manifest))
+    problems.extend(bundled_image_problems(manifest))
     if _get(build_info, "source.sha") == UNRELEASED_SHA:
         problems.append("build-info: the image was built without release arguments (unreleased)")
     if labels is not None:
