@@ -2241,6 +2241,61 @@ class AnalysisExtraction(Base):
     )
 
 
+class TrendExtractionJudgment(Base):
+    """The trend judgment of one analysis run's extraction, for one rules version (HOM-290).
+
+    What the HOM-79 rules decide from a stored extraction row depends only on that row
+    (immutable) and on the rules: the trend definition (``definition_digest``) and
+    ``JUDGMENT_VERSION`` (``judgment_version``).  So it is stored once per run and rules
+    version, as ``content_key``: the hex SHA-256 of the canonical JSON of the judged
+    content, so the trend routes can count by that key in SQL.  The row holds ids,
+    versions and a digest only, no personal data.  Immutable: a new definition or a new
+    ``JUDGMENT_VERSION`` gets a new row.  Tenant-only, like its extraction.
+    """
+
+    __tablename__ = "trend_extraction_judgments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    extraction_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_extractions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    analysis_run_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    definition_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    definition_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    definition_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    judgment_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # One row per run per rules version; also the lookup of the trend count's join.
+        UniqueConstraint(
+            "analysis_run_id",
+            "definition_digest",
+            "judgment_version",
+            name="uq_trend_judgment_run",
+        ),
+        CheckConstraint("definition_version >= 1", name="ck_trend_judgment_definition_version"),
+        # A tenant's rows of one rules version as one index-only range, hash-joined by the
+        # trend count; the representative extraction comes from the run id.
+        Index(
+            "ix_trend_judgment_current",
+            "workspace_id",
+            "definition_digest",
+            "judgment_version",
+            "analysis_run_id",
+            postgresql_include=["content_key"],
+        ),
+    )
+
+
 class MeetingSummary(Base, TimestampMixin):
     __tablename__ = "meeting_summaries"
 
@@ -2552,6 +2607,7 @@ def _changed_columns(target: object) -> set[str]:
 @event.listens_for(TranscriptSegment, "before_update")
 @event.listens_for(EvidenceSpan, "before_update")
 @event.listens_for(AnalysisExtraction, "before_update")
+@event.listens_for(TrendExtractionJudgment, "before_update")
 @event.listens_for(TranscriptRedaction, "before_update")
 @event.listens_for(RedactedSegment, "before_update")
 @event.listens_for(PiiMapping, "before_update")
