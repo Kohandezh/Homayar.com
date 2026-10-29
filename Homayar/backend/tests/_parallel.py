@@ -37,6 +37,7 @@ import ast
 import inspect
 import os
 import re
+import resource
 import sys
 import textwrap
 import time
@@ -186,7 +187,7 @@ class ClusterLock:
             f"cluster lock: waited {self.waited[False]:.1f} s for shared and "
             f"{self.waited[True]:.1f} s for exclusive holds; held exclusive "
             f"{self.exclusive_seconds:.1f} s for {self.exclusive_tests} tests; worker session "
-            f"{time.perf_counter() - self.started:.1f} s",
+            f"{time.perf_counter() - self.started:.1f} s, worker CPU {_cpu_seconds():.1f} s",
             "slowest files: " + ", ".join(f"{name} {sec:.0f} s" for name, sec in slowest),
             "last files (ended at s): " + ", ".join(f"{name} {end:.0f}" for name, end in last),
         ]
@@ -303,6 +304,13 @@ def _owner_class(target: Any, namespace: dict[str, Any]) -> type | None:
 def _is_followed(target: Any) -> bool:
     module = getattr(target, "__module__", None) or ""
     return module.startswith("backend.tests.") and module not in _PLUMBING
+
+
+def _cpu_seconds() -> float:
+    """User and system CPU time of this worker and the processes it waited for."""
+    own = resource.getrusage(resource.RUSAGE_SELF)
+    children = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return own.ru_utime + own.ru_stime + children.ru_utime + children.ru_stime
 
 
 def _libpq(url: str) -> str:
