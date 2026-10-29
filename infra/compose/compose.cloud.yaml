@@ -215,6 +215,7 @@ services:
     volumes:
       - app_data:/app/data
       - "${MODEL_MANIFEST_DIR:-../manifests}:/app/manifests:ro"
+    restart: unless-stopped
     networks: [private]
     logging: *default-logging
 
