@@ -37,6 +37,34 @@ to SQLite, so a green backend job always means PostgreSQL. Locally, run
 inside `Homayar/`; without the variable the suite uses temporary SQLite files and skips the
 `postgres`-marked tests. The console and backend jobs still fail explicitly when their product
 files are absent from the commit.
+
+On PostgreSQL the suite builds the schema once per process (HOM-292,
+`backend/tests/_isolation.py`). Before each test that uses `client`, the `settings` fixture
+compares a catalog fingerprint with the one taken after the last build and, when it is equal,
+only removes the rows. A test that changed the schema, ran a migration, dropped the tables or
+changed a role gets a full rebuild before the next test, without a marker. A test with
+`settings` but without `client` starts from an empty schema, as before.
+`backend/tests/test_database_isolation.py` proves these rules. The backend job is a matrix of
+two shards (`Backend tests and migrations (shard 1/2)` and `(shard 2/2)`), each on its own runner
+with its own PostgreSQL and Redis. The pytest option `--test-shard <index>/<count>` keeps the
+tests of the files whose shard is `index`; the shard of a file is CRC-32 of a fixed prefix and its
+file name, modulo the count (`backend/tests/_shard.py`; the prefix was chosen with measured
+per-file times so the two shards get about the same work), so every test runs in exactly one
+shard and a new file needs no list. Each shard prints `shard i/2: collected N tests, selected M`. Without the option
+every test runs; a nested pytest run that a test starts gets no option and is not sharded. The
+MinIO contract step runs in shard 1 only. Each shard runs its tests with four
+pytest-xdist workers (`-n 4 --dist loadfile`, the slowest files first): each worker uses its own
+database
+(`homayar_test_gw0` to `homayar_test_gw3`) and Redis index, and a test whose source changes
+roles, role memberships or runs an Alembic upgrade or downgrade runs alone under a cluster-wide
+lock (`backend/tests/_parallel.py`). A test that reads a wall clock and checks a time budget
+(the golden-module budget below) also runs alone, so the other workers do not slow it down. The
+scan reads the test, the functions and classes it reaches in `backend/tests` and its fixtures.
+A guard compares the roles when a shared test starts with the roles after its teardown and fails
+the test when they differ. Known limit: a test whose role change the scan cannot see (SQL built
+at run time, lower-case SQL, code outside `backend/tests`) and that undoes the change before it
+ends is not caught; other workers may see the role while it exists. Without `-n` the suite runs
+serially exactly as before.
 Before the full test step, the step "Qualify the storage contract against MinIO" starts a
 disposable MinIO container with `infra/ci/minio-contract-target.sh` and runs the `minio_s3`
 cases with `HOMAYAR_REQUIRE_MINIO_TESTS=1`, so it stops with a usage error instead of skipping
@@ -56,8 +84,14 @@ backend job has no `prom/prometheus` image. The *Container configuration* job ru
 promtool commands and is the gate for the alert rules; do not drop its steps because pytest seems
 to cover them.
 
-The backend job may run for 40 minutes. The test step alone took about 22 minutes on `2f5f666`,
-which left too little room under the earlier 25-minute limit.
+Each backend shard job may run for 30 minutes. The test step took 1:19:49 on run 40769280687,
+when every test rebuilt the schema, and 48:00 on run 40795356019 with the schema built once and
+the tests run serially (HOM-292). One job with four xdist workers took 27:10, 18:43 and 28:09 on
+three commits of this branch with the same job shape (runs 40805797597, 40808843162 and
+40809285732; the third with PostgreSQL durability settings off, since reverted): shared runners
+vary by about 1.5 times. The final shape, two shards, took steps of 10:21 and 13:29 (jobs 11:34
+and 14:22) on run 40817325867. The limit is about twice the slower job, rounded up to a multiple
+of 5, and at least 30 minutes.
 
 The golden text-normalization module (`test_text_normalization_golden.py`, HOM-120/HOM-172) has a
 wall-clock budget, enforced by

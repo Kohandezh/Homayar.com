@@ -1,11 +1,13 @@
 """Test database selection (WP01-T05).
 
 The suite runs against PostgreSQL when ``TEST_DATABASE_URL`` points at a
-``postgresql+psycopg://`` server; every test then starts from an empty schema.
-Without that variable it falls back to a throwaway SQLite file, which is fine
-for local iteration but does not exercise row locking, constraint behaviour or
-migrations. Set ``HOMAYAR_REQUIRE_POSTGRES_TESTS=1`` (CI does) to turn the
-fallback into a hard error so a misconfigured pipeline cannot pass on SQLite.
+``postgresql+psycopg://`` server.  A test that uses ``client`` then starts from the
+schema built once per process with every row removed (HOM-292, ``_isolation.py``); any
+other test that uses ``settings`` starts from an empty schema.  Without that variable
+it falls back to a throwaway SQLite file, which is fine for local iteration but does
+not exercise row locking, constraint behaviour or migrations. Set
+``HOMAYAR_REQUIRE_POSTGRES_TESTS=1`` (CI does) to turn the fallback into a hard error so
+a misconfigured pipeline cannot pass on SQLite.
 """
 
 from __future__ import annotations
@@ -66,6 +68,30 @@ def dispose_inspection_engine() -> None:
         _inspection_engine = None
 
 
+_check_engine: Engine | None = None
+
+
+def check_engine() -> Engine:
+    """One pooled connection as the test login role for the per-test schema checks (HOM-292).
+
+    ``reset_postgres_schema`` closes it, so a module that counts this database's
+    connections after resetting the schema (the voice burst tests) never sees it.
+    """
+    global _check_engine
+    if _check_engine is None:
+        _check_engine = create_engine(
+            configured_database_url(), pool_size=1, max_overflow=4, pool_pre_ping=True
+        )
+    return _check_engine
+
+
+def dispose_check_engine() -> None:
+    global _check_engine
+    if _check_engine is not None:
+        _check_engine.dispose()
+        _check_engine = None
+
+
 def configured_database_url() -> str | None:
     value = os.environ.get(TEST_DATABASE_ENV, "").strip()
     return value or None
@@ -88,6 +114,7 @@ def reset_postgres_schema(url: str) -> None:
     from backend.database.saas_models import Base
 
     dispose_inspection_engine()
+    dispose_check_engine()
     engine = create_engine(url, pool_pre_ping=True)
     try:
         with engine.begin() as connection:
