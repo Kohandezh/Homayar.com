@@ -99,7 +99,7 @@ All under `/home/gpu/relay-tunnel/` (folder 0700, owner `gpu`):
 | Path | Mode | What |
 | --- | --- | --- |
 | `frp_0.71.1_linux_amd64.tar.gz`, `frp_sha256_checksums.txt` | 0664 | the verified download, kept for audit |
-| `build/frpc`, `build/Dockerfile` | 0755, 0644 | image source (`FROM scratch`, the static frpc binary only) |
+| `build/frpc`, `build/Dockerfile` | 0755, 0664 | image source (`FROM scratch`, the static frpc binary only) |
 | `frpc.toml` | 0644 | frpc config, no secret |
 | `tls/ca.crt` | 0644 | tunnel CA certificate (public), same fingerprint as above |
 | `secrets/` | 0700 | |
@@ -219,7 +219,8 @@ again in the rollback.
    file (step 5) and add the 4 lines by hand after those two listens (see the lines above).
    More than 2 means the lines were added twice: restore that file (step 5).
 
-4. Test, then reload (never restart):
+4. Test, then reload (never restart). A reload keeps open connections, but a wrong config can
+   interrupt all 5 sites. Tell the owner first.
 
    ```bash
    sudo nginx -t && sudo systemctl reload nginx
@@ -357,7 +358,10 @@ you need, for example
 | Relay | `sudo systemctl restart frps` | All tunnel connections drop. frpc logs in again by itself. |
 | Local | `docker restart relay-tunnel-frpc` (as `gpu`) | The same, from the other side. |
 | Stop the tunnel (emergency) | `docker stop relay-tunnel-frpc` | The sites are no longer public. LAN access stays. With `unless-stopped` the container stays stopped after a reboot, until `docker start relay-tunnel-frpc`. |
-| Stop the relay side | `sudo systemctl stop frps` | The same effect from the relay. `systemctl start frps` brings it back. |
+| Stop the relay side | `sudo systemctl stop frps` | The same effect from the relay. `sudo systemctl start frps` brings it back. |
+
+Every command in this table interrupts the public sites: a frps restart for about 5 seconds, a
+container restart for about 2 seconds, a stop until the matching start. Tell the owner first.
 
 Measured on 2026-10-29, from the command until `https://inotex.padyar.com/` answered 200
 through the relay again. No manual step was needed in any case.
@@ -367,6 +371,8 @@ through the relay again. No manual step was needed in any case.
 | `sudo systemctl restart frps` | 5.4 s | The restart itself takes about 2 s. frpc got one "connection refused", retried, and logged in 2.5 s later. |
 | `docker restart relay-tunnel-frpc` | 1.9 s | frpc logged in 0.3 s after the container started. |
 | `sudo reboot` of the relay | 47.9 s | Kernel up after 9 s, frps listening after 31 s, frpc logged in after 46.5 s. The frpc container did not restart: frpc kept retrying, and its retry wait grows while the relay is down. |
+
+A relay reboot interrupts the public sites for about 48 seconds. Tell the owner first.
 
 frpc has `loginFailExit = false`, so it keeps retrying while the relay is down. Docker restarts
 the container if the process exits.
@@ -378,6 +384,9 @@ may have seen it, and when a person with access leaves.
 
 Never print the token. No `cat`, `head`, `xxd`, `od`, `base64` or editor on the token files,
 except inside the pipes below, where the output goes only into the other command.
+
+Do steps 1 to 3 in one sitting. Step 3 interrupts the public sites for about 10 seconds (a frps
+restart, then a container restart). Tell the owner first.
 
 1. On the relay, write a new token in place (the file keeps its owner and mode):
 
@@ -394,6 +403,12 @@ except inside the pipes below, where the output goes only into the other command
    ssh homayar-relay 'sudo -n cat /etc/frp/token' | ssh homayar-local 'cmp -s - ~/relay-tunnel/secrets/token && echo token-match || echo token-differs'
    ```
 
+   Run step 3 only if step 2 printed both `move-ok` and `token-match`. Otherwise repeat step 2.
+
+   Keep the local write in place (`cat >` into the existing file). Do not write a temp file and
+   `mv` it: that gives the file a new inode, and the running container keeps seeing the old
+   token through its bind mount.
+
 3. Restart both sides, so both read the new token:
 
    ```bash
@@ -402,28 +417,36 @@ except inside the pipes below, where the output goes only into the other command
    ssh homayar-local 'docker logs --since 2m relay-tunnel-frpc 2>&1 | grep -E "login to server success|start proxy success"'
    ```
 
-The sites are down for a few seconds between step 3's two commands.
+The sites are down from the frps restart until the container has logged in again with the new
+token. Between the two commands, frpc retries with the old token and is refused.
 
 ## Server Certificate Renewal (frps)
 
 The frps certificate expires on 2029-10-28. Renew it a month before. frpc trusts the CA, not
 this certificate, so the local server needs no change.
 
+The last command restarts frps. That interrupts the public sites for about 5 seconds. Tell the
+owner first.
+
 ```bash
 ssh homayar-relay 'bash -se' <<'BLOCK'
 sudo bash -c 'set -e; umask 077; cd /root/frp-ca
 openssl req -new -config ca.cnf -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -noenc -keyout server.key -out server.csr -subj "/CN=relay-tunnel.internal"
 openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAserial ca.srl -days 1095 -sha256 -extfile ca.cnf -extensions v3_server -out server.crt'
+sudo openssl verify -CAfile /root/frp-ca/ca.crt /root/frp-ca/server.crt
 sudo install -o root -g frps -m 0644 /root/frp-ca/server.crt /etc/frp/tls/server.crt
 sudo install -o frps -g frps -m 0600 /root/frp-ca/server.key /etc/frp/tls/server.key
 sudo rm /root/frp-ca/server.key /root/frp-ca/server.csr
-sudo openssl verify -CAfile /etc/frp/tls/ca.crt /etc/frp/tls/server.crt
 sudo systemctl restart frps
 BLOCK
 ```
 
+The `openssl verify` line runs before the two `install` lines. If it fails, `bash -se` stops
+the block, so a bad certificate never reaches `/etc/frp/tls/` and frps keeps the old one.
+
 The CA itself expires on 2036-10-26. A new CA needs the new `ca.crt` on the local server too
 (copy it like in "Rebuild or Recreate the Container", then `docker restart relay-tunnel-frpc`).
+That restart interrupts the public sites for about 2 seconds. Tell the owner first.
 
 ## Site Certificates (Let's Encrypt)
 
@@ -459,7 +482,8 @@ sudo certbot renew --dry-run --cert-name elecomp.padyar.com
 sudo certbot renew --dry-run --cert-name inotexpwa.padyar.com
 ```
 
-Each must print `The dry run was successful.`
+Each must end with `Congratulations, all simulated renewals succeeded`. A dry run changes no
+certificate and does not reload nginx.
 
 Check the last automatic run, without `sudo`:
 `systemctl show certbot.service -p ExecMainStatus -p ExecMainExitTimestamp`. `ExecMainStatus=0`
@@ -477,7 +501,9 @@ set -o pipefail
 ssh homayar-relay 'sudo -n cat /etc/frp/tls/ca.crt' | ssh homayar-local 'cat > ~/relay-tunnel/tls/ca.crt && test -s ~/relay-tunnel/tls/ca.crt && chmod 644 ~/relay-tunnel/tls/ca.crt'
 ```
 
-Build and run (on the local server, as `gpu`):
+Build and run (on the local server, as `gpu`). `docker rm -f` stops the tunnel until the new
+container has logged in. That interrupts the public sites for a few seconds (a container
+restart takes about 2 seconds). Tell the owner first.
 
 ```bash
 docker build -t relay-tunnel-frpc:0.71.1 ~/relay-tunnel/build
@@ -507,7 +533,13 @@ That is fine for this Dockerfile. Do not use `COPY --chmod` there.
 4. Local: put the new `frpc` in `~/relay-tunnel/build/`, build with a new tag, and recreate
    the container with that tag (change the tag in the `docker run` line and in this runbook).
 
+Steps 3 and 4 interrupt the public sites: about 5 seconds for the frps restart and a few
+seconds for the container recreate. Tell the owner first.
+
 ## Rollback
+
+The full rollback takes the 3 sites off the internet for good (that is its goal), and the nginx
+reload in it can interrupt the sites if something is wrong. Tell the owner first.
 
 Local server, as `gpu`:
 
@@ -517,14 +549,45 @@ docker rmi relay-tunnel-frpc:0.71.1
 rm -rf ~/relay-tunnel
 ```
 
-Local server, owner with `sudo` (nginx and fail2ban back to the state before HOM-332):
+Local server, owner with `sudo` (nginx and fail2ban back to the state before HOM-332).
 
-```bash
-sudo rm -f /etc/nginx/conf.d/05-relay-tunnel-default.conf /etc/nginx/snippets/relay-tunnel-realip.conf
-for f in inotex elecomp inotexpwa; do sudo tar -xzf /root/hom332-backup/nginx-fail2ban-before.tgz -C / etc/nginx/sites-available/$f.padyar.com.conf; done
-sudo nginx -t && sudo systemctl reload nginx
-sudo rm /etc/fail2ban/jail.d/relay-tunnel.conf && sudo fail2ban-client reload
-```
+1. Compare each site file with the backup from before HOM-332:
+
+   ```bash
+   for f in inotex elecomp inotexpwa; do echo "== $f"; sudo tar -xzOf /root/hom332-backup/nginx-fail2ban-before.tgz etc/nginx/sites-available/$f.padyar.com.conf | diff - /etc/nginx/sites-available/$f.padyar.com.conf; done
+   ```
+
+2. For each file, choose:
+
+   - The `diff` shows exactly the 4 tunnel lines as added (`>`): the 2 `listen 127.0.0.1:...`
+     lines and the 2 `include snippets/relay-tunnel-realip.conf;` lines, and nothing else.
+     Then restore that file from the backup:
+
+     ```bash
+     sudo tar -xzf /root/hom332-backup/nginx-fail2ban-before.tgz -C / etc/nginx/sites-available/inotex.padyar.com.conf
+     ```
+
+     (Change `inotex` to the site name.)
+   - The `diff` shows anything else: the file was changed later for another reason, and a
+     restore would undo that change too. Remove only the 4 tunnel lines:
+
+     ```bash
+     sudo sed -i -E -e '/^    listen 127\.0\.0\.1:(10080|10443) /d' -e '/^    include snippets\/relay-tunnel-realip\.conf;$/d' /etc/nginx/sites-available/inotex.padyar.com.conf
+     ```
+
+     (Change `inotex` to the site name.) Then run step 1 again for that file: only the later
+     change may remain.
+
+3. Remove the 2 new nginx files, test, reload, and remove the fail2ban file:
+
+   ```bash
+   sudo rm -f /etc/nginx/conf.d/05-relay-tunnel-default.conf /etc/nginx/snippets/relay-tunnel-realip.conf
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo rm /etc/fail2ban/jail.d/relay-tunnel.conf && sudo fail2ban-client reload
+   ```
+
+Do step 3 only after every site file has no `include snippets/relay-tunnel-realip.conf;` line
+left. Otherwise `nginx -t` fails, because the snippet is gone.
 
 Relay:
 
@@ -553,7 +616,8 @@ relay and frpc need no change. Only nginx on the local server changes (an owner 
 3. Proxy to the Homayar stack on `127.0.0.1:8080` (reserved for it). Set `X-Forwarded-For` and
    `X-Real-IP` to `$remote_addr` (overwrite, do not append), like the Padyar sites, and make
    the stack trust only `127.0.0.1` for those headers.
-4. `sudo nginx -t`, then `sudo systemctl reload nginx`. Never restart.
+4. `sudo nginx -t`, then `sudo systemctl reload nginx`. Never restart. A reload keeps open
+   connections, but a wrong config can interrupt all 5 sites. Tell the owner first.
 5. Until then, the tunnel default server refuses `app.homayar.com`.
 
 ## Known Limits
@@ -590,5 +654,6 @@ relay and frpc need no change. Only nginx on the local server changes (an owner 
 | Access log shows `127.0.0.1` for tunnel requests | the site file | The `include snippets/relay-tunnel-realip.conf;` line is missing in that server block. |
 | frps does not start | `sudo journalctl -u frps -n 50 --no-pager -o cat` | Run `sudo -u frps /usr/local/bin/frps verify -c /etc/frp/frps.toml`. Check modes in "Files". |
 | `nginx -t` warns "protocol options redefined" for 10080 or 10443 | `sudo nginx -t` | A tunnel listen line has different options from the others. Make them all the same. |
+| A request through the relay stalls once, then works | `docker logs relay-tunnel-frpc` | The internet path between the local server and the relay drops packets now and then (1 of 5 pings was lost in the first survey). Retry. If it repeats often, look in the frpc log for reconnects (`try to connect to server`, `login to server success`). |
 | One site is not reachable through the relay, the others are | `grep -c relay-tunnel /etc/nginx/sites-available/<site>.padyar.com.conf` | The site file lost its tunnel lines (0 instead of 2). Follow "Re-apply the Tunnel Lines". |
 | A site certificate is close to expiry | `systemctl show certbot.service -p ExecMainStatus` | Renewal fails. See "Site Certificates". The usual cause is the Cloudflare DNS API token. |
