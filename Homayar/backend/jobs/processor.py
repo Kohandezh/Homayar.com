@@ -1646,7 +1646,7 @@ def _delete_audio_after_success(
     # meeting row is locked before the media rows, as the hold paths lock it
     # (FOR KEY SHARE): a registration in flight commits first and its row is
     # covered.  Then the bytes of every pending row go through delete_objects,
-    # which locks and reads each row again right before its removal (a hold
+    # which locks and reads every row again before the first removal (a hold
     # committed in between keeps the bytes).  The recording is marked deleted
     # only once the ORIGINAL's bytes are gone (WP06 invariant: nothing is
     # pretended); a failed removal leaves the row pending for the sweep.
