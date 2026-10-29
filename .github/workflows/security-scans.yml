@@ -1,0 +1,71 @@
+# HOM-130: dependency, container and SBOM scans with a vulnerability gate.
+# This is a separate workflow from CI on purpose: auto-deploy-website.yml runs after
+# the workflow named CI, so a newly published CVE must not stop a website deploy.
+# The scan logic lives in infra/ci/security-scan.sh; run the same commands locally.
+# docs/operations/ci.md explains the gate and how to handle a new finding.
+name: Security scans
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, so a new CVE in an unchanged lockfile or image is still found.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "security-scans-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  dependency-scan:
+    name: Dependency scan (lockfiles)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # The canary must fail the gate with a known ID. It proves the scanner,
+      # the database and the gate are live before the real scan.
+      - name: Canary (the gate must deny a known vulnerability)
+        run: infra/ci/security-scan.sh canary "${RUNNER_TEMP}/security/canary"
+
+      - name: Scan the lockfiles
+        run: infra/ci/security-scan.sh deps "${RUNNER_TEMP}/security/deps"
+
+      - name: Upload SBOMs and reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-scan-dependencies
+          path: ${{ runner.temp }}/security/
+          if-no-files-found: warn
+          retention-days: 30
+
+  container-scan:
+    name: Container scan (images)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Canary (the gate must deny a known vulnerability)
+        run: infra/ci/security-scan.sh canary "${RUNNER_TEMP}/security/canary"
+
+      - name: Build and scan the images
+        run: infra/ci/security-scan.sh images "${RUNNER_TEMP}/security/images"
+
+      - name: Upload SBOMs and reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-scan-containers
+          path: ${{ runner.temp }}/security/
+          if-no-files-found: warn
+          retention-days: 30

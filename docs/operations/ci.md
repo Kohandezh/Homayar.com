@@ -144,6 +144,52 @@ suite and a reviewed generated diff.
 The workflow builds the console and API image templates and starts each final image with the
 same non-root/read-only assumptions used by Compose. It verifies console `/app/index.html`, API
 `/healthz`, and configured runtime users. These checks prove build and
-basic process viability; they do not replace a release pipeline that emits SBOMs, scans
-packages and layers, signs digest references, starts the full selected Compose profile, and
-runs same-origin upload and tenant-isolation smoke tests without live providers.
+basic process viability. SBOMs and package and layer scans run in the separate Security scans
+workflow (next section). No workflow yet signs digest references, starts the full selected
+Compose profile, or runs same-origin upload and tenant-isolation smoke tests without live
+providers.
+
+## Security scans
+
+`.github/workflows/security-scans.yml` (`name: Security scans`, HOM-130) runs on every pull
+request, on each push to `main`, every Monday, and by hand. It is separate from CI on purpose:
+the website auto-deploy waits only for the workflow named `CI`, so a newly published CVE does not
+stop a deploy. Both jobs call `infra/ci/security-scan.sh`, so a local run with the same command is
+the CI run. Syft and Grype run from the official `anchore/syft` and `anchore/grype` images,
+pinned by tag and digest in that script.
+
+| Job | What it scans |
+| --- | --- |
+| Dependency scan | `Homayar/uv.lock`, `Homayar/frontend/package-lock.json`, `website/pnpm-lock.yaml`, `tools/linear-agent/package-lock.json`. Syft reads `uv.lock` directly. Dev dependencies are included. |
+| Container scan | The API, console and egress-proxy images, built with default ARGs as in the container-config job, then saved with `docker save` and read from disk. |
+
+For each target the job writes a CycloneDX JSON SBOM and a Grype JSON report.
+
+- **Gate.** A target fails when Grype reports a **high or critical** vulnerability that **has a
+  fix** and **no ignore rule** in `.grype.yaml`. Findings without a fix, and medium or low
+  findings, stay in the report but do not fail the gate.
+- **SBOM guard.** A target fails when its SBOM lacks a known component (`fastapi`, `react`,
+  `next`, `@anthropic-ai/claude-agent-sdk`, and at least one OS package in each image). This
+  catches a Syft that silently stops reading a lockfile format.
+- **Canary.** Each job first gates `infra/ci/fixtures/canary-sbom.cdx.json` (lodash 4.17.20). The
+  step passes only when the gate fails with exit code 1 and names `GHSA-35jh-r3h4-6jhm`. This
+  proves the scanner, its database and the gate are live.
+- **Artifacts.** `security-scan-dependencies` and `security-scan-containers` hold every SBOM and
+  report, also when the gate fails (kept 30 days).
+
+Run locally from the repository root (Docker and `jq` needed):
+
+```bash
+infra/ci/security-scan.sh canary /tmp/scan/canary
+infra/ci/security-scan.sh deps /tmp/scan/deps
+infra/ci/security-scan.sh images /tmp/scan/images
+```
+
+When the gate fails on a new finding:
+
+1. Fix it if the fix is a patch or minor bump through the package manager (or a base-image
+   digest refresh within the same tag), and the existing CI jobs stay green.
+2. Otherwise check if the product can reach the vulnerable code. Add a row to
+   [vulnerability-triage.md](../security/vulnerability-triage.md) with the evidence and the
+   decision (`accepted: not reachable` or `follow-up`), then add one ignore rule to `.grype.yaml`
+   with exactly that vulnerability ID and package name, and a comment that names the row.
