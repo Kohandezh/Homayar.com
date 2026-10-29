@@ -56,6 +56,7 @@ export const AUDIT_EVENT_LABELS: Labels = {
   "media.integrity_checked": { fa: "سلامت فایل رسانه بررسی شد", en: "Media integrity checked" },
   "media.derivative_unavailable": { fa: "نسخهٔ پردازش‌شدهٔ فایل رسانه ساخته نشد", en: "Media derivative not created" },
   "media.legal_hold_inherited": { fa: "نگهداری قانونی از فایل مبدأ به ارث رسید", en: "Legal hold inherited" },
+  "media.legal_hold_kept": { fa: "نگهداری قانونی حفظ شد", en: "Legal hold kept" },
   "media.legal_hold_placed": { fa: "نگهداری قانونی اعمال شد", en: "Legal hold placed" },
   "media.legal_hold_released": { fa: "نگهداری قانونی برداشته شد", en: "Legal hold released" },
   "media.orphan_removed": { fa: "فایل رسانهٔ بی‌صاحب حذف شد", en: "Orphaned media removed" },

@@ -1114,7 +1114,10 @@ def release_media_hold(
 ) -> MediaObjectResponse:
     """Release a hold with an audited reason; a recorded deletion request then runs.
 
-    The held descendants of the object are released with it (HOM-313).
+    A held descendant is released with the object only when its hold was
+    inherited from it, directly or through a row released in the same call.
+    A hold placed directly on a descendant stays until it is released by its
+    own id (HOM-313, HOM-329).
     """
     now = datetime.now(UTC)
     try:
