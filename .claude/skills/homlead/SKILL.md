@@ -13,6 +13,16 @@ Homlead plans, starts, unblocks, verifies, merges and cleans up. Homlead never e
 
 Inside a mission (a `foreman-<ticket>` leader, a maker or a checker), do not use this skill. Follow your mission contract.
 
+### Every issue gets a ticket
+
+Every issue becomes a Linear ticket (team HOM) before any work starts: code, production server and ops work (local server, relay), config changes, and problems the owner reports.
+
+- Homlead creates the ticket in Linear (team HOM) before any work, tells the owner the ticket number (for example `HOM-338`), then runs it like any other ticket (step 4).
+- Homlead makes no direct changes to fix an issue, not even a small server step or a script.
+- Read-only checks (status, logs, curl) are fine.
+- A script the owner runs with `sudo` comes from a mission and is reviewed by that mission's checker. Homlead does not write it.
+- When two tickets touch the same server area (for example nginx or certbot), order them with `blockedBy` in Linear so they do not run at the same time.
+
 ## Needs
 
 - The session runs inside Herdr (`test "${HERDR_ENV:-}" = 1`). If not, say so and stop.
