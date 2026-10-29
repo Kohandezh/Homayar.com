@@ -22,7 +22,7 @@ from backend.providers.asr_profiles import (
     list_asr_profiles,
 )
 from backend.providers.factory import create_asr_provider
-from backend.providers.registry import BUILTIN_MANIFESTS, ManifestRegistry
+from backend.providers.registry import BUILTIN_MANIFESTS, ManifestRegistry, manifest_digest
 from backend.providers.schemas import ASRRequest
 from backend.providers.whisper import LocalWhisperProvider
 from backend.speech.language_policy import LanguagePolicy
@@ -111,11 +111,22 @@ def test_every_profile_has_a_matching_builtin_manifest() -> None:
 
 
 def test_existing_asr_manifests_are_unchanged() -> None:
+    # Full-content digests of the three ASR manifests at f856f60 (before HOM-39).
+    # Operators may have qualified or pinned them, so no field may change.
+    expected = {
+        "asr.local-whisper.base": (
+            "13bc5959fd1eb7a53452473b84137740aa9c0160ff89cc4e772c4291e4f73855"
+        ),
+        "asr.local-whisper.large-v3": (
+            "5cfe6dd7d77f552d2549d08c38985b3e64b78a90ab814834013d71cb649bd949"
+        ),
+        "asr.local-whisper.large-v3-fp16": (
+            "2230a1f2592418468fd543d6b9cc1b4f9e65c46171d30332c1cb20363995049f"
+        ),
+    }
     registry = ManifestRegistry.from_files([BUILTIN_MANIFESTS])
-    by_id = {manifest.manifest_id: manifest for manifest in registry.all()}
-    assert by_id["asr.local-whisper.base"].identity_params == {"compute_type": "int8"}
-    assert by_id["asr.local-whisper.large-v3"].identity_params == {"compute_type": "int8"}
-    assert by_id["asr.local-whisper.large-v3-fp16"].identity_params == {"compute_type": "float16"}
+    digests = {manifest.manifest_id: manifest_digest(manifest) for manifest in registry.all()}
+    assert {manifest_id: digests[manifest_id] for manifest_id in expected} == expected
 
 
 # --- settings -------------------------------------------------------------------

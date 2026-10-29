@@ -80,7 +80,7 @@
       "region": "local",
       "offline_capable": true,
       "structured_output": "none",
-      "notes": "faster-whisper int8 (CPU profile cpu-small); weights are fetched from the model hub on first load unless pre-provisioned. Measured (HOM-39): a local CPU comparison on a small read-speech sample only. Not measured: Persian call-centre WER on the WP13 corpus (F27)."
+      "notes": "faster-whisper int8 (CPU profile cpu-small); weights are fetched from the model hub on first load unless pre-provisioned. Not measured yet."
     },
     {
       "manifest_id": "asr.local-whisper.medium",
@@ -100,7 +100,7 @@
       "region": "local",
       "offline_capable": true,
       "structured_output": "none",
-      "notes": "faster-whisper int8 (CPU profile cpu-medium); weights are fetched from the model hub on first load unless pre-provisioned. Measured (HOM-39): a local CPU comparison on a small read-speech sample only. Not measured: Persian call-centre WER on the WP13 corpus (F27)."
+      "notes": "faster-whisper int8 (CPU profile cpu-medium); weights are fetched from the model hub on first load unless pre-provisioned. Not measured yet."
     },
     {
       "manifest_id": "asr.local-whisper.large-v3-turbo",
@@ -120,7 +120,7 @@
       "region": "local",
       "offline_capable": true,
       "structured_output": "none",
-      "notes": "faster-whisper int8 (CPU profile cpu-large-v3-turbo); weights are fetched from the model hub on first load unless pre-provisioned. Measured (HOM-39): a local CPU comparison on a small read-speech sample only. Not measured: Persian call-centre WER on the WP13 corpus (F27)."
+      "notes": "faster-whisper int8 (CPU profile cpu-large-v3-turbo); weights are fetched from the model hub on first load unless pre-provisioned. Not measured yet."
     },
     {
       "manifest_id": "asr.local-whisper.large-v3-int8-float32",
