@@ -10,18 +10,24 @@ id, foreign key and API stays.  The tests check:
 * the database refuses the deny cases by the named constraint, and the closest allow
   case passes;
 * an old-shape INSERT and an ORM ``Meeting`` without the new fields get ``call``;
-* downgrade and upgrade again work with rows present.
+* downgrade and upgrade again work with rows present, and ``meetings`` keeps its
+  enabled and forced row-level security;
+* the backfill also works for a table owner that is not a superuser (the deployment
+  shape of ADR 0005), where the forced policy hides every row.
 """
 
 from __future__ import annotations
 
+import importlib
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.pool import NullPool
 
 from backend.config import Settings
+from backend.database.rls import APP_ROLE
 from backend.database.saas_models import (
     ConversationDirection,
     ConversationType,
@@ -48,6 +54,8 @@ NEW_COLUMNS = (
 )
 CONSTRAINTS = ("ck_meeting_conversation_type", "ck_meeting_direction", "ck_meeting_external_ref")
 INDEXES = ("ix_meeting_workspace_external", "ix_meeting_workspace_type_created")
+OWNER_PROBE_ROLE = "homayar_hom58_owner_probe"
+VOICEMAIL_UPDATE = "UPDATE meetings SET conversation_type = 'voicemail' WHERE source = 'voicemail'"
 
 
 def _requires_postgres() -> None:
@@ -58,6 +66,18 @@ def _requires_postgres() -> None:
 def _scalar(sql: str, **params):
     with inspection_session_factory()() as db:
         return db.execute(text(sql), params).scalar()
+
+
+def _rls_flags(connection: Connection | None = None) -> tuple[bool, bool]:
+    """``(relrowsecurity, relforcerowsecurity)`` of ``meetings``."""
+    sql = text(
+        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+        "WHERE relname = 'meetings' AND relkind = 'r'"
+    )
+    if connection is not None:
+        return tuple(connection.execute(sql).one())
+    with inspection_session_factory()() as db:
+        return tuple(db.execute(sql).one())
 
 
 def _tenant(client, email_outbox, label: str) -> dict:
@@ -319,6 +339,7 @@ def test_the_migration_backfills_and_round_trips_with_rows_present(
     assert code_migration_head() == NEW_REVISION
     tenant = _tenant(client, email_outbox, "migration")
     orm_shape = _assert_head_shape()
+    assert _rls_flags() == (True, True)
 
     # A meeting written at the head with every new field set, and a child row of it.
     _insert(
@@ -364,6 +385,7 @@ def test_the_migration_backfills_and_round_trips_with_rows_present(
         command.upgrade(config, "head")
         assert _scalar("SELECT version_num FROM alembic_version") == NEW_REVISION
         assert _shape() == orm_shape  # the migrated schema equals the ORM schema
+        assert _rls_flags() == (True, True)  # the backfill set FORCE again
         assert _meetings() == before  # every row and id kept
         assert _conversation("old-voicemail") == ("voicemail", None, None, None, None)
         for meeting_id in ("old-upload", "old-api", "set-at-head"):
@@ -384,6 +406,66 @@ def test_the_migration_backfills_and_round_trips_with_rows_present(
         command.upgrade(config, "head")
         assert _meetings() == after_rules
         assert _shape() == orm_shape
+        assert _rls_flags() == (True, True)
         assert _conversation("old-voicemail")[0] == "voicemail"
     finally:
         reset_settings_cache()
+
+
+def _backfill_step():
+    module = importlib.import_module(
+        f"backend.migrations.versions.{NEW_REVISION}_conversation_columns"
+    )
+    return module.backfill_voicemail_type
+
+
+@pytest.mark.postgres
+def test_the_backfill_works_for_a_plain_table_owner(client, email_outbox):
+    """Deployment shape: the migration role owns ``meetings`` and is not a superuser."""
+    _requires_postgres()
+    tenant = _tenant(client, email_outbox, "owner")
+    # The rows as they are right after the columns are added: all 'call'.
+    _insert(tenant, "owner-voicemail", source="voicemail")
+    _insert(tenant, "owner-upload", source="upload")
+    assert _conversation("owner-voicemail")[0] == "call"
+    owner = _scalar("SELECT tableowner FROM pg_tables WHERE tablename = 'meetings'")
+    backfill = _backfill_step()
+
+    engine = create_engine(configured_database_url(), poolclass=NullPool)
+    connection = engine.connect()
+    try:
+        # Member of homayar_app so it can read share_links, which the policy consults.
+        connection.execute(text(f"DROP ROLE IF EXISTS {OWNER_PROBE_ROLE}"))
+        connection.execute(
+            text(
+                f"CREATE ROLE {OWNER_PROBE_ROLE} NOLOGIN NOSUPERUSER NOBYPASSRLS IN ROLE {APP_ROLE}"
+            )
+        )
+        connection.execute(text(f"ALTER TABLE meetings OWNER TO {OWNER_PROBE_ROLE}"))
+        connection.commit()
+
+        connection.execute(text(f"SET ROLE {OWNER_PROBE_ROLE}"))
+        posture = connection.execute(
+            text("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user")
+        ).one()
+        assert tuple(posture) == (False, False)
+        assert _rls_flags(connection) == (True, True)
+        # Control: under FORCE the owner sees no row, so the plain update changes 0 rows.
+        assert connection.execute(text(VOICEMAIL_UPDATE)).rowcount == 0
+        # The data step lifts FORCE for its update and sets it again.
+        assert backfill(connection) == 1
+        assert _rls_flags(connection) == (True, True)
+        connection.commit()
+    finally:
+        connection.rollback()
+        connection.execute(text("RESET ROLE"))
+        connection.execute(text(f'ALTER TABLE meetings OWNER TO "{owner}"'))
+        connection.execute(text(f"DROP ROLE IF EXISTS {OWNER_PROBE_ROLE}"))
+        connection.commit()
+        connection.close()
+        engine.dispose()
+
+    assert _scalar("SELECT tableowner FROM pg_tables WHERE tablename = 'meetings'") == owner
+    assert _rls_flags() == (True, True)
+    assert _conversation("owner-voicemail")[0] == "voicemail"
+    assert _conversation("owner-upload")[0] == "call"

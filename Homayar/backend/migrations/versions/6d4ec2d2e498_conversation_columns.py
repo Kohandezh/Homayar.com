@@ -23,6 +23,12 @@ Backfill: rows with ``source = 'voicemail'`` get ``conversation_type = 'voicemai
 every other row gets ``'call'`` (the server default).  The other four columns stay
 NULL.  No row, id or child row changes.
 
+The backfill lifts FORCE ROW LEVEL SECURITY on ``meetings`` for its one update: a
+table owner that is not a superuser (the deployment shape of ADR 0005) sees no rows
+under the forced tenant policy, so the update would change nothing.  FORCE is set
+again right after the update, before the migration commits.  SQLite has no RLS, so
+there only the update runs.
+
 Why no rename: about 40 foreign keys, the row-level-security policies and raw SQL
 point at ``meetings.id``.  Renaming or copying the table could lose ids and break
 APIs; adding columns keeps every id, foreign key and API as it is.
@@ -31,8 +37,8 @@ Why the external reference is not unique: the ingestion ledger (ADR 0016) alread
 handles duplicate delivery.  A unique index would make a re-sent or re-ingested
 conversation fail.
 
-No RLS change: there is no new table, and ``meetings`` already has its tenant
-policy.  New columns need no policy of their own.
+No RLS policy change: there is no new table, and ``meetings`` already has its
+tenant policy.  New columns need no policy of their own.
 
 Downgrade drops the two indexes, the three checks and the five columns.  It keeps
 every meeting row and id, but the values of the five columns are lost.
@@ -78,7 +84,7 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("started_at", sa.DateTime(timezone=True), nullable=True))
 
     # The server default already gave every existing row 'call'.
-    op.execute("UPDATE meetings SET conversation_type = 'voicemail' WHERE source = 'voicemail'")
+    backfill_voicemail_type(op.get_bind())
 
     with op.batch_alter_table("meetings", schema=None) as batch_op:
         batch_op.create_check_constraint("ck_meeting_conversation_type", TYPE_CHECK)
@@ -94,6 +100,28 @@ def upgrade() -> None:
             ["workspace_id", "conversation_type", "created_at"],
             unique=False,
         )
+
+
+def backfill_voicemail_type(connection: sa.Connection) -> int:
+    """Set ``conversation_type = 'voicemail'`` on every row with ``source = 'voicemail'``.
+
+    Returns the number of rows changed.  The policy is FORCED, so a table owner that
+    is not a superuser sees no rows without a tenant: lift FORCE for this update only
+    (as c7e2a9d4f1b6 and a2f7c4e9d1b3 do).
+    """
+    postgres = connection.dialect.name == "postgresql"
+    if postgres:
+        connection.execute(sa.text("ALTER TABLE meetings NO FORCE ROW LEVEL SECURITY"))
+    try:
+        result = connection.execute(
+            sa.text(
+                "UPDATE meetings SET conversation_type = 'voicemail' WHERE source = 'voicemail'"
+            )
+        )
+    finally:
+        if postgres:
+            connection.execute(sa.text("ALTER TABLE meetings FORCE ROW LEVEL SECURITY"))
+    return result.rowcount
 
 
 def downgrade() -> None:
