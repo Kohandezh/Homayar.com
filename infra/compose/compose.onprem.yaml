@@ -250,6 +250,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
     # Without an explicit list Compose would attach the default network,
     # which has a route out; beat only needs PostgreSQL and Redis.
     networks: [backend]
