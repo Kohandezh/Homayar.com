@@ -11,14 +11,22 @@ active and the suite runs exactly as before.
   base test database) keeps a test that changes them alone: it holds the lock in
   exclusive mode, every other test in shared mode.  The lock covers the whole item
   protocol, so module-scoped fixture setup and teardown are inside it.
-* A test is exclusive when its source, the module functions it calls, or its fixtures
-  contain role DDL, ``ALTER DATABASE``/``ALTER SYSTEM``, an Alembic upgrade, downgrade or
-  stamp (the migrations change ``homayar_audit_reader``), or a direct call of the row-level
-  security role statements.  A test that reads a wall clock and checks a time budget (the
-  HOM-172 golden-module budget) also runs alone, so other workers do not slow it down.
-  No marker is needed.
-* A guard fails a shared test that changed cluster-wide state anyway, so a test the scan
-  misses fails loudly instead of racing with other workers.
+* A test is exclusive when its source, the functions and classes it reaches (bare names,
+  ``self.x``, ``module.x``) in any ``backend.tests`` module except this plumbing, or its
+  fixtures contain role DDL (``ROLE``, ``USER`` or ``GROUP``), a role grant or revoke (one
+  role or a list), ``DROP/REASSIGN OWNED``, ``ALTER DATABASE``/``ALTER SYSTEM``, an Alembic
+  upgrade, downgrade or stamp (the migrations change ``homayar_audit_reader``), or a direct
+  call of the row-level security role statements.  A test that reads a wall clock and
+  checks a time budget (the HOM-172 golden-module budget) also runs alone, so other
+  workers do not slow it down.  No marker is needed.
+* A guard compares the cluster-wide state when a shared test starts with the state after
+  its teardown, and fails the test when they differ.
+
+Known limit: the scan reads source text, upper-case SQL and Python references only.  A
+test whose cluster change the scan cannot see (SQL built at run time, lower-case SQL, code
+outside ``backend.tests``) and that undoes the change before it ends is not caught: it runs
+in shared mode and other workers may see the change while it lasts.  The guard catches
+only a change that is still there after teardown.
 """
 
 # ruff: noqa: S608 - the SQL is built from constants of this module.
@@ -29,6 +37,7 @@ import ast
 import inspect
 import os
 import re
+import sys
 import textwrap
 import types
 from typing import Any
@@ -45,12 +54,14 @@ WORKER_DIRECTORY_ENVS = ("STORAGE_LOCAL_ROOT", "UPLOAD_DIR", "UPLOAD_QUARANTINE_
 # pg_advisory_lock key of the cluster-wide state lock (any constant shared by the workers).
 CLUSTER_LOCK_KEY = 4_292_000_001
 
+_ROLE_LIST = r"[^\s,;(]+(?:\s*,\s*[^\s,;(]+)*"
 CLUSTER_CHANGES = re.compile(
-    r"\b(CREATE|ALTER|DROP)\s+ROLE\b"
+    r"\b(CREATE|ALTER|DROP)\s+(ROLE|USER|GROUP)\b"
     r"|\b(DROP|REASSIGN)\s+OWNED\b"
     r"|\bALTER\s+(DATABASE|SYSTEM)\b"
-    r"|\bGRANT\s+[^\s,;(]+\s+TO\b"  # a role grant: GRANT <role> TO <role>
-    r"|\bREVOKE\s+[^\s,;(]+\s+FROM\b"  # a role revoke: REVOKE <role> FROM <role>
+    # a role grant: GRANT <role>[, <role>...] TO <role> (an object grant has ON before TO)
+    rf"|\bGRANT\s+{_ROLE_LIST}\s+TO\b"
+    rf"|\bREVOKE\s+(?:(?:ADMIN|INHERIT|SET)\s+OPTION\s+FOR\s+)?{_ROLE_LIST}\s+FROM\b"
     r"|\bcommand\.(upgrade|downgrade|stamp)\b"
     r"|\bgetattr\(command\b"
     r"|\b(apply_row_level_security|audit_reader_statements|remove_audit_reader_statements)\b"
@@ -177,10 +188,13 @@ def runs_alone(item: Any) -> bool:
 
 
 _verdicts: dict[Any, bool] = {}
+# The fixture plumbing restores the app role itself, under the lock that is already held;
+# following it would make every test that uses ``settings`` exclusive.
+_PLUMBING = frozenset({"backend.tests._isolation", "backend.tests._parallel"})
 
 
 def _reaches_exclusive_code(function: Any) -> bool:
-    function = inspect.unwrap(getattr(function, "__func__", function))
+    function = _unwrap(function)
     if function in _verdicts:
         return _verdicts[function]
     _verdicts[function] = False  # cycles
@@ -199,23 +213,61 @@ def _reaches_exclusive_code(function: Any) -> bool:
         if CLUSTER_CHANGES.search(source) or TIME_BUDGET.search(source):
             found = True
             break
-        names = {node.id for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Name)}
-        for name in names:
-            target = getattr(current, "__globals__", {}).get(name)
-            if (
-                isinstance(target, types.FunctionType)
-                and _is_test_code(target.__module__ or "")
-                and target not in seen
-            ):
-                todo.append(target)
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+        todo.extend(target for target in _references(current, tree) if target not in seen)
     _verdicts[function] = found
     return found
 
 
-def _is_test_code(module: str) -> bool:
-    """Test modules and ``conftest``; not the fixture plumbing (``_isolation`` restores the
-    app role itself, under the lock that is already held)."""
-    return module == "backend.tests.conftest" or module.startswith("backend.tests.test_")
+def _references(current: Any, tree: ast.AST) -> list[Any]:
+    """Functions and classes that ``current`` names: ``x``, ``self.x``, ``cls.x``,
+    ``module.x`` and ``Class.x``, when they live in a followed ``backend.tests`` module."""
+    namespace = _namespace(current)
+    owner = _owner_class(current, namespace)
+    found = []
+    for node in ast.walk(tree):
+        target = None
+        if isinstance(node, ast.Name):
+            target = namespace.get(node.id)
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            base = owner if node.value.id in ("self", "cls") else namespace.get(node.value.id)
+            if isinstance(base, (types.ModuleType, type)):
+                target = inspect.getattr_static(base, node.attr, None)
+        target = _unwrap(target)
+        if isinstance(target, (types.FunctionType, type)) and _is_followed(target):
+            found.append(target)
+    return found
+
+
+def _unwrap(target: Any) -> Any:
+    if isinstance(target, (staticmethod, classmethod, types.MethodType)):
+        target = target.__func__
+    return inspect.unwrap(target) if callable(target) else target
+
+
+def _namespace(target: Any) -> dict[str, Any]:
+    if isinstance(target, types.FunctionType):
+        return target.__globals__
+    module = sys.modules.get(getattr(target, "__module__", ""))
+    return vars(module) if module is not None else {}
+
+
+def _owner_class(target: Any, namespace: dict[str, Any]) -> type | None:
+    if isinstance(target, type):
+        return target
+    qualname = getattr(target, "__qualname__", "")
+    if "." not in qualname or "<locals>" in qualname:
+        return None
+    owner = namespace.get(qualname.split(".")[0])
+    return owner if isinstance(owner, type) else None
+
+
+def _is_followed(target: Any) -> bool:
+    module = getattr(target, "__module__", None) or ""
+    return module.startswith("backend.tests.") and module not in _PLUMBING
 
 
 def _libpq(url: str) -> str:

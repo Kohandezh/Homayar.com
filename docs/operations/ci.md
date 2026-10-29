@@ -49,9 +49,13 @@ with four pytest-xdist workers (`-n 4 --dist loadfile`): each worker uses its ow
 (`homayar_test_gw0` to `homayar_test_gw3`) and Redis index, and a test whose source changes
 roles, role memberships or runs an Alembic upgrade or downgrade runs alone under a cluster-wide
 lock (`backend/tests/_parallel.py`). A test that reads a wall clock and checks a time budget
-(the golden-module budget below) also runs alone, so the other workers do not slow it down. A
-guard fails a test that changes roles without being seen by that scan. Without `-n` the suite
-runs serially exactly as before.
+(the golden-module budget below) also runs alone, so the other workers do not slow it down. The
+scan reads the test, the functions and classes it reaches in `backend/tests` and its fixtures.
+A guard compares the roles when a shared test starts with the roles after its teardown and fails
+the test when they differ. Known limit: a test whose role change the scan cannot see (SQL built
+at run time, lower-case SQL, code outside `backend/tests`) and that undoes the change before it
+ends is not caught; other workers may see the role while it exists. Without `-n` the suite runs
+serially exactly as before.
 Before the full test step, the step "Qualify the storage contract against MinIO" starts a
 disposable MinIO container with `infra/ci/minio-contract-target.sh` and runs the `minio_s3`
 cases with `HOMAYAR_REQUIRE_MINIO_TESTS=1`, so it stops with a usage error instead of skipping

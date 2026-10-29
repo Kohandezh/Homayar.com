@@ -7,6 +7,7 @@ under ``-n`` every worker has its own database and Redis index.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import secrets
 import time
@@ -16,7 +17,7 @@ import psycopg
 import pytest
 from sqlalchemy.engine import make_url
 
-from backend.tests import _parallel
+from backend.tests import _isolation, _parallel
 from backend.tests._database import configured_database_url
 from backend.tests._transport import configured_redis_url, redis_database_index
 
@@ -59,6 +60,58 @@ def _waits_with_a_clock() -> None:
     assert deadline > 0
 
 
+def _creates_a_user() -> str:
+    return "CREATE USER hom292_probe_user"
+
+
+def _drops_a_group() -> str:
+    return "DROP GROUP hom292_probe_group"
+
+
+def _grants_two_roles() -> str:
+    return "GRANT homayar_app, homayar_audit_reader TO hom292_probe"
+
+
+def _revokes_two_roles() -> str:
+    return "REVOKE homayar_app, homayar_audit_reader FROM hom292_probe"
+
+
+class _ProbeCase:
+    def run(self) -> str:
+        return self._make_role()
+
+    def _make_role(self) -> str:
+        return "CREATE ROLE hom292_probe; DROP ROLE hom292_probe"
+
+
+def _calls_a_helper_by_name() -> list[str]:
+    return _helper_function()  # noqa: F821 - set by the test from a helper module
+
+
+def _calls_a_helper_module_attribute() -> list[str]:
+    return _helper_module.make_and_drop_role()  # noqa: F821 - set by the test
+
+
+def _uses_the_fixture_plumbing() -> object:
+    return _isolation.canonical_database_url
+
+
+_HELPER_SOURCE = """
+def make_and_drop_role():
+    return ["CREATE ROLE hom292_probe", "DROP ROLE hom292_probe"]
+"""
+
+
+def _helper_module(tmp_path):
+    """A helper module under backend.tests that is neither a test module nor conftest."""
+    path = tmp_path / "_hom292_probe_helpers.py"
+    path.write_text(_HELPER_SOURCE)
+    spec = importlib.util.spec_from_file_location("backend.tests._hom292_probe_helpers", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _item(function, **fixtures):
     return types.SimpleNamespace(
         obj=function,
@@ -90,6 +143,38 @@ def test_an_alembic_downgrade_makes_the_test_exclusive():
 def test_a_wall_clock_budget_runs_alone_and_a_plain_wait_does_not():
     assert _parallel.runs_alone(_item(_budget_check))
     assert not _parallel.runs_alone(_item(_waits_with_a_clock))
+
+
+def test_user_and_group_ddl_make_the_test_exclusive():
+    assert _parallel.runs_alone(_item(_creates_a_user))
+    assert _parallel.runs_alone(_item(_drops_a_group))
+
+
+def test_a_grant_or_revoke_of_several_roles_makes_the_test_exclusive():
+    assert _parallel.runs_alone(_item(_grants_two_roles))
+    assert _parallel.runs_alone(_item(_revokes_two_roles))
+
+
+def test_a_method_called_through_self_is_followed():
+    assert _parallel.runs_alone(_item(_ProbeCase.run))
+
+
+def test_a_function_of_a_helper_module_is_followed(tmp_path, monkeypatch):
+    module = _helper_module(tmp_path)
+    monkeypatch.setitem(globals(), "_helper_function", module.make_and_drop_role)
+    assert _parallel.runs_alone(_item(_calls_a_helper_by_name))
+
+
+def test_a_function_reached_as_a_module_attribute_is_followed(tmp_path, monkeypatch):
+    module = _helper_module(tmp_path)
+    monkeypatch.setitem(globals(), "_helper_module", module)
+    assert _parallel.runs_alone(_item(_calls_a_helper_module_attribute))
+
+
+def test_the_fixture_plumbing_is_not_followed():
+    # _isolation restores the app role under the lock already held; following it would make
+    # every test that uses settings exclusive.
+    assert not _parallel.runs_alone(_item(_uses_the_fixture_plumbing))
 
 
 def test_object_grants_plain_sql_and_alembic_heads_stay_shared():

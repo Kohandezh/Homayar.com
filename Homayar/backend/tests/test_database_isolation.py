@@ -125,6 +125,8 @@ _SCHEMA_OBJECTS = text(
     UNION ALL SELECT 'trigger', t.tgrelid::regclass::text || '.' || t.tgname
       FROM pg_trigger t WHERE NOT t.tgisinternal
     UNION ALL SELECT 'policy', p.polrelid::regclass::text || '.' || p.polname FROM pg_policy p
+    UNION ALL SELECT 'collation', c.collnamespace::regnamespace::text || '.' || c.collname
+      FROM pg_collation c JOIN ns ON ns.oid = c.collnamespace
     UNION ALL SELECT 'event trigger', evtname FROM pg_event_trigger
     UNION ALL SELECT 'extension', extname FROM pg_extension
     """
@@ -275,35 +277,16 @@ def test_both_reset_paths_empty_tables_and_restart_identities(client, email_outb
     )
     assert _scalar("SELECT max(id) FROM hom292_identity") == 3
     assert _scalar("SELECT count(*) FROM users") == 1
-    tables = ["users", "auth_identities", "hom292_identity"]
-    with inspection_session_factory()() as db:
-        tables += [
-            row[0]
-            for row in db.execute(
-                text(
-                    "SELECT DISTINCT c.conrelid::regclass::text FROM pg_constraint c "
-                    "WHERE c.contype = 'f' AND c.confrelid = 'users'::regclass"
-                )
-            )
-        ]
-        sequences = [
-            row[0]
-            for row in db.execute(
-                text(
-                    "SELECT oid::regclass::text FROM pg_class "
-                    "WHERE relkind = 'S' AND relnamespace = 'public'::regnamespace"
-                )
-            )
-        ]
-    assert set(sequences) == {"hom292_counter", "hom292_identity_id_seq"}
     engine = _isolation.admin_engine()
     try:
         with engine.begin() as connection:
+            # The names exactly as the fixture's inventory gives them (schema-qualified).
+            inventory = connection.execute(_isolation._INVENTORY).all()
+            tables = [name for name, kind in inventory if kind in ("r", "p")]
+            sequences = [name for name, kind in inventory if kind == "S"]
+            assert set(sequences) == {"public.hom292_counter", "public.hom292_identity_id_seq"}
             _isolation.reset_rows(
-                connection,
-                tables=sorted(set(tables)),
-                sequences=sequences,
-                strategy=strategy,
+                connection, tables=tables, sequences=sequences, strategy=strategy
             )
     finally:
         engine.dispose()
@@ -678,6 +661,14 @@ DRIFT: dict[str, tuple] = {
         ),
         lambda: not _function_exists("hom292_proc"),
     ),
+    "collation_created": (
+        _ddl(
+            'CREATE COLLATION hom292_collation FROM "C"',
+            visible="SELECT count(*) FROM pg_collation WHERE collname = 'hom292_collation'",
+        ),
+        lambda: _scalar("SELECT count(*) FROM pg_collation WHERE collname = 'hom292_collation'")
+        == 0,
+    ),
     "event_trigger_created": (
         _ddl(
             "CREATE FUNCTION hom292_on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS "
@@ -822,6 +813,18 @@ def test_the_lifespan_skips_the_rebuild_on_the_canonical_schema(client, settings
     with _SecondApp(settings):
         pass
     assert calls == []
+
+
+@pytest.mark.postgres
+def test_the_lifespan_keeps_the_environment_guard_outside_test_and_development(
+    client, settings
+):
+    # On the canonical schema the skip is only for test and development; any other
+    # environment reaches the real function, which refuses, as on the base.
+    staging = settings.model_copy(update={"environment": "staging"})
+    with pytest.raises(RuntimeError, match="forbidden outside test/development"):
+        with _SecondApp(staging):
+            pass
 
 
 class _SecondApp:

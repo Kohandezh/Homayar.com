@@ -16,12 +16,16 @@ its row-level security again (about 2 s per test on CI).  Now:
 * A test with ``settings`` but without ``client`` keeps the base start state (no tables).
 
 The fingerprint reads the catalogs as text (never OIDs): schemas, relations, columns,
-constraints, indexes, policies, triggers, functions, types, rules and views, sequences,
-default privileges, extensions and event triggers, plus the cluster-wide roles,
-memberships and the role and database settings that apply to this database.  A check
-first compares the same catalog rows in raw form (with OIDs, about half the cost); equal
-raw rows give an equal text fingerprint, and when they differ the text fingerprint
+constraints, indexes, policies, triggers, functions, types, collations, rules and views,
+sequences, default privileges, extensions and event triggers, plus the cluster-wide
+roles, memberships and the role and database settings that apply to this database.  A
+check first compares the same catalog rows in raw form (with OIDs, about half the cost);
+equal raw rows give an equal text fingerprint, and when they differ the text fingerprint
 decides.
+
+Known limits: operators, operator classes and families, text search objects, casts,
+conversions, publications and comments are neither in the fingerprint nor dropped by a
+full build.  A test that leaves one of them behind passes it to the next test.
 """
 
 # ruff: noqa: S608 - the SQL is built from catalog names (quote_ident, regclass) and
@@ -142,6 +146,11 @@ parts AS (
   SELECT 'x' || ROW(x.extname, x.extversion, x.extnamespace::regnamespace::text)::text
     FROM pg_extension x
   UNION ALL
+  SELECT 'l' || ROW(l.collnamespace::regnamespace::text, l.collname,
+         pg_get_userbyid(l.collowner), l.collprovider, l.collisdeterministic, l.collencoding,
+         l.collcollate, l.collctype)::text
+    FROM pg_collation l JOIN ns ON ns.oid = l.collnamespace
+  UNION ALL
   SELECT 'E' || ROW(v.evtname, v.evtevent, v.evtenabled, v.evtfoid::regproc::text,
          v.evttags)::text
     FROM pg_event_trigger v
@@ -214,6 +223,7 @@ parts AS (
     FROM pg_statistic_ext x JOIN ns ON ns.oid = x.stxnamespace
   UNION ALL SELECT 'D' || ROW(d.*)::text FROM pg_default_acl d
   UNION ALL SELECT 'x' || ROW(x.*)::text FROM pg_extension x
+  UNION ALL SELECT 'l' || ROW(l.*)::text FROM pg_collation l JOIN ns ON ns.oid = l.collnamespace
   UNION ALL SELECT 'E' || ROW(v.*)::text FROM pg_event_trigger v
   UNION ALL
   SELECT 'R' || ROW(r.oid, r.rolname, r.rolsuper, r.rolinherit, r.rolcreaterole, r.rolcreatedb,
@@ -243,7 +253,8 @@ _INVENTORY = text(
 
 _SET_SEQUENCES_TO_START = text(
     "SELECT setval(s.seqrelid, s.seqstart, false) FROM pg_sequence s "
-    "WHERE s.seqrelid::regclass::text = ANY(:names)"
+    # the names may be schema-qualified (the inventory) or not: compare as regclass
+    "WHERE s.seqrelid = ANY(CAST(:names AS regclass[]))"
 )
 
 RESET_STRATEGIES = ("delete", "truncate")
@@ -418,9 +429,15 @@ def _is_canonical(connection: Connection) -> bool:
 
 
 def create_schema_unless_canonical(settings: Settings | None = None) -> None:
-    """The app lifespan's schema call in the test process (``backend.main`` only)."""
+    """The app lifespan's schema call in the test process (``backend.main`` only).
+
+    Only ``test`` and ``development`` may skip: for any other environment the real
+    function runs and refuses, as on the base.
+    """
     settings = settings or get_settings()
-    if schema_is_canonical(settings.database_url):
+    if settings.environment in {"test", "development"} and schema_is_canonical(
+        settings.database_url
+    ):
         _state.lifespan["skipped"] += 1
         return
     _state.lifespan["real"] += 1
@@ -514,8 +531,8 @@ def _drop_leftovers(connection: Connection, baseline: _Baseline | None) -> None:
 
     The base drop removes the model tables and ``alembic_version`` only.  This removes the
     rest: every other relation (table, view, materialized view, sequence, foreign table,
-    with their triggers, indexes and policies), function, procedure, aggregate, type and
-    domain in ``public``; every other user schema; every event trigger; and extensions
+    with their triggers, indexes and policies), function, procedure, aggregate, type,
+    domain and collation in ``public``; every other user schema; every event trigger; and extensions
     created after the first build.  Extensions that were there before the first build
     (and their objects) are part of the environment, not of a test, and stay.
     """
@@ -582,6 +599,14 @@ def _drop_leftovers(connection: Connection, baseline: _Baseline | None) -> None:
     ).all():
         statement = "DOMAIN" if kind == "d" else "TYPE"
         connection.execute(text(f"DROP {statement} IF EXISTS {name} CASCADE"))
+    for (name,) in connection.execute(
+        text(
+            "SELECT 'public.' || quote_ident(l.collname) FROM pg_collation l "
+            "WHERE l.collnamespace = 'public'::regnamespace AND "
+            + not_in_extension.format(catalog="pg_collation", oid="l.oid")
+        )
+    ).all():
+        connection.execute(text(f"DROP COLLATION IF EXISTS {name} CASCADE"))
 
 
 # --- database and cluster-wide state (rule 7) ------------------------------------------------
