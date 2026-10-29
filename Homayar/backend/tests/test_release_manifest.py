@@ -443,6 +443,179 @@ def test_compose_build_arg_defaults_are_the_dockerfile_pins() -> None:
             assert build_args[dockerfile].get(arg) == (arg, default), (image, arg)
 
 
+# --- bundled on-prem Compose images (HOM-286) ----------------------------------------------
+
+
+CI_MINIO_TARGET = REPO_ROOT / "infra" / "ci" / "minio-contract-target.sh"
+
+
+def _ci_minio_references() -> dict[str, str]:
+    """The digest-pinned MinIO and mc references of the CI storage contract script."""
+    values: dict[str, str] = {}
+    for line in CI_MINIO_TARGET.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r'(MINIO_IMAGE|MC_IMAGE)="([^"]+)"', line.strip())
+        if match:
+            values[match.group(1)] = match.group(2)
+    assert {"MINIO_IMAGE", "MC_IMAGE"} <= values.keys()
+    return values
+
+
+def _rehashed(manifest: dict[str, Any]) -> dict[str, Any]:
+    """``manifest`` with ``manifest_sha256`` recomputed over the edited body."""
+    body = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
+    manifest["manifest_sha256"] = rm.sha256_bytes(rm.canonical_json(body).encode("ascii"))
+    return manifest
+
+
+@requires_git
+def test_compose_bundled_defaults_are_pinned_and_match_the_ci_contract() -> None:
+    text = _committed(rm.COMPOSE_ONPREM).decode("utf-8")
+    defaults = rm.bundled_image_defaults(text)
+    assert sorted(defaults) == sorted(rm.BUNDLED_IMAGES)
+    ci = _ci_minio_references()
+    assert defaults == {"MINIO_IMAGE": ci["MINIO_IMAGE"], "MINIO_MC_IMAGE": ci["MC_IMAGE"]}
+    # The committed file repeats one identical default for MINIO_MC_IMAGE (two services).
+    mc_lines = [
+        line.strip() for line in text.splitlines() if line.strip().startswith('image: "${MINIO_MC_IMAGE')
+    ]
+    assert len(mc_lines) == 2 and mc_lines[0] == mc_lines[1]
+    for name, reference in defaults.items():
+        entry = rm.image_reference(reference)
+        assert entry["pinned_by_digest"], (name, reference)
+        assert entry["digest"] and reference.endswith("@" + entry["digest"]), name
+
+
+@requires_git
+def test_manifest_records_the_bundled_compose_images(head_manifest: dict[str, Any]) -> None:
+    bundled = head_manifest["bundled_images"]
+    assert bundled["compose_file"] == {
+        "path": rm.COMPOSE_ONPREM,
+        "sha256": rm.sha256_bytes(_committed(rm.COMPOSE_ONPREM)),
+    }
+    assert sorted(bundled["images"]) == sorted(rm.BUNDLED_IMAGES)
+    reproducibility = head_manifest["reproducibility"]
+    for name in rm.BUNDLED_IMAGES:
+        entry = bundled["images"][name]
+        assert entry == rm.image_reference(entry["reference"]), name
+        assert entry["pinned_by_digest"] is True, name
+        assert f"bundled {name} {entry['reference']}" in reproducibility["pinned"], name
+    assert not [item for item in reproducibility["not_pinned"] if item.startswith("bundled ")]
+
+
+@requires_git
+def test_generate_refuses_two_defaults_for_one_bundled_image(synthetic_repo: Path) -> None:
+    # Allow-control: the committed file repeats one identical default for MINIO_MC_IMAGE.
+    allowed = _cli("generate", "--rev", "HEAD", "--repo", str(synthetic_repo))
+    assert allowed.returncode == 0, allowed.stderr
+    compose = synthetic_repo / rm.COMPOSE_ONPREM
+    lines = compose.read_text(encoding="utf-8").splitlines()
+    image_lines = [
+        number
+        for number, line in enumerate(lines, start=1)
+        if re.fullmatch(r'image: "\$\{MINIO_MC_IMAGE:-[^}"]+\}"', line.strip())
+    ]
+    assert len(image_lines) == 2
+    lines[image_lines[1] - 1] = re.sub(
+        r':-([^}"]+)\}"$', ':-bitnamilegacy/minio-client:0.0.0}"', lines[image_lines[1] - 1]
+    )
+    compose.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _git(synthetic_repo, "add", "--all")
+    _git(synthetic_repo, "commit", "--quiet", "--message", "two mc defaults", env=GIT_ENV)
+    denied = _cli("generate", "--rev", "HEAD", "--repo", str(synthetic_repo))
+    assert denied.returncode == 2
+    assert denied.stdout == ""
+    assert rm.COMPOSE_ONPREM in denied.stderr and "MINIO_MC_IMAGE" in denied.stderr
+    assert f"line {image_lines[0]}" in denied.stderr
+    assert f"line {image_lines[1]}" in denied.stderr
+
+
+@requires_git
+def test_generate_refuses_a_missing_bundled_image_default(synthetic_repo: Path) -> None:
+    allowed = _cli("generate", "--rev", "HEAD", "--repo", str(synthetic_repo))
+    assert allowed.returncode == 0, allowed.stderr
+    compose = synthetic_repo / rm.COMPOSE_ONPREM
+    text = compose.read_text(encoding="utf-8")
+    # The required-substitution form carries no default, so the name is not recorded.
+    broken = text.replace('image: "${MINIO_IMAGE:-', 'image: "${MINIO_IMAGE:?')
+    assert broken != text
+    compose.write_text(broken, encoding="utf-8")
+    _git(synthetic_repo, "add", "--all")
+    _git(synthetic_repo, "commit", "--quiet", "--message", "no minio default", env=GIT_ENV)
+    denied = _cli("generate", "--rev", "HEAD", "--repo", str(synthetic_repo))
+    assert denied.returncode == 2
+    assert denied.stdout == ""
+    assert rm.COMPOSE_ONPREM in denied.stderr and "MINIO_IMAGE" in denied.stderr
+
+
+@requires_git
+def test_an_unpinned_bundled_default_is_recorded_as_not_pinned(synthetic_repo: Path) -> None:
+    compose = synthetic_repo / rm.COMPOSE_ONPREM
+    text = compose.read_text(encoding="utf-8")
+    tag = "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
+    changed = re.sub(r'(image: "\$\{MINIO_IMAGE:-)[^}"]+(\}")', rf"\g<1>{tag}\g<2>", text)
+    assert changed != text
+    compose.write_text(changed, encoding="utf-8")
+    _git(synthetic_repo, "add", "--all")
+    _git(synthetic_repo, "commit", "--quiet", "--message", "tag default", env=GIT_ENV)
+    manifest = _manifest("HEAD", synthetic_repo)
+    assert manifest["bundled_images"]["images"]["MINIO_IMAGE"] == {
+        "reference": tag,
+        "digest": None,
+        "pinned_by_digest": False,
+    }
+    assert (
+        f"bundled MINIO_IMAGE {tag} (tag, not a digest)"
+        in manifest["reproducibility"]["not_pinned"]
+    )
+    assert rm.bundled_image_problems(manifest) == [
+        f"bundled_images.images.MINIO_IMAGE: not pinned by digest ('{tag}')"
+    ]
+
+
+@requires_git
+def test_verify_refuses_bundled_images_that_are_not_pinned(
+    head_manifest: dict[str, Any], tmp_path: Path
+) -> None:
+    build_info = _build_info_for(head_manifest, tmp_path)
+    assert rm.bundled_image_problems(head_manifest) == []
+    assert rm.verify_documents(head_manifest, build_info) == []
+    manifest_path, info_path = tmp_path / "manifest.json", tmp_path / "build-info.json"
+    info_path.write_text(release.canonical_json(build_info))
+    args = ("verify", "--manifest", str(manifest_path), "--build-info", str(info_path))
+    tag = "bitnamilegacy/minio:2025.4.22"
+    denied_entries = (
+        rm.image_reference(tag),  # recorded as a tag
+        {"reference": tag, "digest": DIGEST, "pinned_by_digest": True},  # claims a pin
+    )
+    for denied_entry in denied_entries:
+        changed = copy.deepcopy(head_manifest)
+        changed["bundled_images"]["images"]["MINIO_IMAGE"] = denied_entry
+        _rehashed(changed)
+        assert rm.verify_documents(changed, build_info) == [
+            f"bundled_images.images.MINIO_IMAGE: not pinned by digest ('{tag}')"
+        ]
+        manifest_path.write_text(rm.render(changed))
+        refused = _cli(*args)
+        assert refused.returncode == 1, refused.stdout + refused.stderr
+        assert "bundled_images.images.MINIO_IMAGE" in refused.stdout
+    manifest_path.write_text(rm.render(head_manifest))
+    allowed = _cli(*args)
+    assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+
+
+@requires_git
+def test_verify_refuses_a_manifest_without_bundled_images(
+    head_manifest: dict[str, Any], tmp_path: Path
+) -> None:
+    build_info = _build_info_for(head_manifest, tmp_path)
+    changed = copy.deepcopy(head_manifest)
+    del changed["bundled_images"]
+    _rehashed(changed)
+    assert rm.verify_documents(changed, build_info) == [
+        f"bundled_images.images.{name}: not recorded" for name in rm.BUNDLED_IMAGES
+    ]
+
+
 def _with_base_images(manifest: dict[str, Any], **references: str) -> dict[str, Any]:
     """``manifest`` with ``image.ARG=reference`` base images and a valid checksum again."""
     changed = copy.deepcopy(manifest)

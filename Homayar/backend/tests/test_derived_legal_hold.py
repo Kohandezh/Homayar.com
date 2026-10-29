@@ -69,6 +69,7 @@ INHERITED_KEYS = {
     "source_id",
     "review_at",
     "deletion_requested",
+    "legal_hold_at",
 }
 # Only fails a hung test; no assertion depends on how long anything took.
 DEADLINE = 30.0
@@ -577,6 +578,24 @@ def test_a_release_with_a_deletion_request_removes_the_descendants_bytes(
     )
     assert released.status_code == 200, released.text
     assert released.json()["lifecycle_state"] == "deleted"
+    # The meeting hold is direct on every row (HOM-329): only the ORIGINAL is released.
+    assert _row(original_id).lifecycle_state is MediaLifecycleState.DELETED
+    for media_id in (child_id, grandchild_id):
+        row = _row(media_id)
+        assert row.lifecycle_state is MediaLifecycleState.LEGAL_HOLD, media_id
+        assert row.deletion_requested_at is not None
+        assert storage.exists(tenant["workspace_id"], keys[media_id]), media_id
+        (kept,) = _events("media.legal_hold_kept", media_id)
+        assert kept.details["kept_because"] == "direct"
+        assert kept.details["source_id"] == original_id
+
+    # Each derived row is released by its own id; the grandchild first, so the
+    # child's release finds no held descendant and writes no second kept event.
+    for media_id in (grandchild_id, child_id):
+        own = _post(
+            client, tenant, f"/api/v1/media/{media_id}/legal-hold/release", {"reason": "closed"}
+        )
+        assert own.status_code == 200, own.text
     for media_id in everything:
         assert _row(media_id).lifecycle_state is MediaLifecycleState.DELETED, media_id
         assert not storage.exists(tenant["workspace_id"], keys[media_id]), media_id
@@ -584,7 +603,9 @@ def test_a_release_with_a_deletion_request_removes_the_descendants_bytes(
     for media_id in (child_id, grandchild_id):
         (event,) = _events(RELEASED, media_id)
         assert event.details["deletion_pending"] is True
-        assert event.details["source_id"] == original_id
+        assert "source_id" not in event.details
+        assert "inherited_from_id" not in event.details
+        assert len(_events("media.legal_hold_kept", media_id)) == 1
 
 
 def test_a_release_of_an_unheld_object_changes_nothing_and_stays_below_a_derived_target(

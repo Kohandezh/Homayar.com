@@ -14,9 +14,31 @@ exists, the same model writes the bootstrap code uses) on the application
 engine, so row-level security and model invariants apply exactly as for a
 request. Meetings are processed by the real job processor.
 
+Every meeting enters through the ingestion ledger (HOM-326), as an upload
+through the console does: ``accept_ingestion`` writes an accepted ledger row
+and creates the meeting and its job in one transaction. The trend views and
+the organization overview count meetings by the ledger's ``received_at`` in
+closed weeks, so each row is dated in one of the 4 closed weeks before the
+current Asia/Tehran week (Saturday 00:00), from the meeting's index alone.
+The rows age: a week after the seed the oldest week leaves the 4-week window,
+so a shared demo database needs a fresh seed to show every meeting there.
+
+The trend views only release a cohort with 0 or at least 5 distinct agents.
+Five extra agents (``agent1`` to ``agent5``) make that possible. They are
+workspace members with no password, so nobody can sign in as them, and they
+are not printed as logins. They are the agents of the ``Call Center`` team,
+which has all 5 in each of the 3 most recent closed weeks and is released.
+``Sales`` and ``Support`` keep their one agent each (member and viewer) and
+are withheld as small groups. Three meetings with no team let the rest of the
+workspace pass the same weekly test, so ``Call Center`` stays released next to
+them. ``MEETING_ATTRIBUTION`` holds the team, agent and week of each meeting.
+
 The seed is idempotent: each object has a fixed natural key and is skipped
 when it already exists, and audit events are only written together with the
-object they describe, so a second run writes nothing.
+object they describe, so a second run writes nothing. A database seeded by an
+older seed, whose demo meetings have no ledger row, is refused before any
+write to its workspace: skipping those meetings would leave them out of every
+trend view. It must be reset and seeded again.
 
 It refuses every environment except development and test before it opens a
 database connection.
@@ -56,6 +78,14 @@ DEMO_DISPLAY_NAMES = {
     "member": "مریم حسینی",
     "viewer": "Ali Rahimi",
 }
+# Fictional agents (HOM-326): workspace members without a password, not logins.
+DEMO_AGENTS: tuple[tuple[str, str], ...] = (
+    ("agent1", "نگار موسوی"),
+    ("agent2", "Kian Tehrani"),
+    ("agent3", "پرهام صادقی"),
+    ("agent4", "Leila Nouri"),
+    ("agent5", "آرش کاظمی"),
+)
 AUDIO_SECONDS_LIMIT = 36_000
 CONCURRENT_JOBS_LIMIT = 10
 DEMO_RETENTION_DAYS = 180
@@ -67,7 +97,7 @@ SCRIPTED_PROVIDER_VERSION = "demo-seed-v1"
 
 
 class DemoSeedRefused(RuntimeError):
-    """The seed does not run in this environment."""
+    """The seed does not run in this environment, or on this database."""
 
 
 @dataclass(frozen=True)
@@ -200,6 +230,36 @@ MEETING_PLAN: tuple[tuple[str, int], ...] = (
     ("queued", 2),
 )
 
+CALL_CENTER = "Call Center"
+_AGENT_KEYS = tuple(key for key, _name in DEMO_AGENTS)
+
+# (team name, agent key, weeks before the current week) per meeting index, in
+# ``_meeting_specs`` order. Week 1 is the most recent closed week. Only
+# completed and partial meetings enter the trend population; each closed week
+# then has 0 or at least 5 distinct agents, for the workspace and for the
+# rest outside ``Call Center``. The others carry no team and no agent, so a
+# later replay or a finished job keeps every week passing.
+MEETING_ATTRIBUTION: tuple[tuple[str | None, str | None, int], ...] = (
+    *((CALL_CENTER, agent, 1) for agent in _AGENT_KEYS),  # 0-4 completed
+    *((CALL_CENTER, agent, 2) for agent in _AGENT_KEYS),  # 5-9 completed
+    ("Sales", "member", 2),  # 10 completed
+    ("Support", "viewer", 2),  # 11 completed
+    (None, "agent1", 2),  # 12-14 completed: the rest of week 2 reaches 5 agents
+    (None, "agent2", 2),
+    (None, "agent3", 2),
+    *((CALL_CENTER, agent, 3) for agent in _AGENT_KEYS),  # 15-19 completed
+    (CALL_CENTER, "agent1", 1),  # 20-22 partial
+    (CALL_CENTER, "agent2", 2),
+    (CALL_CENTER, "agent3", 3),
+    (None, None, 4),  # 23-24 failed, 25 dead letter
+    (None, None, 4),
+    (None, None, 4),
+    (None, None, 1),  # 26-27 processing, 28-29 queued
+    (None, None, 1),
+    (None, None, 1),
+    (None, None, 1),
+)
+
 
 def _meeting_specs() -> list[tuple[int, str, Script, str]]:
     specs: list[tuple[int, str, Script, str]] = []
@@ -213,8 +273,20 @@ def _meeting_specs() -> list[tuple[int, str, Script, str]]:
     return specs
 
 
+def _idempotency_key(index: int) -> str:
+    return f"demo-seed-meeting-{index + 1:02d}"
+
+
 def _duration_seconds(index: int) -> int:
     return 20 + (index * 7) % 40
+
+
+def _received_at(index: int, week_start: datetime) -> datetime:
+    """The ledger ``received_at`` of meeting ``index``: inside its planned closed week
+    before ``week_start`` (Saturday 00:00 Asia/Tehran), Saturday to Thursday, 08:00 to
+    16:00 Tehran time."""
+    _team, _agent, weeks_back = MEETING_ATTRIBUTION[index]
+    return week_start - timedelta(weeks=weeks_back) + timedelta(days=index % 6, hours=8 + index % 9)
 
 
 def _silent_wav(seconds: int) -> bytes:
@@ -463,6 +535,34 @@ def _ensure_users(accounts: Mapping[str, DemoAccount]) -> dict[str, User]:
     return users
 
 
+def _ensure_agents() -> dict[str, User]:
+    """The demo agents: verified and active, but with no password and no sign-in
+    identity, so they never log in."""
+    from sqlalchemy import select
+
+    from backend.database.saas_models import User
+
+    agents: dict[str, User] = {}
+    with _session() as db:
+        for key, display_name in DEMO_AGENTS:
+            email = f"{key}@{DEMO_EMAIL_DOMAIN}"
+            user = db.scalar(select(User).where(User.email == email))
+            if user is None:
+                user = User(
+                    email=email,
+                    display_name=display_name,
+                    password_hash=None,
+                    locale="fa",
+                    email_verified_at=datetime.now(UTC),
+                    is_active=True,
+                )
+                db.add(user)
+                db.flush()
+            agents[key] = user
+        db.commit()
+    return agents
+
+
 def _find_workspace(owner: User) -> Workspace | None:
     from backend.services.tenancy_service import list_user_workspaces
 
@@ -474,6 +574,36 @@ def _find_workspace(owner: User) -> Workspace | None:
             ):
                 return workspace
     return None
+
+
+def _refuse_outdated_workspace(owner: User) -> None:
+    """Refuse a demo workspace an older seed wrote (before HOM-326): one of its demo
+    meetings has no ingestion ledger row. The seed finds those meetings by their keys
+    and would skip them, so they would stay out of every trend view."""
+    from backend.services.ingestion_service import ingestion_for_meeting
+    from backend.services.meeting_service import find_job_by_idempotency
+
+    workspace = _find_workspace(owner)
+    if workspace is None:
+        return
+    missing = 0
+    with _session(user_id=owner.id, workspace=workspace) as db:
+        for index, _outcome, _script, _title in _meeting_specs():
+            job = find_job_by_idempotency(
+                db, workspace_id=workspace.id, idempotency_key=_idempotency_key(index)
+            )
+            if job is not None and (
+                ingestion_for_meeting(db, workspace_id=workspace.id, meeting_id=job.meeting_id)
+                is None
+            ):
+                missing += 1
+    if missing:
+        raise DemoSeedRefused(
+            f"This database was seeded by an older demo seed: {missing} demo meetings have "
+            "no ingestion ledger row, so the trend views would not count them. The seed "
+            "does not repair it. Reset the database (drop it, apply the migrations), "
+            "then run the demo seed again."
+        )
 
 
 def _demo_retention_days(settings: Settings) -> int:
@@ -593,8 +723,14 @@ def _ensure_workspace(owner: User, settings: Settings) -> Workspace:
     return found
 
 
-def _ensure_members(workspace: Workspace, users: Mapping[str, User], settings: Settings) -> None:
-    """Admin, member and viewer join through the real invitation flow.
+def _ensure_members(
+    workspace: Workspace,
+    users: Mapping[str, User],
+    agents: Mapping[str, User],
+    settings: Settings,
+) -> None:
+    """Admin, member, viewer and the agents (as members) join through the real
+    invitation flow.
 
     The invitation is created and accepted in one transaction: a run that
     stops in between leaves no pending invitation (whose raw token would be
@@ -608,8 +744,9 @@ def _ensure_members(workspace: Workspace, users: Mapping[str, User], settings: S
     from backend.services.member_service import accept_invitation, create_invitation
 
     owner = users["owner"]
-    for role in ("admin", "member", "viewer"):
-        user = users[role]
+    invitees = [(users[role], role) for role in ("admin", "member", "viewer")]
+    invitees += [(agent, "member") for agent in agents.values()]
+    for user, role in invitees:
         with _session(user_id=owner.id, workspace=workspace) as db:
             joined = db.scalar(
                 select(Membership.id).where(
@@ -655,10 +792,11 @@ def _ensure_members(workspace: Workspace, users: Mapping[str, User], settings: S
             db.commit()
 
 
-TEAMS: tuple[tuple[str, str, str], ...] = (
-    # team name, supervisor role, agent role
-    ("Sales", "admin", "member"),
-    ("Support", "owner", "viewer"),
+TEAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    # team name, supervisor, agents (a login role or an agent key)
+    ("Sales", "admin", ("member",)),
+    ("Support", "owner", ("viewer",)),
+    (CALL_CENTER, "admin", _AGENT_KEYS),
 )
 
 
@@ -672,7 +810,7 @@ def _ensure_teams(workspace: Workspace, users: Mapping[str, User], settings: Set
 
     owner = users["owner"]
     with _session(user_id=owner.id, workspace=workspace) as db:
-        for name, supervisor_role, agent_role in TEAMS:
+        for name, supervisor, agent_keys in TEAMS:
             team = db.scalar(
                 select(Team).where(Team.workspace_id == workspace.id, Team.slug == slugify(name))
             )
@@ -687,11 +825,11 @@ def _ensure_teams(workspace: Workspace, users: Mapping[str, User], settings: Set
                     target_id=team.id,
                     settings=settings,
                 )
-            for role_key, team_role in (
-                (supervisor_role, TeamRole.SUPERVISOR),
-                (agent_role, TeamRole.AGENT),
+            for user_key, team_role in (
+                (supervisor, TeamRole.SUPERVISOR),
+                *((agent, TeamRole.AGENT) for agent in agent_keys),
             ):
-                user = users[role_key]
+                user = users[user_key]
                 assigned = db.scalar(
                     select(TeamAssignment.id).where(
                         TeamAssignment.team_id == team.id,
@@ -785,17 +923,29 @@ def _upload(
     title: str,
     script: Script,
     idempotency_key: str,
+    team_id: str | None,
+    agent_user_id: str | None,
+    received_at: datetime,
     settings: Settings,
 ) -> str | None:
-    """Store the placeholder recording and create the meeting and its job.
+    """Store the placeholder recording, then accept it into the ingestion ledger,
+    which creates the meeting (with its team and agent) and its job, as the
+    upload route does.
 
     Returns the id of a job that has not had its first attempt yet: the new
     one, or one an earlier run created but stopped before driving it to its
     planned outcome. Returns ``None`` when the meeting was seeded completely.
     """
-    from backend.database.saas_models import JobState
+    from backend.database.saas_models import IngestionRecord, IngestionSourceType, JobState
     from backend.services.audit_event_types import AuditEventType
     from backend.services.audit_service import record_audit_event
+    from backend.services.ingestion_service import (
+        PROVIDER_CONSOLE,
+        IngestionDecision,
+        IngestionIdentity,
+        IngestionPayload,
+        accept_ingestion,
+    )
     from backend.services.meeting_service import create_upload_job, find_job_by_idempotency
     from backend.storage.factory import create_object_storage
 
@@ -817,26 +967,65 @@ def _upload(
             expected_sha256=hashlib.sha256(audio).hexdigest(),
             max_bytes=len(audio),
         )
-        created = create_upload_job(
-            db,
-            workspace_id=workspace.id,
-            user_id=owner.id,
+        # The seed's idempotency key is the event id of a console upload.
+        identity = IngestionIdentity(
+            source_type=IngestionSourceType.FILE_UPLOAD,
+            source_provider=PROVIDER_CONSOLE,
+            external_event_id=idempotency_key,
+        )
+        payload = IngestionPayload(
+            media_sha256=stored.sha256,
+            media_size_bytes=stored.size_bytes,
+            original_filename=filename,
             title=title,
             language=script.language,
-            storage_key=stored.key,
-            original_filename=filename,
-            media_type="audio/wav",
-            container_format="wav",
-            size_bytes=stored.size_bytes,
-            checksum_sha256=stored.sha256,
-            duration_seconds=duration,
-            channel_count=1,
-            sample_rate_hz=SAMPLE_RATE_HZ,
-            idempotency_key=idempotency_key,
-            retention_days=workspace.retention_days,
-            settings=settings,
-            producer="demo_seed",
+            declared_content_type="audio/wav",
         )
+
+        def _create(record: IngestionRecord):
+            created = create_upload_job(
+                db,
+                workspace_id=workspace.id,
+                user_id=owner.id,
+                title=title,
+                language=script.language,
+                storage_key=stored.key,
+                original_filename=filename,
+                media_type="audio/wav",
+                container_format="wav",
+                size_bytes=stored.size_bytes,
+                checksum_sha256=stored.sha256,
+                duration_seconds=duration,
+                channel_count=1,
+                sample_rate_hz=SAMPLE_RATE_HZ,
+                idempotency_key=idempotency_key,
+                retention_days=workspace.retention_days,
+                settings=settings,
+                ingestion_id=record.id,
+                producer="demo_seed",
+                source_type=identity.source_type.value,
+            )
+            # Attributed as it is created, so no later update is needed.
+            created.meeting.team_id = team_id
+            created.meeting.agent_user_id = agent_user_id
+            return created
+
+        outcome = accept_ingestion(
+            db,
+            workspace=db.merge(workspace),
+            identity=identity,
+            payload=payload,
+            received_at=received_at,
+            now=datetime.now(UTC),
+            actor_user_id=owner.id,
+            api_key_id=None,
+            request_id=None,
+            settings=settings,
+            create=_create,
+        )
+        if outcome.decision is not IngestionDecision.ACCEPTED:
+            raise RuntimeError(f"Demo meeting {title!r} was not accepted: {outcome.decision.value}")
+        created = outcome.created
         record_audit_event(
             db,
             event_type=AuditEventType.MEETING_UPLOADED,
@@ -848,6 +1037,7 @@ def _upload(
                 "size_bytes": stored.size_bytes,
                 "duration_seconds": created.meeting.duration_seconds,
                 "container": "wav",
+                "ingestion_id": outcome.record.id,
             },
             settings=settings,
         )
@@ -916,17 +1106,36 @@ def _start_processing(workspace: Workspace, job_id: str, settings: Settings) -> 
         db.commit()
 
 
-def _ensure_meetings(workspace: Workspace, owner: User, settings: Settings) -> None:
-    from backend.jobs.processor import process_job
+def _team_ids(workspace: Workspace, owner: User) -> dict[str, str]:
+    from sqlalchemy import select
 
+    from backend.database.saas_models import Team
+
+    with _session(user_id=owner.id, workspace=workspace) as db:
+        rows = db.execute(select(Team.name, Team.id).where(Team.workspace_id == workspace.id))
+        return {name: team_id for name, team_id in rows}
+
+
+def _ensure_meetings(workspace: Workspace, people: Mapping[str, User], settings: Settings) -> None:
+    from backend.jobs.processor import process_job
+    from backend.services.role_trend_service import current_week_start
+
+    owner = people["owner"]
+    teams = _team_ids(workspace, owner)
+    # Read once, so one run dates every row against the same week.
+    week_start = current_week_start(datetime.now(UTC))
     for index, outcome, script, title in _meeting_specs():
+        team, agent, _weeks_back = MEETING_ATTRIBUTION[index]
         job_id = _upload(
             workspace,
             owner,
             index=index,
             title=title,
             script=script,
-            idempotency_key=f"demo-seed-meeting-{index + 1:02d}",
+            idempotency_key=_idempotency_key(index),
+            team_id=teams[team] if team is not None else None,
+            agent_user_id=people[agent].id if agent is not None else None,
+            received_at=_received_at(index, week_start),
             settings=settings,
         )
         # A job found still queued is driven on now: an earlier run stopped
@@ -1051,11 +1260,15 @@ def seed_demo_workspace(settings: Settings) -> DemoSeedResult:
 
     accounts = _accounts()
     users = _ensure_users(accounts)
+    # Before the agents and any write to the workspace.
+    _refuse_outdated_workspace(users["owner"])
+    agents = _ensure_agents()
+    people = {**users, **agents}
     workspace = _ensure_workspace(users["owner"], settings)
-    _ensure_members(workspace, users, settings)
-    _ensure_teams(workspace, users, settings)
+    _ensure_members(workspace, users, agents, settings)
+    _ensure_teams(workspace, people, settings)
     _ensure_api_key(workspace, users["owner"], settings)
-    _ensure_meetings(workspace, users["owner"], settings)
+    _ensure_meetings(workspace, people, settings)
     _ensure_shares(workspace, users, settings)
     return DemoSeedResult(
         workspace_id=workspace.id,

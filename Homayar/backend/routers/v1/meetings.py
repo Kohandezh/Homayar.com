@@ -149,11 +149,15 @@ def _get_meeting(
         )
     )
     if meeting is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "meeting_not_found", "message": "Meeting not found"},
-        )
+        raise _meeting_not_found()
     return meeting
+
+
+def _meeting_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail={"code": "meeting_not_found", "message": "Meeting not found"},
+    )
 
 
 def _meeting_response(meeting: Meeting) -> MeetingResponse:
@@ -902,6 +906,32 @@ def delete_meeting(
         workspace_id=context.workspace.id,
         meeting_id=meeting.id,
     )
+    # Lock order (backend/media/README.md, HOM-330): the job row, then the
+    # meeting row, before tombstone_meeting locks the media rows. The meeting
+    # lock is the one the tombstone write takes (FOR NO KEY UPDATE), so the hold
+    # paths (FOR KEY SHARE) still run beside it; a deletion that committed in
+    # between is seen here.
+    if job is not None:
+        job = db.scalar(
+            select(ProcessingJob)
+            .where(ProcessingJob.id == job.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    if (
+        db.scalar(
+            select(Meeting)
+            .where(
+                Meeting.id == meeting.id,
+                Meeting.workspace_id == context.workspace.id,
+                Meeting.deleted_at.is_(None),
+            )
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+        is None
+    ):
+        raise _meeting_not_found()
     now = datetime.now(UTC)
     if job is not None and cancel_job(
         db,
@@ -992,7 +1022,10 @@ def verify_meeting_media(
 ) -> MediaObjectResponse:
     """Re-read one object and record whether its bytes still match the row."""
     meeting = _get_meeting(db, context=context, meeting_id=meeting_id)
-    media = media_by_id(db, workspace_id=context.workspace.id, media_id=media_id)
+    # Lock order (backend/media/README.md, HOM-330): the meeting row, then the row
+    # that the check writes, read again under its lock.
+    lock_meeting(db, workspace_id=context.workspace.id, meeting_id=meeting.id)
+    media = media_by_id(db, workspace_id=context.workspace.id, media_id=media_id, for_update=True)
     if media is None or media.meeting_id != meeting.id:
         raise HTTPException(
             status_code=404,
@@ -1114,7 +1147,10 @@ def release_media_hold(
 ) -> MediaObjectResponse:
     """Release a hold with an audited reason; a recorded deletion request then runs.
 
-    The held descendants of the object are released with it (HOM-313).
+    A held descendant is released with the object only when its hold was
+    inherited from it, directly or through a row released in the same call.
+    A hold placed directly on a descendant stays until it is released by its
+    own id (HOM-313, HOM-329).
     """
     now = datetime.now(UTC)
     try:

@@ -294,8 +294,21 @@ meeting, ingestion and `retention_expires_at` come from the ORIGINAL. Retention,
 conversation purge and integrity checks act on it like on any media object of the meeting.
 A legal hold follows lineage (HOM-313): the derivative of a held ORIGINAL is created held, in
 the same transaction, with the ORIGINAL's owner, reason and review date (audit
-`media.legal_hold_inherited`); a hold or a release by id also covers the object's
-descendants. A reader selects a derivative by the exact `producer`. v1 never retires an
+`media.legal_hold_inherited`); a hold by id also covers the object's descendants that are
+not held yet. A release by id covers only the descendants whose hold was inherited from the
+released object, or from a descendant released with it (HOM-329). A hold placed directly on a
+derived object (for another matter, or by the meeting hold) stays until it is released by its
+own id; the release writes `media.legal_hold_kept` for it. The row does not store where its
+hold came from, so the release reads the audit trail: every `media.legal_hold_placed` and
+`media.legal_hold_inherited` event records the row's exact `legal_hold_at`. A hold is
+inherited only when an inherited event matches that time exactly and no placed event does.
+Any other hold counts as direct and stays, also when the evidence is missing or unclear. A
+direct hold request on a row whose hold is inherited makes that row's hold direct. This is
+true for a hold by id and for the meeting hold, also when the request is repeated. A later
+release of the row's source then keeps the row held. Holds inherited before HOM-329 have no
+`legal_hold_at` in their event. They count as `unknown` and stay held when their source is
+released. Deploy note: in any environment where derivatives were ever on, release such rows
+by their own id. A reader selects a derivative by the exact `producer`. v1 never retires an
 object.
 
 ### Reason codes
@@ -433,6 +446,59 @@ Each `activity.channels` entry: `index`, `source_channel` (equal to `index`),
 the HOM-37 record is not complete), `duplicate_of` (the other channels of HOM-37 duplicate
 pairs; null when `inspection_duplicated` is null).
 
+## Lock order (HOM-330)
+
+Every transaction that does media work takes its row locks in this order. It never waits
+for a row that comes earlier in the list while it holds a row that comes later. So two such
+transactions cannot wait for each other, and PostgreSQL never has to abort one of them.
+
+1. **The processing job row.** A job step proves its lease by locking its job row before
+   anything else (`lock_owned_or_cancelled`, `owned_job`), so a stale attempt writes
+   nothing. `DELETE /meetings` cancels the conversation's job, so it locks the job row first
+   too; the tombstone reapply locks the queued and running job rows of the conversation
+   (ascending `id`) before the meeting row. It reads the active jobs again after the meeting
+   lock; when a job became active in between, it rolls back and starts again with that job
+   row first (at most three passes).
+2. **The meeting row**, before any media row of that meeting. The mode depends on the path:
+   - `FOR UPDATE`: the derivative registration (`register_derived`), the purge attempt, the
+     retention expiry, the tombstone reapply and the job's publication step;
+   - `FOR NO KEY UPDATE`: `DELETE /meetings` (it writes the meeting row, its tombstone, in
+     the same transaction);
+   - `FOR KEY SHARE`: the hold and release paths, every byte removal (`delete_objects`) and
+     every integrity check (the reconciliation sweep's missing check and
+     `POST /meetings/{id}/media/{id}/verify`).
+
+   `FOR UPDATE` conflicts with all three, so a registration or a purge attempt runs alone on
+   its conversation. `FOR KEY SHARE` conflicts with neither itself nor `FOR NO KEY UPDATE`,
+   so a hold, a byte removal and a conversation deletion of one conversation can run at the
+   same time; they meet at the media rows, in the order of point 3. A transaction that locks
+   the meeting rows of several conversations (the reconciliation sweep, for its byte removal
+   and for its missing check, through `lock_media_rows`) locks them in one statement, in
+   ascending `id`.
+3. **Media rows**, in ascending `(created_at, id)`, in one statement. Both columns are fixed
+   when the row is registered, so the order of two rows never changes. It is the same order
+   at every depth of lineage: a hold or a release by id locks the object and all its
+   descendants in one statement, not level by level. A path that changes several rows reads
+   them without a lock, locks them all, and then decides on the fresh rows. An object without
+   a meeting row (`meeting_id` null) has no meeting lock to take; its rows follow the same
+   order, with one exception: a descendant registered while a hold or release by id waited
+   for its locks is found only after them and is locked in a further statement. A job cannot
+   do that (a job is deleted with its meeting), only a direct call of `register_derived`.
+4. **The conversation purge row.** It records work on the state above, so it comes last: a
+   tombstone inserts it after the media deletion requests, and a release makes a deferred
+   purge due (`nudge_purge`) after the released rows. The purge attempt reads it first
+   without a lock, to find the meeting and to skip a purge that is not due. Then it locks the
+   meeting row and the media rows, and only then claims the purge row
+   (`FOR UPDATE SKIP LOCKED`). Its last step locks only the purge row.
+
+Usage reservation and entitlement rows (released or settled when a job ends) are locked after
+the meeting row and before media rows, by the job's completion and by `DELETE /meetings`
+alike.
+
+A release never loses its nudge: the purge attempt decides "deferred" under its meeting
+`FOR UPDATE` lock, and the release nudges under its meeting lock. One of the two commits
+first, and the other sees it.
+
 ## What is not claimed
 
 - No speech detection, no speaker identity, no role. Music, noise bursts, hold tones and
@@ -459,22 +525,18 @@ pairs; null when `inspection_duplicated` is null).
   meeting row, then the source row, reads the source again, and creates the derived object
   of a held source held in the same transaction (`media.legal_hold_inherited`). It refuses a
   held source with a recorded deletion request (`source_not_live`). The meeting hold covers
-  every object of the meeting that is not deleted; a hold or a release by id also covers the
-  object's descendants. Registration and every hold path lock the meeting row before any
-  media row and read the media rows after that lock, so a hold never misses a derived row
+  every object of the meeting that is not deleted; a hold by id also covers the object's
+  descendants, and a release by id covers the descendants whose hold was inherited (HOM-329,
+  see the lineage paragraph above). Known limit (HOM-331): a row has one hold at a time. A
+  hold by id does not re-point a descendant that is already held, so when that descendant's
+  own hold is released later, the newer hold on an ancestor does not cover it. Registration
+  and every hold path lock the meeting row before any media row and read the media rows
+  after that lock, so a hold never misses a derived row
   inserted at the same time (an object without a meeting has no meeting row; then the source
-  row lock serializes them). Known limit: a hold or a release by id locks the object's
-  descendants in creation order. The media reconciliation sweep
-  (`backend/jobs/media_reconciliation.py`, through `delete_objects`) locks `deletion_pending`
-  rows in deletion-request order, all in one transaction. When both work on two such
-  descendants at the same moment and lock them in opposite orders, PostgreSQL aborts one side
-  with a deadlock error. An aborted hold returns 500, changes nothing, and can be sent again.
-  A release saves the released state first and removes bytes in a second step. If it is
-  aborted in the first step, it returns 500 and changes nothing. If it is aborted while it
-  removes bytes, it still returns 500, but the hold is already released: sending it again
-  gives 409 `not_held`, and the reconciliation sweep removes the remaining bytes. Rows whose
-  removal had already started stay removed. The meeting hold had the same limit before
-  HOM-313. The fix belongs to the sweep's lock order, outside this change.
+  row lock serializes them). These paths, the reconciliation sweep, the purge attempt and
+  `DELETE /meetings` all follow one lock order (see "Lock order" above, HOM-330). So a hold or
+  a release by id does not deadlock with the sweep, a release does not deadlock with a purge
+  attempt, and the derivative registration does not deadlock with `DELETE /meetings`.
 - **W2** (fixed by HOM-314): delete-after-processing covers every media object of the
   meeting, derived ones included, also those made before the workspace turned the setting
   on. The completion transaction records the `processed` deletion request on every object
@@ -482,7 +544,8 @@ pairs; null when `inspection_duplicated` is null).
   killed later leaves `deletion_pending` rows that the reconciliation sweep closes. The
   post-success step locks the meeting row (`FOR KEY SHARE`, like the hold paths), records the
   request again (idempotent) and removes the bytes of every pending row through
-  `delete_objects`, which locks and reads each row again first. A held object keeps its bytes
+  `delete_objects`, which locks the meeting row and then every row, and reads each row again,
+  before the first removal. A held object keeps its bytes
   and its recorded request; a release by its id resumes the request. Such workspaces are
   derived too: the `audio_deleted_after_processing` pre-check is gone. After the request
   nothing more is derived from the meeting: `register_derived` also checks the ORIGINAL at the

@@ -17,20 +17,26 @@ state transition committed and is idempotent: a row stays
 ``deletion_pending`` until the object is gone.
 
 A hold follows lineage (HOM-313): a derived object of a held source is
-created held, and a hold or release by id covers the object's descendants.
+created held, and a hold by id covers the object's descendants.  A release
+by id covers only the descendants whose hold was inherited from a released
+object (HOM-329); a hold placed directly on a derived object stays until it
+is released by its own id.  Where a hold came from is read from its audit
+events (:func:`_hold_origins`).
 A registration also reads the ORIGINAL at the root of the source's lineage
 (HOM-314): nothing is derived from a lineage whose ORIGINAL is not live or
 is held with a recorded deletion request, and a held ORIGINAL holds the new
 object when the source itself is not held.
-Lock order: the meeting row first, then media rows (as the derivative job
-and the purge paths do), so these paths serialize per conversation.
+Lock order (HOM-330, ``backend/media/README.md`` "Lock order"): the job row,
+the meeting row, media rows in ascending ``(created_at, id)`` in one statement,
+then the conversation purge row.  Every path here follows it, so two of them
+never wait for each other.
 """
 
 from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -38,6 +44,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings
 from backend.database.saas_models import (
+    AuditEvent,
     MediaIntegrity,
     MediaKind,
     MediaLifecycleState,
@@ -63,6 +70,10 @@ LIVE_STATES = frozenset(
 _VERIFY_CHUNK = 1024 * 1024
 _MAX_REASON = 40
 _MAX_HOLD_REASON = 200
+# Where the current hold of a row came from (:func:`_hold_origins`).
+_INHERITED = "inherited"
+_DIRECT = "direct"
+_UNKNOWN = "unknown"
 
 
 class MediaLifecycleError(ValueError):
@@ -308,16 +319,17 @@ def _locked_lineage(
 def lock_meeting(
     db: Session, *, workspace_id: str, meeting_id: str | None, exclusive: bool = False
 ) -> None:
-    """Lock the meeting row before any media row of it (HOM-313).
+    """Lock the meeting row before any media row of it (HOM-313, HOM-330).
 
     Registration (``exclusive``: ``FOR UPDATE``, as the derivative job and
     the purge paths lock it) and the hold paths take this lock first, so a
     hold and a registration of the same conversation run one after the other,
     and a statement that reads the meeting's media rows after the lock sees
-    every committed row.  The hold paths take ``FOR KEY SHARE``: it still
-    conflicts with ``FOR UPDATE``, but not with a plain update of the meeting
-    row.  A conversation deletion writes its tombstone after it locked the
-    media rows; a stronger lock here would deadlock with it.  An object whose
+    every committed row.  The hold paths and byte removal take
+    ``FOR KEY SHARE``: it conflicts with ``FOR UPDATE``, but not with itself
+    or with the ``FOR NO KEY UPDATE`` that a conversation deletion takes
+    first, so those meet at the media rows, which every path locks in one
+    order (``backend/media/README.md`` "Lock order").  An object whose
     meeting row is gone (``meeting_id`` null) has no lock to take.
     """
     if meeting_id is None:
@@ -336,6 +348,62 @@ def _locked(statement: Any, for_update: bool) -> Any:
     if not for_update:
         return statement
     return statement.with_for_update().execution_options(populate_existing=True)
+
+
+def _lock_meetings_of(db: Session, rows: Iterable[MediaObject]) -> None:
+    """Lock the meeting rows of ``rows`` (``FOR KEY SHARE``) in one statement, ascending ``id``.
+
+    Rows of several conversations (the reconciliation sweep) take their meeting
+    locks in one fixed order (HOM-330).  A row without a meeting row has no
+    lock to take.
+    """
+    keys = {(row.workspace_id, row.meeting_id) for row in rows if row.meeting_id is not None}
+    if not keys:
+        return
+    db.execute(
+        select(Meeting.id)
+        .where(
+            Meeting.workspace_id.in_({workspace_id for workspace_id, _ in keys}),
+            Meeting.id.in_({meeting_id for _, meeting_id in keys}),
+        )
+        .order_by(Meeting.id.asc())
+        .with_for_update(read=True, key_share=True)
+    )
+
+
+def _lock_rows(
+    db: Session, *, workspace_ids: Iterable[str], ids: Iterable[str]
+) -> list[MediaObject]:
+    """The media rows ``ids``, locked and read again in one statement, oldest first.
+
+    One statement in ascending ``(created_at, id)``: both columns are fixed at
+    registration, so every path locks two rows in the same order (HOM-330).
+    """
+    statement = (
+        select(MediaObject)
+        .where(MediaObject.workspace_id.in_(set(workspace_ids)), MediaObject.id.in_(set(ids)))
+        .order_by(MediaObject.created_at.asc(), MediaObject.id.asc())
+    )
+    return list(db.scalars(_locked(statement, True)))
+
+
+def lock_media_rows(db: Session, rows: Iterable[MediaObject]) -> list[MediaObject]:
+    """Lock ``rows`` in the lock order and read them again; returns them oldest first.
+
+    Their meeting rows first (``FOR KEY SHARE``, ascending ``id``), then the
+    rows themselves in one statement (``backend/media/README.md`` "Lock order",
+    HOM-330), so a caller that changes rows of several conversations in one
+    transaction (the reconciliation sweep) decides on the fresh rows and holds
+    their locks until it commits.  The caller locks no media row before this
+    call.
+    """
+    loaded = list(rows)
+    if not loaded:
+        return []
+    _lock_meetings_of(db, loaded)
+    return _lock_rows(
+        db, workspace_ids={row.workspace_id for row in loaded}, ids={row.id for row in loaded}
+    )
 
 
 def media_for_meeting(
@@ -479,19 +547,19 @@ def delete_objects(
     a failed removal leaves the row pending for the next sweep and is logged
     without the key.  Returns the rows closed in this call.
 
-    Point of no return (WP07-T03): each row is locked and re-read right
-    before its bytes are removed, and the lock is held until the caller
-    commits.  A hold (or anything else) committed after the caller loaded
-    the row is therefore seen here and the bytes stay; a hold that arrives
-    while the removal runs waits for the lock and then finds ``deleted``.
-    A storage error (denied, unavailable, failed) is never read as "gone".
+    Point of no return (WP07-T03): before the first removal, the meeting
+    rows of the given rows are locked (``FOR KEY SHARE``), then every given
+    row is locked and read again, in the lock order of
+    ``backend/media/README.md`` (HOM-330); the locks are held until the
+    caller commits.  A hold (or anything else) committed after the caller
+    loaded a row is therefore seen here and the bytes stay; a hold that
+    arrives while the removal runs waits for the lock and then finds
+    ``deleted``.  A storage error (denied, unavailable, failed) is never
+    read as "gone".  The caller locks no media row before this call.
     """
     closed: list[MediaObject] = []
-    for loaded in objects:
-        media = media_by_id(
-            db, workspace_id=loaded.workspace_id, media_id=loaded.id, for_update=True
-        )
-        if media is None or media.lifecycle_state is not MediaLifecycleState.DELETION_PENDING:
+    for media in lock_media_rows(db, objects):
+        if media.lifecycle_state is not MediaLifecycleState.DELETION_PENDING:
             continue
         try:
             storage.delete(media.workspace_id, media.storage_key)
@@ -544,18 +612,27 @@ def place_legal_hold(
 ) -> bool:
     """Hold the object (WP07-T02): owner, reason and review date are recorded.
 
-    Returns ``True`` when this call placed the hold; an already held object
-    is left untouched (``False``), so repeated requests are idempotent and
-    never rewrite who placed the hold or why.  A hold overrides retention
-    expiry, a recorded deletion request and orphan/temporary cleanup until
-    it is released; it cannot restore an object that is already deleted.
+    Returns ``True`` when this call placed the hold.  An object that is held
+    directly, or whose hold has no clear origin, is left untouched
+    (``False``), so repeated requests are idempotent and never rewrite who
+    placed the hold or why.  An object whose hold was inherited
+    (:func:`_hold_origins`) gets this direct hold instead, and the event names
+    the replaced hold's source (``inherited_from_id``, HOM-329).  A hold
+    overrides retention expiry, a recorded deletion request and
+    orphan/temporary cleanup until it is released; it cannot restore an
+    object that is already deleted.
     """
     if media.lifecycle_state is MediaLifecycleState.DELETED:
         raise MediaLifecycleError("already_deleted", "The object was already deleted")
     cleaned_reason = _validate_hold_reason(reason)
     review_at = validate_hold_review_at(review_at, now=now)
+    inherited_from_id: str | None = None
     if media.lifecycle_state is MediaLifecycleState.LEGAL_HOLD:
-        return False
+        origin, inherited_from_id = _hold_origins(
+            db, workspace_id=media.workspace_id, rows=[media]
+        )[media.id]
+        if origin != _INHERITED:
+            return False
     media.lifecycle_state = MediaLifecycleState.LEGAL_HOLD
     media.legal_hold_at = now
     media.legal_hold_reason = cleaned_reason
@@ -572,6 +649,8 @@ def place_legal_hold(
             media,
             review_at=review_at.isoformat(),
             deletion_requested=media.deletion_requested_at is not None,
+            legal_hold_at=now.isoformat(),
+            inherited_from_id=inherited_from_id,
         ),
         settings=settings,
     )
@@ -609,6 +688,7 @@ def _lift_hold(
     actor_user_id: str | None,
     settings: Settings,
     source_id: str | None = None,
+    inherited_from_id: str | None = None,
 ) -> bool:
     held_since = media.legal_hold_at
     media.legal_hold_at = None
@@ -632,6 +712,7 @@ def _lift_hold(
             release_reason=cleaned_reason,
             held_since=held_since.isoformat() if held_since else None,
             source_id=source_id,
+            inherited_from_id=inherited_from_id,
         ),
         settings=settings,
     )
@@ -656,6 +737,7 @@ def _record_inherited(
     settings: Settings,
 ) -> None:
     review_at = media.legal_hold_review_at
+    held_at = media.legal_hold_at
     record_audit_event(
         db,
         event_type=AuditEventType.MEDIA_LEGAL_HOLD_INHERITED,
@@ -669,18 +751,111 @@ def _record_inherited(
             source_id=holder.id,
             review_at=review_at.isoformat() if review_at else None,
             deletion_requested=media.deletion_requested_at is not None,
+            legal_hold_at=held_at.isoformat() if held_at else None,
         ),
         settings=settings,
     )
 
 
-def _lock_object(db: Session, *, workspace_id: str, media_id: str) -> MediaObject | None:
-    """The object by id, locked and read again after its meeting row is locked."""
-    media = media_by_id(db, workspace_id=workspace_id, media_id=media_id)
-    if media is None:
+def _record_kept(
+    db: Session,
+    *,
+    media: MediaObject,
+    source_id: str,
+    kept_because: str,
+    inherited_from_id: str | None,
+    actor_user_id: str | None,
+    settings: Settings,
+) -> None:
+    held_at = _aware(media.legal_hold_at)
+    record_audit_event(
+        db,
+        event_type=AuditEventType.MEDIA_LEGAL_HOLD_KEPT,
+        actor_user_id=actor_user_id,
+        workspace_id=media.workspace_id,
+        target_type="media",
+        target_id=media.id,
+        details=_details(
+            media,
+            source_id=source_id,
+            legal_hold_at=held_at.isoformat() if held_at else None,
+            kept_because=kept_because,
+            inherited_from_id=inherited_from_id,
+        ),
+        settings=settings,
+    )
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    """A stored timestamp with its timezone (SQLite hands back naive UTC)."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
+
+
+def _recorded_hold_at(details: Any) -> datetime | None:
+    """The ``legal_hold_at`` an event recorded; ``None`` when it is missing,
+    is not a time or has no timezone."""
+    value = details.get("legal_hold_at") if isinstance(details, dict) else None
+    if not isinstance(value, str):
         return None
-    lock_meeting(db, workspace_id=workspace_id, meeting_id=media.meeting_id)
-    return media_by_id(db, workspace_id=workspace_id, media_id=media_id, for_update=True)
+    try:
+        recorded = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return recorded if recorded.tzinfo is not None else None
+
+
+def _hold_origins(
+    db: Session, *, workspace_id: str, rows: Iterable[MediaObject]
+) -> dict[str, tuple[str, str | None]]:
+    """Where the current hold of each held row came from (HOM-329).
+
+    A row does not record the origin of its hold, so its hold events in its
+    workspace are read.  An event counts only when it recorded the row's
+    exact ``legal_hold_at`` (compared as instants); events are never ordered
+    by time or id.  The hold is ``(_INHERITED, S)`` when every such
+    ``media.legal_hold_inherited`` event names the same source S and no such
+    ``media.legal_hold_placed`` event exists.  Any other hold counts as
+    direct: ``(_DIRECT, None)`` when a placed event matches, else
+    ``(_UNKNOWN, None)`` (no matching event, an event written before HOM-329,
+    two sources, or a hold set by a data fix).  The caller has locked the rows.
+    """
+    held_at = {row.id: _aware(row.legal_hold_at) for row in rows}
+    placed: set[str] = set()
+    sources: dict[str, set[Any]] = {row_id: set() for row_id in held_at}
+    if held_at:
+        events = db.execute(
+            select(AuditEvent.target_id, AuditEvent.event_type, AuditEvent.details).where(
+                AuditEvent.workspace_id == workspace_id,
+                AuditEvent.target_type == "media",
+                AuditEvent.target_id.in_(list(held_at)),
+                AuditEvent.event_type.in_(
+                    (
+                        AuditEventType.MEDIA_LEGAL_HOLD_PLACED.value,
+                        AuditEventType.MEDIA_LEGAL_HOLD_INHERITED.value,
+                    )
+                ),
+            )
+        )
+        for target_id, event_type, details in events:
+            at = held_at.get(target_id)
+            if at is None or _recorded_hold_at(details) != at:
+                continue
+            if event_type == AuditEventType.MEDIA_LEGAL_HOLD_PLACED.value:
+                placed.add(target_id)
+            else:
+                sources[target_id].add(details.get("source_id"))
+    origins: dict[str, tuple[str, str | None]] = {}
+    for row_id, found in sources.items():
+        source = next(iter(found)) if len(found) == 1 else None
+        if row_id in placed:
+            origins[row_id] = (_DIRECT, None)
+        elif isinstance(source, str) and source:
+            origins[row_id] = (_INHERITED, source)
+        else:
+            origins[row_id] = (_UNKNOWN, None)
+    return origins
 
 
 def _descendant_ids(db: Session, *, media: MediaObject) -> set[str]:
@@ -700,25 +875,35 @@ def _descendant_ids(db: Session, *, media: MediaObject) -> set[str]:
     return found
 
 
-def _locked_descendants(db: Session, *, media: MediaObject) -> list[MediaObject]:
-    """Every descendant of the locked ``media``, locked, oldest first.
+def _lock_with_descendants(
+    db: Session, *, workspace_id: str, media_id: str
+) -> tuple[MediaObject | None, list[MediaObject]]:
+    """The object by id and every descendant, locked and read again.
 
-    The ids are read after the caller's locks, and the rows are locked in the
-    same order as the meeting's rows elsewhere (``created_at``, ``id``).  A new
-    derived row needs its source's lock, so reading again after the locks finds
-    any row inserted in between; with the meeting lock held there is none.
+    The meeting row is locked first (``FOR KEY SHARE``), then the descendant
+    ids are read, then the object and all its descendants are locked in one
+    statement in the media row order, whatever their depth of lineage
+    (HOM-330).  A new derived row needs the meeting row ``FOR UPDATE``, so
+    the ids read under the meeting lock are final.  An object without a
+    meeting row has no meeting lock: the ids are read again after the locks,
+    and a row found only then (a registration held the source's lock) is
+    locked in a further statement.  Returns the object (``None`` when there is
+    none) and its descendants, oldest first.
     """
+    media = media_by_id(db, workspace_id=workspace_id, media_id=media_id)
+    if media is None:
+        return None, []
+    lock_meeting(db, workspace_id=workspace_id, meeting_id=media.meeting_id)
     seen: set[str] = set()
     locked: list[MediaObject] = []
-    while ids := _descendant_ids(db, media=media) - seen:
+    while ids := ({media.id} | _descendant_ids(db, media=media)) - seen:
         seen |= ids
-        statement = (
-            select(MediaObject)
-            .where(MediaObject.workspace_id == media.workspace_id, MediaObject.id.in_(ids))
-            .order_by(MediaObject.created_at.asc(), MediaObject.id.asc())
-        )
-        locked.extend(db.scalars(_locked(statement, True)))
-    return sorted(locked, key=lambda row: (row.created_at, row.id))
+        locked.extend(_lock_rows(db, workspace_ids={workspace_id}, ids=ids))
+    found = next((row for row in locked if row.id == media.id), None)
+    descendants = sorted(
+        (row for row in locked if row.id != media.id), key=lambda row: (row.created_at, row.id)
+    )
+    return found, descendants
 
 
 def hold_meeting_objects(
@@ -737,7 +922,8 @@ def hold_meeting_objects(
     The meeting row is locked before the objects are read (HOM-313): a derived
     object whose registration held that lock is committed and read here, and
     one registered after this commit waits and is created held.  Each object
-    is held directly (``media.legal_hold_placed``).
+    is held directly (``media.legal_hold_placed``); an inherited hold becomes
+    this direct hold (HOM-329).
     """
     lock_meeting(db, workspace_id=workspace_id, meeting_id=meeting_id)
     objects = media_for_meeting(
@@ -771,13 +957,14 @@ def hold_with_descendants(
 ) -> MediaObject | None:
     """Hold one object by id and every descendant that is not deleted or held yet.
 
-    The object gets ``place_legal_hold`` (an already held object is left as it
-    is); each descendant takes the object's recorded hold and gets
-    ``media.legal_hold_inherited``.  Like the meeting hold, this covers a
-    ``deletion_pending`` descendant: its recorded request is kept and waits
-    for the release.  Returns ``None`` when there is no such object.
+    The object gets ``place_legal_hold`` (an inherited hold becomes this
+    direct hold; any other hold is left as it is); each descendant takes the
+    object's recorded hold and gets ``media.legal_hold_inherited``.  Like the
+    meeting hold, this covers a ``deletion_pending`` descendant: its recorded
+    request is kept and waits for the release.  Returns ``None`` when there is
+    no such object.
     """
-    media = _lock_object(db, workspace_id=workspace_id, media_id=media_id)
+    media, descendants = _lock_with_descendants(db, workspace_id=workspace_id, media_id=media_id)
     if media is None:
         return None
     place_legal_hold(
@@ -789,7 +976,7 @@ def hold_with_descendants(
         now=now,
         settings=settings,
     )
-    for descendant in _locked_descendants(db, media=media):
+    for descendant in descendants:
         if descendant.lifecycle_state not in (
             MediaLifecycleState.DELETED,
             MediaLifecycleState.LEGAL_HOLD,
@@ -810,14 +997,21 @@ def release_with_descendants(
     actor_user_id: str | None,
     settings: Settings,
 ) -> tuple[MediaObject | None, list[MediaObject]]:
-    """Release one held object by id and every held descendant.
+    """Release one held object by id and the held descendants whose hold it gave.
+
+    A held descendant is released only when its current hold was inherited
+    (:func:`_hold_origins`) from the object or from a descendant released
+    here; the released set grows until nothing changes, so neither row order
+    nor depth matters (HOM-329).  Every other held descendant keeps its hold
+    as it is and gets ``media.legal_hold_kept``: a hold placed directly on it
+    (another matter) is released only by its own id.
 
     Returns the object (``None`` when there is none) and the released rows
     whose recorded deletion request is now pending, oldest first; the caller
     removes their bytes after the commit.  An object that is not held is
     refused (``not_held``) and nothing changes.
     """
-    media = _lock_object(db, workspace_id=workspace_id, media_id=media_id)
+    media, descendants = _lock_with_descendants(db, workspace_id=workspace_id, media_id=media_id)
     if media is None:
         return None, []
     if media.lifecycle_state is not MediaLifecycleState.LEGAL_HOLD:
@@ -832,16 +1026,37 @@ def release_with_descendants(
         settings=settings,
     ):
         pending.append(media)
-    for descendant in _locked_descendants(db, media=media):
-        if descendant.lifecycle_state is not MediaLifecycleState.LEGAL_HOLD:
-            continue
-        if _lift_hold(
+    held = [row for row in descendants if row.lifecycle_state is MediaLifecycleState.LEGAL_HOLD]
+    origins = _hold_origins(db, workspace_id=media.workspace_id, rows=held)
+    released = {media.id}
+    while more := {
+        row.id
+        for row in held
+        if row.id not in released
+        and origins[row.id][0] == _INHERITED
+        and origins[row.id][1] in released
+    }:
+        released |= more
+    for descendant in held:
+        origin, inherited_from_id = origins[descendant.id]
+        if descendant.id not in released:
+            _record_kept(
+                db,
+                media=descendant,
+                source_id=media.id,
+                kept_because="inherited_from_other" if origin == _INHERITED else origin,
+                inherited_from_id=inherited_from_id,
+                actor_user_id=actor_user_id,
+                settings=settings,
+            )
+        elif _lift_hold(
             db,
             media=descendant,
             cleaned_reason=cleaned_reason,
             actor_user_id=actor_user_id,
             settings=settings,
             source_id=media.id,
+            inherited_from_id=inherited_from_id,
         ):
             pending.append(descendant)
     return media, pending

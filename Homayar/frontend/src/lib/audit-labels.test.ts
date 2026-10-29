@@ -15,6 +15,11 @@ describe("audit event labels", () => {
     expect(auditEventLabel("media.legal_hold_inherited", "en")).toBe("Legal hold inherited");
   });
 
+  it("labels the kept-hold media event (HOM-329)", () => {
+    expect(auditEventLabel("media.legal_hold_kept", "fa")).toBe("نگهداری قانونی حفظ شد");
+    expect(auditEventLabel("media.legal_hold_kept", "en")).toBe("Legal hold kept");
+  });
+
   it("keeps the existing media labels and shows an unknown code as unlabelled", () => {
     expect(auditEventLabel("media.legal_hold_placed", "en")).toBe("Legal hold placed");
     expect(auditEventLabel("media.deleted", "fa")).toBe("فایل رسانه حذف شد");

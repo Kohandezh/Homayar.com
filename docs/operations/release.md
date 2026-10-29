@@ -78,9 +78,11 @@ checks the manifest's own `manifest_sha256` (an integrity checksum, not proof of
 unkeyed, so whoever edits a manifest can recompute it), the source commit and
 date, version, profile, `uv.lock` and `pyproject.toml` digests, migration head, shipped-code
 digest and file count, base image reference, uv version and the Python minor version, that
-every base image in `build_inputs` is pinned by digest, and with `--image-labels` the revision,
+every base image in `build_inputs` is pinned by digest, that every bundled image is pinned
+by digest, and with `--image-labels` the revision,
 version, created and base-image labels. A manifest made before HOM-228 now fails `verify` on
-this pin check, because it records the console-web and egress-proxy base images as tags.
+this pin check, because it records the console-web and egress-proxy base images as tags. A
+manifest made before HOM-286 also fails `verify`, because it has no `bundled_images`.
 
 CI does the same on every push and pull request (job `release-manifest`): it generates the
 manifest twice and compares the bytes, builds the API image with the `build-args` output,
@@ -133,6 +135,9 @@ Pinned:
 
   `verify` exits 1 when a manifest records a base image that is not pinned by digest, so CI
   fails on such a commit.
+* the bundled on-prem images by digest (`MINIO_IMAGE`, `MINIO_MC_IMAGE`), read from the
+  Compose defaults at the revision and recorded under `bundled_images`; they get no more
+  updates (HOM-286).
 
 Not pinned (recorded as such under `reproducibility.not_pinned` in every manifest):
 
