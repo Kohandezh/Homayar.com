@@ -1,0 +1,110 @@
+# One server behind a host nginx TLS front (app.homayar.com, HOM-328). Runbook:
+# docs/operations/app-server.md. Use it after compose.onprem.yaml:
+#   docker compose --file compose.onprem.yaml --file compose.onprem.app-server.yaml ...
+# It adds what a shared host needs and the base file leaves open:
+# 1. memory and CPU limits, so the stack cannot take RAM or CPU from other services;
+# 2. fixed subnets, so no project network can overlap the LAN or a VPN route, and the
+#    trusted proxy addresses below are known;
+# 3. trust of the host TLS front: the proxy takes the client IP from the X-Real-IP header
+#    that the host nginx sets, and the API takes it from the proxy.
+# Memory limits include the tmpfs mounts of each service (tmpfs pages count against the
+# limit). memswap_limit equal to mem_limit means the container never swaps.
+
+services:
+  proxy:
+    mem_limit: "${PROXY_MEM_LIMIT:-256m}"
+    memswap_limit: "${PROXY_MEM_LIMIT:-256m}"
+    cpus: "${PROXY_CPUS:-2}"
+    volumes:
+      # Keep its address in step with the edge gateway below.
+      - ../nginx/trusted-proxy/host-tls-front.conf:/etc/nginx/conf.d/00-trusted-proxy.conf:ro
+    networks:
+      edge: {}
+      ingress:
+        ipv4_address: 172.29.11.10
+
+  console-web:
+    mem_limit: "${CONSOLE_WEB_MEM_LIMIT:-128m}"
+    memswap_limit: "${CONSOLE_WEB_MEM_LIMIT:-128m}"
+    cpus: "${CONSOLE_WEB_CPUS:-1}"
+
+  api:
+    mem_limit: "${API_MEM_LIMIT:-1280m}"
+    memswap_limit: "${API_MEM_LIMIT:-1280m}"
+    cpus: "${API_CPUS:-4}"
+    environment:
+      # uvicorn trusts X-Forwarded-For only from the proxy's fixed address.
+      FORWARDED_ALLOW_IPS: 172.29.11.10
+
+  scheduler:
+    mem_limit: "${SCHEDULER_MEM_LIMIT:-256m}"
+    memswap_limit: "${SCHEDULER_MEM_LIMIT:-256m}"
+    cpus: "${SCHEDULER_CPUS:-0.5}"
+
+  worker:
+    mem_limit: "${WORKER_MEM_LIMIT:-2048m}"
+    memswap_limit: "${WORKER_MEM_LIMIT:-2048m}"
+    cpus: "${WORKER_CPUS:-4}"
+
+  postgres:
+    mem_limit: "${POSTGRES_MEM_LIMIT:-1024m}"
+    memswap_limit: "${POSTGRES_MEM_LIMIT:-1024m}"
+    cpus: "${POSTGRES_CPUS:-2}"
+
+  redis:
+    mem_limit: "${REDIS_MEM_LIMIT:-256m}"
+    memswap_limit: "${REDIS_MEM_LIMIT:-256m}"
+    cpus: "${REDIS_CPUS:-1}"
+
+  minio:
+    mem_limit: "${MINIO_MEM_LIMIT:-768m}"
+    memswap_limit: "${MINIO_MEM_LIMIT:-768m}"
+    cpus: "${MINIO_CPUS:-2}"
+
+  minio-bootstrap:
+    # One-shot. mc needs about 150 MiB (130 MiB anonymous); 128m was OOM-killed.
+    mem_limit: 256m
+    memswap_limit: 256m
+
+  egress-proxy:
+    mem_limit: "${EGRESS_PROXY_MEM_LIMIT:-128m}"
+    memswap_limit: "${EGRESS_PROXY_MEM_LIMIT:-128m}"
+    cpus: "${EGRESS_PROXY_CPUS:-1}"
+
+  migrate:
+    mem_limit: 768m
+    memswap_limit: 768m
+    environment:
+      # The migration owner. The API, worker and scheduler log in as homayar_api, a
+      # member of homayar_app (DATABASE_URL, with DATABASE_APP_ROLE empty).
+      DATABASE_URL: "${MIGRATION_DATABASE_URL:?Set the PostgreSQL DSN of the migration owner}"
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.29.10.0/24
+          gateway: 172.29.10.1
+  ingress:
+    ipam:
+      config:
+        - subnet: 172.29.11.0/24
+          # Dynamic addresses come only from .128 to .255, so no other container can
+          # take the proxy's fixed .10 (the one address uvicorn trusts).
+          ip_range: 172.29.11.128/25
+          gateway: 172.29.11.1
+  backend:
+    ipam:
+      config:
+        - subnet: 172.29.12.0/24
+          gateway: 172.29.12.1
+  egress:
+    ipam:
+      config:
+        - subnet: 172.29.13.0/24
+          gateway: 172.29.13.1
+  outbound:
+    ipam:
+      config:
+        - subnet: 172.29.14.0/24
+          gateway: 172.29.14.1
