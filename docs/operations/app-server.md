@@ -338,6 +338,18 @@ Never downgrade the database. A migration that is not backward-compatible needs 
 Every long-running service has `restart: unless-stopped`, so the stack comes back after a reboot
 of the server (Docker starts at boot).
 
+Tested on 2026-10-29 (commit `019a906`): one `docker restart` of each service, one at a time. Each
+came back by itself: api 17 s, worker 14 s, scheduler 3 s, proxy 7 s, console-web 6 s, postgres
+9 s, redis 6 s, minio 9 s. `/readyz` answered 200 at the end.
+
+Before that commit, a restart of the api broke it: every uvicorn worker died with
+`PermissionError` on `/run/homayar-metrics/counter_<pid>.db`, and the master kept starting new
+workers (about 2 CPUs). The cause is runc 1.3: when a tmpfs mount point already exists, the tmpfs
+gets that folder's mode, owned by root. After the first start the folder is root 755. The api and
+worker tmpfs mounts now say `uid=10001,gid=10001,mode=0700` (`compose.onprem.yaml`). If the loop
+ever comes back (for example an older release), end it with
+`~/homayar/hc up -d --no-build --pull never --force-recreate --no-deps api`.
+
 Full removal, Homayar only (destroys all data): `~/homayar/hc down --volumes`,
 `docker rmi homayar/api:<sha12> homayar/console-web:<sha12>`, `rm -rf ~/homayar`.
 
@@ -481,6 +493,9 @@ Found during HOM-328 (plan review):
 - A foreign `Host` header on `127.0.0.1:8080` still gets the static console HTML (the API part
   answers 400). Through the relay such a request is closed by the host nginx.
 - The tombstone journal is on a local Docker volume, not replicated (backups ticket).
+- `compose.cloud.yaml` has the same api and worker tmpfs mounts without `uid`/`mode`
+  (`/app/logs`, `/run/homayar-metrics`), so a cloud install has the same restart failure. Fixed
+  here only in `compose.onprem.yaml`.
 - The bundled nginx warns that its 2048 `worker_connections` exceed the container's open-file
   limit of 1024 (the Docker 29 default soft limit). Fine at today's traffic. A fix is
   `worker_rlimit_nofile` in `infra/nginx/nginx.conf` or `ulimits: nofile` in the overlay.
