@@ -646,7 +646,7 @@ Found during HOM-328:
   command line. This lasts 1 to 2 seconds on every `up`, and any local user can read it. The ops
   scripts `backup-minio.sh` and `restore-minio.sh` do the same. Must be fixed before uploads go
   live.
-- **O1 and O7 follow-up** (follow-up ticket, number to be added): MinIO keys on the
+- **O1 and O7 follow-up: [HOM-340](https://linear.app/homayar/issue/HOM-340).** MinIO keys on the
   command line and download links to `http://minio:9000`. Marked "must be fixed before uploads go
   live".
 - The bundled nginx warns that its 2048 `worker_connections` exceed the container's open-file
