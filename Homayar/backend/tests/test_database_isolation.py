@@ -137,12 +137,23 @@ def _schema_objects(connection) -> frozenset[tuple[str, str]]:
     return frozenset(tuple(row) for row in connection.execute(_SCHEMA_OBJECTS))
 
 
+def _privileges_of(connection) -> dict[str, list[tuple]]:
+    """The ``public`` schema ACL and the default privileges for schema ``public``."""
+    return {
+        "public schema": sorted(tuple(row) for row in connection.execute(_isolation._PUBLIC_ACL)),
+        "default privileges in public": sorted(
+            tuple(row) for row in connection.execute(_isolation._DEFAULT_ACL) if row[1] == "public"
+        ),
+    }
+
+
 @pytest.fixture(scope="module")
-def real_build_objects() -> Iterator[frozenset[tuple[str, str]]]:
-    """Every object a real build creates on an empty database (a scratch database)."""
+def real_build() -> Iterator[dict[str, object]]:
+    """What a real build creates on an empty database (a scratch database): its objects
+    and its privileges."""
     url = configured_database_url()
     if not is_postgres_url(url):
-        yield frozenset()
+        yield {"objects": frozenset(), "privileges": {}}
         return
     name = f"hom292_reference_{secrets.token_hex(4)}"
     admin = create_engine(
@@ -158,13 +169,26 @@ def real_build_objects() -> Iterator[frozenset[tuple[str, str]]]:
         try:
             with engine.connect() as connection:
                 objects = _schema_objects(connection)
+                privileges = _privileges_of(connection)
         finally:
             engine.dispose()
     finally:
         with admin.connect() as connection:
             connection.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
         admin.dispose()
-    yield objects
+    yield {"objects": objects, "privileges": privileges}
+
+
+@pytest.fixture(scope="module")
+def real_build_objects(real_build) -> frozenset[tuple[str, str]]:
+    """Every object a real build creates on an empty database."""
+    return real_build["objects"]
+
+
+@pytest.fixture(scope="module")
+def real_build_privileges(real_build) -> dict[str, list[tuple]]:
+    """The privileges a real build sets on an empty database."""
+    return real_build["privileges"]
 
 
 def _assert_canonical_schema(real_build_objects: frozenset[tuple[str, str]]) -> None:
@@ -285,9 +309,7 @@ def test_both_reset_paths_empty_tables_and_restart_identities(client, email_outb
             tables = [name for name, kind in inventory if kind in ("r", "p")]
             sequences = [name for name, kind in inventory if kind == "S"]
             assert set(sequences) == {"public.hom292_counter", "public.hom292_identity_id_seq"}
-            _isolation.reset_rows(
-                connection, tables=tables, sequences=sequences, strategy=strategy
-            )
+            _isolation.reset_rows(connection, tables=tables, sequences=sequences, strategy=strategy)
     finally:
         engine.dispose()
     assert _scalar("SELECT count(*) FROM users") == 0
@@ -816,9 +838,7 @@ def test_the_lifespan_skips_the_rebuild_on_the_canonical_schema(client, settings
 
 
 @pytest.mark.postgres
-def test_the_lifespan_keeps_the_environment_guard_outside_test_and_development(
-    client, settings
-):
+def test_the_lifespan_keeps_the_environment_guard_outside_test_and_development(client, settings):
     # On the canonical schema the skip is only for test and development; any other
     # environment reaches the real function, which refuses, as on the base.
     staging = settings.model_copy(update={"environment": "staging"})
@@ -891,6 +911,26 @@ def _app_role_state() -> tuple:
                 {"app": APP_ROLE},
             ).one()
         )
+
+
+@pytest.mark.postgres
+def test_the_first_build_does_not_keep_grants_from_before_the_session(
+    client, tmp_path, monkeypatch, real_build_objects, real_build_privileges
+):
+    # An earlier, interrupted session left a schema grant and a default privilege.  The
+    # first build of a session must not take them as canonical (SPEC 12: canonical is what a
+    # real build makes on an empty database).
+    _admin(
+        f"GRANT CREATE ON SCHEMA public TO {APP_ROLE}",
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT TRUNCATE ON TABLES TO {APP_ROLE}",
+    )
+    assert _scalar(f"SELECT has_schema_privilege('{APP_ROLE}', 'public', 'CREATE')")
+    monkeypatch.setattr(_isolation, "_state", _isolation._State())  # a new session
+    _isolation.canonical_database_url(tmp_path)
+    assert _isolation.active_reset_strategy() is not None  # that was the first build
+    with inspection_session_factory()() as db:
+        assert _privileges_of(db.connection()) == real_build_privileges
+    _assert_canonical_schema(real_build_objects)
 
 
 @pytest.mark.postgres

@@ -84,12 +84,14 @@ backend job has no `prom/prometheus` image. The *Container configuration* job ru
 promtool commands and is the gate for the alert rules; do not drop its steps because pytest seems
 to cover them.
 
-Each backend shard job may run for 35 minutes. The test step took 1:19:49 on run 40769280687,
+Each backend shard job may run for 30 minutes. The test step took 1:19:49 on run 40769280687,
 when every test rebuilt the schema, and 48:00 on run 40795356019 with the schema built once and
 the tests run serially (HOM-292). One job with four xdist workers took 27:10, 18:43 and 28:09 on
-the same configuration (runs 40805797597, 40808843162 and 40809285732): shared runners vary by
-about 1.5 times. With two shards the steps took 14:40 (job 16:02) and 9:52 (job 10:44) on run
-40814581688. The limit is about twice the slower job, rounded up to a multiple of 5.
+three commits of this branch with the same job shape (runs 40805797597, 40808843162 and
+40809285732; the third with PostgreSQL durability settings off, since reverted): shared runners
+vary by about 1.5 times. The final shape, two shards, took steps of 10:21 and 13:29 (jobs 11:34
+and 14:22) on run 40817325867. The limit is about twice the slower job, rounded up to a multiple
+of 5, and at least 30 minutes.
 
 The golden text-normalization module (`test_text_normalization_golden.py`, HOM-120/HOM-172) has a
 wall-clock budget, enforced by

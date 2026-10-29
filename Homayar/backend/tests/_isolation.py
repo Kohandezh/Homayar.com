@@ -26,6 +26,11 @@ decides.
 Known limits: operators, operator classes and families, text search objects, casts,
 conversions, publications and comments are neither in the fingerprint nor dropped by a
 full build.  A test that leaves one of them behind passes it to the next test.
+
+The first build of a session puts the ``public`` schema's privileges back to those of a
+fresh database before the real build (an interrupted earlier session may have left a
+grant).  Database settings and ``homayar_app`` attributes from before the session stay as
+the base leaves them; later builds in the session restore them to the first build's.
 """
 
 # ruff: noqa: S608 - the SQL is built from catalog names (quote_ident, regclass) and
@@ -487,7 +492,9 @@ def _full_build(url: str) -> None:
     try:
         with engine.begin() as connection:
             _drop_leftovers(connection, _state.baseline)
-            if _state.baseline is not None:
+            if _state.baseline is None:
+                _reset_public_schema_privileges(connection)
+            else:
                 _restore_baseline(connection, _state.baseline)
         relational.create_schema_for_test_or_development(_schema_settings(url))
         with engine.connect() as connection:
@@ -754,6 +761,33 @@ def _restore_app_role(connection: Connection, baseline: _Baseline) -> None:
         ):
             granted, _, grantor = membership.partition(" GRANTED BY ")
             connection.execute(text(f"REVOKE {granted} FROM {app} GRANTED BY {grantor}"))
+
+
+def _reset_public_schema_privileges(connection: Connection) -> None:
+    """The ``public`` schema's privileges as in a fresh database, before the first build.
+
+    A fresh database grants on ``public`` only to its owner and to ``PUBLIC`` and has no
+    default privileges for it; the real build then adds exactly its own grants.
+    """
+    owner = connection.execute(
+        text(
+            "SELECT quote_ident(pg_get_userbyid(nspowner)) FROM pg_namespace "
+            "WHERE nspname = 'public'"
+        )
+    ).scalar_one()
+    for grantee, privilege, _grantable in connection.execute(_PUBLIC_ACL).all():
+        if grantee not in ("PUBLIC", owner):
+            connection.execute(text(f"REVOKE {privilege} ON SCHEMA public FROM {grantee} CASCADE"))
+    for role, schema, kind, grantee, privilege, _grantable in connection.execute(
+        _DEFAULT_ACL
+    ).all():
+        if schema == "public":
+            connection.execute(
+                text(
+                    f"ALTER DEFAULT PRIVILEGES FOR ROLE {role} IN SCHEMA public "
+                    f"REVOKE {privilege} ON {_DEFAULT_ACL_OBJECTS[kind]} FROM {grantee} CASCADE"
+                )
+            )
 
 
 def _restore_default_privileges(connection: Connection, baseline: frozenset[tuple]) -> None:
