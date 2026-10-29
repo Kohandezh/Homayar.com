@@ -14,6 +14,8 @@ The infrastructure baseline exposes one origin through nginx:
 The public website (homayar.com) is not part of a self-hosted install. It lives in
 `website/` and is deployed to Cloudflare Workers (see `website/DEPLOY.md`).
 
+The relay VPS and frp tunnel for the local production server: see [relay-tunnel.md](relay-tunnel.md).
+
 `compose.onprem.yaml` runs PostgreSQL, Redis, MinIO, API, worker, the console web
 service, and nginx. `compose.cloud.yaml` runs only application services and nginx; PostgreSQL,
 Redis, and S3-compatible storage are externally managed. Neo4j is an optional overlay on
