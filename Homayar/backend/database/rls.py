@@ -79,7 +79,9 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     # Stored trend judgments (HOM-290): ids, versions and a digest of an extraction's content.
     "trend_extraction_judgments",
     "webhook_endpoints",
-    "webhook_deliveries",
+    # Webhook signing secrets (encrypted) and the request log (HOM-89).
+    "webhook_signing_keys",
+    "webhook_delivery_attempts",
     "provider_usage",
     "notifications",
     "ai_policy_versions",
@@ -171,6 +173,14 @@ POLICIES: dict[str, tuple[str, str]] = {
     # own workspace from the persisted row (WITH CHECK stays tenant-bound).
     "entitlements": (
         f"workspace_id = {TENANT} OR {SERVICE} = 'usage_reconciliation'",
+        f"workspace_id = {TENANT}",
+    ),
+    # The webhook sweeper (HOM-89) discovers due deliveries across tenants under
+    # the read-only 'webhook_delivery' service scope; every send and every write
+    # binds the delivery's own workspace (WITH CHECK stays tenant-bound).  The
+    # scope reaches no endpoint, key or attempt row.
+    "webhook_deliveries": (
+        f"workspace_id = {TENANT} OR {SERVICE} = 'webhook_delivery'",
         f"workspace_id = {TENANT}",
     ),
     # Platform-level audit rows (login, OTP) carry no workspace; a share access
@@ -302,6 +312,8 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
 # ``audit_events`` (HOM-115, ADR 0036): history cannot be rewritten by the
 # application; the user/workspace ``ON DELETE SET NULL`` still runs as owner.
 # ``scorecard_versions`` (HOM-54): a published scorecard version never changes.
+# ``webhook_delivery_attempts`` (HOM-89): one row per HTTP request sent, never
+# rewritten, so the ledger shows every request that left.
 APPEND_ONLY_TABLES: tuple[str, ...] = (
     "model_manifests",
     "ai_policy_versions",
@@ -309,7 +321,16 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "plan_versions",
     "audit_events",
     "scorecard_versions",
+    "webhook_delivery_attempts",
 )
+
+# Tables the application role may read, insert and update but never delete.
+# ``webhook_deliveries`` (HOM-89) is the outbound delivery ledger: the
+# application never deletes a ledger row.  The missing grant also keeps the
+# 'webhook_delivery' scope, which the FOR ALL policy's USING clause lets see
+# every tenant's rows, from deleting them.  Workspace and endpoint cascades run
+# as the table owner and are unaffected.
+NO_DELETE_TABLES: tuple[str, ...] = ("webhook_deliveries",)
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on
 # ``audit_events`` only, across tenants through a policy granted to it alone.
@@ -499,6 +520,9 @@ def apply_row_level_security(connection: Connection, *, role: str = APP_ROLE) ->
             text("SELECT to_regclass(:name) IS NOT NULL"), {"name": f"public.{table}"}
         ).scalar_one():
             connection.execute(text(f"REVOKE UPDATE, DELETE ON {table} FROM {role}"))
+    for table in NO_DELETE_TABLES:
+        if table in tables:
+            connection.execute(text(f"REVOKE DELETE ON {table} FROM {role}"))
     if AUDIT_TABLE in tables:
         for statement in audit_reader_statements(app_role=role):
             connection.execute(text(statement))

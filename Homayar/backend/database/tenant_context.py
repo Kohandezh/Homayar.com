@@ -57,6 +57,10 @@ SERVICE_SCOPE_USAGE_RECONCILIATION = "usage_reconciliation"
 # Voice recovery (P0 wave, X21): fails live calls of lapsed media nodes and
 # expired capacity slots across tenants (state/end columns only).
 SERVICE_SCOPE_VOICE_RECOVERY = "voice_recovery"
+# Webhook delivery sweeper (HOM-89): discovers due webhook_deliveries rows
+# across tenants (read-only); every send and every write then binds the
+# workspace read from the persisted delivery row.
+SERVICE_SCOPE_WEBHOOK_DELIVERY = "webhook_delivery"
 
 ALL_GUCS: tuple[str, ...] = (
     GUC_USER_ID,
