@@ -84,6 +84,8 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "notifications",
     "ai_policy_versions",
     "run_policy_snapshots",
+    # Published QA scorecard versions (HOM-54): never through a share token.
+    "scorecard_versions",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",
@@ -299,12 +301,14 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
 # cascades (workspace removal) run as the table owner and are unaffected.
 # ``audit_events`` (HOM-115, ADR 0036): history cannot be rewritten by the
 # application; the user/workspace ``ON DELETE SET NULL`` still runs as owner.
+# ``scorecard_versions`` (HOM-54): a published scorecard version never changes.
 APPEND_ONLY_TABLES: tuple[str, ...] = (
     "model_manifests",
     "ai_policy_versions",
     "run_policy_snapshots",
     "plan_versions",
     "audit_events",
+    "scorecard_versions",
 )
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on
