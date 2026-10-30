@@ -455,13 +455,14 @@ relay never sees them.
 
 | Site | Renews with | Expires |
 | --- | --- | --- |
-| `inotex.padyar.com` | HTTP-01, webroot | `<filled after the owner run>` |
-| `elecomp.padyar.com` | HTTP-01, webroot | `<filled after the owner run>` |
-| `inotexpwa.padyar.com` | HTTP-01, webroot | `<filled after the owner run>` |
+| `inotex.padyar.com` | HTTP-01, webroot | 2027-01-28 10:33 UTC (renewed 2026-10-30) |
+| `elecomp.padyar.com` | HTTP-01, webroot | 2027-01-28 10:33 UTC (renewed 2026-10-30) |
+| `inotexpwa.padyar.com` | HTTP-01, webroot | 2026-11-29 12:16 UTC (due from 2026-10-30 12:16 UTC; the timer renews it) |
 | `avatar.padyar.com` | `dns-cloudflare`, token invalid | 2026-12-01 00:07 UTC |
 | `live.padyar.com` | `dns-cloudflare`, token invalid | 2026-12-01 00:50 UTC |
 
-The 3 published sites were switched to webroot on `<filled after the owner run>` (HOM-335).
+The 3 published sites were switched to webroot on 2026-10-30 at 11:31 UTC (HOM-335). The same
+owner run renewed inotex and elecomp and reloaded nginx once, at 11:32 UTC.
 
 How they renew:
 
