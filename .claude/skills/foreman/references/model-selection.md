@@ -55,8 +55,8 @@ someone else to judge. It never returns a verdict, and no acceptance decision re
 ## Why the escalation ladder stops where it does
 
 `xhigh` is for a work unit whose failure is expensive and quiet: authentication,
-authorization, session and token handling, concurrency, and migrations. Those defects pass
-tests and surface in production.
+authorization, session and token handling, secrets, concurrency, migrations, and a
+frozen-file hash. Those defects pass tests and surface in production.
 
 `max` is for exactly one case: a second checker did not settle a disagreement and a final
 reviewer is the last gate. Running `max` everywhere removes the signal that a specific

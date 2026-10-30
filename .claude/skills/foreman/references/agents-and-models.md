@@ -28,8 +28,12 @@ To keep quality, the checker gets stricter, not the maker weaker:
   `xhigh`;
 - escalation is the only way an implementer moves to Claude: two `CHANGES_REQUESTED` on
   the same work unit, or a stall with no handoff after two nudges. Restart the maker on
-  Claude `opus`, from the same worktree, with the same brief plus the review reports.
-  Record the switch in `ledger.md`.
+  Claude `opus`, from the same worktree, with the same brief plus the review reports. An
+  escalated Claude implementer needs a new pane made with
+  `--env CLAUDE_CONFIG_DIR="$HOME/.claude-personal"`; end the GLM session first
+  (`ctrl+c` twice), and never start Claude in the old GLM pane, because without that
+  variable the session never reports its state and `herdr agent wait` hangs. Record the
+  switch in `ledger.md`.
 
 ### Claude Code on the personal config
 
@@ -87,10 +91,10 @@ herdr pane split <pane> --direction right|down --cwd <path> --env KEY=VALUE --no
 herdr agent start <name> --kind claude --pane <pane-id> [--timeout MS] -- <claude args>
 ```
 
-Claude example, a checker started below its team's root pane:
+Claude example, a checker started below the maker's pane:
 
 ```bash
-herdr pane split <team-root-pane> --direction down --cwd <checker-path> \
+herdr pane split <maker-pane> --direction down --cwd <checker-path> \
   --env CLAUDE_CONFIG_DIR="$HOME/.claude-personal" --no-focus      # -> .result.pane.pane_id
 herdr agent start <checker-name> --kind claude --pane <checker-pane> -- --model opus --effort high
 ```
@@ -147,7 +151,7 @@ spend. Where the decision is already made and only needs typing, do not.
 
 | Role         | Group    | Model    | Effort   | Why                                                       |
 | ------------ | -------- | -------- | -------- | --------------------------------------------------------- |
-| implementer  | making   | GLM-5.3 in OpenCode | default | every work unit, every kind of work; owner order 2026-10-30 |
+| implementer  | making   | GLM-5.3 in OpenCode | `high`   | every work unit, every kind of work; owner order 2026-10-30 |
 | investigator | making   | `opus`   | `high`   | root cause, not symptom                                   |
 | tracer       | making   | `sonnet` | `medium` | multi-hop reading against a fixed question                |
 | researcher   | making   | `opus`   | `high`   | synthesis and the recommendation                          |
@@ -160,8 +164,9 @@ spend. Where the decision is already made and only needs typing, do not.
 | scout        | expansion | `haiku` | `low`    | wide fan-out search; returns paths, not verdicts           |
 
 The implementer row is fixed: GLM-5.3 in OpenCode for every work unit (owner order
-2026-10-30). The Claude models in "Choosing the implementer model" apply to an implementer
-only after escalation. Every checking and expansion row stays on Claude, always.
+2026-10-30). OpenCode uses its default level, shown as `high` in its status line. The
+Claude models in "Choosing the implementer model" apply to an implementer only after
+escalation. Every checking and expansion row stays on Claude, always.
 
 Raise the reviewer, and a Claude implementer after escalation, to `xhigh` when the work
 unit touches authentication, authorization, session or token handling, secrets,
@@ -214,7 +219,8 @@ Confirm three things, in this order:
    current (GLM). Stop and fix that, not the prompt.
 2. the model line names the model this table assigns to the role. For a GLM implementer
    the status line reads `GLM-5.3 Z.AI Coding Plan`.
-3. the effort line names the assigned level.
+3. the effort line names the assigned level. For a GLM implementer the status line shows
+   `high`.
 
 A session running the wrong model or the wrong level is restarted, not corrected mid-turn.
 Record the harness, the model and the effort of every agent in `ledger.md` at start time,
