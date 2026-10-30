@@ -41,6 +41,7 @@ from backend.database.rls import (
     TENANT,
     UNPROTECTED_TABLES,
     WORKSPACE_TABLES,
+    apply_row_level_security,
 )
 from backend.database.saas_models import (
     EXTERNAL_LINK_TYPE_CHECK,
@@ -1349,6 +1350,10 @@ def test_the_migration_creates_and_drops_only_the_five_tables(
     try:
         command.stamp(config, "head")
         command.downgrade(config, NEW_REVISION)
+        # The re-upgrade applies the live RLS registry (HOM-89), so the baseline must too.
+        with inspection_session_factory()() as db:
+            apply_row_level_security(db.connection())
+            db.commit()
         others = _other_tables()  # after the stamp, which adds alembic_version
         command.downgrade(config, BASE_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
