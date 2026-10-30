@@ -62,6 +62,11 @@ class Permission(str, Enum):
     MEETING_CREATE = "meeting:create"
     MEETING_UPDATE = "meeting:update"
     MEETING_DELETE = "meeting:delete"
+    # Call attribution (HOM-360, ADR 0052): change a call's team or agent.  The review
+    # queue decides authority from both, so this is not part of ``meeting:update``.
+    # Owner and admin only; a supervisor assignment or ``record_scope`` never grants it,
+    # and it is never carried by an API key.
+    MEETING_ATTRIBUTE = "meeting:attribute"
     SHARE_MANAGE = "share:manage"
     MEMBER_READ = "member:read"
     MEMBER_MANAGE = "member:manage"
@@ -105,6 +110,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.MEETING_CREATE,
             Permission.MEETING_UPDATE,
             Permission.MEETING_DELETE,
+            Permission.MEETING_ATTRIBUTE,
             Permission.SHARE_MANAGE,
             Permission.MEMBER_READ,
             Permission.MEMBER_MANAGE,

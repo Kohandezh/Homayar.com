@@ -129,7 +129,12 @@ from backend.services.meeting_service import (
 from backend.services.quality_service import assess_meeting
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
 from backend.services.report_service import meeting_completeness
-from backend.services.team_service import validate_agent_attribution, validate_team_attribution
+from backend.services.review_queue_service import active_item_id
+from backend.services.team_service import (
+    authorize_attribution_change,
+    validate_agent_attribution,
+    validate_team_attribution,
+)
 from backend.services.tombstone_journal import (
     JOURNAL_INLINE_LIMIT,
     journal_for,
@@ -923,17 +928,35 @@ def update_meeting(
         context=context,
         meeting_id=meeting_id,
     )
+    # Call attribution (HOM-360, ADR 0052).  A value equal to the current one is not a
+    # change, so a client that sends back the whole record needs no extra right.  Every
+    # check runs before any field is written.
+    attribution: dict[str, str | None] = {
+        name: getattr(payload, name)
+        for name in ("team_id", "agent_user_id")
+        if name in payload.model_fields_set and getattr(payload, name) != getattr(meeting, name)
+    }
+    authorize_attribution_change(
+        context, current_agent_user_id=meeting.agent_user_id, changes=attribution
+    )
+    if "team_id" in attribution:
+        attribution["team_id"] = validate_team_attribution(
+            db, context=context, team_id=attribution["team_id"]
+        )
+    if "agent_user_id" in attribution:
+        attribution["agent_user_id"] = validate_agent_attribution(
+            db, context=context, agent_user_id=attribution["agent_user_id"]
+        )
+    attribution_before = {"team_id": meeting.team_id, "agent_user_id": meeting.agent_user_id}
     changed: list[str] = []
     if "title" in payload.model_fields_set and payload.title is not None:
         meeting.title = payload.title.strip()
         changed.append("title")
-    if "team_id" in payload.model_fields_set:
-        meeting.team_id = validate_team_attribution(db, context=context, team_id=payload.team_id)
+    if "team_id" in attribution:
+        meeting.team_id = attribution["team_id"]
         changed.append("team_id")
-    if "agent_user_id" in payload.model_fields_set:
-        meeting.agent_user_id = validate_agent_attribution(
-            db, context=context, agent_user_id=payload.agent_user_id
-        )
+    if "agent_user_id" in attribution:
+        meeting.agent_user_id = attribution["agent_user_id"]
         changed.append("agent_user_id")
     if "conversation_type" in payload.model_fields_set and payload.conversation_type is not None:
         meeting.conversation_type = payload.conversation_type.value
@@ -948,6 +971,27 @@ def update_meeting(
         raise HTTPException(
             status_code=422,
             detail={"code": "no_changes", "message": "No updatable field was provided"},
+        )
+    if attribution:
+        # Ids only.  The review item says which review the change moved, if any.
+        record_audit_event(
+            db,
+            event_type=AuditEventType.MEETING_ATTRIBUTION_CHANGED,
+            actor_user_id=context.actor.user.id,
+            workspace_id=context.workspace.id,
+            target_type="meeting",
+            target_id=meeting.id,
+            request_id=getattr(request.state, "request_id", None),
+            details={
+                "team_id_before": attribution_before["team_id"],
+                "team_id_after": meeting.team_id,
+                "agent_user_id_before": attribution_before["agent_user_id"],
+                "agent_user_id_after": meeting.agent_user_id,
+                "active_review_item_id": active_item_id(
+                    db, workspace_id=context.workspace.id, meeting_id=meeting.id
+                ),
+            },
+            settings=settings,
         )
     record_audit_event(
         db,

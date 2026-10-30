@@ -389,18 +389,24 @@ def test_team_scope_restricts_records_and_attribution(client, email_outbox, monk
     assert search.status_code == 200
     assert {item["title"] for item in search.json()["items"]} == {"A call"}
 
-    # attribution: supervisor cannot move a record to a team they do not
-    # supervise, detach it, or attribute it to an agent outside their teams
-    assert sup.patch(f"/api/v1/meetings/{m_a}", json={"team_id": team_b}).status_code == 403
-    assert sup.patch(f"/api/v1/meetings/{m_a}", json={"team_id": None}).status_code == 403
-    outside_agent = sup.patch(f"/api/v1/meetings/{m_a}", json={"agent_user_id": lone.user_id})
-    assert outside_agent.status_code == 403
+    # attribution (HOM-360, ADR 0052): a supervisor holds no meeting:attribute, so
+    # they cannot move a record, detach it, or attribute it to another agent
+    for body in ({"team_id": team_b}, {"team_id": None}, {"agent_user_id": lone.user_id}):
+        refused = sup.patch(f"/api/v1/meetings/{m_a}", json=body)
+        assert refused.status_code == 403, body
+        assert refused.json()["error"]["code"] == "attribution_change_denied", body
+    # the same agent and title sent back are no attribution change (R3)
     ok = sup.patch(
         f"/api/v1/meetings/{m_a}", json={"agent_user_id": agent.user_id, "title": "A call"}
     )
     assert ok.status_code == 200 and ok.json()["agent_user_id"] == agent.user_id
-    # an agent (no supervised team) cannot re-home their own record
-    assert agent.patch(f"/api/v1/meetings/{m_a}", json={"team_id": team_a}).status_code == 403
+    # an agent cannot re-home their own record; its current team alone is no change
+    rehome = agent.patch(f"/api/v1/meetings/{m_a}", json={"team_id": team_b})
+    assert rehome.status_code == 403
+    assert rehome.json()["error"]["code"] == "attribution_change_denied"
+    same_team = agent.patch(f"/api/v1/meetings/{m_a}", json={"team_id": team_a})
+    assert same_team.status_code == 422
+    assert same_team.json()["error"]["code"] == "no_changes"
     # admin may move it anywhere in the workspace
     moved = admin.patch(f"/api/v1/meetings/{m_b}", json={"team_id": team_a})
     assert moved.status_code == 200 and moved.json()["team_id"] == team_a

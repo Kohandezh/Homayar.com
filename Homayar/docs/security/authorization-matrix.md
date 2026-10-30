@@ -54,6 +54,7 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 | meeting:create | ✓ | ✓ | ✓ | – |
 | meeting:update | ✓ | ✓ | ✓ | – |
 | meeting:delete | ✓ | ✓ | – | – |
+| meeting:attribute | ✓ | ✓ | – | – |
 | share:manage | ✓ | ✓ | ✓ | – |
 | member:read | ✓ | ✓ | ✓ | ✓ |
 | member:manage | ✓ | ✓ | – | – |
@@ -74,7 +75,7 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 | review:manage | ✓ | ✓ | ✓ | – |
 <!-- matrix:permissions:end -->
 
-`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope. `scorecard:read` (every role) reads the published QA scorecard versions and `scorecard:manage` (owner, admin) publishes a new version (§6o); neither is an API-key scope. `webhook:manage` (owner, admin) adds, changes, rotates and tests outbound webhook endpoints (§6p); it is never an API-key scope, because a key that could add an endpoint could copy every future event out of the workspace. `review:read` and `review:manage` (owner, admin, member) open the supervisor review queue; which items a caller sees and works is decided per record (§6q); neither is an API-key scope.
+`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope. `scorecard:read` (every role) reads the published QA scorecard versions and `scorecard:manage` (owner, admin) publishes a new version (§6o); neither is an API-key scope. `webhook:manage` (owner, admin) adds, changes, rotates and tests outbound webhook endpoints (§6p); it is never an API-key scope, because a key that could add an endpoint could copy every future event out of the workspace. `review:read` and `review:manage` (owner, admin, member) open the supervisor review queue; which items a caller sees and works is decided per record (§6q); neither is an API-key scope. `meeting:attribute` (owner, admin) changes a call's `team_id` or `agent_user_id` (§5, "Attribution writes"; HOM-360, ADR 0052); a supervisor assignment or `record_scope` never grants it, and it is never an API-key scope, so no key changes a call's attribution.
 
 ### 3a. Permission grants by organization role (machine-checked)
 
@@ -139,17 +140,26 @@ Which **workspace** roles an organization role may install in (or withdraw from)
 | `workspace` (default; trial and personal workspaces) | all records | all records |
 | `team` | all records | union of: meetings of teams where the caller holds an **effective** `supervisor` assignment; meetings with `agent_user_id = caller`; meetings with `created_by_user_id = caller`. No assignment → own records only. |
 
-An assignment is effective when `revoked_at IS NULL AND valid_from ≤ now < valid_until (or NULL)` and its team is active. The predicate is applied to **every** meeting lookup (list, detail, job, recording, transcript, summary, actions, speakers, search, export, share create/list/revoke); an invisible record answers `404`, never `403`, so existence is not disclosed. The issue trends (`GET /trends/issues`, HOM-80) count only the meetings of this predicate; a `team_id` filter is ANDed with it, so a team outside the caller's scope answers `200` narrowed to what they may see (often empty), never `403`. HOM-82 keeps that answer and adds: `agent_user_id` on `GET /trends/issues` accepts only the caller's own id (`403 agent_scope_denied` otherwise); the team comparison `GET /trends/teams` compares every active team for an owner or admin and, for a member or viewer, only the active teams where they hold an effective `supervisor` assignment, whatever the record scope (`403 team_scope_denied` otherwise, also for a named `team_id` outside that set); the self-view `GET /trends/me` counts only `agent_user_id = caller`. `team_scope_denied` and `agent_scope_denied` therefore mean two things: a refused attribution write (below) and a refused read scope on the trend views. A team or a small group of agents is released only as the role views' disclosure rules allow (`backend/issue_trends/README.md`, "HOM-82: role views and disclosure"). The supporting conversations of a cell (`GET /api/v1/trends/conversations`, HOM-83) are decided by the same rules: only a `computed` cell lists its numerator's conversations, all inside this predicate (live meetings only), as ids; every other cell answers `403 trend_links_withheld`. Organization roles get no links (ADR 0012 decision 2).
+An assignment is effective when `revoked_at IS NULL AND valid_from ≤ now < valid_until (or NULL)` and its team is active. The predicate is applied to **every** meeting lookup (list, detail, job, recording, transcript, summary, actions, speakers, search, export, share create/list/revoke); an invisible record answers `404`, never `403`, so existence is not disclosed. The issue trends (`GET /trends/issues`, HOM-80) count only the meetings of this predicate; a `team_id` filter is ANDed with it, so a team outside the caller's scope answers `200` narrowed to what they may see (often empty), never `403`. HOM-82 keeps that answer and adds: `agent_user_id` on `GET /trends/issues` accepts only the caller's own id (`403 agent_scope_denied` otherwise); the team comparison `GET /trends/teams` compares every active team for an owner or admin and, for a member or viewer, only the active teams where they hold an effective `supervisor` assignment, whatever the record scope (`403 team_scope_denied` otherwise, also for a named `team_id` outside that set); the self-view `GET /trends/me` counts only `agent_user_id = caller`. `team_scope_denied` and `agent_scope_denied` therefore mean two things: a refused voicemail assignment (below) and a refused read scope on the trend views. A team or a small group of agents is released only as the role views' disclosure rules allow (`backend/issue_trends/README.md`, "HOM-82: role views and disclosure"). The supporting conversations of a cell (`GET /api/v1/trends/conversations`, HOM-83) are decided by the same rules: only a `computed` cell lists its numerator's conversations, all inside this predicate (live meetings only), as ids; every other cell answers `403 trend_links_withheld`. Organization roles get no links (ADR 0012 decision 2).
 
-Attribution writes (`PATCH /meetings/{id}` with `team_id` / `agent_user_id`, permission `meeting:update`):
+Attribution writes (`PATCH /meetings/{id}` and its alias `PATCH /conversations/{id}` with `team_id` / `agent_user_id`; HOM-360, ADR 0052). The review queue decides who sees and works a review from these two values (§6q), so changing them is its own right, `meeting:attribute`, and not part of `meeting:update`. After the meeting lookup (an invisible call stays `404`) the handler checks, in this order:
 
-| Actor | `team_id` | `agent_user_id` |
+1. A value equal to the call's current value is not a change. It needs no right, is not checked again, is not written and is not listed in the audit `fields`. A body with nothing else answers `422 no_changes`. So a client that sends back the whole record when it edits the title keeps working.
+2. A changed value, clearing to `null` included, needs `meeting:attribute` (owner, admin). Everyone else who holds `meeting:update` gets `403 attribution_change_denied`: members (supervisors too, under any `record_scope`) and every API key. No field of the request is written, also not `title`. A caller without `meeting:update` (a viewer, or a key without that scope) never reaches this check: the route's permission check refuses it earlier with `403 permission_denied` or `403 api_key_scope_denied`.
+3. Nobody changes the attribution of a call where they are the current agent, or sets `agent_user_id` to themselves. This holds for owners and admins too: `403 attribution_own_call`.
+4. Then the existing validators: teams of another workspace or inactive teams are `422 invalid_team`; non-members are `422 invalid_agent`.
+
+Every accepted change writes `meeting.attribution_changed` (target `meeting`) in the same transaction as `meeting.updated`. Its details are ids only: `team_id_before`, `team_id_after`, `agent_user_id_before`, `agent_user_id_after` (always all four) and `active_review_item_id` (the call's `open` or `in_review` item, or `null`). A refused change writes no audit event.
+
+The validators `validate_team_attribution` / `validate_agent_attribution` keep their record-scope rules. On the meetings route they now run only for owners and admins, who are unrestricted. `PATCH /voicemails/{id}` uses them for its own `assigned_team_id` / `assigned_user_id`. For a non-null value it follows this table:
+
+| Actor | team (non-null value) | agent (non-null value) |
 | --- | --- | --- |
-| unrestricted (owner/admin, or flat workspace) | any active team of this workspace, or `null` | any effective workspace member, or `null` |
-| record-scoped supervisor | only a team they supervise; `null` refused (`403 team_scope_denied`) | only a user with an effective assignment in a team they supervise (`403 agent_scope_denied`) |
+| unrestricted (owner/admin, or flat workspace) | any active team of this workspace | any effective workspace member |
+| record-scoped supervisor | only a team they supervise (`403 team_scope_denied`) | only a user with an effective assignment in a team they supervise (`403 agent_scope_denied`) |
 | record-scoped agent / unassigned member | refused (`403`) | refused (`403`) |
 
-Teams of another workspace or inactive teams are `422 invalid_team`; non-members are `422 invalid_agent`.
+Clearing a voicemail's `assigned_team_id` or `assigned_user_id` to `null` is not checked by role today. The voicemail handler skips the team validator for `null`, and `validate_agent_attribution` returns `null` with no check. So any caller with `meeting:update` who can see the voicemail can clear either field. This is known and tracked separately. Voicemail assignment is not a call's attribution and gives no review authority.
 
 ## 6. Route inventory (machine-checked)
 
@@ -339,6 +349,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/webhooks/endpoints/{endpoint_id}/test | webhook:manage +csrf |
 <!-- matrix:routes:end -->
 
+`PATCH /api/v1/meetings/{meeting_id}` and `PATCH /api/v1/conversations/{conversation_id}` (HOM-360): their rows read `meeting:update +csrf`. A body whose `team_id` or `agent_user_id` differs from the call's current value also needs `meeting:attribute`, checked inside the handler (§5, "Attribution writes"); otherwise it answers `403 attribution_change_denied`.
+
 `GET /metrics` (HOM-113) has no session dependency, so its row reads `public`; its real rule is enforced inside the handler (`backend.observability.metrics.metrics_access`). When `METRICS_BEARER_TOKEN` is set, a matching bearer token is required (constant-time comparison). In staging and production without a token it answers 404, unless `METRICS_ALLOW_UNAUTHENTICATED=true` opts out; that opt-out is on-premise only and is refused in cloud. `METRICS_ENABLED=false` answers 404. It is the only path exempt from the `TRUSTED_HOSTS` check (Prometheus scrapes `api:8000`). The nginx proxy never routes it, and a test asserts this.
 
 Notes on the public rows: `logout` and `refresh` authenticate through the refresh cookie/token they consume; the three `shares/{share_token}` routes are token-addressed and enforce the share contract in §6a on every request; `auth/google/callback` binds to the state cookie issued by `google/start`.
@@ -392,6 +404,7 @@ Scopes an API key may carry (machine-checked against `API_KEY_SCOPES`):
 | meeting:create | ✓ |
 | meeting:update | ✓ |
 | meeting:delete | – |
+| meeting:attribute | – |
 | share:manage | – |
 | member:read | ✓ |
 | member:manage | – |
@@ -594,7 +607,7 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | --- | --- | --- |
 | Grant a stronger role than the caller may grant (invite/promote to admin as admin; any owner grant) | `GRANTABLE_ROLES` in `create_invitation` / `change_member_role` | `test_members_api.py`, `test_authorization_matrix.py::test_role_matrix_allowed_and_denied` |
 | Manage a peer or superior (admin removes/demotes admin or owner; self-management) | `can_manage_member` | same |
-| Move a record between teams the caller does not supervise, or detach it | `validate_team_attribution` | `test_authorization_matrix.py::test_team_scope_restricts_records_and_attribution` |
+| Change a call's team or agent without `meeting:attribute` (a supervisor, a flat-workspace member, an API key), or change the attribution of one's own call (HOM-360) | `authorize_attribution_change` (`403 attribution_change_denied`, `403 attribution_own_call`) | `test_call_attribution_lock.py`, `test_authorization_matrix.py::test_team_scope_restricts_records_and_attribution` |
 | Attribute a record to a foreign-workspace or inactive team | `validate_team_attribution` (`422 invalid_team`) | same |
 | Reach related objects (transcript, summary, actions, speakers, export, shares, job, recording) through a meeting outside the caller's scope | record predicate inside every `_meeting_or_404`/`_get_meeting` | same; cross-tenant variant in `test_tenant_scope.py` |
 | Bypass through exports | export route uses the same predicate; there is no bulk export | same |
