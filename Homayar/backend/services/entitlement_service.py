@@ -1,3 +1,40 @@
+"""Usage allowance: reservations, settlements, releases and audited adjustments.
+
+Lock order (HOM-333). Every transaction that changes usage rows locks the
+``entitlements`` row first and the ``usage_reservations`` rows after it. It never
+waits for an entitlement row while it holds a reservation row, so two such
+transactions cannot wait for each other, and PostgreSQL never has to abort one as
+a deadlock (SQLSTATE ``40P01``).
+
+* ``reserve_usage`` takes the entitlement row with its counter update, then
+  inserts the new reservation row.
+* ``commit_usage`` and ``release_usage`` read the reservation's ``entitlement_id``
+  without a lock (it never changes), lock that entitlement row (``FOR NO KEY
+  UPDATE``, the lock their counter update takes anyway), then lock the
+  reservation row (``FOR UPDATE``).
+* ``adjust_usage`` locks only the entitlement row.
+* ``reconcile_entitlement`` (``backend.jobs.usage_reconciliation``) locks the
+  entitlement row ``FOR UPDATE``, then reads its stale reservations, releases the
+  orphans through ``release_usage`` and corrects the counters through
+  ``adjust_usage``, all under that lock.
+
+Decide on fresh rows. After the locks, the state check and the amounts read the
+locked rows as they are now (``populate_existing``). A copy that the same session
+loaded earlier (``db.get`` in ``release_job_reservations`` or in the job
+completion, the reconciliation's stale list) can be out of date after a lock
+wait, so no decision uses it.
+
+Several entitlements in one transaction. The reservations of one job are always
+taken in this order: the audio reservation (``job.reservation_id``, metric
+``audio_seconds``), then the concurrency reservation
+(``job.concurrency_reservation_id``, metric ``concurrent_jobs``). The upload and
+the replay reserve in this order; the job completion (``commit_usage``, then
+``release_usage``) and ``release_job_reservations`` settle and release in it.
+
+Relative to the job, meeting and media rows, these rows come after the meeting row
+and before the media rows (``backend/media/README.md``, "Lock order").
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -228,6 +265,30 @@ def reserve_usage(
     return reservation
 
 
+def _lock_reservation(db: Session, reservation_id: str) -> UsageReservation | None:
+    """The reservation, locked after its entitlement row and read fresh.
+
+    See "Lock order (HOM-333)" in the module docstring. ``populate_existing``
+    replaces a copy this session loaded before, so the caller decides on the row
+    as it is under the lock.
+    """
+    entitlement_id = db.scalar(
+        select(UsageReservation.entitlement_id).where(UsageReservation.id == reservation_id)
+    )
+    if entitlement_id is not None:
+        db.scalar(
+            select(Entitlement.id)
+            .where(Entitlement.id == entitlement_id)
+            .with_for_update(key_share=True)
+        )
+    return db.scalar(
+        select(UsageReservation)
+        .where(UsageReservation.id == reservation_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
 def commit_usage(
     db: Session,
     reservation_id: str,
@@ -235,9 +296,7 @@ def commit_usage(
     actual_amount: int | None = None,
     provider_metadata: dict | None = None,
 ) -> UsageReservation:
-    reservation = db.scalar(
-        select(UsageReservation).where(UsageReservation.id == reservation_id).with_for_update()
-    )
+    reservation = _lock_reservation(db, reservation_id)
     if reservation is None:
         raise ReservationStateError("Reservation not found")
     if reservation.state == ReservationState.COMMITTED:
@@ -271,8 +330,8 @@ def commit_usage(
     reservation.state = ReservationState.COMMITTED
     reservation.committed_value = actual
     reservation.finalized_at = datetime.now(UTC)
-    # The one billable settlement of this reservation. The row lock above
-    # serialises concurrent callers; the unique operation key and the partial
+    # The one billable settlement of this reservation. The row locks above
+    # serialise concurrent callers; the unique operation key and the partial
     # unique index "one COMMITTED reservation per meeting and metric" are the
     # database backstops against a second settlement of the same work.
     _record_reservation_event(
@@ -293,9 +352,7 @@ def release_usage(
     *,
     reason: str,
 ) -> UsageReservation:
-    reservation = db.scalar(
-        select(UsageReservation).where(UsageReservation.id == reservation_id).with_for_update()
-    )
+    reservation = _lock_reservation(db, reservation_id)
     if reservation is None:
         raise ReservationStateError("Reservation not found")
     if reservation.state == ReservationState.RELEASED:
