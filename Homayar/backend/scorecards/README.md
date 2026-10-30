@@ -23,8 +23,8 @@ The version is `scorecards/1` (`SCORECARDS_VERSION`). Import everything from
 `backend.scorecards`.
 
 Published versions are stored in the `scorecard_versions` table (append-only) through
-`services/scorecard_service.py` and the `/api/v1/scorecards` routes. Results are not
-stored yet (HOM-56).
+`services/scorecard_service.py` and the `/api/v1/scorecards` routes. Results are stored
+by `services/scorecard_result_service.py` (HOM-56, see "Stored results").
 
 ## Usage
 
@@ -314,9 +314,41 @@ are the plain threshold test.
 
 Both accept a `ScorecardResult` or its `to_json()` dict.
 
+## Stored results
+
+HOM-56. `services/scorecard_result_service.py` scores one conversation with this engine
+and stores the result. There is no HTTP route yet.
+
+- `scorecard_results` holds one machine scoring of one conversation against one
+  published scorecard version. `scorecard_criterion_results` holds one row per criterion,
+  in definition order, with its outcome, reason, who decided and the evidence.
+- `record_result` takes ids, a `CheckRun` and the clock. It reads the definition from
+  the stored version and the conversation type and direction from the meeting, so a
+  caller never gives a result, a score or the facts. A dict is refused as a check run
+  (`check_run_invalid`). It never passes reviewer outcomes.
+- Stored: the version row and its digest, the transcript revision, `scorecards_version`
+  and `checks_version`, the check run exactly (the input), `result` exactly (the
+  output), and the outcome, reason, threshold and the four weights as columns.
+  `applicable_weight` is the score denominator. There is no score column: the scores in
+  `result` follow from the weights.
+- The same input (version, conversation, check run, facts and revision) is stored once:
+  `record_result` returns the stored row and `False` (`input_digest` and
+  `uq_scorecard_result_input`). Another check run or another revision is a new row.
+- A stored row never changes. The ORM refuses an update or a delete, and the
+  application's database role has no UPDATE grant. Only the conversation purge removes the rows, with the rest of the
+  conversation's derived content.
+- `verify_result` computes the result again from the stored input and returns true only
+  when it gives the stored row again.
+- A stored result never holds an NPS, a churn probability or any other inferred number.
+
+Errors are `ScorecardResultError` with a `code`: `scorecard_version_not_found`,
+`meeting_not_found` (also a deleted conversation), `transcript_revision_invalid`,
+`check_run_invalid`, `calculation_version_mismatch`, `definition_digest_mismatch` and
+`result_not_found`. Engine errors (`ScorecardError`) pass through unchanged. A refusal
+writes nothing.
+
 ## Not in this version
 
-- No stored results or evidence (HOM-56).
 - No helper that builds `CheckTurn`s from transcript rows, and no model call (the wiring
   ticket).
 - No sections or groups of criteria, no organization-level scorecards, and no retiring of a
