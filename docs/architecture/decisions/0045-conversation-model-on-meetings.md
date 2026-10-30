@@ -1,4 +1,4 @@
-# ADR 0044: The conversation model on `meetings` rows
+# ADR 0045: The conversation model on `meetings` rows
 
 Date: 2026-10-30 · Status: Proposed (HOM-58, WP12-T01) · Builds on: ADR 0016, ADR 0021
 
