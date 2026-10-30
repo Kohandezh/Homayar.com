@@ -113,7 +113,14 @@ request on to a host that the URL policy never checked. The timeout is
 
 The sweeper discovers due rows of every workspace under the read-only `webhook_delivery`
 service scope. Every write binds the row's own workspace (row-level security, as for
-`entitlements` and `usage_reconciliation`).
+`entitlements` and `usage_reconciliation`). The scope is never held while writing: the
+claim and the record each open their own session bound to the workspace only.
+
+With `TASKS_EAGER` (development, tests) neither a request nor a sweep sends anything
+itself: a request must never wait on a receiver, and a test must never reach the
+network. Due rows wait for `python -m backend.jobs.webhook_delivery` or a worker. A row
+written before this ticket has no frozen payload; it is failed with `payload_missing` and
+never sent.
 
 This ticket stops at one attempt: a failed delivery stays `failed`. HOM-90 adds the retry
 schedule, the dead letter and admin redelivery on the same rows.

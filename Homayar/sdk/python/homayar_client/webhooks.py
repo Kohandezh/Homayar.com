@@ -75,6 +75,7 @@ def verify_webhook(
     if not (event_id and timestamp and signature):
         raise WebhookVerificationError("missing_header", "a Homayar-Webhook header is missing")
 
+    # isdigit() alone also accepts Persian and other non-ASCII digits.
     if not (timestamp.isascii() and timestamp.isdigit()):
         raise WebhookVerificationError("malformed_header", "the timestamp is not unix seconds")
     entries = [
@@ -121,9 +122,13 @@ def verify_webhook(
 
 
 def _header(headers: Any, name: str) -> str:
-    """The header's value; several fields of one name are joined by ``,`` (RFC 9110)."""
+    """The header's value; several fields of one name are joined by ``,`` (RFC 9110).
+
+    Values are not stripped: HTTP servers already remove the spaces around a
+    field value, so a space left in the timestamp is a malformed header.
+    """
     wanted = name.lower()
-    values = [str(value).strip() for key, value in headers.items() if str(key).lower() == wanted]
+    values = [str(value) for key, value in headers.items() if str(key).lower() == wanted]
     return ",".join(value for value in values if value)
 
 

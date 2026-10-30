@@ -112,7 +112,23 @@ def test_an_empty_header_is_missing_header(name: str) -> None:
 # --- timestamp ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("t", ["17e8", "-5", "1.5", "+5", " 5x", "١٧٩٠٠٠٠٠٠٠", "0x10"])
+@pytest.mark.parametrize(
+    "t",
+    [
+        "17e8",
+        "-5",
+        "1.5",
+        "+5",
+        " 5x",
+        "١٧٩٠٠٠٠٠٠٠",
+        "۱۷۹۰۰۰۰۰۰۰",
+        "0x10",
+        f" {NOW}",
+        f"{NOW} ",
+        "1790 000000",
+        "²",
+    ],
+)
 def test_a_timestamp_that_is_not_ascii_digits_is_malformed(t: str) -> None:
     assert _code(_headers(t=t)) == "malformed_header"
 
@@ -173,6 +189,14 @@ def test_entries_of_other_versions_are_ignored() -> None:
     headers = _headers(signature=f"v2={KEY_ID}:{'f' * 64}, {good}")
 
     assert verify_webhook(headers=headers, body=BODY, secrets={KEY_ID: SECRET}, now=NOW)
+
+
+def test_a_malformed_v1_entry_next_to_a_valid_one_is_ignored() -> None:
+    good = _headers()["Homayar-Webhook-Signature"]
+    for malformed in (f"v1={KEY_ID}:{'A' * 64}", f"v1={KEY_ID}:{'a' * 65}", "v1=garbage"):
+        headers = _headers(signature=f"{malformed},{good}")
+
+        assert verify_webhook(headers=headers, body=BODY, secrets={KEY_ID: SECRET}, now=NOW)
 
 
 def test_entries_only_for_unknown_key_ids_are_unknown_key() -> None:

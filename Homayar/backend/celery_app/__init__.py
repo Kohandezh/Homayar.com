@@ -27,6 +27,9 @@ RETENTION_PURGE_TASK = "backend.jobs.run_retention_purge"
 # Analysis recompute after a transcript correction (HOM-63, ADR 0037).
 RECOMPUTE_ANALYSIS_TASK = "backend.jobs.recompute_meeting_analysis"
 RECOMPUTE_SWEEP_TASK = "backend.jobs.sweep_stale_analyses"
+# Signed webhook delivery (HOM-89, ADR 0047).
+DELIVER_WEBHOOK_TASK = "backend.jobs.deliver_webhook"
+WEBHOOK_SWEEP_TASK = "backend.jobs.sweep_webhook_deliveries"
 # Grace between the cooperative attempt deadline and the hard kill.
 TIME_LIMIT_GRACE_SECONDS = 60
 
@@ -67,6 +70,8 @@ def make_celery() -> Celery:
             VOICE_RECOVERY_TASK: {"queue": PROCESSING_QUEUE},
             RECOMPUTE_ANALYSIS_TASK: {"queue": PROCESSING_QUEUE},
             RECOMPUTE_SWEEP_TASK: {"queue": PROCESSING_QUEUE},
+            DELIVER_WEBHOOK_TASK: {"queue": PROCESSING_QUEUE},
+            WEBHOOK_SWEEP_TASK: {"queue": PROCESSING_QUEUE},
         },
         # Attempt bound of last resort (WP06-T04): the soft limit raises inside
         # the task (finalised as a retryable ``attempt_timeout``); the hard
@@ -168,6 +173,17 @@ def make_celery() -> Celery:
                 "options": {
                     "queue": PROCESSING_QUEUE,
                     "expires": float(settings.recompute_sweep_interval_seconds),
+                },
+            },
+            # - webhook delivery sweep (HOM-89) publishes a delivery task for
+            #   every due webhook delivery (a lost publish, an expired lease).
+            #   Without beat run python -m backend.jobs.webhook_delivery
+            "webhook-delivery-sweep": {
+                "task": WEBHOOK_SWEEP_TASK,
+                "schedule": float(settings.webhook_sweep_interval_seconds),
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.webhook_sweep_interval_seconds),
                 },
             },
         },

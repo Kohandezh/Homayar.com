@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backend.celery_app import (
     ARTIFACT_CLEANUP_TASK,
+    DELIVER_WEBHOOK_TASK,
     DISPATCH_SWEEP_TASK,
     LEASE_RECOVERY_TASK,
     MEDIA_RECONCILIATION_TASK,
@@ -11,6 +12,7 @@ from backend.celery_app import (
     RETENTION_PURGE_TASK,
     USAGE_RECONCILIATION_TASK,
     VOICE_RECOVERY_TASK,
+    WEBHOOK_SWEEP_TASK,
     celery_app,
 )
 from backend.observability.correlation import correlation_scope, job_correlation_id
@@ -122,3 +124,23 @@ def sweep_stale_analyses_task():
     from backend.jobs.recompute import sweep_stale_analyses
 
     return run_with_heartbeat("analysis_recompute", sweep_stale_analyses)
+
+
+@celery_app.task(name=DELIVER_WEBHOOK_TASK, autoretry_for=(), acks_late=False, ignore_result=True)
+def deliver_webhook_task(delivery_id: str):
+    """Send one webhook delivery (HOM-89). The claim decides; a duplicate task is inert.
+
+    No broker-level retry: a lost task is found again by the sweep, and an
+    attempt cut off after its claim is resent when its lease expires.
+    """
+    from backend.jobs import webhook_delivery
+
+    webhook_delivery.deliver_webhook(delivery_id)
+
+
+@celery_app.task(name=WEBHOOK_SWEEP_TASK, acks_late=False, ignore_result=True)
+def sweep_webhook_deliveries_task():
+    """Periodic recovery: publish a delivery task for every due webhook delivery."""
+    from backend.jobs import webhook_delivery
+
+    return {"published": len(webhook_delivery.sweep_webhook_deliveries())}

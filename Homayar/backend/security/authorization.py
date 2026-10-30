@@ -82,6 +82,10 @@ class Permission(str, Enum):
     # AI processing policy (WP08-T02, ADR 0027): where the workspace's audio
     # and text may be processed.  Owner only, never carried by an API key.
     AI_POLICY_MANAGE = "ai_policy:manage"
+    # Outbound webhooks (HOM-89, ADR 0047): add, change and rotate endpoints.
+    # Owner and admin, never carried by an API key: a key that could add an
+    # endpoint could copy every future event out of the workspace.
+    WEBHOOK_MANAGE = "webhook:manage"
 
 
 ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
@@ -101,6 +105,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.BILLING_READ,
             Permission.AUDIT_READ,
             Permission.API_KEY_MANAGE,
+            Permission.WEBHOOK_MANAGE,
         }
     ),
     WorkspaceRole.MEMBER: frozenset(
@@ -170,9 +175,7 @@ def can_grant(actor_role: WorkspaceRole, target_role: WorkspaceRole) -> bool:
     return target_role in GRANTABLE_ROLES.get(actor_role, frozenset())
 
 
-def can_manage_member(
-    *, actor_user_id: str, actor_role: WorkspaceRole, target: Membership
-) -> bool:
+def can_manage_member(*, actor_user_id: str, actor_role: WorkspaceRole, target: Membership) -> bool:
     """A caller manages a membership only if it could have granted its role.
 
     Self-management and owner memberships are always refused so a workspace
@@ -295,9 +298,7 @@ def resolve_record_access(
             supervised_team_ids=frozenset(),
             agent_team_ids=frozenset(),
         )
-    assignments = effective_assignments(
-        db, workspace_id=workspace.id, user_id=user_id, now=now
-    )
+    assignments = effective_assignments(db, workspace_id=workspace.id, user_id=user_id, now=now)
     supervised = frozenset(a.team_id for a in assignments if a.role == TeamRole.SUPERVISOR)
     agent = frozenset(a.team_id for a in assignments if a.role == TeamRole.AGENT)
     return RecordAccess(
@@ -306,7 +307,6 @@ def resolve_record_access(
         supervised_team_ids=supervised,
         agent_team_ids=agent,
     )
-
 
 
 # --- organization scope (WP03-T03, ADR 0012) --------------------------------------
