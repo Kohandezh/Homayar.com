@@ -99,14 +99,16 @@ class ReconciliationListResponse(BaseModel):
 
 class ResolveRequest(BaseModel):
     """``POST /integrations/reconciliation/{item_id}/resolve``.  Which fields a
-    resolution needs depends on the item's reason (``invalid_resolution`` otherwise)."""
+    resolution needs depends on the item's reason.  The fields are typed loosely: a
+    missing or wrong-typed one is ``invalid_resolution`` from the service, not the
+    generic ``validation_error`` (an unknown extra field still is)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    resolution: str
-    meeting_id: str | None = None
-    user_id: str | None = None
-    outcome: str | None = None
+    resolution: Any = None
+    meeting_id: Any = None
+    user_id: Any = None
+    outcome: Any = None
 
 
 class ConversationExternalLinkResponse(BaseModel):

@@ -1,4 +1,4 @@
-"""Delayed CRM records (HOM-88, DESIGN 4.5, ADR 0047).
+"""Delayed CRM records (HOM-88, DESIGN 4.5, ADR 0048).
 
 A CRM record can arrive before its conversation is uploaded.  It is then stored as
 ``pending`` until ``expires_at`` (received time + the profile's late-record window).
@@ -95,6 +95,9 @@ def reconcile_record(ref: PendingRef, *, now: datetime) -> str:
             db.rollback()
             return "skipped"
         profile = db.get(IntegrationMappingProfile, record.profile_id)
+        if profile is None:  # pragma: no cover - deleting a profile deletes its records
+            db.rollback()
+            return "skipped"
         state = route_record(db, record=record, profile=profile, now=now, sweep=True)
         db.commit()
     return _COUNTERS[state]

@@ -206,3 +206,36 @@ def test_a_backlog_bigger_than_the_batch_rotates(client, email_outbox, settings)
     reconcile_pending_records(settings, limit=1)
     assert _stored(owner, records[0]["id"]).attempt_count == 2
     assert _stored(owner, records[1]["id"]).attempt_count == 1
+
+
+def test_an_older_delayed_record_never_changes_is_active(client, email_outbox, settings):
+    """Addendum 4 F1: ``is_active`` follows the newest record, never an older delayed one."""
+    from backend.tests.test_crm_mapping_api import _external_records, _item
+
+    owner = _owner(client, email_outbox, "sweep-older")
+    _setup(owner)
+    older = _record(owner, _payload("call-1", customer="C-5", customer_active=True))
+    assert older["state"] == "pending"  # its conversation is not there yet
+    _conversation(owner, "call-2")
+    newer = _record(owner, _payload("call-2", customer="C-5", customer_active=False))
+    assert newer["state"] == "reconciliation"
+    assert ("odoo", "customer", "C-5", False) in _external_records(owner)
+
+    meeting = _conversation(owner, "call-1")
+    assert reconcile_pending_records(settings)["reconciliation"] == 1
+    assert ("odoo", "customer", "C-5", False) in _external_records(owner)  # still inactive
+    assert _links(owner, meeting) == {}
+    stored = _stored(owner, older["id"])
+    assert stored.state == "reconciliation"
+    reasons = {_item(owner, item_id)["reason"] for item_id in _items_of(owner, older["id"])}
+    assert reasons == {"inactive_record"}
+
+    _conversation(owner, "call-3")
+    silent = _record(owner, _payload("call-3", customer="C-5"))
+    assert silent["state"] == "reconciliation"
+    assert _item(owner, silent["reconciliation_item_ids"][0])["reason"] == "inactive_record"
+    assert ("odoo", "customer", "C-5", False) in _external_records(owner)
+
+
+def _items_of(persona, record_id: str) -> list[str]:
+    return [item["id"] for item in _items(persona) if item["inbound_record_id"] == record_id]

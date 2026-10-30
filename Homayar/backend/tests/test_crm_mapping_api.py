@@ -1168,3 +1168,120 @@ def test_a_seen_event_is_settled_before_the_profile_state_and_extraction(client,
     assert too_large.status_code == 413 and _code(too_large) == "payload_too_large"
     missing = _post(owner, payload, system="zoho", event_id="evt-seen")
     assert missing.status_code == 404 and _code(missing) == "mapping_profile_not_found"
+
+
+# --- final review (SPEC Addendum 4) --------------------------------------------------------
+
+
+def test_map_values_of_the_wrong_type_get_their_own_code(client, email_outbox):
+    """F2: a non-string map value is a 422 with the map's code, never a 500."""
+    owner = _owner(client, email_outbox, "map-types")
+    for value in (["won"], {"x": "won"}, 1, None, True):
+        refused = _put(owner, "odoo", **_profile_body(outcome_map={"WON": value}))
+        assert refused.status_code == 422 and _code(refused) == "invalid_outcome_map", value
+        refused = _put(owner, "odoo", **_profile_body(agent_map={"u-1": value}))
+        assert refused.status_code == 422 and _code(refused) == "invalid_agent_map", value
+    assert _put(owner, "odoo", **_profile_body(outcome_map={"WON": "won"})).status_code == 201
+
+
+def test_a_conflict_never_loses_a_concurrent_increment(client, email_outbox, monkeypatch):
+    """F3: another request counts a conflict between this request's read and its write."""
+    owner = _owner(client, email_outbox, "conflict-race")
+    _setup(owner)
+    _record(owner, _payload(customer="C-1"), event_id="evt-c")
+
+    real = crm_mapping_service.find_inbound_record
+
+    def find_then_count_elsewhere(db, **kwargs):
+        found = real(db, **kwargs)
+        if found is not None:
+            with inspection_session_factory()() as other:
+                other.execute(
+                    text(
+                        "UPDATE integration_inbound_records "
+                        "SET conflict_count = conflict_count + 1 WHERE id = :id"
+                    ),
+                    {"id": found.id},
+                )
+                other.commit()
+        return found
+
+    monkeypatch.setattr(crm_mapping_service, "find_inbound_record", find_then_count_elsewhere)
+    conflict = _post(owner, _payload(customer="C-2"), event_id="evt-c")
+    assert conflict.status_code == 409 and _code(conflict) == "inbound_record_conflict"
+    assert conflict.json()["error"]["details"]["conflict_count"] == 2
+    (stored,) = _ledger(owner)
+    assert stored.conflict_count == 2  # the other request's count and this one
+
+
+def test_a_payload_that_is_not_utf8_is_refused(client, email_outbox):
+    """F4: a lone surrogate cannot be encoded: 422 ``invalid_payload``, nothing stored."""
+    owner = _owner(client, email_outbox, "utf8")
+    _setup(owner)
+    body = '{"event_id": "evt-u", "payload": {"call": {"id": "call-1"}, "note": "\\ud800"}}'
+    response = client.post(
+        "/api/v1/integrations/odoo/records",
+        content=body,
+        cookies=owner.cookies,
+        headers={**owner.headers, "Content-Type": "application/json"},
+    )
+    assert response.status_code == 422 and _code(response) == "invalid_payload", response.text
+    assert _ledger(owner) == []
+    fine = body.replace("\\ud800", "\\u0633\\u0627\\u0631\\u0627")  # Persian text is fine
+    accepted = client.post(
+        "/api/v1/integrations/odoo/records",
+        content=fine,
+        cookies=owner.cookies,
+        headers={**owner.headers, "Content-Type": "application/json"},
+    )
+    assert accepted.status_code == 201, accepted.text
+
+
+def test_resolve_body_mistakes_are_invalid_resolution(client, email_outbox):
+    """F5: a missing or unknown resolution and wrong-typed fields are ``invalid_resolution``."""
+    owner = _owner(client, email_outbox, "resolve-body")
+    _setup(owner)
+    _conversation(owner, "call-1")
+    _record(owner, _payload(customer="C-1"))
+    item_id = _record(owner, _payload(customer="C-2"))["reconciliation_item_ids"][0]
+    agent_id = _record(owner, _payload(agent="u-9"))["reconciliation_item_ids"][0]
+
+    for body in (
+        {},
+        {"resolution": None},
+        {"resolution": 5},
+        {"resolution": "merge"},
+        {"resolution": ["link"]},
+        {"resolution": "dismiss", "meeting_id": 5},
+        {"resolution": "dismiss", "outcome": ["won"]},
+    ):
+        response = _resolve(owner, item_id, **body)
+        assert response.status_code == 422 and _code(response) == "invalid_resolution", body
+    for body in ({"resolution": "link", "user_id": 7}, {"resolution": "link", "user_id": {}}):
+        response = _resolve(owner, agent_id, **body)
+        assert response.status_code == 422 and _code(response) == "invalid_resolution", body
+    extra = _resolve(owner, item_id, resolution="dismiss", note="x")
+    assert extra.status_code == 422 and _code(extra) == "validation_error"
+    assert _resolve(owner, item_id, resolution="dismiss").status_code == 200
+
+
+def test_a_reused_item_is_listed_only_for_its_own_reason(client, email_outbox):
+    """F6: an open item of another reason for the same value is not the record's item."""
+    owner = _owner(client, email_outbox, "reuse-reason")
+    _setup(owner)
+    _conversation(owner, "call-1")
+    _conversation(owner, "call-2")
+    _record(owner, _payload("call-1", customer="C-1"))
+    inactive = _record(owner, _payload("call-1", customer="C-5", customer_active=False))
+    (inactive_item,) = inactive["reconciliation_item_ids"]
+    _record(owner, _payload("call-2", customer="C-5", customer_active=True))  # active again
+
+    changed = _record(owner, _payload("call-1", customer="C-5"))
+    (changed_item,) = changed["reconciliation_item_ids"]
+    assert changed_item != inactive_item
+    assert _item(owner, changed_item)["reason"] == "changed_id"
+    again = _record(owner, _payload("call-1", customer="C-5"), event_id="evt-again")
+    assert again["reconciliation_item_ids"] == [changed_item]
+    replay = _post(owner, _payload("call-1", customer="C-5"), event_id="evt-again")
+    assert replay.status_code == 200 and replay.json()["reconciliation_item_ids"] == [changed_item]
+    assert _item(owner, inactive_item)["status"] == "open"

@@ -1,4 +1,4 @@
-"""Generic CRM mapping contract (HOM-88, WP16-T04, F64, ADR 0047).
+"""Generic CRM mapping contract (HOM-88, WP16-T04, F64, ADR 0048).
 
 A CRM or ticket system (the "source system") sends records such as "call X belongs to
 customer C, ticket T, agent A, outcome WON".  A mapping profile per workspace and source
@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -214,7 +214,7 @@ def _validate_outcome_map(outcome_map: object) -> dict[str, str]:
         raise _unprocessable("invalid_outcome_map", "outcome_map must be an object")
     canonical = {member.value for member in CanonicalOutcome}
     for key, value in outcome_map.items():
-        if not _valid_map_key(key) or value not in canonical:
+        if not _valid_map_key(key) or not isinstance(value, str) or value not in canonical:
             raise _unprocessable(
                 "invalid_outcome_map",
                 "outcome_map maps codes of 1 to 200 characters to one of "
@@ -515,7 +515,11 @@ def submit_record(
     before anything is written.
     """
     require_source_system(source_system)
-    canonical = canonical_payload(payload)
+    try:
+        canonical = canonical_payload(payload)
+        event_id.encode()
+    except UnicodeEncodeError as error:  # a lone surrogate such as "\ud800"
+        raise _unprocessable("invalid_payload", "The record cannot be encoded as UTF-8") from error
     if len(canonical) > MAX_PAYLOAD_BYTES:
         raise CrmMappingError(
             413, "payload_too_large", f"The payload is over {MAX_PAYLOAD_BYTES} bytes"
@@ -594,15 +598,24 @@ def _settle_existing(
     """Same identity: the same payload is a replay; another payload is a conflict."""
     if record.payload_hash == digest:
         return RecordOutcome(record, replayed=True, item_ids=tuple(record_item_ids(db, record)))
+    # One atomic UPDATE: another request may have counted a conflict since this one read
+    # the row, and an in-memory ``+= 1`` would lose that count.
+    db.execute(
+        update(IntegrationInboundRecord)
+        .where(IntegrationInboundRecord.id == record.id)
+        .values(
+            conflict_count=IntegrationInboundRecord.conflict_count + 1,
+            last_conflict_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    )
     locked = db.scalar(
         select(IntegrationInboundRecord)
         .where(IntegrationInboundRecord.id == record.id)
-        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if locked is None:  # pragma: no cover - the row was removed underneath us
         raise CrmMappingError(409, "inbound_record_conflict", "The event id was used before")
-    locked.conflict_count += 1
-    locked.last_conflict_at = now
     record_audit_event(
         db,
         event_type=AuditEventType.INTEGRATION_RECORD_CONFLICT,
@@ -622,8 +635,11 @@ def record_item_ids(db: Session, record: IntegrationInboundRecord) -> list[str]:
     """The items a record has: the ones it opened, and the open ones it reused.
 
     A reused item belongs to the record that opened it; it is found again by the
-    conversation, source system, link type and the record's own value for that type.
+    conversation, source system, link type, the record's own value for that type and the
+    reason that value meets now (the same rule as when the record was applied).
     """
+    profile = db.get(IntegrationMappingProfile, record.profile_id)
+    now = datetime.now(UTC)
     ids = set(
         db.scalars(
             select(IntegrationReconciliationItem.id).where(
@@ -635,8 +651,25 @@ def record_item_ids(db: Session, record: IntegrationInboundRecord) -> list[str]:
     if record.meeting_id is not None and record.state == InboundRecordState.RECONCILIATION.value:
         for link_type, (key, _flag) in _ENTITY_KEYS.items():
             value = (record.extracted or {}).get(key)
-            if value is None:
+            if value is None or profile is None:
                 continue
+            external = db.scalar(
+                select(ExternalRecord).where(
+                    ExternalRecord.workspace_id == record.workspace_id,
+                    ExternalRecord.source_system == record.source_system,
+                    ExternalRecord.record_type == link_type,
+                    ExternalRecord.external_id == value,
+                )
+            )
+            reason = _entity_blocker(
+                db,
+                record=record,
+                profile=profile,
+                link_type=link_type,
+                value=value,
+                external=external,
+                now=now,
+            )
             ids.update(
                 db.scalars(
                     select(IntegrationReconciliationItem.id).where(
@@ -645,6 +678,8 @@ def record_item_ids(db: Session, record: IntegrationInboundRecord) -> list[str]:
                         IntegrationReconciliationItem.source_system == record.source_system,
                         IntegrationReconciliationItem.link_type == link_type,
                         IntegrationReconciliationItem.candidate_value == value,
+                        IntegrationReconciliationItem.reason
+                        == (reason or ReconciliationReason.CHANGED_ID).value,
                         IntegrationReconciliationItem.status == ReconciliationStatus.OPEN.value,
                     )
                 )
@@ -782,13 +817,10 @@ def apply_to_conversation(
         value = extracted.get(key)
         if value is None:
             continue
+        external: ExternalRecord | None = None
         fields: dict[str, Any]
-        blocker: ReconciliationReason | None = None
         if link_type == ExternalLinkType.OUTCOME.value:
-            canonical = profile.outcome_map.get(value)
-            if canonical is None:
-                blocker = ReconciliationReason.UNKNOWN_OUTCOME
-            fields = {"outcome": canonical, "external_outcome_code": value}
+            fields = {"outcome": profile.outcome_map.get(value), "external_outcome_code": value}
         else:
             external = upsert_external_record(
                 db,
@@ -796,19 +828,19 @@ def apply_to_conversation(
                 record_type=link_type,
                 external_id=value,
                 active=extracted.get(flag) if flag else None,
-                now=now,
             )
             fields = {"external_record_id": external.id}
             if link_type == ExternalLinkType.AGENT.value:
-                user_id = profile.agent_map.get(value)
-                active = user_id is not None and user_id in active_member_ids(
-                    db, workspace_id=record.workspace_id, user_ids=[user_id], now=now
-                )
-                if not active:
-                    blocker = ReconciliationReason.UNKNOWN_AGENT
-                fields["agent_user_id"] = user_id
-            elif not external.is_active:
-                blocker = ReconciliationReason.INACTIVE_RECORD
+                fields["agent_user_id"] = profile.agent_map.get(value)
+        blocker = _entity_blocker(
+            db,
+            record=record,
+            profile=profile,
+            link_type=link_type,
+            value=value,
+            external=external,
+            now=now,
+        )
         item_id = _link_or_queue(
             db,
             record=record,
@@ -831,6 +863,30 @@ def apply_to_conversation(
     return record.state
 
 
+def _entity_blocker(
+    db: Session,
+    *,
+    record: IntegrationInboundRecord,
+    profile: IntegrationMappingProfile,
+    link_type: str,
+    value: str,
+    external: ExternalRecord | None,
+    now: datetime,
+) -> ReconciliationReason | None:
+    """Why this entity may not link on its own, or ``None`` (DESIGN 4.2)."""
+    if link_type == ExternalLinkType.OUTCOME.value:
+        return None if value in profile.outcome_map else ReconciliationReason.UNKNOWN_OUTCOME
+    if link_type == ExternalLinkType.AGENT.value:
+        user_id = profile.agent_map.get(value)
+        members = active_member_ids(
+            db, workspace_id=record.workspace_id, user_ids=[user_id] if user_id else [], now=now
+        )
+        return None if user_id in members else ReconciliationReason.UNKNOWN_AGENT
+    if external is not None and not external.is_active:
+        return ReconciliationReason.INACTIVE_RECORD
+    return None
+
+
 def upsert_external_record(
     db: Session,
     *,
@@ -838,18 +894,26 @@ def upsert_external_record(
     record_type: str,
     external_id: str,
     active: bool | None,
-    now: datetime,
 ) -> ExternalRecord:
     """The record's ``(source_system, record_type, external_id)``, created on first sight.
 
-    ``is_active`` copies what the source system says; when it says nothing, the stored
-    value stays (a new record starts active).  Homayar never reactivates on its own.
+    ``last_seen_at`` is the newest ``received_at`` of the records that touched it.
+    ``is_active`` copies what the source system says, but only from a record that is not
+    older than ``last_seen_at``: an older delayed record never changes it.  When a
+    record says nothing, the stored value stays (a new record starts active).  Homayar
+    never reactivates on its own.  The row is locked, so two writers compare fresh times.
     """
-    query = select(ExternalRecord).where(
-        ExternalRecord.workspace_id == record.workspace_id,
-        ExternalRecord.source_system == record.source_system,
-        ExternalRecord.record_type == record_type,
-        ExternalRecord.external_id == external_id,
+    seen_at = _aware(record.received_at)
+    query = (
+        select(ExternalRecord)
+        .where(
+            ExternalRecord.workspace_id == record.workspace_id,
+            ExternalRecord.source_system == record.source_system,
+            ExternalRecord.record_type == record_type,
+            ExternalRecord.external_id == external_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     row = db.scalar(query)
     if row is None:
@@ -860,8 +924,8 @@ def upsert_external_record(
             record_type=record_type,
             external_id=external_id,
             is_active=True if active is None else active,
-            first_seen_at=now,
-            last_seen_at=now,
+            first_seen_at=seen_at,
+            last_seen_at=seen_at,
         )
         try:
             with db.begin_nested():
@@ -872,9 +936,13 @@ def upsert_external_record(
             row = db.scalar(query)  # a concurrent writer created it first
             if row is None:  # pragma: no cover
                 raise
-    row.last_seen_at = now
-    if active is not None:
+    newest = _aware(row.last_seen_at)
+    if active is not None and seen_at >= newest:
         row.is_active = active
+    if seen_at > newest:
+        row.last_seen_at = seen_at
+    if seen_at < _aware(row.first_seen_at):
+        row.first_seen_at = seen_at
     return row
 
 
@@ -1104,6 +1172,13 @@ def _invalid_resolution(message: str) -> CrmMappingError:
     return _unprocessable("invalid_resolution", message)
 
 
+def _optional_text(name: str, value: object) -> str | None:
+    """A resolve body field: absent (``None``) or a string, else ``invalid_resolution``."""
+    if value is None or isinstance(value, str):
+        return value
+    raise _invalid_resolution(f"{name} must be a string")
+
+
 def _live_conversation(db: Session, *, workspace_id: str, meeting_id: str) -> Meeting | None:
     return db.scalar(
         select(Meeting).where(
@@ -1119,10 +1194,10 @@ def resolve_item(
     *,
     workspace_id: str,
     item_id: str,
-    resolution: str,
-    meeting_id: str | None,
-    user_id: str | None,
-    outcome: str | None,
+    resolution: object,
+    meeting_id: object,
+    user_id: object,
+    outcome: object,
     actor_user_id: str,
     request_id: str | None,
     settings: Settings,
@@ -1137,12 +1212,21 @@ def resolve_item(
     item = get_item(db, workspace_id=workspace_id, item_id=item_id, for_update=True)
     if item.status != ReconciliationStatus.OPEN.value:
         raise CrmMappingError(409, "reconciliation_item_closed", "The item is already closed")
+    if not isinstance(resolution, str):
+        raise _invalid_resolution("resolution must be one of link, keep_current, dismiss")
+    chosen_meeting = _optional_text("meeting_id", meeting_id)
+    chosen_user = _optional_text("user_id", user_id)
+    chosen_outcome = _optional_text("outcome", outcome)
     needed = _RESOLUTIONS.get((item.reason, resolution))
     if needed is None:
         raise _invalid_resolution(f"{resolution!r} is not a resolution of a {item.reason} item")
     given = {
         name
-        for name, value in (("meeting_id", meeting_id), ("user_id", user_id), ("outcome", outcome))
+        for name, value in (
+            ("meeting_id", chosen_meeting),
+            ("user_id", chosen_user),
+            ("outcome", chosen_outcome),
+        )
         if value is not None
     }
     if given != needed:
@@ -1163,7 +1247,7 @@ def resolve_item(
                 item=item,
                 record=record,
                 profile=profile,
-                meeting_id=meeting_id,
+                meeting_id=chosen_meeting,
                 actor_user_id=actor_user_id,
                 now=now,
             )
@@ -1173,8 +1257,8 @@ def resolve_item(
                 item=item,
                 record=record,
                 profile=profile,
-                user_id=user_id,
-                outcome=outcome,
+                user_id=chosen_user,
+                outcome=chosen_outcome,
                 actor_user_id=actor_user_id,
                 now=now,
             )
@@ -1258,8 +1342,10 @@ def _link_candidate(
     ):
         raise _invalid_resolution("The item's conversation is gone")
     lock_conversation(db, item.meeting_id)
-    value = item.candidate_value
-    if item.link_type == ExternalLinkType.OUTCOME.value:
+    value, link_type = item.candidate_value, item.link_type
+    if value is None or link_type is None:  # pragma: no cover - entity items carry both
+        raise _invalid_resolution("The item names no value to link")
+    if link_type == ExternalLinkType.OUTCOME.value:
         if item.reason == ReconciliationReason.UNKNOWN_OUTCOME.value:
             canonical = outcome if outcome in {m.value for m in CanonicalOutcome} else None
         else:
@@ -1272,14 +1358,14 @@ def _link_candidate(
             select(ExternalRecord).where(
                 ExternalRecord.workspace_id == item.workspace_id,
                 ExternalRecord.source_system == item.source_system,
-                ExternalRecord.record_type == item.link_type,
+                ExternalRecord.record_type == link_type,
                 ExternalRecord.external_id == value,
             )
         )
         if external is None:  # pragma: no cover - external records are never deleted alone
             raise _invalid_resolution("The proposed external record is gone")
         fields = {"external_record_id": external.id}
-        if item.link_type == ExternalLinkType.AGENT.value:
+        if link_type == ExternalLinkType.AGENT.value:
             agent_user = user_id if user_id is not None else profile.agent_map.get(value)
             members = active_member_ids(
                 db,
@@ -1295,7 +1381,7 @@ def _link_candidate(
         record=record,
         profile=profile,
         meeting_id=item.meeting_id,
-        link_type=item.link_type,
+        link_type=link_type,
         fields=fields,
         linked_by_user_id=actor_user_id,
         now=now,

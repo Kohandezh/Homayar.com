@@ -1,9 +1,9 @@
-# ADR 0047: The CRM mapping contract and the reconciliation queue
+# ADR 0048: The CRM mapping contract and the reconciliation queue
 
 Date: 2026-10-30 · Status: Proposed (HOM-88, WP16-T04, F64) · Builds on: ADR 0016, ADR 0045
 
-All code paths are under `Homayar/backend/`. The number 0046 was taken on `main` when this
-ADR was written.
+All code paths are under `Homayar/backend/`. The numbers 0046 and 0047 were taken on `main`
+when this ADR was written.
 
 ## Context
 
@@ -102,7 +102,9 @@ the one retry path.
 ### D7. Inactive upstream records
 
 `external_records.is_active` copies what the record says (`customer_active`,
-`ticket_active`). When a record says nothing, the stored value stays. Homayar never sets a
+`ticket_active`), but only from a record that is not older than the newest one seen
+(`last_seen_at`): a delayed older record never changes it. When a record says nothing, the
+stored value stays. Homayar never sets a
 record active on its own and never creates a replacement. A link to an inactive record is
 not made automatically (`inactive_record`); a person may still link it, and it stays
 inactive.

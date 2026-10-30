@@ -1,4 +1,4 @@
-"""CRM mapping profiles, received records and the reconciliation queue (HOM-88, ADR 0047).
+"""CRM mapping profiles, received records and the reconciliation queue (HOM-88, ADR 0048).
 
 Profiles and the queue need ``workspace:manage``, which an API key never carries, so
 only people configure a mapping or decide a case.  Records need ``meeting:update`` and
