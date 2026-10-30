@@ -45,7 +45,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "6d4ec2d2e498"
 BASE_REVISION = "a7c3e9f5b2d1"
-HEAD_REVISION = "f2c6a8e4b1d7"  # HOM-290: trend_extraction_judgments, after HOM-58
+HEAD_REVISION = "47676f445509"  # HOM-54: scorecard_versions, after HOM-290
 NEW_COLUMNS = (
     "conversation_type",
     "direction",

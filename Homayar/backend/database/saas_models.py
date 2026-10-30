@@ -909,6 +909,51 @@ class AiPolicyVersion(Base):
     )
 
 
+# ``^[a-z][a-z0-9_]{1,63}$`` without a regex, so SQLite runs the same check: 2 to 64
+# characters, a lowercase first letter, and nothing outside ``a-z``, ``0-9`` and ``_``.
+SCORECARD_KEY_CHECK = (
+    "length(scorecard_key) BETWEEN 2 AND 64 "
+    "AND trim(substr(scorecard_key, 1, 1), 'abcdefghijklmnopqrstuvwxyz') = '' "
+    "AND trim(scorecard_key, 'abcdefghijklmnopqrstuvwxyz0123456789_') = ''"
+)
+
+
+class ScorecardVersion(Base):
+    """One published version of one QA scorecard of a workspace (HOM-54).
+
+    Append-only: a change is a new version with the next number, and a stored row is
+    never updated or deleted, so a past score can always name the exact definition it
+    used.  There is no draft on the server.  ``document`` is the definition as
+    validated by ``scorecards_version``; ``digest`` is its SHA-256.
+    """
+
+    __tablename__ = "scorecard_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    scorecard_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    scorecards_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # Also the lookup of the latest version of a key and of a key's history.
+        UniqueConstraint("workspace_id", "scorecard_key", "version", name="uq_scorecard_version"),
+        CheckConstraint("version >= 1", name="ck_scorecard_version_positive"),
+        CheckConstraint(SCORECARD_KEY_CHECK, name="ck_scorecard_key_format"),
+    )
+
+
 class RunPolicySnapshot(Base):
     """The policy and model placement one processing attempt ran under
     (WP08-T02/T03, ADR 0027).  Written once per attempt, never changed; it
@@ -2750,6 +2795,25 @@ def _refuse_policy_update(_mapper, _connection, target: object) -> None:
 @event.listens_for(RunPolicySnapshot, "before_delete")
 def _refuse_policy_delete(_mapper, _connection, target: object) -> None:
     raise PolicyRecordImmutableError(f"{type(target).__name__} rows are append-only")
+
+
+class ScorecardVersionImmutableError(RuntimeError):
+    """An ORM update or delete tried to change a published scorecard version."""
+
+
+@event.listens_for(ScorecardVersion, "before_update")
+def _refuse_scorecard_version_update(_mapper, _connection, target: object) -> None:
+    changed = _changed_columns(target)
+    if changed:
+        raise ScorecardVersionImmutableError(
+            "Scorecard versions are append-only; publish a new version instead "
+            f"(attempted: {', '.join(sorted(changed))})"
+        )
+
+
+@event.listens_for(ScorecardVersion, "before_delete")
+def _refuse_scorecard_version_delete(_mapper, _connection, target: object) -> None:
+    raise ScorecardVersionImmutableError("Scorecard versions are append-only")
 
 
 class IngestionImmutableError(RuntimeError):
