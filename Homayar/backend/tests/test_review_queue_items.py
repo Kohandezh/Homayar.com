@@ -18,9 +18,10 @@ import json
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select, update
 
 from backend.database.relational import get_session_factory
-from backend.database.saas_models import ScorecardResultRecord
+from backend.database.saas_models import Meeting, ReviewItem, ScorecardResultRecord
 from backend.database.tenant_context import bind_tenant_context
 from backend.jobs.leases import as_utc
 from backend.services import review_queue_service
@@ -237,6 +238,41 @@ def test_the_due_time_rule_on_the_due_time_action(queue):
     assert _time(events[1].details["previous_due_at"]) == now + timedelta(minutes=1)
     assert _time(events[1].details["due_at"]) == now + timedelta(days=90)
     assert {e.target_type for e in events} == {"review_item"}
+
+
+def _instant() -> tuple[datetime, str, list[object]]:
+    """A valid due time, the same instant as an ISO string with ``Z``, and the values that
+    are not an ISO 8601 string."""
+    instant = (datetime.now(UTC) + timedelta(days=2)).replace(microsecond=0)
+    seconds = int(instant.timestamp())
+    refused = [
+        seconds,  # Unix seconds as a JSON number
+        float(seconds),
+        True,
+        None,
+        {"at": instant.isoformat()},
+        [instant.isoformat()],
+        str(seconds),  # a string, but not ISO 8601
+        "in two days",
+    ]
+    return instant, instant.strftime("%Y-%m-%dT%H:%M:%SZ"), refused
+
+
+def test_due_at_must_be_an_iso_string_on_create_and_due_time(queue):
+    instant, iso, refused = _instant()
+    item = created(queue.owner, queue.m_a)
+    for value in refused:
+        response = create(queue.owner, queue.meeting(), due_at=value)
+        assert response.status_code == 422, (value, response.text)
+        assert code(response) == "review_due_at_invalid", value
+        response = act(queue.owner, item, "due-time", due_at=value)
+        assert response.status_code == 422, (value, response.text)
+        assert code(response) == "review_due_at_invalid", value
+    assert item_count() == 1 and stored(item["id"]).revision == 1
+    # Allow-control: the same instant as an ISO 8601 string with ``Z``.
+    assert _time(created(queue.owner, queue.meeting(), due_at=iso)["due_at"]) == instant
+    moved = acted(queue.owner, item, "due-time", due_at=iso)
+    assert _time(moved["due_at"]) == instant and moved["revision"] == 2
 
 
 # --- the list (criteria 15, 16) ----------------------------------------------------------
@@ -459,6 +495,44 @@ def test_one_now_per_request_for_every_timestamp_it_sets(queue):
 # --- start, complete, cancel (criteria 18, 19) ------------------------------------------
 
 
+def _set_agent(meeting_id: str, user_id: str) -> None:
+    from backend.tests._database import inspection_session_factory
+
+    with inspection_session_factory()() as db:
+        db.execute(update(Meeting).where(Meeting.id == meeting_id).values(agent_user_id=user_id))
+        db.commit()
+
+
+def test_start_and_complete_refuse_the_conversations_current_agent(queue):
+    """An admin sees every item, so only start and complete stop an admin who became the
+    conversation's agent after the assignment (DESIGN §9.5)."""
+    owner, admin, agent = queue.owner, queue.admin, queue.agent
+    item = acted(owner, created(owner, queue.m_a), "assign", assignee_user_id=admin.user_id)
+    events = len(review_events(queue.workspace_id))
+
+    _set_agent(queue.m_a, admin.user_id)
+    refused = act(admin, item, "start")
+    assert refused.status_code == 422 and code(refused) == "review_assignee_is_agent"
+    refused = act(owner, item, "start")  # the assignee check comes first
+    assert refused.status_code == 403 and code(refused) == "review_not_assignee"
+    assert (stored(item["id"]).status, stored(item["id"]).revision) == ("open", 2)
+    _set_agent(queue.m_a, agent.user_id)
+    item = acted(admin, item, "start")  # allow-control: the agent is still X
+    assert item["status"] == "in_review"
+
+    _set_agent(queue.m_a, admin.user_id)
+    refused = act(admin, item, "complete")
+    assert refused.status_code == 422 and code(refused) == "review_assignee_is_agent"
+    refused = act(admin, item, "start")  # before the state check: not 409
+    assert refused.status_code == 422 and code(refused) == "review_assignee_is_agent"
+    assert (stored(item["id"]).status, stored(item["id"]).revision) == ("in_review", 3)
+    _set_agent(queue.m_a, agent.user_id)
+    item = acted(admin, item, "complete")
+    assert item["status"] == "completed" and item["revision"] == 4
+    # Only the two allowed changes wrote an event.
+    assert len(review_events(queue.workspace_id)) == events + 2
+
+
 def test_only_the_assignee_starts_and_completes(queue):
     owner, sup, admin = queue.owner, queue.sup, queue.admin
     item = created(owner, queue.m_a2, assignee_user_id=sup.user_id)
@@ -597,8 +671,10 @@ def test_the_compare_and_set_refuses_a_revision_that_moved_since_the_read(queue)
     factory = get_session_factory()
     with factory() as db:
         bind_tenant_context(db, workspace_id=queue.workspace_id)
-        row = review_queue_service.load_item(
-            db, workspace_id=queue.workspace_id, item_id=item["id"]
+        row = db.scalar(
+            select(ReviewItem).where(
+                ReviewItem.id == item["id"], ReviewItem.workspace_id == queue.workspace_id
+            )
         )
         set_item(item["id"], revision=2)  # another writer, after the read
         with pytest.raises(ReviewQueueError) as refused:

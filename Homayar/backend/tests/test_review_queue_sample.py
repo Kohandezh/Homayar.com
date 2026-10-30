@@ -174,6 +174,22 @@ def test_refusals_create_nothing_and_record_nothing(client, email_outbox):
     assert item_count() == 1
 
 
+def test_due_at_must_be_an_iso_string_on_from_sample(client, email_outbox):
+    tenant = Tenant(client, email_outbox, "review-sample-due-string@example.com")
+    seed_call(tenant)
+    instant = (datetime.now(UTC) + timedelta(days=2)).replace(microsecond=0)
+    before = audit_count()
+    for value in (int(instant.timestamp()), True, {"at": instant.isoformat()}):
+        refused = _enqueue(tenant, config={"random_size": 1}, due_at=value)
+        assert refused.status_code == 422, (value, refused.text)
+        assert code(refused) == "review_due_at_invalid", value
+    assert audit_count() == before and item_count() == 0
+    # Allow-control: the same instant as an ISO 8601 string with ``Z``.
+    iso = instant.strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = _enqueue(tenant, config={"random_size": 1}, due_at=iso).json()
+    assert datetime.fromisoformat(body["created"][0]["due_at"]) == instant
+
+
 def test_an_empty_selection_is_a_201_with_empty_lists(client, email_outbox):
     tenant = Tenant(client, email_outbox, "review-sample-empty@example.com")
     response = _enqueue(tenant, seed=1, config={"random_size": 5})

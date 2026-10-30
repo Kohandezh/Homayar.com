@@ -2,8 +2,9 @@
 
 Every request body forbids unknown keys.  ``expected_revision`` is the revision the
 caller read: a strict int from 1 (``true``, ``"2"`` and ``2.0`` are refused).  The due
-time rule (a UTC offset, later than now, at most 90 days ahead) is checked by the
-service, so it answers ``422 review_due_at_invalid`` instead of a generic error.
+time rule (an ISO 8601 string with a UTC offset, later than now, at most 90 days ahead) is
+checked by the service, so a number, a naive time or a time out of range answers ``422
+review_due_at_invalid`` instead of a generic error.
 """
 
 from __future__ import annotations
@@ -13,7 +14,11 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from backend.schemas.coverage import CoverageWindowResponse, SampleDrawResponse
+from backend.schemas.coverage import (
+    CoverageWindowResponse,
+    ReviewSampleRequest,
+    SampleDrawResponse,
+)
 
 # ``review_items.revision`` is a PostgreSQL integer; a larger number is no revision.
 MAX_REVISION = 2**31 - 1
@@ -21,6 +26,8 @@ MAX_REVISION = 2**31 - 1
 ReferenceId = Annotated[str, StringConstraints(min_length=1, max_length=36)]
 ExpectedRevision = Annotated[int, Field(ge=1, le=MAX_REVISION, strict=True)]
 CancelReason = Literal["duplicate", "out_of_scope", "meeting_unusable", "other"]
+# Any JSON value, required: ``check_due_at`` accepts only an ISO 8601 string.
+DueAt = Any
 
 
 class ReviewItemResponse(BaseModel):
@@ -55,7 +62,7 @@ class ReviewItemCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     meeting_id: ReferenceId
-    due_at: datetime
+    due_at: DueAt
     assignee_user_id: ReferenceId | None = None
     scorecard_result_id: ReferenceId | None = None
 
@@ -74,24 +81,18 @@ class ReviewItemAssignRequest(ReviewItemWriteRequest):
 
 
 class ReviewItemDueTimeRequest(ReviewItemWriteRequest):
-    due_at: datetime
+    due_at: DueAt
 
 
 class ReviewItemCancelRequest(ReviewItemWriteRequest):
     reason: CancelReason
 
 
-class ReviewSampleEnqueueRequest(BaseModel):
-    """The fields of ``POST /admin/review-samples``, checked by the same service so each
-    error keeps its own code, plus ``due_at`` for every created item."""
+class ReviewSampleEnqueueRequest(ReviewSampleRequest):
+    """The request of ``POST /admin/review-samples``, plus ``due_at`` for every created
+    item."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    from_: Any = Field(default=None, alias="from")
-    to: Any = None
-    seed: Any = None
-    config: Any
-    due_at: datetime
+    due_at: DueAt
 
 
 class ReviewSampleEnqueueResponse(BaseModel):

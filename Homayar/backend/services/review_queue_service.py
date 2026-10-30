@@ -159,9 +159,18 @@ def is_overdue(item: ReviewItem, now: datetime) -> bool:
     return is_active(item) and due_at is not None and due_at <= now
 
 
-def check_due_at(due_at: datetime, *, now: datetime) -> datetime:
-    """``due_at`` in UTC, or ``422 review_due_at_invalid``: it must carry a UTC offset,
-    be later than ``now`` and at most 90 days after it."""
+def check_due_at(raw: object, *, now: datetime) -> datetime:
+    """``due_at`` in UTC, or ``422 review_due_at_invalid``: an ISO 8601 string (a JSON
+    number or any other value is refused) that carries a UTC offset, later than ``now``
+    and at most 90 days after it."""
+    try:
+        if not isinstance(raw, str):
+            raise ValueError
+        due_at = datetime.fromisoformat(raw)
+    except ValueError:
+        raise ReviewQueueError(
+            422, "review_due_at_invalid", "due_at must be an ISO 8601 string"
+        ) from None
     if due_at.tzinfo is None or due_at.utcoffset() is None:
         message = "due_at must carry a UTC offset"
     elif due_at <= now:
@@ -181,12 +190,6 @@ def active_item_id(db: Session, *, workspace_id: str, meeting_id: str) -> str | 
             ReviewItem.meeting_id == meeting_id,
             ReviewItem.status.in_(REVIEW_ITEM_ACTIVE_STATUSES),
         )
-    )
-
-
-def load_item(db: Session, *, workspace_id: str, item_id: str) -> ReviewItem | None:
-    return db.scalar(
-        select(ReviewItem).where(ReviewItem.id == item_id, ReviewItem.workspace_id == workspace_id)
     )
 
 
@@ -268,7 +271,7 @@ def create_item(
     caller: Reviewer,
     *,
     meeting_id: str,
-    due_at: datetime,
+    due_at: object,
     assignee_user_id: str | None,
     scorecard_result_id: str | None,
     now: datetime,
@@ -569,7 +572,7 @@ def change_due_time(
     *,
     item_id: str,
     expected_revision: int,
-    due_at: datetime,
+    due_at: object,
     now: datetime,
 ) -> Change:
     item, meeting = _writable(db, caller, item_id=item_id, expected_revision=expected_revision)
@@ -602,6 +605,12 @@ def _assignee_action(
     item, meeting = _writable(db, caller, item_id=item_id, expected_revision=expected_revision)
     if item.assignee_user_id != caller.user_id:
         raise ReviewQueueError(403, "review_not_assignee", "Only the assignee may do this")
+    # The conversation's agent may have changed since the assignment.  This reaches an
+    # admin only: a member who is the agent does not see the item.
+    if meeting.agent_user_id == caller.user_id:
+        raise ReviewQueueError(
+            422, "review_assignee_is_agent", "Nobody reviews their own conversation"
+        )
     if item.status != needs_status:
         raise ReviewQueueError(
             409, "review_item_state_invalid", f"The review item must be {needs_status}"
@@ -678,7 +687,7 @@ def enqueue_sample(
     raw_to: object,
     seed: object,
     config: object,
-    due_at: datetime,
+    due_at: object,
     recompute_max_attempts: int,
     now: datetime,
 ) -> SampleEnqueue:
