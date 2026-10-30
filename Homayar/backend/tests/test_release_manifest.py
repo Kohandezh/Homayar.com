@@ -669,7 +669,7 @@ def test_verify_refuses_a_manifest_without_a_pinned_proxy_image(
     assert rm.verify_documents(missing, build_info) == [
         "bundled_images.images.NGINX_IMAGE: not recorded"
     ]
-    tag = "nginx:1.30-alpine"
+    tag = "nginx:1.30-alpine-slim"
     bare = copy.deepcopy(head_manifest)
     bare["bundled_images"]["images"]["NGINX_IMAGE"] = rm.image_reference(tag)
     _rehashed(bare)
@@ -704,7 +704,7 @@ def _with_base_images(manifest: dict[str, Any], **references: str) -> dict[str, 
 
 PINNED_BASES = {
     "console-web.NODE_IMAGE": "node:22-alpine@" + DIGEST,
-    "console-web.NGINX_IMAGE": "nginx:1.30-alpine@" + DIGEST,
+    "console-web.NGINX_IMAGE": "nginx:1.30-alpine-slim@" + DIGEST,
     "egress-proxy.ALPINE_IMAGE": "alpine:3.22@" + DIGEST,
 }
 
