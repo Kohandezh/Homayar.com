@@ -45,6 +45,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "6d4ec2d2e498"
 BASE_REVISION = "a7c3e9f5b2d1"
+HEAD_REVISION = "f2c6a8e4b1d7"  # HOM-290: trend_extraction_judgments, after HOM-58
 NEW_COLUMNS = (
     "conversation_type",
     "direction",
@@ -336,7 +337,7 @@ def test_the_migration_backfills_and_round_trips_with_rows_present(
     from backend.config import reset_settings_cache
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == NEW_REVISION
+    assert code_migration_head() == HEAD_REVISION
     tenant = _tenant(client, email_outbox, "migration")
     orm_shape = _assert_head_shape()
     assert _rls_flags() == (True, True)
@@ -383,7 +384,7 @@ def test_the_migration_backfills_and_round_trips_with_rows_present(
         assert len(before) == 4
 
         command.upgrade(config, "head")
-        assert _scalar("SELECT version_num FROM alembic_version") == NEW_REVISION
+        assert _scalar("SELECT version_num FROM alembic_version") == HEAD_REVISION
         assert _shape() == orm_shape  # the migrated schema equals the ORM schema
         assert _rls_flags() == (True, True)  # the backfill set FORCE again
         assert _meetings() == before  # every row and id kept
