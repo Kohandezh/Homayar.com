@@ -9,6 +9,7 @@ import threading
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as wait_for_futures
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -58,6 +59,11 @@ BACKUP_MAX_AGE_SECONDS = 93600.0  # 26 h, the backup age alert
 # A deadline far above every real wait in these tests: a bug that makes a request
 # wait out its whole deadline then costs 30 s, which the wide bound below catches.
 LONG_DEADLINE_SECONDS = 30.0
+# The deadline in force for the hung-source tests that also check that real sources
+# (PostgreSQL, the queue query after it) finished: the default 0.5 s measures the
+# runner, not the rule (HOM-352).  Those two run one after the other, so 3 s leaves
+# room for both on a loaded runner and stays far below the bounds below.
+SCALED_DEADLINE_SECONDS = 3.0
 # Far below the 30 s of the long deadline and of the hung fakes' gate.wait(30), far
 # above a loaded runner's request overhead; the only upper time limit left in the file.
 WIDE_BOUND_SECONDS = 10.0
@@ -165,13 +171,26 @@ def waits(monkeypatch) -> _WaitRecorder:
     return recorder
 
 
-@pytest.fixture
-def long_deadline(client, settings) -> system_health.SystemHealthCollector:
-    """The app's collector with a 30 s deadline, in place before the first health
+def _use_long_deadline(app, settings: Settings) -> system_health.SystemHealthCollector:
+    """Give ``app`` a collector with a 30 s deadline, in place before its first health
     request; the app's lifespan closes it at shutdown, as for the default one."""
     collector = system_health.SystemHealthCollector(settings, deadline=LONG_DEADLINE_SECONDS)
-    client.app.state.system_health_collector = collector
+    app.state.system_health_collector = collector
     return collector
+
+
+@pytest.fixture
+def long_deadline(client, settings) -> system_health.SystemHealthCollector:
+    """The app's collector with a 30 s deadline (``_use_long_deadline``)."""
+    return _use_long_deadline(client.app, settings)
+
+
+@pytest.fixture
+def scaled_deadline(monkeypatch) -> float:
+    """``DEADLINE_SECONDS`` is the scaled deadline for this test only.  The collector
+    reads it on every request, and every deadline check here reads it too."""
+    monkeypatch.setattr(system_health, "DEADLINE_SECONDS", SCALED_DEADLINE_SECONDS)
+    return SCALED_DEADLINE_SECONDS
 
 
 def _set_system_role(email: str, system_role: str) -> None:
@@ -302,7 +321,7 @@ def _not_waited_on(waits: _WaitRecorder, future) -> None:
 
 
 def test_operator_gets_every_key_with_the_contract_vocabularies(
-    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -394,7 +413,7 @@ def test_operator_gets_every_key_with_the_contract_vocabularies(
     }
 
 
-def test_vocabularies_hold_when_every_dependency_is_missing(client, email_outbox):
+def test_vocabularies_hold_when_every_dependency_is_missing(client, email_outbox, long_deadline):
     # No fakes: the configured Redis (port 1) refuses, no heartbeat store answers.
     workspace_id = _operator(client, email_outbox)
     body = _health(client, workspace_id)
@@ -686,7 +705,7 @@ def _assert_hung_twice(
 
 
 def test_a_hung_database_times_out_and_is_not_restarted(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits
+    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits, scaled_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _fresh_sweeps(heartbeat_store)
@@ -710,7 +729,7 @@ def test_a_hung_database_times_out_and_is_not_restarted(
 
 
 def test_a_hung_redis_times_out_and_is_not_restarted(
-    client, email_outbox, heartbeat_store, gate, monkeypatch, waits
+    client, email_outbox, heartbeat_store, gate, monkeypatch, waits, scaled_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -731,7 +750,7 @@ def test_a_hung_redis_times_out_and_is_not_restarted(
 
 
 def test_a_hung_object_store_times_out_and_is_not_restarted(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits
+    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits, scaled_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -754,7 +773,7 @@ def test_a_hung_object_store_times_out_and_is_not_restarted(
 
 
 def test_a_hung_heartbeat_store_is_unknown_and_is_not_restarted(
-    client, email_outbox, redis_up, gate, waits
+    client, email_outbox, redis_up, gate, waits, scaled_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -782,7 +801,7 @@ def test_a_hung_heartbeat_store_is_unknown_and_is_not_restarted(
 
 
 def test_a_hung_backup_file_is_unknown_and_is_not_restarted(
-    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch, waits
+    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch, waits, scaled_deadline
 ):
     # A FIFO without a writer blocks the reader in open(): a real hung file read.
     workspace_id = _operator(client, email_outbox)
@@ -811,7 +830,7 @@ def test_a_hung_backup_file_is_unknown_and_is_not_restarted(
 
 
 def test_hung_queue_aggregates_are_unknown_and_not_restarted(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits
+    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, waits, scaled_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -890,18 +909,19 @@ def test_a_released_source_is_probed_again(
 
     monkeypatch.setattr(metrics, "probe_storage", lambda settings: Slow())
     assert _health(client, workspace_id)["dependencies"]["storage"]["status"] == "timeout"
+    collector = client.app.state.system_health_collector
+    released = collector._inflight["storage"]
     gate.set()
-    for _ in range(50):
-        if not _health_threads("storage"):
-            break
-        time.sleep(0.02)
+    wait_for_futures([released.future], timeout=WIDE_BOUND_SECONDS)
+    # The same collector, now with the long deadline, so the fresh probe has time to end.
+    monkeypatch.setattr(collector, "_deadline", LONG_DEADLINE_SECONDS)
     # The finished probe is not reused: the next request starts a fresh one.
     assert _health(client, workspace_id)["dependencies"]["storage"]["status"] == "up"
     assert calls == [1, 1]
 
 
 def test_a_hung_metrics_scrape_does_not_block_the_summary(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch
+    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     entered = threading.Event()
@@ -930,7 +950,15 @@ def test_a_hung_metrics_scrape_does_not_block_the_summary(
 
 @pytest.mark.parametrize("source", ["database", "storage"])
 def test_a_source_still_hung_from_an_earlier_request_is_reported_at_once(
-    client, email_outbox, heartbeat_store, redis_up, gate, monkeypatch, source, waits
+    client,
+    email_outbox,
+    heartbeat_store,
+    redis_up,
+    gate,
+    monkeypatch,
+    source,
+    waits,
+    scaled_deadline,
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -966,7 +994,7 @@ def test_a_source_still_hung_from_an_earlier_request_is_reported_at_once(
 
 
 def test_a_call_started_by_an_earlier_request_never_answers_a_later_one(
-    client, email_outbox, redis_up, gate, monkeypatch
+    client, email_outbox, redis_up, gate, monkeypatch, scaled_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     release_old_call = threading.Event()
@@ -987,20 +1015,19 @@ def test_a_call_started_by_an_earlier_request_never_answers_a_later_one(
         def read_all(self):
             if release_old_call.is_set():
                 gate.set()
-                for _ in range(100):
-                    if not _health_threads("storage"):
-                        old_call_finished.append(True)
-                        break
-                    time.sleep(0.002)
+                done, _ = wait_for_futures(
+                    [old_call.future], timeout=system_health.DEADLINE_SECONDS
+                )
+                if done:
+                    old_call_finished.append(True)
             return {}
 
     monkeypatch.setattr(metrics, "probe_storage", lambda settings: Slow())
     heartbeats.use_heartbeat_store(ReleasingStore())
     try:
         assert _health(client, workspace_id)["dependencies"]["storage"]["status"] == "timeout"
-        _until_older_than_one_deadline(
-            client.app.state.system_health_collector._inflight["storage"]
-        )
+        old_call = client.app.state.system_health_collector._inflight["storage"]
+        _until_older_than_one_deadline(old_call)
         release_old_call.set()
         body = _health(client, workspace_id)
     finally:
@@ -1026,7 +1053,7 @@ def _concurrent_health(client, workspace_id: str, count: int) -> list[dict]:
 
 @pytest.mark.parametrize(("count", "rounds"), [(2, 20), (8, 4)])
 def test_overlapping_requests_on_a_healthy_install_are_all_up(
-    client, email_outbox, heartbeat_store, redis_up, count, rounds
+    client, email_outbox, heartbeat_store, redis_up, count, rounds, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -1092,12 +1119,21 @@ def test_a_request_shares_a_young_call_that_another_request_started(
 
 
 def test_a_shared_call_that_ends_after_its_own_deadline_does_not_count(
-    client, email_outbox, heartbeat_store, redis_up, tmp_path, monkeypatch
+    client,
+    email_outbox,
+    heartbeat_store,
+    redis_up,
+    tmp_path,
+    monkeypatch,
+    long_deadline,
+    scaled_deadline,
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
     assert _health(client, workspace_id)["dependencies"]["storage"]["status"] == "up"
     collector = client.app.state.system_health_collector
+    # The warm-up had the long deadline; the rest runs on DEADLINE_SECONDS (scaled).
+    monkeypatch.setattr(collector, "_deadline", None)
     entered, release = threading.Event(), threading.Event()
     calls: list[int] = []
     ended_late: list[bool] = []
@@ -1173,8 +1209,9 @@ def test_startup_loads_the_migration_head_even_without_metrics(
     # summary must not load the Alembic scripts inside the database deadline.
     without_metrics = settings.model_copy(update={"metrics_enabled": False})
     code_migration_head.cache_clear()
-    with _own_app(without_metrics, email_outbox, monkeypatch) as (_app, client):
+    with _own_app(without_metrics, email_outbox, monkeypatch) as (app, client):
         assert code_migration_head.cache_info().currsize == 1  # warmed by the lifespan
+        _use_long_deadline(app, without_metrics)
         workspace_id = _operator(client, email_outbox)
         _stamp(code_migration_head())
         body = _health(client, workspace_id)
@@ -1193,6 +1230,7 @@ def test_the_lifespan_closes_the_collector_and_its_connections(
     settings, email_outbox, heartbeat_store, monkeypatch
 ):
     with _own_app(settings, email_outbox, monkeypatch) as (app, client):
+        _use_long_deadline(app, settings)  # the probe has ended when the request returns
         workspace_id = _operator(client, email_outbox)
         assert _get(client, workspace_id).status_code == 200
         engine = app.state.system_health_collector._engine
@@ -1221,7 +1259,9 @@ def test_the_lifespan_closes_the_collector_and_its_connections(
     ("revision", "expected"),
     [("head", "up_to_date"), ("0000aaaa1111", "behind"), (None, "unstamped")],
 )
-def test_schema_status(client, email_outbox, heartbeat_store, redis_up, revision, expected):
+def test_schema_status(
+    client, email_outbox, heartbeat_store, redis_up, revision, expected, long_deadline
+):
     workspace_id = _operator(client, email_outbox)
     stamped = code_migration_head() if revision == "head" else revision
     _stamp(stamped)
@@ -1238,7 +1278,9 @@ def test_schema_status(client, email_outbox, heartbeat_store, redis_up, revision
 # --- 6. sweeps -----------------------------------------------------------------------------
 
 
-def test_sweep_statuses_and_failure_classes(client, email_outbox, heartbeat_store, redis_up):
+def test_sweep_statuses_and_failure_classes(
+    client, email_outbox, heartbeat_store, redis_up, long_deadline
+):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
     settings = client.app.state.settings
@@ -1314,7 +1356,7 @@ def test_sweep_statuses_and_failure_classes(client, email_outbox, heartbeat_stor
 
 
 def test_unusable_heartbeat_values_are_treated_as_absent(
-    client, email_outbox, heartbeat_store, redis_up
+    client, email_outbox, heartbeat_store, redis_up, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     task = next(iter(heartbeats.PERIODIC_TASKS))
@@ -1344,7 +1386,7 @@ def test_backup_not_configured_without_the_variable(client, email_outbox, heartb
 
 
 def test_backup_missing_file_or_no_target_line(
-    client, email_outbox, heartbeat_store, tmp_path, monkeypatch
+    client, email_outbox, heartbeat_store, tmp_path, monkeypatch, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     path = _backup_file(tmp_path, monkeypatch, None)
@@ -1361,7 +1403,7 @@ def test_backup_missing_file_or_no_target_line(
 
 
 def test_backup_stale_when_a_target_is_old_or_absent(
-    client, email_outbox, heartbeat_store, tmp_path, monkeypatch
+    client, email_outbox, heartbeat_store, tmp_path, monkeypatch, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     now = time.time()
@@ -1381,7 +1423,7 @@ def test_backup_stale_when_a_target_is_old_or_absent(
 
 
 def test_backup_ok_when_every_target_is_fresh(
-    client, email_outbox, heartbeat_store, tmp_path, monkeypatch
+    client, email_outbox, heartbeat_store, tmp_path, monkeypatch, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     now = time.time()
@@ -1423,7 +1465,7 @@ def test_audit_sink_is_not_configured_on_main(client, email_outbox, heartbeat_st
 
 
 def test_audit_sink_heartbeat_fills_the_fields(
-    client, email_outbox, heartbeat_store, redis_up, audit_sink_task
+    client, email_outbox, heartbeat_store, redis_up, audit_sink_task, long_deadline
 ):
     workspace_id = _operator(client, email_outbox)
     _stamp(code_migration_head())
@@ -1490,7 +1532,7 @@ def test_audit_sink_is_unknown_when_the_heartbeat_store_fails(
 
 
 def test_the_body_holds_no_tenant_data_secrets_paths_or_messages(
-    client, email_outbox, settings, heartbeat_store, redis_up, tmp_path, monkeypatch
+    client, email_outbox, settings, heartbeat_store, redis_up, tmp_path, monkeypatch, long_deadline
 ):
     job_id, workspace_id = _queued_upload(client, email_outbox, monkeypatch)
     with inspection_session_factory()() as db:
@@ -1587,7 +1629,7 @@ def test_a_real_redis_answers_the_probe_and_holds_the_heartbeats(client, email_o
     real = settings.model_copy(update={"redis_url": url})
     workspace_id = _operator(client, email_outbox)
     # The app's own Redis URL is a refusing port; give the app a collector on the real one.
-    client.app.state.system_health_collector = system_health.SystemHealthCollector(real)
+    _use_long_deadline(client.app, real)
     task = next(iter(heartbeats.PERIODIC_TASKS))
     key = heartbeats.HEARTBEAT_KEY_PREFIX + task
     try:
