@@ -121,6 +121,22 @@ def table_columns(connection: psycopg.Connection, table: str) -> list[list[str]]
     return [[row[0], row[1]] for row in rows]
 
 
+def _from_target(connection: psycopg.Connection, table: str) -> sql.Composable:
+    """``FROM`` target of a listed table.
+
+    A plain table (``relkind = 'r'``) is read with ``ONLY``: a plain
+    ``FROM t`` also reads every table that inherits from ``t``, and an
+    inheritance child is listed and dumped as its own table.  A partitioned
+    parent (``relkind = 'p'``) has no rows of its own, so it is read bare and
+    its partitions come along (partitions are never listed).
+    """
+    relkind = connection.execute(
+        "SELECT relkind FROM pg_class WHERE oid = %s::regclass", (f'public."{table}"',)
+    ).fetchone()[0]
+    target = sql.Identifier(table)
+    return sql.SQL("ONLY {}").format(target) if relkind == "r" else target
+
+
 def list_sequences(connection: psycopg.Connection) -> dict[str, list[Any]]:
     names = [
         row[0]
@@ -154,7 +170,7 @@ def _has_column(columns: list[list[str]], name: str) -> bool:
 def count_rows(connection: psycopg.Connection, table: str) -> int:
     return int(
         connection.execute(
-            sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table))
+            sql.SQL("SELECT count(*) FROM {}").format(_from_target(connection, table))
         ).fetchone()[0]
     )
 
@@ -162,7 +178,7 @@ def count_rows(connection: psycopg.Connection, table: str) -> int:
 def tenant_counts(connection: psycopg.Connection, table: str) -> dict[str, int]:
     rows = connection.execute(
         sql.SQL("SELECT workspace_id, count(*) FROM {} GROUP BY workspace_id").format(
-            sql.Identifier(table)
+            _from_target(connection, table)
         )
     ).fetchall()
     return {str(row[0]): int(row[1]) for row in rows if row[0] is not None}
@@ -183,9 +199,12 @@ class Snapshot:
     def copy_out(self, table: str) -> Iterator[bytes]:
         columns = sql.SQL(", ").join(sql.Identifier(c[0]) for c in self.columns[table])
         # COPY (SELECT ...) also reads partitioned parents, which plain
-        # COPY <table> TO refuses.
+        # COPY <table> TO refuses.  The FROM target (see _from_target) keeps
+        # a partitioned parent reading its partitions (partitions are never
+        # listed) and reads a plain table with ONLY, so an inheritance child
+        # is not dumped again inside its parent's dump (it is listed itself).
         statement = sql.SQL("COPY (SELECT {} FROM {}) TO STDOUT").format(
-            columns, sql.Identifier(table)
+            columns, _from_target(self.connection, table)
         )
         with self.connection.cursor() as cursor:
             with cursor.copy(statement) as copy:
