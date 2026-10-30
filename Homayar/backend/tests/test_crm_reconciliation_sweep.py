@@ -239,3 +239,40 @@ def test_an_older_delayed_record_never_changes_is_active(client, email_outbox, s
 
 def _items_of(persona, record_id: str) -> list[str]:
     return [item["id"] for item in _items(persona) if item["inbound_record_id"] == record_id]
+
+
+def test_an_older_delayed_false_still_deactivates(client, email_outbox, settings):
+    """Addendum 5 R1: an explicit ``false`` always applies (the safe side); an explicit
+    ``true`` applies only from a record that is not older than ``last_seen_at``."""
+    from backend.tests.test_crm_mapping_api import _external_records, _item
+
+    owner = _owner(client, email_outbox, "sweep-false")
+    _setup(owner)
+    _conversation(owner, "call-0")
+    assert (
+        _record(owner, _payload("call-0", customer="C-5", customer_active=True))["state"]
+        == "applied"
+    )
+    late_false = _record(owner, _payload("call-6", customer="C-5", customer_active=False))
+    assert late_false["state"] == "pending"  # its call is late
+    newer = _conversation(owner, "call-7")
+    assert _record(owner, _payload("call-7", customer="C-5"))["state"] == "applied"
+    assert _links(owner, newer)[("odoo", "customer")]["external_id"] == "C-5"
+
+    late_meeting = _conversation(owner, "call-6")
+    assert reconcile_pending_records(settings)["reconciliation"] == 1
+    assert ("odoo", "customer", "C-5", False) in _external_records(owner)
+    assert _links(owner, late_meeting) == {}
+    reasons = {_item(owner, i)["reason"] for i in _items_of(owner, late_false["id"])}
+    assert reasons == {"inactive_record"}
+
+    _conversation(owner, "call-8")
+    silent = _record(owner, _payload("call-8", customer="C-5"))
+    assert silent["state"] == "reconciliation"
+    assert _item(owner, silent["reconciliation_item_ids"][0])["reason"] == "inactive_record"
+
+    reactivated_meeting = _conversation(owner, "call-9")
+    reactivated = _record(owner, _payload("call-9", customer="C-5", customer_active=True))
+    assert reactivated["state"] == "applied"
+    assert ("odoo", "customer", "C-5", True) in _external_records(owner)
+    assert _links(owner, reactivated_meeting)[("odoo", "customer")]["external_id"] == "C-5"

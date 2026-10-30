@@ -204,9 +204,24 @@ def _validate_field_map(field_map: object) -> dict[str, str]:
     return dict(field_map)
 
 
+def _encodable(value: str) -> bool:
+    """False for text UTF-8 cannot hold (a lone surrogate such as ``"\\ud800"``): such a
+    string must be refused before it reaches a query or a JSON column."""
+    try:
+        value.encode()
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _valid_map_key(key: object) -> bool:
     # A key with outer spaces could never match: extracted values are trimmed.
-    return isinstance(key, str) and 0 < len(key) <= MAX_VALUE_LENGTH and key == key.strip()
+    return (
+        isinstance(key, str)
+        and 0 < len(key) <= MAX_VALUE_LENGTH
+        and key == key.strip()
+        and _encodable(key)
+    )
 
 
 def _validate_outcome_map(outcome_map: object) -> dict[str, str]:
@@ -249,7 +264,7 @@ def _validate_agent_map(
     if not isinstance(agent_map, dict):
         raise _unprocessable("invalid_agent_map", "agent_map must be an object")
     for key, value in agent_map.items():
-        if not _valid_map_key(key) or not isinstance(value, str):
+        if not _valid_map_key(key) or not isinstance(value, str) or not _encodable(value):
             raise _unprocessable(
                 "invalid_agent_map", "agent_map maps agent ids of 1 to 200 characters to user ids"
             )
@@ -508,18 +523,17 @@ def submit_record(
 ) -> RecordOutcome:
     """Record one received CRM record and apply it (DESIGN 4).  The caller commits.
 
-    Order: path slug, payload size, profile lookup, then a seen identity (replay or
-    conflict), then the profile's ``is_active`` and the extraction, then the new row.  A
-    seen event is settled before the profile state and the extraction, so a replay still
-    answers after the profile is turned off.  A refusal raises :class:`CrmMappingError`
-    before anything is written.
+    Order: path slug, payload encoding (``invalid_payload``) and size, profile lookup,
+    then a seen identity (replay or conflict), then the profile's ``is_active`` and the
+    extraction, then the new row.  A seen event is settled before the profile state and
+    the extraction, so a replay still answers after the profile is turned off.  A refusal
+    raises :class:`CrmMappingError` before anything is written.
     """
     require_source_system(source_system)
     try:
         canonical = canonical_payload(payload)
-        event_id.encode()
-    except UnicodeEncodeError as error:  # a lone surrogate such as "\ud800"
-        raise _unprocessable("invalid_payload", "The record cannot be encoded as UTF-8") from error
+    except UnicodeEncodeError as error:  # a payload string with a lone surrogate
+        raise _unprocessable("invalid_payload", "The payload cannot be encoded as UTF-8") from error
     if len(canonical) > MAX_PAYLOAD_BYTES:
         raise CrmMappingError(
             413, "payload_too_large", f"The payload is over {MAX_PAYLOAD_BYTES} bytes"
@@ -897,12 +911,14 @@ def upsert_external_record(
 ) -> ExternalRecord:
     """The record's ``(source_system, record_type, external_id)``, created on first sight.
 
-    ``last_seen_at`` is the newest ``received_at`` of the records that touched it.
-    ``is_active`` copies what the source system says, but only from a record that is not
-    older than ``last_seen_at``: an older delayed record never changes it.  When a
-    record says nothing, the stored value stays (a new record starts active).  Homayar
-    never reactivates on its own.  The row is locked, so two writers compare fresh times.
+    ``last_seen_at`` is the newest ``received_at`` of the records that touched it.  An
+    explicit ``false`` always sets ``is_active = false`` (the safe side: a link to it then
+    needs a human).  An explicit ``true`` counts only from a record that is not older than
+    ``last_seen_at``, so an older delayed record never reactivates.  When a record says
+    nothing, the stored value stays (a new record starts active).  Homayar never
+    reactivates on its own.  The row is locked, so two writers compare fresh times.
     """
+
     seen_at = _aware(record.received_at)
     query = (
         select(ExternalRecord)
@@ -937,7 +953,7 @@ def upsert_external_record(
             if row is None:  # pragma: no cover
                 raise
     newest = _aware(row.last_seen_at)
-    if active is not None and seen_at >= newest:
+    if active is False or (active is True and seen_at >= newest):
         row.is_active = active
     if seen_at > newest:
         row.last_seen_at = seen_at
@@ -1173,8 +1189,8 @@ def _invalid_resolution(message: str) -> CrmMappingError:
 
 
 def _optional_text(name: str, value: object) -> str | None:
-    """A resolve body field: absent (``None``) or a string, else ``invalid_resolution``."""
-    if value is None or isinstance(value, str):
+    """A resolve body field: absent (``None``) or a UTF-8 string, else ``invalid_resolution``."""
+    if value is None or (isinstance(value, str) and _encodable(value)):
         return value
     raise _invalid_resolution(f"{name} must be a string")
 
@@ -1209,14 +1225,16 @@ def resolve_item(
     conversation); ``keep_current`` keeps the current link of a ``changed_id`` item;
     ``dismiss`` changes nothing.  ``meetings.external_*`` never change.
     """
-    item = get_item(db, workspace_id=workspace_id, item_id=item_id, for_update=True)
-    if item.status != ReconciliationStatus.OPEN.value:
-        raise CrmMappingError(409, "reconciliation_item_closed", "The item is already closed")
-    if not isinstance(resolution, str):
+    # Body types first, before any query: a wrong type or text UTF-8 cannot hold (a lone
+    # surrogate) must never reach the database.
+    if not isinstance(resolution, str) or not _encodable(resolution):
         raise _invalid_resolution("resolution must be one of link, keep_current, dismiss")
     chosen_meeting = _optional_text("meeting_id", meeting_id)
     chosen_user = _optional_text("user_id", user_id)
     chosen_outcome = _optional_text("outcome", outcome)
+    item = get_item(db, workspace_id=workspace_id, item_id=item_id, for_update=True)
+    if item.status != ReconciliationStatus.OPEN.value:
+        raise CrmMappingError(409, "reconciliation_item_closed", "The item is already closed")
     needed = _RESOLUTIONS.get((item.reason, resolution))
     if needed is None:
         raise _invalid_resolution(f"{resolution!r} is not a resolution of a {item.reason} item")

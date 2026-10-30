@@ -102,9 +102,11 @@ the one retry path.
 ### D7. Inactive upstream records
 
 `external_records.is_active` copies what the record says (`customer_active`,
-`ticket_active`), but only from a record that is not older than the newest one seen
-(`last_seen_at`): a delayed older record never changes it. When a record says nothing, the
-stored value stays. Homayar never sets a
+`ticket_active`). An explicit `false` always applies (the safe side). An explicit `true`
+applies only from a record that is not older than the newest one seen (`last_seen_at`), so a
+delayed older record never reactivates. When a record says nothing, the stored value stays.
+Known limit: without an upstream timestamp, a delayed older `false` can deactivate a record
+that upstream reactivated later; the next record with `true` reactivates it. Homayar never sets a
 record active on its own and never creates a replacement. A link to an inactive record is
 not made automatically (`inactive_record`); a person may still link it, and it stays
 inactive.

@@ -1285,3 +1285,75 @@ def test_a_reused_item_is_listed_only_for_its_own_reason(client, email_outbox):
     replay = _post(owner, _payload("call-1", customer="C-5"), event_id="evt-again")
     assert replay.status_code == 200 and replay.json()["reconciliation_item_ids"] == [changed_item]
     assert _item(owner, inactive_item)["status"] == "open"
+
+
+# --- team review round 3 (SPEC Addendum 6): never a 500 for bad text ------------------------
+
+SURROGATE = "\\ud800"  # a JSON escape for a lone surrogate: Python reads it, UTF-8 cannot hold it
+
+
+def _raw(persona: _Persona, method: str, path: str, body: str):
+    """Send ``body`` as raw JSON text (``json=`` cannot encode a lone surrogate)."""
+    return persona.client.request(
+        method,
+        path,
+        content=body,
+        cookies=persona.cookies,
+        headers={**persona.headers, "Content-Type": "application/json"},
+    )
+
+
+def test_lone_surrogates_in_maps_are_refused_with_the_map_code(client, email_outbox):
+    owner = _owner(client, email_outbox, "surrogate-maps")
+    field_map = json.dumps({"conversation_id": "call.id"})
+    for body, code in (
+        (
+            f'{{"field_map": {field_map}, "agent_map": {{"u-1": "{SURROGATE}"}}}}',
+            "invalid_agent_map",
+        ),
+        (f'{{"field_map": {field_map}, "agent_map": {{"{SURROGATE}": "x"}}}}', "invalid_agent_map"),
+        (
+            f'{{"field_map": {field_map}, "outcome_map": {{"{SURROGATE}": "won"}}}}',
+            "invalid_outcome_map",
+        ),
+    ):
+        response = _raw(owner, "PUT", f"{PROFILES}/odoo", body)
+        assert response.status_code == 422 and _code(response) == code, (body, response.text)
+    assert owner.get(f"{PROFILES}/odoo").status_code == 404  # nothing stored
+
+    # The record body's event id is refused by the request schema.
+    _setup(owner)
+    response = _raw(
+        owner,
+        "POST",
+        "/api/v1/integrations/odoo/records",
+        f'{{"event_id": "{SURROGATE}", "payload": {{"call": {{"id": "call-1"}}}}}}',
+    )
+    assert response.status_code == 422 and _code(response) == "validation_error", response.text
+    assert _ledger(owner) == []
+
+
+def test_lone_surrogates_in_a_resolve_body_are_invalid_resolution(client, email_outbox, settings):
+    from backend.jobs.crm_reconciliation import reconcile_pending_records
+
+    owner = _owner(client, email_outbox, "surrogate-resolve")
+    _setup(owner)
+    _conversation(owner, "call-1")
+    agent_item = _record(owner, _payload(agent="u-9"))["reconciliation_item_ids"][0]
+    outcome_item = _record(owner, _payload(outcome="MAYBE"))["reconciliation_item_ids"][0]
+    _record(owner, _payload("call-404", customer="C-1"))
+    reconcile_pending_records(settings, now=datetime.now(UTC) + timedelta(days=8))
+    (missing,) = _items(owner, reason="conversation_not_found")
+
+    for item_id, field in (
+        (agent_item, "user_id"),
+        (missing["id"], "meeting_id"),
+        (outcome_item, "outcome"),
+    ):
+        body = f'{{"resolution": "link", "{field}": "{SURROGATE}"}}'
+        response = _raw(owner, "POST", f"{RECONCILIATION}/{item_id}/resolve", body)
+        assert response.status_code == 422 and _code(response) == "invalid_resolution", (
+            field,
+            response.text,
+        )
+        assert _item(owner, item_id)["status"] == "open"
