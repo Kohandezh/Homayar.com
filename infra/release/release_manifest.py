@@ -71,8 +71,10 @@ IMAGES = {
 }
 # The on-prem Compose file and the variables of its bundled images: third-party
 # images the stack runs as they are, not built from a Dockerfile here (HOM-286).
+# NGINX_IMAGE is the reverse proxy; only its `image:` line is read, not the console-web
+# build argument of the same name (HOM-345).
 COMPOSE_ONPREM = "infra/compose/compose.onprem.yaml"
-BUNDLED_IMAGES = ("MINIO_IMAGE", "MINIO_MC_IMAGE")
+BUNDLED_IMAGES = ("MINIO_IMAGE", "MINIO_MC_IMAGE", "NGINX_IMAGE")
 # Code the API image ships, relative to PRODUCT_DIR (api.Dockerfile.dockerignore); the
 # same rule as backend.observability.release.is_shipped, which hashes the image's copy.
 SHIPPED_PATHS = ("alembic.ini", "backend")
