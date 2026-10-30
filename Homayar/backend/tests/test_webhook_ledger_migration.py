@@ -78,6 +78,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "e4b8d1f6a3c7"
 BASE_REVISION = "565d2ccd4fca"  # HOM-88: CRM mapping tables
+HEAD_REVISION = "5067ea773c0b"  # HOM-56: scorecard results, after HOM-89
 TABLES = (
     "webhook_endpoints",
     "webhook_signing_keys",
@@ -1257,7 +1258,7 @@ def test_the_migration_round_trips_and_refuses_a_lossy_downgrade(
     from backend.config import reset_settings_cache
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == NEW_REVISION
+    assert code_migration_head() == HEAD_REVISION
     first = _tenant(client, email_outbox, "migration-a")
     second = _tenant(client, email_outbox, "migration-b")
     head = _shapes()
@@ -1277,6 +1278,7 @@ def test_the_migration_round_trips_and_refuses_a_lossy_downgrade(
     config = _alembic(monkeypatch, settings)
     try:
         command.stamp(config, "head")
+        command.downgrade(config, NEW_REVISION)
         others = _other_tables()  # after the stamp, which adds alembic_version
         command.downgrade(config, BASE_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
@@ -1305,13 +1307,13 @@ def test_the_migration_round_trips_and_refuses_a_lossy_downgrade(
         # ck_webhook_delivery_delivered_at: the upgrade refuses it and changes nothing.
         base = _shapes()
         with pytest.raises(IntegrityError, match='"ck_webhook_delivery_delivered_at"'):
-            command.upgrade(config, "head")
+            command.upgrade(config, NEW_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
         assert _shapes() == base
         assert _ids("webhook_deliveries") == {delivery["id"]}
         _fail_delivered()
 
-        command.upgrade(config, "head")
+        command.upgrade(config, NEW_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == NEW_REVISION
         assert _shapes() == head  # the migrated schema equals the ORM schema
         assert _other_tables() == others
@@ -1358,9 +1360,10 @@ def test_the_migration_round_trips_and_refuses_a_lossy_downgrade(
         assert _other_tables() == others
         assert _ids("webhook_deliveries") == kept
         _fail_delivered()
-        command.upgrade(config, "head")
+        command.upgrade(config, NEW_REVISION)
         assert _shapes() == head
         assert _other_tables() == others
         assert _ids("webhook_deliveries") == kept
+        command.upgrade(config, "head")
     finally:
         reset_settings_cache()

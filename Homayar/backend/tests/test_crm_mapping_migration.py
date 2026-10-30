@@ -85,7 +85,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "565d2ccd4fca"
 BASE_REVISION = "47676f445509"  # HOM-54: scorecard_versions
-HEAD_REVISION = "e4b8d1f6a3c7"  # HOM-89: webhook delivery ledger, after HOM-88
+HEAD_REVISION = "5067ea773c0b"  # HOM-56: scorecard results, after HOM-89
 PROFILES = "integration_mapping_profiles"
 RECORDS = "external_records"
 LEDGER = "integration_inbound_records"

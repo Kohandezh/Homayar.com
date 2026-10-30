@@ -94,6 +94,10 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "external_records",
     "conversation_external_links",
     "integration_reconciliation_items",
+    # Stored scorecard results and their criteria (HOM-56): never through a share token.
+    # Not append-only: the conversation purge deletes them as the application role.
+    "scorecard_results",
+    "scorecard_criterion_results",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",
@@ -354,6 +358,12 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
 # unaffected.
 NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records", "webhook_deliveries")
 
+# Tables the application role may read, insert and delete but never update.
+# ``scorecard_results`` and ``scorecard_criterion_results`` (HOM-56): a stored machine
+# score never changes (F41).  DELETE stays granted, because the conversation purge
+# removes the rows as the application role.
+NO_UPDATE_TABLES: tuple[str, ...] = ("scorecard_results", "scorecard_criterion_results")
+
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on
 # ``audit_events`` only, across tenants through a policy granted to it alone.
 # ``homayar_app`` is never a member and the application's login role must not be
@@ -545,6 +555,9 @@ def apply_row_level_security(connection: Connection, *, role: str = APP_ROLE) ->
     for table in NO_DELETE_TABLES:
         if table in tables:
             connection.execute(text(f"REVOKE DELETE ON {table} FROM {role}"))
+    for table in NO_UPDATE_TABLES:
+        if table in tables:
+            connection.execute(text(f"REVOKE UPDATE ON {table} FROM {role}"))
     if AUDIT_TABLE in tables:
         for statement in audit_reader_statements(app_role=role):
             connection.execute(text(statement))
