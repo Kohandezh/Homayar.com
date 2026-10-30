@@ -1,4 +1,4 @@
-"""Outbound webhook endpoints (HOM-89, ADR 0049).
+"""Outbound webhook endpoints (HOM-89, ADR 0050).
 
 Management is session-only in effect: every route requires ``webhook:manage``,
 which is never an API key scope, so a key is refused with

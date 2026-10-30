@@ -1,4 +1,4 @@
-"""Outbound webhook endpoints, signing keys and event enqueue (HOM-89, ADR 0049).
+"""Outbound webhook endpoints, signing keys and event enqueue (HOM-89, ADR 0050).
 
 * Management is for owners and admins in a session (``webhook:manage`` is
   never an API key scope). A signing secret leaves the server only in the

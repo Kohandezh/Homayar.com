@@ -12,7 +12,7 @@ MAX_OVERLAP_SECONDS = 7 * 24 * 3600
 
 
 class WebhookEndpointCreateRequest(BaseModel):
-    """Add an endpoint (HOM-89, ADR 0049). Its first signing key is made with it."""
+    """Add an endpoint (HOM-89, ADR 0050). Its first signing key is made with it."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 

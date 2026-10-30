@@ -617,7 +617,7 @@ class Settings(BaseSettings):
     # Empty: redaction still works, but originals are not retained.
     pii_mapping_keys: SecretSetting = ""
     pii_mapping_active_key_id: str = ""
-    # Outbound webhooks (HOM-89, ADR 0049). The keyring encrypts the endpoint
+    # Outbound webhooks (HOM-89, ADR 0050). The keyring encrypts the endpoint
     # signing secrets at rest: same "key_id:base64(32 bytes)" format as
     # PII_MAPPING_KEYS. Empty: endpoints cannot be created or rotated, and
     # queued deliveries fail with signing_unavailable.

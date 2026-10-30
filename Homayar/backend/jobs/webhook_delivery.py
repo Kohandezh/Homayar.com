@@ -1,4 +1,4 @@
-"""Signed webhook delivery: claim, send, record, and the sweeper (HOM-89, ADR 0049).
+"""Signed webhook delivery: claim, send, record, and the sweeper (HOM-89, ADR 0050).
 
 Transaction boundaries
 ----------------------

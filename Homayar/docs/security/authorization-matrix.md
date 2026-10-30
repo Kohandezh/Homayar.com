@@ -552,7 +552,7 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | A publish names the version it read (`expected_version`, 0 for a new key); a stale one is `409 scorecard_version_conflict` with `details.current_version`, also when a concurrent insert hits `uq_scorecard_version`; every publish is a new version, audited `scorecard.published` (key, version, digest, reason); a refused publish writes no row and no audit event | `publish_version` | `test_scorecards_service.py`, `test_scorecards_api.py` |
 | Scorecard versions are append-only for the application role (ORM guard; PostgreSQL `REVOKE UPDATE, DELETE`) and a workspace table under row-level security (tenant only, never a share token) | `ScorecardVersionImmutableError`, `APPEND_ONLY_TABLES` | `test_scorecard_versions_migration.py` |
 
-## 6p. Outbound webhooks (HOM-89, ADR 0049)
+## 6p. Outbound webhooks (HOM-89, ADR 0050)
 
 | Rule | Enforcement | Test |
 |---|---|---|

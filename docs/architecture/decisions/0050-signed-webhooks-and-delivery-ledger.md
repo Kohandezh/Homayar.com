@@ -1,4 +1,4 @@
-# ADR 0049: Signed outbound webhooks and the delivery ledger
+# ADR 0050: Signed outbound webhooks and the delivery ledger
 
 Date: 2026-10-30 · Status: Proposed (HOM-89, WP16-T05) · Builds on: ADR 0007, ADR 0013,
 ADR 0023, ADR 0031

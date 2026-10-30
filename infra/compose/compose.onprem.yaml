@@ -105,7 +105,7 @@ x-app-environment: &app-environment
   # secret manager; empty keeps redaction but retains no originals.
   PII_MAPPING_KEYS: "${PII_MAPPING_KEYS:-}"
   PII_MAPPING_ACTIVE_KEY_ID: "${PII_MAPPING_ACTIVE_KEY_ID:-}"
-  # Webhook signing secrets at rest (ADR 0049): same keyring format, from the
+  # Webhook signing secrets at rest (ADR 0050): same keyring format, from the
   # secret manager; empty refuses new webhook endpoints (503).
   WEBHOOK_SECRET_KEYS: "${WEBHOOK_SECRET_KEYS:-}"
   WEBHOOK_SECRET_ACTIVE_KEY_ID: "${WEBHOOK_SECRET_ACTIVE_KEY_ID:-}"

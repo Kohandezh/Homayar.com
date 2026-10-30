@@ -29,7 +29,7 @@ RECOMPUTE_ANALYSIS_TASK = "backend.jobs.recompute_meeting_analysis"
 RECOMPUTE_SWEEP_TASK = "backend.jobs.sweep_stale_analyses"
 # Delayed CRM records (HOM-88): retries records that arrived before their conversation.
 CRM_RECONCILIATION_TASK = "backend.jobs.reconcile_crm_records"
-# Signed webhook delivery (HOM-89, ADR 0049).
+# Signed webhook delivery (HOM-89, ADR 0050).
 DELIVER_WEBHOOK_TASK = "backend.jobs.deliver_webhook"
 WEBHOOK_SWEEP_TASK = "backend.jobs.sweep_webhook_deliveries"
 # Grace between the cooperative attempt deadline and the hard kill.

@@ -86,7 +86,7 @@ class Permission(str, Enum):
     # and admins publish a new version.  Never carried by an API key.
     SCORECARD_READ = "scorecard:read"
     SCORECARD_MANAGE = "scorecard:manage"
-    # Outbound webhooks (HOM-89, ADR 0049): add, change and rotate endpoints.
+    # Outbound webhooks (HOM-89, ADR 0050): add, change and rotate endpoints.
     # Owner and admin, never carried by an API key: a key that could add an
     # endpoint could copy every future event out of the workspace.
     WEBHOOK_MANAGE = "webhook:manage"
