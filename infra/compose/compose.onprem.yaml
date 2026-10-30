@@ -546,13 +546,30 @@ services:
     networks: [backend]
     logging: *default-logging
 
+  # No key is ever an argument of mc: any local user of the host can read process arguments
+  # (HOM-340). mc takes the root keys from MC_HOST_local, set with the export builtin, and the
+  # app keys from a pipe. This mc reads MC_HOST_* raw (no percent-decoding): the access key
+  # ends at the first ":" and a second ":" starts a session token, so a ":" in the root keys
+  # is refused. The app keys are read line by line, so a line break is refused there.
   minio-bootstrap:
     image: "${MINIO_MC_IMAGE:-bitnamilegacy/minio-client:2025.4.16@sha256:8a86e441decf053093c5977d49290298295f850c7843652f93e970ab15871dd1}"
     profiles: [onprem]
     entrypoint: [/bin/sh, -ec]
     command:
       - |
-        mc alias set local "$$MINIO_ENDPOINT" "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        nl='
+        '
+        case "$$MINIO_ROOT_USER$$MINIO_ROOT_PASSWORD" in
+          *:* | *"$$nl"*)
+            echo "minio-bootstrap: MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must not contain ':' or a line break (mc reads them from MC_HOST_local)." >&2
+            exit 2 ;;
+        esac
+        case "$$STORAGE_ACCESS_KEY$$STORAGE_SECRET_KEY" in
+          *"$$nl"*)
+            echo "minio-bootstrap: STORAGE_ACCESS_KEY and STORAGE_SECRET_KEY must not contain a line break (mc reads them line by line)." >&2
+            exit 2 ;;
+        esac
+        export MC_HOST_local="$${MINIO_ENDPOINT%%://*}://$$MINIO_ROOT_USER:$$MINIO_ROOT_PASSWORD@$${MINIO_ENDPOINT#*://}"
         mc mb --ignore-existing "local/$$MINIO_BUCKET"
         mc version enable "local/$$MINIO_BUCKET"
         mc anonymous set none "local/$$MINIO_BUCKET"
@@ -563,8 +580,9 @@ services:
           ']}' > /tmp/homayar-app-policy.json
         mc admin policy create local homayar-app /tmp/homayar-app-policy.json ||
           mc admin policy update local homayar-app /tmp/homayar-app-policy.json
-        mc admin user add local "$$STORAGE_ACCESS_KEY" "$$STORAGE_SECRET_KEY"
-        mc admin policy attach local homayar-app --user "$$STORAGE_ACCESS_KEY"
+        printf '%s\n%s\n' "$$STORAGE_ACCESS_KEY" "$$STORAGE_SECRET_KEY" |
+          mc admin user add local >/dev/null
+        mc admin policy attach local homayar-app --user "$$STORAGE_ACCESS_KEY" >/dev/null
     environment:
       MC_CONFIG_DIR: /tmp/.mc
       MINIO_ENDPOINT: http://minio:9000

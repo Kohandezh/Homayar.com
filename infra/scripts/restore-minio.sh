@@ -58,11 +58,20 @@ fi
 require_writers_stopped
 backup_set="$(backup_relative_path "${backup_path}")"
 
+# mc takes the root keys from MC_HOST_target (export builtin), never as arguments (HOM-340).
+# This mc reads MC_HOST_* raw: a ":" in the keys would start a session token, so it is refused.
 compose --profile onprem --profile ops run --rm --no-deps \
   --env "BACKUP_SET=${backup_set}" \
   --env "DELETE_EXTRA=${delete_extra}" \
   minio-tools '
-    mc alias set target "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+    nl="
+"
+    case "$MINIO_ROOT_USER$MINIO_ROOT_PASSWORD" in
+      *:* | *"$nl"*)
+        echo "restore-minio: MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must not contain \":\" or a line break (mc reads them from MC_HOST_target)." >&2
+        exit 2 ;;
+    esac
+    export MC_HOST_target="${MINIO_ENDPOINT%%://*}://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@${MINIO_ENDPOINT#*://}"
     mc mb --ignore-existing "target/$MINIO_BUCKET"
     mc version enable "target/$MINIO_BUCKET"
     mc anonymous set none "target/$MINIO_BUCKET"
