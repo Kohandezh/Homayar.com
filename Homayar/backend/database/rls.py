@@ -86,6 +86,12 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "run_policy_snapshots",
     # Published QA scorecard versions (HOM-54): never through a share token.
     "scorecard_versions",
+    # CRM mapping (HOM-88): profiles, stable external ids, conversation links and
+    # the reconciliation queue.  The inbound ledger has its own policy below.
+    "integration_mapping_profiles",
+    "external_records",
+    "conversation_external_links",
+    "integration_reconciliation_items",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",
@@ -171,6 +177,15 @@ POLICIES: dict[str, tuple[str, str]] = {
     # own workspace from the persisted row (WITH CHECK stays tenant-bound).
     "entitlements": (
         f"workspace_id = {TENANT} OR {SERVICE} = 'usage_reconciliation'",
+        f"workspace_id = {TENANT}",
+    ),
+    # CRM reconciliation (HOM-88) discovers pending inbound CRM records across
+    # tenants under the read-only 'crm_reconciliation' service scope.  The scope
+    # can read every column of the ledger rows; the sweep code reads only ids,
+    # workspace, state and expiry.  Every change binds the record's own
+    # workspace from the persisted row (WITH CHECK stays tenant-bound).
+    "integration_inbound_records": (
+        f"workspace_id = {TENANT} OR {SERVICE} = 'crm_reconciliation'",
         f"workspace_id = {TENANT}",
     ),
     # Platform-level audit rows (login, OTP) carry no workspace; a share access
@@ -310,6 +325,14 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "audit_events",
     "scorecard_versions",
 )
+
+# Tables the application role may read, insert and update but never delete.
+# ``integration_inbound_records`` (HOM-88) is the ledger of received CRM
+# records: the application never deletes a ledger row.  The missing grant also
+# keeps the 'crm_reconciliation' scope, which the FOR ALL policy's USING clause
+# lets see every tenant's rows, from deleting them.  Workspace and profile
+# cascades run as the table owner and are unaffected.
+NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records",)
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on
 # ``audit_events`` only, across tenants through a policy granted to it alone.
@@ -499,6 +522,9 @@ def apply_row_level_security(connection: Connection, *, role: str = APP_ROLE) ->
             text("SELECT to_regclass(:name) IS NOT NULL"), {"name": f"public.{table}"}
         ).scalar_one():
             connection.execute(text(f"REVOKE UPDATE, DELETE ON {table} FROM {role}"))
+    for table in NO_DELETE_TABLES:
+        if table in tables:
+            connection.execute(text(f"REVOKE DELETE ON {table} FROM {role}"))
     if AUDIT_TABLE in tables:
         for statement in audit_reader_statements(app_role=role):
             connection.execute(text(statement))
