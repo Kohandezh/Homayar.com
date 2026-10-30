@@ -253,6 +253,7 @@ def test_reads_list_the_latest_of_each_key_every_version_and_one_version(client,
         )
 
 
+@pytest.mark.postgres  # B's session must not see A's rows: row-level security
 def test_a_workspace_sees_only_its_own_versions_and_publishes_its_own_first(client, email_outbox):
     first = _tenant(client, email_outbox, "ws-a")
     second = _tenant(client, email_outbox, "ws-b")

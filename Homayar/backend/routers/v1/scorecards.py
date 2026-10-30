@@ -1,12 +1,12 @@
 """Versioned QA scorecards (HOM-54).
 
-* ``GET /scorecards`` — the latest version of each key.  ``scorecard:read``.
-* ``GET /scorecards/{key}/versions`` — every version of a key, newest first.
-* ``GET /scorecards/{key}/versions/{version}`` — one version with its definition.
-* ``POST /scorecards/{key}/versions`` — publish the next version.  ``scorecard:manage``
+* ``GET /scorecards``: the latest version of each key.  ``scorecard:read``.
+* ``GET /scorecards/{key}/versions``: every version of a key, newest first.
+* ``GET /scorecards/{key}/versions/{version}``: one version with its definition.
+* ``POST /scorecards/{key}/versions``: publish the next version.  ``scorecard:manage``
   (owner, admin; never an API key) with CSRF, a reason and the version the caller read
   (``409 scorecard_version_conflict`` otherwise).  Audited.
-* ``POST /scorecards/validate`` — check a definition and give its digest; stores nothing.
+* ``POST /scorecards/validate``: check a definition and give its digest; stores nothing.
 
 A stored version never changes.  An invalid definition is a 422 whose ``code`` is the
 ``ScorecardError`` code of ``backend.scorecards``.

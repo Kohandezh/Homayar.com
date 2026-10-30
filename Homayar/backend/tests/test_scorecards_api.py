@@ -115,6 +115,7 @@ def team(client, email_outbox, monkeypatch):
 # --- publish and read --------------------------------------------------------------------
 
 
+@pytest.mark.postgres  # a re-read created_at keeps its UTC zone only on PostgreSQL
 def test_the_owner_publishes_and_everyone_reads_the_versions(team):
     owner = team["owner"]
     created = owner.post(f"{BASE}/{KEY}/versions", json=_body(reason="  first publish  "))
