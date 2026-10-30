@@ -1,4 +1,4 @@
-# ADR 0048: Stored trend judgments
+# ADR 0049: Stored trend judgments
 
 Date: 2026-10-30 · Status: Proposed (HOM-290) · Builds on: ADR 0043
 
