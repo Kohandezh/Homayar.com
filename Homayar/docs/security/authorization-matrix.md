@@ -145,19 +145,21 @@ An assignment is effective when `revoked_at IS NULL AND valid_from ≤ now < val
 Attribution writes (`PATCH /meetings/{id}` and its alias `PATCH /conversations/{id}` with `team_id` / `agent_user_id`; HOM-360, ADR 0052). The review queue decides who sees and works a review from these two values (§6q), so changing them is its own right, `meeting:attribute`, and not part of `meeting:update`. After the meeting lookup (an invisible call stays `404`) the handler checks, in this order:
 
 1. A value equal to the call's current value is not a change. It needs no right, is not checked again, is not written and is not listed in the audit `fields`. A body with nothing else answers `422 no_changes`. So a client that sends back the whole record when it edits the title keeps working.
-2. A changed value, clearing to `null` included, needs `meeting:attribute` (owner, admin). Everyone else gets `403 attribution_change_denied`: members (supervisors too, under any `record_scope`), viewers and every API key. No field of the request is written, also not `title`.
+2. A changed value, clearing to `null` included, needs `meeting:attribute` (owner, admin). Everyone else who holds `meeting:update` gets `403 attribution_change_denied`: members (supervisors too, under any `record_scope`) and every API key. No field of the request is written, also not `title`. A caller without `meeting:update` (a viewer, or a key without that scope) never reaches this check: the route's permission check refuses it earlier with `403 permission_denied` or `403 api_key_scope_denied`.
 3. Nobody changes the attribution of a call where they are the current agent, or sets `agent_user_id` to themselves. This holds for owners and admins too: `403 attribution_own_call`.
 4. Then the existing validators: teams of another workspace or inactive teams are `422 invalid_team`; non-members are `422 invalid_agent`.
 
 Every accepted change writes `meeting.attribution_changed` (target `meeting`) in the same transaction as `meeting.updated`. Its details are ids only: `team_id_before`, `team_id_after`, `agent_user_id_before`, `agent_user_id_after` (always all four) and `active_review_item_id` (the call's `open` or `in_review` item, or `null`). A refused change writes no audit event.
 
-The validators `validate_team_attribution` / `validate_agent_attribution` keep their record-scope rules. On the meetings route they now run only for owners and admins, who are unrestricted. `PATCH /voicemails/{id}` uses them for its own `assigned_team_id` / `assigned_user_id`, which are not the call's attribution and keep this table:
+The validators `validate_team_attribution` / `validate_agent_attribution` keep their record-scope rules. On the meetings route they now run only for owners and admins, who are unrestricted. `PATCH /voicemails/{id}` uses them for its own `assigned_team_id` / `assigned_user_id`. For a non-null value it follows this table:
 
-| Actor | team | agent |
+| Actor | team (non-null value) | agent (non-null value) |
 | --- | --- | --- |
-| unrestricted (owner/admin, or flat workspace) | any active team of this workspace, or `null` | any effective workspace member, or `null` |
-| record-scoped supervisor | only a team they supervise; `null` refused (`403 team_scope_denied`) | only a user with an effective assignment in a team they supervise (`403 agent_scope_denied`) |
+| unrestricted (owner/admin, or flat workspace) | any active team of this workspace | any effective workspace member |
+| record-scoped supervisor | only a team they supervise (`403 team_scope_denied`) | only a user with an effective assignment in a team they supervise (`403 agent_scope_denied`) |
 | record-scoped agent / unassigned member | refused (`403`) | refused (`403`) |
+
+Clearing a voicemail's `assigned_team_id` or `assigned_user_id` to `null` is not checked by role today. The voicemail handler skips the team validator for `null`, and `validate_agent_attribution` returns `null` with no check. So any caller with `meeting:update` who can see the voicemail can clear either field. This is known and tracked separately. Voicemail assignment is not a call's attribution and gives no review authority.
 
 ## 6. Route inventory (machine-checked)
 
