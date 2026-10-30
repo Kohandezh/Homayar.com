@@ -187,7 +187,11 @@ the choice of a default profile. This ADR does not change the default.
 - Auto jobs can only end in an allowed language. A second decode of the same file (audio
   decode, VAD, features and decoding run again) happens only when VAD kept some audio and
   the decided language differs from Whisper's own pick. A fallback to the language Whisper
-  picked, or a `no_speech` result, needs one call.
+  picked needs one call, and so does a `no_speech` result because VAD kept no audio. A
+  `no_speech` result because the library gave no detection while VAD kept audio follows
+  the general rule: a second call when the default language differs from `info.language`
+  (for example when `info.language` is missing). faster-whisper 1.2.0 always returns a
+  detection for a multilingual model, so this last case is not expected in practice.
 - Explicit-language checkpoints are reused across this change. Auto-language checkpoints are
   recomputed once, because their identity gains the policy.
 
@@ -203,8 +207,11 @@ the choice of a default profile. This ADR does not change the default.
 - VAD can drop real speech on phone audio. With the default Silero VAD options of
   faster-whisper 1.2.0, VAD removed all speech from 1 of 150 FLEURS items converted to 8 kHz
   mu-law (clear read English, 7.86 s; its 16 kHz original kept 6.15 s). Local check,
-  2026-10-30. With the no-speech rule (decision 3) such a call ends as an empty transcript with `no_speech`. It
-  was already empty before this change, because the explicit path also uses VAD. VAD
+  2026-10-30. For an auto request, the no-speech rule (decision 3) ends such a call as an
+  empty transcript with `fallback`, `no_speech`. For an explicit request (the upload
+  default is the explicit language `fa`) the transcript is also empty, with source
+  `requested`, because the explicit path also runs VAD. Both were already empty before
+  this change. VAD
   settings for 8 kHz audio are follow-up work (WP09-T04).
 - The GPU profile has no GPU run yet. Its throughput claim rests on the sources in decision 2.
 
