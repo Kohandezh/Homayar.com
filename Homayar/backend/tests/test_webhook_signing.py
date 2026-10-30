@@ -35,6 +35,7 @@ from backend.services.webhook_signing import (
     encode_payload,
     new_key_id,
     new_signing_secret,
+    parse_webhook_keyring,
     request_headers,
     signature,
     signature_header,
@@ -326,12 +327,27 @@ def test_parse_keyring_default_messages_are_unchanged() -> None:
         parse_keyring(f"k1:{base64.b64encode(b'short').decode()}")
 
 
-def test_parse_keyring_names_the_variable_it_parses() -> None:
-    with pytest.raises(ValueError, match=r"^WEBHOOK_SECRET_KEYS entries must be"):
-        parse_keyring("no-colon", name="WEBHOOK_SECRET_KEYS")
-    assert parse_keyring(f"k1:{KEY_ONE}", name="WEBHOOK_SECRET_KEYS") == {
-        "k1": base64.b64decode(KEY_ONE)
-    }
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("no-colon", r"^WEBHOOK_SECRET_KEYS entries must be key_id:base64key$"),
+        ("k1:not base64!", r"^WEBHOOK_SECRET_KEYS contains an invalid base64 key$"),
+        (
+            f"k1:{base64.b64encode(b'short').decode()}",
+            r"^WEBHOOK_SECRET_KEYS keys must be 32 bytes \(AES-256\)$",
+        ),
+    ],
+)
+def test_the_webhook_keyring_errors_name_the_webhook_variable(value: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message) as caught:
+        parse_webhook_keyring(value)
+    assert "PII_MAPPING_KEYS" not in str(caught.value)
+
+
+def test_the_webhook_keyring_parses_like_the_pii_keyring() -> None:
+    value = f"k1:{KEY_ONE}, k2:{KEY_TWO}"
+    assert parse_webhook_keyring(value) == parse_keyring(value)
+    assert parse_webhook_keyring(f"k1:{KEY_ONE}") == {"k1": base64.b64decode(KEY_ONE)}
 
 
 def test_webhook_settings_defaults() -> None:

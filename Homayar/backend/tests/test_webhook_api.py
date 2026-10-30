@@ -43,6 +43,15 @@ def settings(settings):
     )
 
 
+@pytest.fixture(autouse=True)
+def no_publish(settings, monkeypatch):
+    """Pin tasks_eager on: a request or a sweep then publishes nothing (SPEC A4.2).
+
+    Tests of the publish path turn it off themselves and record apply_async.
+    """
+    monkeypatch.setattr(settings, "tasks_eager", True)
+
+
 def _owner(client, email_outbox, monkeypatch) -> _Persona:
     owner, _, _ = _workspace_with_roles(client, email_outbox, monkeypatch, roles={})
     return owner

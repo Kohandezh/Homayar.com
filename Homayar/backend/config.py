@@ -943,9 +943,9 @@ class Settings(BaseSettings):
             if self.pii_mapping_active_key_id not in keyring:
                 raise ValueError("PII_MAPPING_ACTIVE_KEY_ID must name one of PII_MAPPING_KEYS")
         if self.webhook_secret_keys or self.webhook_secret_active_key_id:
-            from backend.privacy.mapping_crypto import parse_keyring
+            from backend.services.webhook_signing import parse_webhook_keyring
 
-            keyring = parse_keyring(self.webhook_secret_keys, name="WEBHOOK_SECRET_KEYS")
+            keyring = parse_webhook_keyring(self.webhook_secret_keys)  # raises ValueError
             if self.webhook_secret_active_key_id not in keyring:
                 raise ValueError(
                     "WEBHOOK_SECRET_ACTIVE_KEY_ID must name one of WEBHOOK_SECRET_KEYS"

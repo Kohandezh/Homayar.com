@@ -125,6 +125,18 @@ def encode_payload(
     )
 
 
+def parse_webhook_keyring(value: str) -> dict[str, bytes]:
+    """``WEBHOOK_SECRET_KEYS``: the ``PII_MAPPING_KEYS`` format, parsed by the same code.
+
+    ``parse_keyring`` names ``PII_MAPPING_KEYS`` in its errors (its file is
+    frozen), so the error is raised again under the webhook variable's name.
+    """
+    try:
+        return parse_keyring(value)
+    except ValueError as exc:
+        raise ValueError(str(exc).replace("PII_MAPPING_KEYS", "WEBHOOK_SECRET_KEYS")) from exc
+
+
 def _aad(workspace_id: str, endpoint_id: str, key_id: str) -> bytes:
     return f"homayar-webhook-secret/1|{workspace_id}|{endpoint_id}|{key_id}".encode()
 
@@ -141,7 +153,7 @@ class WebhookSecretCipher:
         if not settings.webhook_secret_keys:
             return None
         return cls(
-            parse_keyring(settings.webhook_secret_keys, name="WEBHOOK_SECRET_KEYS"),
+            parse_webhook_keyring(settings.webhook_secret_keys),
             settings.webhook_secret_active_key_id,
         )
 

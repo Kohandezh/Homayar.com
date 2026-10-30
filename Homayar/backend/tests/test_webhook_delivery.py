@@ -71,6 +71,15 @@ def worker_settings(settings, monkeypatch):
     monkeypatch.setattr(webhook_delivery, "get_settings", lambda: settings)
 
 
+@pytest.fixture(autouse=True)
+def no_publish(settings, monkeypatch):
+    """Pin tasks_eager on: a request or a sweep then publishes nothing (SPEC A4.2).
+
+    Tests of the publish path turn it off themselves and record apply_async.
+    """
+    monkeypatch.setattr(settings, "tasks_eager", True)
+
+
 @pytest.fixture
 def now() -> datetime:
     return datetime.now(UTC).replace(microsecond=0)
