@@ -100,6 +100,17 @@ Settings: `ASR_ALLOWED_LANGUAGES` (default `fa,en`), `ASR_DEFAULT_LANGUAGE` (def
      (`detected`);
    - else the default language is used (`fallback`, reason `low_confidence`);
    - with no detection at all, the default is used (`fallback`, reason `no_speech`).
+   - **No speech after VAD.** If `info.duration_after_vad` is a number at or below 0, VAD
+     kept no audio. The probabilities are then treated as empty, so the result is
+     `fallback`, reason `no_speech`, in the default language. The adapter returns no
+     segments and empty text, does not read the first generator and does not call
+     `transcribe` again. Why: VAD found no speech, so any decoded text would be made up
+     (F26). Evidence: on 5 s of digital silence, `cpu-base` with faster-whisper 1.2.0 still
+     returned 99 language probabilities, top `en` 0.566, with `duration_after_vad` 0.0 and no
+     segments (local check, 2026-10-29). In the library, `duration_after_vad` is the length
+     VAD kept (`faster_whisper/transcribe.py`, `duration_after_vad = audio.shape[0] /
+     sampling_rate` after `collect_chunks`). When the value is missing, not a number or above
+     0, nothing changes. Explicit requests do not use this rule.
    If the decision equals Whisper's own language, the first generator is used. Otherwise it
    is never read, and a second call forces the decided language. Arabic text for a Persian
    call is therefore never returned.
@@ -176,12 +187,10 @@ the choice of a default profile. This ADR does not change the default.
 - The first comparison (second pull request) uses read speech from Google FLEURS on a Mac
   CPU. That is not call-centre speech and not the production Xeon. Its numbers are not a
   qualification.
-- `no_speech` needs a detection with no languages. With VAD on, when VAD removes all audio,
-  faster-whisper still runs detection on the padded, almost empty features and returns a full
-  list (`faster_whisper/vad.py` `collect_chunks` returns one empty chunk;
-  `faster_whisper/transcribe.py` then calls `detect_language`). So on silent audio the
-  policy sees a normal list and may report `detected`. The transcript is empty, and the
-  processor still ends that stage as an empty transcript.
+- `no_speech` depends on VAD. When VAD keeps a little noise, faster-whisper decodes it and
+  the policy sees a normal detection. Only "VAD kept nothing" is treated as no speech. An
+  empty result ends the stage as an empty transcript (`INSUFFICIENT_EVIDENCE`), the same
+  as silent audio before this change.
 - The GPU profile has no GPU run yet. Its throughput claim rests on the sources in decision 2.
 
 ## Sources

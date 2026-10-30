@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import numbers
 import threading
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
@@ -42,8 +43,20 @@ def _device_index_kwarg(device_index: DeviceIndex) -> int | list[int] | None:
     return list(indexes)
 
 
+def _vad_kept_no_audio(info: Any) -> bool:
+    """VAD removed all audio (``duration_after_vad`` is a number <= 0).
+
+    faster-whisper still detects a language on the empty, padded features, so
+    its probabilities say nothing about the call (SPEC 13).
+    """
+    kept = getattr(info, "duration_after_vad", None)
+    return isinstance(kept, numbers.Real) and not isinstance(kept, bool) and kept <= 0
+
+
 def _language_probabilities(info: Any) -> list[tuple[str, float]]:
     """Detection result of a ``transcribe`` call made without a language."""
+    if _vad_kept_no_audio(info):
+        return []  # decide() then falls back with reason "no_speech"
     probabilities = getattr(info, "all_language_probs", None)
     if probabilities is not None:
         return [(str(language), float(probability)) for language, probability in probabilities]
@@ -192,7 +205,11 @@ class LocalWhisperProvider(ASRProvider):
             raw_segments, info = model.transcribe(path, **kwargs, language=requested)
         else:
             raw_segments, info, decision = self._detect(model, path, kwargs)
-            if decision.language != normalize_language(getattr(info, "language", None)):
+            if _vad_kept_no_audio(info):
+                # VAD found no speech: any decoded text would be made up (F26).
+                # Do not read the first generator and do not decode again.
+                raw_segments = ()
+            elif decision.language != normalize_language(getattr(info, "language", None)):
                 # The policy overrides the detection: never read the first
                 # generator, decode again with the decided language.
                 raw_segments, info = model.transcribe(path, **kwargs, language=decision.language)

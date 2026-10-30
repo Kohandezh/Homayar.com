@@ -182,8 +182,15 @@ def test_language_source_values() -> None:
 class _Model:
     """Fake faster-whisper model. ``info`` is what auto mode would detect."""
 
-    def __init__(self, info: Any, *, text_by_language: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        info: Any,
+        *,
+        text_by_language: dict[str, str] | None = None,
+        explicit_extra: dict[str, Any] | None = None,
+    ) -> None:
         self.info = info
+        self.explicit_extra = explicit_extra or {}
         self.text_by_language = text_by_language or {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.consumed: list[str | None] = []
@@ -200,7 +207,7 @@ class _Model:
 
         if language is None:
             return segments(), self.info
-        return segments(), SimpleNamespace(language=language, duration=1.5)
+        return segments(), SimpleNamespace(language=language, duration=1.5, **self.explicit_extra)
 
 
 def _info(language: str | None, probability: float | None, probs=None, **extra: Any):
@@ -335,6 +342,63 @@ def test_decide_language_does_not_consume_segments(tmp_path: Path) -> None:
     explicit = provider.decide_language(_audio(tmp_path), "EN")
     assert explicit.source is LanguageSource.REQUESTED and explicit.language == "en"
     assert len(model.calls) == 1  # no model call for an explicit request
+
+
+# --- SPEC 13: no speech after VAD ------------------------------------------------
+
+# What faster-whisper 1.2.0 returned for 5 s of silence (turn-2 check): VAD kept
+# nothing, but detection still gave a full list with "en" on top.
+_SILENT_PROBS = [("en", 0.566), ("nn", 0.127), ("ja", 0.039)]
+
+
+def test_auto_request_with_no_audio_after_vad_is_no_speech(tmp_path: Path) -> None:
+    model = _Model(_info("en", 0.566, _SILENT_PROBS, duration_after_vad=0.0))
+    result = _run(_provider(model), _audio(tmp_path), "auto")
+
+    assert len(model.calls) == 1  # no second call, even though the default differs
+    assert model.consumed == []  # the first generator is never read
+    assert result.text == ""
+    assert result.segments == []
+    assert result.language == "fa"
+    assert result.duration_seconds == 1.5  # from info.duration
+    decision = result.language_decision
+    assert decision is not None
+    assert (decision.source, decision.reason) == ("fallback", "no_speech")
+    assert decision.detected is None and decision.probability is None
+
+
+@pytest.mark.parametrize("kept", [None, "0", 2.0, "missing"])
+def test_auto_request_with_audio_after_vad_is_unchanged(tmp_path: Path, kept: Any) -> None:
+    extra = {} if kept == "missing" else {"duration_after_vad": kept}
+    model = _Model(_info("en", 0.9, [("en", 0.9), ("fa", 0.05)], **extra))
+    result = _run(_provider(model), _audio(tmp_path), None)
+
+    assert len(model.calls) == 1
+    assert model.consumed == ["first"]
+    assert result.text == "text-first"
+    assert result.language == "en"
+    assert result.language_decision is not None
+    assert result.language_decision.source == "detected"
+
+
+def test_explicit_request_ignores_vad_result(tmp_path: Path) -> None:
+    model = _Model(_info("en", 0.9), explicit_extra={"duration_after_vad": 0.0})
+    result = _run(_provider(model), _audio(tmp_path), "fa")
+
+    assert [kwargs.get("language") for _, kwargs in model.calls] == ["fa"]
+    assert model.consumed == ["fa"]
+    assert result.text == "text-fa"
+    assert result.language_decision is not None
+    assert result.language_decision.source == "requested"
+
+
+def test_decide_language_with_no_audio_after_vad_is_no_speech(tmp_path: Path) -> None:
+    model = _Model(_info("en", 0.566, _SILENT_PROBS, duration_after_vad=0))
+    decision = _provider(model).decide_language(_audio(tmp_path), None)
+    assert decision == LanguageDecision(
+        language="fa", source=LanguageSource.FALLBACK, requested=None, reason="no_speech"
+    )
+    assert len(model.calls) == 1 and model.consumed == []
 
 
 def test_decide_language_maps_errors(tmp_path: Path) -> None:
