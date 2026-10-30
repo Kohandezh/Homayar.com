@@ -25,18 +25,20 @@ class MappingIntegrityError(RuntimeError):
     """The ciphertext does not verify under its key and associated data."""
 
 
-def parse_keyring(value: str) -> dict[str, bytes]:
+def parse_keyring(value: str, *, name: str = "PII_MAPPING_KEYS") -> dict[str, bytes]:
+    """Parse ``key_id:base64key`` entries. ``name`` is the variable named in errors
+    (other keyrings, such as ``WEBHOOK_SECRET_KEYS``, use the same format)."""
     keyring: dict[str, bytes] = {}
     for entry in filter(None, (part.strip() for part in value.split(","))):
         key_id, _, encoded = entry.partition(":")
         if not key_id or not encoded or len(key_id) > 40:
-            raise ValueError("PII_MAPPING_KEYS entries must be key_id:base64key")
+            raise ValueError(f"{name} entries must be key_id:base64key")
         try:
             key = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
-            raise ValueError("PII_MAPPING_KEYS contains an invalid base64 key") from exc
+            raise ValueError(f"{name} contains an invalid base64 key") from exc
         if len(key) != 32:
-            raise ValueError("PII_MAPPING_KEYS keys must be 32 bytes (AES-256)")
+            raise ValueError(f"{name} keys must be 32 bytes (AES-256)")
         keyring[key_id] = key
     return keyring
 

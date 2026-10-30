@@ -37,6 +37,7 @@ SECRET_FIELDS: tuple[str, ...] = (
     "storage_access_key",
     "storage_secret_key",
     "pii_mapping_keys",
+    "webhook_secret_keys",
     "llm_fallback_api_key",
     "zai_api_key",
     "gapgpt_api_key",
@@ -598,6 +599,15 @@ class Settings(BaseSettings):
     # Empty: redaction still works, but originals are not retained.
     pii_mapping_keys: SecretSetting = ""
     pii_mapping_active_key_id: str = ""
+    # Outbound webhooks (HOM-89, ADR 0047). The keyring encrypts the endpoint
+    # signing secrets at rest: same "key_id:base64(32 bytes)" format as
+    # PII_MAPPING_KEYS. Empty: endpoints cannot be created or rotated, and
+    # queued deliveries fail with signing_unavailable.
+    webhook_secret_keys: SecretSetting = ""
+    webhook_secret_active_key_id: str = ""
+    webhook_delivery_timeout_seconds: int = 10  # one delivery request
+    webhook_sweep_interval_seconds: int = 30  # due-delivery sweeper period
+    webhook_max_endpoints_per_workspace: int = 20  # active endpoints only
     # Execution leases (WP06-T04): one policy object (backend.jobs.leases)
     # derives every timing decision from these; no other module keeps its own.
     job_lease_seconds: int = 120  # a RUNNING attempt is abandoned when not renewed
@@ -910,6 +920,20 @@ class Settings(BaseSettings):
             keyring = parse_keyring(self.pii_mapping_keys)  # raises ValueError
             if self.pii_mapping_active_key_id not in keyring:
                 raise ValueError("PII_MAPPING_ACTIVE_KEY_ID must name one of PII_MAPPING_KEYS")
+        if self.webhook_secret_keys or self.webhook_secret_active_key_id:
+            from backend.privacy.mapping_crypto import parse_keyring
+
+            keyring = parse_keyring(self.webhook_secret_keys, name="WEBHOOK_SECRET_KEYS")
+            if self.webhook_secret_active_key_id not in keyring:
+                raise ValueError(
+                    "WEBHOOK_SECRET_ACTIVE_KEY_ID must name one of WEBHOOK_SECRET_KEYS"
+                )
+        if self.webhook_delivery_timeout_seconds < 1:
+            raise ValueError("WEBHOOK_DELIVERY_TIMEOUT_SECONDS must be positive")
+        if self.webhook_sweep_interval_seconds < 1:
+            raise ValueError("WEBHOOK_SWEEP_INTERVAL_SECONDS must be positive")
+        if self.webhook_max_endpoints_per_workspace < 1:
+            raise ValueError("WEBHOOK_MAX_ENDPOINTS_PER_WORKSPACE must be positive")
         if self.metrics_bearer_token and len(self.metrics_bearer_token.strip()) < 32:
             raise ValueError("METRICS_BEARER_TOKEN must be at least 32 characters")
         if not 0 <= self.metrics_cache_seconds <= 300:

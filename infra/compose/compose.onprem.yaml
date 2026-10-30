@@ -95,6 +95,10 @@ x-app-environment: &app-environment
   # secret manager; empty keeps redaction but retains no originals.
   PII_MAPPING_KEYS: "${PII_MAPPING_KEYS:-}"
   PII_MAPPING_ACTIVE_KEY_ID: "${PII_MAPPING_ACTIVE_KEY_ID:-}"
+  # Webhook signing secrets at rest (ADR 0047): same keyring format, from the
+  # secret manager; empty refuses new webhook endpoints (503).
+  WEBHOOK_SECRET_KEYS: "${WEBHOOK_SECRET_KEYS:-}"
+  WEBHOOK_SECRET_ACTIVE_KEY_ID: "${WEBHOOK_SECRET_ACTIVE_KEY_ID:-}"
   # Sign-in and delivery providers: disabled unless configured. The API
   # refuses to start with a method enabled but its credentials missing, and
   # GET /api/v1/auth/methods tells the console what is available.
