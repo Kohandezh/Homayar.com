@@ -485,6 +485,7 @@ jobs:
           rhysd/actionlint:1.7.7
           -color=false
           .github/workflows/ci.yml
+          .github/workflows/security-scans.yml
           .github/workflows/release-website.yml
           .github/workflows/deploy-website.yml
           .github/workflows/auto-deploy-website.yml
@@ -658,6 +659,7 @@ jobs:
           infra/ci/check-migrations.sh
           infra/ci/check-source-contract.sh
           infra/ci/minio-contract-target.sh
+          infra/ci/security-scan.sh
           infra/ci/tests/test-check-source-contract.sh
           infra/scripts/backup-postgres.sh
           infra/scripts/restore-postgres.sh

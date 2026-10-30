@@ -29,7 +29,7 @@ cachetools==5.5.2
     # via google-auth
 celery==5.5.3
     # via homayar-platform
-certifi==2026.7.22
+certifi==2026.10.23
     # via
     #   httpcore
     #   httpx
@@ -134,7 +134,7 @@ pydantic-core==2.33.2
     # via pydantic
 pydantic-settings==2.10.1
     # via homayar-platform
-pyjwt==2.10.1
+pyjwt==2.14.0
     # via homayar-platform
 python-dateutil==2.9.0.post0
     # via
@@ -144,7 +144,7 @@ python-dotenv==1.2.3
     # via
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.20
+python-multipart==0.0.30
     # via homayar-platform
 pytz==2026.3.post1
     # via neo4j
@@ -191,7 +191,7 @@ tzdata==2026.3
     # via
     #   kombu
     #   psycopg
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   botocore
     #   requests

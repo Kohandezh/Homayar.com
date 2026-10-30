@@ -1,0 +1,22 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:5f0c3a43-7c1e-4d4b-9a51-1a3e1f0b1300",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "name": "security-scan-canary",
+      "version": "1"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "pkg:npm/lodash@4.17.20",
+      "type": "library",
+      "name": "lodash",
+      "version": "4.17.20",
+      "purl": "pkg:npm/lodash@4.17.20"
+    }
+  ]
+}
