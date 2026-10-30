@@ -17,7 +17,7 @@ removes it with the rest of the conversation's derived content.  The tests check
 * on SQLite, the migration builds the same two tables as the ORM, and its downgrade
   removes them and nothing else;
 * on PostgreSQL: the ORM schema (``create_all``) and the migrated schema are the same;
-  upgrade from ``47676f445509`` creates the two tables, their policy and their grants,
+  upgrade from ``e4b8d1f6a3c7`` creates the two tables, their policy and their grants,
   and downgrade removes them and leaves every other table as it was; tenant isolation;
   the application role may SELECT, INSERT and DELETE its own workspace's rows and none
   of another's, and may never UPDATE them, also after the policies are applied again;
@@ -99,7 +99,7 @@ from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
 
 NEW_REVISION = "5067ea773c0b"
-BASE_REVISION = "47676f445509"  # HOM-54: scorecard_versions
+BASE_REVISION = "e4b8d1f6a3c7"  # HOM-89: webhook delivery ledger
 RESULTS = "scorecard_results"
 CRITERIA = "scorecard_criterion_results"
 TABLES = (RESULTS, CRITERIA)

@@ -79,13 +79,21 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     # Stored trend judgments (HOM-290): ids, versions and a digest of an extraction's content.
     "trend_extraction_judgments",
     "webhook_endpoints",
-    "webhook_deliveries",
+    # Webhook signing secrets (encrypted) and the request log (HOM-89).
+    "webhook_signing_keys",
+    "webhook_delivery_attempts",
     "provider_usage",
     "notifications",
     "ai_policy_versions",
     "run_policy_snapshots",
     # Published QA scorecard versions (HOM-54): never through a share token.
     "scorecard_versions",
+    # CRM mapping (HOM-88): profiles, stable external ids, conversation links and
+    # the reconciliation queue.  The inbound ledger has its own policy below.
+    "integration_mapping_profiles",
+    "external_records",
+    "conversation_external_links",
+    "integration_reconciliation_items",
     # Stored scorecard results and their criteria (HOM-56): never through a share token.
     # Not append-only: the conversation purge deletes them as the application role.
     "scorecard_results",
@@ -175,6 +183,28 @@ POLICIES: dict[str, tuple[str, str]] = {
     # own workspace from the persisted row (WITH CHECK stays tenant-bound).
     "entitlements": (
         f"workspace_id = {TENANT} OR {SERVICE} = 'usage_reconciliation'",
+        f"workspace_id = {TENANT}",
+    ),
+    # The webhook sweeper (HOM-89) discovers due deliveries across tenants under
+    # the 'webhook_delivery' service scope.  The scope is read-only: the WITH
+    # CHECK refuses every INSERT and UPDATE while it is held, even with a
+    # workspace bound (the USING clause would let such a session reach another
+    # tenant's row), and NO_DELETE_TABLES refuses DELETE.  Every write runs in
+    # a session bound to the delivery's own workspace, without the scope.  The
+    # scope reaches no endpoint, key or attempt row.  USING cannot limit columns,
+    # so the scope reads every column of every tenant's deliveries (payload too):
+    # the sweeper must select only ids, workspace, state and next_attempt_at.
+    "webhook_deliveries": (
+        f"workspace_id = {TENANT} OR {SERVICE} = 'webhook_delivery'",
+        f"workspace_id = {TENANT} AND {SERVICE} IS DISTINCT FROM 'webhook_delivery'",
+    ),
+    # CRM reconciliation (HOM-88) discovers pending inbound CRM records across
+    # tenants under the read-only 'crm_reconciliation' service scope.  The scope
+    # can read every column of the ledger rows; the sweep code reads only ids,
+    # workspace, state and expiry.  Every change binds the record's own
+    # workspace from the persisted row (WITH CHECK stays tenant-bound).
+    "integration_inbound_records": (
+        f"workspace_id = {TENANT} OR {SERVICE} = 'crm_reconciliation'",
         f"workspace_id = {TENANT}",
     ),
     # Platform-level audit rows (login, OTP) carry no workspace; a share access
@@ -306,6 +336,8 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
 # ``audit_events`` (HOM-115, ADR 0036): history cannot be rewritten by the
 # application; the user/workspace ``ON DELETE SET NULL`` still runs as owner.
 # ``scorecard_versions`` (HOM-54): a published scorecard version never changes.
+# ``webhook_delivery_attempts`` (HOM-89): one row per HTTP request sent, never
+# rewritten, so the ledger shows every request that left.
 APPEND_ONLY_TABLES: tuple[str, ...] = (
     "model_manifests",
     "ai_policy_versions",
@@ -313,7 +345,18 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "plan_versions",
     "audit_events",
     "scorecard_versions",
+    "webhook_delivery_attempts",
 )
+
+# Tables the application role may read, insert and update but never delete.
+# ``integration_inbound_records`` (HOM-88) is the ledger of received CRM records
+# and ``webhook_deliveries`` (HOM-89) the outbound delivery ledger: the
+# application never deletes a ledger row.  The missing grant also keeps the
+# 'crm_reconciliation' and 'webhook_delivery' scopes, which the FOR ALL
+# policies' USING clauses let see every tenant's rows, from deleting them.
+# Workspace, profile and endpoint cascades run as the table owner and are
+# unaffected.
+NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records", "webhook_deliveries")
 
 # Tables the application role may read, insert and delete but never update.
 # ``scorecard_results`` and ``scorecard_criterion_results`` (HOM-56): a stored machine
@@ -509,6 +552,9 @@ def apply_row_level_security(connection: Connection, *, role: str = APP_ROLE) ->
             text("SELECT to_regclass(:name) IS NOT NULL"), {"name": f"public.{table}"}
         ).scalar_one():
             connection.execute(text(f"REVOKE UPDATE, DELETE ON {table} FROM {role}"))
+    for table in NO_DELETE_TABLES:
+        if table in tables:
+            connection.execute(text(f"REVOKE DELETE ON {table} FROM {role}"))
     for table in NO_UPDATE_TABLES:
         if table in tables:
             connection.execute(text(f"REVOKE UPDATE ON {table} FROM {role}"))

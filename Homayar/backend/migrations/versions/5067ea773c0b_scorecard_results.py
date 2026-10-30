@@ -1,7 +1,7 @@
 """Stored scorecard results, schema only (HOM-56, WP11-T06)
 
 Revision ID: 5067ea773c0b
-Revises: 47676f445509
+Revises: e4b8d1f6a3c7
 Create Date: 2026-10-30
 
 Adds two tables, so a machine score is stored with everything needed to compute it
@@ -43,10 +43,10 @@ Why the conversation purge still removes them: they are conversation content der
 from a transcript, like ``analysis_extractions``.  The purge deletes them with bulk
 statements as the application role, so the tables are not in ``APPEND_ONLY_TABLES``.
 They are in ``NO_UPDATE_TABLES``: the application role keeps SELECT, INSERT and DELETE
-but loses UPDATE, because a stored machine score never changes and only the purge
-removes it.  Both are workspace tables under row-level
-security (tenant only, never through a share token).  Cascades from a removed
-workspace, conversation, scorecard version or transcript revision also remove the rows.
+and this migration revokes UPDATE, because a stored machine score never changes and
+only the purge removes it.  Both are workspace tables under row-level security (tenant
+only, never through a share token).  Cascades from a removed workspace, conversation,
+scorecard version or transcript revision also remove the rows.
 
 Why no score column: the rounded scores live in ``result`` and follow from the integer
 weights, so a second copy could only disagree with them.
@@ -73,7 +73,7 @@ from backend.database.rls import apply_row_level_security
 
 # revision identifiers, used by Alembic.
 revision: str = "5067ea773c0b"
-down_revision: str | Sequence[str] | None = "47676f445509"
+down_revision: str | Sequence[str] | None = "e4b8d1f6a3c7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
