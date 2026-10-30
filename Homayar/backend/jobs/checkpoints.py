@@ -34,13 +34,15 @@ transcript keeps it; changed audio changes every stage.
 Artifact writes
 ---------------
 Objects are written through the storage abstraction under an attempt-scoped
-token (``art-<attempt id>-<stage>``): retries and stale workers write their
+token (``art-<attempt id>-<stage>``, plus ``-<index>`` for a long-call ASR
+chunk): retries and stale workers write their
 own objects, never over another attempt's; the same token with the same
 content is idempotent, with different content a conflict.  Commit sequence
 per stage: (1) declare the intent as a ``PENDING`` row under the fence, (2)
 write the object, (3) read it back and verify size, digest and schema,
 (4) re-lock the job, prove the lease, and publish the row (``PUBLISHED``) in
-one transaction that also records provider usage.  A stale attempt can leave
+one transaction that also records provider usage (not for an ASR chunk: the
+merged ASR checkpoint records the call's usage once).  A stale attempt can leave
 an unreferenced object; it can never publish it.  Cleanup removes objects of
 never-published or invalidated rows after a grace period, never a published
 artifact of a live meeting, never a row whose attempt still holds the lease.
@@ -113,6 +115,8 @@ ARTIFACT_CONTENT_TYPE = "application/json"
 
 ARTIFACT_SCHEMAS: dict[StageName, tuple[type[ProviderSchema], int]] = {
     StageName.ASR: (ASRResult, 1),
+    # One chunk of a long call (HOM-40); the merged result is the ASR checkpoint.
+    StageName.ASR_CHUNK: (ASRResult, 1),
     StageName.DIARIZATION: (DiarizationResult, 1),
     # 2: summary_source_turn_indexes (WP04-T03) — earlier artifacts lack
     # summary evidence and are not reused for a new analysis.
@@ -169,6 +173,9 @@ class StageIdentity:
     stage: StageName
     input_hash: str
     manifest: dict[str, Any]
+    # Chunk index of an ASR chunk: it makes the object token unique per chunk.
+    # Not an input of its own (the manifest already holds it).
+    part: int | None = None
 
     @property
     def schema_name(self) -> str:
@@ -186,6 +193,7 @@ def stage_identity(
     provider: ProviderIdentity,
     request: Mapping[str, Any],
     upstream: Mapping[str, Any] | None = None,
+    part: int | None = None,
 ) -> StageIdentity:
     """Deterministic identity of one stage run from its declared inputs only."""
     if stage not in ARTIFACT_SCHEMAS:
@@ -207,12 +215,15 @@ def stage_identity(
     }
     if upstream is not None:
         manifest["upstream"] = {key: upstream[key] for key in sorted(upstream)}
-    return StageIdentity(stage=stage, input_hash=input_hash_for(manifest), manifest=manifest)
+    return StageIdentity(
+        stage=stage, input_hash=input_hash_for(manifest), manifest=manifest, part=part
+    )
 
 
-def artifact_token(attempt_id: str, stage: StageName) -> str:
-    """Attempt-scoped object token: one object per attempt and stage."""
-    return f"art-{attempt_id}-{stage.value}"
+def artifact_token(attempt_id: str, stage: StageName, part: int | None = None) -> str:
+    """Attempt-scoped object token: one object per attempt and stage (and chunk)."""
+    token = f"art-{attempt_id}-{stage.value}"
+    return token if part is None else f"{token}-{part}"
 
 
 # --- artifacts ----------------------------------------------------------------
@@ -244,7 +255,10 @@ class StageCancelled(Exception):
 
 
 def serialize_result(result: ProviderSchema) -> bytes:
-    return result.model_dump_json(exclude_none=False).encode("utf-8")
+    # A result that is not chunked keeps the bytes it had before HOM-40, so code
+    # without the field (a rollback) still loads it.
+    exclude = {"chunking"} if isinstance(result, ASRResult) and result.chunking is None else None
+    return result.model_dump_json(exclude_none=False, exclude=exclude).encode("utf-8")
 
 
 def read_bounded(reader: Any, *, max_bytes: int) -> bytes:
@@ -470,7 +484,7 @@ def _invalidate_under_fence(context: StageContext, checkpoint_id: str, *, reason
 
 def begin_artifact(context: StageContext, identity: StageIdentity) -> ArtifactIntent:
     """Declare the artifact (PENDING row) under the fence before writing the object."""
-    token = artifact_token(context.lease.attempt_id, identity.stage)
+    token = artifact_token(context.lease.attempt_id, identity.stage, identity.part)
     with get_session_factory()() as db:
         bind_tenant_context(db, workspace_id=context.workspace_id)
         job, _now = lock_owned_or_cancelled(db, context.lease)
@@ -554,6 +568,8 @@ def publish_checkpoint(
 ) -> str | None:
     """PENDING → PUBLISHED under the fence; records provider usage; returns the id.
 
+    An ASR chunk records no usage: the merged ASR checkpoint records the call once.
+
     Returns ``None`` when the job was cancelled meanwhile (nothing published).
     Raises ``StaleLeaseError`` for a superseded attempt and
     ``CheckpointConflict`` when a published checkpoint already holds the
@@ -600,26 +616,27 @@ def publish_checkpoint(
         row.model = model[:256] if model else None
         row.is_mock = is_mock
         row.published_at = now
-        db.add(
-            ProviderUsage(
-                workspace_id=context.workspace_id,
-                meeting_id=context.meeting_id,
-                job_id=context.job_id,
-                stage=intent.stage.value,
-                provider=provider or "unknown",
-                model=model or "default",
-                audio_seconds=(
-                    context.recording_duration_seconds
-                    if intent.stage in {StageName.ASR, StageName.DIARIZATION}
-                    else None
-                ),
-                latency_ms=latency_ms or 0,
-                # Reported by the provider (WP08-T04); null = not reported.
-                input_tokens=getattr(getattr(result, "usage", None), "input_tokens", None),
-                output_tokens=getattr(getattr(result, "usage", None), "output_tokens", None),
-                success=True,
+        if intent.stage != StageName.ASR_CHUNK:
+            db.add(
+                ProviderUsage(
+                    workspace_id=context.workspace_id,
+                    meeting_id=context.meeting_id,
+                    job_id=context.job_id,
+                    stage=intent.stage.value,
+                    provider=provider or "unknown",
+                    model=model or "default",
+                    audio_seconds=(
+                        context.recording_duration_seconds
+                        if intent.stage in {StageName.ASR, StageName.DIARIZATION}
+                        else None
+                    ),
+                    latency_ms=latency_ms or 0,
+                    # Reported by the provider (WP08-T04); null = not reported.
+                    input_tokens=getattr(getattr(result, "usage", None), "input_tokens", None),
+                    output_tokens=getattr(getattr(result, "usage", None), "output_tokens", None),
+                    success=True,
+                )
             )
-        )
         try:
             db.commit()
         except IntegrityError as exc:

@@ -55,6 +55,8 @@ from backend.database.saas_models import (
 )
 from backend.database.tenant_context import bind_job_context, bind_tenant_context
 from backend.jobs import checkpoints as ckpt
+from backend.jobs.asr_chunks import SAMPLE_RATE_HZ as CHUNK_SAMPLE_RATE_HZ
+from backend.jobs.asr_chunks import chunking_identity, decode_call, transcribe_chunks
 from backend.jobs.audio_derivatives import derive_audio_for_job
 from backend.jobs.failures import (
     ATTEMPTS_EXHAUSTED,
@@ -91,7 +93,7 @@ from backend.jobs.states import (
 from backend.privacy.redaction_service import policy_digest, redact_revision
 from backend.privacy.text_pii import PiiClass, Pseudonymizer, parse_classes, redact
 from backend.providers import egress
-from backend.providers.base import ProviderError
+from backend.providers.base import ProviderError, ProviderIdentity
 from backend.providers.factory import ProviderBundle, create_provider_bundle
 from backend.providers.registry import (
     ResolvedManifest,
@@ -169,6 +171,7 @@ from backend.services.transcript_service import (
     ensure_speakers,
     record_analysis_run,
 )
+from backend.speech.chunking import plan_chunks
 from backend.speech.text_view import TextViewOutcome, derive_text_view
 from backend.storage import ObjectStorage, StorageError, create_object_storage
 
@@ -2051,6 +2054,109 @@ def _analyze(
     )
 
 
+def _ensure_attempt_alive(claim: ClaimedJob, heartbeat: LeaseHeartbeat) -> None:
+    """Between long-call chunks: a lost lease or a cancelled job stops the attempt."""
+    if heartbeat.lost.is_set():
+        raise StaleLeaseError(heartbeat.outcome or RenewalOutcome.EXPIRED)
+    with get_session_factory()() as db:
+        bind_tenant_context(db, workspace_id=claim.workspace_id)
+        job, _now = _lock_owned_or_cancelled(db, claim.lease)
+        db.rollback()
+    if job is None:
+        raise ProcessingError(
+            "meeting_unavailable", "The meeting is no longer available", retryable=False
+        )
+
+
+def _chunked_asr(
+    claim: ClaimedJob,
+    context: ckpt.StageContext,
+    *,
+    record: StageRecord,
+    request_identity: dict[str, Any],
+    provider: ProviderIdentity,
+    transcribe: Callable[[ASRRequest], ASRResult],
+    media_path: Path,
+    work_dir: Path,
+    heartbeat: LeaseHeartbeat,
+    storage: ObjectStorage,
+    settings: Settings,
+) -> tuple[ckpt.StageIdentity, ckpt.ReusedStage | None, ASRResult] | None:
+    """The ASR of a long call in chunks (HOM-40, ADR 0046).
+
+    Returns the merged identity, a reused merged checkpoint (or None) and the
+    result. Returns None when the call runs as one request, exactly as before:
+    chunking is off, the call is not longer than the threshold (by its
+    recorded length, then by its decoded length), or the decode failed.
+    """
+    if not settings.asr_chunking_enabled:
+        return None
+    chunk_settings = settings.asr_chunk_settings()
+    # The recorded length is ceil(probed seconds): a call at or under the
+    # threshold by it is not decoded at all.
+    if claim.recording_duration_seconds <= chunk_settings.min_call_seconds:
+        return None
+    chunking = chunking_identity(chunk_settings)
+    identity = ckpt.stage_identity(
+        context,
+        StageName.ASR,
+        provider=provider,
+        request={**request_identity, "chunking": chunking},
+    )
+    reused = ckpt.resume_stage(context, identity, storage=storage, settings=settings)
+    if reused is not None:
+        assert isinstance(reused.result, ASRResult)
+        return identity, reused, reused.result
+    decoded = decode_call(
+        media_path,
+        work_dir=work_dir,
+        settings=settings,
+        duration_seconds=claim.recording_duration_seconds,
+    )
+    if decoded is None:
+        return None
+    try:
+        plans = plan_chunks(
+            decoded.total_samples,
+            sample_rate=CHUNK_SAMPLE_RATE_HZ,
+            settings=chunk_settings,
+            active=decoded.active,
+        )
+        if len(plans) == 1:
+            return None
+
+        def resume(chunk_identity: ckpt.StageIdentity) -> ASRResult | None:
+            hit = ckpt.resume_stage(context, chunk_identity, storage=storage, settings=settings)
+            if hit is None:
+                return None
+            assert isinstance(hit.result, ASRResult)
+            return hit.result
+
+        def commit(chunk_identity: ckpt.StageIdentity, result: ASRResult) -> None:
+            _commit_stage(
+                context, chunk_identity, result, record=record, storage=storage, settings=settings
+            )
+
+        merged = transcribe_chunks(
+            plans,
+            decoded,
+            work_dir=work_dir,
+            language=claim.language,
+            request_identity=request_identity,
+            chunking=chunking,
+            identity_for=lambda request, part: ckpt.stage_identity(
+                context, StageName.ASR_CHUNK, provider=provider, request=request, part=part
+            ),
+            resume=resume,
+            transcribe=transcribe,
+            commit=commit,
+            before_chunk=lambda: _ensure_attempt_alive(claim, heartbeat),
+        )
+    finally:
+        decoded.pcm_path.unlink(missing_ok=True)
+    return identity, None, merged
+
+
 def process_job(
     job_id: str,
     *,
@@ -2187,30 +2293,52 @@ def process_job(
             )
             if isinstance(language_policy, dict):
                 asr_request_identity["language_policy"] = language_policy
-            asr_identity = ckpt.stage_identity(
-                context,
-                StageName.ASR,
-                provider=active_providers.asr.identity(),
-                request=asr_request_identity,
-            )
-            asr_reused = ckpt.resume_stage(
-                context, asr_identity, storage=active_storage, settings=settings
-            )
-            asr_sha: str | None = None
-            intelligence_identity: ckpt.StageIdentity | None = None
-            if asr_reused is not None:
-                asr = asr_reused.result
-                assert isinstance(asr, ASRResult)
-                asr_sha = asr_reused.artifact_sha256
-            else:
-                asr = _call_provider(
+
+            def transcribe(request: ASRRequest) -> ASRResult:
+                return _call_provider(
                     claim,
                     manifests["asr"],
-                    lambda: active_providers.asr.transcribe(asr_request),
+                    lambda: active_providers.asr.transcribe(request),
                     heartbeat=heartbeat,
                     policy=policy,
                     settings=settings,
                 )
+
+            # A long call runs in chunks (HOM-40); None: one request, as before.
+            chunked = _chunked_asr(
+                claim,
+                context,
+                record=asr_record,
+                request_identity=asr_request_identity,
+                provider=active_providers.asr.identity(),
+                transcribe=transcribe,
+                media_path=media_path,
+                work_dir=temporary_dir,
+                heartbeat=heartbeat,
+                storage=active_storage,
+                settings=settings,
+            )
+            if chunked is not None:
+                asr_identity, asr_reused, asr = chunked
+            else:
+                asr_identity = ckpt.stage_identity(
+                    context,
+                    StageName.ASR,
+                    provider=active_providers.asr.identity(),
+                    request=asr_request_identity,
+                )
+                asr_reused = ckpt.resume_stage(
+                    context, asr_identity, storage=active_storage, settings=settings
+                )
+                if asr_reused is not None:
+                    asr = asr_reused.result
+                    assert isinstance(asr, ASRResult)
+                else:
+                    asr = transcribe(asr_request)
+            asr_sha: str | None = None
+            intelligence_identity: ckpt.StageIdentity | None = None
+            if asr_reused is not None:
+                asr_sha = asr_reused.artifact_sha256
             diarization: DiarizationResult | None = None
             intelligence: IntelligenceResult | None = None
             turns: list[TranscriptTurn] = []
