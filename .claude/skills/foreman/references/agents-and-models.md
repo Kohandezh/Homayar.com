@@ -30,10 +30,10 @@ To keep quality, the checker gets stricter, not the maker weaker:
   the same work unit, or a stall with no handoff after two nudges. Restart the maker on
   Claude `opus`, from the same worktree, with the same brief plus the review reports. An
   escalated Claude implementer needs a new pane made with
-  `--env CLAUDE_CONFIG_DIR="$HOME/.claude-personal"`; end the GLM session first
-  (`ctrl+c` twice), and never start Claude in the old GLM pane, because without that
-  variable the session never reports its state and `herdr agent wait` hangs. Record the
-  switch in `ledger.md`.
+  `--env CLAUDE_CONFIG_DIR="$HOME/.claude-personal"`. End the GLM session first
+  (`ctrl+c` twice). Never start Claude in the old GLM pane. Without that variable the
+  session never reports its state, and `herdr agent wait` hangs. Record the switch in
+  `ledger.md`.
 
 ### Claude Code on the personal config
 
