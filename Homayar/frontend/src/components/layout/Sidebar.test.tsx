@@ -104,7 +104,7 @@ describe("Sidebar navigation", () => {
     allowed.unmount();
 
     renderSidebar(workspace("member"), "en", { user: FIXTURE_OPERATOR });
-    expect(adminLabels()).toEqual(["Members", "Teams"]);
+    expect(adminLabels()).toEqual(["Members", "Teams", "Scorecards"]);
     expect(screen.queryByRole("link", { name: "Voice operations" })).not.toBeInTheDocument();
   });
 
@@ -114,9 +114,9 @@ describe("Sidebar navigation", () => {
     expect(within(group).getByRole("link", { name: "عملیات صوتی" })).toBeInTheDocument();
   });
 
-  it.each(["member", "viewer"] as const)("shows a %s only Members and Teams", (role) => {
+  it.each(["member", "viewer"] as const)("shows a %s only Members, Teams and Scorecards", (role) => {
     renderSidebar(workspace(role));
-    expect(adminLabels()).toEqual(["Members", "Teams"]);
+    expect(adminLabels()).toEqual(["Members", "Teams", "Scorecards"]);
     for (const hidden of ["Settings", "Usage", "Audit log", "Admin overview", "API keys"]) {
       expect(screen.queryByRole("link", { name: hidden })).not.toBeInTheDocument();
     }
@@ -144,7 +144,7 @@ describe("Sidebar navigation", () => {
   it("labels links and the group in Persian", () => {
     renderSidebar(workspace("viewer"), "fa");
     const group = screen.getByRole("group", { name: "مدیریت" });
-    expect(within(group).getAllByRole("link").map((link) => link.textContent)).toEqual(["اعضا", "تیم‌ها"]);
+    expect(within(group).getAllByRole("link").map((link) => link.textContent)).toEqual(["اعضا", "تیم‌ها", "کارت‌های امتیازدهی"]);
     expect(screen.getByRole("link", { name: "نمای کلی" })).toBeInTheDocument();
   });
 
@@ -208,10 +208,10 @@ describe("Sidebar version line", () => {
   });
 
   it.each(["member", "viewer"] as const)(
-    "shows the version line to a %s, who sees only Members and Teams",
+    "shows the version line to a %s, who sees only Members, Teams and Scorecards",
     (role) => {
       renderSidebar(workspace(role));
-      expect(adminLabels()).toEqual(["Members", "Teams"]);
+      expect(adminLabels()).toEqual(["Members", "Teams", "Scorecards"]);
       expect(screen.getByText(isolateLtr("Homayar 0.5.0 · abc1234"))).toBeInTheDocument();
     },
   );

@@ -27,6 +27,8 @@ const PERMISSIONS = [
   "legal_hold:manage",
   "pii:original_access",
   "ai_policy:manage",
+  "scorecard:read",
+  "scorecard:manage",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -54,9 +56,19 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, readonly Permission[]> = {
     "billing:read",
     "audit:read",
     "api_key:manage",
+    "scorecard:read",
+    "scorecard:manage",
   ],
-  member: ["meeting:read", "meeting:create", "meeting:update", "share:manage", "member:read", "team:read"],
-  viewer: ["meeting:read", "member:read", "team:read"],
+  member: [
+    "meeting:read",
+    "meeting:create",
+    "meeting:update",
+    "share:manage",
+    "member:read",
+    "team:read",
+    "scorecard:read",
+  ],
+  viewer: ["meeting:read", "member:read", "team:read", "scorecard:read"],
 };
 
 const NO_PERMISSIONS: ReadonlySet<Permission> = new Set();
