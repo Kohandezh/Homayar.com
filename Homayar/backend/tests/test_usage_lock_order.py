@@ -186,24 +186,38 @@ def _two_sessions(
     ``stop_at`` (by default before it releases its first orphan), the entitlement row
     locked, and the other session must wait on it. Otherwise the other session stops
     after ``action``, before its commit, and the reconciliation must wait on it.
+
+    The paused session is let go and every started session is joined also when a
+    step fails, so no session keeps its row locks into the teardown.
     """
     ref = _ref(workspace_id)
     reconciliation = _Worker(lambda: reconcile_entitlement(ref, settings))
     if first == "reconciliation":
         pause = _pause(monkeypatch, usage_reconciliation, stop_at, after=after)
-        reconciliation.start()
-        assert pause.entered.wait(DEADLINE)
         other = _Worker(_in_session(workspace_id, action))
-        other.start()
-        _blocked(other, pause.pid)
     else:
         pause = _hold()
         other = _Worker(_in_session(workspace_id, action, hold=pause))
-        other.start()
-        assert pause.entered.wait(DEADLINE)
-        reconciliation.start()
-        _blocked(reconciliation, pause.pid)
-    pause.gate.set()
+    started: list[_Worker] = []
+    try:
+        if first == "reconciliation":
+            reconciliation.start()
+            started.append(reconciliation)
+            assert pause.entered.wait(DEADLINE)
+            other.start()
+            started.append(other)
+            _blocked(other, pause.pid)
+        else:
+            other.start()
+            started.append(other)
+            assert pause.entered.wait(DEADLINE)
+            reconciliation.start()
+            started.append(reconciliation)
+            _blocked(reconciliation, pause.pid)
+    finally:
+        pause.gate.set()
+        for worker in started:
+            worker.join(DEADLINE)
     outcome, result = _settled(reconciliation, other)
     return outcome, result
 

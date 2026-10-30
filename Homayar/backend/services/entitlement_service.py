@@ -1,10 +1,11 @@
 """Usage allowance: reservations, settlements, releases and audited adjustments.
 
-Lock order (HOM-333). Every transaction that changes usage rows locks the
-``entitlements`` row first and the ``usage_reservations`` rows after it. It never
-waits for an entitlement row while it holds a reservation row, so two such
-transactions cannot wait for each other, and PostgreSQL never has to abort one as
-a deadlock (SQLSTATE ``40P01``).
+Lock order (HOM-333). Every transaction that changes usage rows locks an
+``entitlements`` row first and the ``usage_reservations`` rows of that entitlement
+after it. It never waits for an entitlement row while it holds a reservation row of
+that entitlement. Across entitlements, the order in "Several entitlements in one
+transaction" below applies. So two such transactions cannot wait for each other,
+and PostgreSQL never has to abort one as a deadlock (SQLSTATE ``40P01``).
 
 * ``reserve_usage`` takes the entitlement row with its counter update, then
   inserts the new reservation row.
