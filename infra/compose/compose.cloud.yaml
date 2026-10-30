@@ -75,6 +75,12 @@ x-app-environment: &app-environment
   WHISPER_MODEL: "${WHISPER_MODEL:-base}"
   WHISPER_DEVICE: "${WHISPER_DEVICE:-cpu}"
   WHISPER_COMPUTE_TYPE: "${WHISPER_COMPUTE_TYPE:-int8}"
+  # Named Whisper profile and language policy (HOM-39, ADR 0044). An empty
+  # profile keeps the WHISPER_* values above.
+  ASR_PROFILE: "${ASR_PROFILE:-}"
+  ASR_ALLOWED_LANGUAGES: "${ASR_ALLOWED_LANGUAGES:-fa,en}"
+  ASR_DEFAULT_LANGUAGE: "${ASR_DEFAULT_LANGUAGE:-fa}"
+  ASR_LANGUAGE_MIN_PROBABILITY: "${ASR_LANGUAGE_MIN_PROBABILITY:-0.5}"
   # Restricted PII mappings (ADR 0023): "key_id:base64(32 bytes)" from the
   # secret manager; empty keeps redaction but retains no originals.
   PII_MAPPING_KEYS: "${PII_MAPPING_KEYS:-}"
