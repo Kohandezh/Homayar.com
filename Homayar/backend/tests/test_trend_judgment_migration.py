@@ -57,7 +57,7 @@ from backend.tests.test_analysis_extraction_stage import MIXED, _fixed, _process
 from backend.tests.test_ingestion_ledger import _tenant
 
 NEW_REVISION = "f2c6a8e4b1d7"
-BASE_REVISION = "a7c3e9f5b2d1"  # HOM-37: media_objects.channel_inspection
+BASE_REVISION = "6d4ec2d2e498"  # HOM-58: conversation columns on meetings
 HEAD_REVISION = NEW_REVISION
 TABLE = "trend_extraction_judgments"
 VERSION = "judgment/schema-test"

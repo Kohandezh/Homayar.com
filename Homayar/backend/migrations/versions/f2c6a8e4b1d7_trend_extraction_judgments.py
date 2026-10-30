@@ -1,7 +1,7 @@
 """trend extraction judgments: the stored trend judgment of each run (HOM-290)
 
 Revision ID: f2c6a8e4b1d7
-Revises: a7c3e9f5b2d1
+Revises: 6d4ec2d2e498
 Create Date: 2026-10-29 00:00:00.000000
 
 Adds ``trend_extraction_judgments``: one immutable row per analysis run and rules
@@ -30,7 +30,7 @@ from backend.database.rls import apply_row_level_security
 
 # revision identifiers, used by Alembic.
 revision: str = "f2c6a8e4b1d7"
-down_revision: str | Sequence[str] | None = "a7c3e9f5b2d1"
+down_revision: str | Sequence[str] | None = "6d4ec2d2e498"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
