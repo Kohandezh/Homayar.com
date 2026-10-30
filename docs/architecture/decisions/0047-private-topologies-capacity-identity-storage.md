@@ -1,44 +1,36 @@
 # ADR 0047: Private topologies, capacity envelope, local identity and storage
 
-Date: 2026-10-30 · Status: Proposed (HOM-106, WP19-T01, parent HOM-23, features F74, F75) · Builds on: ADR 0019, ADR 0026, ADR 0031, ADR 0035, ADR 0044
+Date: 2026-10-30 · Status: Accepted 2026-10-30, owner sign-off 2026-10-30 (HOM-106, WP19-T01, parent HOM-23, features F74, F75; recorded by HOM-362) · Builds on: ADR 0019, ADR 0026, ADR 0031, ADR 0035, ADR 0044
 
-## Owner sign-off list
+## Owner sign-off (2026-10-30)
 
-Each line: the question, the recommended answer, and what changes if the owner says no.
+The owner approved all 7 points on 2026-10-30 (owner sign-off 2026-10-30). The status is
+Accepted. The recommendations in D1 to D5 below are the decisions.
 
-1. **Which private installs do we support?** Two only: `single-host-p40` (the reference, the shape
-   of the app server) and `single-host-cpu`. Both are one Linux host with Docker Compose. No
-   Kubernetes, no second host, no high availability. If no: a new topology needs its own ADR, and
-   HOM-110 and HOM-111 grow by one install path each.
-2. **May Homayar use one P40 and more RAM on the shared app server for HOM-42?** Yes: one P40
-   with at least 4096 MiB free VRAM for speech to text, and the worker memory limit raised from
-   2048 MiB to 4096 MiB (Homayar total from 6016 MiB to 8064 MiB). Padyar keeps the rest. If no:
-   HOM-42 needs a different GPU host, and the reference shape cannot be checked on the app
-   server.
-3. **Where does the local language model run?** In a customer install: on one
+1. **Which private installs do we support?** Approved: two only, `single-host-p40` (the
+   reference, the shape of the app server) and `single-host-cpu`. Both are one Linux host with
+   Docker Compose. No Kubernetes, no second host, no high availability.
+2. **May Homayar use one P40 and more RAM on the shared app server for HOM-42?** Approved: one
+   P40 with at least 4096 MiB free VRAM for speech to text, and the worker memory limit raised
+   from 2048 MiB to 4096 MiB (Homayar total from 6016 MiB to 8064 MiB). Padyar keeps the rest.
+3. **Where does the local language model run?** Approved: in a customer install, on one
    operator-provided model host with its own GPU, on the private network, reached through
-   `LOCAL_AI_BASE_URL`. So an install that needs local summary, QA and search needs a second
-   machine. Not on the shared app server until the owner agrees a GPU with Padyar. The model is
-   picked by a follow-up ticket. If no (the owner wants it on the Homayar host): that ticket
-   adds the model's CPU, RAM and VRAM to the D2 minimums and the topology check, and a P40 host
-   then needs a second free GPU.
-4. **Do we ship MinIO in the first offline release?** Yes, the pinned image we ship today, with
-   two known risks: the upstream project is archived and gets no fixes, and its licence is
-   AGPL-3.0. HOM-340 must be fixed before uploads go live. If no: switch the private topologies
-   to the local file storage backend (it exists and passes the storage contract suite), and
-   HOM-110 reworks the backup steps.
-5. **How do users sign in on an offline install?** Built-in e-mail and password accounts, with
-   the first owner account as the break-glass account. No bundled Keycloak. The customer's own
-   IdP comes later through OIDC (HOM-127). If no (Keycloak bundled now): one more Java service
-   and database to package, patch and back up, and HOM-127 starts before WP19 ends.
-6. **May we publish the capacity numbers in this ADR?** No. They are planned, not measured,
-   until HOM-42, HOM-41 and HOM-111 measure them. If the owner disagrees (wants to publish
-   now): sales
-   material would promise numbers that nobody has run.
-7. **Redis licence.** We ship `redis:7.4-alpine`, which is under RSALv2 or SSPLv1, not an open
-   source licence. Recommended: keep it for now and let HOM-107 decide between Redis 8 (adds
-   AGPL-3.0) and Valkey (BSD-3-Clause) when it writes the licence notices. If no (the owner
-   wants it settled now): HOM-107 starts with a broker swap and its tests.
+   `LOCAL_AI_BASE_URL`. An install that needs local summary, QA and search needs a second
+   machine. Not on the shared app server until a GPU is agreed with Padyar. The model is picked
+   by a follow-up ticket.
+4. **Do we ship MinIO in the first offline release?** Approved: yes, the pinned image we ship
+   today, despite the two known risks: the upstream project is archived and gets no fixes, and
+   its licence is AGPL-3.0. HOM-340 must be fixed before uploads go live. The fallback is the
+   local file storage backend: it exists and passes the storage contract suite, and a switch to
+   it would rework HOM-110's backup steps.
+5. **How do users sign in on an offline install?** Approved: built-in e-mail and password
+   accounts, with the first owner account as the break-glass account. No bundled Keycloak. The
+   customer's own IdP comes later through OIDC (HOM-127).
+6. **May we publish the capacity numbers in this ADR?** Approved: no. They are planned, not
+   measured, until HOM-42, HOM-41 and HOM-111 measure them.
+7. **Redis licence.** Approved: we keep `redis:7.4-alpine`, which is under RSALv2 or SSPLv1,
+   not an open source licence. It stays for now. HOM-107 decides between Redis 8 (adds
+   AGPL-3.0) and Valkey (BSD-3-Clause) when it writes the licence notices.
 
 ## Context
 
@@ -305,7 +297,7 @@ Alternatives:
 - **The local file storage backend (`STORAGE_BACKEND=local`).** It exists and passes the same
   contract suite (ADR 0019). No MinIO risk. It loses for now: the Compose file, the backups
   runbook and the restore drill are built around MinIO (`docs/operations/backup-restore.md:12`),
-  so a switch reworks HOM-110. It is the fallback if the owner says no to item 4.
+  so a switch reworks HOM-110. It is the fallback named in owner item 4.
 - **Another S3-compatible server.** Not evaluated here. A replacement needs the contract suite
   and the restore drill again.
 - **The customer's own S3 or PostgreSQL.** Not supported yet (D1): backups and drills do not
@@ -434,7 +426,10 @@ DEPLOYMENT_TOPOLOGY=single-host-p40 ASR_PROFILE=gpu-p40-large-v3 \
 - The topology check counts GPUs as nvidia-smi lists them inside the container. It does not
   check that `CUDA_VISIBLE_DEVICES` points at a matching GPU; `gpu_memory` does that for the
   ASR runtime.
-- The MinIO and Redis licence questions are open (owner items 4 and 7).
+- The MinIO risk (archived upstream, AGPL-3.0) is accepted for the first offline release
+  (owner item 4).
+- The Redis licence choice stays open until HOM-107 decides between Redis 8 and Valkey
+  (owner item 7).
 - The D5 model host's CPU, RAM and VRAM are not in the D2 minimums and not checked by the
   `topology` check. Planned, not measured: the follow-up model ticket measures them. Until the
   model is picked and qualified, the F74 summary, QA and search steps cannot pass.
