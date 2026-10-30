@@ -1,4 +1,4 @@
-"""The stored trend judgment of each analysis run (HOM-290; ADR 0047).
+"""The stored trend judgment of each analysis run (HOM-290; ADR 0048).
 
 What the HOM-79 rules decide from a run's stored extraction row (``JudgedContent``: steps 6 to
 9 and the per-issue states) depends only on that row, which never changes, and on the rules:
