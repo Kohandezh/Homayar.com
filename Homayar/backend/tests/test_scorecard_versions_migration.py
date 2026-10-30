@@ -40,6 +40,7 @@ from backend.database.rls import (
     TENANT,
     UNPROTECTED_TABLES,
     WORKSPACE_TABLES,
+    apply_row_level_security,
 )
 from backend.database.saas_models import (
     ScorecardVersion,
@@ -57,7 +58,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "47676f445509"
 BASE_REVISION = "f2c6a8e4b1d7"  # HOM-290: trend_extraction_judgments
-HEAD_REVISION = "565d2ccd4fca"  # HOM-88: CRM mapping tables, after HOM-54
+HEAD_REVISION = "e4b8d1f6a3c7"  # HOM-89: webhook delivery ledger, after HOM-88
 TABLE = "scorecard_versions"
 NAMED_CONSTRAINTS = (
     "uq_scorecard_version",
@@ -586,6 +587,10 @@ def test_the_migration_creates_and_drops_only_the_table(
     try:
         command.stamp(config, "head")
         command.downgrade(config, NEW_REVISION)
+        # The re-upgrade applies the live RLS registry (HOM-89), so the baseline must too.
+        with inspection_session_factory()() as db:
+            apply_row_level_security(db.connection())
+            db.commit()
         others = _other_tables()  # after the stamp, which adds alembic_version
         command.downgrade(config, BASE_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION

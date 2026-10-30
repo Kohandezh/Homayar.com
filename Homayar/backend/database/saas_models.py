@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -3002,6 +3003,59 @@ class ApiKey(Base, TimestampMixin):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class WebhookDeliveryState(str, enum.Enum):
+    """Where one delivery of one event to one endpoint stands (HOM-89).
+
+    Stored as the lowercase value with a check constraint.  ``dead_letter`` is for
+    the retry policy of HOM-90; the schema allows it now so HOM-90 needs no migration.
+    """
+
+    PENDING = "pending"
+    SENDING = "sending"
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    DEAD_LETTER = "dead_letter"
+
+
+class WebhookAttemptOutcome(str, enum.Enum):
+    """The result of one HTTP request of a delivery (HOM-89)."""
+
+    DELIVERED = "delivered"
+    FAILED = "failed"
+
+
+# ``whk_`` and 24 lowercase hex characters, without a regex so SQLite runs the same check.
+WEBHOOK_SIGNING_KEY_ID_CHECK = (
+    "length(key_id) = 28 AND substr(key_id, 1, 4) = 'whk_' "
+    "AND trim(substr(key_id, 5), '0123456789abcdef') = ''"
+)
+# AES-GCM takes a 12-byte nonce.
+WEBHOOK_SIGNING_KEY_NONCE_CHECK = "length(nonce) = 12"
+WEBHOOK_DELIVERY_STATE_CHECK = (
+    "state IN (" + ", ".join(f"'{member.value}'" for member in WebhookDeliveryState) + ")"
+)
+WEBHOOK_DELIVERY_DELIVERED_AT_CHECK = (
+    f"state <> '{WebhookDeliveryState.DELIVERED.value}' OR delivered_at IS NOT NULL"
+)
+# 64 lowercase hex characters (a SHA-256), or NULL on rows written before HOM-89.
+WEBHOOK_DELIVERY_PAYLOAD_SHA256_CHECK = (
+    "payload_sha256 IS NULL OR (length(payload_sha256) = 64 "
+    "AND trim(payload_sha256, '0123456789abcdef') = '')"
+)
+WEBHOOK_ATTEMPT_OUTCOME_CHECK = (
+    "outcome IN (" + ", ".join(f"'{member.value}'" for member in WebhookAttemptOutcome) + ")"
+)
+WEBHOOK_ATTEMPT_STATUS_CODE_CHECK = "status_code IS NULL OR status_code BETWEEN 100 AND 599"
+# A delivered attempt has a 2xx status and no error; a failed one has an error code.
+# ``status_code IS NOT NULL`` is needed: a NULL ``BETWEEN`` is NULL, and a check passes
+# on NULL.
+WEBHOOK_ATTEMPT_SHAPE_CHECK = (
+    f"(outcome = '{WebhookAttemptOutcome.DELIVERED.value}' AND status_code IS NOT NULL "
+    "AND status_code BETWEEN 200 AND 299 AND error_code IS NULL) "
+    f"OR (outcome = '{WebhookAttemptOutcome.FAILED.value}' AND error_code IS NOT NULL)"
+)
+
+
 class WebhookEndpoint(Base, TimestampMixin):
     __tablename__ = "webhook_endpoints"
 
@@ -3010,12 +3064,68 @@ class WebhookEndpoint(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     url: Mapped[str] = mapped_column(String(1000), nullable=False)
-    secret_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # Legacy column (HOM-89): new code never reads or writes it.  The signing secrets
+    # live in ``webhook_signing_keys``.
+    secret_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
     event_types: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(String(200))
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
+class WebhookSigningKey(Base, TimestampMixin):
+    """One signing secret of a webhook endpoint (HOM-89).
+
+    The secret is encrypted with AES-GCM under an app keyring key
+    (``encryption_key_id``), never hashed: the sender needs the secret itself to
+    compute the HMAC.  ``expires_at`` NULL marks the active key; a rotated key keeps
+    signing until it expires, so receivers can switch secrets without a gap.
+    """
+
+    __tablename__ = "webhook_signing_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    endpoint_id: Mapped[str] = mapped_column(
+        ForeignKey("webhook_endpoints.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    encryption_key_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    secret_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("key_id", name="uq_webhook_signing_key_id"),
+        CheckConstraint(WEBHOOK_SIGNING_KEY_ID_CHECK, name="ck_webhook_signing_key_id_format"),
+        CheckConstraint(WEBHOOK_SIGNING_KEY_NONCE_CHECK, name="ck_webhook_signing_key_nonce"),
+        # At most one active key per endpoint.
+        Index(
+            "uq_webhook_signing_keys_active",
+            "endpoint_id",
+            unique=True,
+            postgresql_where=text("expires_at IS NULL"),
+            sqlite_where=text("expires_at IS NULL"),
+        ),
+    )
 
 
 class WebhookDelivery(Base, TimestampMixin):
+    """One event queued for one endpoint (HOM-89).
+
+    ``payload`` holds the exact bytes that are signed and sent; every attempt sends
+    the same bytes.  It is NULL only on rows written before HOM-89.  One event goes
+    to several endpoints with the same ``event_id`` (the receiver's dedupe key), but
+    never twice to one endpoint.
+    """
+
     __tablename__ = "webhook_deliveries"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -3025,13 +3135,73 @@ class WebhookDelivery(Base, TimestampMixin):
     endpoint_id: Mapped[str] = mapped_column(
         ForeignKey("webhook_endpoints.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    event_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(36), nullable=False)
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    state: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    state: Mapped[str] = mapped_column(
+        String(24), default=WebhookDeliveryState.PENDING.value, nullable=False
+    )
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_status_code: Mapped[int | None] = mapped_column(Integer)
     last_error: Mapped[str | None] = mapped_column(String(500))
+    payload: Mapped[bytes | None] = mapped_column(LargeBinary)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("endpoint_id", "event_id", name="uq_webhook_delivery_endpoint_event"),
+        CheckConstraint(WEBHOOK_DELIVERY_STATE_CHECK, name="ck_webhook_delivery_state"),
+        CheckConstraint("attempt_count >= 0", name="ck_webhook_delivery_attempt_count"),
+        CheckConstraint(
+            WEBHOOK_DELIVERY_DELIVERED_AT_CHECK, name="ck_webhook_delivery_delivered_at"
+        ),
+        CheckConstraint(
+            WEBHOOK_DELIVERY_PAYLOAD_SHA256_CHECK, name="ck_webhook_delivery_payload_sha256"
+        ),
+        # The sweeper's lookup of due rows.
+        Index("ix_webhook_deliveries_due", "state", "next_attempt_at"),
+    )
+
+
+class WebhookDeliveryAttempt(Base):
+    """One HTTP request sent for a delivery (HOM-89).
+
+    Append-only: written once, after the request ends, and never changed, so the
+    ledger shows every request that left.  The response body is never stored;
+    ``error_code`` is a short code.
+    """
+
+    __tablename__ = "webhook_delivery_attempts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    delivery_id: Mapped[str] = mapped_column(
+        ForeignKey("webhook_deliveries.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The signed ``t`` (unix seconds).
+    request_timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    signing_key_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    status_code: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("delivery_id", "attempt_number", name="uq_webhook_attempt_number"),
+        CheckConstraint("attempt_number >= 1", name="ck_webhook_attempt_number_positive"),
+        CheckConstraint("duration_ms >= 0", name="ck_webhook_attempt_duration"),
+        CheckConstraint(WEBHOOK_ATTEMPT_OUTCOME_CHECK, name="ck_webhook_attempt_outcome"),
+        CheckConstraint(WEBHOOK_ATTEMPT_STATUS_CODE_CHECK, name="ck_webhook_attempt_status_code"),
+        CheckConstraint(WEBHOOK_ATTEMPT_SHAPE_CHECK, name="ck_webhook_attempt_shape"),
+    )
 
 
 class ProviderUsage(Base):

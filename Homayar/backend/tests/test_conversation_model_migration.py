@@ -45,7 +45,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "6d4ec2d2e498"
 BASE_REVISION = "a7c3e9f5b2d1"
-HEAD_REVISION = "565d2ccd4fca"  # HOM-88: CRM mapping tables, after HOM-54
+HEAD_REVISION = "e4b8d1f6a3c7"  # HOM-89: webhook delivery ledger, after HOM-88
 NEW_COLUMNS = (
     "conversation_type",
     "direction",

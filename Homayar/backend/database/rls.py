@@ -79,7 +79,9 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     # Stored trend judgments (HOM-290): ids, versions and a digest of an extraction's content.
     "trend_extraction_judgments",
     "webhook_endpoints",
-    "webhook_deliveries",
+    # Webhook signing secrets (encrypted) and the request log (HOM-89).
+    "webhook_signing_keys",
+    "webhook_delivery_attempts",
     "provider_usage",
     "notifications",
     "ai_policy_versions",
@@ -178,6 +180,19 @@ POLICIES: dict[str, tuple[str, str]] = {
     "entitlements": (
         f"workspace_id = {TENANT} OR {SERVICE} = 'usage_reconciliation'",
         f"workspace_id = {TENANT}",
+    ),
+    # The webhook sweeper (HOM-89) discovers due deliveries across tenants under
+    # the 'webhook_delivery' service scope.  The scope is read-only: the WITH
+    # CHECK refuses every INSERT and UPDATE while it is held, even with a
+    # workspace bound (the USING clause would let such a session reach another
+    # tenant's row), and NO_DELETE_TABLES refuses DELETE.  Every write runs in
+    # a session bound to the delivery's own workspace, without the scope.  The
+    # scope reaches no endpoint, key or attempt row.  USING cannot limit columns,
+    # so the scope reads every column of every tenant's deliveries (payload too):
+    # the sweeper must select only ids, workspace, state and next_attempt_at.
+    "webhook_deliveries": (
+        f"workspace_id = {TENANT} OR {SERVICE} = 'webhook_delivery'",
+        f"workspace_id = {TENANT} AND {SERVICE} IS DISTINCT FROM 'webhook_delivery'",
     ),
     # CRM reconciliation (HOM-88) discovers pending inbound CRM records across
     # tenants under the read-only 'crm_reconciliation' service scope.  The scope
@@ -317,6 +332,8 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
 # ``audit_events`` (HOM-115, ADR 0036): history cannot be rewritten by the
 # application; the user/workspace ``ON DELETE SET NULL`` still runs as owner.
 # ``scorecard_versions`` (HOM-54): a published scorecard version never changes.
+# ``webhook_delivery_attempts`` (HOM-89): one row per HTTP request sent, never
+# rewritten, so the ledger shows every request that left.
 APPEND_ONLY_TABLES: tuple[str, ...] = (
     "model_manifests",
     "ai_policy_versions",
@@ -324,15 +341,18 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "plan_versions",
     "audit_events",
     "scorecard_versions",
+    "webhook_delivery_attempts",
 )
 
 # Tables the application role may read, insert and update but never delete.
-# ``integration_inbound_records`` (HOM-88) is the ledger of received CRM
-# records: the application never deletes a ledger row.  The missing grant also
-# keeps the 'crm_reconciliation' scope, which the FOR ALL policy's USING clause
-# lets see every tenant's rows, from deleting them.  Workspace and profile
-# cascades run as the table owner and are unaffected.
-NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records",)
+# ``integration_inbound_records`` (HOM-88) is the ledger of received CRM records
+# and ``webhook_deliveries`` (HOM-89) the outbound delivery ledger: the
+# application never deletes a ledger row.  The missing grant also keeps the
+# 'crm_reconciliation' and 'webhook_delivery' scopes, which the FOR ALL
+# policies' USING clauses let see every tenant's rows, from deleting them.
+# Workspace, profile and endpoint cascades run as the table owner and are
+# unaffected.
+NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records", "webhook_deliveries")
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on
 # ``audit_events`` only, across tenants through a policy granted to it alone.

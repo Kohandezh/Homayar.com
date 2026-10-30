@@ -41,6 +41,7 @@ from backend.database.rls import (
     TENANT,
     UNPROTECTED_TABLES,
     WORKSPACE_TABLES,
+    apply_row_level_security,
 )
 from backend.database.saas_models import (
     EXTERNAL_LINK_TYPE_CHECK,
@@ -84,6 +85,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "565d2ccd4fca"
 BASE_REVISION = "47676f445509"  # HOM-54: scorecard_versions
+HEAD_REVISION = "e4b8d1f6a3c7"  # HOM-89: webhook delivery ledger, after HOM-88
 PROFILES = "integration_mapping_profiles"
 RECORDS = "external_records"
 LEDGER = "integration_inbound_records"
@@ -1084,7 +1086,7 @@ def test_the_five_tables_are_workspace_tables_and_the_ledger_has_the_scope():
         assert table not in SHARED_CONTENT_TABLES  # never through a share token
         assert table not in UNPROTECTED_TABLES
         assert table not in APPEND_ONLY_TABLES  # PR 2 updates rows; links and items change
-    assert NO_DELETE_TABLES == (LEDGER,)
+    assert NO_DELETE_TABLES == (LEDGER, "webhook_deliveries")
     assert SERVICE_SCOPE_CRM_RECONCILIATION == "crm_reconciliation"
 
 
@@ -1336,7 +1338,7 @@ def test_the_migration_creates_and_drops_only_the_five_tables(
     from backend.config import reset_settings_cache
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == NEW_REVISION
+    assert code_migration_head() == HEAD_REVISION
     first = _tenant(client, email_outbox, "migration-a")
     second = _tenant(client, email_outbox, "migration-b")
     orm_shapes = _assert_head_shape()
@@ -1347,6 +1349,11 @@ def test_the_migration_creates_and_drops_only_the_five_tables(
     config = _alembic(monkeypatch, settings)
     try:
         command.stamp(config, "head")
+        command.downgrade(config, NEW_REVISION)
+        # The re-upgrade applies the live RLS registry (HOM-89), so the baseline must too.
+        with inspection_session_factory()() as db:
+            apply_row_level_security(db.connection())
+            db.commit()
         others = _other_tables()  # after the stamp, which adds alembic_version
         command.downgrade(config, BASE_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
@@ -1357,7 +1364,7 @@ def test_the_migration_creates_and_drops_only_the_five_tables(
         assert _scalar("SELECT count(*) FROM workspaces") == workspaces
         assert _scalar("SELECT count(*) FROM meetings") == meetings_before + 1
 
-        command.upgrade(config, "head")
+        command.upgrade(config, NEW_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == NEW_REVISION
         for table in TABLES:
             assert _shape(table) == orm_shapes[table], table  # migrated equals the ORM schema
@@ -1371,10 +1378,11 @@ def test_the_migration_creates_and_drops_only_the_five_tables(
         # Down and up again with rows present.
         command.downgrade(config, BASE_REVISION)
         assert _other_tables() == others
-        command.upgrade(config, "head")
+        command.upgrade(config, NEW_REVISION)
         for table in TABLES:
             assert _shape(table) == orm_shapes[table], table
             assert _ids(table) == set(), table
         assert _other_tables() == others
+        command.upgrade(config, "head")
     finally:
         reset_settings_cache()
