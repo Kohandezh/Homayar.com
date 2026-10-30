@@ -180,8 +180,9 @@ POLICIES: dict[str, tuple[str, str]] = {
         f"workspace_id = {TENANT}",
     ),
     # CRM reconciliation (HOM-88) discovers pending inbound CRM records across
-    # tenants under the read-only 'crm_reconciliation' service scope (ids,
-    # workspace, state and expiry only); every change binds the record's own
+    # tenants under the read-only 'crm_reconciliation' service scope.  The scope
+    # can read every column of the ledger rows; the sweep code reads only ids,
+    # workspace, state and expiry.  Every change binds the record's own
     # workspace from the persisted row (WITH CHECK stays tenant-bound).
     "integration_inbound_records": (
         f"workspace_id = {TENANT} OR {SERVICE} = 'crm_reconciliation'",

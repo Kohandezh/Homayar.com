@@ -1928,7 +1928,9 @@ class IntegrationInboundRecord(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     profile_id: Mapped[str] = mapped_column(
-        ForeignKey("integration_mapping_profiles.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("integration_mapping_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     source_system: Mapped[str] = mapped_column(String(60), nullable=False)
     event_id: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -1989,14 +1991,14 @@ class ConversationExternalLink(Base):
     source_system: Mapped[str] = mapped_column(String(60), nullable=False)
     link_type: Mapped[str] = mapped_column(String(16), nullable=False)
     external_record_id: Mapped[str | None] = mapped_column(
-        ForeignKey("external_records.id", ondelete="RESTRICT")
+        ForeignKey("external_records.id", ondelete="RESTRICT"), index=True
     )
     outcome: Mapped[str | None] = mapped_column(String(16))
     external_outcome_code: Mapped[str | None] = mapped_column(String(200))
     agent_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     profile_version: Mapped[int] = mapped_column(Integer, nullable=False)
     inbound_record_id: Mapped[str | None] = mapped_column(
-        ForeignKey("integration_inbound_records.id", ondelete="SET NULL")
+        ForeignKey("integration_inbound_records.id", ondelete="SET NULL"), index=True
     )
     linked_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
@@ -2042,7 +2044,9 @@ class IntegrationReconciliationItem(Base):
         nullable=False,
         index=True,
     )
-    meeting_id: Mapped[str | None] = mapped_column(ForeignKey("meetings.id", ondelete="SET NULL"))
+    meeting_id: Mapped[str | None] = mapped_column(
+        ForeignKey("meetings.id", ondelete="SET NULL"), index=True
+    )
     link_type: Mapped[str | None] = mapped_column(String(16))
     reason: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(

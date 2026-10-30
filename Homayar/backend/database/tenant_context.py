@@ -58,8 +58,9 @@ SERVICE_SCOPE_USAGE_RECONCILIATION = "usage_reconciliation"
 # expired capacity slots across tenants (state/end columns only).
 SERVICE_SCOPE_VOICE_RECOVERY = "voice_recovery"
 # CRM reconciliation (HOM-88): the sweep discovers pending inbound CRM records
-# across tenants (ids, workspace, state, expiry; no writes); every change then
-# binds the workspace read from the persisted record row.
+# across tenants (no writes).  The scope can read every column of the ledger
+# rows; the sweep code reads only ids, workspace, state and expiry.  Every
+# change then binds the workspace read from the persisted record row.
 SERVICE_SCOPE_CRM_RECONCILIATION = "crm_reconciliation"
 
 ALL_GUCS: tuple[str, ...] = (

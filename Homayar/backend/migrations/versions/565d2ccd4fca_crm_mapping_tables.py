@@ -116,14 +116,22 @@ CLOSED_CHECK = (
 # In creation order: a table comes after the tables it references.
 TABLES = (PROFILES, RECORDS, LEDGER, LINKS, ITEMS)
 # Indexes beyond the two tenancy indexes every table has.
+# Foreign keys with an ON DELETE action are indexed, so a cascade from the parent row
+# does not scan the whole table.
 EXTRA_INDEXES: dict[str, list[tuple[str, list[str]]]] = {
     LEDGER: [
+        (f"ix_{LEDGER}_profile_id", ["profile_id"]),
         (f"ix_{LEDGER}_meeting_id", ["meeting_id"]),
         # The sweep's lookup of pending records by expiry.
         ("ix_inbound_records_pending", ["state", "expires_at"]),
     ],
+    LINKS: [
+        (f"ix_{LINKS}_external_record_id", ["external_record_id"]),
+        (f"ix_{LINKS}_inbound_record_id", ["inbound_record_id"]),
+    ],
     ITEMS: [
         (f"ix_{ITEMS}_inbound_record_id", ["inbound_record_id"]),
+        (f"ix_{ITEMS}_meeting_id", ["meeting_id"]),
         ("ix_reconciliation_workspace_status_created", ["workspace_id", "status", "created_at"]),
     ],
 }

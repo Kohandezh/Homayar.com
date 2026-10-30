@@ -275,11 +275,17 @@ INDEXES: dict[str, dict[str, list[str]]] = {
     for table in TABLES
 }
 INDEXES[LEDGER] |= {
+    f"ix_{LEDGER}_profile_id": ["profile_id"],
     f"ix_{LEDGER}_meeting_id": ["meeting_id"],
     "ix_inbound_records_pending": ["state", "expires_at"],
 }
+INDEXES[LINKS] |= {
+    f"ix_{LINKS}_external_record_id": ["external_record_id"],
+    f"ix_{LINKS}_inbound_record_id": ["inbound_record_id"],
+}
 INDEXES[ITEMS] |= {
     f"ix_{ITEMS}_inbound_record_id": ["inbound_record_id"],
+    f"ix_{ITEMS}_meeting_id": ["meeting_id"],
     "ix_reconciliation_workspace_status_created": ["workspace_id", "status", "created_at"],
 }
 
@@ -1358,7 +1364,7 @@ def test_the_migration_creates_and_drops_only_the_five_tables(
             assert _ids(table) == set(), table  # the downgrade dropped the rows
         assert _other_tables() == others
 
-        # The migrated schema refuses the same deny cases and keeps the same isolation.
+        # The migrated schema refuses the same deny cases; then rows go in for the next step.
         _assert_rules(first, second)
         _seed(second, "after")
 
