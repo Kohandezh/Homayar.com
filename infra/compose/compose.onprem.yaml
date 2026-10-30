@@ -105,6 +105,10 @@ x-app-environment: &app-environment
   # secret manager; empty keeps redaction but retains no originals.
   PII_MAPPING_KEYS: "${PII_MAPPING_KEYS:-}"
   PII_MAPPING_ACTIVE_KEY_ID: "${PII_MAPPING_ACTIVE_KEY_ID:-}"
+  # Webhook signing secrets at rest (ADR 0050): same keyring format, from the
+  # secret manager; empty refuses new webhook endpoints (503).
+  WEBHOOK_SECRET_KEYS: "${WEBHOOK_SECRET_KEYS:-}"
+  WEBHOOK_SECRET_ACTIVE_KEY_ID: "${WEBHOOK_SECRET_ACTIVE_KEY_ID:-}"
   # Sign-in and delivery providers: disabled unless configured. The API
   # refuses to start with a method enabled but its credentials missing, and
   # GET /api/v1/auth/methods tells the console what is available.
@@ -137,7 +141,7 @@ x-api-image: &api-image
     context: ../..
     dockerfile: infra/docker/api.Dockerfile
     args:
-      PYTHON_IMAGE: "${PYTHON_IMAGE:-python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258}"
+      PYTHON_IMAGE: "${PYTHON_IMAGE:-python:3.12-slim-trixie@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159}"
       UV_VERSION: "${UV_VERSION:-0.11.24}"
       INSTALL_AI_LOCAL: "${INSTALL_AI_LOCAL:-false}"
 

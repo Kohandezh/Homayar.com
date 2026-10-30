@@ -171,6 +171,7 @@ from backend.services.transcript_service import (
     ensure_speakers,
     record_analysis_run,
 )
+from backend.services.trend_judgment_store import write_judgment
 from backend.speech.chunking import plan_chunks
 from backend.speech.text_view import TextViewOutcome, derive_text_view
 from backend.storage import ObjectStorage, StorageError, create_object_storage
@@ -952,6 +953,23 @@ class PersistedAnalysis:
     extraction_reason: str | None  # why there is no row; None when there is one
 
 
+def _store_trend_judgment(db: Session, extraction: AnalysisExtraction) -> None:
+    """The trend judgment row of the new extraction (HOM-290), in the same transaction.  It is
+    written in a savepoint: a failure to judge or a refused row loses only this row, never the
+    analysis (the trend routes then judge the run from its JSON).  The warning holds the run id
+    and the error class only, no label and no text."""
+    try:
+        with db.begin_nested():
+            write_judgment(db, extraction=extraction)
+            db.flush()
+    except Exception as exc:  # any failure: skip the row, keep the analysis
+        logger.warning(
+            "TREND_JUDGMENT_SKIPPED run_id=%s error=%s",
+            extraction.analysis_run_id,
+            type(exc).__name__,
+        )
+
+
 def persist_analysis(
     db: Session,
     *,
@@ -1114,6 +1132,8 @@ def persist_analysis(
         else None
     )
     db.flush()
+    if extraction is not None:
+        _store_trend_judgment(db, extraction)
     return PersistedAnalysis(
         run=analysis_run,
         plan=plan,

@@ -32,6 +32,7 @@ SECRET_FIELDS = (
     "storage_access_key",
     "storage_secret_key",
     "pii_mapping_keys",
+    "webhook_secret_keys",
     "llm_fallback_api_key",
     "zai_api_key",
     "gapgpt_api_key",
@@ -43,6 +44,7 @@ SECRET_FIELDS = (
 
 MARK = "Qz7fake"
 FAKE_PII_KEY = base64.b64encode(b"fake-pii-mapping-key-32-bytes-Qz").decode()
+FAKE_WEBHOOK_KEY = base64.b64encode(b"fake-webhook-secret-key-32bytesQ").decode()
 FAKE_SECRETS: dict[str, str] = {
     "database_url": (
         f"postgresql+psycopg://homayar:fake-db-password-{MARK}@db.example.invalid/homayar"
@@ -56,6 +58,7 @@ FAKE_SECRETS: dict[str, str] = {
     "storage_access_key": f"fake-storage-access-key-{MARK}",
     "storage_secret_key": f"fake-storage-secret-key-{MARK}",
     "pii_mapping_keys": f"fake1:{FAKE_PII_KEY}",
+    "webhook_secret_keys": f"fake1:{FAKE_WEBHOOK_KEY}",
     "llm_fallback_api_key": f"fake-llm-fallback-api-key-{MARK}",
     "zai_api_key": f"fake-zai-api-key-{MARK}",
     "gapgpt_api_key": f"fake-gapgpt-api-key-{MARK}",
@@ -64,9 +67,10 @@ FAKE_SECRETS: dict[str, str] = {
     "sentry_dsn": f"https://fakepublickey{MARK}@sentry.example.invalid/7",
     "metrics_bearer_token": f"fake-metrics-bearer-token-{MARK}-0123456789",
 }
-# Settings a secret needs to validate (PII keys need their active key id).
+# Settings a secret needs to validate (keyrings need their active key id).
 COMPANIONS: dict[str, dict[str, object]] = {
-    "pii_mapping_keys": {"pii_mapping_active_key_id": "fake1"}
+    "pii_mapping_keys": {"pii_mapping_active_key_id": "fake1"},
+    "webhook_secret_keys": {"webhook_secret_active_key_id": "fake1"},
 }
 
 
@@ -120,6 +124,7 @@ def production_kwargs(**overrides: object) -> dict[str, object]:
 def all_secrets_kwargs(**overrides: object) -> dict[str, object]:
     kwargs: dict[str, object] = dict(FAKE_SECRETS)
     kwargs["pii_mapping_active_key_id"] = "fake1"
+    kwargs["webhook_secret_active_key_id"] = "fake1"  # noqa: S105 - a key id
     kwargs.update(overrides)
     return kwargs
 
@@ -653,7 +658,11 @@ def test_repr_hides_values_supplied_through_references(
             f"{field.upper()}_FILE", str(write_secret(tmp_path / field, value.encode()))
         )
 
-    settings = Settings(_env_file=None, pii_mapping_active_key_id="fake1")
+    settings = Settings(
+        _env_file=None,
+        pii_mapping_active_key_id="fake1",
+        webhook_secret_active_key_id="fake1",  # noqa: S106 - a key id
+    )
 
     assert {field: getattr(settings, field) for field in SECRET_FIELDS} == FAKE_SECRETS
     assert_no_secret(repr(settings), FAKE_SECRETS)
@@ -700,6 +709,11 @@ NON_PRODUCTION_FAILURES: dict[str, dict[str, object]] = {
     "bad_pii_base64": {"pii_mapping_keys": f"fake1:not-base64-{MARK}!!"},
     "short_pii_key": {"pii_mapping_keys": f"fake1:{base64.b64encode(MARK.encode()).decode()}"},
     "unknown_active_key": {"pii_mapping_active_key_id": "absent"},
+    "bad_webhook_base64": {"webhook_secret_keys": f"fake1:not-base64-{MARK}!!"},
+    "short_webhook_key": {
+        "webhook_secret_keys": f"fake1:{base64.b64encode(MARK.encode()).decode()}"
+    },
+    "unknown_webhook_active_key": {"webhook_secret_active_key_id": "absent"},
     "google_without_client_id": {"enable_google_auth": True, "google_client_id": ""},
     "s3_without_bucket": {"storage_backend": "s3", "storage_bucket": ""},
     "bad_port": {"smtp_port": "not-a-port"},

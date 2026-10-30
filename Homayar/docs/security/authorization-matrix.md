@@ -69,11 +69,12 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 | ai_policy:manage | ✓ | – | – | – |
 | scorecard:read | ✓ | ✓ | ✓ | ✓ |
 | scorecard:manage | ✓ | ✓ | – | – |
+| webhook:manage | ✓ | ✓ | – | – |
 | review:read | ✓ | ✓ | ✓ | – |
 | review:manage | ✓ | ✓ | ✓ | – |
 <!-- matrix:permissions:end -->
 
-`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope. `scorecard:read` (every role) reads the published QA scorecard versions and `scorecard:manage` (owner, admin) publishes a new version (§6o); neither is an API-key scope. `review:read` and `review:manage` (owner, admin, member) open the supervisor review queue; which items a caller sees and works is decided per record (§6p); neither is an API-key scope.
+`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope. `scorecard:read` (every role) reads the published QA scorecard versions and `scorecard:manage` (owner, admin) publishes a new version (§6o); neither is an API-key scope. `webhook:manage` (owner, admin) adds, changes, rotates and tests outbound webhook endpoints (§6p); it is never an API-key scope, because a key that could add an endpoint could copy every future event out of the workspace. `review:read` and `review:manage` (owner, admin, member) open the supervisor review queue; which items a caller sees and works is decided per record (§6q); neither is an API-key scope.
 
 ### 3a. Permission grants by organization role (machine-checked)
 
@@ -330,6 +331,12 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/voicemails/analytics | meeting:read |
 | GET | /api/v1/voicemails/{voicemail_id} | meeting:read |
 | PATCH | /api/v1/voicemails/{voicemail_id} | meeting:update +csrf |
+| GET | /api/v1/webhooks/endpoints | webhook:manage |
+| POST | /api/v1/webhooks/endpoints | webhook:manage +csrf |
+| GET | /api/v1/webhooks/endpoints/{endpoint_id} | webhook:manage |
+| PATCH | /api/v1/webhooks/endpoints/{endpoint_id} | webhook:manage +csrf |
+| POST | /api/v1/webhooks/endpoints/{endpoint_id}/signing-keys | webhook:manage +csrf |
+| POST | /api/v1/webhooks/endpoints/{endpoint_id}/test | webhook:manage +csrf |
 <!-- matrix:routes:end -->
 
 `GET /metrics` (HOM-113) has no session dependency, so its row reads `public`; its real rule is enforced inside the handler (`backend.observability.metrics.metrics_access`). When `METRICS_BEARER_TOKEN` is set, a matching bearer token is required (constant-time comparison). In staging and production without a token it answers 404, unless `METRICS_ALLOW_UNAUTHENTICATED=true` opts out; that opt-out is on-premise only and is refused in cloud. `METRICS_ENABLED=false` answers 404. It is the only path exempt from the `TRUSTED_HOSTS` check (Prometheus scrapes `api:8000`). The nginx proxy never routes it, and a test asserts this.
@@ -400,6 +407,7 @@ Scopes an API key may carry (machine-checked against `API_KEY_SCOPES`):
 | ai_policy:manage | – |
 | scorecard:read | – |
 | scorecard:manage | – |
+| webhook:manage | – |
 | review:read | – |
 | review:manage | – |
 <!-- matrix:api-key-scopes:end -->
@@ -557,7 +565,18 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | A publish names the version it read (`expected_version`, 0 for a new key); a stale one is `409 scorecard_version_conflict` with `details.current_version`, also when a concurrent insert hits `uq_scorecard_version`; every publish is a new version, audited `scorecard.published` (key, version, digest, reason); a refused publish writes no row and no audit event | `publish_version` | `test_scorecards_service.py`, `test_scorecards_api.py` |
 | Scorecard versions are append-only for the application role (ORM guard; PostgreSQL `REVOKE UPDATE, DELETE`) and a workspace table under row-level security (tenant only, never a share token) | `ScorecardVersionImmutableError`, `APPEND_ONLY_TABLES` | `test_scorecard_versions_migration.py` |
 
-## 6p. Supervisor review queue (HOM-73, ADR 0051)
+## 6p. Outbound webhooks (HOM-89, ADR 0050)
+
+| Rule | Enforcement | Test |
+|---|---|---|
+| Only `webhook:manage` (owner, admin; +CSRF on writes; never an API-key scope, so a key gets `403 api_key_scope_denied`) lists, adds, changes, rotates and tests endpoints, always in the caller's own workspace; another workspace's endpoint id is `404 webhook_endpoint_not_found`. There is no delete route: deactivation keeps the ledger | `backend/routers/v1/webhooks.py`, `backend/services/webhook_service.py` | `test_webhook_api.py` |
+| A signing secret is returned only by create and rotate. At rest it is AES-256-GCM ciphertext under `WEBHOOK_SECRET_KEYS` (never in the database in clear), bound by associated data to workspace, endpoint and key id. No view, log line, audit row or error carries it; without a keyring, create and rotate are `503 webhook_signing_unavailable` | `backend/services/webhook_signing.py` | `test_webhook_signing.py`, `test_webhook_api.py` |
+| The endpoint URL policy runs at create, at update and before every send: no userinfo, http(s) only, at most 1000 chars, never cloud metadata, link-local, unspecified or multicast addresses; production also refuses `http` and loopback, and a production cloud deployment also refuses host names that are single-label, contain `_` or end in `.internal`, `.local` or `.localhost` (`422 webhook_url_refused`; at send `url_refused`, nothing sent). Redirects are never followed | `webhook_url_refusal`, `backend/jobs/webhook_delivery.py` | `test_webhook_url_policy.py`, `test_webhook_delivery.py` |
+| The test route is rate limited per workspace (`WEBHOOK_TEST_RATE_LIMIT_PER_HOUR`, `429 webhook_test_rate_limited`, no delivery written); an endpoint has at most 5 unexpired signing keys after a rotation (`409 webhook_signing_key_limit`; overlap 0 is never refused) | `backend/routers/v1/webhooks.py`, `rotate_signing_key` | `test_webhook_api.py` |
+| Every change is audited (`webhook.endpoint_created`, `webhook.endpoint_updated`, `webhook.signing_key_rotated`, `webhook.test_queued`) with ids, key ids, event types, `is_active` and only the URL's scheme and host | `backend/routers/v1/webhooks.py` | `test_webhook_api.py` |
+| The delivery sweeper discovers due `webhook_deliveries` rows of every tenant under the read-only `webhook_delivery` service scope (it reaches no endpoint, key or attempt row, cannot write and cannot delete); each claim and write binds the workspace of the persisted row | `backend/database/rls.py`, `deliver_webhook` | `test_webhook_delivery.py` |
+
+## 6q. Supervisor review queue (HOM-73, ADR 0051)
 
 | Rule | Enforcement | Test |
 |---|---|---|

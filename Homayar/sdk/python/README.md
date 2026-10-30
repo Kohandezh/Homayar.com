@@ -121,6 +121,70 @@ export HOMAYAR_IDEMPOTENCY_KEY=sdk-...
 python examples/upload_and_wait.py call.wav
 ```
 
+## Verifying webhooks
+
+Homayar can send signed events to your HTTPS endpoint. A workspace owner or admin adds
+the endpoint while signed in (`POST /api/v1/webhooks/endpoints`; an API key cannot) and
+copies its signing secret (`whsec_...`) and key id (`whk_...`) from the answer. The secret
+is shown once. Store it in your secret manager.
+
+Each request is a `POST` with a JSON body and these headers:
+
+| Header | Value |
+| --- | --- |
+| `Homayar-Webhook-Id` | The event id. The same on every retry of this event. |
+| `Homayar-Webhook-Timestamp` | Unix seconds when this attempt was signed. |
+| `Homayar-Webhook-Signature` | `v1=<key_id>:<hex>` entries joined by `,`. One entry per valid key. |
+
+`hex` is `HMAC-SHA256(secret, "<id>.<timestamp>." + raw body)` as lowercase hex. The HMAC
+key is the whole secret string, `whsec_` included, as UTF-8.
+
+```python
+from homayar_client import WebhookVerificationError, verify_webhook
+
+secrets = {"whk_...": "whsec_..."}
+
+try:
+    event = verify_webhook(headers=request.headers, body=raw_body, secrets=secrets)
+except WebhookVerificationError as exc:
+    return 400, exc.code          # do nothing else
+```
+
+`verify_webhook` returns the event as a dict. It raises `WebhookVerificationError` with
+`code`, from the first check that fails, in this order: `missing_header`,
+`malformed_header`, `timestamp_out_of_tolerance`, `unknown_key`, `invalid_signature`,
+`invalid_payload`. Header names match in any letter case. The module
+`homayar_client/webhooks.py` uses only the standard library.
+
+Rules for a safe receiver:
+
+1. Verify the raw body bytes before you parse them. Never parse and serialize the JSON
+   first: the bytes change and the signature fails.
+2. Reject a timestamp more than 300 seconds from your clock (`tolerance_seconds`). Keep
+   your clock synced with NTP.
+3. Accept the request when any entry with a known key id verifies. After a key rotation,
+   Homayar signs with the new key and the old key until the old key's `expires_at` (24
+   hours by default). Keep both secrets in `secrets` until then.
+4. Deduplicate on `Homayar-Webhook-Id`. Store handled ids under a unique key for at least
+   7 days. Insert the id and do the work in one database transaction. On a duplicate,
+   answer 2xx and do nothing. A replay inside the 300 second window passes the signature
+   check and is stopped here. A replay outside it is stopped by the timestamp check.
+5. Answer 2xx fast and do slow work later. A non-2xx answer, a redirect, or no answer
+   within 10 seconds counts as a failure.
+6. Events can arrive more than once and out of order.
+
+`WebhookDeduplicator` is an in-memory example of rule 4 for one process. It forgets ids
+after `ttl_seconds` (7 days by default) and loses them on restart, so use your database
+in production.
+
+[`examples/verify_webhook.py`](examples/verify_webhook.py) is a small receiver. It
+verifies, then deduplicates, with only the standard library HTTP server:
+
+```bash
+export HOMAYAR_WEBHOOK_SECRETS=whk_...:whsec_...
+python examples/verify_webhook.py --port 8080
+```
+
 ## Versions
 
 `homayar_client.CONTRACT_VERSION` is the contract version the client was written for.

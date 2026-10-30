@@ -22,6 +22,7 @@ def _secret_values() -> dict[str, str]:
     values["database_url"] = f"postgresql+psycopg://user:{MARK}@db.example.invalid/homayar"
     values["redis_url"] = f"redis://:{MARK}@redis.example.invalid:6379/0"
     values["pii_mapping_keys"] = ""  # keep key-ring validation out of scope; covered as empty
+    values["webhook_secret_keys"] = ""  # same key-ring format and validation (HOM-89)
     return values
 
 
@@ -31,13 +32,14 @@ def settings() -> Settings:
 
 
 def test_secret_field_list_is_complete() -> None:
-    assert len(SECRET_FIELDS) == 16  # + METRICS_BEARER_TOKEN (HOM-113)
+    assert len(SECRET_FIELDS) == 17  # + METRICS_BEARER_TOKEN (HOM-113)
+    # + WEBHOOK_SECRET_KEYS (HOM-89)
 
 
 def test_model_dump_redacts_every_secret(settings: Settings) -> None:
     dumped = settings.model_dump()
     for name in SECRET_FIELDS:
-        expected = "" if name == "pii_mapping_keys" else SECRET_REDACTED
+        expected = "" if name in ("pii_mapping_keys", "webhook_secret_keys") else SECRET_REDACTED
         assert dumped[name] == expected, name
     assert MARK not in repr(dumped)
 

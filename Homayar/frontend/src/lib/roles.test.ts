@@ -22,6 +22,8 @@ const MATRIX: Record<Permission, WorkspaceRole[]> = {
   "legal_hold:manage": ["owner"],
   "pii:original_access": ["owner"],
   "ai_policy:manage": ["owner"],
+  "scorecard:read": ["owner", "admin", "member", "viewer"],
+  "scorecard:manage": ["owner", "admin"],
 };
 
 function workspace(role: WorkspaceRole, permissions?: unknown): AuthWorkspace {
@@ -44,7 +46,7 @@ describe("permissionsFor", () => {
   });
 
   it("falls back to the role map when permissions are absent", () => {
-    expect([...permissionsFor(workspace("viewer"))].sort()).toEqual(["meeting:read", "member:read", "team:read"]);
+    expect([...permissionsFor(workspace("viewer"))].sort()).toEqual(["meeting:read", "member:read", "scorecard:read", "team:read"]);
     expect(permissionsFor(workspace("admin")).has("workspace:manage")).toBe(true);
     expect(permissionsFor(workspace("admin")).has("pii:original_access")).toBe(false);
   });

@@ -493,7 +493,8 @@ transactions cannot wait for each other, and PostgreSQL never has to abort one o
 
 Usage reservation and entitlement rows (released or settled when a job ends) are locked after
 the meeting row and before media rows, by the job's completion and by `DELETE /meetings`
-alike.
+alike; among themselves they follow "Lock order (HOM-333)" in the module docstring of
+`backend/services/entitlement_service.py` (the entitlement row first).
 
 A release never loses its nudge: the purge attempt decides "deferred" under its meeting
 `FOR UPDATE` lock, and the release nudges under its meeting lock. One of the two commits

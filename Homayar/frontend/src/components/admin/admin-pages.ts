@@ -17,6 +17,7 @@ export const ADMIN_PAGES: Partial<Record<AdminPath, LazyExoticComponent<Componen
   "/admin/privacy": lazy(() => import("@/components/admin/PrivacyPage")),
   "/admin/processing": lazy(() => import("@/components/admin/ProcessingPage")),
   "/admin/usage": lazy(() => import("@/components/admin/AdminUsagePage")),
+  "/admin/scorecards": lazy(() => import("@/components/admin/ScorecardsPage")),
   "/admin/settings": lazy(() => import("@/components/platform/SettingsPage")),
   "/admin/system": lazy(() => import("@/components/admin/SystemHealthPage")),
   "/admin/teams": lazy(() => import("@/components/admin/TeamsPage")),

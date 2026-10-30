@@ -271,6 +271,11 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.ACTION_ITEM_DELETED: "processing",
     AuditEventType.VOICEMAIL_CLASSIFIED: "processing",
     AuditEventType.VOICEMAIL_UPDATED: "processing",
+    # Outbound webhooks (HOM-89): a new endpoint or key is a new path out of the workspace.
+    AuditEventType.WEBHOOK_ENDPOINT_CREATED: "security",
+    AuditEventType.WEBHOOK_ENDPOINT_UPDATED: "security",
+    AuditEventType.WEBHOOK_SIGNING_KEY_ROTATED: "security",
+    AuditEventType.WEBHOOK_TEST_QUEUED: "configuration",
 }
 
 

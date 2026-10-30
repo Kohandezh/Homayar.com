@@ -1245,7 +1245,7 @@ def test_object_reconciliation_reports_orphans_and_fails_on_missing_bytes(
         (spoof, "not_retired"),
     ):
         with pytest.raises(RestoreRefused) as refused:
-            drop_retired(_admin(), name, confirm=name, live_database=live)
+            drop_retired(_admin(), name, confirm=name, live_databases=[live])
         assert refused.value.code == code
     with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
         connection.execute(
@@ -1262,10 +1262,10 @@ def test_object_reconciliation_reports_orphans_and_fails_on_missing_bytes(
     with connect(with_database(_admin(), retired)) as session:  # someone still uses it
         session.execute("SELECT 1")
         with pytest.raises(RestoreRefused) as in_use:
-            drop_retired(_admin(), retired, confirm=retired, live_database=live)
+            drop_retired(_admin(), retired, confirm=retired, live_databases=[live])
         assert in_use.value.code == "database_in_use"
         session.rollback()
-    assert drop_retired(_admin(), retired, confirm=retired, live_database=live) == {
+    assert drop_retired(_admin(), retired, confirm=retired, live_databases=[live]) == {
         "dropped": retired
     }
     assert read_marker(_admin(), retired) is False
@@ -1605,3 +1605,143 @@ def test_a_role_subject_to_row_level_security_cannot_take_a_backup(settings, tmp
     finally:
         with connect(_admin(), autocommit=True) as connection:
             connection.execute(psycopg_sql.SQL("DROP ROLE {}").format(psycopg_sql.Identifier(role)))
+
+
+# --- HOM-221: retired-database guard edges and the report digest -------------------------
+
+
+def test_a_database_holding_only_a_large_object_is_not_empty(databases):
+    name = f"hy_lobject_{secrets.token_hex(4)}"
+    databases.append(name)
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        connection.execute(f'CREATE DATABASE "{name}"')
+    assert reconcile_module._database_is_empty(_admin(), name) is True
+    with connect(with_database(_admin(), name), autocommit=True) as connection:
+        connection.execute("SELECT lo_create(0)")
+    assert reconcile_module._database_is_empty(_admin(), name) is False
+
+
+def test_the_marker_digests_the_written_report_and_large_objects_keep_a_retired_database(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "bk-edges")
+    accepted = _upload(client, tenant, key="bk-edges-1")
+    assert accepted.status_code == 202, accepted.text
+    _stamp_head(settings.database_url)
+    set_dir = Path(_backup(settings, tmp_path)["path"])
+    _delete(client, tenant, accepted.json()["meeting"]["id"])  # one tombstone to replay
+    staging, live = _names("edges", databases)
+    _, target_settings, storage = _restore(settings, tmp_path, set_dir, staging)
+    report_path = tmp_path / "restore-work" / REPORT_FILE
+    first = _reconcile(set_dir, staging, target_settings, storage, tmp_path)
+    assert first["status"] == "PASS", first["statuses"]
+    older = report_path.read_bytes()  # a valid, sealed PASS report of an earlier run
+
+    # Another writer puts the older report in place right after the rename.
+    swapped: list[bool] = []
+
+    class _SwapAfterReplace:
+        def __getattr__(self, name):
+            return getattr(os, name)
+
+        def replace(self, source, destination):
+            os.replace(source, destination)
+            if Path(destination) == report_path and not swapped:
+                swapped.append(True)
+                Path(destination).write_bytes(older)
+
+    monkeypatch.setattr(reconcile_module, "os", _SwapAfterReplace())
+    report = _reconcile(set_dir, staging, target_settings, storage, tmp_path)
+    monkeypatch.setattr(reconcile_module, "os", os)
+    assert swapped == [True] and report["status"] == "PASS", report["statuses"]
+    written = (
+        json.dumps({k: v for k, v in report.items() if k != "path"}, indent=2, sort_keys=True)
+        + "\n"
+    ).encode("utf-8")
+    assert written != older and report_path.read_bytes() == older
+    marker = read_marker(_admin(), staging)
+    assert marker["state"] == "reconciled"
+    assert marker["report_sha256"] == hashlib.sha256(written).hexdigest()
+    assert marker["report_sha256"] != hashlib.sha256(older).hexdigest()
+    promote_args = {
+        "admin_url": _admin(),
+        "staging_database": staging,
+        "live_database": live,
+        "report_path": report_path,
+        "key": KEY,
+    }
+    with pytest.raises(RestoreRefused) as mismatch:
+        promote(**promote_args, retire_existing=True)
+    assert mismatch.value.code == "report_mismatch"
+    assert read_marker(_admin(), live) is False
+
+    # The bytes reconcile wrote promote. The live name holds only a large object:
+    # that is data, so the replaced database is kept, not dropped.
+    report_path.write_bytes(written)
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        connection.execute(f'CREATE DATABASE "{live}"')
+    with connect(with_database(_admin(), live), autocommit=True) as connection:
+        large_object = connection.execute("SELECT lo_create(0)").fetchone()[0]
+    promoted = promote(**promote_args, retire_existing=True)
+    retired = promoted["retired_database"]
+    databases.extend(_retired_names(live))
+    assert retired and promoted["dropped_empty_database"] is None
+    assert read_marker(_admin(), live)["state"] == "promoted"
+    assert _scalar(
+        with_database(_admin(), retired),
+        "SELECT count(*) FROM pg_largeobject_metadata WHERE oid = %s",
+        (large_object,),
+    )
+
+
+def test_the_drop_retired_command_always_protects_the_application_database(
+    monkeypatch, settings, capsys, databases
+):
+    suffix = secrets.token_hex(4)
+    application, retired, other = (
+        f"hy{suffix}_app_retired_20261018000000",
+        f"hy{suffix}_old_retired_20261018000000",
+        f"hy{suffix}_two_retired_20261018000000",
+    )
+    deep = f"hy{suffix}_deep_retired_20261018000000"
+    databases.extend([application, retired, other, deep])
+    note = RETIRED_PREFIX + json.dumps({"drop_after": "2026-01-01T00:00:00+00:00"})
+    deep_note = RETIRED_PREFIX + "[" * 100000 + "]" * 100000
+    with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
+        for name, comment in (
+            (application, note),
+            (retired, note),
+            (other, note),
+            (deep, deep_note),
+        ):
+            connection.execute(f'CREATE DATABASE "{name}"')
+            connection.execute(
+                psycopg_sql.SQL("COMMENT ON DATABASE {} IS {}").format(
+                    psycopg_sql.Identifier(name), psycopg_sql.Literal(comment)
+                )
+            )
+    # The application's database has the retired form and a retired note, and
+    # the admin URL names another database: only the CLI's own list protects it.
+    application_settings = settings.model_copy(
+        update={"database_url": with_database(settings.database_url, application)}
+    )
+    monkeypatch.setattr("backend.config.get_settings", lambda: application_settings)
+    monkeypatch.setenv("BACKUP_DATABASE_URL", with_database(_admin(), "postgres"))
+
+    # C2: a note too deep to parse is listed as malformed; the listing still prints.
+    capsys.readouterr()
+    assert cli(["retired"]) == 0
+    listed = {item["database"]: item for item in json.loads(capsys.readouterr().out)}
+    assert listed[deep] == {"database": deep, "malformed_note": True, "overdue": True}
+    assert listed[application]["overdue"] is True
+
+    for extra in ([], ["--live-db", "hy_some_other_live"]):
+        assert cli(["drop-retired", application, "--confirm", application, *extra]) == 1
+        assert json.loads(capsys.readouterr().out)["error"] == "live_database"
+        assert read_marker(_admin(), application) is None  # still there
+    assert cli(["drop-retired", retired, "--confirm", retired]) == 0
+    assert json.loads(capsys.readouterr().out) == {"dropped": retired}
+    assert cli(["drop-retired", other, "--confirm", other, "--live-db", "hy_some_other_live"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"dropped": other}
+    assert read_marker(_admin(), retired) is False and read_marker(_admin(), other) is False

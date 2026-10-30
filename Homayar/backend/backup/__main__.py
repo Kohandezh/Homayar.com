@@ -359,7 +359,11 @@ def cmd_drop_retired(args) -> int:
             _admin_url(args, settings),
             args.database,
             confirm=args.confirm,
-            live_database=args.live_db or database_name(settings.database_url),
+            # The application's database is always protected; --live-db adds one.
+            live_databases=[
+                database_name(settings.database_url),
+                *([args.live_db] if args.live_db else []),
+            ],
         )
     )
     return 0
@@ -451,7 +455,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("drop-retired")
     p.add_argument("database")
     p.add_argument("--confirm", required=True)
-    p.add_argument("--live-db", help="the live database (default: the application's)")
+    p.add_argument(
+        "--live-db",
+        help="another live database to protect (the application's is always protected)",
+    )
     p.set_defaults(func=cmd_drop_retired)
     return parser
 

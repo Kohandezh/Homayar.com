@@ -3,6 +3,7 @@ from __future__ import annotations
 from backend.celery_app import (
     ARTIFACT_CLEANUP_TASK,
     CRM_RECONCILIATION_TASK,
+    DELIVER_WEBHOOK_TASK,
     DISPATCH_SWEEP_TASK,
     LEASE_RECOVERY_TASK,
     MEDIA_RECONCILIATION_TASK,
@@ -12,8 +13,10 @@ from backend.celery_app import (
     RETENTION_PURGE_TASK,
     USAGE_RECONCILIATION_TASK,
     VOICE_RECOVERY_TASK,
+    WEBHOOK_SWEEP_TASK,
     celery_app,
 )
+from backend.config import get_settings
 from backend.observability.correlation import correlation_scope, job_correlation_id
 from backend.observability.heartbeats import run_with_heartbeat
 
@@ -131,3 +134,42 @@ def reconcile_crm_records_task():
     from backend.jobs.crm_reconciliation import reconcile_pending_records
 
     return run_with_heartbeat("crm_reconciliation", reconcile_pending_records)
+
+
+# One delivery waits at most the request timeout. These limits, added to it, are
+# a backstop below the delivery lease (timeout + 30 s): a stuck task ends before
+# the row can be claimed again and never holds a processing worker for long.
+# The soft limit is recorded as a timeout.
+WEBHOOK_TASK_SOFT_LIMIT_GRACE_SECONDS = 10
+WEBHOOK_TASK_HARD_LIMIT_GRACE_SECONDS = 20
+_WEBHOOK_TIMEOUT_SECONDS = get_settings().webhook_delivery_timeout_seconds
+
+
+@celery_app.task(
+    name=DELIVER_WEBHOOK_TASK,
+    autoretry_for=(),
+    acks_late=False,
+    ignore_result=True,
+    soft_time_limit=_WEBHOOK_TIMEOUT_SECONDS + WEBHOOK_TASK_SOFT_LIMIT_GRACE_SECONDS,
+    time_limit=_WEBHOOK_TIMEOUT_SECONDS + WEBHOOK_TASK_HARD_LIMIT_GRACE_SECONDS,
+)
+def deliver_webhook_task(delivery_id: str):
+    """Send one webhook delivery (HOM-89). The claim decides; a duplicate task is inert.
+
+    No broker-level retry: a lost task is found again by the sweep, and an
+    attempt cut off after its claim is resent when its lease expires.
+    """
+    from backend.jobs import webhook_delivery
+
+    webhook_delivery.deliver_webhook(delivery_id)
+
+
+@celery_app.task(name=WEBHOOK_SWEEP_TASK, acks_late=False, ignore_result=True)
+def sweep_webhook_deliveries_task():
+    """Periodic recovery: publish a delivery task for every due webhook delivery."""
+    from backend.jobs import webhook_delivery
+
+    def sweep() -> dict[str, int]:
+        return {"published": len(webhook_delivery.sweep_webhook_deliveries())}
+
+    return run_with_heartbeat("webhook_delivery", sweep)

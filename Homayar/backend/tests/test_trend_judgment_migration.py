@@ -7,8 +7,9 @@ data.  The migration creates the table (tenant-only, forced row-level security) 
 its downgrade drops it.  A row is immutable through the ORM, is unique per run and
 rules version, and goes with its extraction, its run and its workspace.
 
-The rows here use their own ``judgment_version`` (``VERSION``), so they never meet a
-row the analysis writes for the real ``JUDGMENT_VERSION``.
+The rows here use their own ``judgment_version`` (``VERSION``), so they never meet the
+row the analysis writes for the real ``JUDGMENT_VERSION`` (HOM-290 part 2), and only they
+are counted.
 """
 
 from __future__ import annotations
@@ -186,9 +187,11 @@ def _add(workspace_id: str, row: TrendExtractionJudgment) -> str:
 
 
 def _ids(**where: str) -> set[str]:
-    """The ids of the rows (as the DBA) whose columns equal ``where``."""
+    """The ids of this module's rows (``VERSION``, as the DBA) whose columns equal ``where``."""
     with inspection_session_factory()() as db:
-        statement = select(TrendExtractionJudgment.id)
+        statement = select(TrendExtractionJudgment.id).where(
+            TrendExtractionJudgment.judgment_version.startswith(VERSION)
+        )
         for column, value in where.items():
             statement = statement.where(getattr(TrendExtractionJudgment, column) == value)
         return set(db.scalars(statement))
