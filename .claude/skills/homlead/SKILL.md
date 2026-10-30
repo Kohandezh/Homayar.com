@@ -63,7 +63,7 @@ For each ticket:
 1. Move it to In Progress in Linear.
 2. Run `scripts/launch.sh <TICKET> "<prompt>"`. It opens a Herdr tab named after the ticket, starts `claudepersonal`, and sends the prompt.
 
-`launch.sh` checks that the first prompt started a turn, for up to 60 s after sending it. If the agent is still at the empty `❯ Try "` prompt, it closes the tab and launches once more. If the second try also fails, it exits 1 with a message that names the ticket and the pane, and leaves that tab open. Then read that pane, close the tab, and launch again or tell the owner. Every `herdr` call in the script has a time limit, so the script never hangs. The test: `bash .claude/skills/homlead/scripts/test-launch.sh` (a fake `herdr`, about one minute).
+`launch.sh` names the agent `foreman-<ticket>` (for example `foreman-hom344`) before it sends the first prompt. A failed rename prints a warning and the launch goes on. It checks that the first prompt started a turn, for up to 60 s after sending it. If the status stays `idle` and the prompt text is in the input box, it presses Enter, at least 5 s after the last send, at most 3 times. If the agent is still at the empty `❯ Try "` prompt, it closes the tab and launches once more. If the second try also fails, it exits 1 with a message that names the ticket and the pane, and leaves that tab open. Then read that pane, close the tab, and launch again or tell the owner. Every `herdr` call in the script has a time limit, so the script never hangs. The test: `bash .claude/skills/homlead/scripts/test-launch.sh` (a fake `herdr`, about two minutes).
 
 The prompt starts with `/foreus <TICKET> (Linear ticket in team HOM, read it with the Linear MCP).` Then it gives:
 
