@@ -1,9 +1,9 @@
 # Base image pinned by digest (HOM-28, HOM-349): the multi-platform index of
-# python:3.12-slim-trixie (Python 3.12.16, Debian 13 trixie) resolved on 2026-10-30
-# from the Docker registry API (GET /v2/library/python/manifests/3.12-slim-trixie,
-# header Docker-Content-Digest); its linux/amd64 and linux/arm64 configs both have
-# PYTHON_VERSION=3.12.16. Re-pin on purpose, never by overriding PYTHON_IMAGE for a
-# release (docs/operations/release.md).
+# python:3.12-slim-trixie (Python 3.12.16, Debian 13 trixie) resolved on 2026-10-30.
+# Its linux/amd64 and linux/arm64 configs both have PYTHON_VERSION=3.12.16. Re-pin with
+# `docker buildx imagetools inspect python:3.12-slim-trixie` (on 2026-10-30 Docker was
+# down, so the digest was read from the Docker registry API). Re-pin on purpose, never
+# by overriding PYTHON_IMAGE for a release (docs/operations/release.md).
 ARG PYTHON_IMAGE=python:3.12-slim-trixie@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
 ARG UV_VERSION=0.11.24
 ARG INSTALL_AI_LOCAL=false
@@ -40,8 +40,9 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 # Debian package floors (HOM-349). trixie-security keeps only the newest version of
 # a package, so an exact pkg=version pin would break the build on Debian's next fix.
-# The build fails instead when a package is missing or older than its floor. Read
-# on 2026-10-30 from packages.debian.org/trixie and security-tracker.debian.org:
+# The build fails instead when a package (of the build architecture) is missing,
+# older than its floor, or has a version dpkg cannot compare. Read on 2026-10-30
+# from packages.debian.org/trixie and security-tracker.debian.org:
 #   libmbedcrypto16 (ffmpeg via librist4): fixes CVE-2025-47917, CVE-2026-34872,
 #     CVE-2026-34873 and CVE-2026-34875.
 #   libaom3: fixes CVE-2023-6879.
@@ -52,19 +53,20 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates ffmpeg libgomp1 libmagic1 libpq5 \
     && rm -rf /var/lib/apt/lists/* \
+    && arch="$(dpkg --print-architecture)" \
     && for floor in \
          "ffmpeg 7:7.1.5-0+deb13u1" \
          "libaom3 3.12.1-1+deb13u1" \
          "libmbedcrypto16 3.6.6-0.1~deb13u1" \
          "libtiff6 4.7.0-3+deb13u3"; do \
          package="${floor%% *}"; minimum="${floor#* }"; \
-         state="$(dpkg-query --show --showformat="\${db:Status-Status} \${Version}" "${package}" 2>/dev/null || true)"; \
+         state="$(dpkg-query --show --showformat="\${db:Status-Status} \${Version}" "${package}:${arch}" 2>/dev/null || true)"; \
          case "${state}" in \
            "installed "?*) version="${state#installed }" ;; \
            *) echo "${package} is not installed; its version floor is ${minimum}" >&2; exit 1 ;; \
          esac; \
-         if dpkg --compare-versions "${version}" lt "${minimum}"; then \
-           echo "${package} ${version} is older than its floor ${minimum}" >&2; exit 1; \
+         if ! dpkg --compare-versions "${version}" ge "${minimum}"; then \
+           echo "${package} ${version} is not at or above its floor ${minimum}" >&2; exit 1; \
          fi; \
          echo "${package} ${version} meets its floor ${minimum}"; \
        done \
