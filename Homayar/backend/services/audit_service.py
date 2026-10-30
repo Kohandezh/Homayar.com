@@ -105,6 +105,11 @@ EXEMPT_DETAIL_KEYS = frozenset(
         "language",
         "mode",
         "visibility",
+        # Ids before and after a call's attribution change (HOM-360).
+        "team_id_before",
+        "team_id_after",
+        "agent_user_id_before",
+        "agent_user_id_after",
     }
 )
 EXEMPT_DETAIL_SUFFIXES = (
@@ -195,6 +200,8 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.MEETING_SHARE_CREATED: "access",
     AuditEventType.MEETING_SHARE_RECIPIENTS_CHANGED: "access",
     AuditEventType.MEETING_SHARE_REVOKED: "access",
+    # A call's team and agent decide who sees and reviews it (HOM-360).
+    AuditEventType.MEETING_ATTRIBUTION_CHANGED: "access",
     # Privacy-sensitive reads, original/unredacted access and exports
     AuditEventType.TRANSCRIPT_ORIGINAL_ACCESSED: "privacy_access",
     AuditEventType.PII_REVEALED: "privacy_access",

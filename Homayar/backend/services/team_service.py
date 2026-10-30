@@ -9,6 +9,7 @@ revoked or expired rows stay for audit and history.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -24,6 +25,7 @@ from backend.database.saas_models import (
     User,
 )
 from backend.security.authorization import (
+    Permission,
     assignment_effective_clause,
     membership_effective_clause,
 )
@@ -251,6 +253,47 @@ def revoke_assignment(
 
 
 # --- record attribution guards used by the meetings router -----------------
+
+
+def authorize_attribution_change(
+    context: WorkspaceContext,
+    *,
+    current_agent_user_id: str | None,
+    changes: Mapping[str, str | None],
+) -> None:
+    """Refuse a change of a call's ``team_id`` / ``agent_user_id`` (HOM-360, ADR 0052).
+
+    ``changes`` holds only the fields whose new value differs from the current one, so
+    an empty mapping needs no right.  The review queue decides who sees and works a
+    review from these two values, so a change needs ``meeting:attribute`` (owner,
+    admin; never an API key), and nobody changes the attribution of their own call or
+    makes themselves its agent.  The two validators below run after this one.
+    """
+    if not changes:
+        return
+    # A key is refused by itself too: until HOM-361 a stored key scope is not
+    # intersected with ``API_KEY_SCOPES``, so ``has`` alone would trust a stray scope.
+    # Its own message, so the integrator of an owner's key is not told to be an owner.
+    if context.actor.api_key is not None:
+        message = "An API key cannot change a call's team or agent"
+    elif not context.has(Permission.MEETING_ATTRIBUTE):
+        message = "Only an owner or admin may change a call's team or agent"
+    else:
+        message = None
+    if message is not None:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "attribution_change_denied", "message": message},
+        )
+    caller = context.actor.user.id
+    if current_agent_user_id == caller or changes.get("agent_user_id") == caller:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "attribution_own_call",
+                "message": "Nobody changes the team or agent of their own call",
+            },
+        )
 
 
 def validate_team_attribution(

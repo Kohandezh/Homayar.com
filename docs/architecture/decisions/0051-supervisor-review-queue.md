@@ -158,10 +158,10 @@ never free text. A no-change assignment writes no event.
 - Admins must reassign items when a supervisor leaves a team; the items do not move by
   themselves.
 
-## Known gap: call attribution can change under a review
+## Closed gap: call attribution could change under a review (HOM-360)
 
-The record rules read the conversation's current `team_id` and `agent_user_id`.
-`PATCH /api/v1/meetings/{id}` can change both, in four ways:
+The record rules read the conversation's current `team_id` and `agent_user_id`. When
+this ADR was written, `PATCH /api/v1/meetings/{id}` could change both, in four ways:
 
 1. Anyone who can read a call can clear its `agent_user_id` (a null value is never
    checked).
@@ -171,15 +171,16 @@ The record rules read the conversation's current `team_id` and `agent_user_id`.
 4. Under `record_scope = workspace`, a member can set `team_id` to null, so only admins
    see the call's review.
 
-So a person can reach the review of their own call, gain review authority over a call, or
-take a call's review away from its supervisors.
+So a person could reach the review of their own call, gain review authority over a call,
+or take a call's review away from its supervisors.
 
-Why this is acceptable until HOM-74: completing a review only closes the queue entry. No
-score and no criterion decision changes.
-
-HOM-360 (Urgent, blocks HOM-74) must close all four paths, including a move made before
-any review exists. A lock that holds only while a review is active is not enough for path
-3.
+HOM-360 closed all four paths, before HOM-74 adds criterion decisions. ADR 0052 makes a
+change of `team_id` or `agent_user_id` its own right, `meeting:attribute`, held only by
+owners and admins and never by an API key. It holds whether a review exists or not, so
+it also closes path 3 before any review. Nobody, owners and admins included, changes the
+attribution of their own call or makes themselves its agent. Every accepted change is
+audited as `meeting.attribution_changed`. D4 does not change: authority still follows
+the conversation's current team, and only an owner or admin can now move it.
 
 HOM-361 is a separate defence-in-depth fix: `Actor.scopes` will intersect the stored key
 scopes with `API_KEY_SCOPES`, so a stray `review:*` key scope can never reach the queue.

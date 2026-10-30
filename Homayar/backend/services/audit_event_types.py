@@ -65,6 +65,7 @@ class AuditEventType(StrEnum):
     MEDIA_ORPHAN_REMOVED = "media.orphan_removed", "workspace"
     MEDIA_ORPHANS_REPORTED = "media.orphans_reported", "workspace"
     MEDIA_REGISTERED = "media.registered", "media"
+    MEETING_ATTRIBUTION_CHANGED = "meeting.attribution_changed", "meeting"
     MEETING_DELETED = "meeting.deleted", "meeting"
     MEETING_EXPORTED = "meeting.exported", "meeting"
     MEETING_PROCESSING_CANCELLED = "meeting.processing.cancelled", "meeting"
