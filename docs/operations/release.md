@@ -82,7 +82,9 @@ every base image in `build_inputs` is pinned by digest, that every bundled image
 by digest, and with `--image-labels` the revision,
 version, created and base-image labels. A manifest made before HOM-228 now fails `verify` on
 this pin check, because it records the console-web and egress-proxy base images as tags. A
-manifest made before HOM-286 also fails `verify`, because it has no `bundled_images`.
+manifest made before HOM-286 also fails `verify`, because it has no `bundled_images`. A
+manifest made before HOM-345 fails `verify` too, because it does not record `NGINX_IMAGE`
+under `bundled_images`.
 
 CI does the same on every push and pull request (job `release-manifest`): it generates the
 manifest twice and compares the bytes, builds the API image with the `build-args` output,
@@ -128,16 +130,17 @@ Pinned:
     Python 3.12.15;
   * console-web `NODE_IMAGE`: `node:22-alpine@sha256:fe4f6d…`, resolved on 2026-10-23,
     Node.js 22.23.4;
-  * console-web `NGINX_IMAGE`: `nginx:1.28-alpine@sha256:a8b39b…`, resolved on 2026-10-23,
-    nginx 1.28.3;
+  * console-web `NGINX_IMAGE`: `nginx:1.30-alpine@sha256:0e52bd…`, resolved on 2026-10-30,
+    nginx 1.30.6;
   * egress-proxy `ALPINE_IMAGE`: `alpine:3.22@sha256:d40644…`, resolved on 2026-10-23,
     Alpine 3.22.7.
 
   `verify` exits 1 when a manifest records a base image that is not pinned by digest, so CI
   fails on such a commit.
-* the bundled on-prem images by digest (`MINIO_IMAGE`, `MINIO_MC_IMAGE`), read from the
-  Compose defaults at the revision and recorded under `bundled_images`; they get no more
-  updates (HOM-286).
+* the bundled on-prem images by digest (`MINIO_IMAGE`, `MINIO_MC_IMAGE`, `NGINX_IMAGE`), read
+  from the Compose defaults at the revision and recorded under `bundled_images`. The MinIO
+  images get no more updates (HOM-286). `NGINX_IMAGE` is the reverse proxy (`proxy` service);
+  its default is the same pin as the console-web `NGINX_IMAGE` base (HOM-345).
 
 Not pinned (recorded as such under `reproducibility.not_pinned` in every manifest):
 
@@ -178,6 +181,9 @@ above.
   `infra/docker/console-web.Dockerfile`, `ALPINE_IMAGE` in `infra/docker/egress-proxy.Dockerfile`)
   and the date and upstream version in its comment. Put the same value in the matching default
   of `infra/compose/compose.onprem.yaml`: `test_release_manifest.py` fails when they differ.
+  For `NGINX_IMAGE`, also put it in the `proxy` `image:` default of
+  `infra/compose/compose.onprem.yaml` and `infra/compose/compose.cloud.yaml`, and in the two
+  `nginx -t` steps of `.github/workflows/ci.yml`; the test fails when a proxy default differs.
   Then rebuild. Keep the Python tag's minor version equal to `Homayar/.python-version`: the
   manifest refuses a mismatch. Declare each `ARG` default only once in a Dockerfile: `generate`
   refuses a name that gets a default a second time, because Docker does not document which

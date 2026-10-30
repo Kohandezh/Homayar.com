@@ -133,7 +133,7 @@ x-api-image: &api-image
 
 services:
   proxy:
-    image: "${NGINX_IMAGE:-nginx:1.28-alpine}"
+    image: "${NGINX_IMAGE:-nginx:1.30-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949}"
     profiles: [onprem]
     user: "101:101"
     entrypoint: [nginx, -g, "daemon off;"]
@@ -173,7 +173,7 @@ services:
       dockerfile: infra/docker/console-web.Dockerfile
       args:
         NODE_IMAGE: "${NODE_IMAGE:-node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914}"
-        NGINX_IMAGE: "${NGINX_IMAGE:-nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236}"
+        NGINX_IMAGE: "${NGINX_IMAGE:-nginx:1.30-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949}"
         VITE_API_URL: /api/v1
         VITE_BASE_PATH: /app/
     healthcheck:
