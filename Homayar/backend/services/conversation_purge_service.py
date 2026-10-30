@@ -14,8 +14,8 @@ Two steps, never merged:
    (``STORAGE_PRESIGN_TTL_SECONDS``); nothing here revokes it instantly.
 2. **Purge** (:func:`run_purge_attempt`, bounded, retried): removes the
    derived content rows (transcripts, segments, redacted versions, derived
-   text views and entities, analysis, scorecard results, evidence, summaries,
-   action items, speakers, share recipients), scrubs the free-text
+   text views and entities, analysis, review items, scorecard results, evidence,
+   summaries, action items, speakers, share recipients), scrubs the free-text
    title and filename of the meeting/recording, removes object bytes
    state-first/bytes-second behind the media row lock and closes the purge
    when every store is clean.  Ledger history (usage, provider usage, stage
@@ -56,6 +56,7 @@ from backend.database.saas_models import (
     PurgeState,
     Recording,
     RedactedSegment,
+    ReviewItem,
     ScorecardResultRecord,
     ShareLink,
     ShareRecipient,
@@ -235,8 +236,11 @@ def _remove_content(db: Session, *, workspace_id: str, meeting: Meeting) -> int:
             ).rowcount
             or 0
         )
-    # Stored scorecard results (HOM-56): criterion rows before their result row.
+    # Review items (HOM-73) before the scorecard results they name, whose cascade would
+    # remove them uncounted.  Stored scorecard results (HOM-56): criterion rows before
+    # their result row.
     for model in (
+        ReviewItem,
         CriterionResultRecord,
         ScorecardResultRecord,
         EvidenceSpan,

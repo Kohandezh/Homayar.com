@@ -1167,6 +1167,140 @@ class CriterionResultRecord(Base):
     )
 
 
+# The supervisor review queue (HOM-73, WP14-T02).  A source, a status and a cancel
+# reason are codes from these frozen lists, never free text, so no personal data reaches
+# the audit log.
+REVIEW_ITEM_SOURCES: tuple[str, ...] = ("manual", "sample")
+REVIEW_ITEM_STATUSES: tuple[str, ...] = ("open", "in_review", "completed", "cancelled")
+# ``completed`` and ``cancelled`` are terminal.
+REVIEW_ITEM_ACTIVE_STATUSES: tuple[str, ...] = ("open", "in_review")
+REVIEW_CANCEL_REASONS: tuple[str, ...] = ("duplicate", "out_of_scope", "meeting_unusable", "other")
+
+
+def _sql_list(values: tuple[str, ...]) -> str:
+    return "(" + ",".join(f"'{value}'" for value in values) + ")"
+
+
+REVIEW_ITEM_STATUS_CHECK = f"status IN {_sql_list(REVIEW_ITEM_STATUSES)}"
+REVIEW_ITEM_SOURCE_CHECK = f"source IN {_sql_list(REVIEW_ITEM_SOURCES)}"
+REVIEW_ITEM_CANCEL_REASON_CHECK = (
+    f"cancel_reason IS NULL OR cancel_reason IN {_sql_list(REVIEW_CANCEL_REASONS)}"
+)
+REVIEW_ITEM_REVISION_CHECK = "revision >= 1"
+# Each status has its own timestamps, and only a cancelled item has a reason.  An item
+# cancelled during its review keeps ``started_at``.  No check names a user column: those
+# are SET NULL when a user is removed, and a check on them would make the removal fail.
+REVIEW_ITEM_OPEN_FIELDS_CHECK = (
+    "status <> 'open' OR (started_at IS NULL AND completed_at IS NULL "
+    "AND cancelled_at IS NULL AND cancel_reason IS NULL)"
+)
+REVIEW_ITEM_IN_REVIEW_FIELDS_CHECK = (
+    "status <> 'in_review' OR (started_at IS NOT NULL AND completed_at IS NULL "
+    "AND cancelled_at IS NULL AND cancel_reason IS NULL)"
+)
+REVIEW_ITEM_COMPLETED_FIELDS_CHECK = (
+    "status <> 'completed' OR (started_at IS NOT NULL AND completed_at IS NOT NULL "
+    "AND cancelled_at IS NULL AND cancel_reason IS NULL)"
+)
+REVIEW_ITEM_CANCELLED_FIELDS_CHECK = (
+    "status <> 'cancelled' OR (cancelled_at IS NOT NULL AND cancel_reason IS NOT NULL "
+    "AND completed_at IS NULL)"
+)
+REVIEW_ITEM_ACTIVE_WHERE = f"status IN {_sql_list(REVIEW_ITEM_ACTIVE_STATUSES)}"
+
+
+class ReviewItem(Base):
+    """One conversation a supervisor must review, with an optional assignee and a due
+    time (HOM-73, WP14-T02).
+
+    The queue entry that criterion override (HOM-74), appeals, calibration and coaching
+    build on.  ``scorecard_result_id`` names the machine result under review, and only a
+    result of the same conversation.  ``revision`` starts at 1 and grows by one with each
+    change, so a write is a compare-and-set on it.  At most one item per conversation is
+    active (``open`` or ``in_review``).  Not immutable: the service changes the status,
+    the assignee and the due time, and the conversation purge deletes the rows.
+    Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "review_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Its foreign key is ``fk_review_items_scorecard_result`` below.
+    scorecard_result_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    # ``{}`` for a manual item; the draw's versions, digests and reasons for a sampled one.
+    source_details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)
+    assignee_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    assigned_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_reason: Mapped[str | None] = mapped_column(String(32))
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        # An item names only a result of its own conversation and workspace
+        # (``uq_scorecard_result_scope``).  A NULL result id is not checked (MATCH SIMPLE).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_review_items_scorecard_result",
+        ),
+        CheckConstraint(REVIEW_ITEM_STATUS_CHECK, name="ck_review_items_status"),
+        CheckConstraint(REVIEW_ITEM_SOURCE_CHECK, name="ck_review_items_source"),
+        CheckConstraint(REVIEW_ITEM_CANCEL_REASON_CHECK, name="ck_review_items_cancel_reason"),
+        CheckConstraint(REVIEW_ITEM_REVISION_CHECK, name="ck_review_items_revision"),
+        CheckConstraint(REVIEW_ITEM_OPEN_FIELDS_CHECK, name="ck_review_items_open_fields"),
+        CheckConstraint(
+            REVIEW_ITEM_IN_REVIEW_FIELDS_CHECK, name="ck_review_items_in_review_fields"
+        ),
+        CheckConstraint(
+            REVIEW_ITEM_COMPLETED_FIELDS_CHECK, name="ck_review_items_completed_fields"
+        ),
+        CheckConstraint(
+            REVIEW_ITEM_CANCELLED_FIELDS_CHECK, name="ck_review_items_cancelled_fields"
+        ),
+        # At most one active item per conversation; a finished one does not block a new one.
+        Index(
+            "uq_review_items_active_meeting",
+            "workspace_id",
+            "meeting_id",
+            unique=True,
+            postgresql_where=text(REVIEW_ITEM_ACTIVE_WHERE),
+            sqlite_where=text(REVIEW_ITEM_ACTIVE_WHERE),
+        ),
+        # The queue order (earliest due first) and its keyset pages.
+        Index("ix_review_items_queue", "workspace_id", "status", "due_at", "id"),
+    )
+
+
 class RunPolicySnapshot(Base):
     """The policy and model placement one processing attempt ran under
     (WP08-T02/T03, ADR 0027).  Written once per attempt, never changed; it

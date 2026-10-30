@@ -98,6 +98,8 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     # Not append-only: the conversation purge deletes them as the application role.
     "scorecard_results",
     "scorecard_criterion_results",
+    # Supervisor review queue (HOM-73): the service updates rows, the purge deletes them.
+    "review_items",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",
