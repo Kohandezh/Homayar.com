@@ -130,8 +130,8 @@ Pinned:
     Python 3.12.16, Debian 13 trixie (HOM-349);
   * console-web `NODE_IMAGE`: `node:22-alpine@sha256:fe4f6d…`, resolved on 2026-10-23,
     Node.js 22.23.4;
-  * console-web `NGINX_IMAGE`: `nginx:1.30-alpine@sha256:0e52bd…`, resolved on 2026-10-30,
-    nginx 1.30.6;
+  * console-web `NGINX_IMAGE`: `nginx:1.30-alpine-slim@sha256:dede88…`, resolved on
+    2026-10-30, nginx 1.30.6, Alpine 3.24.3, no curl (HOM-350);
   * egress-proxy `ALPINE_IMAGE`: `alpine:3.22@sha256:d40644…`, resolved on 2026-10-23,
     Alpine 3.22.7.
 

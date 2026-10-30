@@ -126,7 +126,7 @@ POSTGRES_USER=homayar
 DATABASE_APP_ROLE=
 POSTGRES_IMAGE=postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
 REDIS_IMAGE=redis:7.4-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
-NGINX_IMAGE=nginx:1.30-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+NGINX_IMAGE=nginx:1.30-alpine-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5220b2c4d839f5eb3d34ac3f8f7
 LOG_LEVEL=INFO
 # Off until the owner decides (homlead, 2026-10-29). New sign-ups get no demo allowance.
 ENABLE_FREE_DEMO=false
