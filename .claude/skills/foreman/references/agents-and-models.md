@@ -2,11 +2,36 @@
 
 Read this before starting any session.
 
-## One harness: Claude Code on the personal config
+## Two harnesses
 
-Every Foreman role runs Claude Code, started through the `claudepersonal`
-configuration. There is no second harness. Pi, OpenCode, and OpenRouter are not used by
-this skill and must not be started by it.
+| Harness | Who runs on it | Paid by |
+| --- | --- | --- |
+| Claude Code on the `claudepersonal` config | the leader, every checker, every expansion role, every other making role, and an implementer after escalation | the owner's Claude subscription limit |
+| OpenCode with `zai-coding-plan/glm-5.3` | every implementer | the owner's Z.AI Coding Plan (flat) |
+
+Why two: the implementer writes most of a mission's tokens, and the Claude weekly limit
+ran out mid-mission before. Moving the implementer to GLM keeps the Claude limit for the
+judgment roles. Pi and OpenRouter are never started by this skill.
+
+### The implementer is always GLM
+
+Owner order, 2026-10-30: every implementer starts on GLM-5.3, for every kind of work,
+including security, infra, CI, auth, secrets, concurrency and database migrations. Do not
+pick Claude for the implementer at the start. The reason is the Claude weekly limit: the
+implementer writes most of a mission's tokens.
+
+To keep quality, the checker gets stricter, not the maker weaker:
+
+- the checker is always Claude `opus`;
+- when the work unit touches authentication, authorization, session or token handling,
+  secrets, concurrency, a database migration, or a frozen-file hash, the reviewer runs at
+  `xhigh`;
+- escalation is the only way an implementer moves to Claude: two `CHANGES_REQUESTED` on
+  the same work unit, or a stall with no handoff after two nudges. Restart the maker on
+  Claude `opus`, from the same worktree, with the same brief plus the review reports.
+  Record the switch in `ledger.md`.
+
+### Claude Code on the personal config
 
 `claudepersonal` is a shell alias:
 
@@ -54,22 +79,24 @@ another agent kind.
 The installed CLI is authoritative. On herdr 0.9.1 `herdr agent start` needs an existing pane
 at an interactive shell prompt, and it cannot set environment variables. So a session starts
 in two calls: `herdr pane split` makes the pane with the working directory and
-`CLAUDE_CONFIG_DIR`, then `herdr agent start` runs Claude in it.
+`CLAUDE_CONFIG_DIR`, then `herdr agent start` runs the agent in it. Every implementer
+starts in OpenCode instead, per "Starting a GLM implementer (OpenCode)" below.
 
 ```text
 herdr pane split <pane> --direction right|down --cwd <path> --env KEY=VALUE --no-focus
 herdr agent start <name> --kind claude --pane <pane-id> [--timeout MS] -- <claude args>
 ```
 
-```bash
-herdr pane split <team-root-pane> --direction right --cwd <maker-path> \
-  --env CLAUDE_CONFIG_DIR="$HOME/.claude-personal" --no-focus      # -> .result.pane.pane_id
-herdr agent start <maker-name> --kind claude --pane <maker-pane> -- --model opus --effort high
+Claude example, a checker started below its team's root pane:
 
-herdr pane split <maker-pane> --direction down --cwd <checker-path> \
-  --env CLAUDE_CONFIG_DIR="$HOME/.claude-personal" --no-focus
+```bash
+herdr pane split <team-root-pane> --direction down --cwd <checker-path> \
+  --env CLAUDE_CONFIG_DIR="$HOME/.claude-personal" --no-focus      # -> .result.pane.pane_id
 herdr agent start <checker-name> --kind claude --pane <checker-pane> -- --model opus --effort high
 ```
+
+A Claude making role, such as an investigator, researcher or integrator, starts with the
+same two calls and its model from the table below.
 
 `--kind claude` names the executable, so the arguments after `--` start with the first flag.
 Re-verify with `herdr agent start --help` and `herdr pane split --help` before a mission. If
@@ -77,6 +104,37 @@ they differ from the block above, follow the installed CLI and fix this file in 
 
 These are normal interactive sessions. Never use `claude -p`, `claude --print`, or any
 other one-shot runner to force a model or a level.
+
+### Starting a GLM implementer (OpenCode)
+
+A GLM pane needs no `CLAUDE_CONFIG_DIR`. Its state hook is the OpenCode plugin at
+`~/.config/opencode/plugins/herdr-agent-state.js`, installed by
+`herdr integration install opencode` (check `herdr integration status | grep '^opencode:'`
+reads `current`).
+
+```bash
+# -> .result.pane.pane_id
+herdr pane split <team-root-pane> --direction right --cwd <implementer-path> --no-focus
+herdr agent start <implementer-name> --kind opencode --pane <implementer-pane> --timeout 90000 \
+  -- --model zai-coding-plan/glm-5.3
+```
+
+The session reports `idle`, then `working`, then `done`, and `herdr agent prompt` delivers
+briefs the same way as for Claude. OpenCode reads the worktree's `CLAUDE.md` and the
+project skills in `.claude/skills/`, so the repository's rules reach the GLM implementer
+too. The status line must read `GLM-5.3 Z.AI Coding Plan`. If it shows another model or
+provider, stop the session and start it again with the `--model` flag above.
+
+**Permissions.** The owner's global OpenCode config has `"permission": "allow"`, so a GLM
+session never asks. If a GLM implementer shows an `Allow once / Allow always / Reject`
+prompt, restart it once and resend its brief. Do not click through prompts one by one.
+
+No prompts does not mean more freedom. The brief still limits a GLM implementer to its
+own worktree, and it never pushes, opens PRs, comments on issues or tickets, or merges.
+Foreman does those steps itself.
+
+To end a GLM session, send `ctrl+c` twice (`herdr agent send-keys <name> ctrl+c`,
+twice). OpenCode has no `/exit` command.
 
 ## Model and effort by role
 
@@ -89,9 +147,7 @@ spend. Where the decision is already made and only needs typing, do not.
 
 | Role         | Group    | Model    | Effort   | Why                                                       |
 | ------------ | -------- | -------- | -------- | --------------------------------------------------------- |
-| implementer  | making   | `opus`   | `high`   | complex or logic-bearing changes; the default             |
-| implementer  | making   | `sonnet` | `medium` | only when `SPEC.md` is fully specified and a pattern exists |
-| implementer  | making   | `fable`  | `high`   | frontend work whose acceptance criteria are visual        |
+| implementer  | making   | GLM-5.3 in OpenCode | default | every work unit, every kind of work; owner order 2026-10-30 |
 | investigator | making   | `opus`   | `high`   | root cause, not symptom                                   |
 | tracer       | making   | `sonnet` | `medium` | multi-hop reading against a fixed question                |
 | researcher   | making   | `opus`   | `high`   | synthesis and the recommendation                          |
@@ -103,9 +159,14 @@ spend. Where the decision is already made and only needs typing, do not.
 | final reviewer | expansion | `opus` | `xhigh`  | last gate before a PR                                      |
 | scout        | expansion | `haiku` | `low`    | wide fan-out search; returns paths, not verdicts           |
 
-Raise the implementer and the reviewer to `xhigh` when the work unit touches
-authentication, authorization, session or token handling, concurrency, or a database
-migration. Those are the cases where a cheap wrong answer is most expensive.
+The implementer row is fixed: GLM-5.3 in OpenCode for every work unit (owner order
+2026-10-30). The Claude models in "Choosing the implementer model" apply to an implementer
+only after escalation. Every checking and expansion row stays on Claude, always.
+
+Raise the reviewer, and a Claude implementer after escalation, to `xhigh` when the work
+unit touches authentication, authorization, session or token handling, secrets,
+concurrency, a database migration, or a frozen-file hash. Those are the cases where a
+cheap wrong answer is most expensive.
 
 Reserve `max` for one situation: an escalated disagreement that a second checker did not
 settle, run by a final reviewer. Running everything at `max` buys nothing and hides which
@@ -115,7 +176,14 @@ Foreman itself runs `opus` at `high`. It holds the plan, the ledger, and accepta
 
 ### Choosing the implementer model
 
-`opus` is the default. Drop to `sonnet` only when all of these are true:
+The implementer is GLM-5.3, for every work unit (owner order 2026-10-30). Write `SPEC.md`
+so a GLM maker can follow it: name the files, the behaviour, the acceptance criteria and
+the pattern to copy. For hard or risky work, put more detail in the brief instead of
+picking another model.
+
+Use the Claude choice below only after escalation (two `CHANGES_REQUESTED` on the same
+work unit, or a stall after two nudges). On Claude, `opus` is the default. Drop to
+`sonnet` only when all of these are true:
 
 - `SPEC.md` names the exact files and the exact change
 - the repository already contains the pattern to copy
@@ -142,13 +210,15 @@ herdr agent read <name> --source recent-unwrapped --lines 40
 Confirm three things, in this order:
 
 1. the session reports state to Herdr at all. If `herdr agent get` never leaves `unknown`,
-   `CLAUDE_CONFIG_DIR` did not reach the process. Stop and fix the env, not the prompt.
-2. the model line names the model this table assigns to the role.
+   `CLAUDE_CONFIG_DIR` did not reach the process (Claude), or the OpenCode plugin is not
+   current (GLM). Stop and fix that, not the prompt.
+2. the model line names the model this table assigns to the role. For a GLM implementer
+   the status line reads `GLM-5.3 Z.AI Coding Plan`.
 3. the effort line names the assigned level.
 
 A session running the wrong model or the wrong level is restarted, not corrected mid-turn.
-Record the model and the effort of every agent in `ledger.md` at start time, so an
-escalation can name what produced each position.
+Record the harness, the model and the effort of every agent in `ledger.md` at start time,
+so an escalation can name what produced each position.
 
 ## Delivering a brief
 
@@ -166,4 +236,5 @@ turn and swallows the next prompt (a worker that shows `done` with no new handof
 Cancel it with `herdr agent send-keys <agent-name> esc`, never accept it (it offers to scan the
 owner's shell history and other repositories), then send the prompt again.
 
-To end a session: `herdr agent prompt <agent-name> "/exit"`.
+To end a Claude session: `herdr agent prompt <agent-name> "/exit"`. A GLM session has no
+`/exit`; send `ctrl+c` twice (see "Starting a GLM implementer (OpenCode)").
