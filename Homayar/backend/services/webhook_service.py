@@ -64,6 +64,8 @@ _IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
 
 # Names that, in the deployed cloud, reach the internal compose services
 # (minio, postgres, api) instead of a customer: refused there (blind SSRF).
+# A name with "_" is refused too: Docker resolves <service>.<network> names
+# such as api.homayar-cloud_private, and "_" is not valid in a DNS host name.
 _INTERNAL_NAME_SUFFIXES = (".internal", ".local", ".localhost")
 
 _Address = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -86,8 +88,8 @@ def webhook_url_refusal(url: str, *, production: bool, cloud: bool = False) -> s
     Refused everywhere: too long, not http(s), no host, userinfo, cloud
     metadata, link-local, unspecified or multicast addresses. In production
     also plain http and loopback; in a production *cloud* deployment also a
-    single-label host name or one ending in ``.internal``, ``.local`` or
-    ``.localhost``. Private addresses stay allowed: on-premise CRMs live
+    host name that is single-label, contains ``_`` or ends in ``.internal``,
+    ``.local`` or ``.localhost``. Private addresses stay allowed: on-premise CRMs live
     there. What a hostname resolves to at send time is the network layer's
     job (ADR 0031). The reason never repeats the URL, which can carry a token
     in its query.
@@ -133,7 +135,7 @@ def webhook_url_refusal(url: str, *, production: bool, cloud: bool = False) -> s
         if (
             cloud
             and address is None
-            and ("." not in host or host.endswith(_INTERNAL_NAME_SUFFIXES))
+            and ("." not in host or "_" in host or host.endswith(_INTERNAL_NAME_SUFFIXES))
         ):
             return "a cloud webhook URL uses a public host name"
     return None

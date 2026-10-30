@@ -164,8 +164,10 @@ verifier checks in this order and names the first failure: `missing_header`,
   names and addresses, link-local, unspecified and multicast addresses, and host spellings
   that some resolvers read as an address (`2852039166`, `0xA9FEA9FE`). In production also
   plain `http` and loopback. In a production cloud deployment (`DEPLOYMENT_MODE=cloud`) also
-  a single-label host name (`minio`, `api`) or one ending in `.internal`, `.local` or
-  `.localhost`: there such names reach the internal compose services, not a customer.
+  a host name that is single-label (`minio`, `api`), contains `_` (Docker's
+  `<service>.<network>` form, such as `api.homayar-cloud_private`) or ends in `.internal`,
+  `.local` or `.localhost`: there such names reach the internal compose services, not a
+  customer.
   On-premise keeps them, and IP literals are judged by the address rules only. Private
   addresses stay allowed: on-premise CRMs live there. What a name resolves to at send time
   is the network layer's job, as for AI providers (ADR 0031).
@@ -200,9 +202,12 @@ worker before any business event is wired. HOM-90 owns retries and their pacing.
 
 **Names that resolve to private addresses.** The URL policy judges what the URL says. A
 public DNS name that resolves to a private or metadata address at send time is the network
-layer's job (egress proxy or firewall), as for AI providers (ADR 0031). A gap from before
-this ticket: the metadata names in `backend/providers/egress.py` do not include
-`instance-data.ec2.internal`, so it is not refused by name.
+layer's job (egress proxy or firewall), as for AI providers (ADR 0031). Private IP
+literals stay allowed everywhere (on-premise CRMs use them); limiting them in the cloud is
+also the network layer's job and goes to the follow-up worker and egress ticket. A gap from
+before this ticket: the metadata names in `backend/providers/egress.py` do not include
+`instance-data.ec2.internal`. A production cloud deployment refuses it as a `.internal`
+name; the gap remains only on-premise and outside production.
 
 **Test route rate limit.** 30 test events per workspace per hour by default. The limiter is
 the one uploads use: when its Redis is unavailable the route answers

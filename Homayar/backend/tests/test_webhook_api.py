@@ -306,6 +306,7 @@ def test_a_refused_url_is_422_and_nothing_is_stored(client, email_outbox, monkey
         "http://192.168.1.20/hook",
         "http://localhost:9000/x",
         "http://127.0.0.1:9000/x",
+        "https://api.homayar-cloud_private:8000/x",
         "https://hooks.example.com/" + "a" * 974,
     ],
 )
@@ -348,11 +349,13 @@ def test_production_also_refuses_http_and_loopback(
         ("cloud", "https://crm.internal/x", 422),
         ("cloud", "https://printer.local/x", 422),
         ("cloud", "https://a.localhost/x", 422),
+        ("cloud", "https://api.homayar-cloud_private:8000/x", 422),
         ("cloud", "https://[2001:db8::1]/x", 201),
         ("cloud", HOOK, 201),
         ("onprem", "https://minio:9000/x", 201),
         ("onprem", "https://api/x", 201),
         ("onprem", "https://crm.internal/x", 201),
+        ("onprem", "https://api.homayar-cloud_private:8000/x", 201),
         ("onprem", HOOK, 201),
     ],
 )
@@ -371,20 +374,22 @@ def test_a_production_cloud_refuses_internal_host_names(
         assert _error(response) == "webhook_url_refused"
 
 
+@pytest.mark.parametrize(
+    "url", ["https://crm.internal/hook", "https://api.homayar-cloud_private:8000/x"]
+)
 @pytest.mark.parametrize(("mode", "status"), [("cloud", 422), ("onprem", 200)])
 def test_patch_to_an_internal_name_follows_the_deployment(
-    client, email_outbox, monkeypatch, settings, mode, status
+    client, email_outbox, monkeypatch, settings, mode, status, url
 ):
     owner = _owner(client, email_outbox, monkeypatch)
     one = f"{ENDPOINTS}/{_created(owner)['endpoint']['id']}"
     monkeypatch.setattr(settings, "environment", "production")
     monkeypatch.setattr(settings, "deployment_mode", mode)
 
-    response = owner.patch(one, json={"url": "https://crm.internal/hook"})
+    response = owner.patch(one, json={"url": url})
 
     assert response.status_code == status, response.text
-    expected = HOOK if status == 422 else "https://crm.internal/hook"
-    assert owner.get(one).json()["url"] == expected
+    assert owner.get(one).json()["url"] == (HOOK if status == 422 else url)
 
 
 def test_patch_to_a_refused_url_keeps_the_stored_url(client, email_outbox, monkeypatch):

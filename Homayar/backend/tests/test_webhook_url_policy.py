@@ -141,16 +141,17 @@ INTERNAL_NAMES = [
     "https://POSTGRES./x",
     "https://crm.internal/x",
     "https://printer.local/x",
-    "https://a.localhost/x",
+    # Docker's <service>.<network> form (SPEC A5.6).
+    "https://api.homayar-cloud_private:8000/x",
 ]
 
 
-@pytest.mark.parametrize("url", INTERNAL_NAMES)
+@pytest.mark.parametrize("url", [*INTERNAL_NAMES, "https://a.localhost/x"])
 def test_a_production_cloud_refuses_internal_host_names(url: str) -> None:
     assert webhook_url_refusal(url, production=True, cloud=True)
 
 
-@pytest.mark.parametrize("url", INTERNAL_NAMES[:5])
+@pytest.mark.parametrize("url", INTERNAL_NAMES)
 def test_an_onprem_production_keeps_internal_host_names(url: str) -> None:
     assert webhook_url_refusal(url, production=True, cloud=False) is None
 
@@ -169,6 +170,7 @@ def test_the_cloud_rule_judges_names_only(url: str) -> None:
         "http://127.0.0.1:9000/x",
         "https://minio:9000/x",
         "https://crm.internal/x",
+        "https://api.homayar-cloud_private:8000/x",
     ],
 )
 def test_outside_production_the_cloud_rule_is_off(url: str) -> None:

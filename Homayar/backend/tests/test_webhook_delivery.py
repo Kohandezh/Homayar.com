@@ -617,7 +617,10 @@ def test_production_refuses_a_plain_http_url_at_send(
     _assert_refused(delivery_id, receiver, "url_refused")
 
 
-@pytest.mark.parametrize("url", ["https://minio:9000/x", "https://crm.internal/x"])
+@pytest.mark.parametrize(
+    "url",
+    ["https://minio:9000/x", "https://crm.internal/x", "https://api.homayar-cloud_private:8000/x"],
+)
 @pytest.mark.parametrize("mode", ["cloud", "onprem"])
 def test_a_production_cloud_refuses_an_internal_name_at_send(
     client, email_outbox, monkeypatch, now, settings, url, mode
