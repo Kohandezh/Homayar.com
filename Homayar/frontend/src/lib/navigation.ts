@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  TrendingUp,
   UserCog,
   Users,
   Voicemail,
@@ -44,6 +45,7 @@ export interface AdminNavEntry extends MainNavEntry {
 export const MAIN_NAV: readonly MainNavEntry[] = [
   { path: "/", label: { fa: "نمای کلی", en: "Overview" }, icon: LayoutDashboard },
   { path: "/meetings", label: { fa: "جلسه‌ها", en: "Meetings" }, icon: AudioLines },
+  { path: "/trends", label: { fa: "روند مسائل", en: "Issue trends" }, icon: TrendingUp },
   { path: "/voicemails", label: { fa: "پیام‌های صوتی", en: "Voicemail" }, icon: Voicemail },
   { path: "/search", label: { fa: "جست‌وجو", en: "Search" }, icon: Search },
 ];
