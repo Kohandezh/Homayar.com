@@ -1,0 +1,6 @@
+{"item_id": "i1", "gold": "book_meeting", "predicted": "book_meeting", "slices": {"dialect": "tehrani"}}
+{"item_id": "i2", "gold": "book_meeting", "predicted": "cancel_meeting", "slices": {"dialect": "shirazi"}}
+{"item_id": "i3", "gold": "cancel_meeting", "predicted": "cancel_meeting"}
+{"item_id": "i4", "gold": "book_meeting", "predicted": null}
+{"item_id": "i5", "gold": null, "predicted": null}
+{"item_id": "i6", "gold": "cancel_meeting", "predicted": "smalltalk"}

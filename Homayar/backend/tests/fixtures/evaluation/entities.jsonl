@@ -1,0 +1,2 @@
+{"item_id": "e1", "gold": [{"type": "PER", "value": "Ali", "start": 0, "end": 3}, {"type": "LOC", "value": "Tehran", "start": 7, "end": 13}], "predicted": [{"type": "PER", "value": "Ali", "start": 0, "end": 3}, {"type": "LOC", "value": "tehran", "start": 7, "end": 13}]}
+{"item_id": "e2", "gold": [{"type": "DATE", "value": "۱۴۰۵/۰۱/۰۱", "start": 0, "end": 10}], "predicted": [{"type": "DATE", "value": "1405/01/01", "start": 0, "end": 10}, {"type": "ORG", "value": "Acme", "start": 12, "end": 16}], "slices": {"channel": "web"}}
