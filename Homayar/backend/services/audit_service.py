@@ -217,6 +217,14 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.MEETING_PURGE_REQUEUED: "administration",
     AuditEventType.REVIEW_SAMPLE_DRAWN: "administration",
     AuditEventType.RECONCILIATION_ITEM_RESOLVED: "administration",
+    # The supervisor review queue (HOM-73)
+    AuditEventType.REVIEW_ITEM_CREATED: "administration",
+    AuditEventType.REVIEW_ITEM_ASSIGNED: "administration",
+    AuditEventType.REVIEW_ITEM_DUE_CHANGED: "administration",
+    AuditEventType.REVIEW_ITEM_STARTED: "administration",
+    AuditEventType.REVIEW_ITEM_COMPLETED: "administration",
+    AuditEventType.REVIEW_ITEM_CANCELLED: "administration",
+    AuditEventType.REVIEW_SAMPLE_ENQUEUED: "administration",
     # Deletion, retention and legal hold
     AuditEventType.MEETING_DELETED: "deletion",
     AuditEventType.MEETING_RETENTION_EXPIRED: "deletion",

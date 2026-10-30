@@ -99,6 +99,11 @@ items a caller sees, for caller `U` in workspace `W` at time `now`:
   The agent check comes first, before the other eligibility checks: the agent answers
   `422 review_assignee_is_agent`. Any other failure (not a member, a VIEWER, a membership
   that is not effective, no review authority) answers `422 review_assignee_ineligible`.
+- **Start and complete**: only the assignee (`403 review_not_assignee`, admins too). The
+  conversation's agent can change after the assignment, so start and complete check it
+  again, after the assignee check and before the state check: the current agent answers
+  `422 review_assignee_is_agent`. Only an admin reaches this check, because a member who
+  is the agent does not see the item.
 
 An item that is not visible answers `404 review_item_not_found`, the same as a missing
 id or an id of another workspace. Never 403: the answer must not tell that the item
@@ -152,6 +157,32 @@ never free text. A no-change assignment writes no event.
   authority is computed from the conversation's current team.
 - Admins must reassign items when a supervisor leaves a team; the items do not move by
   themselves.
+
+## Known gap: call attribution can change under a review
+
+The record rules read the conversation's current `team_id` and `agent_user_id`.
+`PATCH /api/v1/meetings/{id}` can change both, in four ways:
+
+1. Anyone who can read a call can clear its `agent_user_id` (a null value is never
+   checked).
+2. A supervisor can move a call into a team they supervise.
+3. Under `record_scope = workspace`, any member can move any call to any active team,
+   also before any review exists, and then create and work its review.
+4. Under `record_scope = workspace`, a member can set `team_id` to null, so only admins
+   see the call's review.
+
+So a person can reach the review of their own call, gain review authority over a call, or
+take a call's review away from its supervisors.
+
+Why this is acceptable until HOM-74: completing a review only closes the queue entry. No
+score and no criterion decision changes.
+
+HOM-360 (Urgent, blocks HOM-74) must close all four paths, including a move made before
+any review exists. A lock that holds only while a review is active is not enough for path
+3.
+
+HOM-361 is a separate defence-in-depth fix: `Actor.scopes` will intersect the stored key
+scopes with `API_KEY_SCOPES`, so a stray `review:*` key scope can never reach the queue.
 
 ## Not built
 
