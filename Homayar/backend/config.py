@@ -568,6 +568,11 @@ class Settings(BaseSettings):
     usage_reconciliation_grace_seconds: int = 600
     usage_reconciliation_batch_size: int = 200
     usage_reconciliation_repair_counters: bool = False
+    # CRM reconciliation (HOM-88, backend.jobs.crm_reconciliation): periodic sweep
+    # that applies CRM records which arrived before their conversation, and sends
+    # the ones past their late-record window to the reconciliation queue.
+    crm_reconciliation_interval_seconds: int = 300
+    crm_reconciliation_batch_size: int = 500
     # Stage checkpoints and attempt-scoped artifacts (WP06-T03,
     # backend.jobs.checkpoints): reuse of committed stage results on retry,
     # the artifact size bound, and the cleanup of abandoned artifacts (objects
@@ -851,6 +856,8 @@ class Settings(BaseSettings):
             or self.usage_reconciliation_batch_size <= 0
         ):
             raise ValueError("Usage reconciliation interval, grace and batch size must be positive")
+        if self.crm_reconciliation_interval_seconds <= 0 or self.crm_reconciliation_batch_size <= 0:
+            raise ValueError("CRM reconciliation interval and batch size must be positive")
         if (
             self.job_artifact_max_bytes <= 0
             or self.job_artifact_grace_seconds <= 0
