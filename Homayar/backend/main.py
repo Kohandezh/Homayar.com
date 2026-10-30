@@ -52,6 +52,7 @@ from backend.routers.v1 import teams as teams_v1
 from backend.routers.v1 import trends as trends_v1
 from backend.routers.v1 import voice as voice_v1
 from backend.routers.v1 import voicemail as voicemail_v1
+from backend.routers.v1 import webhooks as webhooks_v1
 from backend.services.auth_service import ensure_development_demo_account
 from backend.services.logging_service import install_server_log_filter, logger, tag_exception
 from backend.services.tenancy_service import ensure_plan_catalog
@@ -275,6 +276,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(locations_v1.router, prefix=settings.api_prefix)
     app.include_router(voice_v1.router, prefix=settings.api_prefix)
     app.include_router(voicemail_v1.router, prefix=settings.api_prefix)
+    app.include_router(webhooks_v1.router, prefix=settings.api_prefix)
 
     @app.get("/healthz", tags=["system"])
     @app.get("/api/health", include_in_schema=False)

@@ -86,6 +86,10 @@ class Permission(str, Enum):
     # and admins publish a new version.  Never carried by an API key.
     SCORECARD_READ = "scorecard:read"
     SCORECARD_MANAGE = "scorecard:manage"
+    # Outbound webhooks (HOM-89, ADR 0050): add, change and rotate endpoints.
+    # Owner and admin, never carried by an API key: a key that could add an
+    # endpoint could copy every future event out of the workspace.
+    WEBHOOK_MANAGE = "webhook:manage"
 
 
 ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
@@ -107,6 +111,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.API_KEY_MANAGE,
             Permission.SCORECARD_READ,
             Permission.SCORECARD_MANAGE,
+            Permission.WEBHOOK_MANAGE,
         }
     ),
     WorkspaceRole.MEMBER: frozenset(

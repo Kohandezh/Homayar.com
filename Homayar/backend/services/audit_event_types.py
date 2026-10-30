@@ -135,6 +135,10 @@ class AuditEventType(StrEnum):
     VOICE_NODE_REGISTERED = "voice.node.registered", "voice_media_node"
     VOICEMAIL_CLASSIFIED = "voicemail.classified", "voicemail"
     VOICEMAIL_UPDATED = "voicemail.updated", "voicemail"
+    WEBHOOK_ENDPOINT_CREATED = "webhook.endpoint_created", "webhook_endpoint"
+    WEBHOOK_ENDPOINT_UPDATED = "webhook.endpoint_updated", "webhook_endpoint"
+    WEBHOOK_SIGNING_KEY_ROTATED = "webhook.signing_key_rotated", "webhook_endpoint"
+    WEBHOOK_TEST_QUEUED = "webhook.test_queued", "webhook_endpoint"
     WORKSPACE_SETTINGS_UPDATED = "workspace.settings.updated", "workspace"
 
 

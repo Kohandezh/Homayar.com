@@ -70,8 +70,12 @@ _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{4,2048}\.[A-Za-z0-9_-]{4,2048}\.[A-Za-z0-
 # A URL to the end of its token; ``_scrub_url`` finds the credentials in it in
 # linear time (a backtracking pattern is quadratic on many '://' in one token).
 _URL = re.compile(r"(?i)\b([a-z][a-z0-9+.-]{0,20}://)(\S*)")
-# Provider-style keys and Homayar API keys (``hk_<prefix>.<secret>``).
-_API_KEY = re.compile(r"\b(?:sk[-_][A-Za-z0-9_-]{8,256}|hk_[0-9a-f]{8}\.[A-Za-z0-9_-]{16,256})")
+# Provider-style keys, Homayar API keys (``hk_<prefix>.<secret>``) and webhook
+# signing secrets (``whsec_<base64url>``, HOM-89).
+_API_KEY = re.compile(
+    r"\b(?:sk[-_][A-Za-z0-9_-]{8,256}|hk_[0-9a-f]{8}\.[A-Za-z0-9_-]{16,256}"
+    r"|whsec_[A-Za-z0-9_-]{16,256})"
+)
 
 
 def _scrub_url(match: re.Match[str]) -> str:
@@ -92,7 +96,7 @@ def _scrub_url(match: re.Match[str]) -> str:
 
 # Where a credential starts: a secret key name, a credential header, a scheme.
 _INTRODUCER = re.compile(
-    r"(?i)(?:authorization|cookie|x-api-key|x-csrf-token|bearer|basic|://|eyJ|sk[-_]|hk_|"
+    r"(?i)(?:authorization|cookie|x-api-key|x-csrf-token|bearer|basic|://|eyJ|sk[-_]|hk_|whsec_|"
     + _SECRET_KEY_NAME
     + r")"
 )
