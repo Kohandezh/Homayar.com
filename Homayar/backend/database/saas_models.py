@@ -115,6 +115,46 @@ class MeetingStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
+class ConversationType(str, enum.Enum):
+    """What kind of conversation a ``meetings`` row holds (HOM-58, WP12-T01).
+
+    A conversation is a row of ``meetings``.  The table keeps its name, so every
+    id, foreign key and API stays.  Stored as the lowercase value with a check
+    constraint.
+    """
+
+    CALL = "call"
+    MEETING = "meeting"
+    VOICEMAIL = "voicemail"
+    OTHER = "other"
+
+
+class ConversationDirection(str, enum.Enum):
+    """Who started the conversation, seen from the workspace (HOM-58).
+
+    A NULL column means the direction is not known.  Stored as the lowercase
+    value with a check constraint.
+    """
+
+    INBOUND = "inbound"
+    OUTBOUND = "outbound"
+    INTERNAL = "internal"
+
+
+CONVERSATION_TYPE_CHECK = (
+    "conversation_type IN (" + ", ".join(f"'{member.value}'" for member in ConversationType) + ")"
+)
+CONVERSATION_DIRECTION_CHECK = (
+    "direction IS NULL OR direction IN ("
+    + ", ".join(f"'{member.value}'" for member in ConversationDirection)
+    + ")"
+)
+CONVERSATION_EXTERNAL_REF_CHECK = (
+    "(external_source_system IS NULL AND external_conversation_id IS NULL) OR "
+    "(external_source_system IS NOT NULL AND external_conversation_id IS NOT NULL)"
+)
+
+
 class JobState(str, enum.Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -985,6 +1025,18 @@ class Meeting(Base, TimestampMixin):
     source: Mapped[str] = mapped_column(String(30), default="upload", nullable=False)
     retention_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The conversation model (HOM-58): ``source`` says how the media arrived,
+    # ``conversation_type`` says what the conversation is.
+    conversation_type: Mapped[str] = mapped_column(
+        String(20), default=ConversationType.CALL.value, server_default="call", nullable=False
+    )
+    direction: Mapped[str | None] = mapped_column(String(12))
+    # The conversation's id in its source system: both set or both NULL.  Not
+    # unique, because the ingestion ledger (ADR 0016) already handles a re-sent one.
+    external_source_system: Mapped[str | None] = mapped_column(String(60))
+    external_conversation_id: Mapped[str | None] = mapped_column(String(200))
+    # When the conversation happened at its source (``created_at`` is upload time).
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     recording: Mapped[Recording | None] = relationship(
         back_populates="meeting", cascade="all, delete-orphan", uselist=False
@@ -995,8 +1047,20 @@ class Meeting(Base, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint("duration_seconds >= 0", name="ck_meeting_duration"),
+        CheckConstraint(CONVERSATION_TYPE_CHECK, name="ck_meeting_conversation_type"),
+        CheckConstraint(CONVERSATION_DIRECTION_CHECK, name="ck_meeting_direction"),
+        CheckConstraint(CONVERSATION_EXTERNAL_REF_CHECK, name="ck_meeting_external_ref"),
         Index("ix_meeting_workspace_created", "workspace_id", "created_at"),
         Index("ix_meeting_workspace_status", "workspace_id", "status"),
+        Index(
+            "ix_meeting_workspace_external",
+            "workspace_id",
+            "external_source_system",
+            "external_conversation_id",
+        ),
+        Index(
+            "ix_meeting_workspace_type_created", "workspace_id", "conversation_type", "created_at"
+        ),
     )
 
 
