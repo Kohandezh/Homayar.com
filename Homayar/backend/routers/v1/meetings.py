@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -24,6 +25,8 @@ from starlette.concurrency import run_in_threadpool
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
 from backend.database.saas_models import (
+    ConversationDirection,
+    ConversationType,
     IngestionRecord,
     IngestionSourceType,
     Meeting,
@@ -46,6 +49,7 @@ from backend.routers.v1.insights import _quality, invalid_time_range
 from backend.schemas.ingestions import IngestionResponse
 from backend.schemas.meetings import (
     ChannelInspectionResponse,
+    ConversationListResponse,
     JobResponse,
     LegalHoldReleaseRequest,
     LegalHoldRequest,
@@ -730,31 +734,90 @@ async def upload_meeting(
     return response
 
 
-@router.get("/meetings", response_model=MeetingListResponse)
-def list_meetings(
+@dataclass(frozen=True)
+class _ListFilters:
+    limit: int
+    before: datetime | None
+    status: MeetingStatus | None
+    conversation_type: ConversationType | None
+    direction: ConversationDirection | None
+    external_source_system: str | None
+    external_conversation_id: str | None
+
+
+def _list_filters(
     limit: int = Query(default=50, ge=1, le=100),
     before: datetime | None = Query(default=None),
     status: MeetingStatus | None = Query(default=None),
-    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
-    db: Session = Depends(get_db),
-) -> MeetingListResponse:
+    conversation_type: ConversationType | None = Query(default=None),
+    direction: ConversationDirection | None = Query(default=None),
+    external_source_system: str | None = Query(default=None, min_length=1, max_length=60),
+    external_conversation_id: str | None = Query(default=None, min_length=1, max_length=200),
+) -> _ListFilters:
+    """The query of ``GET /meetings`` and ``GET /conversations`` (HOM-58)."""
+    # A source id is only unique inside its source system.
+    if external_conversation_id is not None and external_source_system is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "external_source_system_required",
+                "message": "external_conversation_id needs external_source_system",
+            },
+        )
+    return _ListFilters(
+        limit=limit,
+        before=before,
+        status=status,
+        conversation_type=conversation_type,
+        direction=direction,
+        external_source_system=external_source_system,
+        external_conversation_id=external_conversation_id,
+    )
+
+
+def _meeting_page[T: MeetingListResponse](
+    db: Session,
+    *,
+    context: WorkspaceContext,
+    filters: _ListFilters,
+    response: type[T],
+) -> T:
     query = select(Meeting).where(
         Meeting.workspace_id == context.workspace.id,
         Meeting.deleted_at.is_(None),
         context.record_access.meeting_clause(),
     )
-    if before is not None:
-        query = query.where(Meeting.created_at < before)
-    if status is not None:
-        query = query.where(Meeting.status == status)
+    if filters.before is not None:
+        query = query.where(Meeting.created_at < filters.before)
+    if filters.status is not None:
+        query = query.where(Meeting.status == filters.status)
+    if filters.conversation_type is not None:
+        query = query.where(Meeting.conversation_type == filters.conversation_type.value)
+    if filters.direction is not None:
+        query = query.where(Meeting.direction == filters.direction.value)
+    if filters.external_source_system is not None:
+        query = query.where(Meeting.external_source_system == filters.external_source_system)
+    if filters.external_conversation_id is not None:
+        query = query.where(Meeting.external_conversation_id == filters.external_conversation_id)
     meetings = list(
-        db.scalars(query.order_by(Meeting.created_at.desc(), Meeting.id.desc()).limit(limit))
+        db.scalars(
+            query.order_by(Meeting.created_at.desc(), Meeting.id.desc()).limit(filters.limit)
+        )
     )
-    next_before = meetings[-1].created_at if len(meetings) == limit else None
-    return MeetingListResponse(
+    next_before = meetings[-1].created_at if len(meetings) == filters.limit else None
+    return response(
         items=[_meeting_response(meeting) for meeting in meetings],
         next_before=next_before,
     )
+
+
+@router.get("/meetings", response_model=MeetingListResponse)
+def list_meetings(
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    filters: _ListFilters = Depends(_list_filters),
+    db: Session = Depends(get_db),
+) -> MeetingListResponse:
+    return _meeting_page(db, context=context, filters=filters, response=MeetingListResponse)
 
 
 # Declared before /meetings/{meeting_id}, so "counts" is never read as a meeting id.
@@ -867,6 +930,15 @@ def update_meeting(
             db, context=context, agent_user_id=payload.agent_user_id
         )
         changed.append("agent_user_id")
+    if "conversation_type" in payload.model_fields_set and payload.conversation_type is not None:
+        meeting.conversation_type = payload.conversation_type.value
+        changed.append("conversation_type")
+    if "direction" in payload.model_fields_set:
+        meeting.direction = payload.direction.value if payload.direction is not None else None
+        changed.append("direction")
+    if "started_at" in payload.model_fields_set:
+        meeting.started_at = payload.started_at
+        changed.append("started_at")
     if not changed:
         raise HTTPException(
             status_code=422,
@@ -886,6 +958,59 @@ def update_meeting(
     db.commit()
     db.refresh(meeting)
     return _meeting_response(meeting)
+
+
+# Conversations (HOM-58): a conversation is a meetings row with the same id, so
+# these routes are the meeting handlers under the new name, with the same
+# permissions, scope and answers.
+
+
+@router.get("/conversations", response_model=ConversationListResponse, tags=["conversations"])
+def list_conversations(
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    filters: _ListFilters = Depends(_list_filters),
+    db: Session = Depends(get_db),
+) -> ConversationListResponse:
+    return _meeting_page(db, context=context, filters=filters, response=ConversationListResponse)
+
+
+# Declared before /conversations/{conversation_id}, so "counts" is never read as an id.
+@router.get("/conversations/counts", response_model=MeetingCountsResponse, tags=["conversations"])
+def count_conversations(
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+) -> MeetingCountsResponse:
+    return count_meetings(context=context, db=db)
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=MeetingDetailResponse,
+    tags=["conversations"],
+)
+def get_conversation(
+    conversation_id: str,
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MeetingDetailResponse:
+    return get_meeting(conversation_id, context=context, db=db, settings=settings)
+
+
+@router.patch(
+    "/conversations/{conversation_id}", response_model=MeetingResponse, tags=["conversations"]
+)
+def update_conversation(
+    conversation_id: str,
+    payload: MeetingUpdateRequest,
+    request: Request,
+    context: WorkspaceContext = Depends(require_write_permission(Permission.MEETING_UPDATE)),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MeetingResponse:
+    return update_meeting(
+        conversation_id, payload, request, context=context, db=db, settings=settings
+    )
 
 
 @router.delete("/meetings/{meeting_id}", status_code=204)

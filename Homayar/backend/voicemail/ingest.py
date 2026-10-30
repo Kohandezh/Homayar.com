@@ -28,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
-from backend.database.saas_models import IngestionRecord, ProcessingJob
+from backend.database.saas_models import ConversationType, IngestionRecord, ProcessingJob
 from backend.jobs.outbox import dispatch_job
 from backend.media import (
     ChannelAnalysisPolicy,
@@ -317,6 +317,9 @@ def import_voicemail(
             producer=VOICEMAIL_SOURCE_PROVIDER,
             channel_inspection=channel_inspection,
             source_type=VOICEMAIL_SOURCE_TYPE.value,
+            conversation_type=ConversationType.VOICEMAIL,
+            # Only a caller-declared time; the server clock is not when it was left.
+            started_at=received_at if envelope.received_at else None,
         )
         created.meeting.source = VOICEMAIL_MEETING_SOURCE
         db.add(

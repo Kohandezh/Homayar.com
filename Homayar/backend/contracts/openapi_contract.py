@@ -35,7 +35,7 @@ WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 # The major number follows the /api/v1 prefix. Additive change: bump the minor. A deliberate
 # breaking change inside /api/v1 (owner-approved, no route moves to /api/v2) also bumps the
 # minor, and the description names it as breaking with the old and new meaning (1.7.0).
-CONTRACT_VERSION = "1.7.0"
+CONTRACT_VERSION = "1.8.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -100,6 +100,13 @@ window (all time without one), and kept their values when the item was withheld.
 (ingestion `received_at`) in `coverage_window`, of the granted teams for a team grant. When
 the item's `disclosure` is withheld, the four fields are null (the keys stay). `since` and
 `until` are still echoed; they only choose `coverage_window`.
+
+**Conversation fields (1.8.0).** Every meeting object (the `meeting` of an upload answer
+and `GET /api/v1/meetings/{meeting_id}`) adds `conversation_type` (`call`, `meeting`,
+`voicemail` or `other`), `direction` (`inbound`, `outbound`, `internal` or null),
+`external_source_system` and `external_conversation_id` (the conversation's id in its
+source system, both null or both set) and `started_at` (when it happened at the source, or
+null). A voicemail is `voicemail`. Every existing field keeps its name and value.
 
 **Errors.** Every error body is `{"error": {"code", "message", "request_id",
 "details"?}}`. `code` is stable; branch on it, not on `message`. Every response

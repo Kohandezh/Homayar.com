@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.saas_models import (
+    ConversationDirection,
+    ConversationType,
+    IngestionSourceType,
     JobState,
     MediaObject,
     Meeting,
@@ -35,6 +38,24 @@ class CreatedUpload:
     recording: Recording
     job: ProcessingJob
     media: MediaObject
+
+
+def conversation_type_for_source(
+    source_type: IngestionSourceType | str | None,
+) -> ConversationType:
+    """The conversation type an ingestion source type implies (HOM-58).
+
+    A voicemail is a voicemail and a meeting bot records a meeting; every other
+    source, and no source, is a call.
+    """
+    if source_type is None:
+        return ConversationType.CALL
+    source = IngestionSourceType(source_type)
+    if source is IngestionSourceType.VOICEMAIL:
+        return ConversationType.VOICEMAIL
+    if source is IngestionSourceType.MEETING_BOT:
+        return ConversationType.MEETING
+    return ConversationType.CALL
 
 
 def find_job_by_idempotency(
@@ -77,9 +98,29 @@ def create_upload_job(
     producer: str = "upload",
     channel_inspection: ChannelInspection | None = None,
     source_type: str | None = None,
+    conversation_type: ConversationType | str | None = None,
+    direction: ConversationDirection | str | None = None,
+    started_at: datetime | None = None,
+    external_source_system: str | None = None,
+    external_conversation_id: str | None = None,
 ) -> CreatedUpload:
     if duration_seconds <= 0 or size_bytes <= 0:
         raise ValueError("Recording duration and size must be positive")
+    # The conversation fields (HOM-58).  Without an explicit type, the
+    # ingestion source type decides; the source reference is both or neither.
+    kind = (
+        ConversationType(conversation_type)
+        if conversation_type is not None
+        else conversation_type_for_source(source_type)
+    )
+    try:
+        started_by = ConversationDirection(direction) if direction is not None else None
+    except ValueError as exc:
+        raise ValueError(f"Unknown conversation direction: {direction!r}") from exc
+    if (external_source_system is None) != (external_conversation_id is None):
+        raise ValueError(
+            "external_source_system and external_conversation_id are set together or not at all"
+        )
     workspace = db.get(Workspace, workspace_id)
     if workspace is None:
         raise ValueError("Unknown workspace")
@@ -101,6 +142,11 @@ def create_upload_job(
         # Server-side policy only (WP07-T01): the caller's ``retention_days``
         # is the workspace's own value; the mode decides whether an expiry exists.
         retention_expires_at=retention_expiry_for(workspace, now=datetime.now(UTC)),
+        conversation_type=kind.value,
+        direction=started_by.value if started_by is not None else None,
+        started_at=started_at,
+        external_source_system=external_source_system,
+        external_conversation_id=external_conversation_id,
     )
     db.add(meeting)
     db.flush()

@@ -222,6 +222,9 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/meetings | meeting:read |
 | GET | /api/v1/meetings/counts | meeting:read |
 | GET | /api/v1/meetings/{meeting_id} | meeting:read |
+| GET | /api/v1/conversations | meeting:read |
+| GET | /api/v1/conversations/counts | meeting:read |
+| GET | /api/v1/conversations/{conversation_id} | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/job | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/recording | meeting:read |
 | GET | /api/v1/workspaces/{workspace_id}/meetings/{meeting_id}/recording | meeting:read |
@@ -248,6 +251,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/privacy/subject-exports | pii:original_access +csrf |
 | GET | /api/v1/search | meeting:read |
 | PATCH | /api/v1/meetings/{meeting_id} | meeting:update +csrf |
+| PATCH | /api/v1/conversations/{conversation_id} | meeting:update +csrf |
 | POST | /api/v1/meetings/{meeting_id}/actions | meeting:update +csrf |
 | PATCH | /api/v1/meetings/{meeting_id}/actions/{action_id} | meeting:update +csrf |
 | DELETE | /api/v1/meetings/{meeting_id}/actions/{action_id} | meeting:update +csrf |

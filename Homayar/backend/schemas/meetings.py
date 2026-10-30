@@ -5,13 +5,16 @@ from typing import Literal
 
 from pydantic import (
     AliasChoices,
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
     computed_field,
+    field_validator,
     model_validator,
 )
 
+from backend.database.saas_models import ConversationDirection, ConversationType
 from backend.schemas.ingestions import IngestionResponse
 
 
@@ -29,6 +32,13 @@ class MeetingResponse(BaseModel):
     source: str
     created_at: datetime
     updated_at: datetime
+    # The conversation model (HOM-58): what the conversation is, who started
+    # it, its id in the source system and when it happened there.
+    conversation_type: str
+    direction: str | None = None
+    external_source_system: str | None = None
+    external_conversation_id: str | None = None
+    started_at: datetime | None = None
 
 
 class RecordingResponse(BaseModel):
@@ -350,6 +360,10 @@ class MeetingListResponse(BaseModel):
     next_before: datetime | None = None
 
 
+class ConversationListResponse(MeetingListResponse):
+    """``GET /conversations``: the same rows, ids and page as ``GET /meetings`` (HOM-58)."""
+
+
 class MeetingCountsResponse(BaseModel):
     # One key per meeting status, in enum order; a status with no meetings is 0.
     counts: dict[str, int]
@@ -366,13 +380,29 @@ class UploadAcceptedResponse(BaseModel):
 
 
 class MeetingUpdateRequest(BaseModel):
-    """Partial update; ``workspace_id`` is deliberately not accepted (extra=forbid)."""
+    """Partial update; ``workspace_id`` is deliberately not accepted (extra=forbid).
+
+    The source reference (``external_source_system``, ``external_conversation_id``)
+    is immutable, so it is not a field here and sending it is a 422.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = Field(default=None, min_length=1, max_length=240)
     team_id: str | None = Field(default=None, max_length=36)
     agent_user_id: str | None = Field(default=None, max_length=36)
+    conversation_type: ConversationType | None = None
+    # An explicit null clears these two.
+    direction: ConversationDirection | None = None
+    started_at: AwareDatetime | None = None
+
+    @field_validator("conversation_type")
+    @classmethod
+    def conversation_type_not_null(cls, value: ConversationType | None) -> ConversationType:
+        # Runs only when the field is sent; the column is NOT NULL.
+        if value is None:
+            raise ValueError("conversation_type cannot be null")
+        return value
 
     @model_validator(mode="after")
     def require_a_change(self) -> MeetingUpdateRequest:
