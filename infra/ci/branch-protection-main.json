@@ -1,0 +1,29 @@
+{
+  "required_status_checks": {
+    "strict": false,
+    "checks": [
+      { "context": "Product source contract", "app_id": 15368 },
+      { "context": "Website lint and Cloudflare build", "app_id": 15368 },
+      { "context": "Product console lint, build, and tests", "app_id": 15368 },
+      { "context": "Product console end-to-end tests", "app_id": 15368 },
+      { "context": "Linear agent typecheck, lint, and tests", "app_id": 15368 },
+      { "context": "Backend tests and migrations (shard 1/2)", "app_id": 15368 },
+      { "context": "Backend tests and migrations (shard 2/2)", "app_id": 15368 },
+      { "context": "Secret scan", "app_id": 15368 },
+      { "context": "Container configuration", "app_id": 15368 },
+      { "context": "Release manifest and build identity", "app_id": 15368 }
+    ]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 0,
+    "require_last_push_approval": false
+  },
+  "restrictions": null,
+  "required_linear_history": false,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_conversation_resolution": false
+}
