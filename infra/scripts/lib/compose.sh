@@ -39,6 +39,21 @@ require_env() {
   [[ -n "${!name:-}" ]] || die "Required environment variable is empty: ${name}"
 }
 
+# Compose resolves a relative bind source against its project directory (the
+# Compose file's): resolve every host path the same way, so the checks look at
+# the directories the containers will get. The directory is looked up only for
+# a relative path, so a missing one never stops a script before it starts.
+compose_path() {
+  local compose_dir
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *)
+      compose_dir="$(cd -- "$(dirname -- "${COMPOSE_FILE}")" && pwd -P)" || return 1
+      printf '%s/%s\n' "${compose_dir}" "$1"
+      ;;
+  esac
+}
+
 # compose_env_default NAME: when NAME is not set in the shell, take its value from the env
 # file Compose will read (COMPOSE_ENV_FILE, else .env next to the Compose file), as Compose
 # does. Sets the shell variable only, never exports it, and never sources or prints the env

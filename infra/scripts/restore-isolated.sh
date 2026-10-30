@@ -27,6 +27,7 @@ Usage: COMPOSE_PROJECT_NAME=homayar-restore BACKUP_ROOT=/secure/homayar-backups 
 
 The project must NOT be the live one (LIVE_COMPOSE_PROJECT, default homayar-onprem).
 TOMBSTONE_JOURNAL_PATH must be the replicated tombstone journal (a host directory).
+Relative paths are resolved against the Compose file's directory, as Compose does.
 --accept-missing needs --accept-missing-digest: the missing_set_digest of the objects
 check in a previous FAIL report. The owner accepts only that exact set of lost objects.
 EOF
@@ -72,11 +73,15 @@ fi
 require_env COMPOSE_PROJECT_NAME
 require_env POSTGRES_DB
 require_env BACKUP_KEY_FILE
+# Relative host paths are read against the Compose file's directory, as Compose
+# mounts them (the same as backup.sh), never against the current directory.
+BACKUP_ROOT="$(compose_path "${BACKUP_ROOT}")"
+BACKUP_KEY_FILE="$(compose_path "${BACKUP_KEY_FILE}")"
+export BACKUP_ROOT BACKUP_KEY_FILE
 [[ -r "${BACKUP_KEY_FILE}" ]] || die "Backup key file is not readable: ${BACKUP_KEY_FILE}"
 compose_env_default BACKUP_DATABASE_URL_FILE
 if [[ -n "${BACKUP_DATABASE_URL_FILE:-}" ]]; then
-  [[ "${BACKUP_DATABASE_URL_FILE}" == /* ]] ||
-    BACKUP_DATABASE_URL_FILE="$(cd -- "$(dirname -- "${COMPOSE_FILE}")" && pwd -P)/${BACKUP_DATABASE_URL_FILE}"
+  BACKUP_DATABASE_URL_FILE="$(compose_path "${BACKUP_DATABASE_URL_FILE}")"
   export BACKUP_DATABASE_URL_FILE
   [[ -f "${BACKUP_DATABASE_URL_FILE}" && -r "${BACKUP_DATABASE_URL_FILE}" ]] ||
     die "Backup admin DSN file (BACKUP_DATABASE_URL_FILE) is missing or not a readable file: ${BACKUP_DATABASE_URL_FILE}"
@@ -84,6 +89,10 @@ fi
 live_project="${LIVE_COMPOSE_PROJECT:-homayar-onprem}"
 [[ "${COMPOSE_PROJECT_NAME}" != "${live_project}" ]] ||
   die "Refusing to restore into the live project ${live_project}; use a separate COMPOSE_PROJECT_NAME."
+if [[ -n "${TOMBSTONE_JOURNAL_PATH:-}" ]]; then
+  TOMBSTONE_JOURNAL_PATH="$(compose_path "${TOMBSTONE_JOURNAL_PATH}")"
+  export TOMBSTONE_JOURNAL_PATH
+fi
 if [[ " ${reconcile_args[*]-} " != *" --accept-no-journal "* ]]; then
   require_env TOMBSTONE_JOURNAL_PATH
   [[ -d "${TOMBSTONE_JOURNAL_PATH}" ]] ||
