@@ -14,7 +14,7 @@ tests check:
   constraint, and the closest allow case passes, on the ORM schema and on the migrated one;
 * tenant isolation on the four webhook tables, the service-scope rules, the append-only
   rule and the no-delete rule, through the application role;
-* upgrade from ``47676f445509`` gives the ORM schema; downgrade restores the base schema
+* upgrade from ``565d2ccd4fca`` gives the ORM schema; downgrade restores the base schema
   (the old unique constraint on ``event_id``, the tenant-only policy, the DELETE grant),
   refuses to run while one event id is on two rows, and leaves every other table as it was.
 """
@@ -77,7 +77,7 @@ from backend.tests._database import (
 from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "e4b8d1f6a3c7"
-BASE_REVISION = "47676f445509"  # HOM-54: scorecard_versions
+BASE_REVISION = "565d2ccd4fca"  # HOM-88: CRM mapping tables
 TABLES = (
     "webhook_endpoints",
     "webhook_signing_keys",
@@ -342,7 +342,7 @@ def test_the_rls_registry_lists_the_webhook_tables():
         f"workspace_id = {TENANT} AND {SERVICE} IS DISTINCT FROM 'webhook_delivery'",
     )
     # The application never deletes a ledger row (SPEC Addendum 1, A2).
-    assert NO_DELETE_TABLES == ("webhook_deliveries",)
+    assert NO_DELETE_TABLES == ("integration_inbound_records", "webhook_deliveries")
     assert "webhook_deliveries" not in APPEND_ONLY_TABLES  # the worker updates the state
     for table in TABLES:
         assert table not in SHARED_CONTENT_TABLES, table  # never through a share token

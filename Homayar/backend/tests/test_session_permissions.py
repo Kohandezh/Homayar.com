@@ -68,10 +68,15 @@ def _set_system_role(user_id: str, system_role: str) -> None:
 
 def test_role_permission_lists_are_the_authorization_map():
     owner = _expected(WorkspaceRole.OWNER)
-    assert owner == sorted(ALL_PERMISSION_VALUES) and len(owner) == 18
-    assert len(_expected(WorkspaceRole.ADMIN)) == 14
-    assert len(_expected(WorkspaceRole.MEMBER)) == 6
-    assert _expected(WorkspaceRole.VIEWER) == ["meeting:read", "member:read", "team:read"]
+    assert owner == sorted(ALL_PERMISSION_VALUES) and len(owner) == 20
+    assert len(_expected(WorkspaceRole.ADMIN)) == 16
+    assert len(_expected(WorkspaceRole.MEMBER)) == 7
+    assert _expected(WorkspaceRole.VIEWER) == [
+        "meeting:read",
+        "member:read",
+        "scorecard:read",
+        "team:read",
+    ]
 
 
 def test_login_refresh_and_me_carry_system_role_and_owner_permissions(client, email_outbox):
@@ -120,7 +125,7 @@ def test_each_membership_role_lists_exactly_its_permissions(client, email_outbox
         _assert_permissions_match_roles(session)
 
     viewer = _workspace(_me(client, people["viewer"].cookies), shared)["permissions"]
-    assert viewer == ["meeting:read", "member:read", "team:read"]
+    assert viewer == ["meeting:read", "member:read", "scorecard:read", "team:read"]
     admin = _workspace(_me(client, people["admin"].cookies), shared)["permissions"]
     for withheld in ("legal_hold:manage", "pii:original_access", "ai_policy:manage"):
         assert withheld not in admin

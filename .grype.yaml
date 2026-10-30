@@ -748,10 +748,6 @@ ignore:
   - vulnerability: CVE-2026-27135
     package:
       name: nghttp2-libs
-  # F198 follow-up: regex map in the reverse proxy (nginx.conf:65-66); needs a supported nginx base
-  - vulnerability: CVE-2026-42533
-    package:
-      name: nginx
   # F199 accepted: not reachable: needs an nginx directive that neither console.conf nor the reverse proxy uses
   - vulnerability: CVE-2026-42055
     package:
@@ -766,10 +762,6 @@ ignore:
       name: nginx
   # F202 accepted: not reachable: needs an nginx directive that neither console.conf nor the reverse proxy uses
   - vulnerability: CVE-2026-60005
-    package:
-      name: nginx
-  # F203 follow-up: regex rewrite in the reverse proxy (homayar.conf:106); needs a supported nginx base
-  - vulnerability: CVE-2026-9256
     package:
       name: nginx
   # F204 accepted: not reachable: no request-supplied pattern and no pcre_jit, in both configs

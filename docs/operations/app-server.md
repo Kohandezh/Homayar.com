@@ -126,7 +126,7 @@ POSTGRES_USER=homayar
 DATABASE_APP_ROLE=
 POSTGRES_IMAGE=postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
 REDIS_IMAGE=redis:7.4-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
-NGINX_IMAGE=nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+NGINX_IMAGE=nginx:1.30-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
 LOG_LEVEL=INFO
 # Off until the owner decides (homlead, 2026-10-29). New sign-ups get no demo allowance.
 ENABLE_FREE_DEMO=false
@@ -643,6 +643,14 @@ sudo cat /etc/letsencrypt/live/app.homayar.com/fullchain.pem \
 - No language model is configured yet, so the command exits 2 with
   `intelligence_provider_unconfigured` (see above). It still prints the `host` report. Exit 2
   stays exit 2, whatever the host checks say.
+
+This server is the reference shape of topology `single-host-p40` (ADR 0047). **Not run on this
+server yet.** To check it later:
+
+```bash
+~/homayar/hc run --rm -T --no-deps api python -m backend.jobs.model_preflight --host \
+  --topology single-host-p40 --min-free-gpu-mib 4096
+```
 
 GPU mode (`WHISPER_DEVICE=cuda`, or a GPU ASR profile) needs more than a setting:
 

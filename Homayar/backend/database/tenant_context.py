@@ -57,6 +57,11 @@ SERVICE_SCOPE_USAGE_RECONCILIATION = "usage_reconciliation"
 # Voice recovery (P0 wave, X21): fails live calls of lapsed media nodes and
 # expired capacity slots across tenants (state/end columns only).
 SERVICE_SCOPE_VOICE_RECOVERY = "voice_recovery"
+# CRM reconciliation (HOM-88): the sweep discovers pending inbound CRM records
+# across tenants (no writes).  The scope can read every column of the ledger
+# rows; the sweep code reads only ids, workspace, state and expiry.  Every
+# change then binds the workspace read from the persisted record row.
+SERVICE_SCOPE_CRM_RECONCILIATION = "crm_reconciliation"
 # Webhook delivery sweeper (HOM-89): discovers due webhook_deliveries rows
 # across tenants (read-only: the policy refuses every write while the scope
 # is held); every send and every write then runs in a session bound to the

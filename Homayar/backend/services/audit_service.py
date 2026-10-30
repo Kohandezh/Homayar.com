@@ -204,6 +204,7 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     # Configuration and policy changes
     AuditEventType.WORKSPACE_SETTINGS_UPDATED: "configuration",
     AuditEventType.AI_POLICY_UPDATED: "configuration",
+    AuditEventType.SCORECARD_PUBLISHED: "configuration",
     AuditEventType.MODEL_MANIFEST_REGISTERED: "configuration",
     AuditEventType.SERVICE_LOCATION_CREATED: "configuration",
     AuditEventType.SERVICE_LOCATION_UPDATED: "configuration",

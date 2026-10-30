@@ -1,7 +1,7 @@
 """Webhook delivery ledger, schema only (HOM-89, WP16-T05)
 
 Revision ID: e4b8d1f6a3c7
-Revises: 47676f445509
+Revises: 565d2ccd4fca
 Create Date: 2026-10-30
 
 Signed outbound webhooks (F69) need a ledger of what was sent, to whom, and with which
@@ -84,7 +84,7 @@ from backend.database.rls import APP_ROLE, POLICY_NAME, TENANT, apply_row_level_
 
 # revision identifiers, used by Alembic.
 revision: str = "e4b8d1f6a3c7"
-down_revision: str | Sequence[str] | None = "47676f445509"
+down_revision: str | Sequence[str] | None = "565d2ccd4fca"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

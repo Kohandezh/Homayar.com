@@ -67,10 +67,12 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 | legal_hold:manage | ✓ | – | – | – |
 | pii:original_access | ✓ | – | – | – |
 | ai_policy:manage | ✓ | – | – | – |
+| scorecard:read | ✓ | ✓ | ✓ | ✓ |
+| scorecard:manage | ✓ | ✓ | – | – |
 | webhook:manage | ✓ | ✓ | – | – |
 <!-- matrix:permissions:end -->
 
-`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope. `webhook:manage` (owner, admin) adds, changes, rotates and tests outbound webhook endpoints (§6o); it is never an API-key scope, because a key that could add an endpoint could copy every future event out of the workspace.
+`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope. `scorecard:read` (every role) reads the published QA scorecard versions and `scorecard:manage` (owner, admin) publishes a new version (§6o); neither is an API-key scope. `webhook:manage` (owner, admin) adds, changes, rotates and tests outbound webhook endpoints (§6p); it is never an API-key scope, because a key that could add an endpoint could copy every future event out of the workspace.
 
 ### 3a. Permission grants by organization role (machine-checked)
 
@@ -211,6 +213,11 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | PUT | /api/v1/admin/ai-policy | ai_policy:manage +csrf |
 | GET | /api/v1/admin/ai-policy/versions | workspace:manage |
 | GET | /api/v1/admin/jobs/{job_id}/policy-snapshots | workspace:manage |
+| GET | /api/v1/scorecards | scorecard:read |
+| POST | /api/v1/scorecards/validate | scorecard:manage +csrf |
+| GET | /api/v1/scorecards/{key}/versions | scorecard:read |
+| POST | /api/v1/scorecards/{key}/versions | scorecard:manage +csrf |
+| GET | /api/v1/scorecards/{key}/versions/{version} | scorecard:read |
 | GET | /api/v1/admin/legal-holds | legal_hold:manage |
 | GET | /api/v1/admin/system-health | workspace:manage +operator |
 | GET | /api/v1/billing/plans | billing:read |
@@ -379,6 +386,8 @@ Scopes an API key may carry (machine-checked against `API_KEY_SCOPES`):
 | legal_hold:manage | – |
 | pii:original_access | – |
 | ai_policy:manage | – |
+| scorecard:read | – |
+| scorecard:manage | – |
 | webhook:manage | – |
 <!-- matrix:api-key-scopes:end -->
 
@@ -527,7 +536,15 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | The mapping lives in `workspaces.settings_json`: another tenant can neither read nor overwrite it, also under RLS as `homayar_app` | `workspaces` tenant policy | `test_channel_roles_api.py`, `test_row_level_security.py` |
 | Attribution happens once, at ingest, and records the mapping version and digest it used; a later mapping change never rewrites a recording's roles. A mono, silent, duplicated, unmapped or unanalysed channel stays `unknown` with a reason code | `channel_inspection_record`, `backend/media/channel_store.py` | `test_channel_inspection.py`, `test_channel_roles_api.py` |
 
-## 6o. Outbound webhooks (HOM-89, ADR 0047)
+## 6o. QA scorecards (HOM-54)
+
+| Rule | Enforcement | Test |
+|---|---|---|
+| Every workspace role reads the published versions with `scorecard:read`; only the owner and admins publish with `scorecard:manage` + CSRF (member and viewer 403); no API-key scope carries either permission, so a key gets 403 on every scorecard route | `ROLE_PERMISSIONS`, `routers/v1/scorecards.py` | `test_scorecards_api.py` |
+| A publish names the version it read (`expected_version`, 0 for a new key); a stale one is `409 scorecard_version_conflict` with `details.current_version`, also when a concurrent insert hits `uq_scorecard_version`; every publish is a new version, audited `scorecard.published` (key, version, digest, reason); a refused publish writes no row and no audit event | `publish_version` | `test_scorecards_service.py`, `test_scorecards_api.py` |
+| Scorecard versions are append-only for the application role (ORM guard; PostgreSQL `REVOKE UPDATE, DELETE`) and a workspace table under row-level security (tenant only, never a share token) | `ScorecardVersionImmutableError`, `APPEND_ONLY_TABLES` | `test_scorecard_versions_migration.py` |
+
+## 6p. Outbound webhooks (HOM-89, ADR 0047)
 
 | Rule | Enforcement | Test |
 |---|---|---|

@@ -88,6 +88,12 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "run_policy_snapshots",
     # Published QA scorecard versions (HOM-54): never through a share token.
     "scorecard_versions",
+    # CRM mapping (HOM-88): profiles, stable external ids, conversation links and
+    # the reconciliation queue.  The inbound ledger has its own policy below.
+    "integration_mapping_profiles",
+    "external_records",
+    "conversation_external_links",
+    "integration_reconciliation_items",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",
@@ -185,6 +191,15 @@ POLICIES: dict[str, tuple[str, str]] = {
     "webhook_deliveries": (
         f"workspace_id = {TENANT} OR {SERVICE} = 'webhook_delivery'",
         f"workspace_id = {TENANT} AND {SERVICE} IS DISTINCT FROM 'webhook_delivery'",
+    ),
+    # CRM reconciliation (HOM-88) discovers pending inbound CRM records across
+    # tenants under the read-only 'crm_reconciliation' service scope.  The scope
+    # can read every column of the ledger rows; the sweep code reads only ids,
+    # workspace, state and expiry.  Every change binds the record's own
+    # workspace from the persisted row (WITH CHECK stays tenant-bound).
+    "integration_inbound_records": (
+        f"workspace_id = {TENANT} OR {SERVICE} = 'crm_reconciliation'",
+        f"workspace_id = {TENANT}",
     ),
     # Platform-level audit rows (login, OTP) carry no workspace; a share access
     # may *record* an audit row for the share's workspace but never read one.
@@ -328,12 +343,14 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
 )
 
 # Tables the application role may read, insert and update but never delete.
-# ``webhook_deliveries`` (HOM-89) is the outbound delivery ledger: the
+# ``integration_inbound_records`` (HOM-88) is the ledger of received CRM records
+# and ``webhook_deliveries`` (HOM-89) the outbound delivery ledger: the
 # application never deletes a ledger row.  The missing grant also keeps the
-# 'webhook_delivery' scope, which the FOR ALL policy's USING clause lets see
-# every tenant's rows, from deleting them.  Workspace and endpoint cascades run
-# as the table owner and are unaffected.
-NO_DELETE_TABLES: tuple[str, ...] = ("webhook_deliveries",)
+# 'crm_reconciliation' and 'webhook_delivery' scopes, which the FOR ALL
+# policies' USING clauses let see every tenant's rows, from deleting them.
+# Workspace, profile and endpoint cascades run as the table owner and are
+# unaffected.
+NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records", "webhook_deliveries")
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on
 # ``audit_events`` only, across tenants through a policy granted to it alone.
