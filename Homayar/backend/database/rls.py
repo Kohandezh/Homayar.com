@@ -86,6 +86,10 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "run_policy_snapshots",
     # Published QA scorecard versions (HOM-54): never through a share token.
     "scorecard_versions",
+    # Stored scorecard results and their criteria (HOM-56): never through a share token.
+    # Not append-only: the conversation purge deletes them as the application role.
+    "scorecard_results",
+    "scorecard_criterion_results",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",

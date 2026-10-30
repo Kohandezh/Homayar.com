@@ -954,6 +954,203 @@ class ScorecardVersion(Base):
     )
 
 
+# The checks of the stored results (HOM-56) copy the outcome and reason rules of
+# ``backend/scorecards/README.md``.  A CHECK passes when its expression is NULL, so every
+# comparison with a nullable column has an ``IS NOT NULL`` guard: ``reason IN (...)``
+# alone would accept a NULL reason.
+SCORECARD_OUTCOME_CHECK = (
+    "outcome IN ('passed', 'failed', 'not_applicable', 'insufficient_evidence')"
+)
+# README "Scorecard outcome": each outcome has its own reasons.
+SCORECARD_RESULT_REASON_CHECK = (
+    "(outcome = 'passed' AND reason IS NULL) "
+    "OR (outcome = 'failed' AND reason IS NOT NULL "
+    "AND reason IN ('auto_fail', 'below_threshold')) "
+    "OR (outcome = 'not_applicable' AND reason IS NOT NULL "
+    "AND reason = 'no_applicable_criteria') "
+    "OR (outcome = 'insufficient_evidence' AND reason IS NOT NULL "
+    "AND reason = 'evidence_missing')"
+)
+SCORECARD_RESULT_THRESHOLD_CHECK = "pass_threshold BETWEEN 1 AND 100"
+# The denominator is the sum of its three parts, and the weights of a scorecard add up
+# to 100.
+SCORECARD_RESULT_WEIGHTS_CHECK = (
+    "earned_weight >= 0 AND failed_weight >= 0 AND insufficient_weight >= 0 "
+    "AND applicable_weight = earned_weight + failed_weight + insufficient_weight "
+    "AND applicable_weight <= 100"
+)
+# A weight-0 criterion can be insufficient, so ``complete`` false with no insufficient
+# weight is allowed.  ``NOT complete`` works on PostgreSQL booleans and SQLite integers.
+SCORECARD_RESULT_COMPLETE_CHECK = "NOT complete OR insufficient_weight = 0"
+SCORECARD_RESULT_DIGESTS_CHECK = "length(definition_digest) = 64 AND length(input_digest) = 64"
+CRITERION_POSITION_CHECK = "position >= 0 AND position < 100"
+CRITERION_WEIGHT_CHECK = "weight BETWEEN 0 AND 100"
+# ``SCORECARD_KEY_CHECK`` applied to ``criterion_id``: the same three parts.
+CRITERION_KEY_CHECK = SCORECARD_KEY_CHECK.replace("scorecard_key", "criterion_id")
+# README "Criterion outcome", rows 1 and 3 to 9.  Row 2, a reviewer outcome, never
+# reaches a machine result, so ``reviewer`` is refused.
+CRITERION_DECIDED_BY_CHECK = (
+    "(outcome = 'insufficient_evidence' AND decided_by IS NULL) "
+    "OR (outcome = 'not_applicable' AND decided_by IS NOT NULL AND decided_by = 'rule') "
+    "OR (outcome IN ('passed', 'failed') AND decided_by IS NOT NULL "
+    "AND decided_by IN ('rule', 'model'))"
+)
+CRITERION_REASON_CHECK = (
+    "(outcome IN ('passed', 'failed') AND reason IS NULL) "
+    "OR (outcome IN ('not_applicable', 'insufficient_evidence') AND reason IS NOT NULL)"
+)
+# Review is required only through README row 4.
+CRITERION_REVIEW_CHECK = (
+    "NOT review_required OR (outcome = 'insufficient_evidence' AND reason IS NOT NULL "
+    "AND reason = 'review_required')"
+)
+CRITERION_CHECK_OUTCOME_CHECK = (
+    "check_outcome IS NULL "
+    "OR check_outcome IN ('passed', 'failed', 'not_applicable', 'not_computable')"
+)
+
+
+class ScorecardResultRecord(Base):
+    """One machine scoring of one conversation against one published scorecard version
+    (HOM-56).
+
+    Immutable: a stored result never changes, so a past score stays reproducible and
+    explainable.  It is conversation content derived from a transcript, so the
+    conversation purge removes it (bulk deletes, like ``analysis_extractions``).
+    ``check_run`` is the input (``CheckRun.to_json()``) and ``result`` the output
+    (``ScorecardResult.to_json()``), both stored exactly.  The columns next to them copy
+    what a list or a check needs without reading the JSON.  There is no score column: the
+    scores in ``result`` follow from the integer weights.  No column holds an NPS, a
+    churn value or a probability.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "scorecard_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    scorecard_version_id: Mapped[str] = mapped_column(
+        ForeignKey("scorecard_versions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The revision the check turns came from.  Every result names the revision its
+    # evidence points into, so the purge of the revisions reaches every result.
+    transcript_revision_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_revisions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The calculation version, for example ``scorecards/1``.
+    scorecards_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    checks_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    # A copy of the scorecard version's ``digest``.
+    definition_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    # SHA-256 hex of the scoring input.
+    input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The conversation facts used for scoring; a NULL direction is not known.
+    conversation_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    direction: Mapped[str | None] = mapped_column(String(12))
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(40))
+    complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    pass_threshold: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The score denominator and numerator, and the other two parts of the denominator.
+    applicable_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    earned_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    insufficient_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    check_run: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # One stored result per version, conversation and input.
+        UniqueConstraint(
+            "scorecard_version_id", "meeting_id", "input_digest", name="uq_scorecard_result_input"
+        ),
+        # First, so SQLite names it when an unknown outcome also breaks the reason rule.
+        CheckConstraint(SCORECARD_OUTCOME_CHECK, name="ck_scorecard_result_outcome"),
+        CheckConstraint(SCORECARD_RESULT_REASON_CHECK, name="ck_scorecard_result_reason"),
+        CheckConstraint(SCORECARD_RESULT_THRESHOLD_CHECK, name="ck_scorecard_result_threshold"),
+        CheckConstraint(SCORECARD_RESULT_WEIGHTS_CHECK, name="ck_scorecard_result_weights"),
+        CheckConstraint(SCORECARD_RESULT_COMPLETE_CHECK, name="ck_scorecard_result_complete"),
+        CheckConstraint(SCORECARD_RESULT_DIGESTS_CHECK, name="ck_scorecard_result_digests"),
+        CheckConstraint(CONVERSATION_TYPE_CHECK, name="ck_scorecard_result_conversation_type"),
+        CheckConstraint(CONVERSATION_DIRECTION_CHECK, name="ck_scorecard_result_direction"),
+        # The list of a conversation's results.
+        Index("ix_scorecard_result_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class CriterionResultRecord(Base):
+    """One criterion of one stored scorecard result, in definition order (HOM-56).
+
+    A queryable copy of ``result["criteria"][position]`` of its result row, without the
+    label (the definition holds it), so later tickets can find the criteria that need a
+    person and point an override at one row.  Immutable, and removed by the conversation
+    purge, like its result.
+    """
+
+    __tablename__ = "scorecard_criterion_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    result_id: Mapped[str] = mapped_column(
+        ForeignKey("scorecard_results.id", ondelete="CASCADE"), nullable=False
+    )
+    # A copy of the result's conversation: the purge and the backup reconciliation find
+    # content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    criterion_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    auto_fail: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    na_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(40))
+    decided_by: Mapped[str | None] = mapped_column(String(16))
+    review_required: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    review_reasons: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    # Copied from the check result; NULL when no check ran.
+    check_outcome: Mapped[str | None] = mapped_column(String(24))
+    check_reason: Mapped[str | None] = mapped_column(String(40))
+    evidence: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    candidate_evidence: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # Its leading column also serves the ``result_id`` foreign key.
+        UniqueConstraint("result_id", "position", name="uq_scorecard_criterion_result_position"),
+        UniqueConstraint(
+            "result_id", "criterion_id", name="uq_scorecard_criterion_result_criterion"
+        ),
+        # A conversation's criterion rows, for the purge and the backup reconciliation.
+        Index("ix_scorecard_criterion_result_workspace_meeting", "workspace_id", "meeting_id"),
+        # First, so SQLite names it when an unknown outcome also breaks other rules.
+        CheckConstraint(SCORECARD_OUTCOME_CHECK, name="ck_scorecard_criterion_result_outcome"),
+        CheckConstraint(CRITERION_POSITION_CHECK, name="ck_scorecard_criterion_result_position"),
+        CheckConstraint(CRITERION_WEIGHT_CHECK, name="ck_scorecard_criterion_result_weight"),
+        CheckConstraint(CRITERION_KEY_CHECK, name="ck_scorecard_criterion_result_key"),
+        CheckConstraint(
+            CRITERION_DECIDED_BY_CHECK, name="ck_scorecard_criterion_result_decided_by"
+        ),
+        CheckConstraint(CRITERION_REASON_CHECK, name="ck_scorecard_criterion_result_reason"),
+        CheckConstraint(CRITERION_REVIEW_CHECK, name="ck_scorecard_criterion_result_review"),
+        CheckConstraint(
+            CRITERION_CHECK_OUTCOME_CHECK, name="ck_scorecard_criterion_result_check_outcome"
+        ),
+    )
+
+
 class RunPolicySnapshot(Base):
     """The policy and model placement one processing attempt ran under
     (WP08-T02/T03, ADR 0027).  Written once per attempt, never changed; it
@@ -2814,6 +3011,31 @@ def _refuse_scorecard_version_update(_mapper, _connection, target: object) -> No
 @event.listens_for(ScorecardVersion, "before_delete")
 def _refuse_scorecard_version_delete(_mapper, _connection, target: object) -> None:
     raise ScorecardVersionImmutableError("Scorecard versions are append-only")
+
+
+class ScorecardResultImmutableError(RuntimeError):
+    """An ORM update or delete tried to change a stored scorecard result or criterion row."""
+
+
+@event.listens_for(ScorecardResultRecord, "before_update")
+@event.listens_for(CriterionResultRecord, "before_update")
+def _refuse_scorecard_result_update(_mapper, _connection, target: object) -> None:
+    changed = _changed_columns(target)
+    if changed:
+        raise ScorecardResultImmutableError(
+            f"{type(target).__name__} rows are immutable; score again instead "
+            f"(attempted: {', '.join(sorted(changed))})"
+        )
+
+
+# Only the ORM unit of work is refused.  The conversation purge removes the rows with
+# bulk ``delete()`` statements, which fire no mapper event.
+@event.listens_for(ScorecardResultRecord, "before_delete")
+@event.listens_for(CriterionResultRecord, "before_delete")
+def _refuse_scorecard_result_delete(_mapper, _connection, target: object) -> None:
+    raise ScorecardResultImmutableError(
+        f"{type(target).__name__} rows are immutable; only the conversation purge removes them"
+    )
 
 
 class IngestionImmutableError(RuntimeError):
