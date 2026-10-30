@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -508,8 +508,11 @@ def submit_record(
 ) -> RecordOutcome:
     """Record one received CRM record and apply it (DESIGN 4).  The caller commits.
 
-    Order: path slug, payload size, profile, extraction, then the ledger identity.  A
-    refusal raises :class:`CrmMappingError` before anything is written.
+    Order: path slug, payload size, profile lookup, then a seen identity (replay or
+    conflict), then the profile's ``is_active`` and the extraction, then the new row.  A
+    seen event is settled before the profile state and the extraction, so a replay still
+    answers after the profile is turned off.  A refusal raises :class:`CrmMappingError`
+    before anything is written.
     """
     require_source_system(source_system)
     canonical = canonical_payload(payload)
@@ -522,11 +525,7 @@ def submit_record(
         raise CrmMappingError(
             404, "mapping_profile_not_found", "No mapping profile for this system"
         )
-    if not profile.is_active:
-        raise CrmMappingError(409, "mapping_profile_inactive", "The mapping profile is inactive")
-    extracted = extract(profile.field_map, payload)
     digest = hashlib.sha256(canonical).hexdigest()
-
     existing = find_inbound_record(
         db, workspace_id=workspace.id, source_system=source_system, event_id=event_id
     )
@@ -540,6 +539,9 @@ def submit_record(
             settings=settings,
             now=now,
         )
+    if not profile.is_active:
+        raise CrmMappingError(409, "mapping_profile_inactive", "The mapping profile is inactive")
+    extracted = extract(profile.field_map, payload)
     record = IntegrationInboundRecord(
         organization_id=workspace.organization_id,
         workspace_id=workspace.id,
@@ -1049,7 +1051,10 @@ def list_items(
     reason: str | None,
     limit: int,
     before: datetime | None,
+    before_id: str | None = None,
 ) -> list[IntegrationReconciliationItem]:
+    """One page, newest first.  The cursor is tie-safe: the items of one record or one
+    sweep run share ``created_at``, so ``before_id`` breaks the tie by id."""
     query = select(IntegrationReconciliationItem).where(
         IntegrationReconciliationItem.workspace_id == workspace_id,
         IntegrationReconciliationItem.status == status,
@@ -1058,7 +1063,17 @@ def list_items(
         query = query.where(IntegrationReconciliationItem.source_system == source_system)
     if reason is not None:
         query = query.where(IntegrationReconciliationItem.reason == reason)
-    if before is not None:
+    if before is not None and before_id is not None:
+        query = query.where(
+            or_(
+                IntegrationReconciliationItem.created_at < before,
+                and_(
+                    IntegrationReconciliationItem.created_at == before,
+                    IntegrationReconciliationItem.id < before_id,
+                ),
+            )
+        )
+    elif before is not None:
         query = query.where(IntegrationReconciliationItem.created_at < before)
     return list(
         db.scalars(

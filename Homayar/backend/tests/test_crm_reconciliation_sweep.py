@@ -185,3 +185,24 @@ def test_two_sweeps_at_once_link_once_and_open_one_item(client, email_outbox, se
     (changed,) = _items(owner)
     assert changed["reason"] == "changed_id" and changed["candidate_value"] == "C-2"
     assert {row.state for row in _ledger(owner)} <= {"applied", "reconciliation"}
+
+
+def test_a_backlog_bigger_than_the_batch_rotates(client, email_outbox, settings):
+    """F2: with batch size 1 every pending record is visited, and a record whose
+    conversation exists is applied while older records stay pending."""
+    owner = _owner(client, email_outbox, "sweep-rotate")
+    _setup(owner)
+    records = [_record(owner, _payload(call, customer="C-1")) for call in ("c-1", "c-2", "c-3")]
+    meeting = _conversation(owner, "c-3")  # only the newest record can be applied
+
+    for _ in range(3):
+        assert reconcile_pending_records(settings, limit=1)["scanned"] == 1
+    oldest, middle, newest = (_stored(owner, record["id"]) for record in records)
+    assert (oldest.state, oldest.attempt_count) == ("pending", 1)
+    assert (middle.state, middle.attempt_count) == ("pending", 1)
+    assert newest.state == "applied" and newest.meeting_id == meeting
+
+    # The rotation goes on: the least recently tried record is next.
+    reconcile_pending_records(settings, limit=1)
+    assert _stored(owner, records[0]["id"]).attempt_count == 2
+    assert _stored(owner, records[1]["id"]).attempt_count == 1

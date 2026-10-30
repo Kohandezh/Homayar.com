@@ -209,9 +209,17 @@ def list_reconciliation_items(
     reason: ReconciliationReason | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
     before: datetime | None = Query(default=None),
+    before_id: str | None = Query(default=None, min_length=1, max_length=36),
     context: WorkspaceContext = Depends(require_permission(Permission.WORKSPACE_MANAGE)),
     db: Session = Depends(get_db),
 ) -> ReconciliationListResponse:
+    """Newest first.  Page with ``before`` + ``before_id`` from the last answer: items
+    of one record or one sweep run share ``created_at``, the id breaks the tie."""
+    if before_id is not None and before is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_cursor", "message": "before_id needs before"},
+        )
     items = list_items(
         db,
         workspace_id=context.workspace.id,
@@ -220,10 +228,13 @@ def list_reconciliation_items(
         reason=reason.value if reason is not None else None,
         limit=limit,
         before=before,
+        before_id=before_id,
     )
+    full = len(items) == limit
     return ReconciliationListResponse(
         items=[ReconciliationItemResponse.model_validate(item) for item in items],
-        next_before=items[-1].created_at if len(items) == limit else None,
+        next_before=items[-1].created_at if full else None,
+        next_before_id=items[-1].id if full else None,
     )
 
 

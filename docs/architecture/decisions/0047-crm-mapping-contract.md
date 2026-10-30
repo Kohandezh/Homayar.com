@@ -24,7 +24,9 @@ recreated or reactivated.
 A source system is named by a slug, for example `odoo`. Each workspace has one mapping
 profile per source system (`integration_mapping_profiles`). It says where the ids sit in the
 record payload (`field_map`, dotted paths), how outcome codes map to Homayar outcomes
-(`outcome_map`) and how agent ids map to Homayar users (`agent_map`).
+(`outcome_map`) and how agent ids map to Homayar users (`agent_map`). A map key with outer
+spaces is refused (`invalid_outcome_map`, `invalid_agent_map`): extracted values are trimmed,
+so such a key could never match.
 
 A customer, ticket or agent is an `external_records` row, known only by
 `(workspace, source_system, record_type, external_id)`, unique in the database. The same id
@@ -89,6 +91,9 @@ ended. It finds pending rows under the read-only `crm_reconciliation` service sc
 changes each one in a transaction bound to the row's own workspace, holding the row with
 `FOR UPDATE SKIP LOCKED`. Writes to one conversation's links and items are serialised with a
 transaction advisory lock, so two sweeps at once never link twice or open an item twice.
+
+Turning a profile off blocks new records only. The sweep still settles the records already
+received, with the profile's current maps.
 
 There is no hook in the ingestion path. A hook would add CRM work to every upload, and a
 retry path that runs anyway would still be needed for uploads that come later. The sweep is

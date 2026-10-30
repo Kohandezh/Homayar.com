@@ -89,8 +89,12 @@ class ReconciliationItemResponse(BaseModel):
 
 
 class ReconciliationListResponse(BaseModel):
+    """``next_before`` and ``next_before_id`` are the last item's ``created_at`` and ``id``
+    when the page is full, else null.  Send both back as ``before`` and ``before_id``."""
+
     items: list[ReconciliationItemResponse]
     next_before: datetime | None = None
+    next_before_id: str | None = None
 
 
 class ResolveRequest(BaseModel):

@@ -57,13 +57,21 @@ class PendingRef:
 
 
 def discover_pending(*, limit: int) -> list[PendingRef]:
-    """Pending records across tenants, oldest expiry first (read-only service scope)."""
+    """Pending records across tenants (read-only service scope).
+
+    Never-tried records first, then the least recently tried, so a backlog bigger than
+    the batch rotates and no pending record starves; then the oldest expiry.
+    """
     with get_session_factory()() as db:
         bind_service_scope(db, SERVICE_SCOPE_CRM_RECONCILIATION)
         rows = db.execute(
             select(IntegrationInboundRecord.id, IntegrationInboundRecord.workspace_id)
             .where(IntegrationInboundRecord.state == InboundRecordState.PENDING.value)
-            .order_by(IntegrationInboundRecord.expires_at.asc(), IntegrationInboundRecord.id.asc())
+            .order_by(
+                IntegrationInboundRecord.last_attempt_at.asc().nulls_first(),
+                IntegrationInboundRecord.expires_at.asc(),
+                IntegrationInboundRecord.id.asc(),
+            )
             .limit(limit)
         ).all()
         db.rollback()

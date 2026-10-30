@@ -1072,3 +1072,99 @@ def test_records_and_items_stay_in_their_workspace_at_the_database(client, email
                 assert (count == 0) is expected_empty, (workspace_id, table, count)
     assert other.get(PROFILES).json()["items"] == []
     assert _items(other) == []
+
+
+# --- review turn 1 (SPEC Addendum 3) -------------------------------------------------------
+
+
+def _all_pages(persona: _Persona, limit: int) -> list[str]:
+    """Walk the queue with the tie-safe cursor; returns the item ids in page order."""
+    seen: list[str] = []
+    params: dict = {"limit": limit}
+    while True:
+        response = persona.get(RECONCILIATION, params=params)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        seen.extend(item["id"] for item in body["items"])
+        assert (body["next_before"] is None) == (body["next_before_id"] is None)
+        if body["next_before"] is None:
+            return seen
+        assert body["next_before_id"] == body["items"][-1]["id"]
+        params = {
+            "limit": limit,
+            "before": body["next_before"],
+            "before_id": body["next_before_id"],
+        }
+
+
+def test_the_queue_cursor_is_tie_safe_across_one_record(client, email_outbox):
+    """F1: all items of one record share ``created_at``; ``limit=1`` still visits each once."""
+    owner = _owner(client, email_outbox, "cursor-record")
+    _setup(owner)
+    _conversation(owner, "call-1")
+    _record(owner, _payload(customer="C-1", ticket="T-1", outcome="WON"))
+    record = _record(owner, _payload(customer="C-2", ticket="T-2", agent="u-99", outcome="MAYBE"))
+    ids = record["reconciliation_item_ids"]
+    assert len(ids) == 4
+    assert len({item["created_at"] for item in _items(owner)}) == 1  # one shared time
+
+    pages = _all_pages(owner, limit=1)
+    assert sorted(pages) == sorted(ids) and len(pages) == len(set(pages))
+    assert pages == [item["id"] for item in _items(owner)]  # the same order as one page
+
+    # ``before`` alone keeps ``created_at < before``; ``before_id`` alone is refused.
+    first = owner.get(RECONCILIATION, params={"limit": 1}).json()
+    assert owner.get(RECONCILIATION, params={"before": first["next_before"]}).json()["items"] == []
+    refused = owner.get(RECONCILIATION, params={"before_id": first["next_before_id"]})
+    assert refused.status_code == 422 and _code(refused) == "invalid_cursor"
+    last = owner.get(RECONCILIATION, params={"limit": 50}).json()
+    assert last["next_before"] is None and last["next_before_id"] is None
+
+
+def test_the_queue_cursor_is_tie_safe_across_one_sweep_run(client, email_outbox, settings):
+    """F1: the items one sweep run opens share ``created_at``; ``limit=2`` visits each once."""
+    from backend.jobs.crm_reconciliation import reconcile_pending_records
+
+    owner = _owner(client, email_outbox, "cursor-sweep")
+    _setup(owner)
+    for call in ("call-1", "call-2", "call-3", "call-4", "call-5"):
+        _record(owner, _payload(call, customer="C-1"))
+    counts = reconcile_pending_records(settings, now=datetime.now(UTC) + timedelta(days=8))
+    assert counts["reconciliation"] == 5
+    items = _items(owner)
+    assert len(items) == 5 and len({item["created_at"] for item in items}) == 1
+
+    pages = _all_pages(owner, limit=2)
+    assert sorted(pages) == sorted(item["id"] for item in items)
+    assert len(pages) == len(set(pages)) == 5
+
+
+def test_a_seen_event_is_settled_before_the_profile_state_and_extraction(client, email_outbox):
+    """F3: replay and conflict come after 404 and 413, before ``is_active`` and extraction."""
+    owner = _owner(client, email_outbox, "settle-first")
+    _setup(owner)
+    payload = _payload("call-1", customer="C-1")
+    first = _record(owner, payload, event_id="evt-seen")
+
+    assert _put(owner, "odoo", **_profile_body(is_active=False)).status_code == 200
+    replay = _post(owner, payload, event_id="evt-seen")
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["replayed"] is True and replay.json()["id"] == first["id"]
+    unseen = _post(owner, payload, event_id="evt-new")
+    assert unseen.status_code == 409 and _code(unseen) == "mapping_profile_inactive"
+
+    assert _put(owner, "odoo", **_profile_body()).status_code == 200
+    broken = _post(owner, _payload(call=None), event_id="evt-seen")  # would fail extraction
+    assert broken.status_code == 409 and _code(broken) == "inbound_record_conflict"
+    (stored,) = _ledger(owner)
+    assert stored.conflict_count == 1
+    assert len(_audits(AuditEventType.INTEGRATION_RECORD_CONFLICT)) == 1
+    assert _post(owner, _payload(call=None), event_id="evt-other").status_code == 422
+
+    # 404 and 413 still come first.
+    big = _payload()
+    big["blob"] = "x" * 66000
+    too_large = _post(owner, big, event_id="evt-seen")
+    assert too_large.status_code == 413 and _code(too_large) == "payload_too_large"
+    missing = _post(owner, payload, system="zoho", event_id="evt-seen")
+    assert missing.status_code == 404 and _code(missing) == "mapping_profile_not_found"
