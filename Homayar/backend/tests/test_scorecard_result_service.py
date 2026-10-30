@@ -32,7 +32,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from backend.conversation_checks import CheckRun, CheckTurn, finish_checks, plan_checks
 from backend.database.relational import get_session_factory
@@ -520,17 +520,25 @@ def test_only_a_live_meeting_of_the_workspace_and_its_own_revision_are_used(clie
             "transcript_revision_invalid",
             {**arguments, "transcript_revision_id": revision_id},
         )
-    # A deleted conversation is refused too: its purge may already have run.
-    deleted = _conversation(tenant)
-    with inspection_session_factory()() as db:
-        db.get(Meeting, deleted["meeting_id"]).deleted_at = NOW
-        db.commit()
-    _refused(
-        tenant,
-        "meeting_not_found",
-        {**arguments, **deleted},
-    )
     assert _record(tenant, arguments)[1]  # allow: the meeting and its own revision
+
+
+def test_a_tombstoned_meeting_is_refused(client, email_outbox):
+    """SPEC Addendum 1, B1: its purge may already have run, so nothing is stored."""
+    tenant = _tenant(client, email_outbox, "tombstone")
+    case = _conversation(tenant)
+    arguments = _arguments(tenant, case, _version(tenant), _run(DEFINITION))
+    # Allow: the same meeting before the tombstone.
+    assert _record(tenant, arguments)[1]
+    assert _counts() == (1, 4)
+
+    with inspection_session_factory()() as db:
+        db.get(Meeting, case["meeting_id"]).deleted_at = NOW
+        db.commit()
+    # The same input and a new one are both refused, and nothing is written.
+    _refused(tenant, "meeting_not_found", arguments)
+    changed = {**arguments, "check_run": _run(DEFINITION, turns=TURNS_WITH_FEE)}
+    _refused(tenant, "meeting_not_found", changed)
 
 
 def test_engine_errors_propagate_and_write_nothing(client, email_outbox):
@@ -661,6 +669,93 @@ def test_verify_recomputes_a_stored_row_and_sees_a_change(client, email_outbox):
             verify_result(db, workspace_id=tenant["workspace_id"], result_id=old_engine)
     assert error.value.code == "calculation_version_mismatch"
     assert _verify(tenant, untouched) is True  # allow: the untouched row still verifies
+
+
+RESULTS = ScorecardResultRecord.__table__
+CRITERIA = CriterionResultRecord.__table__
+
+
+def _set(**values: Any):
+    """Change columns of the result row."""
+
+    def change(tenant: dict, row: ScorecardResultRecord) -> None:
+        _tamper(RESULTS, RESULTS.c.id == row.id, **values)
+
+    return change
+
+
+def _set_criterion(at: int, **values: Any):
+    """Change columns of the criterion row at position ``at``."""
+
+    def change(tenant: dict, row: ScorecardResultRecord) -> None:
+        where = (CRITERIA.c.result_id == row.id, CRITERIA.c.position == at)
+        _tamper(CRITERIA, *where, **values)
+
+    return change
+
+
+def _set_check_run(edit):
+    """Replace the stored check run with ``edit(stored check run)``."""
+
+    def change(tenant: dict, row: ScorecardResultRecord) -> None:
+        _tamper(RESULTS, RESULTS.c.id == row.id, check_run=edit(row.check_run))
+
+    return change
+
+
+def _drop_last_criterion(tenant: dict, row: ScorecardResultRecord) -> None:
+    with inspection_session_factory()() as db:
+        db.execute(delete(CRITERIA).where(CRITERIA.c.result_id == row.id, CRITERIA.c.position == 3))
+        db.commit()
+
+
+def _swap_first_two_criteria(tenant: dict, row: ScorecardResultRecord) -> None:
+    # Through a free position, because (result_id, position) is unique.
+    for old, new in ((0, 50), (1, 0), (50, 1)):
+        _set_criterion(old, position=new)(tenant, row)
+
+
+def _other_revision(tenant: dict, row: ScorecardResultRecord) -> None:
+    revision_id = _revision(tenant, row.meeting_id, 2)
+    _tamper(RESULTS, RESULTS.c.id == row.id, transcript_revision_id=revision_id)
+
+
+# SPEC Addendum 1, B2.  Each change is a direct SQL statement as the table owner.  The
+# result JSON stays as stored unless the case names it.
+TAMPERS = {
+    # The weights check keeps the sum, so the failed weight moves with the earned weight.
+    "earned_weight": _set(earned_weight=25, failed_weight=50),
+    "outcome_and_reason": _set(outcome="failed", reason="below_threshold"),
+    "complete": _set(complete=False),
+    "pass_threshold": _set(pass_threshold=61),
+    "checks_version": _set(checks_version="conversation-checks/0"),
+    "definition_digest": _set(definition_digest="f" * 64),
+    "input_digest": _set(input_digest="e" * 64),
+    "direction": _set(direction="outbound"),
+    # The agenda criterion applies to a meeting, and the stored run has no result for it:
+    # the engine refuses the stored input.
+    "conversation_type": _set(conversation_type="meeting"),
+    "transcript_revision": _other_revision,
+    "criterion_weight": _set_criterion(0, weight=30),
+    "criterion_evidence": _set_criterion(0, evidence=[{"turn_index": 9}]),
+    "criterion_missing": _drop_last_criterion,
+    "criterion_gap": _set_criterion(3, position=7),
+    "criterion_order": _swap_first_two_criteria,
+    # The engine refuses these stored runs; verify gives False and does not raise.
+    "check_run_short": _set_check_run(lambda run: {**run, "results": run["results"][:-1]}),
+    "check_run_not_a_run": _set_check_run(lambda run: "not a check run"),
+    # A change the engine may accept: the input digest no longer matches.
+    "check_run_language": _set_check_run(lambda run: {**run, "language": "fa"}),
+}
+
+
+@pytest.mark.parametrize("change", list(TAMPERS.values()), ids=list(TAMPERS))
+def test_verify_is_false_for_any_changed_copy_and_never_raises(client, email_outbox, change):
+    tenant = _tenant(client, email_outbox, "verify-copy")
+    result_id = _recorded(tenant)
+    assert _verify(tenant, result_id) is True  # allow: untouched
+    change(tenant, _stored(result_id)[0])
+    assert _verify(tenant, result_id) is False
 
 
 def test_verify_and_get_find_only_the_workspace_rows(client, email_outbox):
