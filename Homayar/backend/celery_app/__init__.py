@@ -27,7 +27,7 @@ RETENTION_PURGE_TASK = "backend.jobs.run_retention_purge"
 # Analysis recompute after a transcript correction (HOM-63, ADR 0037).
 RECOMPUTE_ANALYSIS_TASK = "backend.jobs.recompute_meeting_analysis"
 RECOMPUTE_SWEEP_TASK = "backend.jobs.sweep_stale_analyses"
-# Signed webhook delivery (HOM-89, ADR 0047).
+# Signed webhook delivery (HOM-89, ADR 0049).
 DELIVER_WEBHOOK_TASK = "backend.jobs.deliver_webhook"
 WEBHOOK_SWEEP_TASK = "backend.jobs.sweep_webhook_deliveries"
 # Grace between the cooperative attempt deadline and the hard kill.

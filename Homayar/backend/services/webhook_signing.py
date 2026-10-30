@@ -1,4 +1,4 @@
-"""Signing and secret handling for outbound webhooks (HOM-89, ADR 0047).
+"""Signing and secret handling for outbound webhooks (HOM-89, ADR 0049).
 
 Pure functions, no database and no network. The delivery worker signs each
 request with every usable key of the endpoint; receivers verify with

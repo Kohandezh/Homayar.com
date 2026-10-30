@@ -1,4 +1,4 @@
-"""Outbound webhook endpoints, signing keys and event enqueue (HOM-89, ADR 0047).
+"""Outbound webhook endpoints, signing keys and event enqueue (HOM-89, ADR 0049).
 
 * Management is for owners and admins in a session (``webhook:manage`` is
   never an API key scope). A signing secret leaves the server only in the
@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
@@ -46,6 +46,9 @@ from backend.services.webhook_signing import (
 WEBHOOK_EVENT_TYPES: tuple[str, ...] = ("webhook.test",)
 
 WEBHOOK_URL_MAX_LENGTH = 1000
+# Unexpired signing keys per endpoint after a rotation: the active key and the
+# retiring ones. Each one is decrypted and used to sign every request.
+MAX_UNEXPIRED_SIGNING_KEYS = 5
 
 # Spaces and control characters. URL parsers silently drop some of them, so
 # they are refused before parsing.
@@ -58,6 +61,10 @@ _NUMERIC_LABEL = re.compile(r"(?:[0-9]+|0x[0-9a-f]*)")
 # prefix) and the old IPv4-compatible form. They are judged as that IPv4 address.
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 _IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
+
+# Names that, in the deployed cloud, reach the internal compose services
+# (minio, postgres, api) instead of a customer: refused there (blind SSRF).
+_INTERNAL_NAME_SUFFIXES = (".internal", ".local", ".localhost")
 
 _Address = ipaddress.IPv4Address | ipaddress.IPv6Address
 
@@ -73,15 +80,17 @@ def _embedded_ipv4(address: _Address | None) -> _Address | None:
     return address
 
 
-def webhook_url_refusal(url: str, *, production: bool) -> str | None:
+def webhook_url_refusal(url: str, *, production: bool, cloud: bool = False) -> str | None:
     """Why ``url`` cannot be a webhook endpoint, or ``None``.
 
     Refused everywhere: too long, not http(s), no host, userinfo, cloud
     metadata, link-local, unspecified or multicast addresses. In production
-    also plain http and loopback. Private addresses stay allowed: on-premise
-    CRMs live there. What a hostname resolves to at send time is the network
-    layer's job (ADR 0031). The reason never repeats the URL, which can carry a
-    token in its query.
+    also plain http and loopback; in a production *cloud* deployment also a
+    single-label host name or one ending in ``.internal``, ``.local`` or
+    ``.localhost``. Private addresses stay allowed: on-premise CRMs live
+    there. What a hostname resolves to at send time is the network layer's
+    job (ADR 0031). The reason never repeats the URL, which can carry a token
+    in its query.
 
     The URL is parsed by httpx, the client that sends, and every host check
     runs on the host it will connect to (lowercase, IDNA ``xn--`` form for an
@@ -120,7 +129,21 @@ def webhook_url_refusal(url: str, *, production: bool) -> str | None:
             return "a webhook URL uses https in production"
         if _is_loopback(host, address):
             return "a webhook URL is not a loopback host in production"
+        # Names only: an IP literal was judged by the address rules above.
+        if (
+            cloud
+            and address is None
+            and ("." not in host or host.endswith(_INTERNAL_NAME_SUFFIXES))
+        ):
+            return "a cloud webhook URL uses a public host name"
     return None
+
+
+def url_refusal_for(url: str, settings: Settings) -> str | None:
+    """The URL policy for this deployment (create, update and every send)."""
+    return webhook_url_refusal(
+        url, production=settings.is_production, cloud=settings.deployment_mode == "cloud"
+    )
 
 
 def _is_loopback(host: str, address: _Address | None) -> bool:
@@ -147,7 +170,7 @@ def endpoint_not_found() -> WebhookError:
 
 
 def check_url(url: str, settings: Settings) -> None:
-    reason = webhook_url_refusal(url, production=settings.is_production)
+    reason = url_refusal_for(url, settings)
     if reason is not None:
         raise WebhookError(422, "webhook_url_refused", f"The webhook URL is refused: {reason}")
 
@@ -357,6 +380,28 @@ def rotate_signing_key(
             WebhookSigningKey.endpoint_id == endpoint.id, WebhookSigningKey.expires_at.is_(None)
         )
     )
+    unexpired = (
+        db.scalar(
+            select(func.count())
+            .select_from(WebhookSigningKey)
+            .where(
+                WebhookSigningKey.endpoint_id == endpoint.id,
+                or_(WebhookSigningKey.expires_at.is_(None), WebhookSigningKey.expires_at > now),
+            )
+        )
+        or 0
+    )
+    # Counted as after the rotation: the new key, plus the previous active key
+    # unless an overlap of 0 expires it at once. So rotating away a leaked
+    # active key with overlap 0 is never refused.
+    after = unexpired + 1 - (1 if previous is not None and overlap_seconds == 0 else 0)
+    if after > MAX_UNEXPIRED_SIGNING_KEYS:
+        raise WebhookError(
+            409,
+            "webhook_signing_key_limit",
+            f"An endpoint can have at most {MAX_UNEXPIRED_SIGNING_KEYS} unexpired signing keys; "
+            "rotate with overlap_seconds 0 or wait for a retiring key to expire",
+        )
     if previous is not None:
         previous.expires_at = now + timedelta(seconds=overlap_seconds)
         # Flushed first: at most one key per endpoint may have no expiry.

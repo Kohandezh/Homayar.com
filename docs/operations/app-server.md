@@ -608,7 +608,7 @@ with a clear error until a provider is set. Keys go into `secrets/<name>` (mode 
 | Phone sign-in | `ENABLE_PHONE_AUTH=true`, `ASANAK_SENDER`, `ASANAK_API_KEY` (secret) | Egress and `panel.asanak.com:443` |
 | E-mail (verify, reset, invite) | `SMTP_HOST`, `SMTP_PORT` (465 or 587), `SMTP_USERNAME`, `SMTP_FROM`, `SMTP_USE_TLS`, `SMTP_PASSWORD` (secret) | SMTP does not pass the egress proxy. It needs a mail relay on an internal network. Production refuses SMTP without TLS. |
 | Optional | `PII_MAPPING_KEYS` (secret), `PII_MAPPING_ACTIVE_KEY_ID`, `METRICS_BEARER_TOKEN` (secret) | |
-| Outbound webhooks | `WEBHOOK_SECRET_KEYS` (secret), `WEBHOOK_SECRET_ACTIVE_KEY_ID` (ADR 0047) | Without them no webhook endpoint can be created. |
+| Outbound webhooks | `WEBHOOK_SECRET_KEYS` (secret), `WEBHOOK_SECRET_ACTIVE_KEY_ID` (ADR 0049) | Without them no webhook endpoint can be created. |
 
 After any provider change: `~/homayar/hc up -d --no-build --pull never`, then
 `~/homayar/hc run --rm -T --no-deps api python -m backend.jobs.model_preflight 2>&1 | sed -E 's/[0-9a-f]{20,}/<redacted>/g'`.

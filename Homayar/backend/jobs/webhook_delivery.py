@@ -1,4 +1,4 @@
-"""Signed webhook delivery: claim, send, record, and the sweeper (HOM-89, ADR 0047).
+"""Signed webhook delivery: claim, send, record, and the sweeper (HOM-89, ADR 0049).
 
 Transaction boundaries
 ----------------------
@@ -50,7 +50,7 @@ from backend.database.tenant_context import (
     bind_tenant_context,
 )
 from backend.services.logging_service import logger
-from backend.services.webhook_service import webhook_url_refusal
+from backend.services.webhook_service import url_refusal_for
 from backend.services.webhook_signing import (
     WebhookSecretCipher,
     WebhookSecretIntegrityError,
@@ -206,7 +206,7 @@ def _claim(
         if endpoint is None or not endpoint.is_active:
             _refuse(db, delivery, ENDPOINT_INACTIVE)
             return None
-        if webhook_url_refusal(endpoint.url, production=settings.is_production) is not None:
+        if url_refusal_for(endpoint.url, settings) is not None:
             _refuse(db, delivery, URL_REFUSED)
             return None
         if delivery.payload is None:

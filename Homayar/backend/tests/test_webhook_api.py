@@ -304,6 +304,8 @@ def test_a_refused_url_is_422_and_nothing_is_stored(client, email_outbox, monkey
         "https://hooks.example.com/x?token=abc",
         "http://10.0.0.5:8080/hook",
         "http://192.168.1.20/hook",
+        "http://localhost:9000/x",
+        "http://127.0.0.1:9000/x",
         "https://hooks.example.com/" + "a" * 974,
     ],
 )
@@ -336,6 +338,53 @@ def test_production_also_refuses_http_and_loopback(
     assert response.status_code == status, response.text
     if status == 422:
         assert _error(response) == "webhook_url_refused"
+
+
+@pytest.mark.parametrize(
+    ("mode", "url", "status"),
+    [
+        ("cloud", "https://minio:9000/x", 422),
+        ("cloud", "https://api/x", 422),
+        ("cloud", "https://crm.internal/x", 422),
+        ("cloud", "https://printer.local/x", 422),
+        ("cloud", "https://a.localhost/x", 422),
+        ("cloud", "https://[2001:db8::1]/x", 201),
+        ("cloud", HOOK, 201),
+        ("onprem", "https://minio:9000/x", 201),
+        ("onprem", "https://api/x", 201),
+        ("onprem", "https://crm.internal/x", 201),
+        ("onprem", HOOK, 201),
+    ],
+)
+def test_a_production_cloud_refuses_internal_host_names(
+    client, email_outbox, monkeypatch, settings, mode, url, status
+):
+    """SPEC A5.4: in the deployed cloud these names reach internal services."""
+    owner = _owner(client, email_outbox, monkeypatch)
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "deployment_mode", mode)
+
+    response = _create(owner, url)
+
+    assert response.status_code == status, response.text
+    if status == 422:
+        assert _error(response) == "webhook_url_refused"
+
+
+@pytest.mark.parametrize(("mode", "status"), [("cloud", 422), ("onprem", 200)])
+def test_patch_to_an_internal_name_follows_the_deployment(
+    client, email_outbox, monkeypatch, settings, mode, status
+):
+    owner = _owner(client, email_outbox, monkeypatch)
+    one = f"{ENDPOINTS}/{_created(owner)['endpoint']['id']}"
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "deployment_mode", mode)
+
+    response = owner.patch(one, json={"url": "https://crm.internal/hook"})
+
+    assert response.status_code == status, response.text
+    expected = HOOK if status == 422 else "https://crm.internal/hook"
+    assert owner.get(one).json()["url"] == expected
 
 
 def test_patch_to_a_refused_url_keeps_the_stored_url(client, email_outbox, monkeypatch):
@@ -486,6 +535,53 @@ def test_rotation_default_overlap_is_one_day_and_retiring_keys_keep_their_expiry
     assert first.json()["signing_secret"] != second.json()["signing_secret"]
 
 
+# --- the rotation cap (SPEC A5.3) -----------------------------------------------------
+
+
+def _unexpired_key_ids(owner, endpoint_id: str) -> list[str]:
+    keys = owner.get(f"{ENDPOINTS}/{endpoint_id}").json()["signing_keys"]
+    return sorted(key["key_id"] for key in keys if key["state"] != "expired")
+
+
+def test_rotation_is_capped_at_five_unexpired_keys_but_overlap_zero_always_works(
+    client, email_outbox, monkeypatch
+):
+    owner = _owner(client, email_outbox, monkeypatch)
+    endpoint_id = _created(owner)["endpoint"]["id"]
+    rotate = f"{ENDPOINTS}/{endpoint_id}/signing-keys"
+    for _ in range(4):
+        assert owner.post(rotate, json={"overlap_seconds": 3600}).status_code == 201
+    before = owner.get(f"{ENDPOINTS}/{endpoint_id}").json()["signing_keys"]
+    assert len(_unexpired_key_ids(owner, endpoint_id)) == 5
+
+    refused = owner.post(rotate, json={"overlap_seconds": 3600})
+
+    assert refused.status_code == 409, refused.text
+    assert _error(refused) == "webhook_signing_key_limit"
+    assert owner.get(f"{ENDPOINTS}/{endpoint_id}").json()["signing_keys"] == before
+
+    # A leaked active key can always be rotated away: overlap 0 expires it at once.
+    emergency = owner.post(rotate, json={"overlap_seconds": 0})
+    assert emergency.status_code == 201, emergency.text
+    assert len(_unexpired_key_ids(owner, endpoint_id)) == 5
+    assert owner.post(rotate, json={"overlap_seconds": 3600}).status_code == 409
+
+    # Expired keys do not count: once a retiring key expires, a normal rotation works.
+    with inspection_session_factory()() as db:
+        retiring = db.scalars(
+            select(WebhookSigningKey)
+            .where(
+                WebhookSigningKey.endpoint_id == endpoint_id,
+                WebhookSigningKey.expires_at.is_not(None),
+            )
+            .order_by(WebhookSigningKey.expires_at.desc())
+        ).first()
+        retiring.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.commit()
+    assert owner.post(rotate, json={"overlap_seconds": 3600}).status_code == 201
+    assert len(_unexpired_key_ids(owner, endpoint_id)) == 5
+
+
 # --- the test route --------------------------------------------------------------------
 
 
@@ -524,6 +620,53 @@ def test_the_test_route_refuses_an_inactive_endpoint(client, email_outbox, monke
 
     assert owner.patch(one, json={"is_active": True}).status_code == 200
     assert owner.post(f"{one}/test").status_code == 202
+
+
+def _delivery_count(workspace_id: str) -> int:
+    with inspection_session_factory()() as db:
+        return len(
+            db.scalars(
+                select(WebhookDelivery).where(WebhookDelivery.workspace_id == workspace_id)
+            ).all()
+        )
+
+
+def test_the_test_route_is_rate_limited_per_workspace(client, email_outbox, monkeypatch, settings):
+    """SPEC A5.2: over the limit, 429 and no delivery row."""
+    monkeypatch.setattr(settings, "webhook_test_rate_limit_per_hour", 2)
+    owner = _owner(client, email_outbox, monkeypatch)
+    test = f"{ENDPOINTS}/{_created(owner)['endpoint']['id']}/test"
+
+    assert [owner.post(test).status_code for _ in range(2)] == [202, 202]
+    refused = owner.post(test)
+
+    assert refused.status_code == 429, refused.text
+    assert _error(refused) == "webhook_test_rate_limited"
+    assert int(refused.headers["Retry-After"]) > 0
+    assert _delivery_count(owner.workspace_id) == 2
+    # Another workspace has its own budget.
+    other = _persona(client, email_outbox, "webhook-rate-other@example.com")
+    other_test = f"{ENDPOINTS}/{_created(other)['endpoint']['id']}/test"
+    assert other.post(other_test).status_code == 202
+
+
+@pytest.mark.parametrize(("fail_open", "status"), [(False, 503), (True, 202)])
+def test_an_unavailable_limiter_is_handled_like_uploads(
+    client, email_outbox, monkeypatch, settings, fail_open, status
+):
+    owner = _owner(client, email_outbox, monkeypatch)
+    test = f"{ENDPOINTS}/{_created(owner)['endpoint']['id']}/test"
+    # Outside test and development the limiter has no in-memory fallback, and
+    # the test app's Redis (port 1) refuses: the limiter is unavailable.
+    monkeypatch.setattr(settings, "environment", "staging")
+    monkeypatch.setattr(settings, "rate_limit_fail_open", fail_open)
+
+    response = owner.post(test)
+
+    assert response.status_code == status, response.text
+    if status == 503:
+        assert _error(response) == "rate_limiter_unavailable"
+    assert _delivery_count(owner.workspace_id) == (0 if status == 503 else 1)
 
 
 # --- the active endpoint limit ---------------------------------------------------------

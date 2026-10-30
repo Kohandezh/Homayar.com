@@ -1,4 +1,4 @@
-"""Outbound webhook endpoints (HOM-89, ADR 0047).
+"""Outbound webhook endpoints (HOM-89, ADR 0049).
 
 Management is session-only in effect: every route requires ``webhook:manage``,
 which is never an API key scope, so a key is refused with
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
@@ -37,6 +37,11 @@ from backend.security.context import (
 )
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
+from backend.services.rate_limit_service import (
+    RateLimiter,
+    RateLimitExceeded,
+    RateLimitUnavailable,
+)
 from backend.services.webhook_service import (
     WebhookError,
     create_endpoint,
@@ -115,6 +120,30 @@ def _audit(
         details=details,
         settings=settings,
     )
+
+
+def _enforce_test_rate_limit(settings: Settings, workspace_id: str) -> None:
+    # Like uploads: each test event is a real request to a customer's server.
+    try:
+        RateLimiter(settings).hit(
+            f"webhook_test:workspace:{workspace_id}",
+            limit=settings.webhook_test_rate_limit_per_hour,
+            window_seconds=3600,
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "webhook_test_rate_limited", "message": "Too many webhook tests"},
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "rate_limiter_unavailable",
+                "message": "Webhook tests are temporarily unavailable",
+            },
+        ) from exc
 
 
 @router.post("/endpoints", response_model=WebhookEndpointCreatedResponse, status_code=201)
@@ -278,6 +307,8 @@ def queue_webhook_test(
     endpoint = get_endpoint(db, workspace_id=context.workspace.id, endpoint_id=endpoint_id)
     if not endpoint.is_active:
         raise WebhookError(409, "webhook_endpoint_inactive", "The webhook endpoint is not active")
+    # Before anything is written: a refused test leaves no delivery row.
+    _enforce_test_rate_limit(settings, context.workspace.id)
     [delivery] = enqueue_event(
         db,
         workspace_id=context.workspace.id,

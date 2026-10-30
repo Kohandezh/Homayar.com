@@ -617,6 +617,27 @@ def test_production_refuses_a_plain_http_url_at_send(
     _assert_refused(delivery_id, receiver, "url_refused")
 
 
+@pytest.mark.parametrize("url", ["https://minio:9000/x", "https://crm.internal/x"])
+@pytest.mark.parametrize("mode", ["cloud", "onprem"])
+def test_a_production_cloud_refuses_an_internal_name_at_send(
+    client, email_outbox, monkeypatch, now, settings, url, mode
+):
+    """SPEC A5.4: the URL was changed in the database after it was checked."""
+    _, created, delivery_id = _one_delivery(client, email_outbox, monkeypatch, now)
+    _update(WebhookEndpoint, created["endpoint"]["id"], url=url)
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "deployment_mode", mode)
+    receiver = Receiver()
+
+    deliver_webhook(delivery_id, now=now, http_client=receiver.client)
+
+    if mode == "cloud":
+        _assert_refused(delivery_id, receiver, "url_refused")
+    else:
+        assert [str(request.url) for request in receiver.requests] == [url]
+        assert _delivery(delivery_id)["state"] == "delivered"
+
+
 @pytest.mark.parametrize(
     "keyring",
     [("", ""), (f"wk2:{'A' * 43}=", "wk2")],

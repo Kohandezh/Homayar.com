@@ -358,6 +358,7 @@ def test_webhook_settings_defaults() -> None:
     assert settings.webhook_delivery_timeout_seconds == 10
     assert settings.webhook_sweep_interval_seconds == 30
     assert settings.webhook_max_endpoints_per_workspace == 20
+    assert settings.webhook_test_rate_limit_per_hour == 30
 
 
 def test_webhook_secret_keys_is_a_hidden_secret_setting() -> None:
@@ -388,6 +389,7 @@ def test_webhook_secret_keys_is_a_hidden_secret_setting() -> None:
         ({"webhook_delivery_timeout_seconds": 0}, "WEBHOOK_DELIVERY_TIMEOUT_SECONDS"),
         ({"webhook_sweep_interval_seconds": 0}, "WEBHOOK_SWEEP_INTERVAL_SECONDS"),
         ({"webhook_max_endpoints_per_workspace": 0}, "WEBHOOK_MAX_ENDPOINTS_PER_WORKSPACE"),
+        ({"webhook_test_rate_limit_per_hour": 0}, "WEBHOOK_TEST_RATE_LIMIT_PER_HOUR"),
     ],
 )
 def test_invalid_webhook_settings_are_refused_without_the_key(overrides, message) -> None:

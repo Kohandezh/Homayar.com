@@ -1,4 +1,4 @@
-# ADR 0047: Signed outbound webhooks and the delivery ledger
+# ADR 0049: Signed outbound webhooks and the delivery ledger
 
 Date: 2026-10-30 · Status: Proposed (HOM-89, WP16-T05) · Builds on: ADR 0007, ADR 0013,
 ADR 0023, ADR 0031
@@ -54,6 +54,10 @@ receivers ignore versions they do not know.
   first. A receiver that still has only the old secret keeps working; one that already
   has the new secret works too. With `overlap_seconds: 0` the old key stops at once (for a
   leaked secret).
+- An endpoint has at most 5 unexpired keys, counted as they would be after the rotation
+  (`409 webhook_signing_key_limit` otherwise, and nothing changes). A rotation with
+  `overlap_seconds: 0` expires the old active key at once, so it is never refused: a leaked
+  active key can always be rotated away.
 - The secret is in the create and rotate answers only. No other answer, log line, audit
   row or error message carries it.
 
@@ -159,9 +163,15 @@ verifier checks in this order and names the first failure: `missing_header`,
   1000 chars, not http(s), no host, a user name or password in the URL, cloud metadata
   names and addresses, link-local, unspecified and multicast addresses, and host spellings
   that some resolvers read as an address (`2852039166`, `0xA9FEA9FE`). In production also
-  plain `http` and loopback. Private addresses stay allowed: on-premise CRMs live there.
-  What a name resolves to at send time is the network layer's job, as for AI providers
-  (ADR 0031).
+  plain `http` and loopback. In a production cloud deployment (`DEPLOYMENT_MODE=cloud`) also
+  a single-label host name (`minio`, `api`) or one ending in `.internal`, `.local` or
+  `.localhost`: there such names reach the internal compose services, not a customer.
+  On-premise keeps them, and IP literals are judged by the address rules only. Private
+  addresses stay allowed: on-premise CRMs live there. What a name resolves to at send time
+  is the network layer's job, as for AI providers (ADR 0031).
+- The test route sends a real request to a customer's server, so it is rate limited per
+  workspace like uploads: `WEBHOOK_TEST_RATE_LIMIT_PER_HOUR` (default 30). Over it the answer
+  is `429 webhook_test_rate_limited` and no delivery is written.
 
 ### D8. Only events that something sends
 
@@ -177,13 +187,31 @@ their own transactions and add their event type to the catalogue.
   can add an endpoint. Removing a keyring key makes every secret under it unusable, so
   rotate the keyring by adding a key, making it active, and keeping the old key.
 - Delivery is at-least-once. A receiver that ignores rule 4 can act twice on one event.
-- Known limitation: the limit of active endpoints per workspace is counted without a lock,
-  like the API key limit, so two parallel creates can both pass at the 20th endpoint.
-- The test route has no rate limit, and deliveries share the processing queue with meeting
-  jobs. Each delivery waits at most `WEBHOOK_DELIVERY_TIMEOUT_SECONDS` for its receiver (a
-  total deadline, not a per-read timeout), and the task's Celery limits end below its lease.
-  HOM-90 owns retry and rate concerns.
-- A gap from before this ticket: the metadata host names in `backend/providers/egress.py`
-  do not include `instance-data.ec2.internal`, so the URL policy does not refuse it by name.
 - One attempt per delivery until HOM-90. HOM-91 adds contract fixtures for clock skew,
   stale signatures and revoked keys. HOM-254 adds the console page.
+
+## Known limitations
+
+**Shared queue.** Deliveries run on the processing queue, next to meeting jobs. Each one
+waits at most `WEBHOOK_DELIVERY_TIMEOUT_SECONDS` for its receiver (a total deadline, not a
+per-read timeout), and the task's Celery limits end below its lease, so a slow receiver
+holds a worker for seconds, not minutes. A follow-up ticket moves deliveries to their own
+worker before any business event is wired. HOM-90 owns retries and their pacing.
+
+**Names that resolve to private addresses.** The URL policy judges what the URL says. A
+public DNS name that resolves to a private or metadata address at send time is the network
+layer's job (egress proxy or firewall), as for AI providers (ADR 0031). A gap from before
+this ticket: the metadata names in `backend/providers/egress.py` do not include
+`instance-data.ec2.internal`, so it is not refused by name.
+
+**Test route rate limit.** 30 test events per workspace per hour by default. The limiter is
+the one uploads use: when its Redis is unavailable the route answers
+`503 rate_limiter_unavailable`, or lets the request through when `RATE_LIMIT_FAIL_OPEN` is
+set.
+
+**Rotation cap.** At most 5 unexpired keys per endpoint. With 5, a rotation that keeps the
+old key (overlap above 0) is refused until a retiring key expires; a rotation with overlap 0
+always works. A leaked *retiring* key cannot be revoked early yet; that needs a follow-up.
+
+**Endpoint limit.** The limit of active endpoints per workspace is counted without a lock,
+like the API key limit, so two parallel creates can both pass at the 20th endpoint.

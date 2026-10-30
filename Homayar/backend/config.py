@@ -612,7 +612,7 @@ class Settings(BaseSettings):
     # Empty: redaction still works, but originals are not retained.
     pii_mapping_keys: SecretSetting = ""
     pii_mapping_active_key_id: str = ""
-    # Outbound webhooks (HOM-89, ADR 0047). The keyring encrypts the endpoint
+    # Outbound webhooks (HOM-89, ADR 0049). The keyring encrypts the endpoint
     # signing secrets at rest: same "key_id:base64(32 bytes)" format as
     # PII_MAPPING_KEYS. Empty: endpoints cannot be created or rotated, and
     # queued deliveries fail with signing_unavailable.
@@ -621,6 +621,7 @@ class Settings(BaseSettings):
     webhook_delivery_timeout_seconds: int = 10  # one delivery request
     webhook_sweep_interval_seconds: int = 30  # due-delivery sweeper period
     webhook_max_endpoints_per_workspace: int = 20  # active endpoints only
+    webhook_test_rate_limit_per_hour: int = 30  # test events queued, per workspace
     # Execution leases (WP06-T04): one policy object (backend.jobs.leases)
     # derives every timing decision from these; no other module keeps its own.
     job_lease_seconds: int = 120  # a RUNNING attempt is abandoned when not renewed
@@ -956,6 +957,8 @@ class Settings(BaseSettings):
             raise ValueError("WEBHOOK_SWEEP_INTERVAL_SECONDS must be positive")
         if self.webhook_max_endpoints_per_workspace < 1:
             raise ValueError("WEBHOOK_MAX_ENDPOINTS_PER_WORKSPACE must be positive")
+        if self.webhook_test_rate_limit_per_hour < 1:
+            raise ValueError("WEBHOOK_TEST_RATE_LIMIT_PER_HOUR must be positive")
         if self.metrics_bearer_token and len(self.metrics_bearer_token.strip()) < 32:
             raise ValueError("METRICS_BEARER_TOKEN must be at least 32 characters")
         if not 0 <= self.metrics_cache_seconds <= 300:

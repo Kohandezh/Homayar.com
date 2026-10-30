@@ -6,9 +6,15 @@ URL that is refused here never receives a request.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from backend.services.webhook_service import WEBHOOK_URL_MAX_LENGTH, webhook_url_refusal
+from backend.services.webhook_service import (
+    WEBHOOK_URL_MAX_LENGTH,
+    url_refusal_for,
+    webhook_url_refusal,
+)
 
 ALLOWED_EVERYWHERE = [
     "https://hooks.example.com/x",
@@ -125,6 +131,60 @@ def test_the_unspecified_and_loopback_ipv6_addresses_are_not_read_as_ipv4(url: s
     # ``::`` is refused as unspecified; ``::1`` stays a loopback (allowed outside production).
     expected = url.startswith("https://[::]")
     assert (webhook_url_refusal(url, production=False) is not None) is expected
+
+
+# --- the production cloud rule (SPEC A5.4) ---------------------------------------------
+
+INTERNAL_NAMES = [
+    "https://minio:9000/x",
+    "https://api/x",
+    "https://POSTGRES./x",
+    "https://crm.internal/x",
+    "https://printer.local/x",
+    "https://a.localhost/x",
+]
+
+
+@pytest.mark.parametrize("url", INTERNAL_NAMES)
+def test_a_production_cloud_refuses_internal_host_names(url: str) -> None:
+    assert webhook_url_refusal(url, production=True, cloud=True)
+
+
+@pytest.mark.parametrize("url", INTERNAL_NAMES[:5])
+def test_an_onprem_production_keeps_internal_host_names(url: str) -> None:
+    assert webhook_url_refusal(url, production=True, cloud=False) is None
+
+
+@pytest.mark.parametrize(
+    "url", ["https://[2001:db8::1]/x", "https://10.0.0.5/x", "https://hooks.example.com/x"]
+)
+def test_the_cloud_rule_judges_names_only(url: str) -> None:
+    assert webhook_url_refusal(url, production=True, cloud=True) is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:9000/x",
+        "http://127.0.0.1:9000/x",
+        "https://minio:9000/x",
+        "https://crm.internal/x",
+    ],
+)
+def test_outside_production_the_cloud_rule_is_off(url: str) -> None:
+    assert webhook_url_refusal(url, production=False, cloud=True) is None
+
+
+@pytest.mark.parametrize(
+    ("production", "mode", "refused"),
+    [(True, "cloud", True), (True, "onprem", False), (False, "cloud", False)],
+)
+def test_the_deployment_settings_choose_the_rule(
+    production: bool, mode: str, refused: bool
+) -> None:
+    settings = SimpleNamespace(is_production=production, deployment_mode=mode)
+
+    assert (url_refusal_for("https://minio:9000/x", settings) is not None) is refused
 
 
 def test_length_limit_is_1000_characters() -> None:
