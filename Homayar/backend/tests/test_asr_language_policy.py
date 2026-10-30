@@ -22,7 +22,7 @@ from backend.providers.base import ASRProvider, ProviderError
 from backend.providers.factory import ProviderBundle
 from backend.providers.mocks import MockASRProvider, MockIntelligenceProvider
 from backend.providers.schemas import ASRRequest, ASRResult
-from backend.providers.whisper import LocalWhisperProvider
+from backend.providers.whisper import RESCUE_VAD_PARAMETERS, LocalWhisperProvider
 from backend.speech.language_policy import (
     POLICY_VERSION,
     LanguageDecision,
@@ -355,8 +355,10 @@ def test_auto_request_with_no_audio_after_vad_is_no_speech(tmp_path: Path) -> No
     model = _Model(_info("en", 0.566, _SILENT_PROBS, duration_after_vad=0.0))
     result = _run(_provider(model), _audio(tmp_path), "auto")
 
-    assert len(model.calls) == 1  # no second call, even though the default differs
-    assert model.consumed == []  # the first generator is never read
+    # One rescue call (HOM-40), which keeps nothing too; no decode with the default.
+    assert len(model.calls) == 2
+    assert model.calls[1][1]["vad_parameters"] == RESCUE_VAD_PARAMETERS
+    assert model.consumed == []  # no generator is read
     assert result.text == ""
     assert result.segments == []
     assert result.language == "fa"
@@ -381,13 +383,16 @@ def test_auto_request_with_audio_after_vad_is_unchanged(tmp_path: Path, kept: An
     assert result.language_decision.source == "detected"
 
 
-def test_explicit_request_ignores_vad_result(tmp_path: Path) -> None:
+def test_explicit_request_with_no_audio_after_vad_is_no_speech(tmp_path: Path) -> None:
+    # HOM-40: an explicit request now gets the rescue call too. Here it keeps
+    # nothing as well, so the result is empty and no generator is read.
     model = _Model(_info("en", 0.9), explicit_extra={"duration_after_vad": 0.0})
     result = _run(_provider(model), _audio(tmp_path), "fa")
 
-    assert [kwargs.get("language") for _, kwargs in model.calls] == ["fa"]
-    assert model.consumed == ["fa"]
-    assert result.text == "text-fa"
+    assert [kwargs.get("language") for _, kwargs in model.calls] == ["fa", "fa"]
+    assert model.calls[1][1]["vad_parameters"] == RESCUE_VAD_PARAMETERS
+    assert model.consumed == []
+    assert result.text == ""
     assert result.language_decision is not None
     assert result.language_decision.source == "requested"
 
@@ -398,7 +403,7 @@ def test_decide_language_with_no_audio_after_vad_is_no_speech(tmp_path: Path) ->
     assert decision == LanguageDecision(
         language="fa", source=LanguageSource.FALLBACK, requested=None, reason="no_speech"
     )
-    assert len(model.calls) == 1 and model.consumed == []
+    assert len(model.calls) == 2 and model.consumed == []  # plus the rescue call (HOM-40)
 
 
 def test_decide_language_maps_errors(tmp_path: Path) -> None:

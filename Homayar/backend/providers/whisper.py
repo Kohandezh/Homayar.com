@@ -29,6 +29,11 @@ ModelFactory = Callable[..., Any]
 DeviceIndex = int | tuple[int, ...]
 _T = TypeVar("_T")
 
+# Silero VAD options (faster-whisper ``VadOptions`` keyword arguments) for the
+# one rescue call made when the default VAD kept no audio. On 8 kHz phone audio
+# the default threshold 0.5 can remove real speech (ADR 0044, amendment HOM-40).
+RESCUE_VAD_PARAMETERS: dict[str, Any] = {"threshold": 0.25}
+
 
 def _device_index_kwarg(device_index: DeviceIndex) -> int | list[int] | None:
     """The ``device_index`` the model factory gets, or ``None`` for the default.
@@ -182,14 +187,30 @@ class LocalWhisperProvider(ASRProvider):
             raise ProviderError("audio_empty", "Audio file is empty", retryable=False)
         return str(path)
 
+    @staticmethod
+    def _transcribe_with_rescue(
+        model: Any, path: str, kwargs: dict[str, Any]
+    ) -> tuple[Any, Any, dict[str, Any]]:
+        """One ``transcribe`` call, and one rescue call with
+        ``RESCUE_VAD_PARAMETERS`` when VAD kept no audio (HOM-40).
+
+        Returns the kwargs of the call that gave the result, so a second
+        decode uses the same VAD options.
+        """
+        raw_segments, info = model.transcribe(path, **kwargs)
+        if kwargs["vad_filter"] and _vad_kept_no_audio(info):
+            kwargs = {**kwargs, "vad_parameters": RESCUE_VAD_PARAMETERS}
+            raw_segments, info = model.transcribe(path, **kwargs)
+        return raw_segments, info, kwargs
+
     def _detect(
         self, model: Any, path: str, kwargs: dict[str, Any]
-    ) -> tuple[Any, Any, LanguageDecision]:
+    ) -> tuple[Any, Any, LanguageDecision, dict[str, Any]]:
         """First call without a language. faster-whisper detects the language
         before it returns; the segments generator is lazy and not consumed here."""
-        raw_segments, info = model.transcribe(path, **kwargs)
+        raw_segments, info, kwargs = self._transcribe_with_rescue(model, path, kwargs)
         decision = decide(None, self._language_policy, _language_probabilities(info))
-        return raw_segments, info, decision
+        return raw_segments, info, decision, kwargs
 
     def _transcribe_sync(self, request: ASRRequest) -> ASRResult:
         path = self._checked_path(request.audio_path)
@@ -202,9 +223,14 @@ class LocalWhisperProvider(ASRProvider):
         model = self._get_model()
         if requested is not None:
             decision = decide(requested, self._language_policy)
-            raw_segments, info = model.transcribe(path, **kwargs, language=requested)
+            raw_segments, info, _ = self._transcribe_with_rescue(
+                model, path, {**kwargs, "language": requested}
+            )
+            if request.vad_filter and _vad_kept_no_audio(info):
+                # The rescue call kept no audio either: no speech (F26).
+                raw_segments = ()
         else:
-            raw_segments, info, decision = self._detect(model, path, kwargs)
+            raw_segments, info, decision, kwargs = self._detect(model, path, kwargs)
             if _vad_kept_no_audio(info):
                 # VAD found no speech: any decoded text would be made up (F26).
                 # Do not read the first generator and do not decode again.
@@ -260,7 +286,7 @@ class LocalWhisperProvider(ASRProvider):
         # Same decoding options as a default transcription request.
         defaults = ASRRequest(audio_path=path)
         kwargs = {"beam_size": defaults.beam_size, "vad_filter": defaults.vad_filter}
-        _, _, decision = self._detect(self._get_model(), path, kwargs)
+        _, _, decision, _ = self._detect(self._get_model(), path, kwargs)
         return decision
 
     @staticmethod
@@ -286,7 +312,8 @@ class LocalWhisperProvider(ASRProvider):
         """The language ``transcribe`` would use, without decoding any text.
 
         An explicit request makes no model call. An auto request makes only
-        the first (detecting) ``transcribe`` call.
+        the first (detecting) ``transcribe`` call, plus the same rescue call
+        ``transcribe`` makes when VAD kept no audio.
         """
         return self._mapped(lambda: self._decide_language_sync(audio_path, requested))
 
