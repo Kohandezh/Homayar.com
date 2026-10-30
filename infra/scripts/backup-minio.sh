@@ -25,13 +25,24 @@ fi
 mkdir -p -- "${backup_dir}"
 backup_set="$(backup_relative_path "${backup_dir}")"
 
+# mc takes the root keys from MC_HOST_source (export builtin), never as arguments (HOM-340).
+# This mc reads MC_HOST_* raw: a ":" in the keys would start a session token, so it is refused.
+# A line break or a carriage return (a CRLF env file) would change the keys, so they are refused.
 compose --profile onprem --profile ops run --rm --no-deps \
   --env "BACKUP_SET=${backup_set}" \
   minio-tools '
     umask 077
     destination="/backups/$BACKUP_SET"
+    nl="
+"
+    cr=$(printf "\r")
+    case "$MINIO_ROOT_USER$MINIO_ROOT_PASSWORD" in
+      *:* | *"$nl"* | *"$cr"*)
+        echo "backup-minio: MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must not contain \":\", a line break or a carriage return (mc reads them from MC_HOST_source)." >&2
+        exit 2 ;;
+    esac
+    export MC_HOST_source="${MINIO_ENDPOINT%%://*}://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@${MINIO_ENDPOINT#*://}"
     mkdir -p "$destination/objects"
-    mc alias set source "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
     mc stat "source/$MINIO_BUCKET" >/dev/null
     mc mirror --overwrite --preserve "source/$MINIO_BUCKET" "$destination/objects"
     mc ls --recursive --versions --json "source/$MINIO_BUCKET" > "$destination/inventory.jsonl"

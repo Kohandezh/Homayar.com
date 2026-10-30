@@ -25,5 +25,6 @@ def create_object_storage(settings: Settings) -> ObjectStorage:
         access_key_id=settings.storage_access_key or None,
         secret_access_key=settings.storage_secret_key or None,
         presign_ttl_seconds=settings.storage_presign_ttl_seconds,
+        presigned_delivery=settings.storage_presigned_delivery,
         force_path_style=bool(settings.storage_endpoint_url),
     )

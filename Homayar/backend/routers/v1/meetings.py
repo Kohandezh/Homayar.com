@@ -1382,9 +1382,11 @@ def play_recording(
     request, including every ``Range`` request, re-checks the current
     membership, ``meeting:read``, the record scope and the tombstone, so a
     removed member, an expired session or a deleted meeting stops playback on
-    the next request.  With presigning storage the redirect is object-scoped
-    and expires after ``STORAGE_PRESIGN_TTL_SECONDS`` (expiry-bounded, as for
-    downloads)."""
+    the next request.  With presigning storage and
+    ``STORAGE_PRESIGNED_DELIVERY=true`` (the default) the redirect is
+    object-scoped and expires after ``STORAGE_PRESIGN_TTL_SECONDS``
+    (expiry-bounded, as for downloads); with ``false`` (on-prem) the API
+    streams the bytes and revocation is immediate (HOM-340)."""
     meeting = _get_meeting(db, context=context, meeting_id=meeting_id)
     recording = ensure_recording_playable(
         db,

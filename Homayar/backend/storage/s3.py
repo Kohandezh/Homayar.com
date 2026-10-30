@@ -75,6 +75,7 @@ class S3ObjectStorage(ObjectStorage):
         access_key_id: Optional[str] = None,
         secret_access_key: Optional[str] = None,
         presign_ttl_seconds: int = 300,
+        presigned_delivery: bool = True,
         max_presign_ttl_seconds: int = DEFAULT_MAX_PRESIGN_TTL_SECONDS,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         spool_memory_bytes: int = 8 * 1024 * 1024,
@@ -102,6 +103,7 @@ class S3ObjectStorage(ObjectStorage):
         self._bucket = bucket.strip()
         self._max_size_bytes = effective_size_limit(max_size_bytes, None)
         self._presign_ttl_seconds = presign_ttl_seconds
+        self.presigned_delivery = presigned_delivery
         self._max_presign_ttl_seconds = max_presign_ttl_seconds
         self._chunk_size = validate_chunk_size(chunk_size)
         self._spool_memory_bytes = spool_memory_bytes
@@ -328,9 +330,22 @@ class S3ObjectStorage(ObjectStorage):
         )
 
     def open_reader(self, tenant_id: str, key: str) -> BinaryIO:
+        return self._get_body(validate_owned_object_key(tenant_id, key))
+
+    def open_range_reader(self, tenant_id: str, key: str, *, start: int, end: int) -> BinaryIO:
+        """A ranged ``GetObject``: only bytes ``start``..``end`` (inclusive) are sent (HOM-340).
+
+        A botocore body cannot seek, so the base default would read the object from its
+        first byte.
+        """
         validated = validate_owned_object_key(tenant_id, key)
+        if start < 0 or end < start:
+            raise ValueError("byte range is invalid")
+        return self._get_body(validated, Range=f"bytes={start}-{end}")
+
+    def _get_body(self, validated: str, **extra: str) -> BinaryIO:
         try:
-            response = self._client.get_object(Bucket=self._bucket, Key=validated)
+            response = self._client.get_object(Bucket=self._bucket, Key=validated, **extra)
         except Exception as exc:
             if self._is_not_found(exc):
                 raise ObjectNotFoundError() from exc

@@ -98,7 +98,7 @@ Never print a secret:
 | Path | What |
 | --- | --- |
 | `/home/gpu/hom328-app-site.sh` | the reviewed owner script, sha256 `2d3b2846caddc68885291416883f789c9fb14c84a99c0cf4e80dae920866dd69` |
-| `/etc/nginx/sites-available/app.homayar.com.conf` | the site (exact content below), `root 0644`, sha256 `e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5` (measured) |
+| `/etc/nginx/sites-available/app.homayar.com.conf` | the site (content below), `root 0644`, sha256 `e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5` (measured, the block below without the HOM-340 recording location) |
 | `/etc/nginx/sites-enabled/app.homayar.com.conf` | symlink to the file above |
 | `/etc/letsencrypt/live/app.homayar.com/` | the certificate (root only) |
 | `/etc/letsencrypt/renewal/app.homayar.com.conf` | renewal settings (measured: `authenticator = webroot`, `webroot_path = /var/www/certbot`, `key_type = ecdsa`, the same ACME account as the Padyar certificates) |
@@ -463,9 +463,14 @@ What the script does, and what each step interrupts:
 
 ## Host nginx Site and Certificate
 
-`/etc/nginx/sites-available/app.homayar.com.conf`, exactly as the owner script (step 3) writes it.
+`/etc/nginx/sites-available/app.homayar.com.conf`, as the owner script (step 3) writes it, plus
+the HOM-340 recording location.
 Measured: the live file has sha256
-`e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5`, the same as this block.
+`e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5`, the same as this block
+**without** the HOM-340 recording location (`location ~ ^/api/v1/(...)/recording$`).
+Not measured yet: that location was added by HOM-340 and is applied in rollout step 6 of
+[recording-delivery-on-prem.md](../architecture/recording-delivery-on-prem.md). Update the hash
+after that step.
 
 ```nginx
 # HOM-328 app.homayar.com: the Homayar console (/app/) and API (/api/v1/).
@@ -544,6 +549,15 @@ server {
         proxy_pass http://127.0.0.1:8080;
     }
 
+    # Recording download, inline playback and share link (HOM-340): the API streams them.
+    # Not applied on the live host yet (rollout step 6, recording-delivery-on-prem.md).
+    # With 0, nginx reads only as fast as the visitor takes the bytes, instead of copying
+    # up to 1024m per response to this host's disk. Same limits as "location /".
+    location ~ ^/api/v1/(meetings/[^/]+|workspaces/[^/]+/meetings/[^/]+|shares/[^/]+)/recording$ {
+        proxy_max_temp_file_size 0;
+        proxy_pass http://127.0.0.1:8080;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:8080;
     }
@@ -559,6 +573,11 @@ server {
   HSTS header (`max-age=63072000; includeSubDomains; preload`) is hidden.
 - `client_max_body_size 16m` for every path, and `300m` only for `/api/v1/uploads`, the recording
   upload route. That route streams the body with 15-minute timeouts, like the stack.
+- The three recording routes (download, inline playback, share link) have
+  `proxy_max_temp_file_size 0`, like the stack's nginx (HOM-340). The API streams recordings
+  on-prem (`STORAGE_PRESIGNED_DELIVERY=false`). Without it, each slow download could use up to
+  1024m of this host's disk. A regex location wins over `location /`, and it inherits the
+  server's `proxy_set_header` lines and the 16m body limit.
 - No LAN listens. LAN users use the public name, which goes through the relay.
 
 Certificate: Let's Encrypt, HTTP-01 with the webroot `/var/www/certbot`, through the relay's

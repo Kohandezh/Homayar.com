@@ -526,6 +526,11 @@ class Settings(BaseSettings):
     storage_access_key: SecretSetting = ""
     storage_secret_key: SecretSetting = ""
     storage_presign_ttl_seconds: int = 300
+    # Recording download, playback and share links: true answers 307 to a presigned URL on
+    # the storage endpoint; false streams the bytes through the API. On-prem sets false: the
+    # bundled MinIO (http://minio:9000) has no published port, so a browser cannot reach it
+    # (HOM-340).
+    storage_presigned_delivery: bool = True
     # API keys (WP03-T07, ADR 0013): per-key request rate, live keys per
     # workspace and the longest expiry an owner/admin may request.
     api_key_rate_limit_per_hour: int = 600
