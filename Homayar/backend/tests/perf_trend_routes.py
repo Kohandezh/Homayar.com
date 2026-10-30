@@ -38,6 +38,10 @@ Dataset, for ``--conversations 100000``:
   ``--no-summaries`` leaves the report outputs out (to measure their cost).  Deterministic:
   the documents and report outputs come from a seeded generator (``--seed``); only the row ids
   are random.
+* HOM-290: after the seed, every analysed call gets its stored trend judgment (the backfill
+  command's work, ``trend_judgment_store.backfill_judgments``, timed), so the routes read the
+  stored keys.  ``--no-stored-judgments`` leaves them out (every run through the HOM-312
+  fallback).  Code without ``trend_judgment_store`` has none.
 * ``--dataset legacy``: the HOM-84 dataset, 6 distinct extraction documents and no report
   outputs: per 100 conversations 20 complaint (refund, escalated), 24 billing (invoice), 5
   complaint with an abstained topic, 10 support request (technical fault, outcome
@@ -791,6 +795,25 @@ def seed(
     return counts
 
 
+def _backfill_judgments(ref: Any) -> dict[str, float] | None:
+    """HOM-290: the stored trend judgment of every analysed call of both workspaces (the work of
+    the backfill command), timed.  ``None`` on code without ``trend_judgment_store``."""
+    try:
+        from backend.services.trend_judgment_store import backfill_judgments
+    except ImportError:
+        return None
+    from backend.database.relational import get_session_factory
+
+    began = time.perf_counter()
+    written = 0
+    for place in (ref.a, ref.b):
+        with get_session_factory()() as db:
+            written += backfill_judgments(db, workspace_id=place.workspace_id)
+    seconds = time.perf_counter() - began
+    print(f"  backfilled stored judgments: {written} rows in {seconds:.1f} s", flush=True)
+    return {"rows": written, "seconds": round(seconds, 1)}
+
+
 def _seed_report_outputs(db: Any, analysed: list[tuple[str, ...]], seed_value: int) -> dict:
     """Segments, summaries, AI action items and evidence spans of every analysed call, made
     and inserted in chunks (about 12 spans per call: the full lists would not fit in memory at
@@ -936,6 +959,7 @@ STAGES = (
     ("backend.services.coverage_service", "_count", "coverage _count"),
     ("backend.services.coverage_service", "unsupported_finding_count",
      "unsupported_finding_count"),
+    ("backend.services.trend_judgment_store", "stored_contents", "stored contents (S)"),
 )  # fmt: skip
 # The fact statements that serve the ``unsupported_findings`` rule, by their table.
 REPORT_TABLES = ("meeting_summaries", "action_items", "evidence_spans")
@@ -1336,6 +1360,8 @@ def main() -> None:
     parser.add_argument("--no-summaries", action="store_true",
                         help="realistic documents without the report outputs")  # fmt: skip
     parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--no-stored-judgments", action="store_true",
+                        help="no stored judgments (HOM-290): every run is a fallback")  # fmt: skip
     parser.add_argument("--windows", default="4w,12w-org",
                         help="comma-separated: 4w, 12w-org, 12w")  # fmt: skip
     parser.add_argument("--warmup", type=int, default=1)
@@ -1395,6 +1421,7 @@ def main() -> None:
             seed_value=args.seed,
         )
         seeded = time.perf_counter() - began
+        stored = None if args.no_stored_judgments else _backfill_judgments(ref)
         all_requests = _requests(ref, week_start, windows)
         requests = {
             name: request
@@ -1492,6 +1519,7 @@ def main() -> None:
             "voicemails": round(VOICEMAILS * scale),
             "rows": counts,
             "seed_seconds": round(seeded),
+            "stored_judgments": stored,
         },
         "postgres": version,
         "machine": _machine(),
