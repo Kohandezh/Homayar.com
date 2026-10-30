@@ -60,15 +60,17 @@ backup_set="$(backup_relative_path "${backup_path}")"
 
 # mc takes the root keys from MC_HOST_target (export builtin), never as arguments (HOM-340).
 # This mc reads MC_HOST_* raw: a ":" in the keys would start a session token, so it is refused.
+# A line break or a carriage return (a CRLF env file) would change the keys, so they are refused.
 compose --profile onprem --profile ops run --rm --no-deps \
   --env "BACKUP_SET=${backup_set}" \
   --env "DELETE_EXTRA=${delete_extra}" \
   minio-tools '
     nl="
 "
+    cr=$(printf "\r")
     case "$MINIO_ROOT_USER$MINIO_ROOT_PASSWORD" in
-      *:* | *"$nl"*)
-        echo "restore-minio: MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must not contain \":\" or a line break (mc reads them from MC_HOST_target)." >&2
+      *:* | *"$nl"* | *"$cr"*)
+        echo "restore-minio: MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must not contain \":\", a line break or a carriage return (mc reads them from MC_HOST_target)." >&2
         exit 2 ;;
     esac
     export MC_HOST_target="${MINIO_ENDPOINT%%://*}://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@${MINIO_ENDPOINT#*://}"

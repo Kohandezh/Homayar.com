@@ -553,7 +553,9 @@ services:
   # (HOM-340). mc takes the root keys from MC_HOST_local, set with the export builtin, and the
   # app keys from a pipe. This mc reads MC_HOST_* raw (no percent-decoding): the access key
   # ends at the first ":" and a second ":" starts a session token, so a ":" in the root keys
-  # is refused. The app keys are read line by line, so a line break is refused there.
+  # is refused. The app keys are read line by line, so a line break is refused there. A
+  # carriage return is refused in all four: mc drops a trailing one, the API keeps it (a
+  # CRLF env file), so the keys would not match.
   minio-bootstrap:
     image: "${MINIO_MC_IMAGE:-bitnamilegacy/minio-client:2025.4.16@sha256:8a86e441decf053093c5977d49290298295f850c7843652f93e970ab15871dd1}"
     profiles: [onprem]
@@ -562,14 +564,15 @@ services:
       - |
         nl='
         '
+        cr=$$(printf '\r')
         case "$$MINIO_ROOT_USER$$MINIO_ROOT_PASSWORD" in
-          *:* | *"$$nl"*)
-            echo "minio-bootstrap: MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must not contain ':' or a line break (mc reads them from MC_HOST_local)." >&2
+          *:* | *"$$nl"* | *"$$cr"*)
+            echo "minio-bootstrap: MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must not contain ':', a line break or a carriage return (mc reads them from MC_HOST_local)." >&2
             exit 2 ;;
         esac
         case "$$STORAGE_ACCESS_KEY$$STORAGE_SECRET_KEY" in
-          *"$$nl"*)
-            echo "minio-bootstrap: STORAGE_ACCESS_KEY and STORAGE_SECRET_KEY must not contain a line break (mc reads them line by line)." >&2
+          *"$$nl"* | *"$$cr"*)
+            echo "minio-bootstrap: STORAGE_ACCESS_KEY and STORAGE_SECRET_KEY must not contain a line break or a carriage return (mc reads them line by line)." >&2
             exit 2 ;;
         esac
         export MC_HOST_local="$${MINIO_ENDPOINT%%://*}://$$MINIO_ROOT_USER:$$MINIO_ROOT_PASSWORD@$${MINIO_ENDPOINT#*://}"

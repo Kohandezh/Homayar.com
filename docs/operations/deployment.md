@@ -73,6 +73,13 @@ The on-premise profile also requires `POSTGRES_DB`, `POSTGRES_USER`,
 they remain explicit because composing a URL from raw passwords is unsafe when credentials
 contain reserved characters.
 
+MinIO keys reach `mc` through the environment and a pipe, never as process arguments (HOM-340).
+So `minio-bootstrap`, `backup-minio.sh` and `restore-minio.sh` refuse a `:`, a line break or a
+carriage return in `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`, and a line break or a carriage
+return in `STORAGE_ACCESS_KEY` and `STORAGE_SECRET_KEY`. The bootstrap then stops with exit code 2,
+and `api` and `worker` do not start. Keys made with `openssl rand -hex` never hit this. Save env
+files with LF line ends, not CRLF.
+
 Redis runs directly as the non-root UID/GID shipped by the pinned Alpine image
 (`REDIS_UID=999`, `REDIS_GID=1000` by default). When replacing that image, verify its `redis`
 identity and override both values before first start. Existing volumes created with different

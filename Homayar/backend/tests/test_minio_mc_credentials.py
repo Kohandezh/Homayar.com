@@ -207,6 +207,11 @@ def test_bootstrap_passes_url_special_characters_raw(tmp_path: Path) -> None:
         pytest.param({"MINIO_ROOT_PASSWORD": "unit-root\npassword"}, id="newline-in-root"),
         pytest.param({"STORAGE_SECRET_KEY": "unit-app\nsecret"}, id="newline-in-app-secret"),
         pytest.param({"STORAGE_ACCESS_KEY": "unit-app\naccess"}, id="newline-in-app-access"),
+        # A CRLF env file: mc's ReadLine drops a trailing \r, the API keeps it (HOM-340 review).
+        pytest.param({"STORAGE_SECRET_KEY": "unit-app-secret\r"}, id="cr-at-end-of-app-secret"),
+        pytest.param({"STORAGE_ACCESS_KEY": "unit-app\raccess"}, id="cr-in-app-access"),
+        pytest.param({"MINIO_ROOT_PASSWORD": "unit-root-password\r"}, id="cr-in-root-password"),
+        pytest.param({"MINIO_ROOT_USER": "unit-root\r"}, id="cr-in-root-user"),
     ],
 )
 def test_bootstrap_rejects_keys_mc_cannot_carry(tmp_path: Path, overrides: dict[str, str]) -> None:
@@ -216,7 +221,7 @@ def test_bootstrap_rejects_keys_mc_cannot_carry(tmp_path: Path, overrides: dict[
     assert calls == []  # rejected before any mc call
     assert "must not contain" in completed.stderr
     for value in overrides.values():
-        for part in re.split(r"[:\n]", value):
+        for part in filter(None, re.split(r"[:\r\n]", value)):
             assert part not in completed.stdout + completed.stderr
 
 
@@ -277,13 +282,16 @@ def test_tools_scripts_give_mc_no_secret_as_an_argument(
 
 
 @pytest.mark.parametrize("path", [BACKUP_SCRIPT, RESTORE_SCRIPT], ids=["backup", "restore"])
-def test_tools_scripts_reject_a_colon_in_the_root_keys(tmp_path: Path, path: Path) -> None:
+@pytest.mark.parametrize(
+    "password",
+    ["unit:root-password", "unit-root\npassword", "unit-root-password\r"],
+    ids=["colon", "newline", "cr"],
+)
+def test_tools_scripts_reject_root_keys_mc_cannot_carry(
+    tmp_path: Path, path: Path, password: str
+) -> None:
     script = _tools_script(path).replace("/backups/", f"{tmp_path}/backups/")
-    environment = _environment(
-        MINIO_ROOT_PASSWORD="unit:root-password",  # noqa: S106 - placeholder
-        BACKUP_SET="minio/x",
-        DELETE_EXTRA="0",
-    )
+    environment = _environment(MINIO_ROOT_PASSWORD=password, BACKUP_SET="minio/x", DELETE_EXTRA="0")
     completed, calls = _run(script, tmp_path, environment)
 
     assert completed.returncode != 0

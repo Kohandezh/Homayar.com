@@ -111,27 +111,34 @@ Written here, run later by a separate reviewed script. Do not run them by hand. 
 restarts something needs homlead's go first.
 
 1. Merge the PR after CI is green. Note the merge commit `<sha>`.
-2. On the server, prepare the new release folder and images as in `app-server.md`, "Update to a
+2. Before anything is pulled or built, check the MinIO keys of the production env, as counts
+   only. Never print a key. The HOM-340 bootstrap refuses these characters, and then `api` and
+   `worker` do not start. Each count must be 0: the number of `:`, line breaks and carriage
+   returns in `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`, and of line breaks and carriage returns
+   in `STORAGE_ACCESS_KEY` and `STORAGE_SECRET_KEY`. For a key stored as one file, for example:
+   `tr -cd ':\r' < <key file> | wc -c` prints 0, and `wc -l < <key file>` prints at most 1 (one
+   final newline). If a count is not 0, stop and rotate the key first.
+3. On the server, prepare the new release folder and images as in `app-server.md`, "Update to a
    New Commit", steps 1 and 2. `Homayar/` changed, so build both images with the new tag (no
    re-tag).
-3. Before the switch, check the rendered config without printing secrets:
+4. Before the switch, check the rendered config without printing secrets:
    `~/homayar/hc config --format json | jq -r '.services.api.environment.STORAGE_PRESIGNED_DELIVERY'`
    (or an equal JSON query that prints only this value) must print `false`. Do the same for
    `worker`.
-4. Switch `current` and run `~/homayar/hc up -d --no-build --pull never` (step 4 and 6 of the
+5. Switch `current` and run `~/homayar/hc up -d --no-build --pull never` (steps 4 and 6 of the
    runbook). This recreates `api`, `worker` and `proxy`. The proxy gets the new `homayar.conf`.
    `minio-bootstrap` runs again (it is idempotent).
-5. Host TLS front: put the new regex location from `app-server.md` into
+6. Host TLS front: put the new regex location from `app-server.md` into
    `/etc/nginx/sites-available/app.homayar.com.conf`, run `nginx -t`, then a graceful reload. This
    is an nginx reload on the shared host. Announce it first; open connections stay. Then measure
    the file's new sha256 and update it in `app-server.md` ("Host nginx and certbot" table).
-6. Check through the public name, as a test account with a short recording:
+7. Check through the public name, as a test account with a short recording:
    - `curl -sS -o /dev/null -D - -H 'Range: bytes=0-9' <download URL with the session cookie>`
      answers `206`, `Content-Range: bytes 0-9/<size>`, and no `Location` header. No header holds
      `minio`.
    - Without `Range`: `200` and the full size.
    - In the console, play a recording and seek. Open a share link with audio and play it.
-7. Watch for one day: the proxy log has no `pwrite()` or `No space left on device` lines
+8. Watch for one day: the proxy log has no `pwrite()` or `No space left on device` lines
    (`~/homayar/hc logs proxy | grep -c 'No space left'` prints 0). The relay traffic matches the
    expected recording traffic.
 
