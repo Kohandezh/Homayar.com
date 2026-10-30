@@ -26,6 +26,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -34,7 +35,17 @@ from typing import Any
 import pytest
 from sqlalchemy import delete, func, select, update
 
-from backend.conversation_checks import CheckRun, CheckTurn, finish_checks, plan_checks
+from backend.conversation_checks import (
+    CheckResult,
+    CheckRun,
+    CheckTurn,
+    Evaluation,
+    EvaluationAnswer,
+    EvaluatorInfo,
+    Span,
+    finish_checks,
+    plan_checks,
+)
 from backend.database.relational import get_session_factory
 from backend.database.saas_models import (
     CriterionResultRecord,
@@ -894,3 +905,246 @@ def test_row_level_security_hides_another_workspace_from_the_service(client, ema
     _assert_b_cannot_use_a(b, a_case, a_version, b_case, b_version)
     with _session(a) as db:  # allow: bound to A, the row is there
         assert get_result(db, workspace_id=a["workspace_id"], result_id=a_id).id == a_id
+
+
+# --- SPEC Addendum 2, C1: the stored check run has exactly the known shape --------------------
+
+# A contextual criterion, answered by a fake qualified evaluator: the run has an evaluator and
+# an evaluation with a confidence.
+CONTEXTUAL = {
+    "name": "Fee explained",
+    "pass_threshold": 50,
+    "criteria": [
+        _criterion("greeting", 50, "hello"),
+        {
+            "criterion_id": "fee_explained",
+            "label": "Explains the fee",
+            "weight": 50,
+            "check": {
+                "check_id": "fee_explained",
+                "version": 1,
+                "kind": "contextual",
+                "question": "Did the agent explain the cancellation fee?",
+            },
+        },
+    ],
+}
+EVALUATOR = EvaluatorInfo(
+    provider="local",
+    model="judge",
+    manifest_id="judge",
+    manifest_version=1,
+    manifest_status="qualified",
+)
+
+
+def _judged_run(confidence: float = 0.9) -> CheckRun:
+    checks = plan_scorecard(CONTEXTUAL, ConversationFacts("call", "inbound"))
+    plan = plan_checks(checks, TURNS, language="en")
+    answers = {
+        request.request_id: EvaluationAnswer("met", (request.turn_indexes[0],), confidence)
+        for request in plan.requests
+    }
+    return finish_checks(plan, answers, evaluator=EVALUATOR)
+
+
+def _copy(cls, value):
+    """``value`` as an instance of ``cls`` (a subclass of its class), with the same fields."""
+    return cls(**{field.name: getattr(value, field.name) for field in dataclasses.fields(value)})
+
+
+def _with_result(run: CheckRun, index: int, result: Any) -> CheckRun:
+    results = list(run.results)
+    results[index] = result
+    return dataclasses.replace(run, results=tuple(results))
+
+
+def _with_span(run: CheckRun, span: Any) -> CheckRun:
+    """The run with the first evidence span of its first result replaced."""
+    first = run.results[0]
+    return _with_result(run, 0, dataclasses.replace(first, evidence=(span, *first.evidence[1:])))
+
+
+def _with_evaluation(run: CheckRun, evaluation: Any) -> CheckRun:
+    """The run with the evaluation of its contextual result (the last one) replaced."""
+    return _with_result(run, -1, dataclasses.replace(run.results[-1], evaluation=evaluation))
+
+
+def _unchecked(value, **changes: Any):
+    """A copy with fields changed, past the class's own checks (as a buggy caller could)."""
+    copy = dataclasses.replace(value)
+    for name, new in changes.items():
+        object.__setattr__(copy, name, new)
+    return copy
+
+
+class _RunWithNps(CheckRun):
+    def to_json(self) -> dict[str, Any]:
+        return {**super().to_json(), "estimated_nps": 9}
+
+
+class _RunWithoutLanguage(CheckRun):
+    def to_json(self) -> dict[str, Any]:
+        return {k: v for k, v in super().to_json().items() if k != "language"}
+
+
+class _ResultWithChurn(CheckResult):
+    def to_json(self) -> dict[str, Any]:
+        return {**super().to_json(), "churn_probability": 0.2}
+
+
+class _SpanWithSentiment(Span):
+    def to_json(self) -> dict[str, Any]:
+        return {**super().to_json(), "sentiment": "angry"}
+
+
+class _EvaluatorWithPromoter(EvaluatorInfo):
+    def to_json(self) -> dict[str, Any]:
+        return {**super().to_json(), "promoter_score": 10}
+
+
+class _EvaluationWithProbability(Evaluation):
+    def to_json(self) -> dict[str, Any]:
+        return {**super().to_json(), "churn_probability": 0.4}
+
+
+class _Code:
+    """A review reason whose value is an object, not a code."""
+
+    value = {"nps": 9}
+
+
+def _bad_review_reason(code: Any):
+    def change(run: CheckRun) -> CheckRun:
+        return _with_result(run, 0, dataclasses.replace(run.results[0], review_reasons=(code,)))
+
+    return change
+
+
+def _span_field(**changes: Any):
+    def change(run: CheckRun) -> CheckRun:
+        return _with_span(run, dataclasses.replace(run.results[0].evidence[0], **changes))
+
+    return change
+
+
+def _result_field(**changes: Any):
+    def change(run: CheckRun) -> CheckRun:
+        return _with_result(run, 0, dataclasses.replace(run.results[0], **changes))
+
+    return change
+
+
+def _evaluation_field(**changes: Any):
+    def change(run: CheckRun) -> CheckRun:
+        return _with_evaluation(run, dataclasses.replace(run.results[-1].evaluation, **changes))
+
+    return change
+
+
+# Each case: the definition the run is planned for, and the change to its real run.
+SHAPE_DENIALS = {
+    # Extra or missing keys, at every level.
+    "run_subclass_adds_estimated_nps": (DEFINITION, lambda run: _copy(_RunWithNps, run)),
+    "run_subclass_drops_a_key": (DEFINITION, lambda run: _copy(_RunWithoutLanguage, run)),
+    "result_subclass_adds_churn_probability": (
+        DEFINITION,
+        lambda run: _with_result(run, 0, _copy(_ResultWithChurn, run.results[0])),
+    ),
+    "span_subclass_adds_a_key": (
+        DEFINITION,
+        lambda run: _with_span(run, _copy(_SpanWithSentiment, run.results[0].evidence[0])),
+    ),
+    "evaluator_subclass_adds_a_key": (
+        CONTEXTUAL,
+        lambda run: dataclasses.replace(run, evaluator=_copy(_EvaluatorWithPromoter, EVALUATOR)),
+    ),
+    "evaluation_subclass_adds_a_key": (
+        CONTEXTUAL,
+        lambda run: _with_evaluation(
+            run, _copy(_EvaluationWithProbability, run.results[-1].evaluation)
+        ),
+    ),
+    # An object or a list where the class has a scalar, and other wrong leaf types.
+    "span_phrase_is_an_object": (DEFINITION, _span_field(phrase={"nps": 9})),
+    "span_start_ms_is_text": (DEFINITION, _span_field(start_ms="0")),
+    "review_reason_value_is_an_object": (DEFINITION, _bad_review_reason(_Code())),
+    "review_reason_is_a_dict": (DEFINITION, _bad_review_reason({"nps": 9})),
+    "critical_is_an_integer": (DEFINITION, _result_field(critical=1)),
+    "check_version_is_a_boolean": (DEFINITION, _result_field(check_version=True)),
+    "scope_turn_index_is_a_list": (DEFINITION, _result_field(scope_turn_indexes=([0],))),
+    "confidence_is_text": (CONTEXTUAL, _evaluation_field(confidence="0.9")),
+    "confidence_is_not_finite": (CONTEXTUAL, _evaluation_field(confidence=math.nan)),
+    "evaluator_manifest_version_is_a_float": (
+        CONTEXTUAL,
+        lambda run: dataclasses.replace(run, evaluator=_unchecked(EVALUATOR, manifest_version=1.5)),
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "definition, change", list(SHAPE_DENIALS.values()), ids=list(SHAPE_DENIALS)
+)
+def test_a_check_run_of_another_shape_is_refused(client, email_outbox, definition, change):
+    tenant = _tenant(client, email_outbox, "shape")
+    case = _conversation(tenant)
+    version_id = _version(tenant, definition)
+    run = _judged_run() if definition is CONTEXTUAL else _run(definition)
+    _refused(tenant, "check_run_invalid", _arguments(tenant, case, version_id, change(run)))
+    # Allow: the same real run, unchanged.
+    result_id, created = _record(tenant, _arguments(tenant, case, version_id, run))
+    assert created
+    assert _stored(result_id)[0].check_run == run.to_json()
+
+
+def test_a_judged_run_keeps_its_evaluator_and_confidence(client, email_outbox):
+    tenant = _tenant(client, email_outbox, "judged")
+    case = _conversation(tenant)
+    run = _judged_run(confidence=0.9)
+    result_id, created = _record(
+        tenant, _arguments(tenant, case, _version(tenant, CONTEXTUAL), run)
+    )
+    assert created
+    row = _stored(result_id)[0]
+    assert row.check_run == run.to_json()
+    assert row.check_run["evaluator"] == EVALUATOR.to_json()
+    evaluation = row.check_run["results"][-1]["evaluation"]
+    assert (evaluation["verdict"], evaluation["confidence"]) == ("met", 0.9)
+    assert row.input_digest == scoring_input_digest(
+        run, "call", "inbound", case["transcript_revision_id"]
+    )
+    assert _verify(tenant, result_id) is True
+
+
+def test_the_input_digest_refuses_a_check_run_of_another_shape():
+    run = _run(DEFINITION)
+    with pytest.raises(ScorecardResultError) as error:
+        scoring_input_digest(_copy(_RunWithNps, run), "call", "inbound", "rev-1")
+    assert error.value.code == "check_run_invalid"
+
+
+# --- SPEC Addendum 2, C2: a version outside the row's workspace -----------------------------
+
+
+def test_verify_is_false_for_a_version_outside_the_rows_workspace(client, email_outbox):
+    tenant = _tenant(client, email_outbox, "foreign-version-a")
+    other = _tenant(client, email_outbox, "foreign-version-b")
+    own = _recorded(tenant)
+    foreign_version = _version(other)
+    # A copy of the stored row that names the other workspace's version, inserted directly.
+    with inspection_session_factory()() as db:
+        stored = db.get(ScorecardResultRecord, own)
+        copy = ScorecardResultRecord(
+            **{
+                column.key: getattr(stored, column.key)
+                for column in ScorecardResultRecord.__table__.columns
+                if column.key not in ("id", "scorecard_version_id", "input_digest")
+            },
+            scorecard_version_id=foreign_version,
+            input_digest="c" * 64,
+        )
+        db.add(copy)
+        db.commit()
+        copy_id = copy.id
+    assert _verify(tenant, copy_id) is False  # no exception
+    assert _verify(tenant, own) is True  # allow: its own version

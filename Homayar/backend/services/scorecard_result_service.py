@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+import math
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any
 
@@ -22,7 +23,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.conversation_checks import CheckRun
+from backend.conversation_checks import (
+    MANIFEST_STATUSES,
+    CheckRun,
+    DecidedBy,
+    Outcome,
+    ReasonCode,
+)
 from backend.database.saas_models import (
     CriterionResultRecord,
     Meeting,
@@ -71,12 +78,137 @@ RESULT_COLUMNS = (
 )
 
 
+# The exact JSON shape of ``CheckRun.to_json()`` at every level, with the leaf types the
+# ``conversation_checks`` classes declare.  A stored check run has exactly this shape, so
+# no object (a subclass, or a wrong value in a field) can add a key such as an NPS, or hide
+# a value inside a field.
+_Check = Callable[[Any], bool]
+
+
+def _text(value: Any) -> bool:
+    return isinstance(value, str)
+
+
+def _integer(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _boolean(value: Any) -> bool:
+    return isinstance(value, bool)
+
+
+def _number(value: Any) -> bool:
+    return (_integer(value) or isinstance(value, float)) and math.isfinite(value)
+
+
+def _optional(check: _Check) -> _Check:
+    return lambda value: value is None or check(value)
+
+
+def _one_of(values: tuple[str, ...]) -> _Check:
+    return lambda value: _text(value) and value in values
+
+
+def _list_of(check: _Check) -> _Check:
+    return lambda value: isinstance(value, list) and all(check(item) for item in value)
+
+
+def _object(shape: dict[str, _Check]) -> _Check:
+    return lambda value: (
+        isinstance(value, dict)
+        and set(value) == set(shape)
+        and all(check(value[key]) for key, check in shape.items())
+    )
+
+
+_OUTCOMES = tuple(member.value for member in Outcome)
+_REASONS = tuple(member.value for member in ReasonCode)
+_DECIDERS = tuple(member.value for member in DecidedBy)
+_SPAN = _object(
+    {
+        "turn_index": _integer,
+        "speaker_role": _optional(_text),
+        "start_ms": _optional(_integer),
+        "end_ms": _optional(_integer),
+        "phrase": _optional(_text),
+        "token_start": _optional(_integer),
+        "token_end": _optional(_integer),
+    }
+)
+_EVALUATION = _object(
+    {
+        "request_id": _text,
+        "verdict": _optional(_text),
+        "confidence": _optional(_number),
+        "provider": _text,
+        "model": _text,
+        "manifest_id": _optional(_text),
+        "manifest_version": _optional(_integer),
+    }
+)
+_EVALUATOR = _object(
+    {
+        "provider": _text,
+        "model": _text,
+        "manifest_id": _optional(_text),
+        "manifest_version": _optional(_integer),
+        "manifest_status": _one_of(MANIFEST_STATUSES),
+    }
+)
+_RESULT = _object(
+    {
+        "check_id": _text,
+        "check_version": _integer,
+        "definition_digest": _text,
+        "kind": _text,
+        "critical": _boolean,
+        "outcome": _one_of(_OUTCOMES),
+        "reason": _optional(_one_of(_REASONS)),
+        "decided_by": _optional(_one_of(_DECIDERS)),
+        "review_required": _boolean,
+        "review_reasons": _list_of(_one_of(_REASONS)),
+        "evidence": _list_of(_SPAN),
+        "candidate_evidence": _list_of(_SPAN),
+        "scope_turn_indexes": _list_of(_integer),
+        "evaluation": _optional(_EVALUATION),
+    }
+)
+_CHECK_RUN = _object(
+    {
+        "checks_version": _text,
+        "language": _text,
+        "evaluator": _optional(_EVALUATOR),
+        "results": _list_of(_RESULT),
+    }
+)
+
+
 class ScorecardResultError(ValueError):
     """A refused request.  ``code`` names the rule; nothing was written."""
 
     def __init__(self, code: str, message: str | None = None) -> None:
         super().__init__(message or code)
         self.code = code
+
+
+def check_run_json(check_run: object) -> dict[str, Any]:
+    """The check run as plain JSON of exactly the known shape, or ``check_run_invalid``.
+
+    Only a ``CheckRun`` is accepted: a dict could carry any extra field.  Its ``to_json()``
+    must then have the shape of ``_CHECK_RUN`` at every level, whatever class each object
+    is.  The returned copy holds only plain JSON values; it is what is scored and stored.
+    """
+    if not isinstance(check_run, CheckRun):
+        raise ScorecardResultError("check_run_invalid", "check_run must be a CheckRun")
+    try:
+        document = check_run.to_json()
+    except Exception as error:  # a broken field or subclass is a wrong shape, not a crash
+        raise ScorecardResultError("check_run_invalid", "check_run has no valid JSON") from error
+    if not _CHECK_RUN(document):
+        raise ScorecardResultError(
+            "check_run_invalid", "check_run is not exactly the CheckRun.to_json() shape"
+        )
+    return json.loads(json.dumps(document))
 
 
 def scoring_input_digest(
@@ -87,11 +219,11 @@ def scoring_input_digest(
 ) -> str:
     """SHA-256 hex of the canonical JSON of everything a score is computed from.
 
-    ``check_run`` is a ``CheckRun`` or its ``to_json()``.  The canonical form is the one of
-    ``definition_digest``: sorted keys, no spaces, UTF-8.
+    ``check_run`` is a ``CheckRun`` (checked by ``check_run_json``) or a stored check run.
+    The canonical form is the one of ``definition_digest``: sorted keys, no spaces, UTF-8.
     """
     document = {
-        "check_run": check_run.to_json() if isinstance(check_run, CheckRun) else check_run,
+        "check_run": check_run_json(check_run) if isinstance(check_run, CheckRun) else check_run,
         "conversation": {"conversation_type": conversation_type, "direction": direction},
         "transcript_revision_id": transcript_revision_id,
     }
@@ -188,9 +320,7 @@ def record_result(
     ``ScorecardResultError`` and an engine refusal ``ScorecardError``; neither writes
     anything.
     """
-    if not isinstance(check_run, CheckRun):
-        # A dict could carry any extra field into the stored input.
-        raise ScorecardResultError("check_run_invalid", "check_run must be a CheckRun")
+    run = check_run_json(check_run)
     version = _version(db, workspace_id=workspace_id, scorecard_version_id=scorecard_version_id)
     meeting = _meeting(db, workspace_id=workspace_id, meeting_id=meeting_id)
     _check_revision(
@@ -200,9 +330,10 @@ def record_result(
         transcript_revision_id=transcript_revision_id,
     )
     facts = ConversationFacts(meeting.conversation_type, meeting.direction)
-    result = score_conversation(version.document, check_run, facts).to_json()
+    # Scored from the checked JSON, so the stored input is exactly what was scored.
+    result = score_conversation(version.document, run, facts).to_json()
     input_digest = scoring_input_digest(
-        check_run, meeting.conversation_type, meeting.direction, transcript_revision_id
+        run, meeting.conversation_type, meeting.direction, transcript_revision_id
     )
     lookup = {
         "workspace_id": workspace_id,
@@ -223,7 +354,7 @@ def record_result(
         input_digest=input_digest,
         conversation_type=result["conversation"]["conversation_type"],
         direction=result["conversation"]["direction"],
-        check_run=check_run.to_json(),
+        check_run=run,
         result=result,
         created_at=now,
         **{column: result[column] for column in RESULT_COLUMNS},
@@ -298,7 +429,8 @@ def verify_result(db: Session, *, workspace_id: str, result_id: str) -> bool:
 
     True only when the engine gives exactly the stored ``result`` from the stored
     definition, check run and conversation columns, and every copied column and criterion
-    row still equals it.  A stored input the engine now refuses is not reproducible: false.
+    row still equals it.  A stored input the engine now refuses, or a version outside the
+    row's workspace, is not reproducible here: false.
     """
     row = get_result(db, workspace_id=workspace_id, result_id=result_id)
     if row is None:
@@ -310,8 +442,8 @@ def verify_result(db: Session, *, workspace_id: str, result_id: str) -> bool:
             ScorecardVersion.id == row.scorecard_version_id,
         )
     )
-    if version is None:  # the cascade removes the results of a removed version
-        raise ScorecardResultError("scorecard_version_not_found")
+    if version is None:  # a version outside the row's workspace: not reproducible here
+        return False
     facts = ConversationFacts(row.conversation_type, row.direction)
     try:
         fresh = score_conversation(version.document, row.check_run, facts).to_json()

@@ -325,7 +325,10 @@ and stores the result. There is no HTTP route yet.
 - `record_result` takes ids, a `CheckRun` and the clock. It reads the definition from
   the stored version and the conversation type and direction from the meeting, so a
   caller never gives a result, a score or the facts. A dict is refused as a check run
-  (`check_run_invalid`). It never passes reviewer outcomes.
+  (`check_run_invalid`), and so is a `CheckRun` whose JSON is not exactly the
+  `CheckRun.to_json()` shape at every level (no extra or missing key, the declared
+  types). The stored check run is that JSON, and the score is computed from it. It never
+  passes reviewer outcomes.
 - Stored: the version row and its digest, the transcript revision, `scorecards_version`
   and `checks_version`, the check run exactly (the input), `result` exactly (the
   output), and the outcome, reason, threshold and the four weights as columns.
