@@ -68,9 +68,9 @@ def _set_system_role(user_id: str, system_role: str) -> None:
 
 def test_role_permission_lists_are_the_authorization_map():
     owner = _expected(WorkspaceRole.OWNER)
-    assert owner == sorted(ALL_PERMISSION_VALUES) and len(owner) == 19
-    assert len(_expected(WorkspaceRole.ADMIN)) == 15
-    assert len(_expected(WorkspaceRole.MEMBER)) == 7
+    assert owner == sorted(ALL_PERMISSION_VALUES) and len(owner) == 21
+    assert len(_expected(WorkspaceRole.ADMIN)) == 17
+    assert len(_expected(WorkspaceRole.MEMBER)) == 9
     assert _expected(WorkspaceRole.VIEWER) == [
         "meeting:read",
         "member:read",

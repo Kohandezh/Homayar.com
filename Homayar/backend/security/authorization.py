@@ -86,6 +86,11 @@ class Permission(str, Enum):
     # and admins publish a new version.  Never carried by an API key.
     SCORECARD_READ = "scorecard:read"
     SCORECARD_MANAGE = "scorecard:manage"
+    # Supervisor review queue (HOM-73, ADR 0051): owners, admins and members read and
+    # work review items; the record rules of ``review_queue_service`` decide which
+    # items.  Never carried by an API key.
+    REVIEW_READ = "review:read"
+    REVIEW_MANAGE = "review:manage"
 
 
 ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
@@ -107,6 +112,8 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.API_KEY_MANAGE,
             Permission.SCORECARD_READ,
             Permission.SCORECARD_MANAGE,
+            Permission.REVIEW_READ,
+            Permission.REVIEW_MANAGE,
         }
     ),
     WorkspaceRole.MEMBER: frozenset(
@@ -118,6 +125,8 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.MEMBER_READ,
             Permission.TEAM_READ,
             Permission.SCORECARD_READ,
+            Permission.REVIEW_READ,
+            Permission.REVIEW_MANAGE,
         }
     ),
     WorkspaceRole.VIEWER: frozenset(

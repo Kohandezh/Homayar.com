@@ -69,9 +69,11 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 | ai_policy:manage | ✓ | – | – | – |
 | scorecard:read | ✓ | ✓ | ✓ | ✓ |
 | scorecard:manage | ✓ | ✓ | – | – |
+| review:read | ✓ | ✓ | ✓ | – |
+| review:manage | ✓ | ✓ | ✓ | – |
 <!-- matrix:permissions:end -->
 
-`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope. `scorecard:read` (every role) reads the published QA scorecard versions and `scorecard:manage` (owner, admin) publishes a new version (§6o); neither is an API-key scope.
+`api_key:manage` (owner, admin) creates, lists and revokes workspace API keys (§6b). It is never grantable to a key, so a key cannot mint or widen keys. `legal_hold:manage` (owner only) places and releases legal holds and reads the legal-hold register (`GET /admin/legal-holds`, §6e); it is never an API-key scope. `pii:original_access` (owner only) reads original transcripts under an enforced redaction policy, reveals a redacted value and changes the redaction policy (§6k); it is never an API-key scope. `ai_policy:manage` (owner only) changes where the workspace's audio and text may be processed (§6m); it is never an API-key scope. `scorecard:read` (every role) reads the published QA scorecard versions and `scorecard:manage` (owner, admin) publishes a new version (§6o); neither is an API-key scope. `review:read` and `review:manage` (owner, admin, member) open the supervisor review queue; which items a caller sees and works is decided per record (§6p); neither is an API-key scope.
 
 ### 3a. Permission grants by organization role (machine-checked)
 
@@ -217,6 +219,15 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/scorecards/{key}/versions | scorecard:read |
 | POST | /api/v1/scorecards/{key}/versions | scorecard:manage +csrf |
 | GET | /api/v1/scorecards/{key}/versions/{version} | scorecard:read |
+| GET | /api/v1/review-items | review:read |
+| POST | /api/v1/review-items | review:manage +csrf |
+| POST | /api/v1/review-items/from-sample | workspace:manage +csrf |
+| GET | /api/v1/review-items/{item_id} | review:read |
+| POST | /api/v1/review-items/{item_id}/assign | review:manage +csrf |
+| POST | /api/v1/review-items/{item_id}/due-time | review:manage +csrf |
+| POST | /api/v1/review-items/{item_id}/start | review:manage +csrf |
+| POST | /api/v1/review-items/{item_id}/complete | review:manage +csrf |
+| POST | /api/v1/review-items/{item_id}/cancel | review:manage +csrf |
 | GET | /api/v1/admin/legal-holds | legal_hold:manage |
 | GET | /api/v1/admin/system-health | workspace:manage +operator |
 | GET | /api/v1/billing/plans | billing:read |
@@ -389,6 +400,8 @@ Scopes an API key may carry (machine-checked against `API_KEY_SCOPES`):
 | ai_policy:manage | – |
 | scorecard:read | – |
 | scorecard:manage | – |
+| review:read | – |
+| review:manage | – |
 <!-- matrix:api-key-scopes:end -->
 
 ## 6c. Transcript revisions, analysis provenance, evidence and quality (WP04-T02/T03/T06, ADR 0014/0015)
@@ -543,6 +556,18 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | Every workspace role reads the published versions with `scorecard:read`; only the owner and admins publish with `scorecard:manage` + CSRF (member and viewer 403); no API-key scope carries either permission, so a key gets 403 on every scorecard route | `ROLE_PERMISSIONS`, `routers/v1/scorecards.py` | `test_scorecards_api.py` |
 | A publish names the version it read (`expected_version`, 0 for a new key); a stale one is `409 scorecard_version_conflict` with `details.current_version`, also when a concurrent insert hits `uq_scorecard_version`; every publish is a new version, audited `scorecard.published` (key, version, digest, reason); a refused publish writes no row and no audit event | `publish_version` | `test_scorecards_service.py`, `test_scorecards_api.py` |
 | Scorecard versions are append-only for the application role (ORM guard; PostgreSQL `REVOKE UPDATE, DELETE`) and a workspace table under row-level security (tenant only, never a share token) | `ScorecardVersionImmutableError`, `APPEND_ONLY_TABLES` | `test_scorecard_versions_migration.py` |
+
+## 6p. Supervisor review queue (HOM-73, ADR 0051)
+
+| Rule | Enforcement | Test |
+|---|---|---|
+| Owners, admins and members read the queue with `review:read` and work it with `review:manage` + CSRF; viewers get `403 permission_denied` on every review route; no API-key scope carries either permission, so a key gets `403 api_key_scope_denied` on every review route; `POST /review-items/from-sample` needs `workspace:manage` (owner, admin; member 403) | `ROLE_PERMISSIONS`, `routers/v1/review_items.py` | `test_review_queue_access.py` |
+| A review admin is an owner or admin of the workspace. A member has review authority over a conversation only through an effective, non-revoked supervisor assignment on the conversation's **current** team (`supervised_team_ids`); `record_scope = workspace` grants none, and a conversation without a team is for review admins only. An item is visible when its conversation is in the workspace and not deleted, the caller has review authority, and the caller is a review admin or not the conversation's agent | `Reviewer.meeting_clause`, `review_queue_service` | `test_review_queue_access.py` |
+| An item the caller may not see is `404 review_item_not_found` on get and on every action and is absent from `GET /review-items`, exactly like a missing id or an item of another workspace; never 403. A manual create on a conversation the caller may not review is `404 meeting_not_found` | `_visible_item`, `create_item` | `test_review_queue_access.py` |
+| An assignee is an effective owner, admin or member with review authority over the conversation and never its agent: the agent is `422 review_assignee_is_agent` (checked first, admins too), any other failure `422 review_assignee_ineligible`. Only the assignee starts or completes an item (`403 review_not_assignee`, admins too) | `check_assignee`, `start_item`, `complete_item` | `test_review_queue_access.py`, `test_review_queue_items.py` |
+| Every write names the revision it read (`expected_revision`); a stale one is `409 review_item_revision_conflict` with `details.current_revision`. The update is a compare-and-set on the revision, so two concurrent writes never both succeed. A closed item is `409 review_item_closed`. One active item per conversation: `409 review_item_exists` (also when a concurrent create hits `uq_review_items_active_meeting`) | `compare_and_set`, `create_item` | `test_review_queue_items.py`, `test_review_queue_concurrency.py` |
+| Every change is audited (`review_item.created`, `.assigned`, `.due_changed`, `.started`, `.completed`, `.cancelled`; `review_sample.enqueued` for a sample) with ids, codes, timestamps and the revision, never free text; a refusal and an assignment to the same person write none | `routers/v1/review_items.py` | `test_review_queue_items.py`, `test_review_queue_sample.py` |
+| `review_items` is a workspace table under row-level security (tenant only, never a share token); the conversation purge deletes its rows | `WORKSPACE_TABLES`, `conversation_purge_service` | `test_review_items_migration.py` |
 
 ## 7. Escalation paths and where they are refused
 

@@ -196,8 +196,9 @@ exactly the call report's `completeness.is_complete`.
   - `transcript_corrected`: the current transcript revision has source `correction`.
 
 The endpoint records each draw as one `review_sample.drawn` audit event with the seed,
-both versions, the window, the normalized config and the three digests. Storing the
-selected items as review work is HOM-73.
+both versions, the window, the normalized config and the three digests. To store the
+selected items as review work, `POST /api/v1/review-items/from-sample` (HOM-73) runs the
+same draw and creates one review item per selection.
 
 Flags expected later, once their results are stored (a new sampler version adds them):
 
