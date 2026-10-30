@@ -1,0 +1,4 @@
+{"query_id": "q1", "relevance": {"d1": 3, "d2": 2, "d3": 0, "d4": 1}, "ranked": ["d3", "d1", "d3", "d5", "d2"], "slices": {"lang": "fa"}}
+{"query_id": "q2", "relevance": {"a": 1}, "ranked": ["a"]}
+{"query_id": "q3", "relevance": {"x": 0}, "ranked": ["x"]}
+{"query_id": "q4", "relevance": {"b": 1}, "ranked": []}
