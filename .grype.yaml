@@ -748,11 +748,11 @@ ignore:
   - vulnerability: CVE-2026-27135
     package:
       name: nghttp2-libs
-  # F198 accepted: not reachable: needs an nginx directive that console.conf does not use
+  # F198 follow-up: regex map in the reverse proxy (nginx.conf:65-66); needs a supported nginx base
   - vulnerability: CVE-2026-42533
     package:
       name: nginx
-  # F199 accepted: not reachable: needs an nginx directive that console.conf does not use
+  # F199 accepted: not reachable: needs an nginx directive that neither console.conf nor the reverse proxy uses
   - vulnerability: CVE-2026-42055
     package:
       name: nginx
@@ -760,31 +760,31 @@ ignore:
   - vulnerability: CVE-2026-49975
     package:
       name: nginx
-  # F201 accepted: not reachable: needs an nginx directive that console.conf does not use
+  # F201 accepted: not reachable: needs an nginx directive that neither console.conf nor the reverse proxy uses
   - vulnerability: CVE-2026-56434
     package:
       name: nginx
-  # F202 accepted: not reachable: needs an nginx directive that console.conf does not use
+  # F202 accepted: not reachable: needs an nginx directive that neither console.conf nor the reverse proxy uses
   - vulnerability: CVE-2026-60005
     package:
       name: nginx
-  # F203 accepted: not reachable: needs an nginx directive that console.conf does not use
+  # F203 follow-up: regex rewrite in the reverse proxy (homayar.conf:106); needs a supported nginx base
   - vulnerability: CVE-2026-9256
     package:
       name: nginx
-  # F204 accepted: not reachable: console.conf has no regex
+  # F204 accepted: not reachable: no request-supplied pattern and no pcre_jit, in both configs
   - vulnerability: CVE-2026-103111
     package:
       name: pcre2
-  # F205 accepted: not reachable: console.conf has no regex
+  # F205 accepted: not reachable: no request-supplied pattern and no pcre_jit, in both configs
   - vulnerability: CVE-2026-86145
     package:
       name: pcre2
-  # F206 accepted: not reachable: console.conf has no regex
+  # F206 accepted: not reachable: no request-supplied pattern and no pcre_jit, in both configs
   - vulnerability: CVE-2026-89157
     package:
       name: pcre2
-  # F207 accepted: not reachable: console.conf has no regex
+  # F207 accepted: not reachable: no request-supplied pattern and no pcre_jit, in both configs
   - vulnerability: CVE-2026-89161
     package:
       name: pcre2

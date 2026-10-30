@@ -45,6 +45,17 @@ fail_tool() {
   exit 4
 }
 
+# Callers run gate_sbom and the guards inside `||` or `$(...)`, where Bash turns
+# `set -e` off. So every read whose result decides pass or fail checks its own
+# status and calls fail_tool; a missing or broken file is a tool error, never a pass.
+
+# check_json <file> <jq-test> <what>: fail_tool unless <file> is JSON and <jq-test> is true.
+check_json() {
+  if [[ ! -s "$1" ]] || ! jq --exit-status "$2" "$1" >/dev/null 2>&1; then
+    fail_tool "$3 is missing or not valid ($1)"
+  fi
+}
+
 check_setup() {
   if [[ ! -f .github/workflows/security-scans.yml || ! -f "${CANARY_SBOM}" ]]; then
     printf 'ERROR: run this script from the repository root.\n' >&2
@@ -94,6 +105,8 @@ update_db() {
   run_tool "${GRYPE_IMAGE}" db update --quiet || fail_tool "grype db update failed"
   run_tool "${GRYPE_IMAGE}" db status --output json >"${out_dir}/reports/grype-db-status.json" ||
     fail_tool "grype db status failed"
+  check_json "${out_dir}/reports/grype-db-status.json" '.valid == true and (.built | type == "string")' \
+    "the Grype database status"
   printf 'Grype database built %s\n' "$(jq -r '.built' "${out_dir}/reports/grype-db-status.json")"
 }
 
@@ -104,6 +117,7 @@ make_sbom() {
   run_tool "${SYFT_IMAGE}" scan "${source}" --quiet \
     --output "cyclonedx-json=/out/sbom/${name}.cdx.json" ||
     fail_tool "syft failed for ${name}"
+  check_json "${out_dir}/sbom/${name}.cdx.json" '.components | type == "array"' "the SBOM of ${name}"
   printf '%s components\n' "$(jq '.components | length' "${out_dir}/sbom/${name}.cdx.json")"
 }
 
@@ -111,6 +125,7 @@ make_sbom() {
 # whose package URL starts with <purl-prefix> (for example pkg:pypi/fastapi@).
 guard_component() {
   local name="$1" prefix="$2"
+  check_json "${out_dir}/sbom/${name}.cdx.json" '.components | type == "array"' "the SBOM of ${name}"
   if jq --exit-status --arg prefix "${prefix}" \
     '[.components[]? | select((.purl // "") | startswith($prefix))] | length > 0' \
     "${out_dir}/sbom/${name}.cdx.json" >/dev/null; then
@@ -124,9 +139,10 @@ guard_component() {
 # guard_os_packages <name>: an image SBOM must list at least one Debian or Alpine package.
 guard_os_packages() {
   local name="$1" count
+  check_json "${out_dir}/sbom/${name}.cdx.json" '.components | type == "array"' "the SBOM of ${name}"
   count="$(jq '[.components[]? | select((.purl // "") | test("^pkg:(deb|apk)/"))] | length' \
-    "${out_dir}/sbom/${name}.cdx.json")"
-  if [[ "${count}" -gt 0 ]]; then
+    "${out_dir}/sbom/${name}.cdx.json")" || fail_tool "could not count OS packages of ${name}"
+  if [[ "${count}" =~ ^[0-9]+$ && "${count}" -gt 0 ]]; then
     printf 'guard: %s lists %s OS packages\n' "${name}" "${count}"
   else
     printf 'GUARD FAILED: %s lists no OS package.\n' "${name}" >&2
@@ -135,10 +151,12 @@ guard_os_packages() {
 }
 
 # gate_sbom <name>: gate the SBOM at <out-dir>/sbom/<name>.cdx.json.
-# Returns 0 on pass and 1 on a gate failure.
+# Returns 0 on pass and 1 on a gate failure; exits 4 when the report cannot be read.
 gate_sbom() {
-  local name="$1" blocking
+  local name="$1" report="${out_dir}/reports/$1.grype.json" blocking ignored
   printf '\n== Gate %s\n' "${name}"
+  # A stale report from an earlier run must not be read as this run's result.
+  rm -f -- "${report}"
   run_tool "${GRYPE_IMAGE}" "sbom:/out/sbom/${name}.cdx.json" --quiet \
     --config /tmp/grype.yaml \
     --name "${name}" \
@@ -146,19 +164,24 @@ gate_sbom() {
     --output table \
     --output "json=/out/reports/${name}.grype.json" ||
     fail_tool "grype failed for ${name}"
+  # Grype always writes `matches` (an empty array when clean) and leaves out
+  # `ignoredMatches` when no rule matched.
+  check_json "${report}" '(.matches | type == "array") and ((.ignoredMatches // []) | type == "array")' \
+    "the Grype report of ${name}"
   blocking="$(jq -r '
     .matches[]
     | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")
     | select(.vulnerability.fix.state == "fixed")
     | "\(.vulnerability.id) \(.vulnerability.severity) \(.artifact.name)@\(.artifact.version) fixed in \(.vulnerability.fix.versions | join(", "))"
-  ' "${out_dir}/reports/${name}.grype.json" | sort -u)"
+  ' "${report}")" || fail_tool "could not read the Grype report of ${name}"
+  blocking="$(sort -u <<<"${blocking}")"
   if [[ -n "${blocking}" ]]; then
     printf 'GATE FAILED: %s has fixable high/critical vulnerabilities without a triage ignore rule:\n%s\n' \
       "${name}" "${blocking}"
     return 1
   fi
-  printf 'gate: %s passed (%s ignored by .grype.yaml rules)\n' \
-    "${name}" "$(jq '.ignoredMatches | length' "${out_dir}/reports/${name}.grype.json")"
+  ignored="$(jq '.ignoredMatches // [] | length' "${report}")" || fail_tool "could not read the Grype report of ${name}"
+  printf 'gate: %s passed (%s ignored by .grype.yaml rules)\n' "${name}" "${ignored}"
 }
 
 # finish <gate-failed>: the guard runs before the gate, so a guard failure wins.

@@ -193,3 +193,7 @@ When the gate fails on a new finding:
    [vulnerability-triage.md](../security/vulnerability-triage.md) with the evidence and the
    decision (`accepted: not reachable` or `follow-up`), then add one ignore rule to `.grype.yaml`
    with exactly that vulnerability ID and package name, and a comment that names the row.
+
+An ignore rule hides that ID for that package in every target and every version. So when a
+package moves from a dev dependency into runtime code, or shows up in a new target, check its row
+again.
