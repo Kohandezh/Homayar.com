@@ -36,6 +36,7 @@ from backend.jobs.webhook_delivery import deliver_webhook
 from backend.routers.v1 import webhooks as webhooks_router
 from backend.security.authorization import API_KEY_SCOPES
 from backend.services import webhook_service
+from backend.services.audit_service import AUDIT_EVENT_CATALOG
 from backend.services.rate_limit_service import RateLimiter
 from backend.services.webhook_signing import encode_payload
 from backend.tests import test_row_level_security as _rls
@@ -1113,6 +1114,13 @@ def test_bulk_with_nothing_to_move_is_202_and_still_audited(client, email_outbox
 
 def test_the_batch_limit_is_500():
     assert webhook_service.WEBHOOK_REDELIVER_BATCH_LIMIT == 500
+
+
+def test_the_redelivery_audit_types_are_catalogued_like_the_test_route():
+    # Same category as webhook.test_queued: they send through an endpoint that exists.
+    assert AUDIT_EVENT_CATALOG["webhook.test_queued"] == "configuration"
+    assert AUDIT_EVENT_CATALOG["webhook.delivery_redelivered"] == "configuration"
+    assert AUDIT_EVENT_CATALOG["webhook.dead_letters_redelivered"] == "configuration"
 
 
 # --- B11: privacy ----------------------------------------------------------------------
