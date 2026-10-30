@@ -253,6 +253,7 @@ docker compose --file infra/compose/compose.onprem.yaml --profile onprem run --r
 | `--offline` | Works with or without `--host`. With `--host` it also checks the no-internet configuration. It always checks deployment profile O. |
 | `--probe-internet` | Tries real outbound connections. Without it, no internet connection is tried. |
 | `--probe-target HOST:PORT` | With `--probe-internet`: the targets to try (repeat the flag). It replaces the defaults `1.1.1.1:443`, `8.8.8.8:53` and `huggingface.co:443`. |
+| `--topology NAME` | The supported topology to check for this run (ADR 0047). It wins over the `DEPLOYMENT_TOPOLOGY` setting. |
 
 A wrong flag combination, a negative number or a bad `HOST:PORT` is a usage error (exit 2).
 
@@ -272,7 +273,20 @@ Each check has a `status`:
 | `dependency_ports` | A TCP connection (2 seconds) to the database, Redis, S3 storage, `LOCAL_AI_BASE_URL` and the outbound proxy (`HTTPS_PROXY`/`HTTP_PROXY`), each when configured. `fail` when one does not connect. The report shows only the name, host and port, never a user name, password or URL. |
 | `tls_certificate` | Only with `--tls-cert`. `fail` when the input holds a private key, holds no certificate, the certificate is expired or not valid yet, has fewer than `--tls-min-days` days left, or does not cover `--tls-host`. |
 | `no_internet_config` | Only with `--offline`. `fail` for `WHISPER_LOCAL_FILES_ONLY` off (local Whisper), Google sign-in on, phone sign-in through a public SMS host, a public `SENTRY_DSN` host or a public `SMTP_HOST`. `warn` for `HF_HUB_OFFLINE` not `1` (local Whisper) and for an outbound proxy setting. Cloud AI endpoints are judged by profile O, not here. |
+| `topology` | Only with a topology (`DEPLOYMENT_TOPOLOGY` or `--topology`, else `skip`). Compares the host and the settings with the topology's minimums (ADR 0047, D2). `fail` for too few CPUs, too little memory (host totals), too few NVIDIA GPUs or none with the required compute capability, an `ASR_PROFILE` the topology does not allow, a different `DEPLOYMENT_MODE`, or an unknown topology name. `warn` when a value cannot be read (CPU count, memory, nvidia-smi), when `ASR_PROFILE` is empty, when Google or phone sign-in is on, and, with `ENVIRONMENT=production`, when storage is not `s3` or `TOMBSTONE_JOURNAL_DIR` is empty. A `fail` wins over a `warn`. Free VRAM stays in `gpu_memory`. |
 | `internet_probe` | Only with `--probe-internet`. A TCP connection (3 seconds) to each target. `fail` when any target is reachable, because then the host is not offline. It tries direct TCP connections only, not through `HTTPS_PROXY`/`HTTP_PROXY`. When a proxy is set, `no_internet_config` warns about it, so `internet_probe: pass` does not prove there is no outbound path through the proxy. |
+
+`DEPLOYMENT_TOPOLOGY` (empty by default) names a supported topology: `single-host-p40` (the
+reference) or `single-host-cpu` (ADR 0047). Empty means no topology check and no other change.
+An unknown name stops the settings from loading. `compose.onprem.yaml` passes it in the shared
+app environment, next to `ASR_PROFILE` (HOM-343). Example for the reference shape, with the
+topology's free VRAM minimum:
+
+```bash
+DEPLOYMENT_TOPOLOGY=single-host-p40 ASR_PROFILE=gpu-p40-large-v3 \
+  docker compose --file infra/compose/compose.onprem.yaml --profile onprem run --rm -T --no-deps api \
+  python -m backend.jobs.model_preflight --host --min-free-gpu-mib 4096
+```
 
 Exit codes keep their meaning: `0` ready, `1` a stage or a host check failed, `2` a
 configuration, manifest or usage error. `--register` still runs only after exit `0`.

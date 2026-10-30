@@ -643,6 +643,14 @@ sudo cat /etc/letsencrypt/live/app.homayar.com/fullchain.pem \
   `intelligence_provider_unconfigured` (see above). It still prints the `host` report. Exit 2
   stays exit 2, whatever the host checks say.
 
+This server is the reference shape of topology `single-host-p40` (ADR 0047). **Not run on this
+server yet.** To check it later:
+
+```bash
+~/homayar/hc run --rm -T --no-deps api python -m backend.jobs.model_preflight --host \
+  --topology single-host-p40 --min-free-gpu-mib 4096
+```
+
 GPU mode (`WHISPER_DEVICE=cuda`, or a GPU ASR profile) needs more than a setting:
 
 - GPU access for the container (a Compose `gpus` or device reservation for the api and worker).
