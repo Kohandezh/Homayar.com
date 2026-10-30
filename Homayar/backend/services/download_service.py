@@ -2,12 +2,15 @@
 
 Two delivery shapes, chosen by the storage backend:
 
-* application-mediated streaming (local storage): every request, including
-  each ``Range`` request of a seeking player, passes through the authorization
-  that called us, so revocation is immediate; memory use is one chunk;
-* presigned redirect (S3-compatible storage): the URL is scoped to exactly
-  one object and expires after ``ttl_seconds``; access issued before a
-  revocation remains valid until that expiry (expiry-bounded revocation).
+* application-mediated streaming (local storage, and S3 with
+  ``STORAGE_PRESIGNED_DELIVERY=false`` as on-prem, HOM-340): every request,
+  including each ``Range`` request of a seeking player, passes through the
+  authorization that called us, so revocation is immediate; a ``Range`` reads
+  only those bytes from storage; memory use is one chunk;
+* presigned redirect (S3-compatible storage, the default): the URL is scoped
+  to exactly one object and expires after ``ttl_seconds``; access issued
+  before a revocation remains valid until that expiry (expiry-bounded
+  revocation).
 
 Before either shape, every route that sends recording bytes checks that the
 recording may be played at all (HOM-60): it exists, its media object is live,
@@ -166,7 +169,7 @@ def deliver_recording(
 
     ``disposition="inline"`` is the playback shape (a media element reads it);
     the bytes, Range handling and revocation semantics are identical."""
-    if storage.supports_presigned_access:
+    if storage.supports_presigned_access and storage.presigned_delivery:
         try:
             access = storage.presign_get(
                 workspace_id, recording.storage_key, expires_in_seconds=presign_ttl_seconds
@@ -181,7 +184,12 @@ def deliver_recording(
 
     byte_range = parse_range(range_header, recording.size_bytes)
     try:
-        reader = storage.open_reader(workspace_id, recording.storage_key)
+        if byte_range is None:
+            reader = storage.open_reader(workspace_id, recording.storage_key)
+        else:
+            reader = storage.open_range_reader(
+                workspace_id, recording.storage_key, start=byte_range.start, end=byte_range.end
+            )
     except ObjectNotFoundError as exc:
         raise _recording_not_found() from exc
 
@@ -193,16 +201,6 @@ def deliver_recording(
     }
     if byte_range is None:
         headers["Content-Length"] = str(recording.size_bytes)
-        return StreamingResponse(
-            _iter_reader(reader, remaining=None), media_type=recording.media_type, headers=headers
-        )
-    try:
-        reader.seek(byte_range.start)
-    except (AttributeError, OSError):
-        reader.close()
-        # Non-seekable backend without presigning: serve the whole object.
-        headers["Content-Length"] = str(recording.size_bytes)
-        reader = storage.open_reader(workspace_id, recording.storage_key)
         return StreamingResponse(
             _iter_reader(reader, remaining=None), media_type=recording.media_type, headers=headers
         )

@@ -43,6 +43,9 @@ x-app-environment: &app-environment
   STORAGE_BACKEND: s3
   STORAGE_BUCKET: "${MINIO_BUCKET:-homayar-private}"
   STORAGE_ENDPOINT_URL: http://minio:9000
+  # A browser cannot reach http://minio:9000 (no published port), so recordings stream
+  # through the API instead of a presigned redirect (HOM-340).
+  STORAGE_PRESIGNED_DELIVERY: "false"
   # The bundled MinIO is reached over plain HTTP on the internal compose network only
   # (HOM-32 opt-out, same-host only since HOM-161).
   STORAGE_ALLOW_INSECURE_ENDPOINT: "true"

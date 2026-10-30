@@ -544,6 +544,14 @@ server {
         proxy_pass http://127.0.0.1:8080;
     }
 
+    # Recording download, inline playback and share link (HOM-340): the API streams them.
+    # With 0, nginx reads only as fast as the visitor takes the bytes, instead of copying
+    # up to 1024m per response to this host's disk. Same limits as "location /".
+    location ~ ^/api/v1/(meetings/[^/]+|workspaces/[^/]+/meetings/[^/]+|shares/[^/]+)/recording$ {
+        proxy_max_temp_file_size 0;
+        proxy_pass http://127.0.0.1:8080;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:8080;
     }
@@ -559,6 +567,11 @@ server {
   HSTS header (`max-age=63072000; includeSubDomains; preload`) is hidden.
 - `client_max_body_size 16m` for every path, and `300m` only for `/api/v1/uploads`, the recording
   upload route. That route streams the body with 15-minute timeouts, like the stack.
+- The three recording routes (download, inline playback, share link) have
+  `proxy_max_temp_file_size 0`, like the stack's nginx (HOM-340). The API streams recordings
+  on-prem (`STORAGE_PRESIGNED_DELIVERY=false`). Without it, each slow download could use up to
+  1024m of this host's disk. A regex location wins over `location /`, and it inherits the
+  server's `proxy_set_header` lines and the 16m body limit.
 - No LAN listens. LAN users use the public name, which goes through the relay.
 
 Certificate: Let's Encrypt, HTTP-01 with the webroot `/var/www/certbot`, through the relay's

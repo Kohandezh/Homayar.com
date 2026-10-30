@@ -175,6 +175,13 @@ unchanged):
     `STORAGE_BACKEND=s3` still refuses to start while any of them is set to something other
     than an `https://` URL, or when the shared AWS config cannot be read; the error names the
     source, never its value. `STORAGE_ALLOW_INSECURE_ENDPOINT` does not cover these overrides.
+- **Recording delivery.** `STORAGE_PRESIGNED_DELIVERY` (default `true`) decides how the
+  download, inline playback and share routes send recording bytes from S3 storage. `true`
+  answers `307` to a presigned URL on the storage endpoint. `false` streams the bytes through
+  the API, with `Range` served by a ranged `GetObject`. `compose.onprem.yaml` sets `false`: the
+  bundled MinIO at `http://minio:9000` has no published port, so a browser cannot load a
+  presigned URL for it. Local storage always streams. Design and bandwidth notes:
+  [recording-delivery-on-prem.md](../architecture/recording-delivery-on-prem.md).
 
 ### Optional runtime settings (defaults keep them off)
 

@@ -86,6 +86,8 @@ there.
 - `compose.onprem.yaml` sets `DATABASE_ALLOW_INSECURE_TRANSPORT`, `REDIS_ALLOW_INSECURE_TRANSPORT`
   and `STORAGE_ALLOW_INSECURE_ENDPOINT` to `true`. Its PostgreSQL, Redis and MinIO have no
   certificates yet. `DATABASE_URL` and `REDIS_URL` must name the `postgres` and `redis` services.
+  It also sets `STORAGE_PRESIGNED_DELIVERY=false`, so recordings stream through the API and a
+  browser never gets a presigned `http://minio:9000` URL (HOM-340).
 - `compose.neo4j.yaml` sets `NEO4J_ALLOW_INSECURE_TRANSPORT=true` for `bolt://neo4j:7687`. With the
   cloud profile, production refuses that URL. A cloud deployment uses a TLS Neo4j endpoint instead.
 - **Residual risk.** Until the bundled services serve TLS, their traffic is plaintext on the

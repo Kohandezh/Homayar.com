@@ -293,6 +293,9 @@ class ObjectStorage(ABC):
     """Tenant-scoped private object storage interface."""
 
     supports_presigned_access = False
+    # Whether recording delivery may redirect to a presigned URL when the backend supports
+    # one. S3 takes it from STORAGE_PRESIGNED_DELIVERY; false streams through the API (HOM-340).
+    presigned_delivery = True
 
     @abstractmethod
     def put_stream(
@@ -342,6 +345,31 @@ class ObjectStorage(ABC):
     @abstractmethod
     def open_reader(self, tenant_id: str, key: str) -> BinaryIO:
         raise NotImplementedError
+
+    def open_range_reader(self, tenant_id: str, key: str, *, start: int, end: int) -> BinaryIO:
+        """A reader at byte ``start`` of the object; the caller reads up to ``end`` (inclusive).
+
+        The default opens the object and seeks. A reader that cannot seek is read forward
+        and the bytes are dropped, one chunk at a time, so memory stays one chunk. S3
+        overrides this with a ranged ``GetObject``.
+        """
+        if start < 0 or end < start:
+            raise ValueError("byte range is invalid")
+        reader = self.open_reader(tenant_id, key)
+        try:
+            try:
+                reader.seek(start)
+            except (AttributeError, OSError):  # io.UnsupportedOperation is an OSError
+                remaining = start
+                while remaining > 0:
+                    chunk = reader.read(min(DEFAULT_CHUNK_SIZE, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+        except BaseException:
+            reader.close()
+            raise
+        return reader
 
     @abstractmethod
     def exists(self, tenant_id: str, key: str) -> bool:
