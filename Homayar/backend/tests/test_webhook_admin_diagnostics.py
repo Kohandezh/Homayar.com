@@ -387,16 +387,30 @@ def _b64(value: dict | str) -> str:
     return base64.urlsafe_b64encode(raw.encode()).rstrip(b"=").decode()
 
 
+# Fixed values: pytest-xdist workers must collect the same test ids.
+CURSOR_ID = "6f1c2a4e-8b3d-4e5f-9a7b-0c1d2e3f4a5b"
+CURSOR_TIME = "2026-10-30T12:00:00+00:00"
+
+
 @pytest.mark.parametrize(
     "cursor",
     [
-        "not-a-cursor!",
-        _b64("not json"),
-        _b64({"v": 1, "id": str(uuid.uuid4())}),
-        _b64({"v": 2, "created_at": "2026-10-30T12:00:00+00:00", "id": str(uuid.uuid4())}),
-        _b64({"v": 1, "created_at": "2026-10-30T12:00:00", "id": str(uuid.uuid4())}),
-        _b64({"v": 1, "created_at": "2026-10-30T12:00:00+00:00", "id": "not-a-uuid"}),
-        _b64({"v": 1, "due_at": "2026-10-30T12:00:00+00:00", "id": str(uuid.uuid4())}),
+        pytest.param("not-a-cursor!", id="not-base64"),
+        pytest.param(_b64("not json"), id="not-json"),
+        pytest.param(_b64({"v": 1, "id": CURSOR_ID}), id="no-created-at"),
+        pytest.param(
+            _b64({"v": 2, "created_at": CURSOR_TIME, "id": CURSOR_ID}), id="unknown-version"
+        ),
+        pytest.param(
+            _b64({"v": 1, "created_at": "2026-10-30T12:00:00", "id": CURSOR_ID}),
+            id="naive-time",
+        ),
+        pytest.param(
+            _b64({"v": 1, "created_at": CURSOR_TIME, "id": "not-a-uuid"}), id="id-not-a-uuid"
+        ),
+        pytest.param(
+            _b64({"v": 1, "due_at": CURSOR_TIME, "id": CURSOR_ID}), id="another-cursor-kind"
+        ),
     ],
 )
 def test_a_bad_cursor_is_400_invalid_cursor(client, email_outbox, monkeypatch, cursor):
