@@ -211,9 +211,97 @@ the choice of a default profile. This ADR does not change the default.
   empty transcript with `fallback`, `no_speech`. For an explicit request (the upload
   default is the explicit language `fa`) the transcript is also empty, with source
   `requested`, because the explicit path also runs VAD. Both were already empty before
-  this change. VAD
-  settings for 8 kHz audio are follow-up work (WP09-T04).
+  this change. HOM-40 adds one VAD rescue call for this case (see "Amendment, HOM-40: VAD
+  rescue for phone audio" below).
 - The GPU profile has no GPU run yet. Its throughput claim rests on the sources in decision 2.
+
+## Amendment, HOM-40: VAD rescue for phone audio
+
+Date: 2026-10-30 · HOM-40 (WP09-T04), feature F26.
+
+**Rule.** When a request has `vad_filter` on and a `transcribe` call reports that VAD kept no
+audio (`duration_after_vad` at or below 0), the adapter makes exactly one more `transcribe`
+call. That call passes `vad_parameters=RESCUE_VAD_PARAMETERS` (`backend/providers/whisper.py`)
+and the same language mode: the same explicit language, or no language for auto, so detection
+runs on what the rescue VAD kept.
+
+- The rescue call kept audio: its output is used like a normal first call. For auto, the policy
+  decides from its probabilities. A second decode with the decided language happens only when
+  the decision differs from the rescue call's own language, and it uses the rescue VAD too.
+- The rescue call kept nothing: the result is the no-speech result of decision 3. No segments,
+  empty text, `fallback` with reason `no_speech` for auto, source `requested` for explicit. No
+  further call.
+- When the first call keeps audio, nothing changes. A request with `vad_filter` off never gets
+  a rescue. `decide_language` gets the same rescue, so it still returns the decision
+  `transcribe` uses.
+
+**Value.** `RESCUE_VAD_PARAMETERS = {"threshold": 0.25}`. The other Silero options keep the
+faster-whisper 1.2.0 defaults (`neg_threshold` then is `threshold - 0.15`, `speech_pad_ms`
+400, `min_silence_duration_ms` 2000).
+
+**Measurements** (local, 2026-10-30, faster-whisper 1.2.0 `get_speech_timestamps`, seconds of
+speech kept). Item: the FLEURS phone fixture in `backend/tests/fixtures/audio/`. Signals: 10 s
+at 8 kHz, made in the test. Noise is white noise at about -30 dBFS RMS. Tone is a steady 425 Hz
+dial tone at 0.5 peak. Ringback is the same tone 1 s on, 4 s off.
+
+| Options | Item | Silence | Noise | Tone | Ringback |
+| --- | --- | --- | --- | --- | --- |
+| defaults (`threshold` 0.5) | 0.00 | 0 | 0 | 0 | 0 |
+| `threshold` 0.4 | 0.00 | 0 | 0 | 0 | 0 |
+| `threshold` 0.35 | 0.00 | 0 | 0 | 0 | 0 |
+| `threshold` 0.3 | 2.94 | 0 | 0 | 0 | 0 |
+| `threshold` 0.3, `speech_pad_ms` 800 | 3.74 | 0 | 0 | 0 | 0 |
+| **`threshold` 0.25 (chosen)** | **5.60** | 0 | 0 | 0 | 0 |
+| `threshold` 0.25, `speech_pad_ms` 600 | 5.80 | 0 | 0 | 0 | 0 |
+| `threshold` 0.2 | 6.31 | 0 | 0 | 0 | 0 |
+| `threshold` 0.15 | 6.34 | 0 | 0 | 0.50 | 0.50 |
+| `threshold` 0.1 | 6.37 | 0 | 0 | 0.50 | 0.50 |
+| `speech_pad_ms` 800 (`threshold` 0.5) | 0.00 | 0 | 0 | 0 | 0 |
+
+The 16 kHz original keeps 6.15 s with the defaults. With louder signals (noise at -20 dBFS,
+tone at 0.9 peak), 0.25 still keeps nothing, but 0.2 keeps 0.46 s of the tone and the
+ringback. So 0.25 is the lowest tried value with a margin. More padding alone does not help:
+with `threshold` 0.35 VAD still finds no speech start on this item, so padding has nothing to
+pad.
+
+End to end (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`, CPU, `int8`): on the base, the
+item gives empty text for `en` and for auto (`no_speech`). With the rescue, both give one
+segment: "Most riders wearing riding boots with a heel and a smooth, quite narrow sole."
+(auto: `detected` `en`). Word error rate against the reference is 0.133 (2 of 15 words: "first"
+missing, "wear" read as "wearing"). On the four signals the rescue still gives empty text with
+`fallback`, `no_speech`.
+
+**Checkpoint identity.** `identity()` and `language_policy_identity()` do not change. This is
+safe. The rescue only changes calls whose result was empty before, and an empty ASR result is
+never committed as a checkpoint (`backend/jobs/processor.py`, the `EMPTY_TRANSCRIPT` branch
+ends the stage as `INSUFFICIENT_EVIDENCE` without a checkpoint). So no stored checkpoint holds
+an answer the new code would give differently.
+
+**Limits.**
+
+- The value rests on one quiet FLEURS item (mean -67.4 dB, max -46.0 dB) and four generated
+  signals. It is not tuned on real call-centre audio. Real line noise, music on hold or
+  speech-like noise can pass the lower threshold. Then faster-whisper decodes it, and only
+  the general rule of decision 3 applies.
+- A call that the first VAD empties costs one more `transcribe` call (decode and VAD again).
+  A call the rescue also empties makes two calls instead of one.
+- Long calls are cut into chunks (HOM-40, team 1). Each chunk is its own `ASRRequest`, so the
+  rescue runs per chunk.
+- There is no input gain step. Quiet speech that stays under 0.25 is still lost.
+- Music on hold can produce text through the rescue. Case: a 425 Hz tone at 0.5 peak,
+  amplitude-modulated at 4 Hz (about the syllable rate), 10 s at 8 kHz. The default VAD keeps
+  0 s. The rescue keeps 4.99 s as PCM and 7.87 s as mu-law. With large-v3-turbo on CPU
+  (`int8`), the mu-law version gives the text `موسیقی` ("music") for an explicit `fa` request
+  and for auto (`fallback`, `low_confidence`). The base gives empty text. No threshold fixes
+  this: 0.3 still keeps 0.86 s (PCM) and 4.86 s (mu-law) of it, and 0.35 keeps none of it but
+  also none of the fixture. Real phone tones did not pass at 0.25: UK and US ringback, US busy,
+  425 Hz busy and congestion, DTMF, fax CNG and CED, 50 Hz hum, clicks, and white, pink and
+  brown noise at several levels. Sources: VAD seconds measured again by the maker; the text
+  result and the phone-tone list come from the team review. Local machine, 2026-10-30.
+- Already on the base, not caused by this change: a synthetic chord melody with noise at
+  -35 dBFS keeps 0.46 s under the default VAD, and Whisper writes text for it (team review,
+  2026-10-30). Non-speech that still produces text is an F26 follow-up: a music or tone check
+  before or after ASR.
 
 ## Sources
 

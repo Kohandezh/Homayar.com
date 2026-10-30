@@ -118,6 +118,7 @@ class AuditEventType(StrEnum):
     PII_REVEALED = "pii.revealed", "meeting"
     RECONCILIATION_ITEM_RESOLVED = "reconciliation_item.resolved", "reconciliation_item"
     REVIEW_SAMPLE_DRAWN = "review_sample.drawn", "workspace"
+    SCORECARD_PUBLISHED = "scorecard.published", "scorecard"
     SERVICE_LOCATION_CREATED = "service_location.created", "service_location"
     SERVICE_LOCATION_DELETED = "service_location.deleted", "service_location"
     SERVICE_LOCATION_UPDATED = "service_location.updated", "service_location"

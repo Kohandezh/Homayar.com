@@ -8,10 +8,17 @@ import stat
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
-from pydantic import Field, PlainSerializer, SerializationInfo, ValidationError, model_validator
+from pydantic import (
+    Field,
+    PlainSerializer,
+    SerializationInfo,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticCustomError
 from pydantic_settings import (
@@ -21,6 +28,9 @@ from pydantic_settings import (
     SettingsConfigDict,
     SettingsError,
 )
+
+if TYPE_CHECKING:
+    from backend.speech.chunking import ChunkSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -426,6 +436,9 @@ class Settings(BaseSettings):
     # APP
     environment: Literal["development", "test", "staging", "production"] = "development"
     deployment_mode: Literal["cloud", "onprem"] = "cloud"
+    # Supported private topology (HOM-106, backend/providers/deployment_topologies.py,
+    # ADR 0047). Empty: no topology and no topology host check.
+    deployment_topology: str = ""
     app_name: str = "Homayar"
     api_prefix: str = "/api/v1"
     frontend_url: str = "http://localhost:5173/app"
@@ -666,6 +679,15 @@ class Settings(BaseSettings):
     asr_allowed_languages: str = "fa,en"
     asr_default_language: str = "fa"
     asr_language_min_probability: float = 0.5
+    # Long-call chunking (HOM-40, backend/speech/chunking.py, ADR 0046): a call
+    # longer than asr_chunk_min_call_seconds is transcribed in chunks of about
+    # asr_chunk_target_seconds, cut in a quiet gap within +- search seconds, with
+    # overlap seconds of extra audio past each cut. Off: every call is one request.
+    asr_chunking_enabled: bool = True
+    asr_chunk_min_call_seconds: float = 1200.0
+    asr_chunk_target_seconds: float = 600.0
+    asr_chunk_search_seconds: float = 30.0
+    asr_chunk_overlap_seconds: float = 2.0
     model_artifact_root: str = ""
     # Speech synthesis (P0 wave): "unavailable" (default), "piper" (local
     # CLI) or "local_http" (private /v1/audio/speech).  tts_voices maps
@@ -1018,6 +1040,16 @@ class Settings(BaseSettings):
             )
         return self
 
+    @field_validator("deployment_topology")
+    @classmethod
+    def validate_deployment_topology(cls, value: str) -> str:
+        from backend.providers.deployment_topologies import get_topology
+
+        value = value.strip()
+        if value:
+            get_topology(value)
+        return value
+
     @model_validator(mode="after")
     def validate_asr_configuration(self) -> Settings:
         # Imported here, like parse_pins above.
@@ -1030,7 +1062,23 @@ class Settings(BaseSettings):
             if self.asr_provider.strip().lower().replace("-", "_") != "local_whisper":
                 raise ValueError("ASR_PROFILE needs ASR_PROVIDER=local_whisper")
         LanguagePolicy.from_settings(self)
+        # Checked even when chunking is off, so turning it on cannot fail later.
+        self.asr_chunk_settings()
         return self
+
+    def asr_chunk_settings(self) -> ChunkSettings:
+        """The long-call chunking of these settings; raises ``ValueError`` when invalid."""
+        from backend.speech.chunking import ChunkSettings
+
+        try:
+            return ChunkSettings(
+                min_call_seconds=self.asr_chunk_min_call_seconds,
+                target_seconds=self.asr_chunk_target_seconds,
+                search_seconds=self.asr_chunk_search_seconds,
+                overlap_seconds=self.asr_chunk_overlap_seconds,
+            )
+        except ValueError as exc:
+            raise ValueError(f"Invalid ASR_CHUNK_* settings: {exc}") from exc
 
     def _check_transport(
         self,

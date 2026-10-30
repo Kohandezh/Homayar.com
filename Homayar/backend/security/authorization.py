@@ -82,6 +82,10 @@ class Permission(str, Enum):
     # AI processing policy (WP08-T02, ADR 0027): where the workspace's audio
     # and text may be processed.  Owner only, never carried by an API key.
     AI_POLICY_MANAGE = "ai_policy:manage"
+    # QA scorecards (HOM-54): every role reads the published versions; owners
+    # and admins publish a new version.  Never carried by an API key.
+    SCORECARD_READ = "scorecard:read"
+    SCORECARD_MANAGE = "scorecard:manage"
 
 
 ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
@@ -101,6 +105,8 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.BILLING_READ,
             Permission.AUDIT_READ,
             Permission.API_KEY_MANAGE,
+            Permission.SCORECARD_READ,
+            Permission.SCORECARD_MANAGE,
         }
     ),
     WorkspaceRole.MEMBER: frozenset(
@@ -111,6 +117,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.SHARE_MANAGE,
             Permission.MEMBER_READ,
             Permission.TEAM_READ,
+            Permission.SCORECARD_READ,
         }
     ),
     WorkspaceRole.VIEWER: frozenset(
@@ -118,6 +125,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.MEETING_READ,
             Permission.MEMBER_READ,
             Permission.TEAM_READ,
+            Permission.SCORECARD_READ,
         }
     ),
 }
