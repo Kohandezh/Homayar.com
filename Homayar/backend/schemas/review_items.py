@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, WithJsonSchema
 
 from backend.schemas.coverage import (
     CoverageWindowResponse,
@@ -26,8 +26,9 @@ MAX_REVISION = 2**31 - 1
 ReferenceId = Annotated[str, StringConstraints(min_length=1, max_length=36)]
 ExpectedRevision = Annotated[int, Field(ge=1, le=MAX_REVISION, strict=True)]
 CancelReason = Literal["duplicate", "out_of_scope", "meeting_unusable", "other"]
-# Any JSON value, required: ``check_due_at`` accepts only an ISO 8601 string.
-DueAt = Any
+# Any JSON value reaches ``check_due_at``, which accepts only a date-time string, so a
+# number is ``review_due_at_invalid`` too.  The API schema names the one accepted form.
+DueAt = Annotated[Any, WithJsonSchema({"type": "string", "format": "date-time"})]
 
 
 class ReviewItemResponse(BaseModel):

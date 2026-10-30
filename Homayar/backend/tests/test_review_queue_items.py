@@ -242,7 +242,7 @@ def test_the_due_time_rule_on_the_due_time_action(queue):
 
 def _instant() -> tuple[datetime, str, list[object]]:
     """A valid due time, the same instant as an ISO string with ``Z``, and the values that
-    are not an ISO 8601 string."""
+    are not a date-time string (DESIGN §9.7, §9.10, §9.12)."""
     instant = (datetime.now(UTC) + timedelta(days=2)).replace(microsecond=0)
     seconds = int(instant.timestamp())
     refused = [
@@ -252,8 +252,11 @@ def _instant() -> tuple[datetime, str, list[object]]:
         None,
         {"at": instant.isoformat()},
         [instant.isoformat()],
-        str(seconds),  # a string, but not ISO 8601
+        str(seconds),  # a string that is only a number: Unix seconds
+        f"{seconds}.5",
         "in two days",
+        instant.strftime("%Y%m%dT%H%M%SZ"),  # ISO 8601 basic format
+        instant.strftime("%G-W%V-%uT%H:%M:%SZ"),  # an ISO week date
     ]
     return instant, instant.strftime("%Y-%m-%dT%H:%M:%SZ"), refused
 
@@ -273,6 +276,21 @@ def test_due_at_must_be_an_iso_string_on_create_and_due_time(queue):
     assert _time(created(queue.owner, queue.meeting(), due_at=iso)["due_at"]) == instant
     moved = acted(queue.owner, item, "due-time", due_at=iso)
     assert _time(moved["due_at"]) == instant and moved["revision"] == 2
+    # Pydantic's parsing takes lowercase ``t`` and ``z`` too.
+    lower = instant.strftime("%Y-%m-%dt%H:%M:%Sz")
+    assert _time(created(queue.owner, queue.meeting(), due_at=lower)["due_at"]) == instant
+
+
+def test_the_api_schema_names_due_at_a_date_time_string(client):
+    document = client.app.openapi()["components"]["schemas"]
+    for model in (
+        "ReviewItemCreateRequest",
+        "ReviewItemDueTimeRequest",
+        "ReviewSampleEnqueueRequest",
+    ):
+        schema = document[model]["properties"]["due_at"]
+        assert (schema["type"], schema["format"]) == ("string", "date-time"), model
+        assert "due_at" in document[model]["required"], model
 
 
 # --- the list (criteria 15, 16) ----------------------------------------------------------
@@ -501,6 +519,28 @@ def _set_agent(meeting_id: str, user_id: str) -> None:
     with inspection_session_factory()() as db:
         db.execute(update(Meeting).where(Meeting.id == meeting_id).values(agent_user_id=user_id))
         db.commit()
+
+
+def test_the_assignee_check_comes_before_the_agent_check(queue):
+    """An admin who is the conversation's current agent but not the assignee is refused
+    as a non-assignee."""
+    item = created(queue.owner, queue.m_a, assignee_user_id=queue.sup.user_id)
+    _set_agent(queue.m_a, queue.admin.user_id)
+    refused = act(queue.admin, item, "start")
+    assert refused.status_code == 403 and code(refused) == "review_not_assignee"
+    assert stored(item["id"]).status == "open"
+
+
+def test_the_current_agent_still_changes_the_due_time_and_cancels(queue):
+    """DESIGN §9.5 covers start and complete only: an admin who is the conversation's
+    current agent may still change the due time and cancel the item."""
+    owner, admin = queue.owner, queue.admin
+    item = acted(owner, created(owner, queue.m_a), "assign", assignee_user_id=admin.user_id)
+    _set_agent(queue.m_a, admin.user_id)
+    item = acted(admin, item, "due-time")
+    assert item["revision"] == 3
+    item = acted(admin, item, "cancel", reason="other")
+    assert (item["status"], item["revision"]) == ("cancelled", 4)
 
 
 def test_start_and_complete_refuse_the_conversations_current_agent(queue):

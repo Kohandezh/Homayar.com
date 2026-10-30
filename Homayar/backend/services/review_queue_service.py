@@ -61,6 +61,9 @@ ASSIGNEE_ME = "me"
 ASSIGNEE_UNASSIGNED = "unassigned"
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _BOOLEAN = TypeAdapter(bool)
+_DATETIME = TypeAdapter(datetime)
+# Only a number: pydantic would read it as Unix seconds, so it is refused like a JSON number.
+_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
 
 
 class ReviewQueueError(Exception):
@@ -160,16 +163,19 @@ def is_overdue(item: ReviewItem, now: datetime) -> bool:
 
 
 def check_due_at(raw: object, *, now: datetime) -> datetime:
-    """``due_at`` in UTC, or ``422 review_due_at_invalid``: an ISO 8601 string (a JSON
-    number or any other value is refused) that carries a UTC offset, later than ``now``
-    and at most 90 days after it."""
+    """``due_at`` in UTC, or ``422 review_due_at_invalid``.
+
+    It must be a string that is not only a number, read by pydantic's datetime parsing
+    (RFC 3339 forms, lowercase ``t`` and ``z`` included), with a UTC offset, later than
+    ``now`` and at most 90 days after it.  A JSON number or any other value is refused.
+    """
     try:
-        if not isinstance(raw, str):
+        if not isinstance(raw, str) or _NUMBER.fullmatch(raw):
             raise ValueError
-        due_at = datetime.fromisoformat(raw)
-    except ValueError:
+        due_at = _DATETIME.validate_python(raw)
+    except (ValueError, ValidationError):
         raise ReviewQueueError(
-            422, "review_due_at_invalid", "due_at must be an ISO 8601 string"
+            422, "review_due_at_invalid", "due_at must be an ISO 8601 date-time string"
         ) from None
     if due_at.tzinfo is None or due_at.utcoffset() is None:
         message = "due_at must carry a UTC offset"
