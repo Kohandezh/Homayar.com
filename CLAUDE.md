@@ -14,6 +14,8 @@ Other folders: `infra/` (deploy and CI scripts), `tools/linear-agent/`, `docs/` 
 
 Every Linear ticket (team HOM) goes through the `homlead` skill (`.claude/skills/homlead/`). There is no other way to do ticket work in this repo.
 
+Every issue becomes a Linear ticket (team HOM) before any work starts. This covers code, production server and ops work (local server, relay), config changes, and problems the owner reports. The ticket then goes through `homlead` and a `/foreus` mission. Homlead makes no direct changes. Read-only checks (status, logs, curl) are fine without a ticket.
+
 - The top session becomes `homlead`, the leader of leaders. It takes tickets from Linear by cycle and priority.
 - It runs up to 6 `foreus` leaders at once, one Herdr tab per ticket. Each leader has its own maker and checker.
 - Homlead verifies, merges and cleans up. It never implements a ticket itself.

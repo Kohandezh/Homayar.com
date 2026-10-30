@@ -35,7 +35,7 @@ from backend.tests.conftest import login_user, register_user
 APP_LOGIN = "homayar_audit_app_probe"
 READER_LOGIN = "homayar_audit_reader_probe"
 HOP_ROLE = "homayar_audit_reader_hop_probe"
-HEAD_REVISION = "f2c6a8e4b1d7"  # HOM-290: trend_extraction_judgments on top of HOM-37
+HEAD_REVISION = "f2c6a8e4b1d7"  # HOM-290: trend_extraction_judgments, after HOM-58
 PREVIOUS_REVISION = "d8a2f4c6b1e3"
 
 

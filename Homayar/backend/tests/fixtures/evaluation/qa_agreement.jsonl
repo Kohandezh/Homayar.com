@@ -1,0 +1,7 @@
+{"item_id": "s1", "criterion": "accuracy", "rating_a": "high", "rating_b": "high"}
+{"item_id": "s2", "criterion": "accuracy", "rating_a": "low", "rating_b": "mid"}
+{"item_id": "s3", "criterion": "accuracy", "rating_a": "mid", "rating_b": "mid"}
+{"item_id": "s4", "criterion": "clarity", "rating_a": "mid", "rating_b": "high"}
+{"item_id": "s5", "criterion": "clarity", "rating_a": "high", "rating_b": "mid"}
+{"item_id": "s6", "criterion": "clarity", "rating_a": "low", "rating_b": "low"}
+{"item_id": "s7", "criterion": "clarity", "rating_a": "low", "rating_b": null}
