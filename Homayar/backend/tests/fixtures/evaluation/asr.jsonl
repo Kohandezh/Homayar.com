@@ -1,0 +1,5 @@
+{"reference": "سلام علي ۱۲۳", "hypothesis": "سلام علی 123", "slices": {"channel": "tel_8k"}}
+{"reference": "امروز هوا خوب است", "hypothesis": "امروز هوا بد است", "language": "fa", "slices": {"channel": "web"}}
+
+{"reference": "the cat sat", "hypothesis": "the cat sit", "language": "en"}
+{"reference": "", "hypothesis": "noise", "language": "en"}

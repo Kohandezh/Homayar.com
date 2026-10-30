@@ -57,7 +57,7 @@ from backend.tests.test_privacy_routing import NID_FA, SEGMENTS, _SegmentedASR
 
 NEW_REVISION = "c7e2a9d4f1b6"
 BASE_REVISION = "e6c3a9f1d4b8"
-HEAD_REVISION = "a7c3e9f5b2d1"  # HOM-37: media_objects.channel_inspection follows NEW_REVISION
+HEAD_REVISION = "6d4ec2d2e498"  # HOM-58: conversation columns on meetings, after HOM-37
 TABLE = "analysis_extractions"
 
 

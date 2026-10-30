@@ -35,7 +35,7 @@ from backend.tests.conftest import login_user, register_user
 APP_LOGIN = "homayar_audit_app_probe"
 READER_LOGIN = "homayar_audit_reader_probe"
 HOP_ROLE = "homayar_audit_reader_hop_probe"
-HEAD_REVISION = "a7c3e9f5b2d1"  # HOM-37: media_objects.channel_inspection on top of HOM-53
+HEAD_REVISION = "6d4ec2d2e498"  # HOM-58: conversation columns on meetings, after HOM-37
 PREVIOUS_REVISION = "d8a2f4c6b1e3"
 
 

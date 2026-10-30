@@ -1,0 +1,5 @@
+{"claim_id": "c1", "label": "supported", "citations": [{"start_ms": 0, "end_ms": 1000, "revision_id": "rev-1"}], "recording_duration_ms": 60000}
+{"claim_id": "c2", "label": "unsupported", "severe": true}
+{"claim_id": "c3", "label": "contradicted", "citations": [{"start_ms": 5000, "end_ms": 7000, "revision_id": "rev-1"}], "severe": true, "recording_duration_ms": 60000}
+{"claim_id": "c4", "label": "not_audited", "citations": [{"start_ms": 0, "end_ms": 1000, "revision_id": "rev-1"}]}
+{"claim_id": "c5", "label": "supported", "citations": [{"start_ms": 0, "end_ms": 90000, "revision_id": "rev-1"}], "recording_duration_ms": 60000}

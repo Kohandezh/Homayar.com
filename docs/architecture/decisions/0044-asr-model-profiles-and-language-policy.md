@@ -46,8 +46,8 @@ whose identity equals its own. `ASR_PROFILE` selects one. Empty (the default) ke
 Why these:
 
 - The five CPU profiles span the multilingual Whisper sizes from the smallest (today's
-  default) to the strongest. `int8` is the fastest CPU type in CTranslate2 and the one the
-  existing manifests use.
+  default) to the strongest. They use `int8`, the compute type of the existing CPU
+  manifests, so `cpu-base` and `cpu-large-v3` keep their existing identities.
 - `large-v3-turbo` is a named model in faster-whisper 1.2.0
   (`faster_whisper/utils.py`: `"large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo"`).
   It keeps the large-v3 encoder and has a much smaller decoder, so it is the candidate between
@@ -95,11 +95,14 @@ Settings: `ASR_ALLOWED_LANGUAGES` (default `fa,en`), `ASR_DEFAULT_LANGUAGE` (def
 3. **Auto request.** The first `transcribe` call runs without a language. faster-whisper
    detects the language inside that call, before it returns, and its segment generator is
    lazy (`faster_whisper/transcribe.py`: `detect_language` runs in `transcribe`;
-   `generate_segments` is a generator). The policy reads `info.all_language_probs`:
+   `generate_segments` is a generator). The policy reads `info.all_language_probs` (or, when
+   that is missing, `info.language` with `info.language_probability`):
    - the best allowed language with probability at or above the threshold is used
      (`detected`);
    - else the default language is used (`fallback`, reason `low_confidence`);
-   - with no detection at all, the default is used (`fallback`, reason `no_speech`).
+   - with an empty probability list, the default is used (`fallback`, reason `no_speech`).
+     The list is empty in two cases: VAD kept no audio (next point), or the library gave
+     no detection at all.
    - **No speech after VAD.** If `info.duration_after_vad` is a number at or below 0, VAD
      kept no audio. The probabilities are then treated as empty, so the result is
      `fallback`, reason `no_speech`, in the default language. The adapter returns no
@@ -111,9 +114,9 @@ Settings: `ASR_ALLOWED_LANGUAGES` (default `fa,en`), `ASR_DEFAULT_LANGUAGE` (def
      VAD kept (`faster_whisper/transcribe.py`, `duration_after_vad = audio.shape[0] /
      sampling_rate` after `collect_chunks`). When the value is missing, not a number or above
      0, nothing changes. Explicit requests do not use this rule.
-   If the decision equals Whisper's own language, the first generator is used. Otherwise it
-   is never read, and a second call forces the decided language. Arabic text for a Persian
-   call is therefore never returned.
+   Otherwise, if the decision equals Whisper's own language, the first generator is used.
+   If it differs, the first generator is never read, and a second call forces the decided
+   language. Arabic text for a Persian call is therefore never returned.
 4. **Result.** `ASRResult.language` is the decided language. `ASRResult.language_decision`
    records the source, the request, the top detected language and its probability, the reason
    and the policy version. Results written before this change load without it.
@@ -164,8 +167,12 @@ the choice of a default profile. This ADR does not change the default.
   such an ASR checkpoint invalid (`ArtifactInvalid` in `backend/jobs/checkpoints.py`),
   invalidates it and runs ASR again. So a rollback re-runs ASR for meetings processed since
   the deploy. No data is lost.
-- Do not run two worker versions at the same time. An old worker would invalidate the new
-  worker's ASR checkpoints, and both would keep recomputing.
+- Do not run two worker versions at the same time. When an old worker reads an ASR
+  checkpoint that the new code wrote for the same identity (an explicit language), it finds
+  it invalid, invalidates it and runs ASR again. The new code reads the old worker's
+  artifact without a problem, so this costs at most one extra ASR run per such meeting; it
+  does not loop. Auto-language identities differ between the versions (the new one adds the
+  policy), so the two versions never read each other's auto-language checkpoints.
 - `infra/compose/compose.cloud.yaml` and `infra/compose/compose.onprem.yaml` pass
   `ASR_PROVIDER` and the three `WHISPER_*` settings, but not `ASR_PROFILE`,
   `ASR_ALLOWED_LANGUAGES`, `ASR_DEFAULT_LANGUAGE` or `ASR_LANGUAGE_MIN_PROBABILITY`. Inside
@@ -177,8 +184,14 @@ the choice of a default profile. This ADR does not change the default.
 - An operator picks one profile name. The settings refuse an unknown name, a profile with a
   provider that is not local Whisper, and a policy that cannot work.
 - `fa-IR` jobs now run as `fa` instead of failing.
-- Auto jobs can only end in an allowed language. A fallback costs a second decode of the
-  same file (audio decode, VAD and features run again).
+- Auto jobs can only end in an allowed language. A second decode of the same file (audio
+  decode, VAD, features and decoding run again) happens only when VAD kept some audio and
+  the decided language differs from Whisper's own pick. A fallback to the language Whisper
+  picked needs one call, and so does a `no_speech` result because VAD kept no audio. A
+  `no_speech` result because the library gave no detection while VAD kept audio follows
+  the general rule: a second call when the default language differs from `info.language`
+  (for example when `info.language` is missing). faster-whisper 1.2.0 always returns a
+  detection for a multilingual model, so this last case is not expected in practice.
 - Explicit-language checkpoints are reused across this change. Auto-language checkpoints are
   recomputed once, because their identity gains the policy.
 
@@ -191,6 +204,15 @@ the choice of a default profile. This ADR does not change the default.
   the policy sees a normal detection. Only "VAD kept nothing" is treated as no speech. An
   empty result ends the stage as an empty transcript (`INSUFFICIENT_EVIDENCE`), the same
   as silent audio before this change.
+- VAD can drop real speech on phone audio. With the default Silero VAD options of
+  faster-whisper 1.2.0, VAD removed all speech from 1 of 150 FLEURS items converted to 8 kHz
+  mu-law (clear read English, 7.86 s; its 16 kHz original kept 6.15 s). Local check,
+  2026-10-30. For an auto request, the no-speech rule (decision 3) ends such a call as an
+  empty transcript with `fallback`, `no_speech`. For an explicit request (the upload
+  default is the explicit language `fa`) the transcript is also empty, with source
+  `requested`, because the explicit path also runs VAD. Both were already empty before
+  this change. VAD
+  settings for 8 kHz audio are follow-up work (WP09-T04).
 - The GPU profile has no GPU run yet. Its throughput claim rests on the sources in decision 2.
 
 ## Sources
