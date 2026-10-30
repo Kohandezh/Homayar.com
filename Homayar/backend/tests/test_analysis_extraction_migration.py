@@ -57,7 +57,7 @@ from backend.tests.test_privacy_routing import NID_FA, SEGMENTS, _SegmentedASR
 
 NEW_REVISION = "c7e2a9d4f1b6"
 BASE_REVISION = "e6c3a9f1d4b8"
-HEAD_REVISION = "47676f445509"  # HOM-54: scorecard_versions, after HOM-290
+HEAD_REVISION = "e4b8d1f6a3c7"  # HOM-89: webhook delivery ledger, after HOM-88
 TABLE = "analysis_extractions"
 
 

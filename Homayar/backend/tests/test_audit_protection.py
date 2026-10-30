@@ -35,7 +35,7 @@ from backend.tests.conftest import login_user, register_user
 APP_LOGIN = "homayar_audit_app_probe"
 READER_LOGIN = "homayar_audit_reader_probe"
 HOP_ROLE = "homayar_audit_reader_hop_probe"
-HEAD_REVISION = "47676f445509"  # HOM-54: scorecard_versions, after HOM-290
+HEAD_REVISION = "e4b8d1f6a3c7"  # HOM-89: webhook delivery ledger, after HOM-88
 PREVIOUS_REVISION = "d8a2f4c6b1e3"
 
 

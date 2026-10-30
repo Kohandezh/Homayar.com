@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backend.celery_app import (
     ARTIFACT_CLEANUP_TASK,
+    CRM_RECONCILIATION_TASK,
     DISPATCH_SWEEP_TASK,
     LEASE_RECOVERY_TASK,
     MEDIA_RECONCILIATION_TASK,
@@ -122,3 +123,11 @@ def sweep_stale_analyses_task():
     from backend.jobs.recompute import sweep_stale_analyses
 
     return run_with_heartbeat("analysis_recompute", sweep_stale_analyses)
+
+
+@celery_app.task(name=CRM_RECONCILIATION_TASK, acks_late=False, ignore_result=True)
+def reconcile_crm_records_task():
+    """Periodic: apply pending CRM records whose conversation arrived (HOM-88)."""
+    from backend.jobs.crm_reconciliation import reconcile_pending_records
+
+    return run_with_heartbeat("crm_reconciliation", reconcile_pending_records)

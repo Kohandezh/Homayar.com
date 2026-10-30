@@ -39,12 +39,14 @@ from backend.routers.v1 import auth as auth_v1
 from backend.routers.v1 import billing as billing_v1
 from backend.routers.v1 import ingestions as ingestions_v1
 from backend.routers.v1 import insights as insights_v1
+from backend.routers.v1 import integrations as integrations_v1
 from backend.routers.v1 import locations as locations_v1
 from backend.routers.v1 import meetings as meetings_v1
 from backend.routers.v1 import members as members_v1
 from backend.routers.v1 import organizations as organizations_v1
 from backend.routers.v1 import privacy as privacy_v1
 from backend.routers.v1 import reports as reports_v1
+from backend.routers.v1 import scorecards as scorecards_v1
 from backend.routers.v1 import shares as shares_v1
 from backend.routers.v1 import teams as teams_v1
 from backend.routers.v1 import trends as trends_v1
@@ -259,12 +261,14 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(api_keys_v1.router, prefix=settings.api_prefix)
     app.include_router(billing_v1.router, prefix=settings.api_prefix)
     app.include_router(ingestions_v1.router, prefix=settings.api_prefix)
+    app.include_router(integrations_v1.router, prefix=settings.api_prefix)
     app.include_router(meetings_v1.router, prefix=settings.api_prefix)
     app.include_router(insights_v1.router, prefix=settings.api_prefix)
     app.include_router(members_v1.router, prefix=settings.api_prefix)
     app.include_router(organizations_v1.router, prefix=settings.api_prefix)
     app.include_router(privacy_v1.router, prefix=settings.api_prefix)
     app.include_router(reports_v1.router, prefix=settings.api_prefix)
+    app.include_router(scorecards_v1.router, prefix=settings.api_prefix)
     app.include_router(shares_v1.router, prefix=settings.api_prefix)
     app.include_router(teams_v1.router, prefix=settings.api_prefix)
     app.include_router(trends_v1.router, prefix=settings.api_prefix)

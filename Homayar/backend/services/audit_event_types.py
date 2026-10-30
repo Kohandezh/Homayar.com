@@ -52,6 +52,8 @@ class AuditEventType(StrEnum):
     INGESTION_DUPLICATE_MEDIA = "ingestion.duplicate_media", "ingestion"
     INGESTION_REJECTED = "ingestion.rejected", "ingestion"
     INGESTION_REPLAYED = "ingestion.replayed", "ingestion"
+    INTEGRATION_MAPPING_UPDATED = "integration_mapping.updated", "integration_mapping_profile"
+    INTEGRATION_RECORD_CONFLICT = "integration_record.conflict", "integration_inbound_record"
     MEDIA_DELETED = "media.deleted", "media"
     MEDIA_DELETION_REQUESTED = "media.deletion_requested", "media"
     MEDIA_DERIVATIVE_UNAVAILABLE = "media.derivative_unavailable", "media"
@@ -114,7 +116,9 @@ class AuditEventType(StrEnum):
     )
     ORGANIZATION_WORKSPACE_MEMBER_REMOVED = "organization.workspace.member_removed", "membership"
     PII_REVEALED = "pii.revealed", "meeting"
+    RECONCILIATION_ITEM_RESOLVED = "reconciliation_item.resolved", "reconciliation_item"
     REVIEW_SAMPLE_DRAWN = "review_sample.drawn", "workspace"
+    SCORECARD_PUBLISHED = "scorecard.published", "scorecard"
     SERVICE_LOCATION_CREATED = "service_location.created", "service_location"
     SERVICE_LOCATION_DELETED = "service_location.deleted", "service_location"
     SERVICE_LOCATION_UPDATED = "service_location.updated", "service_location"

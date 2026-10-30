@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -1686,6 +1687,394 @@ class IngestionRecord(Base):
     )
 
 
+# --- CRM mapping (HOM-88, WP16-T04, F64) ------------------------------------------------
+#
+# Each enum-like column below stores the lowercase value with a check constraint, like
+# ``Meeting.conversation_type``.
+
+
+class ExternalRecordType(str, enum.Enum):
+    """What an ``external_records`` row is in its source system (HOM-88)."""
+
+    CUSTOMER = "customer"
+    TICKET = "ticket"
+    AGENT = "agent"
+
+
+class ExternalLinkType(str, enum.Enum):
+    """What a conversation is linked to in one source system (HOM-88)."""
+
+    CUSTOMER = "customer"
+    TICKET = "ticket"
+    AGENT = "agent"
+    OUTCOME = "outcome"
+
+
+class CanonicalOutcome(str, enum.Enum):
+    """The Homayar outcome that a source system's outcome code maps to (HOM-88)."""
+
+    RESOLVED = "resolved"
+    UNRESOLVED = "unresolved"
+    ESCALATED = "escalated"
+    FOLLOW_UP = "follow_up"
+    WON = "won"
+    LOST = "lost"
+    OTHER = "other"
+
+
+class InboundRecordState(str, enum.Enum):
+    """Where one received CRM record stands (HOM-88).
+
+    ``pending`` waits for its conversation until ``expires_at``; ``reconciliation``
+    opened at least one item for a human.
+    """
+
+    APPLIED = "applied"
+    PENDING = "pending"
+    RECONCILIATION = "reconciliation"
+
+
+class ReconciliationReason(str, enum.Enum):
+    """Why the system did not decide a case alone (HOM-88)."""
+
+    CONVERSATION_NOT_FOUND = "conversation_not_found"
+    AMBIGUOUS_CONVERSATION = "ambiguous_conversation"
+    CHANGED_ID = "changed_id"
+    UNKNOWN_AGENT = "unknown_agent"
+    UNKNOWN_OUTCOME = "unknown_outcome"
+    INACTIVE_RECORD = "inactive_record"
+
+
+class ReconciliationStatus(str, enum.Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"
+
+
+class ReconciliationResolution(str, enum.Enum):
+    LINK = "link"
+    KEEP_CURRENT = "keep_current"
+    DISMISS = "dismiss"
+
+
+def _in_check(column: str, members: type[enum.Enum], *, nullable: bool = False) -> str:
+    listed = f"{column} IN (" + ", ".join(f"'{member.value}'" for member in members) + ")"
+    return f"{column} IS NULL OR {listed}" if nullable else listed
+
+
+def _slug_check(column: str) -> str:
+    """``^[a-z][a-z0-9_.-]{0,59}$`` without a regex, so SQLite runs the same check: 1 to
+    60 characters, a lowercase first letter, and nothing outside ``a-z``, ``0-9``, ``_``,
+    ``.`` and ``-``."""
+    return (
+        f"length({column}) BETWEEN 1 AND 60 "
+        f"AND trim(substr({column}, 1, 1), 'abcdefghijklmnopqrstuvwxyz') = '' "
+        f"AND trim({column}, 'abcdefghijklmnopqrstuvwxyz0123456789_.-') = ''"
+    )
+
+
+INTEGRATION_SOURCE_SYSTEM_CHECK = _slug_check("source_system")
+INTEGRATION_CONVERSATION_SOURCE_CHECK = _slug_check("conversation_source_system")
+LATE_RECORD_WINDOW_MIN_SECONDS = 3600  # one hour
+LATE_RECORD_WINDOW_MAX_SECONDS = 2592000  # 30 days
+LATE_RECORD_WINDOW_DEFAULT_SECONDS = 604800  # 7 days
+INTEGRATION_LATE_WINDOW_CHECK = (
+    f"late_record_window_seconds BETWEEN {LATE_RECORD_WINDOW_MIN_SECONDS} "
+    f"AND {LATE_RECORD_WINDOW_MAX_SECONDS}"
+)
+EXTERNAL_RECORD_TYPE_CHECK = _in_check("record_type", ExternalRecordType)
+INBOUND_RECORD_STATE_CHECK = _in_check("state", InboundRecordState)
+INBOUND_RECORD_PENDING_CHECK = (
+    f"state <> '{InboundRecordState.PENDING.value}' OR expires_at IS NOT NULL"
+)
+EXTERNAL_LINK_TYPE_CHECK = _in_check("link_type", ExternalLinkType)
+LINK_OUTCOME_CHECK = _in_check("outcome", CanonicalOutcome, nullable=True)
+# An outcome link holds a canonical outcome and the source code, never a record; a
+# customer, ticket or agent link holds a record, never an outcome.
+LINK_SHAPE_CHECK = (
+    f"(link_type = '{ExternalLinkType.OUTCOME.value}' AND external_record_id IS NULL "
+    "AND outcome IS NOT NULL AND external_outcome_code IS NOT NULL) OR "
+    f"(link_type <> '{ExternalLinkType.OUTCOME.value}' AND external_record_id IS NOT NULL "
+    "AND outcome IS NULL AND external_outcome_code IS NULL)"
+)
+LINK_AGENT_CHECK = f"agent_user_id IS NULL OR link_type = '{ExternalLinkType.AGENT.value}'"
+RECONCILIATION_LINK_TYPE_CHECK = _in_check("link_type", ExternalLinkType, nullable=True)
+RECONCILIATION_REASON_CHECK = _in_check("reason", ReconciliationReason)
+RECONCILIATION_STATUS_CHECK = _in_check("status", ReconciliationStatus)
+RECONCILIATION_RESOLUTION_CHECK = _in_check("resolution", ReconciliationResolution, nullable=True)
+# An open item has no resolution; a closed one has both its resolution and its time.
+RECONCILIATION_CLOSED_CHECK = (
+    f"(status = '{ReconciliationStatus.OPEN.value}' AND resolution IS NULL "
+    "AND resolved_at IS NULL) OR "
+    f"(status <> '{ReconciliationStatus.OPEN.value}' AND resolution IS NOT NULL "
+    "AND resolved_at IS NOT NULL)"
+)
+
+
+class IntegrationMappingProfile(Base):
+    """How to read one source system's records in one workspace (HOM-88).
+
+    ``source_system`` is the CRM's slug, one profile per workspace.
+    ``conversation_source_system`` names the system whose ids a record's conversation id
+    holds (often a PBX).  ``field_map`` maps each canonical key to a dotted path into
+    the payload; ``outcome_map`` and ``agent_map`` map external codes and agent ids to
+    canonical outcomes and Homayar users.  ``version`` grows with every change, and each
+    link keeps the version that produced it.
+    """
+
+    __tablename__ = "integration_mapping_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_system: Mapped[str] = mapped_column(String(60), nullable=False)
+    conversation_source_system: Mapped[str] = mapped_column(String(60), nullable=False)
+    field_map: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    outcome_map: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    agent_map: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    late_record_window_seconds: Mapped[int] = mapped_column(
+        Integer, default=LATE_RECORD_WINDOW_DEFAULT_SECONDS, nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+    updated_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "source_system", name="uq_integration_profile_source"),
+        CheckConstraint(
+            INTEGRATION_SOURCE_SYSTEM_CHECK, name="ck_integration_profile_source_system"
+        ),
+        CheckConstraint(
+            INTEGRATION_CONVERSATION_SOURCE_CHECK,
+            name="ck_integration_profile_conversation_source",
+        ),
+        CheckConstraint(INTEGRATION_LATE_WINDOW_CHECK, name="ck_integration_profile_late_window"),
+        CheckConstraint("version >= 1", name="ck_integration_profile_version"),
+    )
+
+
+class ExternalRecord(Base):
+    """One customer, ticket or agent of a source system, known only by its stable
+    external id (HOM-88).
+
+    Identity is ``(workspace, source_system, record_type, external_id)``, unique in the
+    database.  The same id in two source systems is two records, never merged.  No name,
+    phone, email or other personal data is stored.  ``is_active`` mirrors what the source
+    system says; Homayar never sets it to true on its own.
+    """
+
+    __tablename__ = "external_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_system: Mapped[str] = mapped_column(String(60), nullable=False)
+    record_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "source_system",
+            "record_type",
+            "external_id",
+            name="uq_external_record_identity",
+        ),
+        CheckConstraint(EXTERNAL_RECORD_TYPE_CHECK, name="ck_external_record_type"),
+        CheckConstraint("length(external_id) >= 1", name="ck_external_record_id"),
+    )
+
+
+class IntegrationInboundRecord(Base):
+    """One record a source system sent us: the CRM ledger (HOM-88).
+
+    Identity is ``(workspace, source_system, event_id)``, unique in the database, so a
+    concurrent second insert loses on the index.  The raw payload is never stored:
+    ``payload_hash`` is the SHA-256 of its canonical JSON, and ``extracted`` holds only
+    the mapped ids, outcome code and active flags.  A ``pending`` record waits for its
+    conversation until ``expires_at``.  The application role may not delete rows
+    (``NO_DELETE_TABLES`` in ``database/rls.py``).
+    """
+
+    __tablename__ = "integration_inbound_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("integration_mapping_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_system: Mapped[str] = mapped_column(String(60), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    extracted: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    meeting_id: Mapped[str | None] = mapped_column(
+        ForeignKey("meetings.id", ondelete="SET NULL"), index=True
+    )
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    conflict_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_conflict_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    api_key_id: Mapped[str | None] = mapped_column(ForeignKey("api_keys.id", ondelete="SET NULL"))
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "source_system", "event_id", name="uq_inbound_record_event"
+        ),
+        CheckConstraint("length(event_id) >= 1", name="ck_inbound_record_event_id"),
+        CheckConstraint("length(payload_hash) = 64", name="ck_inbound_record_payload_hash"),
+        CheckConstraint(INBOUND_RECORD_STATE_CHECK, name="ck_inbound_record_state"),
+        CheckConstraint(INBOUND_RECORD_PENDING_CHECK, name="ck_inbound_record_pending_expiry"),
+        CheckConstraint("attempt_count >= 0", name="ck_inbound_record_attempts"),
+        CheckConstraint("conflict_count >= 0", name="ck_inbound_record_conflicts"),
+        # The sweep's lookup of pending records by expiry.
+        Index("ix_inbound_records_pending", "state", "expires_at"),
+    )
+
+
+class ConversationExternalLink(Base):
+    """A conversation's current customer, ticket, agent or outcome in one source
+    system (HOM-88).
+
+    One current link per ``(meeting, source_system, link_type)``.  A changed value is
+    never written over the link; it opens a reconciliation item.  The agent link never
+    changes ``meetings.agent_user_id``, which drives record scope.
+    ``linked_by_user_id`` is NULL when the link was made automatically.
+    """
+
+    __tablename__ = "conversation_external_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    source_system: Mapped[str] = mapped_column(String(60), nullable=False)
+    link_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    external_record_id: Mapped[str | None] = mapped_column(
+        ForeignKey("external_records.id", ondelete="RESTRICT"), index=True
+    )
+    outcome: Mapped[str | None] = mapped_column(String(16))
+    external_outcome_code: Mapped[str | None] = mapped_column(String(200))
+    agent_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    profile_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    inbound_record_id: Mapped[str | None] = mapped_column(
+        ForeignKey("integration_inbound_records.id", ondelete="SET NULL"), index=True
+    )
+    linked_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "meeting_id", "source_system", "link_type", name="uq_conversation_external_link"
+        ),
+        CheckConstraint(EXTERNAL_LINK_TYPE_CHECK, name="ck_conversation_link_type"),
+        CheckConstraint(LINK_OUTCOME_CHECK, name="ck_conversation_link_outcome"),
+        CheckConstraint(LINK_SHAPE_CHECK, name="ck_conversation_link_shape"),
+        CheckConstraint(LINK_AGENT_CHECK, name="ck_conversation_link_agent"),
+    )
+
+
+class IntegrationReconciliationItem(Base):
+    """A CRM mapping case the system will not decide alone; a human resolves it
+    (HOM-88).
+
+    ``meeting_id`` and ``link_type`` are NULL for the two conversation reasons.
+    ``current_value`` and ``candidate_value`` hold the linked and the proposed external
+    id (or outcome code); ``candidate_meeting_ids`` lists the matches of an ambiguous
+    conversation.  An open item has no resolution; a closed one has its resolution and
+    ``resolved_at``.
+    """
+
+    __tablename__ = "integration_reconciliation_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_system: Mapped[str] = mapped_column(String(60), nullable=False)
+    inbound_record_id: Mapped[str] = mapped_column(
+        ForeignKey("integration_inbound_records.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    meeting_id: Mapped[str | None] = mapped_column(
+        ForeignKey("meetings.id", ondelete="SET NULL"), index=True
+    )
+    link_type: Mapped[str | None] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default=ReconciliationStatus.OPEN.value, nullable=False
+    )
+    current_value: Mapped[str | None] = mapped_column(String(200))
+    candidate_value: Mapped[str | None] = mapped_column(String(200))
+    candidate_meeting_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    resolution: Mapped[str | None] = mapped_column(String(16))
+    resolved_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(RECONCILIATION_LINK_TYPE_CHECK, name="ck_reconciliation_link_type"),
+        CheckConstraint(RECONCILIATION_REASON_CHECK, name="ck_reconciliation_reason"),
+        CheckConstraint(RECONCILIATION_STATUS_CHECK, name="ck_reconciliation_status"),
+        CheckConstraint(RECONCILIATION_RESOLUTION_CHECK, name="ck_reconciliation_resolution"),
+        CheckConstraint(RECONCILIATION_CLOSED_CHECK, name="ck_reconciliation_closed"),
+        Index("ix_reconciliation_workspace_status_created", "workspace_id", "status", "created_at"),
+    )
+
+
 class UsageReservation(Base):
     __tablename__ = "usage_reservations"
 
@@ -2614,6 +3003,59 @@ class ApiKey(Base, TimestampMixin):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class WebhookDeliveryState(str, enum.Enum):
+    """Where one delivery of one event to one endpoint stands (HOM-89).
+
+    Stored as the lowercase value with a check constraint.  ``dead_letter`` is for
+    the retry policy of HOM-90; the schema allows it now so HOM-90 needs no migration.
+    """
+
+    PENDING = "pending"
+    SENDING = "sending"
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    DEAD_LETTER = "dead_letter"
+
+
+class WebhookAttemptOutcome(str, enum.Enum):
+    """The result of one HTTP request of a delivery (HOM-89)."""
+
+    DELIVERED = "delivered"
+    FAILED = "failed"
+
+
+# ``whk_`` and 24 lowercase hex characters, without a regex so SQLite runs the same check.
+WEBHOOK_SIGNING_KEY_ID_CHECK = (
+    "length(key_id) = 28 AND substr(key_id, 1, 4) = 'whk_' "
+    "AND trim(substr(key_id, 5), '0123456789abcdef') = ''"
+)
+# AES-GCM takes a 12-byte nonce.
+WEBHOOK_SIGNING_KEY_NONCE_CHECK = "length(nonce) = 12"
+WEBHOOK_DELIVERY_STATE_CHECK = (
+    "state IN (" + ", ".join(f"'{member.value}'" for member in WebhookDeliveryState) + ")"
+)
+WEBHOOK_DELIVERY_DELIVERED_AT_CHECK = (
+    f"state <> '{WebhookDeliveryState.DELIVERED.value}' OR delivered_at IS NOT NULL"
+)
+# 64 lowercase hex characters (a SHA-256), or NULL on rows written before HOM-89.
+WEBHOOK_DELIVERY_PAYLOAD_SHA256_CHECK = (
+    "payload_sha256 IS NULL OR (length(payload_sha256) = 64 "
+    "AND trim(payload_sha256, '0123456789abcdef') = '')"
+)
+WEBHOOK_ATTEMPT_OUTCOME_CHECK = (
+    "outcome IN (" + ", ".join(f"'{member.value}'" for member in WebhookAttemptOutcome) + ")"
+)
+WEBHOOK_ATTEMPT_STATUS_CODE_CHECK = "status_code IS NULL OR status_code BETWEEN 100 AND 599"
+# A delivered attempt has a 2xx status and no error; a failed one has an error code.
+# ``status_code IS NOT NULL`` is needed: a NULL ``BETWEEN`` is NULL, and a check passes
+# on NULL.
+WEBHOOK_ATTEMPT_SHAPE_CHECK = (
+    f"(outcome = '{WebhookAttemptOutcome.DELIVERED.value}' AND status_code IS NOT NULL "
+    "AND status_code BETWEEN 200 AND 299 AND error_code IS NULL) "
+    f"OR (outcome = '{WebhookAttemptOutcome.FAILED.value}' AND error_code IS NOT NULL)"
+)
+
+
 class WebhookEndpoint(Base, TimestampMixin):
     __tablename__ = "webhook_endpoints"
 
@@ -2622,12 +3064,68 @@ class WebhookEndpoint(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     url: Mapped[str] = mapped_column(String(1000), nullable=False)
-    secret_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # Legacy column (HOM-89): new code never reads or writes it.  The signing secrets
+    # live in ``webhook_signing_keys``.
+    secret_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
     event_types: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(String(200))
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
+class WebhookSigningKey(Base, TimestampMixin):
+    """One signing secret of a webhook endpoint (HOM-89).
+
+    The secret is encrypted with AES-GCM under an app keyring key
+    (``encryption_key_id``), never hashed: the sender needs the secret itself to
+    compute the HMAC.  ``expires_at`` NULL marks the active key; a rotated key keeps
+    signing until it expires, so receivers can switch secrets without a gap.
+    """
+
+    __tablename__ = "webhook_signing_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    endpoint_id: Mapped[str] = mapped_column(
+        ForeignKey("webhook_endpoints.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    encryption_key_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    secret_ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("key_id", name="uq_webhook_signing_key_id"),
+        CheckConstraint(WEBHOOK_SIGNING_KEY_ID_CHECK, name="ck_webhook_signing_key_id_format"),
+        CheckConstraint(WEBHOOK_SIGNING_KEY_NONCE_CHECK, name="ck_webhook_signing_key_nonce"),
+        # At most one active key per endpoint.
+        Index(
+            "uq_webhook_signing_keys_active",
+            "endpoint_id",
+            unique=True,
+            postgresql_where=text("expires_at IS NULL"),
+            sqlite_where=text("expires_at IS NULL"),
+        ),
+    )
 
 
 class WebhookDelivery(Base, TimestampMixin):
+    """One event queued for one endpoint (HOM-89).
+
+    ``payload`` holds the exact bytes that are signed and sent; every attempt sends
+    the same bytes.  It is NULL only on rows written before HOM-89.  One event goes
+    to several endpoints with the same ``event_id`` (the receiver's dedupe key), but
+    never twice to one endpoint.
+    """
+
     __tablename__ = "webhook_deliveries"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -2637,13 +3135,73 @@ class WebhookDelivery(Base, TimestampMixin):
     endpoint_id: Mapped[str] = mapped_column(
         ForeignKey("webhook_endpoints.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    event_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(36), nullable=False)
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    state: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    state: Mapped[str] = mapped_column(
+        String(24), default=WebhookDeliveryState.PENDING.value, nullable=False
+    )
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_status_code: Mapped[int | None] = mapped_column(Integer)
     last_error: Mapped[str | None] = mapped_column(String(500))
+    payload: Mapped[bytes | None] = mapped_column(LargeBinary)
+    payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("endpoint_id", "event_id", name="uq_webhook_delivery_endpoint_event"),
+        CheckConstraint(WEBHOOK_DELIVERY_STATE_CHECK, name="ck_webhook_delivery_state"),
+        CheckConstraint("attempt_count >= 0", name="ck_webhook_delivery_attempt_count"),
+        CheckConstraint(
+            WEBHOOK_DELIVERY_DELIVERED_AT_CHECK, name="ck_webhook_delivery_delivered_at"
+        ),
+        CheckConstraint(
+            WEBHOOK_DELIVERY_PAYLOAD_SHA256_CHECK, name="ck_webhook_delivery_payload_sha256"
+        ),
+        # The sweeper's lookup of due rows.
+        Index("ix_webhook_deliveries_due", "state", "next_attempt_at"),
+    )
+
+
+class WebhookDeliveryAttempt(Base):
+    """One HTTP request sent for a delivery (HOM-89).
+
+    Append-only: written once, after the request ends, and never changed, so the
+    ledger shows every request that left.  The response body is never stored;
+    ``error_code`` is a short code.
+    """
+
+    __tablename__ = "webhook_delivery_attempts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    delivery_id: Mapped[str] = mapped_column(
+        ForeignKey("webhook_deliveries.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The signed ``t`` (unix seconds).
+    request_timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    signing_key_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    status_code: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("delivery_id", "attempt_number", name="uq_webhook_attempt_number"),
+        CheckConstraint("attempt_number >= 1", name="ck_webhook_attempt_number_positive"),
+        CheckConstraint("duration_ms >= 0", name="ck_webhook_attempt_duration"),
+        CheckConstraint(WEBHOOK_ATTEMPT_OUTCOME_CHECK, name="ck_webhook_attempt_outcome"),
+        CheckConstraint(WEBHOOK_ATTEMPT_STATUS_CODE_CHECK, name="ck_webhook_attempt_status_code"),
+        CheckConstraint(WEBHOOK_ATTEMPT_SHAPE_CHECK, name="ck_webhook_attempt_shape"),
+    )
 
 
 class ProviderUsage(Base):
