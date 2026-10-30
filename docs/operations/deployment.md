@@ -229,6 +229,58 @@ docker compose --file infra/compose/compose.onprem.yaml --profile onprem run --r
 docker compose --file infra/compose/compose.onprem.yaml --profile onprem run --rm --no-deps api python -m backend.jobs.model_preflight --register
 ```
 
+### Host preflight (`--host`)
+
+`--host` adds checks of the machine and the configuration the stack really runs on (HOM-108).
+Run it inside the api container, because the checks look at that container: its packages, its
+GPU access and its network. The result is under `host` in the JSON report.
+
+```bash
+docker compose --file infra/compose/compose.onprem.yaml --profile onprem run --rm -T --no-deps api \
+  python -m backend.jobs.model_preflight --host [--offline] [flags below]
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--host` | Run the host checks. Every flag below needs it, except `--offline`. It cannot be combined with `--egress-allowlist`. |
+| `--min-free-gpu-mib N` | Free VRAM the target GPU needs. Default `4096`. |
+| `--min-free-disk-mib N` | Free disk each checked path needs. Default `2048`. |
+| `--tls-cert PATH` | A PEM certificate to check. `-` reads it from stdin. Pass only the certificate (for example `fullchain.pem`), never the key. |
+| `--tls-host NAME` | The name the certificate must cover (SAN DNS names; `*.example.com` covers one extra label). |
+| `--tls-min-days N` | Days the certificate must still be valid. Default `14`. |
+| `--offline` | Works with or without `--host`. With `--host` it also checks the no-internet configuration. It always checks deployment profile O. |
+| `--probe-internet` | Tries real outbound connections. Without it, no internet connection is tried. |
+| `--probe-target HOST:PORT` | With `--probe-internet`: the targets to try (repeat the flag). It replaces the defaults `1.1.1.1:443`, `8.8.8.8:53` and `huggingface.co:443`. |
+
+A wrong flag combination, a negative number or a bad `HOST:PORT` is a usage error (exit 2).
+
+Each check has a `status`:
+
+- `pass`: the check is fine.
+- `fail`: a real problem. The report is not ready.
+- `warn`: something to look at. It does not change the exit code.
+- `skip`: the check does not apply here. `detail` says why. It does not change the exit code.
+
+| Check | What it looks at |
+| --- | --- |
+| `asr_runtime` | Local Whisper only (else `skip`). `faster_whisper` is installed (the image is built with `INSTALL_AI_LOCAL=true`), CTranslate2 loads, it sees a CUDA device in GPU mode, and it supports the compute type. With `WHISPER_LOCAL_FILES_ONLY=true`: `WHISPER_MODEL_PATH` is a directory with `model.bin` (`warn` when the path is not set). It never loads a model. It reads the adapter the stack builds, so a named ASR profile is reported correctly. |
+| `gpu_driver` | GPU mode only (device `cuda`, else `skip`). One `nvidia-smi` call. `fail` when `nvidia-smi` is missing or fails, or the driver is older than `525.60.13` (the CUDA 12 minimum). `warn` for a `float16` compute type on a GPU below compute capability 7.0 (Pascal, for example the P40): use `int8_float32` there. |
+| `gpu_memory` | GPU mode only. Free VRAM of the GPU the model will use (by the device index and `CUDA_VISIBLE_DEVICES`). `fail` below `--min-free-gpu-mib`. Shared GPUs change all the time, so the number is a snapshot. |
+| `disk` | Free space on the temp directory, `MODEL_ARTIFACT_ROOT`, `WHISPER_MODEL_PATH` and `STORAGE_LOCAL_ROOT` (each when it applies). `fail` when a path is missing or below `--min-free-disk-mib`. |
+| `dependency_ports` | A TCP connection (2 seconds) to the database, Redis, S3 storage, `LOCAL_AI_BASE_URL` and the outbound proxy (`HTTPS_PROXY`/`HTTP_PROXY`), each when configured. `fail` when one does not connect. The report shows only the name, host and port, never a user name, password or URL. |
+| `tls_certificate` | Only with `--tls-cert`. `fail` when the input holds a private key, holds no certificate, the certificate is expired or not valid yet, has fewer than `--tls-min-days` days left, or does not cover `--tls-host`. |
+| `no_internet_config` | Only with `--offline`. `fail` for `WHISPER_LOCAL_FILES_ONLY` off (local Whisper), Google sign-in on, phone sign-in through a public SMS host, a public `SENTRY_DSN` host or a public `SMTP_HOST`. `warn` for `HF_HUB_OFFLINE` not `1` (local Whisper) and for an outbound proxy setting. Cloud AI endpoints are judged by profile O, not here. |
+| `internet_probe` | Only with `--probe-internet`. A TCP connection (3 seconds) to each target. `fail` when any target is reachable, because then the host is not offline. It tries direct TCP connections only, not through `HTTPS_PROXY`/`HTTP_PROXY`. When a proxy is set, `no_internet_config` warns about it, so `internet_probe: pass` does not prove there is no outbound path through the proxy. |
+
+Exit codes keep their meaning: `0` ready, `1` a stage or a host check failed, `2` a
+configuration, manifest or usage error. `--register` still runs only after exit `0`.
+
+With `--host`, a configuration or manifest error (exit 2) still prints the host checks under
+`host`, next to `error`. This helps on a server where the providers are not configured yet.
+The exit code stays 2. When the full provider bundle cannot be built, the checks use the ASR
+adapter alone. When even that cannot be built, `asr_runtime`, `gpu_driver` and `gpu_memory` are
+`skip`, and the other checks still run.
+
 ## Network Egress
 
 Application-level permits (ADR 0031) refuse any provider request no routing decision
