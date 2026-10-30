@@ -10,6 +10,15 @@ import { consolePath, resumeSession } from "./demo";
 const KEY = `e2e_${Date.now().toString(36)}`;
 const NAME = `E2E scorecard ${KEY}`;
 
+/**
+ * Names of the required fields. In Chromium, HeroUI's required mark is part
+ * of the accessible name ("Name*"); jsdom leaves it out. Each pattern takes
+ * the label with or without the mark, and nothing longer.
+ */
+const KEY_FIELD = /^Scorecard key\*?$/;
+const NAME_FIELD = /^Name\*?$/;
+const REASON_FIELD = /^Reason for this version\*?$/;
+
 /** The headers a signed-in console request carries (src/lib/api.ts). */
 async function apiHeaders(page: Page): Promise<Record<string, string>> {
   const csrf = (await page.context().cookies()).find((cookie) => cookie.name === "homayar_csrf")
@@ -68,8 +77,8 @@ test.describe.serial("the scorecards page", () => {
     await expect(page.getByRole("heading", { name: "Scorecards", level: 1 })).toBeVisible();
 
     await page.getByRole("button", { name: "New scorecard" }).click();
-    await page.getByRole("textbox", { name: "Scorecard key" }).fill(KEY);
-    await page.getByRole("textbox", { name: "Name", exact: true }).fill(NAME);
+    await page.getByRole("textbox", { name: KEY_FIELD }).fill(KEY);
+    await page.getByRole("textbox", { name: NAME_FIELD }).fill(NAME);
 
     const first = page.getByRole("group", { name: "Criterion 1" });
     await first.getByRole("textbox", { name: "Criterion ID" }).fill("greeting");
@@ -83,7 +92,7 @@ test.describe.serial("the scorecards page", () => {
     await second.getByRole("textbox", { name: "Label" }).fill("Says goodbye");
     await second.getByRole("textbox", { name: "Weight" }).fill("40");
     await second.getByRole("textbox", { name: "Phrases" }).fill("goodbye");
-    await page.getByRole("textbox", { name: "Reason for this version" }).fill("e2e: first version");
+    await page.getByRole("textbox", { name: REASON_FIELD }).fill("e2e: first version");
 
     await expect(page.getByText("Total weight: 90 / 100")).toBeVisible();
     await expect(page.getByText("Weights must add up to 100.")).toBeVisible();
@@ -104,7 +113,7 @@ test.describe.serial("the scorecards page", () => {
   test("a version published elsewhere during an edit shows the conflict and loads it", async ({ page }) => {
     await resumeSession(page, "owner");
     await page.goto(consolePath(`/admin/scorecards?key=${KEY}`));
-    await page.getByRole("button", { name: "Edit" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(page.getByRole("group", { name: "Criterion 1" })).toBeVisible();
 
     // Someone else publishes while the editor is open, on the version the page read.
@@ -120,7 +129,7 @@ test.describe.serial("the scorecards page", () => {
     expect(response.status(), "POST /scorecards/{key}/versions from the side").toBe(201);
     const concurrent = ((await response.json()) as { version: number }).version;
 
-    await page.getByRole("textbox", { name: "Reason for this version" }).fill("e2e: my edit");
+    await page.getByRole("textbox", { name: REASON_FIELD }).fill("e2e: my edit");
     await page.getByRole("button", { name: "Publish" }).click();
     await expect(
       page.getByRole("alert").filter({
@@ -128,11 +137,11 @@ test.describe.serial("the scorecards page", () => {
       }),
     ).toBeVisible();
     // The draft is untouched until the reload.
-    await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(NAME);
+    await expect(page.getByRole("textbox", { name: NAME_FIELD })).toHaveValue(NAME);
 
     await page.getByRole("button", { name: `Load version ${concurrent}` }).click();
-    await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(background);
-    await expect(page.getByRole("textbox", { name: "Reason for this version" })).toHaveValue("e2e: my edit");
+    await expect(page.getByRole("textbox", { name: NAME_FIELD })).toHaveValue(background);
+    await expect(page.getByRole("textbox", { name: REASON_FIELD })).toHaveValue("e2e: my edit");
     await expect(page.getByRole("group", { name: "Criterion 2" })).toHaveCount(0);
 
     await page.getByRole("button", { name: "Publish" }).click();
@@ -146,7 +155,7 @@ test.describe.serial("the scorecards page", () => {
     await expect(page.getByRole("heading", { name: "Scorecards", level: 1 })).toBeVisible();
     await expect(page.getByRole("grid", { name: "Version history" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Preview on a sample call" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "New scorecard" })).toHaveCount(0);
   });
 
