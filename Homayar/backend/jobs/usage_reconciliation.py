@@ -23,7 +23,10 @@ Discovery runs under the read-only ``usage_reconciliation`` service scope
 (entitlements only: ids, metric, counters). Each entitlement is then
 reconciled in its own transaction bound to the workspace read from the
 persisted row, holding the entitlement row ``FOR UPDATE`` so it cannot race a
-concurrent reservation or settlement. Repeated runs are inert once clean.
+concurrent reservation or settlement. Releases and settlements lock that row
+first too ("Lock order (HOM-333)" in ``backend.services.entitlement_service``),
+so a release of the same orphan waits for this transaction, or this one waits
+for it, and the two never deadlock. Repeated runs are inert once clean.
 """
 
 from __future__ import annotations
@@ -164,6 +167,8 @@ def reconcile_entitlement(
             return outcome
         now = database_now(db)
         live = _live_reservation_ids(db, ref.workspace_id)
+        # Read under the entitlement lock: no release or settlement of these rows
+        # can run before this transaction ends (HOM-333).
         stale = db.scalars(
             select(UsageReservation)
             .where(
