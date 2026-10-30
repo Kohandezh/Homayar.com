@@ -11,7 +11,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
-from pydantic import Field, PlainSerializer, SerializationInfo, ValidationError, model_validator
+from pydantic import (
+    Field,
+    PlainSerializer,
+    SerializationInfo,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticCustomError
 from pydantic_settings import (
@@ -429,6 +436,9 @@ class Settings(BaseSettings):
     # APP
     environment: Literal["development", "test", "staging", "production"] = "development"
     deployment_mode: Literal["cloud", "onprem"] = "cloud"
+    # Supported private topology (HOM-106, backend/providers/deployment_topologies.py,
+    # ADR 0047). Empty: no topology and no topology host check.
+    deployment_topology: str = ""
     app_name: str = "Homayar"
     api_prefix: str = "/api/v1"
     frontend_url: str = "http://localhost:5173/app"
@@ -1022,6 +1032,16 @@ class Settings(BaseSettings):
                 ",".join(plaintext_hops),
             )
         return self
+
+    @field_validator("deployment_topology")
+    @classmethod
+    def validate_deployment_topology(cls, value: str) -> str:
+        from backend.providers.deployment_topologies import get_topology
+
+        value = value.strip()
+        if value:
+            get_topology(value)
+        return value
 
     @model_validator(mode="after")
     def validate_asr_configuration(self) -> Settings:
