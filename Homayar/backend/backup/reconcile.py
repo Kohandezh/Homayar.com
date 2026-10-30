@@ -1131,7 +1131,10 @@ def _reconcile_locked(
     )
     path = Path(work_dir) / REPORT_FILE
     temporary = path.with_name(REPORT_FILE + ".tmp")
-    temporary.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # The marker gets the digest of the bytes written here, never of a
+    # re-read of the file (which may have been swapped in between).
+    raw = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    temporary.write_bytes(raw)
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
     cas_marker(
@@ -1143,7 +1146,7 @@ def _reconcile_locked(
             "manifest_mac": manifest["mac"],
             "state": "reconciled",
             "status": overall,
-            "report_sha256": report_digest(path),
+            "report_sha256": hashlib.sha256(raw).hexdigest(),
             "at": _now(),
         },
     )
@@ -1156,14 +1159,18 @@ _RETIRED_NAME = re.compile(r".+_retired_\d{14}")
 
 
 def _database_is_empty(admin_url: str, database: str) -> bool:
-    """No user relation in any schema (the database a postgres image creates)."""
+    """No user relation in any schema and no large object (the database a
+    postgres image creates)."""
     with connect(with_database(admin_url, database), autocommit=True) as connection:
-        return not connection.execute(
-            "SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_' "
-            "AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') "
-            "LIMIT 1"
-        ).fetchone()
+        return (
+            not connection.execute(
+                "SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_' "
+                "AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') "
+                "LIMIT 1"
+            ).fetchone()
+            and not connection.execute("SELECT 1 FROM pg_largeobject_metadata LIMIT 1").fetchone()
+        )
 
 
 def promote(
@@ -1276,11 +1283,15 @@ def promote(
 
 
 def _retired_entry(name: str, comment: str, now: datetime) -> dict[str, Any]:
+    # Promote writes a flat object of strings. Anything else (not JSON, too
+    # deep to parse, nested values that could not be printed) is malformed.
     try:
         note = json.loads(comment[len(RETIRED_PREFIX) :])
-    except ValueError:
+    except (ValueError, RecursionError):
         note = None
-    if not isinstance(note, dict):
+    if not isinstance(note, dict) or not all(
+        value is None or isinstance(value, str | int | float | bool) for value in note.values()
+    ):
         return {"database": name, "malformed_note": True, "overdue": True}
     entry = {k: v for k, v in note.items() if k not in {"database", "overdue", "malformed_note"}}
     try:
@@ -1308,14 +1319,14 @@ def list_retired(admin_url: str) -> list[dict[str, Any]]:
 
 
 def drop_retired(
-    admin_url: str, database: str, *, confirm: str, live_database: str | None = None
+    admin_url: str, database: str, *, confirm: str, live_databases: Iterable[str] = ()
 ) -> dict[str, Any]:
     """Drop one database promote retired, never the live or a staging one.
 
     The comment alone is not trusted (any database owner can write one): the
-    name must have the retired form, must not be the live database (given, or
-    the one the admin URL names) or a ``restoring`` staging database, and no
-    session may be using it.
+    name must have the retired form, must not be a live database (every name
+    in ``live_databases``, and the one the admin URL names) or a ``restoring``
+    staging database, and no session may be using it.
     """
     from backend.backup.restore import validate_database_name
 
@@ -1323,8 +1334,8 @@ def drop_retired(
     if confirm != database:
         raise RestoreRefused("confirmation_mismatch", "--confirm must repeat the database name")
     protected = {database_name(admin_url), "postgres", "template0", "template1"}
-    if live_database:
-        protected.add(live_database)
+    # A bare string is one name, not a list of characters.
+    protected.update([live_databases] if isinstance(live_databases, str) else live_databases)
     if database in protected:
         raise RestoreRefused("live_database", f"{database} is the live or a system database")
     if "restoring" in database:

@@ -47,17 +47,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Compose resolves a relative bind source against its project directory (the
-# Compose file's): resolve every host path the same way, so the checks below
-# look at the directories the containers will get.
-COMPOSE_DIR="$(cd -- "$(dirname -- "${COMPOSE_FILE}")" && pwd -P)"
-compose_path() {
-  case "$1" in
-    /*) printf '%s
-' "$1" ;;
-    *) printf '%s/%s
-' "${COMPOSE_DIR}" "$1" ;;
-  esac
+# bash keeps a leading // in pwd -P (POSIX leaves its meaning open), so the
+# physical path of a directory has its run of leading slashes cut to one: both
+# sides of a containment check then use the same spelling.
+physical_dir() {
+  local real
+  real="$(cd -- "$1" && pwd -P)" || return 1
+  printf '/%s\n' "${real#"${real%%[!/]*}"}"
 }
 
 require_env BACKUP_KEY_FILE
@@ -87,8 +83,8 @@ export NODE_EXPORTER_TEXTFILE_DIR
 # container user can write it is probed in the container below (textfile-check).
 [[ -d "${NODE_EXPORTER_TEXTFILE_DIR}" ]] ||
   die "NODE_EXPORTER_TEXTFILE_DIR does not exist; create it owned by BACKUP_UID:BACKUP_GID (${BACKUP_UID}:${BACKUP_GID}), mode 0755: ${NODE_EXPORTER_TEXTFILE_DIR}"
-case "$(cd -- "${NODE_EXPORTER_TEXTFILE_DIR}" && pwd -P)/" in
-  "$(cd -- "${BACKUP_ROOT}" && pwd -P)"/*)
+case "$(physical_dir "${NODE_EXPORTER_TEXTFILE_DIR}")/" in
+  "$(physical_dir "${BACKUP_ROOT}")"/*)
     die "NODE_EXPORTER_TEXTFILE_DIR is inside BACKUP_ROOT: node_exporter cannot read it through the 0700 backup root."
     ;;
 esac
@@ -98,8 +94,8 @@ fi
 if [[ "${offsite}" == "1" && -z "${BACKUP_OFFSITE:-}" && -n "${BACKUP_OFFSITE_PATH:-}" ]]; then
   # The tool only sees the container paths (/backups, /offsite): compare the host paths here.
   [[ -d "${BACKUP_OFFSITE_PATH}" ]] || die "BACKUP_OFFSITE_PATH is not a directory (is the off-site medium mounted?): ${BACKUP_OFFSITE_PATH}"
-  root_real="$(cd -- "${BACKUP_ROOT}" && pwd -P)"
-  offsite_real="$(cd -- "${BACKUP_OFFSITE_PATH}" && pwd -P)"
+  root_real="$(physical_dir "${BACKUP_ROOT}")"
+  offsite_real="$(physical_dir "${BACKUP_OFFSITE_PATH}")"
   case "${offsite_real}/" in
     "${root_real}"/*) die "BACKUP_OFFSITE_PATH is inside BACKUP_ROOT: that is not an off-site copy." ;;
   esac
