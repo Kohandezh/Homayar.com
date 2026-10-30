@@ -225,6 +225,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/conversations | meeting:read |
 | GET | /api/v1/conversations/counts | meeting:read |
 | GET | /api/v1/conversations/{conversation_id} | meeting:read |
+| GET | /api/v1/conversations/{conversation_id}/external-links | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/job | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/recording | meeting:read |
 | GET | /api/v1/workspaces/{workspace_id}/meetings/{meeting_id}/recording | meeting:read |
@@ -238,6 +239,13 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/meetings/{meeting_id}/quality | meeting:read |
 | GET | /api/v1/ingestions | meeting:read |
 | GET | /api/v1/ingestions/{ingestion_id} | meeting:read |
+| GET | /api/v1/integrations/mapping-profiles | workspace:manage |
+| GET | /api/v1/integrations/mapping-profiles/{source_system} | workspace:manage |
+| PUT | /api/v1/integrations/mapping-profiles/{source_system} | workspace:manage +csrf |
+| POST | /api/v1/integrations/{source_system}/records | meeting:update +csrf |
+| GET | /api/v1/integrations/reconciliation | workspace:manage |
+| GET | /api/v1/integrations/reconciliation/{item_id} | workspace:manage |
+| POST | /api/v1/integrations/reconciliation/{item_id}/resolve | workspace:manage +csrf |
 | GET | /api/v1/meetings/{meeting_id}/media | meeting:read |
 | POST | /api/v1/meetings/{meeting_id}/media/{media_id}/verify | meeting:update +csrf |
 | POST | /api/v1/meetings/{meeting_id}/legal-hold | legal_hold:manage +csrf |

@@ -210,10 +210,12 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.SERVICE_LOCATION_DELETED: "configuration",
     AuditEventType.VOICE_NODE_REGISTERED: "configuration",
     AuditEventType.VOICE_NODE_DRAIN_CHANGED: "configuration",
+    AuditEventType.INTEGRATION_MAPPING_UPDATED: "configuration",
     # Administrative mutations of processing
     AuditEventType.MEETING_PROCESSING_REPLAYED: "administration",
     AuditEventType.MEETING_PURGE_REQUEUED: "administration",
     AuditEventType.REVIEW_SAMPLE_DRAWN: "administration",
+    AuditEventType.RECONCILIATION_ITEM_RESOLVED: "administration",
     # Deletion, retention and legal hold
     AuditEventType.MEETING_DELETED: "deletion",
     AuditEventType.MEETING_RETENTION_EXPIRED: "deletion",
@@ -247,6 +249,7 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.INGESTION_CONFLICT: "processing",
     AuditEventType.INGESTION_REJECTED: "processing",
     AuditEventType.INGESTION_DUPLICATE_MEDIA: "processing",
+    AuditEventType.INTEGRATION_RECORD_CONFLICT: "processing",
     AuditEventType.MEDIA_REGISTERED: "processing",
     AuditEventType.MEDIA_INTEGRITY_CHECKED: "processing",
     AuditEventType.MEDIA_DERIVATIVE_UNAVAILABLE: "processing",
