@@ -10,11 +10,14 @@ import hashlib
 import hmac
 import json
 import logging
+import socket
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from celery.exceptions import SoftTimeLimitExceeded
 from homayar_client import WebhookVerificationError, verify_webhook
 from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.exc import DBAPIError
@@ -196,6 +199,68 @@ def _one_delivery(client, email_outbox, monkeypatch, now, url: str = HOOK):
 
 def _entries(request: httpx.Request) -> list[str]:
     return request.headers["Homayar-Webhook-Signature"].split(",")
+
+
+def _capture_publishes(monkeypatch, settings) -> list[str]:
+    """Turn tasks_eager off and record each published delivery id (no broker)."""
+    from backend.jobs import tasks
+
+    published: list[str] = []
+    monkeypatch.setattr(settings, "tasks_eager", False)
+    monkeypatch.setattr(
+        tasks.deliver_webhook_task, "apply_async", lambda *, args, **_kw: published.append(args[0])
+    )
+    return published
+
+
+class TrickleServer:
+    """A local HTTP receiver that answers one header byte every ``interval`` seconds.
+
+    Each byte arrives well inside any per-read timeout, so only a total
+    deadline ends the request. ``cut`` is set when the client hangs up.
+    """
+
+    def __init__(self, interval: float = 0.2) -> None:
+        self._interval = interval
+        self._stop = threading.Event()
+        self.cut = threading.Event()
+        self._server = socket.create_server(("127.0.0.1", 0))
+        self._server.settimeout(0.2)
+        self.url = f"http://127.0.0.1:{self._server.getsockname()[1]}/hook"
+        self._threads = [threading.Thread(target=self._serve, daemon=True)]
+
+    def __enter__(self) -> TrickleServer:
+        self._threads[0].start()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self._stop.set()
+        for thread in list(self._threads):
+            thread.join(timeout=5)
+        self._server.close()
+
+    def _serve(self) -> None:
+        while not self._stop.is_set():
+            try:
+                connection, _ = self._server.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            handler = threading.Thread(target=self._trickle, args=(connection,), daemon=True)
+            self._threads.append(handler)
+            handler.start()
+
+    def _trickle(self, connection: socket.socket) -> None:
+        with connection:
+            connection.settimeout(1)
+            try:
+                connection.recv(65536)
+                connection.sendall(b"HTTP/1.1 200 OK\r\nX-Slow: ")
+                while not self._stop.wait(self._interval):
+                    connection.sendall(b"a")
+            except OSError:
+                self.cut.set()
 
 
 # --- enqueue ---------------------------------------------------------------------------
@@ -654,10 +719,99 @@ def test_log_lines_carry_no_secret_signature_query_or_payload(
         assert forbidden not in text_
 
 
+# --- the total deadline (review F1) ----------------------------------------------------
+
+
+def _assert_timed_out(delivery_id: str, elapsed: float, deadline: float) -> None:
+    assert elapsed < deadline + 2.5, elapsed
+    row = _delivery(delivery_id)
+    assert (row["state"], row["last_status_code"], row["last_error"]) == ("failed", None, "timeout")
+    [attempt] = _attempts(delivery_id)
+    assert (attempt["outcome"], attempt["status_code"], attempt["error_code"]) == (
+        "failed",
+        None,
+        "timeout",
+    )
+    assert deadline * 1000 * 0.9 <= attempt["duration_ms"] < (deadline + 2.5) * 1000
+
+
+@pytest.mark.parametrize("which", ["worker client", "caller client"])
+def test_a_trickling_receiver_is_cut_at_the_deadline(
+    client, email_outbox, monkeypatch, now, settings, which
+):
+    monkeypatch.setattr(settings, "webhook_delivery_timeout_seconds", 1)
+    # A caller's client with a long per-read timeout: only the total deadline can end it.
+    given = httpx.Client(timeout=30) if which == "caller client" else None
+    try:
+        with TrickleServer() as server:
+            _, _, delivery_id = _one_delivery(
+                client, email_outbox, monkeypatch, now, url=server.url
+            )
+            started = time.monotonic()
+            deliver_webhook(delivery_id, now=now, http_client=given)
+            elapsed = time.monotonic() - started
+            # The request was cut (socket shut down), not only abandoned.
+            assert server.cut.wait(timeout=3)
+    finally:
+        if given is not None:
+            given.close()
+
+    _assert_timed_out(delivery_id, elapsed, 1.0)
+
+
+def test_a_transport_that_never_answers_is_cut_at_the_deadline(
+    client, email_outbox, monkeypatch, now, settings
+):
+    monkeypatch.setattr(settings, "webhook_delivery_timeout_seconds", 1)
+    _, _, delivery_id = _one_delivery(client, email_outbox, monkeypatch, now)
+    release = threading.Event()
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        release.wait(timeout=10)
+        return httpx.Response(200)
+
+    try:
+        started = time.monotonic()
+        deliver_webhook(delivery_id, now=now, http_client=Receiver(slow).client)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+
+    _assert_timed_out(delivery_id, elapsed, 1.0)
+
+
+def test_celerys_soft_time_limit_during_the_send_is_a_timeout(
+    client, email_outbox, monkeypatch, now
+):
+    _, _, delivery_id = _one_delivery(client, email_outbox, monkeypatch, now)
+
+    def soft_limit(request: httpx.Request) -> httpx.Response:
+        raise SoftTimeLimitExceeded()
+
+    deliver_webhook(delivery_id, now=now, http_client=Receiver(soft_limit).client)
+
+    row = _delivery(delivery_id)
+    assert (row["state"], row["last_error"]) == ("failed", "timeout")
+    assert _attempts(delivery_id)[0]["error_code"] == "timeout"
+
+
+def test_the_delivery_task_limits_end_before_the_lease():
+    from backend.config import get_settings
+    from backend.jobs import tasks
+
+    timeout = get_settings().webhook_delivery_timeout_seconds
+    lease = timeout + webhook_delivery.LEASE_GRACE.total_seconds()
+    task = tasks.deliver_webhook_task
+
+    assert task.soft_time_limit == timeout + 10
+    assert task.time_limit == timeout + 20
+    assert timeout < task.soft_time_limit < task.time_limit < lease
+
+
 # --- the sweeper -----------------------------------------------------------------------
 
 
-def test_the_sweeper_returns_due_ids_oldest_first(client, email_outbox, monkeypatch, now):
+def test_the_sweeper_returns_due_ids_oldest_first(client, email_outbox, monkeypatch, now, settings):
     owner = _owner(client, email_outbox, monkeypatch)
     _created(owner)
     [newer] = _enqueue(owner.workspace_id, now=now - timedelta(seconds=30))
@@ -670,11 +824,16 @@ def test_the_sweeper_returns_due_ids_oldest_first(client, email_outbox, monkeypa
     [held] = _enqueue(owner.workspace_id, now=now)
     _update(WebhookDelivery, held, state="sending", next_attempt_at=now + timedelta(seconds=5))
 
-    assert sweep_webhook_deliveries(now=now) == [older, leased, newer]
-    assert sweep_webhook_deliveries(now=now, limit=1) == [older]
-    # With tasks_eager nothing is sent from the sweep: the rows stay due.
+    assert webhook_delivery.due_delivery_ids(now=now, limit=100) == [older, leased, newer]
+    assert webhook_delivery.due_delivery_ids(now=now, limit=1) == [older]
+    # With tasks_eager nothing is published: the result is empty and the rows stay due.
+    assert sweep_webhook_deliveries(now=now) == []
     assert _delivery(older)["state"] == "pending"
-    assert future not in sweep_webhook_deliveries(now=now)
+
+    published = _capture_publishes(monkeypatch, settings)
+    assert sweep_webhook_deliveries(now=now) == [older, leased, newer] == published
+    assert sweep_webhook_deliveries(now=now, limit=1) == [older]
+    assert future not in published
 
 
 def test_the_sweeper_publishes_one_task_per_due_delivery(
@@ -765,10 +924,11 @@ def test_with_tasks_eager_the_test_route_publishes_nothing(client, email_outbox,
 
 
 def test_after_a_sweep_the_claim_and_record_bind_only_the_workspace(
-    client, email_outbox, monkeypatch, now
+    client, email_outbox, monkeypatch, now, settings
 ):
     """The read-only scope of the sweep never leaks into a write (SPEC Addendum 3)."""
     owner, created, delivery_id = _one_delivery(client, email_outbox, monkeypatch, now)
+    _capture_publishes(monkeypatch, settings)
     writes: list[tuple[TenantContext, set[str]]] = []
 
     def watch(session, _flush_context, _instances) -> None:
@@ -855,6 +1015,7 @@ def test_the_webhook_sweep_is_a_periodic_task_with_its_beat_interval(settings):
 
 @pytest.mark.postgres
 def test_two_concurrent_workers_send_one_request(client, email_outbox, monkeypatch, now):
+    """The claim uses SKIP LOCKED: a second worker never waits for a held row."""
     if not is_postgres_url(configured_database_url()):
         pytest.skip("row locks are PostgreSQL evidence")
     _, _, delivery_id = _one_delivery(client, email_outbox, monkeypatch, now)
@@ -883,10 +1044,19 @@ def test_two_concurrent_workers_send_one_request(client, email_outbox, monkeypat
     second = threading.Thread(target=run, name="second")
     first.start()
     assert first_locked.wait(timeout=20)
-    second.start()
-    second.join(timeout=20)
-    second_done.set()
-    first.join(timeout=20)
+    try:
+        started = time.monotonic()
+        second.start()
+        second.join(timeout=2)
+        # SKIP LOCKED: while the first worker holds the row lock the second one
+        # returns at once and sends nothing. A plain FOR UPDATE would wait here.
+        assert not second.is_alive(), "the second worker waited for the row lock"
+        assert time.monotonic() - started < 2
+        assert receiver.requests == []
+    finally:
+        second_done.set()
+        first.join(timeout=20)
+        second.join(timeout=20)
 
     assert errors == []
     assert len(receiver.requests) == 1
@@ -896,7 +1066,7 @@ def test_two_concurrent_workers_send_one_request(client, email_outbox, monkeypat
 
 @pytest.mark.postgres
 def test_the_sweeper_sees_two_workspaces_and_each_claim_binds_its_own(
-    client, email_outbox, monkeypatch, now, probe_role
+    client, email_outbox, monkeypatch, now, settings, probe_role
 ):
     if not is_postgres_url(configured_database_url()):
         pytest.skip("row-level security is PostgreSQL evidence")
@@ -906,6 +1076,7 @@ def test_the_sweeper_sees_two_workspaces_and_each_claim_binds_its_own(
     _created(two)
     [first] = _enqueue(one.workspace_id, now=now - timedelta(seconds=2))
     [second] = _enqueue(two.workspace_id, now=now - timedelta(seconds=1))
+    _capture_publishes(monkeypatch, settings)
 
     assert sweep_webhook_deliveries(now=now) == [first, second]
 

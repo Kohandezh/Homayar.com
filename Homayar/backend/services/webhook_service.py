@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -46,13 +47,30 @@ WEBHOOK_EVENT_TYPES: tuple[str, ...] = ("webhook.test",)
 
 WEBHOOK_URL_MAX_LENGTH = 1000
 
-# Spaces and control characters. urlsplit() silently drops some of them, so
+# Spaces and control characters. URL parsers silently drop some of them, so
 # they are refused before parsing.
 _UNSAFE_CHARACTERS = re.compile(r"[\x00-\x20\x7f]")
 # A last label that is all digits or 0x-hex: resolvers may read such a host
 # as an IPv4 address (2852039166, 0xA9FEA9FE, 169.254.43518). No real domain
 # ends this way, so only the canonical dotted form of an address is accepted.
 _NUMERIC_LABEL = re.compile(r"(?:[0-9]+|0x[0-9a-f]*)")
+# IPv6 forms that carry an IPv4 address in their last 32 bits: NAT64 (well-known
+# prefix) and the old IPv4-compatible form. They are judged as that IPv4 address.
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
+
+_Address = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+
+def _embedded_ipv4(address: _Address | None) -> _Address | None:
+    if address is None or address.version == 4:
+        return address
+    if address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    # ``::`` and ``::1`` are the IPv6 unspecified and loopback addresses, not IPv4.
+    if address in _NAT64 or (address in _IPV4_COMPATIBLE and int(address) > 1):
+        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    return address
 
 
 def webhook_url_refusal(url: str, *, production: bool) -> str | None:
@@ -64,26 +82,31 @@ def webhook_url_refusal(url: str, *, production: bool) -> str | None:
     CRMs live there. What a hostname resolves to at send time is the network
     layer's job (ADR 0031). The reason never repeats the URL, which can carry a
     token in its query.
+
+    The URL is parsed by httpx, the client that sends, and every host check
+    runs on the host it will connect to (lowercase, IDNA ``xn--`` form for an
+    international name). A URL httpx refuses is refused here too, so an
+    endpoint can never be stored that no delivery could reach.
     """
     if len(url) > WEBHOOK_URL_MAX_LENGTH:
         return f"a webhook URL is at most {WEBHOOK_URL_MAX_LENGTH} characters"
     if _UNSAFE_CHARACTERS.search(url):
         return "a webhook URL has no spaces or control characters"
     try:
-        parts = urlsplit(url)
-        parts.port  # noqa: B018 - raises ValueError on a port out of range
-    except ValueError:
+        parsed = httpx.URL(url)
+        netloc = urlsplit(url).netloc
+        host = parsed.raw_host.decode("ascii").rstrip(".")
+    except (httpx.InvalidURL, ValueError, TypeError):
         return "the webhook URL is not valid"
-    if parts.scheme not in {"http", "https"}:
+    if parsed.scheme not in {"http", "https"}:
         return "a webhook URL uses http or https"
-    host = (parts.hostname or "").lower().rstrip(".")
+    if parsed.port is not None and not 0 < parsed.port <= 65535:
+        return "the webhook URL is not valid"
     if not host:
         return "a webhook URL has a host"
-    if "@" in parts.netloc:
+    if parsed.userinfo or "@" in netloc:
         return "a webhook URL carries no user name or password"
-    address = _address(host)
-    if address is not None and address.version == 6 and address.ipv4_mapped is not None:
-        address = address.ipv4_mapped
+    address = _embedded_ipv4(_address(host))
     if address is None and (":" in host or _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1])):
         return "a webhook URL host is a name or a dotted IP address"
     if host in _METADATA_HOSTS or address in _METADATA_ADDRESSES:
@@ -93,14 +116,14 @@ def webhook_url_refusal(url: str, *, production: bool) -> str | None:
     ):
         return "link-local, unspecified and multicast addresses are never a webhook endpoint"
     if production:
-        if parts.scheme != "https":
+        if parsed.scheme != "https":
             return "a webhook URL uses https in production"
         if _is_loopback(host, address):
             return "a webhook URL is not a loopback host in production"
     return None
 
 
-def _is_loopback(host: str, address: ipaddress.IPv4Address | ipaddress.IPv6Address | None) -> bool:
+def _is_loopback(host: str, address: _Address | None) -> bool:
     if address is not None:
         return address.is_loopback
     return host == "localhost" or host.endswith(".localhost")

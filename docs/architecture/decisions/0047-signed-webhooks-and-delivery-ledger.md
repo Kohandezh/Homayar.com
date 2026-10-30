@@ -109,7 +109,9 @@ event is worse, and the receiver's duplicate check (D6) makes a second copy harm
 
 Redirects are not followed (a 3xx is a failure), so an endpoint cannot send the signed
 request on to a host that the URL policy never checked. The timeout is
-`WEBHOOK_DELIVERY_TIMEOUT_SECONDS` (default 10).
+`WEBHOOK_DELIVERY_TIMEOUT_SECONDS` (default 10) for the whole request, from the start of
+the send: an httpx timeout limits each read on its own, so a receiver that sends one byte
+at a time is cut at the deadline (its socket is shut down) and recorded as `timeout`.
 
 The sweeper discovers due rows of every workspace under the read-only `webhook_delivery`
 service scope. Every write binds the row's own workspace (row-level security, as for
@@ -177,5 +179,11 @@ their own transactions and add their event type to the catalogue.
 - Delivery is at-least-once. A receiver that ignores rule 4 can act twice on one event.
 - Known limitation: the limit of active endpoints per workspace is counted without a lock,
   like the API key limit, so two parallel creates can both pass at the 20th endpoint.
+- The test route has no rate limit, and deliveries share the processing queue with meeting
+  jobs. Each delivery waits at most `WEBHOOK_DELIVERY_TIMEOUT_SECONDS` for its receiver (a
+  total deadline, not a per-read timeout), and the task's Celery limits end below its lease.
+  HOM-90 owns retry and rate concerns.
+- A gap from before this ticket: the metadata host names in `backend/providers/egress.py`
+  do not include `instance-data.ec2.internal`, so the URL policy does not refuse it by name.
 - One attempt per delivery until HOM-90. HOM-91 adds contract fixtures for clock skew,
   stale signatures and revoked keys. HOM-254 adds the console page.

@@ -175,7 +175,9 @@ def can_grant(actor_role: WorkspaceRole, target_role: WorkspaceRole) -> bool:
     return target_role in GRANTABLE_ROLES.get(actor_role, frozenset())
 
 
-def can_manage_member(*, actor_user_id: str, actor_role: WorkspaceRole, target: Membership) -> bool:
+def can_manage_member(
+    *, actor_user_id: str, actor_role: WorkspaceRole, target: Membership
+) -> bool:
     """A caller manages a membership only if it could have granted its role.
 
     Self-management and owner memberships are always refused so a workspace
@@ -298,7 +300,9 @@ def resolve_record_access(
             supervised_team_ids=frozenset(),
             agent_team_ids=frozenset(),
         )
-    assignments = effective_assignments(db, workspace_id=workspace.id, user_id=user_id, now=now)
+    assignments = effective_assignments(
+        db, workspace_id=workspace.id, user_id=user_id, now=now
+    )
     supervised = frozenset(a.team_id for a in assignments if a.role == TeamRole.SUPERVISOR)
     agent = frozenset(a.team_id for a in assignments if a.role == TeamRole.AGENT)
     return RecordAccess(
@@ -307,6 +311,7 @@ def resolve_record_access(
         supervised_team_ids=supervised,
         agent_team_ids=agent,
     )
+
 
 
 # --- organization scope (WP03-T03, ADR 0012) --------------------------------------

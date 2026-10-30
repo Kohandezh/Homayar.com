@@ -22,11 +22,15 @@ Transaction boundaries
 
 from __future__ import annotations
 
+import socket
+import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
+from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
@@ -57,6 +61,8 @@ from backend.services.webhook_signing import (
 # The lease is the request timeout plus this grace: a worker that stops after
 # its claim is replaced only after its request could no longer be running.
 LEASE_GRACE = timedelta(seconds=30)
+# How long the worker waits for a cut request to end before it closes its client.
+_CUT_GRACE_SECONDS = 2.0
 
 HTTP_STATUS = "http_status"
 TIMEOUT = "timeout"
@@ -230,6 +236,89 @@ def _claim(
     return claim
 
 
+class _DeadlinePassed(Exception):
+    """The request did not end within the delivery timeout."""
+
+
+class _Exchange:
+    """One POST on a helper thread, so the worker stops waiting at a total deadline.
+
+    An httpx timeout limits each connect, read and write on its own, not the
+    whole request: a receiver that sends one header byte every few seconds
+    could keep a request (and a queue worker) for minutes. Here the worker
+    waits at most the deadline. Then it shuts down the request's socket, which
+    the trace hook captured, so the request ends at once; with a client that
+    has no socket (a test transport) the helper thread is left to finish on
+    its own. The response body is never read.
+    """
+
+    def __init__(self, client: httpx.Client, url: str, content: bytes, headers: dict) -> None:
+        self._client = client
+        self._lock = threading.Lock()
+        self._sockets: list[Any] = []
+        self._cut = False
+        self._status: int | None = None
+        self._error: BaseException | None = None
+        self._request = client.build_request(
+            "POST", url, content=content, headers=headers, extensions={"trace": self._trace}
+        )
+        self._thread = threading.Thread(target=self._run, name="webhook-send", daemon=True)
+
+    def _trace(self, event: str, info: dict) -> None:
+        if event not in ("connection.connect_tcp.complete", "connection.start_tls.complete"):
+            return
+        stream = info.get("return_value")
+        sock = stream.get_extra_info("socket") if stream is not None else None
+        if sock is None:
+            return
+        with self._lock:
+            self._sockets.append(sock)
+            cut = self._cut
+        if cut:  # connected after the deadline passed
+            _shutdown(sock)
+
+    def _run(self) -> None:
+        try:
+            # A redirect is never followed: the signed request must not reach
+            # a host the URL policy never checked.
+            response = self._client.send(self._request, stream=True, follow_redirects=False)
+            try:
+                self._status = response.status_code
+            finally:
+                response.close()
+        except BaseException as exc:  # handed over to the worker's thread
+            self._error = exc
+
+    def status_within(self, seconds: float) -> int | None:
+        self._thread.start()
+        self._thread.join(seconds)
+        if self._thread.is_alive():
+            self.cut()
+            raise _DeadlinePassed
+        if self._error is not None:
+            raise self._error
+        return self._status
+
+    def cut(self) -> None:
+        with self._lock:
+            self._cut = True
+            sockets = list(self._sockets)
+        for sock in sockets:
+            _shutdown(sock)
+
+    def wait(self, seconds: float) -> None:
+        if self._thread.is_alive():
+            self._thread.join(seconds)
+
+
+def _shutdown(sock: Any) -> None:
+    # shutdown(), unlike close(), also wakes a read that is waiting on the socket.
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
 def _send(
     claim: _Claim,
     *,
@@ -240,21 +329,21 @@ def _send(
     headers = request_headers(
         claim.keys, event_id=claim.event_id, timestamp=timestamp, body=claim.payload
     )
+    deadline = float(settings.webhook_delivery_timeout_seconds)
     started = time.monotonic()
     own_client = http_client is None
-    client = http_client or httpx.Client(
-        timeout=settings.webhook_delivery_timeout_seconds, follow_redirects=False
-    )
+    client = http_client or httpx.Client(timeout=deadline, follow_redirects=False)
+    exchange = _Exchange(client, claim.url, claim.payload, headers)
     status_code: int | None = None
     error_code: str | None = None
     try:
-        # A redirect is never followed: the signed request must not reach a
-        # host the URL policy never checked. The body is never read.
-        with client.stream(
-            "POST", claim.url, content=claim.payload, headers=headers, follow_redirects=False
-        ) as response:
-            status_code = response.status_code
-    except httpx.TimeoutException:
+        # The deadline counts from the start of the send, for every client.
+        status_code = exchange.status_within(deadline)
+    except (_DeadlinePassed, httpx.TimeoutException):
+        error_code = TIMEOUT
+    except SoftTimeLimitExceeded:
+        # Celery's backstop fired while this task was sending.
+        exchange.cut()
         error_code = TIMEOUT
     except Exception as exc:
         error_code = CONNECTION_ERROR
@@ -266,6 +355,7 @@ def _send(
             )
     finally:
         if own_client:
+            exchange.wait(_CUT_GRACE_SECONDS)
             client.close()
     duration_ms = max(0, int((time.monotonic() - started) * 1000))
     if status_code is not None and not 100 <= status_code <= 599:
@@ -351,15 +441,16 @@ def deliver_webhook(
 
 
 def publish_delivery(delivery_id: str, settings: Settings) -> bool:
-    """Hand one delivery to the worker queue; never raises. False on a broker error.
+    """Hand one delivery to the worker queue; never raises.
 
-    With ``tasks_eager`` (development, tests) nothing is sent from here: a
-    request must never wait on a receiver, and a test must never reach the
-    network. The row stays due; ``python -m backend.jobs.webhook_delivery``
-    (or a worker's sweep) delivers it.
+    True only when a task was handed to the broker. With ``tasks_eager``
+    (development, tests) nothing is published: an eager task would run the
+    delivery inside the request, which must never wait on a receiver, and a
+    test must never reach the network. The row stays due;
+    ``python -m backend.jobs.webhook_delivery`` (or a worker's sweep) delivers it.
     """
     if settings.tasks_eager:
-        return True
+        return False
     try:
         from backend.celery_app import PROCESSING_QUEUE
         from backend.jobs.tasks import deliver_webhook_task
@@ -395,9 +486,11 @@ def due_delivery_ids(*, now: datetime, limit: int) -> list[str]:
 
 
 def sweep_webhook_deliveries(*, now: datetime | None = None, limit: int = 100) -> list[str]:
-    """Publish one delivery task per due row; returns the ids handed off, in order.
+    """Publish one delivery task per due row; returns the ids it published, in order.
 
-    Duplicate tasks are harmless: the claim decides who sends.
+    Duplicate tasks are harmless: the claim decides who sends. With
+    ``tasks_eager`` nothing is published, so the result is empty and the rows
+    stay due.
     """
     settings = get_settings()
     now = _as_utc(now or datetime.now(UTC))
