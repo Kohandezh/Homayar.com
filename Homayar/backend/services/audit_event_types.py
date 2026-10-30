@@ -115,6 +115,7 @@ class AuditEventType(StrEnum):
     ORGANIZATION_WORKSPACE_MEMBER_REMOVED = "organization.workspace.member_removed", "membership"
     PII_REVEALED = "pii.revealed", "meeting"
     REVIEW_SAMPLE_DRAWN = "review_sample.drawn", "workspace"
+    SCORECARD_PUBLISHED = "scorecard.published", "scorecard"
     SERVICE_LOCATION_CREATED = "service_location.created", "service_location"
     SERVICE_LOCATION_DELETED = "service_location.deleted", "service_location"
     SERVICE_LOCATION_UPDATED = "service_location.updated", "service_location"
