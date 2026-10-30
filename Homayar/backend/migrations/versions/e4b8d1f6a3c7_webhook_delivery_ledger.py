@@ -56,7 +56,10 @@ reaches no endpoint, key or attempt row.
 
 No data changes.  The new columns are nullable.  The new checks hold for rows written
 before this revision: the state default is ``pending``, ``attempt_count`` starts at 0,
-and ``payload_sha256`` is NULL.
+and ``payload_sha256`` is NULL.  A row that breaks a new check stops the upgrade with
+that check's error, and nothing changes.  The one known way to get such a row is a
+downgrade and a new upgrade: the downgrade drops ``delivered_at``, so a ``delivered``
+row then breaks ``ck_webhook_delivery_delivered_at``.  Change its state first.
 
 Downgrade drops the two new tables, so every signing key and attempt is lost.  It drops
 the new columns, checks, index and ``uq_webhook_delivery_endpoint_event``, so the
