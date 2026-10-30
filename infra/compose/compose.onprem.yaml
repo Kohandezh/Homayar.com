@@ -91,6 +91,13 @@ x-app-environment: &app-environment
   ASR_ALLOWED_LANGUAGES: "${ASR_ALLOWED_LANGUAGES:-fa,en}"
   ASR_DEFAULT_LANGUAGE: "${ASR_DEFAULT_LANGUAGE:-fa}"
   ASR_LANGUAGE_MIN_PROBABILITY: "${ASR_LANGUAGE_MIN_PROBABILITY:-0.5}"
+  # Long-call chunking (HOM-40, ADR 0046): a call longer than the threshold is
+  # transcribed in chunks; false sends every call as one request.
+  ASR_CHUNKING_ENABLED: "${ASR_CHUNKING_ENABLED:-True}"
+  ASR_CHUNK_MIN_CALL_SECONDS: "${ASR_CHUNK_MIN_CALL_SECONDS:-1200.0}"
+  ASR_CHUNK_TARGET_SECONDS: "${ASR_CHUNK_TARGET_SECONDS:-600.0}"
+  ASR_CHUNK_SEARCH_SECONDS: "${ASR_CHUNK_SEARCH_SECONDS:-30.0}"
+  ASR_CHUNK_OVERLAP_SECONDS: "${ASR_CHUNK_OVERLAP_SECONDS:-2.0}"
   # Restricted PII mappings (ADR 0023): "key_id:base64(32 bytes)" from the
   # secret manager; empty keeps redaction but retains no originals.
   PII_MAPPING_KEYS: "${PII_MAPPING_KEYS:-}"
