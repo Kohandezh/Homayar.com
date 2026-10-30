@@ -1353,7 +1353,7 @@ def test_the_migration_creates_and_drops_only_the_two_tables(
     config = _alembic(monkeypatch, settings)
     try:
         command.stamp(config, "head")
-        command.downgrade(config, NEW_REVISION)  # a no-op while this revision is the head
+        command.downgrade(config, NEW_REVISION)
         others = _other_tables()  # after the stamp, which adds alembic_version
         command.downgrade(config, BASE_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
