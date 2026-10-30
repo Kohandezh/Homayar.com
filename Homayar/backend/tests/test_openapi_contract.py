@@ -222,7 +222,7 @@ def test_write_cli_regenerates_the_snapshot(tmp_path):
 
 def test_snapshot_is_openapi_3_with_the_contract_version_and_exact_operations(snapshot):
     assert snapshot["openapi"].startswith("3.")
-    assert snapshot["info"]["version"] == "1.7.0"
+    assert snapshot["info"]["version"] == "1.8.0"
     assert _operations(snapshot) == EXPECTED_OPERATIONS
     raw = contract.SNAPSHOT_PATH.read_text(encoding="utf-8")
     assert raw.endswith("}\n") and not raw.endswith("\n\n")

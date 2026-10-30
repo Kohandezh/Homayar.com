@@ -389,7 +389,13 @@ def accept_ingestion[T](
     db.flush()  # the unique index decides between concurrent claims here
 
     created = create(record)
-    meeting_id = getattr(created, "meeting", None) and created.meeting.id
+    meeting = getattr(created, "meeting", None)
+    if meeting is not None and identity.external_source_id is not None:
+        # The conversation's id in its source system (HOM-58): set once here,
+        # both columns together, and never changed afterwards.
+        meeting.external_source_system = identity.source_provider
+        meeting.external_conversation_id = identity.external_source_id
+    meeting_id = meeting and meeting.id
     job_id = getattr(created, "job", None) and created.job.id
     record.meeting_id = meeting_id
     record.job_id = job_id
