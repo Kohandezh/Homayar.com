@@ -440,7 +440,10 @@ def test_the_downgrade_runs_on_a_sqlite_schema_built_by_create_all(tmp_path, mon
         }
         assert endpoints["secret_ciphertext"]["nullable"] is False
         endpoint_keys = inspector.get_foreign_keys("webhook_endpoints")
-        assert [key["constrained_columns"] for key in endpoint_keys] == [["workspace_id"]]
+        assert [
+            (key["constrained_columns"], key["referred_table"], key["options"].get("ondelete"))
+            for key in endpoint_keys
+        ] == [(["workspace_id"], "workspaces", "CASCADE")]
 
         deliveries = {column["name"] for column in inspector.get_columns("webhook_deliveries")}
         assert deliveries == {
