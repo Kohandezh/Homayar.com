@@ -121,21 +121,26 @@ restarts something needs homlead's go first.
 3. On the server, prepare the new release folder and images as in `app-server.md`, "Update to a
    New Commit", steps 1 and 2. `Homayar/` changed, so build both images with the new tag (no
    re-tag).
-4. Before the switch, check the rendered config without printing secrets:
-   `~/homayar/hc config --format json | jq -r '.services.api.environment.STORAGE_PRESIGNED_DELIVERY'`
-   (or an equal JSON query that prints only this value) must print `false`. Do the same for
-   `worker`.
+4. Before the switch, check the new release's Compose file, not the rendered config (never run
+   `docker compose config` without `--quiet`: it prints every secret, `app-server.md`, "Never
+   print a secret"):
+   `grep -c 'STORAGE_PRESIGNED_DELIVERY: "false"' ~/homayar/releases/$S12/infra/compose/compose.onprem.yaml`
+   prints `1`. The value is fixed in `x-app-environment`, not read from the env file, and the
+   app-server overlay does not override it. Then `~/homayar/hc config --quiet` exits 0.
 5. Switch `current` and run `~/homayar/hc up -d --no-build --pull never` (steps 4 and 6 of the
    runbook). This recreates `api`, `worker` and `proxy`. The proxy gets the new `homayar.conf`.
-   `minio-bootstrap` runs again (it is idempotent).
+   `minio-bootstrap` runs again (it is idempotent). After `up`, check the running values (each
+   prints only `false`): `~/homayar/hc exec -T api printenv STORAGE_PRESIGNED_DELIVERY` and the
+   same for `worker`.
 6. Host TLS front: put the new regex location from `app-server.md` into
    `/etc/nginx/sites-available/app.homayar.com.conf`, run `nginx -t`, then a graceful reload. This
    is an nginx reload on the shared host. Announce it first; open connections stay. Then measure
    the file's new sha256 and update it in `app-server.md` ("Host nginx and certbot" table).
 7. Check through the public name, as a test account with a short recording:
-   - `curl -sS -o /dev/null -D - -H 'Range: bytes=0-9' <download URL with the session cookie>`
-     answers `206`, `Content-Range: bytes 0-9/<size>`, and no `Location` header. No header holds
-     `minio`.
+   - `curl -sS -o /dev/null -D - -b <cookie file> -H 'Range: bytes=0-9' <download URL> | grep -iE '^(HTTP|content-range|content-length|location)'`
+     shows `206`, `Content-Range: bytes 0-9/<size>`, and no `Location` line. The session cookie
+     stays in a file (mode 600), never on the command line, where other users of the host can
+     read it. Then `... | grep -ci minio` on the same headers prints 0.
    - Without `Range`: `200` and the full size.
    - In the console, play a recording and seek. Open a share link with audio and play it.
 8. Watch for one day: the proxy log has no `pwrite()` or `No space left on device` lines
