@@ -2,11 +2,28 @@
 
 This file explains why each role gets the model and effort it gets. The mapping itself is
 the table in [agents-and-models.md](agents-and-models.md). This file does not choose the
-harness: every Foreman session is Claude Code on the `claudepersonal` configuration.
+harness: the implementer runs GLM-5.3 in OpenCode (owner order 2026-10-30), and every
+other role runs Claude Code on the `claudepersonal` configuration.
+
+## The implementer is always GLM
+
+Owner order, 2026-10-30: every implementer runs GLM-5.3 in OpenCode, for every kind of
+work, including security, infra, CI, auth, secrets, concurrency and database migrations.
+The reason is the Claude weekly limit: the implementer writes most of a mission's tokens.
+
+To keep quality, the checker gets stricter, not the maker weaker:
+
+- the checker is always Claude `opus`;
+- when the work unit touches authentication, authorization, session or token handling,
+  secrets, concurrency, a database migration, or a frozen-file hash, the reviewer runs at
+  `xhigh`;
+- escalation is the only way an implementer moves to Claude: two `CHANGES_REQUESTED` on
+  the same work unit, or a stall with no handoff after two nudges.
 
 ## The rule
 
-Four kinds of work, four models:
+Four kinds of work, four models. This choice is for the other making roles and for an
+implementer after escalation. Every new implementer is GLM-5.3 in OpenCode:
 
 | Kind of work | Model    | Example in a mission                                  |
 | ------------ | -------- | ----------------------------------------------------- |
@@ -38,8 +55,8 @@ someone else to judge. It never returns a verdict, and no acceptance decision re
 ## Why the escalation ladder stops where it does
 
 `xhigh` is for a work unit whose failure is expensive and quiet: authentication,
-authorization, session and token handling, concurrency, and migrations. Those defects pass
-tests and surface in production.
+authorization, session and token handling, secrets, concurrency, migrations, and a
+frozen-file hash. Those defects pass tests and surface in production.
 
 `max` is for exactly one case: a second checker did not settle a disagreement and a final
 reviewer is the last gate. Running `max` everywhere removes the signal that a specific
@@ -50,16 +67,17 @@ signal being real.
 
 Three benchmarks on this repository previously selected DeepSeek V4.1 Flash for
 implementation and GLM-5.3 on the Z.AI Coding Plan for review, on a Pi or OpenCode
-harness. Those results are retired. The harness is now Claude Code only, so a ranking
-between models nobody starts any more cannot guide a choice. The old numbers are kept out
-of this file rather than reused, because a benchmark that measured different models on a
-different harness is not evidence about this one.
+harness. Those results are retired. The old numbers are kept out of this file rather than
+reused, because a benchmark that measured different models on a different harness is not
+evidence about this one. The GLM implementer is an owner cost decision from 2026-10-30,
+not a benchmark result.
 
 ## Not measured
 
 The table in [agents-and-models.md](agents-and-models.md) is a reasoned default, not a
-measured result. No benchmark on this repository has yet compared Opus, Sonnet, Haiku, and
-Fable role by role. Say so when the mapping is questioned. Do not describe it as measured.
+measured result. No benchmark on this repository has yet compared GLM-5.3, Opus, Sonnet,
+Haiku, and Fable role by role. Say so when the mapping is questioned. Do not describe it
+as measured.
 
 To make it measured, the instrument the retired benchmarks used still applies, and only the
 lanes change:
@@ -71,8 +89,9 @@ lanes change:
 
 Two comparisons are worth the cost first, because both are places this mapping guesses:
 
-- `sonnet` at `medium` against `opus` at `high` on a fully specified implementation unit.
-  This is the only downgrade the table allows, so it is the one that needs proof.
+- GLM-5.3 in OpenCode against Claude `opus` at `high` on a fully specified implementation
+  unit. GLM is the default implementer by owner order, so this is the pair that needs
+  proof.
 - `opus` at `high` against `opus` at `xhigh` on a security review with a known-true
   vulnerability. This sets where the escalation line belongs.
 

@@ -56,7 +56,7 @@ Missions share one demo backend to save RAM: Postgres on 4002, API on 4001, demo
 
 ## 4. Start missions (up to 6 at a time)
 
-The owner set the limit to 6 on 2026-10-23. It comes from 16 GB of RAM and the Claude weekly limit. Each mission runs three Claude sessions and its own Postgres. Before you start one more, check swap (`sysctl vm.swapusage`) and free disk; when swap is nearly full, wait for a mission to finish.
+The owner set the limit to 6 on 2026-10-23. It comes from 16 GB of RAM and the Claude weekly limit. Each mission runs two Claude sessions (leader and checker), one GLM implementer in OpenCode, and its own Postgres. Before you start one more, check swap (`sysctl vm.swapusage`) and free disk; when swap is nearly full, wait for a mission to finish.
 
 For each ticket:
 
@@ -68,7 +68,7 @@ For each ticket:
 The prompt starts with `/foreus <TICKET> (Linear ticket in team HOM, read it with the Linear MCP).` Then it gives:
 
 - What to build, in two or three sentences, with the endpoints or files.
-- The implementer lane. A fully specified change uses GLM: `herdr agent start <maker> --kind opencode --pane <pane> --timeout 90000 -- --model zai-coding-plan/glm-5.3`. CI, infra, security or unclear work uses a Claude opus maker. The checker is always Claude opus.
+- The implementer lane. The implementer is always GLM-5.3, for every kind of work: `herdr agent start <maker> --kind opencode --pane <pane> --timeout 90000 -- --model zai-coding-plan/glm-5.3`. The checker is always Claude opus. For auth, secrets, concurrency, migration or frozen-hash work the reviewer runs at `xhigh`. A GLM maker moves to Claude opus only after two `CHANGES_REQUESTED` on the same unit, or a stall after two nudges.
 - The shared backend URL and sign-in, and the mission's own Vite port.
 - Which tickets run in parallel, and "rebase on latest main before you push".
 - The report lines:

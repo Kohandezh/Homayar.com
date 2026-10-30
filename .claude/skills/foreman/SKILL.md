@@ -1,6 +1,6 @@
 ---
 name: foreman
-description: Use when delivering one or more scoped tasks through Herdr-managed agent teams under a leader agent, such as Linear tickets, bug fixes, security fixes, root-cause debugging, code tracing, or research that ends in a spike or a spec. Use when several tickets arrive at once, or when an incorrect result is expensive. Every agent is Claude Code started on the claudepersonal configuration; never start Pi, OpenCode, or an OpenRouter-backed session. Not for a lone change that one session can finish and verify alone.
+description: Use when delivering one or more scoped tasks through Herdr-managed agent teams under a leader agent, such as Linear tickets, bug fixes, security fixes, root-cause debugging, code tracing, or research that ends in a spike or a spec. Use when several tickets arrive at once, or when an incorrect result is expensive. The leader and every checker are Claude Code on the claudepersonal configuration; every implementer runs GLM-5.3 in OpenCode on the Z.AI Coding Plan (owner order 2026-10-30) and moves to Claude opus only by escalation; Pi and OpenRouter are never started. Not for a lone change that one session can finish and verify alone.
 ---
 
 # Foreman
@@ -71,6 +71,16 @@ never reports its state and every `herdr agent wait` hangs until it times out. T
 in [references/agents-and-models.md](references/agents-and-models.md). If it cannot be
 made current, stop. Never fall back to another agent kind.
 
+Verify the OpenCode integration is current too, because every implementer runs in OpenCode:
+
+```bash
+herdr integration status | grep '^opencode:'
+```
+
+It must read `current`. If it does not, run `herdr integration install opencode`. Never
+start a GLM session that cannot report its state, because `herdr agent wait` would hang
+until it times out.
+
 Learn the installed command surface before using it:
 
 ```bash
@@ -113,8 +123,9 @@ creates uses `--no-focus`. Never run a focus command. The user switches views.
    Linear write needs the user's explicit authority for that action.
 2. **Classify.** Give each task a type. Split mixed tasks into work units.
 3. **Size.** Choose teams, waves, and expansion roles per
-   [references/team-sizing.md](references/team-sizing.md). Tell the user the plan in a
-   few lines: tasks, types, teams, waves, and agent kinds.
+   [references/team-sizing.md](references/team-sizing.md). The implementer is always
+   GLM-5.3 in OpenCode. Tell the user the plan in a few lines: tasks, types, teams,
+   waves, and the harness and model of every role.
 4. **Contract.** Create the mission directory. Write one `SPEC.md` per team before any
    worker acts.
 5. **Build.** Create worktrees, tabs, and panes per
@@ -275,8 +286,9 @@ Before removal:
 4. Remove only known Foreman-generated files: the temporary `REVIEW-INPUT.diff`, removed
    before any worktree removal. Never delete unrelated files. If any other uncommitted or
    untracked file remains, stop and ask the user.
-5. Ask each agent to exit its normal session. Verify with `herdr agent get`. Use
-   `herdr agent send-keys <agent-name> ctrl+c` only if a session does not exit normally.
+5. Ask each agent to exit its normal session. Verify with `herdr agent get`. A GLM
+   (OpenCode) session has no `/exit`; send `herdr agent send-keys <agent-name> ctrl+c`
+   twice to end it. Use `ctrl+c` on a Claude session only if it does not exit normally.
 6. Close only sessions, panes, tabs, and workspaces this mission created. Never close
    anything else.
 

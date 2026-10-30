@@ -100,10 +100,11 @@ herdr tab create --workspace <maker-workspace-id> --cwd <maker-path> --label <te
 ```
 
 Split the tab's root pane once per session with `herdr pane split`: that call carries the
-session's `--cwd` and `CLAUDE_CONFIG_DIR`, and `herdr agent start --kind claude --pane` then
-runs Claude in the new pane. The maker's pane splits right, the checker's pane splits down from
-it. The exact commands are in [agents-and-models.md](agents-and-models.md). For tracing, give
-the checker `<maker-path>` as its `--cwd` too.
+session's `--cwd`, plus `CLAUDE_CONFIG_DIR` for a Claude pane, which then starts with
+`herdr agent start --kind claude --pane`. The implementer's pane needs no `CLAUDE_CONFIG_DIR`
+and starts with `--kind opencode` (GLM-5.3). The maker's pane splits right, the checker's pane
+splits down from it. The exact commands are in [agents-and-models.md](agents-and-models.md).
+For tracing, give the checker `<maker-path>` as its `--cwd` too.
 
 Read each pane id back after start and record it in `ledger.md`, because submitting a
 brief needs it:
