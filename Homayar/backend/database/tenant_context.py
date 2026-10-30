@@ -57,6 +57,10 @@ SERVICE_SCOPE_USAGE_RECONCILIATION = "usage_reconciliation"
 # Voice recovery (P0 wave, X21): fails live calls of lapsed media nodes and
 # expired capacity slots across tenants (state/end columns only).
 SERVICE_SCOPE_VOICE_RECOVERY = "voice_recovery"
+# CRM reconciliation (HOM-88): the sweep discovers pending inbound CRM records
+# across tenants (ids, workspace, state, expiry; no writes); every change then
+# binds the workspace read from the persisted record row.
+SERVICE_SCOPE_CRM_RECONCILIATION = "crm_reconciliation"
 
 ALL_GUCS: tuple[str, ...] = (
     GUC_USER_ID,

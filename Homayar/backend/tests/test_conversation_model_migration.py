@@ -45,7 +45,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "6d4ec2d2e498"
 BASE_REVISION = "a7c3e9f5b2d1"
-HEAD_REVISION = "47676f445509"  # HOM-54: scorecard_versions, after HOM-290
+HEAD_REVISION = "565d2ccd4fca"  # HOM-88: CRM mapping tables, after HOM-54
 NEW_COLUMNS = (
     "conversation_type",
     "direction",

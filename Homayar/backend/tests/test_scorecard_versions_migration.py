@@ -57,6 +57,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "47676f445509"
 BASE_REVISION = "f2c6a8e4b1d7"  # HOM-290: trend_extraction_judgments
+HEAD_REVISION = "565d2ccd4fca"  # HOM-88: CRM mapping tables, after HOM-54
 TABLE = "scorecard_versions"
 NAMED_CONSTRAINTS = (
     "uq_scorecard_version",
@@ -574,7 +575,7 @@ def test_the_migration_creates_and_drops_only_the_table(
     from backend.config import reset_settings_cache
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == NEW_REVISION
+    assert code_migration_head() == HEAD_REVISION
     first = _tenant(client, email_outbox, "migration-a")
     second = _tenant(client, email_outbox, "migration-b")
     orm_shape = _assert_head_shape()
@@ -584,6 +585,7 @@ def test_the_migration_creates_and_drops_only_the_table(
     config = _alembic(monkeypatch, settings)
     try:
         command.stamp(config, "head")
+        command.downgrade(config, NEW_REVISION)
         others = _other_tables()  # after the stamp, which adds alembic_version
         command.downgrade(config, BASE_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
@@ -599,7 +601,7 @@ def test_the_migration_creates_and_drops_only_the_table(
         assert _other_tables() == others  # every other table as it was
         assert _scalar("SELECT count(*) FROM workspaces") == workspaces
 
-        command.upgrade(config, "head")
+        command.upgrade(config, NEW_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == NEW_REVISION
         assert _shape() == orm_shape  # the migrated schema equals the ORM schema
         assert _other_tables() == others
@@ -612,9 +614,10 @@ def test_the_migration_creates_and_drops_only_the_table(
         # Down and up again with rows present.
         command.downgrade(config, BASE_REVISION)
         assert _other_tables() == others
-        command.upgrade(config, "head")
+        command.upgrade(config, NEW_REVISION)
         assert _shape() == orm_shape
         assert _other_tables() == others
         assert _rows() == []
+        command.upgrade(config, "head")
     finally:
         reset_settings_cache()

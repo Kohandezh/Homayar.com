@@ -58,7 +58,7 @@ from backend.tests.test_ingestion_ledger import _tenant
 
 NEW_REVISION = "f2c6a8e4b1d7"
 BASE_REVISION = "6d4ec2d2e498"  # HOM-58: conversation columns on meetings
-HEAD_REVISION = "47676f445509"  # HOM-54: scorecard_versions, after HOM-290
+HEAD_REVISION = "565d2ccd4fca"  # HOM-88: CRM mapping tables, after HOM-54
 TABLE = "trend_extraction_judgments"
 VERSION = "judgment/schema-test"
 KEY = "c0" * 32  # a content key: 64 hex (WU2 computes the real one)
