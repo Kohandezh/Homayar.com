@@ -2,6 +2,9 @@
 
     python -m backend.jobs.model_preflight [--register]
     python -m backend.jobs.model_preflight --egress-allowlist [--require-no-cloud]
+    python -m backend.jobs.model_preflight --host [--offline] [--min-free-gpu-mib N]
+        [--min-free-disk-mib N] [--tls-cert PATH|-] [--tls-host NAME] [--tls-min-days N]
+        [--probe-internet [--probe-target HOST:PORT ...]]
 
 Builds the configured provider bundle (no model is loaded and no provider is
 called), resolves every stage against the manifest registry in the configured
@@ -23,6 +26,15 @@ needs (``infra/egress/allowlist.txt``), one per networked endpoint, with the
 stage, candidate and endpoint kind as a comment; readiness does not change
 its exit code.  ``--require-no-cloud`` makes it exit 3 when any of them is a
 ``cloud`` endpoint (the air-gapped check).
+
+``--host`` (HOM-108) also checks the machine the stack runs on and adds the
+result under ``host`` (``backend.providers.host_checks``): the local ASR
+runtime, the NVIDIA driver and free VRAM of the target GPU, free disk,
+connections to the configured dependencies, a TLS certificate
+(``--tls-cert``, ``-`` reads stdin), the no-internet configuration (with
+``--offline``) and, only with ``--probe-internet``, an outbound connection
+probe.  A ``fail`` makes the report not ready (exit 1); ``warn`` and
+``skip`` do not change the exit code.
 """
 
 from __future__ import annotations
@@ -30,12 +42,27 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from backend.config import Settings, get_settings
 from backend.providers.artifacts import verify_artifacts
 from backend.providers.base import ProviderError
-from backend.providers.factory import ProviderBundle, create_provider_bundle
+from backend.providers.factory import (
+    ProviderBundle,
+    create_asr_provider,
+    create_provider_bundle,
+)
+from backend.providers.host_checks import (
+    DEFAULT_MIN_FREE_DISK_MIB,
+    DEFAULT_MIN_FREE_GPU_MIB,
+    DEFAULT_PROBE_TARGETS,
+    DEFAULT_TLS_MIN_DAYS,
+    HostOptions,
+    HostProbes,
+    run_host_checks,
+)
 from backend.providers.registry import (
     STAGES,
     ManifestError,
@@ -57,13 +84,26 @@ def run_preflight(
     providers: ProviderBundle | None = None,
     offline: bool = False,
     policy=None,
+    host: HostOptions | None = None,
+    probes: HostProbes | None = None,
 ) -> tuple[int, dict[str, object]]:
+    bundle = providers
     try:
-        bundle = providers or create_provider_bundle(settings)
+        bundle = bundle or create_provider_bundle(settings)
         registry = load_registry(settings)
         pins = parse_pins(settings.model_manifest_pins)
     except (ProviderError, ManifestError, ValueError) as exc:
-        return 2, {"ready": False, "error": getattr(exc, "code", "configuration_error")}
+        failed: dict[str, object] = {
+            "ready": False,
+            "error": getattr(exc, "code", "configuration_error"),
+        }
+        if host is not None:
+            # The operator still gets the host report when the stack is not
+            # configured yet (HOM-108 A1); the exit code stays 2.
+            failed["host"] = run_host_checks(
+                settings, bundle or _asr_only(settings), replace(host, offline=offline), probes
+            )
+        return 2, failed
     strict = is_strict(settings)
     report: dict[str, object] = {"strict": strict, "stages": {}}
     stages: dict[str, object] = {}
@@ -143,8 +183,20 @@ def run_preflight(
         )
         report["offline_profile"] = profile.document()
         ready = ready and profile.ok
+    if host is not None:
+        host_report = run_host_checks(settings, bundle, replace(host, offline=offline), probes)
+        report["host"] = host_report
+        ready = ready and host_report["ok"]
     report["ready"] = ready
     return (0 if ready else 1), report
+
+
+def _asr_only(settings: Settings) -> SimpleNamespace | None:
+    """The ASR adapter alone, for host checks when the full bundle cannot be built."""
+    try:
+        return SimpleNamespace(asr=create_asr_provider(settings))
+    except (ProviderError, ValueError):
+        return None
 
 
 def _egress_allowlist(bundle: ProviderBundle, registry, strict: bool) -> list[dict[str, object]]:
@@ -193,6 +245,68 @@ def egress_allowlist_lines(report: dict[str, object]) -> list[str]:
     return [f"{dest}  # {'; '.join(notes)}" for dest, notes in sorted(seen.items())]
 
 
+_HOST_ONLY_FLAGS = (
+    "min_free_gpu_mib",
+    "min_free_disk_mib",
+    "tls_cert",
+    "tls_host",
+    "tls_min_days",
+    "probe_internet",
+    "probe_target",
+)
+
+
+def _probe_target(value: str) -> tuple[str, int] | None:
+    host, _, port = value.rpartition(":")
+    host = host.strip()
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    if not host or not port.isdigit() or not 1 <= int(port) <= 65535:
+        return None
+    return host, int(port)
+
+
+def _host_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> HostOptions | None:
+    """The ``--host`` options, or ``None``; misuse is a usage error (exit 2)."""
+    if not args.host:
+        # Identity, not equality: ``0`` is a given value, not "unset".
+        given = [
+            name
+            for name in _HOST_ONLY_FLAGS
+            if getattr(args, name) is not None and getattr(args, name) is not False
+        ]
+        if given:
+            parser.error(f"--{given[0].replace('_', '-')} needs --host")
+        return None
+    if args.egress_allowlist:
+        parser.error("--host cannot be combined with --egress-allowlist")
+    if args.probe_target and not args.probe_internet:
+        parser.error("--probe-target needs --probe-internet")
+    for name in ("min_free_gpu_mib", "min_free_disk_mib", "tls_min_days"):
+        if (getattr(args, name) or 0) < 0:
+            parser.error(f"--{name.replace('_', '-')} cannot be negative")
+    targets = DEFAULT_PROBE_TARGETS
+    if args.probe_target:
+        parsed = [_probe_target(value) for value in args.probe_target]
+        if None in parsed:
+            parser.error("--probe-target is HOST:PORT with a port from 1 to 65535")
+        targets = tuple(parsed)
+    return HostOptions(
+        min_free_gpu_mib=_default(args.min_free_gpu_mib, DEFAULT_MIN_FREE_GPU_MIB),
+        min_free_disk_mib=_default(args.min_free_disk_mib, DEFAULT_MIN_FREE_DISK_MIB),
+        tls_cert=args.tls_cert,
+        tls_host=args.tls_host,
+        tls_min_days=_default(args.tls_min_days, DEFAULT_TLS_MIN_DAYS),
+        offline=args.offline,
+        probe_internet=args.probe_internet,
+        probe_targets=targets,
+    )
+
+
+def _default(value: int | None, default: int) -> int:
+    return default if value is None else value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m backend.jobs.model_preflight")
     parser.add_argument("--register", action="store_true", help="store resolved manifests")
@@ -211,9 +325,48 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also require deployment profile O (local-only, verified artifacts)",
     )
+    parser.add_argument(
+        "--host",
+        action="store_true",
+        help="also check this host: driver, VRAM, disk, ports, TLS, local runtime",
+    )
+    parser.add_argument(
+        "--min-free-gpu-mib",
+        type=int,
+        metavar="N",
+        help=f"with --host: free VRAM the target GPU needs (default {DEFAULT_MIN_FREE_GPU_MIB})",
+    )
+    parser.add_argument(
+        "--min-free-disk-mib",
+        type=int,
+        metavar="N",
+        help=f"with --host: free disk each path needs (default {DEFAULT_MIN_FREE_DISK_MIB})",
+    )
+    parser.add_argument(
+        "--tls-cert", metavar="PATH", help="with --host: PEM certificate file, - for stdin"
+    )
+    parser.add_argument("--tls-host", metavar="NAME", help="with --host: name the cert must cover")
+    parser.add_argument(
+        "--tls-min-days",
+        type=int,
+        metavar="N",
+        help=f"with --host: days the cert must stay valid (default {DEFAULT_TLS_MIN_DAYS})",
+    )
+    parser.add_argument(
+        "--probe-internet",
+        action="store_true",
+        help="with --host: fail when an outbound connection succeeds",
+    )
+    parser.add_argument(
+        "--probe-target",
+        action="append",
+        metavar="HOST:PORT",
+        help="with --probe-internet: replaces the default targets (repeatable)",
+    )
     args = parser.parse_args(argv)
+    host = _host_options(parser, args)
     settings = get_settings()
-    code, report = run_preflight(settings, offline=args.offline)
+    code, report = run_preflight(settings, offline=args.offline, host=host)
     if args.egress_allowlist:
         if code == 2:
             print(json.dumps(report, ensure_ascii=False), file=sys.stderr)

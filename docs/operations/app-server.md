@@ -614,6 +614,44 @@ After any provider change: `~/homayar/hc up -d --no-build --pull never`, then
 Measured today (no provider): it exits 2 with `intelligence_provider_unconfigured`. That is
 expected.
 
+### Host preflight
+
+`--host` also checks this server: the local speech runtime, the GPU driver and free VRAM, free
+disk, the connections to PostgreSQL and Redis, and the certificate. Flags and checks are in
+`deployment.md` ("Host preflight"). Run it as user `gpu`:
+
+```bash
+~/homayar/hc run --rm -T --no-deps api python -m backend.jobs.model_preflight --host
+```
+
+The certificate is readable only by root. To check it, the owner passes it on stdin. Pass only
+`fullchain.pem`. Never pass `privkey.pem`: the check fails when the input holds a private key.
+`--tls-host` works only together with `--tls-cert`.
+
+```bash
+sudo cat /etc/letsencrypt/live/app.homayar.com/fullchain.pem \
+  | ~/homayar/hc run --rm -T --no-deps api python -m backend.jobs.model_preflight --host \
+    --tls-cert - --tls-host app.homayar.com
+```
+
+**Not measured yet.** Expected result today:
+
+- The api image is built without `INSTALL_AI_LOCAL=true` and `WHISPER_DEVICE=cpu`. So
+  `gpu_driver` and `gpu_memory` are `skip`, and `asr_runtime` is `fail` (no faster-whisper)
+  until the image is built with `INSTALL_AI_LOCAL=true`.
+- No language model is configured yet, so the command exits 2 with
+  `intelligence_provider_unconfigured` (see above). It still prints the `host` report. Exit 2
+  stays exit 2, whatever the host checks say.
+
+GPU mode (`WHISPER_DEVICE=cuda`, or a GPU ASR profile) needs more than a setting:
+
+- GPU access for the container (a Compose `gpus` or device reservation for the api and worker).
+- CUDA in the image (an image built with `INSTALL_AI_LOCAL=true` and the CUDA libraries).
+- The two Tesla P40 GPUs are shared with other services, so free VRAM is less than 24 GiB and
+  changes over time. Measure the free VRAM the model needs first, then set
+  `--min-free-gpu-mib` from that number. The P40 is a Pascal GPU (compute capability 6.1): use
+  the compute type `int8_float32`, not `float16`.
+
 ## Open Items
 
 Out of scope for HOM-328, each needs its own ticket:
