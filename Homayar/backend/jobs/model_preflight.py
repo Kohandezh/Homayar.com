@@ -4,7 +4,7 @@
     python -m backend.jobs.model_preflight --egress-allowlist [--require-no-cloud]
     python -m backend.jobs.model_preflight --host [--offline] [--min-free-gpu-mib N]
         [--min-free-disk-mib N] [--tls-cert PATH|-] [--tls-host NAME] [--tls-min-days N]
-        [--probe-internet [--probe-target HOST:PORT ...]]
+        [--probe-internet [--probe-target HOST:PORT ...]] [--topology NAME]
 
 Builds the configured provider bundle (no model is loaded and no provider is
 called), resolves every stage against the manifest registry in the configured
@@ -33,8 +33,9 @@ runtime, the NVIDIA driver and free VRAM of the target GPU, free disk,
 connections to the configured dependencies, a TLS certificate
 (``--tls-cert``, ``-`` reads stdin), the no-internet configuration (with
 ``--offline``) and, only with ``--probe-internet``, an outbound connection
-probe.  A ``fail`` makes the report not ready (exit 1); ``warn`` and
-``skip`` do not change the exit code.
+probe and, with ``DEPLOYMENT_TOPOLOGY`` or ``--topology``, the supported
+topology (HOM-106, ADR 0047).  A ``fail`` makes the report not ready
+(exit 1); ``warn`` and ``skip`` do not change the exit code.
 """
 
 from __future__ import annotations
@@ -253,6 +254,7 @@ _HOST_ONLY_FLAGS = (
     "tls_min_days",
     "probe_internet",
     "probe_target",
+    "topology",
 )
 
 
@@ -291,6 +293,9 @@ def _host_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         if None in parsed:
             parser.error("--probe-target is HOST:PORT with a port from 1 to 65535")
         targets = tuple(parsed)
+    topology = args.topology.strip() if args.topology is not None else None
+    if topology == "":
+        parser.error("--topology needs a topology name")
     return HostOptions(
         min_free_gpu_mib=_default(args.min_free_gpu_mib, DEFAULT_MIN_FREE_GPU_MIB),
         min_free_disk_mib=_default(args.min_free_disk_mib, DEFAULT_MIN_FREE_DISK_MIB),
@@ -300,6 +305,7 @@ def _host_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         offline=args.offline,
         probe_internet=args.probe_internet,
         probe_targets=targets,
+        topology=topology,
     )
 
 
@@ -362,6 +368,11 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         metavar="HOST:PORT",
         help="with --probe-internet: replaces the default targets (repeatable)",
+    )
+    parser.add_argument(
+        "--topology",
+        metavar="NAME",
+        help="with --host: check this supported topology instead of DEPLOYMENT_TOPOLOGY",
     )
     args = parser.parse_args(argv)
     host = _host_options(parser, args)

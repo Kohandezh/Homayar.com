@@ -447,6 +447,11 @@ def test_compose_build_arg_defaults_are_the_dockerfile_pins() -> None:
 
 
 CI_MINIO_TARGET = REPO_ROOT / "infra" / "ci" / "minio-contract-target.sh"
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+CI_NGINX_STEPS = (
+    "Validate reverse-proxy nginx configuration",
+    "Validate console nginx configuration",
+)
 
 
 def _ci_minio_references() -> dict[str, str]:
@@ -458,6 +463,26 @@ def _ci_minio_references() -> dict[str, str]:
             values[match.group(1)] = match.group(2)
     assert {"MINIO_IMAGE", "MC_IMAGE"} <= values.keys()
     return values
+
+
+def _console_nginx_pin() -> str:
+    """The committed ``NGINX_IMAGE`` base pin of the console-web Dockerfile."""
+    return _base_args(_committed(rm.IMAGES["console-web"]).decode("utf-8"))["NGINX_IMAGE"]
+
+
+def _ci_nginx_check_images() -> dict[str, str]:
+    """The image of each CI `nginx -t` step: the word after ``--entrypoint nginx``."""
+    images: dict[str, str] = {}
+    step = None
+    lines = [line.strip() for line in CI_WORKFLOW.read_text(encoding="utf-8").splitlines()]
+    for number, line in enumerate(lines):
+        match = re.fullmatch(r"- name: (.+)", line)
+        if match:
+            step = match.group(1)
+        elif step in CI_NGINX_STEPS and line == "--entrypoint nginx":
+            images[step] = lines[number + 1]
+    assert sorted(images) == sorted(CI_NGINX_STEPS)
+    return images
 
 
 def _rehashed(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -473,7 +498,11 @@ def test_compose_bundled_defaults_are_pinned_and_match_the_ci_contract() -> None
     defaults = rm.bundled_image_defaults(text)
     assert sorted(defaults) == sorted(rm.BUNDLED_IMAGES)
     ci = _ci_minio_references()
-    assert defaults == {"MINIO_IMAGE": ci["MINIO_IMAGE"], "MINIO_MC_IMAGE": ci["MC_IMAGE"]}
+    assert defaults == {
+        "MINIO_IMAGE": ci["MINIO_IMAGE"],
+        "MINIO_MC_IMAGE": ci["MC_IMAGE"],
+        "NGINX_IMAGE": _console_nginx_pin(),
+    }
     # The committed file repeats one identical default for MINIO_MC_IMAGE (two services).
     mc_lines = [
         line.strip() for line in text.splitlines() if line.strip().startswith('image: "${MINIO_MC_IMAGE')
@@ -483,6 +512,28 @@ def test_compose_bundled_defaults_are_pinned_and_match_the_ci_contract() -> None
         entry = rm.image_reference(reference)
         assert entry["pinned_by_digest"], (name, reference)
         assert entry["digest"] and reference.endswith("@" + entry["digest"]), name
+
+
+@requires_git
+@pytest.mark.parametrize("compose_file", [rm.COMPOSE_ONPREM, "infra/compose/compose.cloud.yaml"])
+def test_proxy_image_default_is_the_console_nginx_pin(compose_file: str) -> None:
+    # One NGINX_IMAGE feeds the proxy and the console-web build (HOM-345): no drift.
+    text = _committed(compose_file).decode("utf-8")
+    defaults = [
+        match.group(2)
+        for line in text.splitlines()
+        if (match := rm._BUNDLED_IMAGE_LINE.fullmatch(line.strip()))
+        and match.group(1) == "NGINX_IMAGE"
+    ]
+    assert defaults == [_console_nginx_pin()], compose_file
+    assert rm.image_reference(defaults[0])["pinned_by_digest"], compose_file
+
+
+@requires_git
+def test_ci_nginx_checks_use_the_console_nginx_pin() -> None:
+    # CI must validate the nginx configs on the nginx the stack runs (HOM-345).
+    for step, image in _ci_nginx_check_images().items():
+        assert image == _console_nginx_pin(), step
 
 
 @requires_git
@@ -604,6 +655,30 @@ def test_verify_refuses_bundled_images_that_are_not_pinned(
 
 
 @requires_git
+def test_verify_refuses_a_manifest_without_a_pinned_proxy_image(
+    head_manifest: dict[str, Any], tmp_path: Path
+) -> None:
+    # A manifest made before HOM-345 does not record NGINX_IMAGE.
+    build_info = _build_info_for(head_manifest, tmp_path)
+    assert head_manifest["bundled_images"]["images"]["NGINX_IMAGE"] == rm.image_reference(
+        _console_nginx_pin()
+    )
+    missing = copy.deepcopy(head_manifest)
+    del missing["bundled_images"]["images"]["NGINX_IMAGE"]
+    _rehashed(missing)
+    assert rm.verify_documents(missing, build_info) == [
+        "bundled_images.images.NGINX_IMAGE: not recorded"
+    ]
+    tag = "nginx:1.30-alpine"
+    bare = copy.deepcopy(head_manifest)
+    bare["bundled_images"]["images"]["NGINX_IMAGE"] = rm.image_reference(tag)
+    _rehashed(bare)
+    assert rm.verify_documents(bare, build_info) == [
+        f"bundled_images.images.NGINX_IMAGE: not pinned by digest ('{tag}')"
+    ]
+
+
+@requires_git
 def test_verify_refuses_a_manifest_without_bundled_images(
     head_manifest: dict[str, Any], tmp_path: Path
 ) -> None:
@@ -629,7 +704,7 @@ def _with_base_images(manifest: dict[str, Any], **references: str) -> dict[str, 
 
 PINNED_BASES = {
     "console-web.NODE_IMAGE": "node:22-alpine@" + DIGEST,
-    "console-web.NGINX_IMAGE": "nginx:1.28-alpine@" + DIGEST,
+    "console-web.NGINX_IMAGE": "nginx:1.30-alpine@" + DIGEST,
     "egress-proxy.ALPINE_IMAGE": "alpine:3.22@" + DIGEST,
 }
 

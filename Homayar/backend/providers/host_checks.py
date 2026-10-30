@@ -3,9 +3,10 @@
 ``run_host_checks`` checks the machine and configuration the stack really
 runs on: the local ASR runtime, the NVIDIA driver, free VRAM on the GPU the
 model will use, free disk, reachability of the configured dependencies, a
-TLS certificate, the no-internet configuration and, only when asked, an
-active outbound probe.  Every side effect goes through ``HostProbes`` so
-tests inject fakes.
+TLS certificate, the no-internet configuration, only when asked an active
+outbound probe and, when one is chosen, the deployment topology (HOM-106,
+ADR 0047).  Every side effect goes through ``HostProbes`` so tests inject
+fakes.
 
 Nothing here loads a model or imports ``faster_whisper``.  The ASR runtime
 is read from the built adapter (``bundle.asr``), never from the
@@ -32,6 +33,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from backend.providers.deployment_topologies import DeploymentTopology, get_topology
 from backend.providers.egress import is_local_host
 
 CHECK_NAMES = (
@@ -43,6 +45,7 @@ CHECK_NAMES = (
     "tls_certificate",
     "no_internet_config",
     "internet_probe",
+    "topology",
 )
 # CUDA 12.x minimum Linux driver (CTranslate2 4.x is built against CUDA 12).
 MIN_NVIDIA_DRIVER = "525.60.13"
@@ -60,6 +63,7 @@ _NVIDIA_QUERY = [
     "--format=csv,noheader,nounits",
 ]
 _NVIDIA_OUTPUT_LIMIT = 65536
+_NO_GPU = "nvidia-smi lists no GPU."
 _PEM_LIMIT = 1024 * 1024
 _PRIVATE_KEY = re.compile(rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
 _PROXY_VARIABLES = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
@@ -85,6 +89,18 @@ def _read_stdin() -> bytes:
     return sys.stdin.buffer.read(_PEM_LIMIT + 1)
 
 
+def _memory_total_mib() -> int | None:
+    """Physical memory of the machine.  A container sees the host value."""
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+    except (AttributeError, OSError, ValueError):
+        return None
+    if pages <= 0 or page_size <= 0:
+        return None
+    return pages * page_size // (1024 * 1024)
+
+
 @dataclass(frozen=True)
 class HostOptions:
     min_free_gpu_mib: int = DEFAULT_MIN_FREE_GPU_MIB
@@ -95,6 +111,7 @@ class HostOptions:
     offline: bool = False
     probe_internet: bool = False
     probe_targets: tuple[tuple[str, int], ...] = DEFAULT_PROBE_TARGETS
+    topology: str | None = None  # wins over DEPLOYMENT_TOPOLOGY for this run
 
 
 @dataclass(frozen=True)
@@ -110,6 +127,8 @@ class HostProbes:
     now: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
     read_stdin: Callable[[], bytes] = _read_stdin
     temp_dir: Callable[[], str] = tempfile.gettempdir
+    cpu_count: Callable[[], int | None] = os.cpu_count
+    memory_total_mib: Callable[[], int | None] = _memory_total_mib
 
 
 def _check(name: str, status: str, detail: str, **fields: Any) -> dict[str, Any]:
@@ -310,7 +329,7 @@ def _query_gpus(probes: HostProbes) -> tuple[list[dict[str, Any]], str | None]:
         return [], "nvidia-smi reported an error."
     gpus = _parse_gpus((completed.stdout or "")[:_NVIDIA_OUTPUT_LIMIT])
     if not gpus:
-        return [], "nvidia-smi lists no GPU."
+        return [], _NO_GPU
     return gpus, None
 
 
@@ -707,6 +726,140 @@ def _check_internet_probe(options: HostOptions, probes: HostProbes) -> dict[str,
     return _check("internet_probe", "pass", "No probe target is reachable.", targets=targets)
 
 
+# --- deployment topology (HOM-106, ADR 0047) -------------------------------------------
+
+
+def _read_number(probe: Callable[[], int | None]) -> int | None:
+    try:
+        value = probe()
+    except Exception:  # an unreadable value is a finding, not a crash
+        return None
+    return value if isinstance(value, int) and value > 0 else None
+
+
+def _gpu_problems(
+    topology: DeploymentTopology,
+    gpu_query: Callable[[], tuple[list[dict[str, Any]], str | None]],
+) -> tuple[list[str], list[str], int | None]:
+    """(fails, warns, visible GPU count)."""
+    gpus, error = gpu_query()
+    needed = topology.gpu_count
+    if error is not None and error != _NO_GPU:
+        return [], [f"The GPU count cannot be read: {error}"], None
+    if len(gpus) < needed:
+        return (
+            [f"The host has {len(gpus)} NVIDIA GPU, {topology.name} needs {needed}."],
+            [],
+            len(gpus),
+        )
+    allowed = topology.gpu_compute_capabilities
+    if not allowed:
+        return [], [], len(gpus)
+    matching = [gpu for gpu in gpus if gpu["compute_capability"] in allowed]
+    if len(matching) >= needed:
+        return [], [], len(gpus)
+    unknown = [gpu for gpu in gpus if gpu["compute_capability"] is None]
+    if len(matching) + len(unknown) >= needed:
+        return [], ["The GPU compute capability cannot be read."], len(gpus)
+    found = ", ".join(sorted({gpu["compute_capability"] for gpu in gpus} - {None}))
+    return (
+        [
+            f"The GPU compute capability is {found}, {topology.name} needs {needed} GPU "
+            f"with compute capability {', '.join(allowed)}."
+        ],
+        [],
+        len(gpus),
+    )
+
+
+def _check_topology(
+    settings: Any,
+    options: HostOptions,
+    probes: HostProbes,
+    gpu_query: Callable[[], tuple[list[dict[str, Any]], str | None]],
+) -> dict[str, Any]:
+    chosen = options.topology
+    if chosen is None:
+        chosen = getattr(settings, "deployment_topology", "")
+    name = (chosen or "").strip() if isinstance(chosen, str) else ""
+    if not name:
+        return _check(
+            "topology", "skip", "No topology is chosen (DEPLOYMENT_TOPOLOGY or --topology)."
+        )
+    try:
+        topology = get_topology(name)
+    except ValueError as exc:
+        return _check("topology", "fail", str(exc), topology=name[:80])
+    fails: list[str] = []
+    warns: list[str] = []
+    cpus = _read_number(probes.cpu_count)
+    if cpus is None:
+        warns.append("The CPU count cannot be read.")
+    elif cpus < topology.min_cpu_count:
+        fails.append(f"The host has {cpus} CPUs, {name} needs {topology.min_cpu_count}.")
+    memory = _read_number(probes.memory_total_mib)
+    if memory is None:
+        warns.append("The host memory cannot be read.")
+    elif memory < topology.min_memory_mib:
+        fails.append(
+            f"The host has {memory} MiB of memory, {name} needs {topology.min_memory_mib} MiB."
+        )
+    gpu_count = None
+    if topology.gpu_count > 0:
+        gpu_fails, gpu_warns, gpu_count = _gpu_problems(topology, gpu_query)
+        fails += gpu_fails
+        warns += gpu_warns
+    profile = _setting_text(settings, "asr_profile")
+    allowed = ", ".join(topology.allowed_asr_profiles)
+    if not profile:
+        warns.append(
+            f"No ASR profile is set, so the WHISPER_* settings cannot be checked against "
+            f"the ASR profiles {name} allows ({allowed})."
+        )
+    elif profile not in topology.allowed_asr_profiles:
+        fails.append(f"ASR profile {profile} is not allowed on {name} (allowed: {allowed}).")
+    mode = getattr(settings, "deployment_mode", None)
+    if mode != topology.deployment_mode:
+        fails.append(f"The deployment mode is {mode}, {name} needs {topology.deployment_mode}.")
+    # A warning, not a failure: the hosted reference server may use SMS sign-in.
+    # --offline turns the same settings into a no_internet_config failure.
+    if getattr(settings, "enable_google_auth", False):
+        warns.append("Google sign-in is on: it does not work with outbound network denied.")
+    if getattr(settings, "enable_phone_auth", False):
+        warns.append("Phone sign-in is on: it does not work with outbound network denied.")
+    if getattr(settings, "environment", "") == "production":
+        if getattr(settings, "storage_backend", "") != "s3":
+            warns.append(f"STORAGE_BACKEND is not s3: {name} keeps objects in the bundled MinIO.")
+        if not _setting_text(settings, "tombstone_journal_dir"):
+            warns.append(
+                "TOMBSTONE_JOURNAL_DIR is empty: a restore cannot reapply later deletions."
+            )
+    fields = {
+        "topology": name,
+        "topology_status": topology.status,
+        "cpu_count": cpus,
+        "memory_total_mib": memory,
+        "gpu_count": gpu_count,
+        "asr_profile": profile or None,
+        "deployment_mode": mode,
+        "required": {
+            "min_cpu_count": topology.min_cpu_count,
+            "min_memory_mib": topology.min_memory_mib,
+            "gpu_count": topology.gpu_count,
+            "gpu_compute_capabilities": list(topology.gpu_compute_capabilities),
+            "min_free_gpu_mib": topology.min_free_gpu_mib,
+            "allowed_asr_profiles": list(topology.allowed_asr_profiles),
+            "deployment_mode": topology.deployment_mode,
+        },
+        "warnings": warns,
+    }
+    if fails:
+        return _check("topology", "fail", " ".join(fails), **fields)
+    if warns:
+        return _check("topology", "warn", " ".join(warns), **fields)
+    return _check("topology", "pass", f"The host and the settings meet {name}.", **fields)
+
+
 def run_host_checks(
     settings: Any, bundle: Any, options: HostOptions, probes: HostProbes | None = None
 ) -> dict[str, Any]:
@@ -730,5 +883,11 @@ def run_host_checks(
         _check_tls(options, probes),
         _check_no_internet(settings, runtime, options, probes),
         _check_internet_probe(options, probes),
+        _check_topology(
+            settings,
+            options,
+            probes,
+            (lambda: (gpus, gpu_error)) if runtime.gpu else (lambda: _query_gpus(probes)),
+        ),
     ]
     return {"ok": not any(check["status"] == "fail" for check in checks), "checks": checks}

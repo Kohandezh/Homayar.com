@@ -45,6 +45,7 @@ from backend.routers.v1 import members as members_v1
 from backend.routers.v1 import organizations as organizations_v1
 from backend.routers.v1 import privacy as privacy_v1
 from backend.routers.v1 import reports as reports_v1
+from backend.routers.v1 import scorecards as scorecards_v1
 from backend.routers.v1 import shares as shares_v1
 from backend.routers.v1 import teams as teams_v1
 from backend.routers.v1 import trends as trends_v1
@@ -265,6 +266,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(organizations_v1.router, prefix=settings.api_prefix)
     app.include_router(privacy_v1.router, prefix=settings.api_prefix)
     app.include_router(reports_v1.router, prefix=settings.api_prefix)
+    app.include_router(scorecards_v1.router, prefix=settings.api_prefix)
     app.include_router(shares_v1.router, prefix=settings.api_prefix)
     app.include_router(teams_v1.router, prefix=settings.api_prefix)
     app.include_router(trends_v1.router, prefix=settings.api_prefix)
