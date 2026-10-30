@@ -1,29 +1,51 @@
-"""Outbound webhook endpoints (HOM-89, ADR 0050).
+"""Outbound webhook endpoints and their delivery ledger (HOM-89, HOM-90, ADR 0050).
 
 Management is session-only in effect: every route requires ``webhook:manage``,
 which is never an API key scope, so a key is refused with
 ``403 api_key_scope_denied``. The signing secret appears in the create and
 rotate answers only; views carry key ids and lifetimes, never key material.
 There is no delete route: ``PATCH {is_active: false}`` keeps the ledger.
+
+Diagnostics (HOM-90) list deliveries, show one with its attempts, and count an
+endpoint's deliveries per state. They carry ids, states and short codes only:
+never the payload, the endpoint URL, a secret, headers or a signature. A
+redelivery moves a ``dead_letter`` or ``failed`` row back to ``pending`` with
+the same event id and bytes, so the receiver drops a duplicate. It is rate
+limited per workspace and audited.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
-from backend.database.saas_models import WebhookEndpoint, WebhookSigningKey
+from backend.database.saas_models import (
+    WebhookDelivery,
+    WebhookDeliveryAttempt,
+    WebhookEndpoint,
+    WebhookSigningKey,
+)
 from backend.jobs.webhook_delivery import publish_delivery
 from backend.schemas.webhooks import (
+    WebhookDeadLettersRedeliveredResponse,
+    WebhookDeadLettersRedeliverRequest,
+    WebhookDeliveryAttemptView,
+    WebhookDeliveryDetailView,
+    WebhookDeliveryListResponse,
+    WebhookDeliveryStateCounts,
+    WebhookDeliveryStateName,
+    WebhookDeliveryView,
     WebhookEndpointCreatedResponse,
     WebhookEndpointCreateRequest,
+    WebhookEndpointDeliverySummary,
     WebhookEndpointListResponse,
     WebhookEndpointUpdateRequest,
     WebhookEndpointView,
+    WebhookRedeliveryQueuedResponse,
     WebhookSigningKeyRotatedResponse,
     WebhookSigningKeyRotateRequest,
     WebhookSigningKeyView,
@@ -43,11 +65,20 @@ from backend.services.rate_limit_service import (
     RateLimitUnavailable,
 )
 from backend.services.webhook_service import (
+    DELIVERY_PAGE_DEFAULT,
+    DELIVERY_PAGE_MAX,
     WebhookError,
+    check_redeliverable,
     create_endpoint,
+    delivery_attempts,
+    delivery_summary,
     enqueue_event,
+    get_delivery,
     get_endpoint,
+    list_deliveries,
     list_endpoints,
+    redeliver,
+    redeliver_dead_letters,
     rotate_signing_key,
     signing_keys_by_endpoint,
     update_endpoint,
@@ -104,46 +135,103 @@ def _audit(
     settings: Settings,
     *,
     event_type: AuditEventType,
-    endpoint_id: str,
+    target_id: str,
     details: dict,
 ) -> None:
-    # Ids, key ids, event types, is_active and the URL's scheme and host only:
-    # never a secret, the full URL or a payload.
+    # Ids, key ids, event types, states, counts, is_active and the URL's scheme
+    # and host only: never a secret, the full URL or a payload.
     record_audit_event(
         db,
         event_type=event_type,
         actor_user_id=context.actor.user.id,
         workspace_id=context.workspace.id,
-        target_type="webhook_endpoint",
-        target_id=endpoint_id,
+        target_type=event_type.target_type,
+        target_id=target_id,
         request_id=getattr(request.state, "request_id", None),
         details=details,
         settings=settings,
     )
 
 
-def _enforce_test_rate_limit(settings: Settings, workspace_id: str) -> None:
-    # Like uploads: each test event is a real request to a customer's server.
+def _enforce_hourly_limit(
+    settings: Settings, *, key: str, limit: int, code: str, too_many: str, unavailable: str
+) -> None:
+    # Like uploads: over the limit 429 with Retry-After; limiter down 503
+    # (or let through with RATE_LIMIT_FAIL_OPEN).
     try:
-        RateLimiter(settings).hit(
-            f"webhook_test:workspace:{workspace_id}",
-            limit=settings.webhook_test_rate_limit_per_hour,
-            window_seconds=3600,
-        )
+        RateLimiter(settings).hit(key, limit=limit, window_seconds=3600)
     except RateLimitExceeded as exc:
         raise HTTPException(
             status_code=429,
-            detail={"code": "webhook_test_rate_limited", "message": "Too many webhook tests"},
+            detail={"code": code, "message": too_many},
             headers={"Retry-After": str(exc.retry_after_seconds)},
         ) from exc
     except RateLimitUnavailable as exc:
         raise HTTPException(
             status_code=503,
-            detail={
-                "code": "rate_limiter_unavailable",
-                "message": "Webhook tests are temporarily unavailable",
-            },
+            detail={"code": "rate_limiter_unavailable", "message": unavailable},
         ) from exc
+
+
+def _enforce_test_rate_limit(settings: Settings, workspace_id: str) -> None:
+    # Each test event is a real request to a customer's server.
+    _enforce_hourly_limit(
+        settings,
+        key=f"webhook_test:workspace:{workspace_id}",
+        limit=settings.webhook_test_rate_limit_per_hour,
+        code="webhook_test_rate_limited",
+        too_many="Too many webhook tests",
+        unavailable="Webhook tests are temporarily unavailable",
+    )
+
+
+def _enforce_redeliver_rate_limit(settings: Settings, workspace_id: str) -> None:
+    # One hit per call, for one row or a bulk batch: each sends real requests.
+    _enforce_hourly_limit(
+        settings,
+        key=f"webhook_redeliver:workspace:{workspace_id}",
+        limit=settings.webhook_redeliver_rate_limit_per_hour,
+        code="webhook_redeliver_rate_limited",
+        too_many="Too many webhook redeliveries",
+        unavailable="Webhook redelivery is temporarily unavailable",
+    )
+
+
+def _require_active(endpoint: WebhookEndpoint) -> None:
+    if not endpoint.is_active:
+        raise WebhookError(409, "webhook_endpoint_inactive", "The webhook endpoint is not active")
+
+
+def _delivery_fields(delivery: WebhookDelivery) -> dict:
+    # Never the payload or its digest: ids, state and short codes only.
+    return {
+        "id": delivery.id,
+        "endpoint_id": delivery.endpoint_id,
+        "event_id": delivery.event_id,
+        "event_type": delivery.event_type,
+        "state": delivery.state,
+        "attempt_count": delivery.attempt_count,
+        "next_attempt_at": _as_utc(delivery.next_attempt_at),
+        "last_attempt_at": _as_utc(delivery.last_attempt_at),
+        "delivered_at": _as_utc(delivery.delivered_at),
+        "last_status_code": delivery.last_status_code,
+        "last_error": delivery.last_error,
+        "created_at": _as_utc(delivery.created_at),
+        "updated_at": _as_utc(delivery.updated_at),
+    }
+
+
+def _attempt_view(attempt: WebhookDeliveryAttempt) -> WebhookDeliveryAttemptView:
+    return WebhookDeliveryAttemptView(
+        attempt_number=attempt.attempt_number,
+        started_at=_as_utc(attempt.started_at),
+        duration_ms=attempt.duration_ms,
+        outcome=attempt.outcome,
+        status_code=attempt.status_code,
+        error_code=attempt.error_code,
+        signing_key_ids=list(attempt.signing_key_ids or []),
+        request_timestamp=attempt.request_timestamp,
+    )
 
 
 @router.post("/endpoints", response_model=WebhookEndpointCreatedResponse, status_code=201)
@@ -169,7 +257,7 @@ def create_webhook_endpoint(
         request,
         settings,
         event_type=AuditEventType.WEBHOOK_ENDPOINT_CREATED,
-        endpoint_id=endpoint.id,
+        target_id=endpoint.id,
         details={
             "key_id": key.key_id,
             "event_types": list(endpoint.event_types),
@@ -235,7 +323,7 @@ def update_webhook_endpoint(
             request,
             settings,
             event_type=AuditEventType.WEBHOOK_ENDPOINT_UPDATED,
-            endpoint_id=endpoint.id,
+            target_id=endpoint.id,
             details=details,
         )
         db.commit()
@@ -275,7 +363,7 @@ def rotate_webhook_signing_key(
         request,
         settings,
         event_type=AuditEventType.WEBHOOK_SIGNING_KEY_ROTATED,
-        endpoint_id=endpoint.id,
+        target_id=endpoint.id,
         details={
             "key_id": key.key_id,
             "previous_key_id": previous_key_id,
@@ -305,8 +393,7 @@ def queue_webhook_test(
     settings: Settings = Depends(get_settings),
 ) -> WebhookTestQueuedResponse:
     endpoint = get_endpoint(db, workspace_id=context.workspace.id, endpoint_id=endpoint_id)
-    if not endpoint.is_active:
-        raise WebhookError(409, "webhook_endpoint_inactive", "The webhook endpoint is not active")
+    _require_active(endpoint)
     # Before anything is written: a refused test leaves no delivery row.
     _enforce_test_rate_limit(settings, context.workspace.id)
     [delivery] = enqueue_event(
@@ -323,10 +410,160 @@ def queue_webhook_test(
         request,
         settings,
         event_type=AuditEventType.WEBHOOK_TEST_QUEUED,
-        endpoint_id=endpoint.id,
+        target_id=endpoint.id,
         details={"delivery_id": delivery_id, "event_id": event_id},
     )
     db.commit()
     # After the commit, best effort: a lost publish is found by the sweeper.
     publish_delivery(delivery_id, settings)
     return WebhookTestQueuedResponse(delivery_id=delivery_id, event_id=event_id)
+
+
+# --- delivery diagnostics and redelivery (HOM-90) --------------------------------------
+
+
+@router.get("/deliveries", response_model=WebhookDeliveryListResponse)
+def list_webhook_deliveries(
+    endpoint_id: str | None = Query(default=None, max_length=100),
+    state: WebhookDeliveryStateName | None = Query(default=None),
+    event_type: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=DELIVERY_PAGE_DEFAULT, ge=1, le=DELIVERY_PAGE_MAX),
+    cursor: str | None = Query(default=None),
+    context: WorkspaceContext = Depends(require_permission(Permission.WEBHOOK_MANAGE)),
+    db: Session = Depends(get_db),
+) -> WebhookDeliveryListResponse:
+    # Another workspace's endpoint id finds no rows: an empty page, not a 404.
+    page = list_deliveries(
+        db,
+        workspace_id=context.workspace.id,
+        limit=limit,
+        cursor=cursor,
+        endpoint_id=endpoint_id,
+        state=state,
+        event_type=event_type,
+    )
+    return WebhookDeliveryListResponse(
+        items=[WebhookDeliveryView(**_delivery_fields(delivery)) for delivery in page.deliveries],
+        next_cursor=page.next_cursor,
+    )
+
+
+@router.get("/deliveries/{delivery_id}", response_model=WebhookDeliveryDetailView)
+def get_webhook_delivery(
+    delivery_id: str,
+    context: WorkspaceContext = Depends(require_permission(Permission.WEBHOOK_MANAGE)),
+    db: Session = Depends(get_db),
+) -> WebhookDeliveryDetailView:
+    delivery = get_delivery(db, workspace_id=context.workspace.id, delivery_id=delivery_id)
+    attempts, total = delivery_attempts(db, delivery=delivery)
+    return WebhookDeliveryDetailView(
+        **_delivery_fields(delivery),
+        attempts=[_attempt_view(attempt) for attempt in attempts],
+        attempt_total=total,
+    )
+
+
+@router.get(
+    "/endpoints/{endpoint_id}/delivery-summary", response_model=WebhookEndpointDeliverySummary
+)
+def get_webhook_delivery_summary(
+    endpoint_id: str,
+    context: WorkspaceContext = Depends(require_permission(Permission.WEBHOOK_MANAGE)),
+    db: Session = Depends(get_db),
+) -> WebhookEndpointDeliverySummary:
+    endpoint = get_endpoint(db, workspace_id=context.workspace.id, endpoint_id=endpoint_id)
+    summary = delivery_summary(db, endpoint=endpoint)
+    return WebhookEndpointDeliverySummary(
+        endpoint_id=endpoint.id,
+        counts=WebhookDeliveryStateCounts(**summary.counts),
+        last_delivered_at=_as_utc(summary.last_delivered_at),
+        last_failure_at=_as_utc(summary.last_failure_at),
+        last_failure_error_code=summary.last_failure_error_code,
+    )
+
+
+@router.post(
+    "/deliveries/{delivery_id}/redeliver",
+    response_model=WebhookRedeliveryQueuedResponse,
+    status_code=202,
+)
+def redeliver_webhook_delivery(
+    delivery_id: str,
+    request: Request,
+    context: WorkspaceContext = Depends(require_write_permission(Permission.WEBHOOK_MANAGE)),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> WebhookRedeliveryQueuedResponse:
+    # The row lock comes first: a parallel second call waits here, then sees
+    # ``pending`` and is refused before it reaches the rate limit.
+    delivery = get_delivery(
+        db, workspace_id=context.workspace.id, delivery_id=delivery_id, for_update=True
+    )
+    check_redeliverable(delivery)
+    _require_active(
+        get_endpoint(db, workspace_id=context.workspace.id, endpoint_id=delivery.endpoint_id)
+    )
+    # After every refusal and before any write: a refused call costs nothing.
+    _enforce_redeliver_rate_limit(settings, context.workspace.id)
+    previous_state = redeliver(db, delivery=delivery)
+    event_id = delivery.event_id
+    _audit(
+        db,
+        context,
+        request,
+        settings,
+        event_type=AuditEventType.WEBHOOK_DELIVERY_REDELIVERED,
+        target_id=delivery_id,
+        details={
+            "endpoint_id": delivery.endpoint_id,
+            "event_id": event_id,
+            "event_type": delivery.event_type,
+            "previous_state": previous_state,
+        },
+    )
+    db.commit()
+    # After the commit, best effort: a lost publish is found by the sweeper.
+    publish_delivery(delivery_id, settings)
+    return WebhookRedeliveryQueuedResponse(
+        delivery_id=delivery_id, event_id=event_id, state="pending"
+    )
+
+
+@router.post(
+    "/endpoints/{endpoint_id}/redeliver-dead-letters",
+    response_model=WebhookDeadLettersRedeliveredResponse,
+    status_code=202,
+)
+def redeliver_webhook_dead_letters(
+    endpoint_id: str,
+    request: Request,
+    payload: WebhookDeadLettersRedeliverRequest | None = Body(default=None),
+    context: WorkspaceContext = Depends(require_write_permission(Permission.WEBHOOK_MANAGE)),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> WebhookDeadLettersRedeliveredResponse:
+    payload = payload or WebhookDeadLettersRedeliverRequest()
+    endpoint = get_endpoint(db, workspace_id=context.workspace.id, endpoint_id=endpoint_id)
+    _require_active(endpoint)
+    _enforce_redeliver_rate_limit(settings, context.workspace.id)
+    since = _as_utc(payload.since)
+    since = since.astimezone(UTC) if since is not None else None
+    count, remaining = redeliver_dead_letters(db, endpoint=endpoint, since=since)
+    _audit(
+        db,
+        context,
+        request,
+        settings,
+        event_type=AuditEventType.WEBHOOK_DEAD_LETTERS_REDELIVERED,
+        target_id=endpoint.id,
+        details={
+            "endpoint_id": endpoint.id,
+            "count": count,
+            "since": since.isoformat() if since is not None else None,
+        },
+    )
+    db.commit()
+    # No publish: the sweeper sends them at its own pace.
+    return WebhookDeadLettersRedeliveredResponse(
+        endpoint_id=endpoint_id, redelivered=count, remaining=remaining
+    )

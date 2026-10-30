@@ -7,27 +7,36 @@
   (outbox rule): the delivery rows commit together with the business change,
   or not at all. It never commits and never touches the network.
 * The URL policy here runs at create, at update and again before every send.
+* Diagnostics and redelivery (HOM-90) read the ledger by ids, states and short
+  codes, never the payload. A redelivery moves a dead-letter or failed row back
+  to ``pending`` with the same event id and the same bytes.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import ipaddress
+import json
 import re
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
 from backend.database.saas_models import (
+    WebhookAttemptOutcome,
     WebhookDelivery,
+    WebhookDeliveryAttempt,
     WebhookDeliveryState,
     WebhookEndpoint,
     WebhookSigningKey,
@@ -482,3 +491,273 @@ def enqueue_event(
     db.add_all(deliveries)
     db.flush()
     return deliveries
+
+
+# --- delivery diagnostics and redelivery (HOM-90) --------------------------------------
+
+DELIVERY_PAGE_DEFAULT = 50
+DELIVERY_PAGE_MAX = 100
+# A delivery's detail shows its latest attempts only; ``attempt_total`` counts them all.
+DELIVERY_ATTEMPTS_SHOWN = 100
+# Rows one bulk redelivery moves. Read at call time, so a test can lower it.
+WEBHOOK_REDELIVER_BATCH_LIMIT = 500
+# A redelivery starts from these states only, and only with a frozen payload.
+REDELIVERABLE_STATES = (WebhookDeliveryState.DEAD_LETTER.value, WebhookDeliveryState.FAILED.value)
+
+_CURSOR_MAX_LENGTH = 512
+
+
+def delivery_not_found() -> WebhookError:
+    # Another workspace's delivery and an unknown id look alike.
+    return WebhookError(404, "webhook_delivery_not_found", "Webhook delivery not found")
+
+
+def _not_redeliverable() -> WebhookError:
+    return WebhookError(
+        409,
+        "webhook_delivery_not_redeliverable",
+        "Only a dead-letter or failed delivery with a stored payload can be redelivered",
+    )
+
+
+def _invalid_cursor() -> WebhookError:
+    return WebhookError(400, "invalid_cursor", "Invalid webhook delivery pagination cursor")
+
+
+def _encode_delivery_cursor(delivery: WebhookDelivery) -> str:
+    payload = {"v": 1, "created_at": _as_utc(delivery.created_at).isoformat(), "id": delivery.id}
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    return encoded.rstrip(b"=").decode("ascii")
+
+
+def _decode_delivery_cursor(cursor: str) -> tuple[datetime, str]:
+    # Its own keys: an audit cursor ("occurred_at") is refused here.
+    try:
+        if len(cursor) > _CURSOR_MAX_LENGTH:
+            raise ValueError
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.b64decode(cursor + padding, altchars=b"-_", validate=True)
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict) or set(payload) != {"v", "created_at", "id"}:
+            raise ValueError
+        if (
+            payload["v"] != 1
+            or not isinstance(payload["created_at"], str)
+            or not isinstance(payload["id"], str)
+        ):
+            raise ValueError
+        delivery_id = str(uuid.UUID(payload["id"]))
+        created_at = datetime.fromisoformat(payload["created_at"])
+        if created_at.tzinfo is None:
+            raise ValueError
+    except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error):
+        raise _invalid_cursor() from None
+    return created_at.astimezone(UTC), delivery_id
+
+
+@dataclass(frozen=True)
+class DeliveryPage:
+    deliveries: list[WebhookDelivery]
+    next_cursor: str | None
+
+
+def list_deliveries(
+    db: Session,
+    *,
+    workspace_id: str,
+    limit: int,
+    cursor: str | None = None,
+    endpoint_id: str | None = None,
+    state: str | None = None,
+    event_type: str | None = None,
+) -> DeliveryPage:
+    """The workspace's deliveries, newest first, by keyset on ``(created_at, id)``."""
+    query = select(WebhookDelivery).where(WebhookDelivery.workspace_id == workspace_id)
+    if endpoint_id is not None:
+        query = query.where(WebhookDelivery.endpoint_id == endpoint_id)
+    if state is not None:
+        query = query.where(WebhookDelivery.state == state)
+    if event_type is not None:
+        query = query.where(WebhookDelivery.event_type == event_type)
+    if cursor is not None:
+        cursor_time, cursor_id = _decode_delivery_cursor(cursor)
+        query = query.where(
+            or_(
+                WebhookDelivery.created_at < cursor_time,
+                and_(WebhookDelivery.created_at == cursor_time, WebhookDelivery.id < cursor_id),
+            )
+        )
+    rows = list(
+        db.scalars(
+            query.order_by(WebhookDelivery.created_at.desc(), WebhookDelivery.id.desc()).limit(
+                limit + 1
+            )
+        )
+    )
+    page = rows[:limit]
+    next_cursor = _encode_delivery_cursor(page[-1]) if len(rows) > limit else None
+    return DeliveryPage(deliveries=page, next_cursor=next_cursor)
+
+
+def get_delivery(
+    db: Session, *, workspace_id: str, delivery_id: str, for_update: bool = False
+) -> WebhookDelivery:
+    query = select(WebhookDelivery).where(
+        WebhookDelivery.id == delivery_id, WebhookDelivery.workspace_id == workspace_id
+    )
+    if for_update:
+        # Waits for a parallel redelivery of the same row, then sees its new state.
+        query = query.with_for_update()
+    delivery = db.scalar(query)
+    if delivery is None:
+        raise delivery_not_found()
+    return delivery
+
+
+def delivery_attempts(
+    db: Session, *, delivery: WebhookDelivery
+) -> tuple[list[WebhookDeliveryAttempt], int]:
+    """The latest attempts in ascending ``attempt_number``, and the count of all of them."""
+    where = (
+        WebhookDeliveryAttempt.delivery_id == delivery.id,
+        WebhookDeliveryAttempt.workspace_id == delivery.workspace_id,
+    )
+    latest = list(
+        db.scalars(
+            select(WebhookDeliveryAttempt)
+            .where(*where)
+            .order_by(WebhookDeliveryAttempt.attempt_number.desc())
+            .limit(DELIVERY_ATTEMPTS_SHOWN)
+        )
+    )
+    total = db.scalar(select(func.count()).select_from(WebhookDeliveryAttempt).where(*where))
+    return latest[::-1], total or 0
+
+
+@dataclass(frozen=True)
+class DeliverySummary:
+    counts: dict[str, int]
+    last_delivered_at: datetime | None
+    last_failure_at: datetime | None
+    last_failure_error_code: str | None
+
+
+def delivery_summary(db: Session, *, endpoint: WebhookEndpoint) -> DeliverySummary:
+    """Counts per state and the last results of one endpoint, by SQL aggregates."""
+    of_endpoint = (
+        WebhookDelivery.workspace_id == endpoint.workspace_id,
+        WebhookDelivery.endpoint_id == endpoint.id,
+    )
+    counts = dict.fromkeys((state.value for state in WebhookDeliveryState), 0)
+    for state, count in db.execute(
+        select(WebhookDelivery.state, func.count())
+        .where(*of_endpoint)
+        .group_by(WebhookDelivery.state)
+    ):
+        counts[state] = count
+    last_delivered_at = db.scalar(
+        select(func.max(WebhookDelivery.delivered_at)).where(*of_endpoint)
+    )
+    failure = db.execute(
+        select(WebhookDeliveryAttempt.started_at, WebhookDeliveryAttempt.error_code)
+        .join(WebhookDelivery, WebhookDelivery.id == WebhookDeliveryAttempt.delivery_id)
+        .where(
+            *of_endpoint,
+            WebhookDeliveryAttempt.workspace_id == endpoint.workspace_id,
+            WebhookDeliveryAttempt.outcome == WebhookAttemptOutcome.FAILED.value,
+        )
+        .order_by(WebhookDeliveryAttempt.started_at.desc(), WebhookDeliveryAttempt.id.desc())
+        .limit(1)
+    ).first()
+    return DeliverySummary(
+        counts=counts,
+        last_delivered_at=last_delivered_at,
+        last_failure_at=failure.started_at if failure is not None else None,
+        last_failure_error_code=failure.error_code if failure is not None else None,
+    )
+
+
+def _redeliverable():
+    return and_(
+        WebhookDelivery.state.in_(REDELIVERABLE_STATES), WebhookDelivery.payload.is_not(None)
+    )
+
+
+def check_redeliverable(delivery: WebhookDelivery) -> None:
+    """Refuse a row that is queued, sending or delivered, or that has no payload.
+
+    A row written before HOM-89 has no frozen payload: sending it again would
+    need new bytes for an old event id.
+    """
+    if delivery.state not in REDELIVERABLE_STATES or delivery.payload is None:
+        raise _not_redeliverable()
+
+
+def redeliver(db: Session, *, delivery: WebhookDelivery, now: datetime | None = None) -> str:
+    """Queue one dead-letter or failed delivery again; returns its previous state.
+
+    The caller holds the row lock (``get_delivery(for_update=True)``) and ran
+    ``check_redeliverable``. The update repeats the conditions, so a row can
+    never be moved twice. Only ``state`` and ``next_attempt_at`` change: the
+    event id, the payload bytes and ``attempt_count`` stay, so the receiver
+    gets the same id and body, and the next attempt number is still unique.
+    """
+    previous_state = delivery.state
+    now = _as_utc(now or datetime.now(UTC))
+    moved = db.execute(
+        update(WebhookDelivery)
+        .where(
+            WebhookDelivery.id == delivery.id,
+            WebhookDelivery.workspace_id == delivery.workspace_id,
+            _redeliverable(),
+        )
+        .values(state=WebhookDeliveryState.PENDING.value, next_attempt_at=now)
+    ).rowcount
+    if moved != 1:
+        raise _not_redeliverable()
+    return previous_state
+
+
+def redeliver_dead_letters(
+    db: Session,
+    *,
+    endpoint: WebhookEndpoint,
+    since: datetime | None = None,
+    now: datetime | None = None,
+) -> tuple[int, bool]:
+    """Queue an endpoint's dead-letter and failed rows again, oldest first.
+
+    At most ``WEBHOOK_REDELIVER_BATCH_LIMIT`` rows, by the rule of
+    ``redeliver``. Returns how many moved and whether matching rows remain.
+    """
+    limit = WEBHOOK_REDELIVER_BATCH_LIMIT
+    now = _as_utc(now or datetime.now(UTC))
+    query = select(WebhookDelivery.id).where(
+        WebhookDelivery.workspace_id == endpoint.workspace_id,
+        WebhookDelivery.endpoint_id == endpoint.id,
+        _redeliverable(),
+    )
+    if since is not None:
+        query = query.where(WebhookDelivery.created_at >= _as_utc(since))
+    ids = list(
+        db.scalars(
+            query.order_by(WebhookDelivery.created_at.asc(), WebhookDelivery.id.asc())
+            .limit(limit + 1)
+            .with_for_update()
+        )
+    )
+    batch = ids[:limit]
+    moved = 0
+    if batch:
+        moved = db.execute(
+            update(WebhookDelivery)
+            .where(
+                WebhookDelivery.id.in_(batch),
+                WebhookDelivery.workspace_id == endpoint.workspace_id,
+                _redeliverable(),
+            )
+            .values(state=WebhookDeliveryState.PENDING.value, next_attempt_at=now)
+        ).rowcount
+    return moved, len(ids) > limit

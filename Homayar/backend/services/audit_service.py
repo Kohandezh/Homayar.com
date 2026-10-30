@@ -279,10 +279,14 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.VOICEMAIL_CLASSIFIED: "processing",
     AuditEventType.VOICEMAIL_UPDATED: "processing",
     # Outbound webhooks (HOM-89): a new endpoint or key is a new path out of the workspace.
+    # A test or a redelivery (HOM-90) sends through a path that already exists, and a
+    # redelivery sends the same frozen bytes again.
     AuditEventType.WEBHOOK_ENDPOINT_CREATED: "security",
     AuditEventType.WEBHOOK_ENDPOINT_UPDATED: "security",
     AuditEventType.WEBHOOK_SIGNING_KEY_ROTATED: "security",
     AuditEventType.WEBHOOK_TEST_QUEUED: "configuration",
+    AuditEventType.WEBHOOK_DELIVERY_REDELIVERED: "configuration",
+    AuditEventType.WEBHOOK_DEAD_LETTERS_REDELIVERED: "configuration",
 }
 
 

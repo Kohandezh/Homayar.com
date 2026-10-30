@@ -158,7 +158,8 @@ verifier checks in this order and names the first failure: `missing_header`,
 - `webhook:manage` is granted to OWNER and ADMIN only, and is never an API key scope. A
   key that could add an endpoint could copy every future event out of the workspace.
 - Every change is audited (`webhook.endpoint_created`, `webhook.endpoint_updated`,
-  `webhook.signing_key_rotated`, `webhook.test_queued`) with ids, key ids, event types,
+  `webhook.signing_key_rotated`, `webhook.test_queued`, `webhook.delivery_redelivered`,
+  `webhook.dead_letters_redelivered`) with ids, key ids, event types, states, counts,
   `is_active`, and only the scheme and host of the URL.
 - The URL policy runs at create, at update and again before every send. Refused: more than
   1000 chars, not http(s), no host, a user name or password in the URL, cloud metadata
@@ -221,6 +222,56 @@ stops after a limit.
    A retry writes the `WEBHOOK_DELIVERY_ATTEMPT` line with its `next_attempt_at`. As in D4
    and D5, no log line, attempt row or `last_error` carries the URL path or query, a
    secret, a signature, the payload or the response body.
+
+### D10. Admin diagnostics and redelivery (HOM-90)
+
+Owners and admins can see what happened to each delivery and send a failed event again.
+All routes are under `/api/v1/webhooks` and need `webhook:manage`, like the rest of D7.
+Every query filters by the caller's workspace, on top of row-level security. A row of
+another workspace answers like a row that does not exist: `404 webhook_delivery_not_found`
+(or `404 webhook_endpoint_not_found` for an endpoint).
+
+1. `GET /deliveries` lists the workspace's deliveries, newest first (`created_at`, then
+   `id`). Filters: `endpoint_id`, `state` (one of the five states; anything else is `422`)
+   and `event_type`. `limit` is 1 to 100 (default 50). `cursor` is an opaque keyset
+   cursor; a bad one is `400 invalid_cursor`. The answer is
+   `{"items": [...], "next_cursor": ...}`, and `next_cursor` is null on the last page.
+2. A delivery view has ids, the state, `attempt_count`, the times, `last_status_code` and
+   `last_error`. It never has the payload, its digest, the endpoint URL, a secret, headers
+   or a signature.
+3. `GET /deliveries/{id}` adds the latest 100 attempt rows, in ascending
+   `attempt_number`: time, duration, outcome, status code, error code, the public key ids
+   and the signed timestamp. `attempt_total` counts all attempt rows.
+4. `GET /endpoints/{id}/delivery-summary` counts the endpoint's deliveries per state (all
+   five, zero included). It also gives the newest `delivered_at`, and the time and error
+   code of the newest failed attempt. It uses SQL aggregates and loads no rows.
+5. `POST /deliveries/{id}/redeliver` (202) sends the same event again. It works only from
+   `dead_letter` or `failed` (since D9 only rows from HOM-89 hold `failed`), and only when
+   the row has a frozen payload. Anything else is
+   `409 webhook_delivery_not_redeliverable`; an inactive endpoint is
+   `409 webhook_endpoint_inactive`. The route locks the row first, then checks it. So a
+   parallel second call waits, sees `pending`, and gets the 409. The row goes to `pending`
+   with `next_attempt_at = now`. The event id, the payload bytes, `attempt_count`, the
+   attempt rows and the last result stay. So the receiver gets the same id and the same
+   body and drops a duplicate (D6), and the next attempt number is still unique. Because
+   `attempt_count` stays, the retry budget of D9 rule 5 applies: a row past the limit gets
+   exactly one attempt, a row with attempts left gets the rest of the schedule. The route
+   writes the audit row in the same transaction and publishes the task after the commit,
+   as the test route does.
+6. `POST /endpoints/{id}/redeliver-dead-letters` (202) is for recovery after a receiver
+   outage. It moves up to 500 of the endpoint's `dead_letter` and `failed` rows that have a
+   payload, oldest first, by the rule of 5, in one transaction. An optional `since` keeps
+   only rows created at or after that time. The answer says how many rows moved and
+   whether more are left. It publishes nothing: the sweeper sends the rows at its own pace.
+   Zero rows is a valid answer and is still audited.
+7. Both write routes share one limit per workspace, `WEBHOOK_REDELIVER_RATE_LIMIT_PER_HOUR`
+   (default 60), with the limiter of the test route. One call is one hit, also for a bulk
+   call. Over it the answer is `429 webhook_redeliver_rate_limited` with `Retry-After`; a
+   limiter that is down gives `503 rate_limiter_unavailable`. The limit is checked after
+   every refusal and before any write, so a refused call costs nothing.
+8. No answer, audit row or log line of these routes carries the payload, a secret, a
+   signature, the path or query of the endpoint URL, or a response body. Audit details hold
+   ids, states, counts and the `since` time only.
 
 ## Consequences
 
