@@ -46,7 +46,7 @@ Rules for the local server:
 | Host | Port | Listener | Why |
 | --- | --- | --- | --- |
 | Relay | 22/tcp | sshd | Admin access. Key login only. |
-| Relay | 80/tcp | frps (proxy `http-80`) | HTTP. The sites answer 301 to HTTPS, and the ACME path stays reachable. |
+| Relay | 80/tcp | frps (proxy `http-80`) | HTTP. The sites answer 301 to HTTPS. The ACME path stays reachable: the 3 sites renew their certificates through it (HTTP-01). |
 | Relay | 443/tcp | frps (proxy `https-443`) | HTTPS, raw TCP. TLS ends on the local nginx. |
 | Relay | 7000/tcp | frps (`bindPort`) | frpc control channel. TLS is forced, the client needs the token, and frpc checks the relay certificate against the tunnel CA. Open to all, because the local server's egress IP changes. |
 | Local | 127.0.0.1:10080 | nginx, `proxy_protocol` | Tunnel HTTP. Loopback only. |
@@ -453,44 +453,93 @@ That restart interrupts the public sites for about 2 seconds. Tell the owner fir
 The site certificates are separate from the tunnel CA. They stay on the local server. The
 relay never sees them.
 
-| Site | Expires (checked 2026-10-29 through the relay) |
-| --- | --- |
-| `inotex.padyar.com` | 2026-11-18 16:19 UTC |
-| `elecomp.padyar.com` | 2026-11-18 16:20 UTC |
-| `inotexpwa.padyar.com` | 2026-11-29 12:16 UTC |
+| Site | Renews with | Expires |
+| --- | --- | --- |
+| `inotex.padyar.com` | HTTP-01, webroot | `<filled after the owner run>` |
+| `elecomp.padyar.com` | HTTP-01, webroot | `<filled after the owner run>` |
+| `inotexpwa.padyar.com` | HTTP-01, webroot | `<filled after the owner run>` |
+| `avatar.padyar.com` | `dns-cloudflare`, token invalid | 2026-12-01 00:07 UTC |
+| `live.padyar.com` | `dns-cloudflare`, token invalid | 2026-12-01 00:50 UTC |
+
+The 3 published sites were switched to webroot on `<filled after the owner run>` (HOM-335).
 
 How they renew:
 
-- `certbot.timer` runs `certbot renew` twice a day on the local server.
-- All 5 `padyar.com` certificates use `authenticator = dns-cloudflare`
-  (`/etc/letsencrypt/renewal/<site>.conf`). Renewal proves control through a DNS TXT record
-  at Cloudflare. It does not use port 80 and does not need the tunnel.
-- So renewal needs the Cloudflare DNS API token that certbot uses. Keep that token when
-  Cloudflare settings are cleaned up.
-- After a renewal, the deploy hook `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh`
+- `certbot.timer` runs `certbot -q renew --no-random-sleep-on-renew` twice a day on the local
+  server. The window is 30 days before expiry (`renew_before_expiry` is not set).
+- The 3 published sites use `authenticator = webroot` with `/var/www/certbot`
+  (`/etc/letsencrypt/renewal/<site>.conf`, with a `[[webroot_map]]` entry). This is HTTP-01:
+  Let's Encrypt asks for `http://<site>/.well-known/acme-challenge/<token>`. That request goes
+  through the relay (port 80) and the tunnel to nginx, and nginx serves the file from
+  `/var/www/certbot`. So renewal needs the relay, frpc and the ACME location in the port 80
+  server of each site. It needs no Cloudflare token.
+- `avatar.padyar.com` and `live.padyar.com` still use `dns-cloudflare` with the invalid token.
+  They are not published through the relay, so HTTP-01 does not work for them. Their renewal
+  fails on every run from 2026-11-01. The owner decides what happens to them.
+- After a real renewal, the deploy hook `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh`
   reloads nginx.
-- The default window is 30 days before expiry (`renew_before_expiry` is not set).
-- The port 80 ACME path (`/.well-known/acme-challenge/`, webroot `/var/www/certbot`) works
-  through the tunnel too (it answers 404 for an unknown token). So HTTP-01 is a fallback if
-  the DNS token is ever lost.
+
+The cause (HOM-335): from 2026-10-19 20:57 UTC, every timer run failed for inotex and elecomp
+with `Error determining zone_id: 9109 Invalid access token. Please confirm that you have supplied valid Cloudflare API credentials.`
+Cloudflare rejected the token in `/root/.secrets/cloudflare.ini`. That run was the first one
+inside their 30-day window. After about 10 failed calls in a short time, Cloudflare answers
+`10502 Too many authentication failures` instead. That is the same cause. The owner script then switched the 3 sites with
+`certbot reconfigure`, which tests the new settings on the staging server and saves them only
+if the test works.
+
+Check without `sudo` (user `gpu` is in group `adm`, so it can read the journal):
+
+```bash
+journalctl -u certbot.service --since "3 days ago" --no-pager | grep 'Failed to renew'
+systemctl show certbot.service -p ExecMainStatus -p ExecMainExitTimestamp
+echo | openssl s_client -connect 192.168.100.6:443 -servername inotex.padyar.com 2>/dev/null | openssl x509 -noout -enddate
+```
+
+No `Failed to renew` line may name inotex, elecomp or inotexpwa. With `-q`, a good renewal
+writes no certbot line, so check the expiry date too. From 2026-11-01, the avatar and live
+failures make `ExecMainStatus=1` even when the 3 sites renew fine. Read the journal, not only
+the status.
 
 Test a renewal without changing anything (owner, `sudo`), one site at a time:
 
 ```bash
-sudo certbot renew --dry-run --cert-name inotex.padyar.com
-sudo certbot renew --dry-run --cert-name elecomp.padyar.com
-sudo certbot renew --dry-run --cert-name inotexpwa.padyar.com
+sudo certbot renew --dry-run --cert-name inotex.padyar.com --no-random-sleep-on-renew --no-directory-hooks
+sudo certbot renew --dry-run --cert-name elecomp.padyar.com --no-random-sleep-on-renew --no-directory-hooks
+sudo certbot renew --dry-run --cert-name inotexpwa.padyar.com --no-random-sleep-on-renew --no-directory-hooks
 ```
 
-Each must end with `Congratulations, all simulated renewals succeeded`. A dry run changes no
-certificate and does not reload nginx.
+Each must end with `Congratulations, all simulated renewals succeeded`. A dry run uses the
+staging server, changes no certificate and does not reload nginx. `--no-directory-hooks` skips
+the pre and post hooks in `renewal-hooks/`, because certbot runs them even in a dry run.
 
-Check the last automatic run, without `sudo`:
-`systemctl show certbot.service -p ExecMainStatus -p ExecMainExitTimestamp`. `ExecMainStatus=0`
-means every due renewal worked. On 2026-10-29 the 02:48 UTC run ended with
-`ExecMainStatus=1`, while inotex and elecomp were already inside their 30-day window. Read
-`/var/log/letsencrypt/letsencrypt.log` (root only) for the reason. This was before the tunnel
-work and does not depend on it.
+Backup and undo: the owner script saved `/root/hom335-backup/letsencrypt-before.tgz` (root,
+0600) with `renewal/`, `renewal-hooks/` and `cli.ini` from before the switch. It holds no
+private key. To undo without the script (owner):
+
+```bash
+sudo tar -xzf /root/hom335-backup/letsencrypt-before.tgz -C / \
+  etc/letsencrypt/renewal/inotex.padyar.com.conf \
+  etc/letsencrypt/renewal/elecomp.padyar.com.conf \
+  etc/letsencrypt/renewal/inotexpwa.padyar.com.conf
+```
+
+The certificates stay as they are, because a renewal conf points to the `live/` links, not to a
+certificate version. No nginx reload is needed. After an undo, the 3 sites use `dns-cloudflare`
+again, so their renewal fails again until the token is fixed.
+
+If HTTP-01 ever stops working (no relay, or the ACME path is blocked), go back to DNS-01:
+
+1. In Cloudflare, create a new API token with only Zone, DNS, Edit, for the zone `padyar.com`.
+2. The owner writes it to `/root/.secrets/cloudflare.ini` as `dns_cloudflare_api_token = ...`,
+   owner root, mode 0600. Never put the token in a ticket, a chat or this file.
+3. Switch each site back, one at a time. certbot tests it on staging before it saves it:
+
+```bash
+sudo certbot reconfigure --cert-name inotex.padyar.com --dns-cloudflare \
+  --dns-cloudflare-credentials /root/.secrets/cloudflare.ini --dns-cloudflare-propagation-seconds 30
+```
+
+A valid token also fixes avatar and live, which still read that file.
 
 ## Rebuild or Recreate the Container
 
@@ -607,8 +656,10 @@ the rules, and a later `ufw enable` would bring them back.
 DNS for `app.homayar.com` already points at the relay. The tunnel forwards every name, so the
 relay and frpc need no change. Only nginx on the local server changes (an owner `sudo` step):
 
-1. Issue the certificate on the local server with `certbot` and `dns-cloudflare`, like the
-   other sites. It does not need the tunnel.
+1. Issue the certificate on the local server with HTTP-01 through the tunnel, like the 3 sites:
+   first a port 80 server with the tunnel listen and the ACME location (webroot
+   `/var/www/certbot`), then `certbot certonly --webroot -w /var/www/certbot -d app.homayar.com`.
+   Do not use `dns-cloudflare` (see "Site Certificates").
 2. Add a site file for `app.homayar.com` with the same tunnel lines as the 3 sites above:
    `listen 127.0.0.1:10080 proxy_protocol;` and `listen 127.0.0.1:10443 ssl http2 proxy_protocol;`,
    each with `include snippets/relay-tunnel-realip.conf;`. Add LAN listens only if the LAN
@@ -656,4 +707,4 @@ relay and frpc need no change. Only nginx on the local server changes (an owner 
 | `nginx -t` warns "protocol options redefined" for 10080 or 10443 | `sudo nginx -t` | A tunnel listen line has different options from the others. Make them all the same. |
 | A request through the relay stalls once, then works | `docker logs relay-tunnel-frpc` | The internet path between the local server and the relay drops packets now and then (1 of 5 pings was lost in the first survey). Retry. If it repeats often, look in the frpc log for reconnects (`try to connect to server`, `login to server success`). |
 | One site is not reachable through the relay, the others are | `grep -c relay-tunnel /etc/nginx/sites-available/<site>.padyar.com.conf` | The site file lost its tunnel lines (0 instead of 2). Follow "Re-apply the Tunnel Lines". |
-| A site certificate is close to expiry | `systemctl show certbot.service -p ExecMainStatus` | Renewal fails. See "Site Certificates". The usual cause is the Cloudflare DNS API token. |
+| A site certificate is close to expiry | `journalctl -u certbot.service --since "3 days ago" --no-pager \| grep 'Failed to renew'` | Renewal fails. See "Site Certificates (Let's Encrypt)". For the 3 webroot sites: the relay, frpc or the ACME path (`/.well-known/acme-challenge/` must answer 404 for an unknown token through the relay). For a `dns-cloudflare` certificate (avatar, live): the Cloudflare token. |
