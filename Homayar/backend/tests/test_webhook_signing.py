@@ -18,6 +18,12 @@ from homayar_client import WebhookVerificationError, verify_webhook
 from pydantic import ValidationError
 
 from backend.config import SECRET_FIELDS, Settings
+from backend.observability.scrub import (
+    REDACTED,
+    diagnostic_text,
+    looks_like_secret,
+    scrub_text,
+)
 from backend.privacy.mapping_crypto import parse_keyring
 from backend.services.webhook_signing import (
     KEY_ID_PREFIX,
@@ -168,6 +174,29 @@ def test_signed_request_verifies_with_the_sdk() -> None:
     with pytest.raises(WebhookVerificationError) as caught:
         verify_webhook(headers=headers, body=body + b" ", secrets={key_id: secret}, now=1000)
     assert caught.value.code == "invalid_signature"
+
+
+# --- log and audit scrubbing (SPEC A4.8) ------------------------------------------------
+
+
+@pytest.mark.parametrize("render", [scrub_text, diagnostic_text])
+def test_log_scrubbing_hides_a_signing_secret(render) -> None:
+    secret = new_signing_secret()
+    # Fixed: a random hex id could hold a digit run that diagnostic_text masks as personal data.
+    key_id = "whk_" + "abcdef" * 4
+
+    text = render(f"rotated {key_id} to {secret}, endpoint ep-1")
+
+    assert secret not in text
+    assert secret.removeprefix("whsec_") not in text
+    assert f"rotated {key_id} to {REDACTED}, endpoint ep-1" == text
+
+
+def test_an_audit_value_that_is_a_signing_secret_is_redacted() -> None:
+    # record_audit_event replaces a value for which looks_like_secret is true.
+    assert looks_like_secret(new_signing_secret())
+    assert not looks_like_secret(new_key_id())
+    assert not looks_like_secret("whsec_short")
 
 
 # --- payload envelope ------------------------------------------------------------------

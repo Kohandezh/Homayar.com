@@ -143,4 +143,7 @@ def sweep_webhook_deliveries_task():
     """Periodic recovery: publish a delivery task for every due webhook delivery."""
     from backend.jobs import webhook_delivery
 
-    return {"published": len(webhook_delivery.sweep_webhook_deliveries())}
+    def sweep() -> dict[str, int]:
+        return {"published": len(webhook_delivery.sweep_webhook_deliveries())}
+
+    return run_with_heartbeat("webhook_delivery", sweep)

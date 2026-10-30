@@ -175,5 +175,7 @@ their own transactions and add their event type to the catalogue.
   can add an endpoint. Removing a keyring key makes every secret under it unusable, so
   rotate the keyring by adding a key, making it active, and keeping the old key.
 - Delivery is at-least-once. A receiver that ignores rule 4 can act twice on one event.
+- Known limitation: the limit of active endpoints per workspace is counted without a lock,
+  like the API key limit, so two parallel creates can both pass at the 20th endpoint.
 - One attempt per delivery until HOM-90. HOM-91 adds contract fixtures for clock skew,
   stale signatures and revoked keys. HOM-254 adds the console page.

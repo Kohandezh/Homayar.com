@@ -29,6 +29,7 @@ from backend.database.saas_models import (
 from backend.database.tenant_context import TenantContext, bind_tenant_context, current_context
 from backend.jobs import webhook_delivery
 from backend.jobs.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
+from backend.observability import heartbeats
 from backend.services.webhook_service import WEBHOOK_EVENT_TYPES, enqueue_event
 from backend.tests import test_row_level_security as _rls
 from backend.tests._database import (
@@ -701,30 +702,65 @@ def test_the_sweeper_publishes_one_task_per_due_delivery(
 
 
 def test_the_test_route_publishes_after_commit_and_survives_a_broker_failure(
-    client, email_outbox, monkeypatch, settings
+    client, email_outbox, monkeypatch, settings, now
 ):
+    """SPEC A4.2: without tasks_eager, one deliver_webhook task per queued delivery."""
+    from backend.celery_app import PROCESSING_QUEUE, celery_app
     from backend.jobs import tasks
 
     owner = _owner(client, email_outbox, monkeypatch)
     one = f"{ENDPOINTS}/{_created(owner)['endpoint']['id']}"
     monkeypatch.setattr(settings, "tasks_eager", False)
-    published: list[str] = []
+    published: list[tuple[list[str], str]] = []
 
-    def apply_async(*, args, **_kwargs):
+    def apply_async(*, args, queue, **kwargs):
+        assert kwargs == {}
         with inspection_session_factory()() as db:  # visible: the route committed first
             assert db.get(WebhookDelivery, args[0]) is not None
-        published.append(args[0])
+        published.append((args, queue))
+
+    def no_other_publish(*_args, **_kwargs):
+        raise AssertionError("only deliver_webhook_task.apply_async may publish")
 
     monkeypatch.setattr(tasks.deliver_webhook_task, "apply_async", apply_async)
-    queued = owner.post(f"{one}/test")
-    assert queued.status_code == 202 and published == [queued.json()["delivery_id"]]
+    monkeypatch.setattr(celery_app, "send_task", no_other_publish)
+    first = owner.post(f"{one}/test")
+    second = owner.post(f"{one}/test")
+
+    assert first.status_code == 202 and second.status_code == 202
+    assert published == [
+        ([first.json()["delivery_id"]], PROCESSING_QUEUE),
+        ([second.json()["delivery_id"]], PROCESSING_QUEUE),
+    ]
 
     def broker_down(**_kwargs):
         raise ConnectionError("broker down")
 
     monkeypatch.setattr(tasks.deliver_webhook_task, "apply_async", broker_down)
+    lost = owner.post(f"{one}/test")
+
+    assert lost.status_code == 202, lost.text
+    lost_id = lost.json()["delivery_id"]
+    assert _delivery(lost_id)["state"] == "pending"
+    # The lost publish is not lost work: the row stays due for the sweeper.
+    assert lost_id in webhook_delivery.due_delivery_ids(now=now + timedelta(minutes=1), limit=100)
+
+
+def test_with_tasks_eager_the_test_route_publishes_nothing(client, email_outbox, monkeypatch):
+    """SPEC A4.2: an eager publish would run the delivery inside the request."""
+    from backend.jobs import tasks
+
+    owner = _owner(client, email_outbox, monkeypatch)
+    one = f"{ENDPOINTS}/{_created(owner)['endpoint']['id']}"
+    published: list = []
+    monkeypatch.setattr(
+        tasks.deliver_webhook_task, "apply_async", lambda **kw: published.append(kw)
+    )
+
     queued = owner.post(f"{one}/test")
+
     assert queued.status_code == 202
+    assert published == []
     assert _delivery(queued.json()["delivery_id"])["state"] == "pending"
 
 
@@ -790,12 +826,28 @@ def test_the_celery_tasks_call_the_worker_functions(monkeypatch):
     calls: list = []
     monkeypatch.setattr(webhook_delivery, "deliver_webhook", calls.append)
     monkeypatch.setattr(webhook_delivery, "sweep_webhook_deliveries", lambda: ["a", "b"])
-
-    tasks.deliver_webhook_task.run("delivery-1")
-    result = tasks.sweep_webhook_deliveries_task.run()
+    store = heartbeats.MemoryHeartbeatStore()
+    heartbeats.use_heartbeat_store(store)
+    try:
+        tasks.deliver_webhook_task.run("delivery-1")
+        result = tasks.sweep_webhook_deliveries_task.run()
+    finally:
+        heartbeats.use_heartbeat_store(None)
 
     assert calls == ["delivery-1"]
     assert result == {"published": 2}
+    # The sweep reports a heartbeat like every other periodic task (SPEC A4.8).
+    record = store.read_all()["webhook_delivery"]
+    assert json.loads(record["result"]) == {"published": 2}
+    assert "last_success" in record and "last_failure" not in record
+
+
+def test_the_webhook_sweep_is_a_periodic_task_with_its_beat_interval(settings):
+    assert heartbeats.PERIODIC_TASKS["webhook_delivery"] == "webhook_sweep_interval_seconds"
+    assert "webhook_delivery" in heartbeats.KNOWN_TASKS
+    assert heartbeats.expected_interval_seconds("webhook_delivery", settings) == float(
+        settings.webhook_sweep_interval_seconds
+    )
 
 
 # --- PostgreSQL: concurrency and the service scope (AC7) -------------------------------
