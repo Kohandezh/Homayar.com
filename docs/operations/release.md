@@ -126,8 +126,8 @@ Pinned:
 * the uv version (`UV_VERSION=0.11.24`, installed with pip by version, not by hash);
 * the base image of every built image by digest, each the multi-platform index (the tag stays
   in front of the digest):
-  * api `PYTHON_IMAGE`: `python:3.12-slim-bookworm@sha256:34386e…`, resolved on 2026-10-18,
-    Python 3.12.15;
+  * api `PYTHON_IMAGE`: `python:3.12-slim-trixie@sha256:aa943c…`, resolved on 2026-10-30,
+    Python 3.12.16, Debian 13 trixie (HOM-349);
   * console-web `NODE_IMAGE`: `node:22-alpine@sha256:fe4f6d…`, resolved on 2026-10-23,
     Node.js 22.23.4;
   * console-web `NGINX_IMAGE`: `nginx:1.30-alpine@sha256:0e52bd…`, resolved on 2026-10-30,
@@ -146,7 +146,12 @@ Not pinned (recorded as such under `reproducibility.not_pinned` in every manifes
 
 * Debian packages installed with `apt-get` (`build-essential`, `libpq-dev`, `ca-certificates`,
   `ffmpeg`, `libgomp1`, `libmagic1`, `libpq5`): they come from the Debian archive on the day of
-  the build;
+  the build. Four runtime packages have a version floor instead (HOM-349): `ffmpeg`, `libaom3`,
+  `libmbedcrypto16` and `libtiff6`. The runtime stage of `infra/docker/api.Dockerfile` fails the
+  build when one of them is missing or older than its floor (`dpkg --compare-versions`). It is a
+  floor and not an exact `pkg=version` pin, because `trixie-security` keeps only the newest
+  version of a package: an exact pin would break every build on Debian's next fix. The floors
+  and the CVE each one closes are in the Dockerfile comment;
 * Alpine packages installed with `apk add` (`squid` in egress-proxy): they come from the
   Alpine repository on the day of the build; pinning the Alpine base does not pin them;
 * file timestamps and layer digests;
