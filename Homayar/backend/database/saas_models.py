@@ -3352,8 +3352,11 @@ class ApiKey(Base, TimestampMixin):
 class WebhookDeliveryState(str, enum.Enum):
     """Where one delivery of one event to one endpoint stands (HOM-89).
 
-    Stored as the lowercase value with a check constraint.  ``dead_letter`` is for
-    the retry policy of HOM-90; the schema allows it now so HOM-90 needs no migration.
+    Stored as the lowercase value with a check constraint.  A failed attempt goes
+    back to ``pending`` with a later ``next_attempt_at``; ``dead_letter`` is final
+    until an admin redelivers it (out of attempts, refused before sending, or an
+    expired lease on the last attempt; HOM-90, ADR 0050 D9).  ``failed`` is only on
+    rows from before HOM-90, when one failed attempt was final.
     """
 
     PENDING = "pending"

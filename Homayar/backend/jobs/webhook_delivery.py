@@ -4,11 +4,11 @@ Transaction boundaries
 ----------------------
 * *Claim*, one transaction bound to the delivery's own workspace: lock the row
   ``FOR UPDATE SKIP LOCKED`` if it is due, refuse what must not be sent
-  (inactive endpoint, refused URL, no usable key), else mark it ``sending``
-  with a lease and commit.
+  (an expired lease with no attempt left, inactive endpoint, refused URL, no
+  usable key), else mark it ``sending`` with a lease and commit.
 * *Send* with no transaction open. Redirects are never followed; the response
   body is never read, stored or logged.
-* *Record*, one transaction: append the attempt row, then finish the delivery
+* *Record*, one transaction: append the attempt row, then update the delivery
   only if it still holds this claim (``sending`` with this attempt count).
 * Delivery is **at-least-once**. A worker that stops after sending and before
   recording leaves the lease to expire; the next worker sends again with the
@@ -16,8 +16,12 @@ Transaction boundaries
 * The sweeper discovers due rows of every tenant under the read-only
   ``webhook_delivery`` service scope; the claim binds the workspace read from
   the persisted row, never from the message.
-* One attempt per delivery here: a failure stays ``failed``. HOM-90 adds the
-  retry schedule and the dead letter on the same rows.
+* Retries (HOM-90, ADR 0050 D9): a failed attempt puts the row back to
+  ``pending`` with ``next_attempt_at`` after the delay for its number, and the
+  sweeper finds it when it is due. After ``WEBHOOK_MAX_ATTEMPTS`` attempts it
+  moves to ``dead_letter``. A refusal before sending, or an expired lease with
+  no attempt left, moves it to ``dead_letter`` at once. The worker never
+  writes ``failed``; only rows from before HOM-90 hold it.
 """
 
 from __future__ import annotations
@@ -72,6 +76,8 @@ URL_REFUSED = "url_refused"
 SIGNING_UNAVAILABLE = "signing_unavailable"
 # A row written before HOM-89 has no frozen payload; it can never be sent.
 PAYLOAD_MISSING = "payload_missing"
+# The worker of the last attempt stopped after its claim; nothing is sent again.
+LEASE_EXPIRED = "lease_expired"
 
 
 @dataclass(frozen=True)
@@ -178,19 +184,35 @@ def _usable_keys(
     return usable
 
 
+def _retry_delay(settings: Settings, attempt_number: int) -> timedelta:
+    """The wait after failed attempt ``attempt_number`` (1-based); the last delay repeats."""
+    delays = settings.webhook_retry_delays
+    return timedelta(seconds=delays[min(attempt_number, len(delays)) - 1])
+
+
+def _log_dead_letter(delivery_id: str, endpoint_id: str, attempts: int, code: str) -> None:
+    logger.warning(
+        "WEBHOOK_DELIVERY_DEAD_LETTER delivery_id=%s endpoint_id=%s attempts=%s error_code=%s",
+        delivery_id,
+        endpoint_id,
+        attempts,
+        code,
+    )
+
+
 def _refuse(db: Session, delivery: WebhookDelivery, code: str) -> None:
-    """Fail before sending: no request, no attempt row, no attempt counted."""
+    """Dead-letter before sending: no request, no attempt row, no attempt counted.
+
+    A retry does not fix what is refused here (configuration, or a request
+    that stopped its worker on the last attempt); an admin redelivers it.
+    """
     delivery_id, endpoint_id = delivery.id, delivery.endpoint_id
-    delivery.state = WebhookDeliveryState.FAILED.value
+    attempts = delivery.attempt_count
+    delivery.state = WebhookDeliveryState.DEAD_LETTER.value
     delivery.last_error = code
     delivery.next_attempt_at = None
     db.commit()
-    logger.warning(
-        "WEBHOOK_DELIVERY_REFUSED delivery_id=%s endpoint_id=%s error_code=%s",
-        delivery_id,
-        endpoint_id,
-        code,
-    )
+    _log_dead_letter(delivery_id, endpoint_id, attempts, code)
 
 
 def _claim(
@@ -201,6 +223,14 @@ def _claim(
         delivery = _lock_due(db, delivery_id, workspace_id, now)
         if delivery is None:  # not due, finished, or another worker holds it
             db.rollback()
+            return None
+        if (
+            delivery.state == WebhookDeliveryState.SENDING.value
+            and delivery.attempt_count >= settings.webhook_max_attempts
+        ):
+            # An expired lease on the last attempt: a request that stops its
+            # worker every time must not loop forever.
+            _refuse(db, delivery, LEASE_EXPIRED)
             return None
         endpoint = db.get(WebhookEndpoint, delivery.endpoint_id)
         if endpoint is None or not endpoint.is_active:
@@ -367,7 +397,9 @@ def _send(
     return _Result(WebhookAttemptOutcome.FAILED.value, status_code, error_code, duration_ms)
 
 
-def _record(claim: _Claim, result: _Result, *, timestamp: int, now: datetime) -> None:
+def _record(
+    claim: _Claim, result: _Result, *, timestamp: int, now: datetime, settings: Settings
+) -> None:
     with get_session_factory()() as db:
         bind_tenant_context(db, workspace_id=claim.workspace_id)
         db.add(
@@ -395,28 +427,38 @@ def _record(claim: _Claim, result: _Result, *, timestamp: int, now: datetime) ->
         ).scalar_one_or_none()
         # None: a later claim took the row over after this lease expired; the
         # attempt row still records that this request left.
+        next_attempt_at: datetime | None = None
+        dead_letter = False
         if delivery is not None:
             delivered = result.outcome == WebhookAttemptOutcome.DELIVERED.value
-            delivery.state = (
-                WebhookDeliveryState.DELIVERED.value
-                if delivered
-                else WebhookDeliveryState.FAILED.value
-            )
+            if delivered:
+                delivery.state = WebhookDeliveryState.DELIVERED.value
+            elif delivery.attempt_count < settings.webhook_max_attempts:
+                delivery.state = WebhookDeliveryState.PENDING.value
+                next_attempt_at = now + _retry_delay(settings, delivery.attempt_count)
+            else:
+                delivery.state = WebhookDeliveryState.DEAD_LETTER.value
+                dead_letter = True
             delivery.delivered_at = now if delivered else None
             delivery.last_status_code = result.status_code
             delivery.last_error = result.error_code
-            delivery.next_attempt_at = None
+            delivery.next_attempt_at = next_attempt_at
         db.commit()
     logger.info(
         "WEBHOOK_DELIVERY_ATTEMPT delivery_id=%s endpoint_id=%s attempt=%s outcome=%s "
-        "status_code=%s error_code=%s",
+        "status_code=%s error_code=%s next_attempt_at=%s",
         claim.delivery_id,
         claim.endpoint_id,
         claim.attempt_number,
         result.outcome,
         result.status_code,
         result.error_code,
+        next_attempt_at.isoformat() if next_attempt_at is not None else None,
     )
+    if dead_letter:
+        _log_dead_letter(
+            claim.delivery_id, claim.endpoint_id, claim.attempt_number, result.error_code or ""
+        )
 
 
 def deliver_webhook(
@@ -437,7 +479,7 @@ def deliver_webhook(
         return
     timestamp = int(now.timestamp())
     result = _send(claim, timestamp=timestamp, settings=settings, http_client=http_client)
-    _record(claim, result, timestamp=timestamp, now=now)
+    _record(claim, result, timestamp=timestamp, now=now, settings=settings)
 
 
 def publish_delivery(delivery_id: str, settings: Settings) -> bool:

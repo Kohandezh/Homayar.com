@@ -74,8 +74,8 @@ The associated data is `homayar-webhook-secret/1|<workspace_id>|<endpoint_id>|<k
 A ciphertext copied to another endpoint or workspace does not decrypt.
 
 Without a keyring, endpoints cannot be created or rotated (503
-`webhook_signing_unavailable`), and the worker fails queued deliveries with
-`signing_unavailable` instead of sending them unsigned.
+`webhook_signing_unavailable`), and the worker moves queued deliveries to the dead
+letter with `signing_unavailable` (D9) instead of sending them unsigned.
 
 ### D4. Frozen payload bytes and a ledger
 
@@ -125,11 +125,11 @@ claim and the record each open their own session bound to the workspace only.
 With `TASKS_EAGER` (development, tests) neither a request nor a sweep sends anything
 itself: a request must never wait on a receiver, and a test must never reach the
 network. Due rows wait for `python -m backend.jobs.webhook_delivery` or a worker. A row
-written before this ticket has no frozen payload; it is failed with `payload_missing` and
-never sent.
+written before this ticket has no frozen payload; it moves to the dead letter with
+`payload_missing` and is never sent.
 
-This ticket stops at one attempt: a failed delivery stays `failed`. HOM-90 adds the retry
-schedule, the dead letter and admin redelivery on the same rows.
+HOM-89 stopped at one attempt: a failed delivery stayed `failed`. HOM-90 adds the retry
+schedule and the dead letter on the same rows (D9).
 
 ### D6. Guidance for receivers
 
@@ -150,7 +150,8 @@ verifier checks in this order and names the first failure: `missing_header`,
    is stopped here; a replay outside it is stopped by the timestamp check.
 5. Answer 2xx fast and work later. Non-2xx, a redirect or no answer within 10 s is a
    failure.
-6. Events may arrive more than once and out of order.
+6. Events may arrive more than once and out of order. A retry (D9) and a redelivery send
+   the same id and the same body bytes again, with a new timestamp and signature.
 
 ### D7. Who may manage webhooks, and where they may point
 
@@ -181,6 +182,46 @@ The event catalogue is `webhook.test` only (`POST .../endpoints/{id}/test`). No 
 event is advertised before a producer sends it. Later tickets call `enqueue_event` from
 their own transactions and add their event type to the catalogue.
 
+### D9. Retries and the dead letter (HOM-90)
+
+A failed attempt is not final. The worker sends it again later on a fixed schedule, and
+stops after a limit.
+
+1. **Settings.** `WEBHOOK_MAX_ATTEMPTS` (default 8, 1 to 20) is the number of HTTP
+   attempts. `WEBHOOK_RETRY_DELAYS_SECONDS` (default `60,300,1800,7200,18000,36000,36000`:
+   1 min, 5 min, 30 min, 2 h, 5 h, 10 h, 10 h, about 27 hours in total) is a comma-separated
+   list of whole seconds, each 1 to 604800 (7 days). The wait after failed attempt `n` is
+   item `n` of the list; when the list is shorter, the last item repeats. There is no random
+   jitter. A bad value refuses to start.
+2. **A failed attempt.** Any attempt with outcome `failed` (non-2xx, a 3xx, a timeout, a
+   connection error) on a row that still holds its claim is retried while
+   `attempt_count < WEBHOOK_MAX_ATTEMPTS`: the row goes back to `pending` with
+   `next_attempt_at = now + delay`, and `last_status_code` and `last_error` keep the
+   result. The sweeper finds it when it is due; there is no Celery retry or countdown. A
+   4xx is retried too: the receiver may fix its side. When the attempts are used up, the
+   row moves to `dead_letter` with `next_attempt_at` empty. A `dead_letter` row is never
+   due again.
+3. **Refusals before sending.** `endpoint_inactive`, `url_refused`, `payload_missing` and
+   `signing_unavailable` are configuration problems; a retry does not fix them. The row
+   moves to `dead_letter` with the code in `last_error`. No request is sent, no attempt
+   row is written and no attempt is counted. The worker never writes `failed` any more;
+   only rows from HOM-89 hold it.
+4. **An expired lease.** A `sending` row whose lease ended (its worker stopped after the
+   claim) is claimed again while `attempt_count < WEBHOOK_MAX_ATTEMPTS`, as in D5. When the
+   last attempt's lease ends, the claim moves the row to `dead_letter` with
+   `last_error = lease_expired` and sends nothing. This check runs before the refusals of
+   rule 3. Why: a request that stops the worker every time would otherwise loop forever.
+   It weakens at-least-once for the last attempt only: that request may never have left.
+   An admin can redeliver the row.
+5. **Rows past the budget.** A redelivered row whose `attempt_count` already reached the
+   limit gets exactly one attempt; on a failure it moves straight to `dead_letter`. A
+   redelivered row with attempts left gets the rest of the schedule.
+6. **Logs.** A move to the dead letter writes one WARNING line:
+   `WEBHOOK_DELIVERY_DEAD_LETTER delivery_id=<id> endpoint_id=<id> attempts=<n> error_code=<code>`.
+   A retry writes the `WEBHOOK_DELIVERY_ATTEMPT` line with its `next_attempt_at`. As in D4
+   and D5, no log line, attempt row or `last_error` carries the URL path or query, a
+   secret, a signature, the payload or the response body.
+
 ## Consequences
 
 - Receivers get a standard scheme: HMAC over id, time and raw body, key ids for rotation,
@@ -189,8 +230,9 @@ their own transactions and add their event type to the catalogue.
   can add an endpoint. Removing a keyring key makes every secret under it unusable, so
   rotate the keyring by adding a key, making it active, and keeping the old key.
 - Delivery is at-least-once. A receiver that ignores rule 4 can act twice on one event.
-- One attempt per delivery until HOM-90. HOM-91 adds contract fixtures for clock skew,
-  stale signatures and revoked keys. HOM-254 adds the console page.
+- A failed delivery is retried up to `WEBHOOK_MAX_ATTEMPTS` times over about 27 hours,
+  then waits in the dead letter (D9). HOM-91 adds contract fixtures for clock skew, stale
+  signatures and revoked keys. HOM-254 adds the console page.
 
 ## Known limitations
 
@@ -198,7 +240,8 @@ their own transactions and add their event type to the catalogue.
 waits at most `WEBHOOK_DELIVERY_TIMEOUT_SECONDS` for its receiver (a total deadline, not a
 per-read timeout), and the task's Celery limits end below its lease, so a slow receiver
 holds a worker for seconds, not minutes. A follow-up ticket moves deliveries to their own
-worker before any business event is wired. HOM-90 owns retries and their pacing.
+worker before any business event is wired. Retries (D9) wait in the database, not on the
+queue: a retry holds no worker until it is due.
 
 **Names that resolve to private addresses.** The URL policy judges what the URL says. A
 public DNS name that resolves to a private or metadata address at send time is the network
