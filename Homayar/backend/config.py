@@ -647,6 +647,7 @@ class Settings(BaseSettings):
     webhook_sweep_interval_seconds: int = 30  # due-delivery sweeper period
     webhook_max_endpoints_per_workspace: int = 20  # active endpoints only
     webhook_test_rate_limit_per_hour: int = 30  # test events queued, per workspace
+    webhook_redeliver_rate_limit_per_hour: int = 60  # admin redelivery calls, per workspace
     # Retries (HOM-90, ADR 0050 D9): a failed attempt is sent again after the
     # delay for its number (the last delay repeats); after max attempts the
     # delivery moves to the dead letter.
@@ -998,6 +999,8 @@ class Settings(BaseSettings):
         if not 1 <= self.webhook_max_attempts <= 20:
             raise ValueError("WEBHOOK_MAX_ATTEMPTS must be between 1 and 20")
         parse_webhook_retry_delays(self.webhook_retry_delays_seconds)  # raises ValueError
+        if self.webhook_redeliver_rate_limit_per_hour < 1:
+            raise ValueError("WEBHOOK_REDELIVER_RATE_LIMIT_PER_HOUR must be positive")
         if self.metrics_bearer_token and len(self.metrics_bearer_token.strip()) < 32:
             raise ValueError("METRICS_BEARER_TOKEN must be at least 32 characters")
         if not 0 <= self.metrics_cache_seconds <= 300:

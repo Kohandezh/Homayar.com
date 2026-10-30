@@ -331,10 +331,15 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/voicemails/analytics | meeting:read |
 | GET | /api/v1/voicemails/{voicemail_id} | meeting:read |
 | PATCH | /api/v1/voicemails/{voicemail_id} | meeting:update +csrf |
+| GET | /api/v1/webhooks/deliveries | webhook:manage |
+| GET | /api/v1/webhooks/deliveries/{delivery_id} | webhook:manage |
+| POST | /api/v1/webhooks/deliveries/{delivery_id}/redeliver | webhook:manage +csrf |
 | GET | /api/v1/webhooks/endpoints | webhook:manage |
 | POST | /api/v1/webhooks/endpoints | webhook:manage +csrf |
 | GET | /api/v1/webhooks/endpoints/{endpoint_id} | webhook:manage |
 | PATCH | /api/v1/webhooks/endpoints/{endpoint_id} | webhook:manage +csrf |
+| GET | /api/v1/webhooks/endpoints/{endpoint_id}/delivery-summary | webhook:manage |
+| POST | /api/v1/webhooks/endpoints/{endpoint_id}/redeliver-dead-letters | webhook:manage +csrf |
 | POST | /api/v1/webhooks/endpoints/{endpoint_id}/signing-keys | webhook:manage +csrf |
 | POST | /api/v1/webhooks/endpoints/{endpoint_id}/test | webhook:manage +csrf |
 <!-- matrix:routes:end -->
@@ -575,6 +580,8 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | The test route is rate limited per workspace (`WEBHOOK_TEST_RATE_LIMIT_PER_HOUR`, `429 webhook_test_rate_limited`, no delivery written); an endpoint has at most 5 unexpired signing keys after a rotation (`409 webhook_signing_key_limit`; overlap 0 is never refused) | `backend/routers/v1/webhooks.py`, `rotate_signing_key` | `test_webhook_api.py` |
 | Every change is audited (`webhook.endpoint_created`, `webhook.endpoint_updated`, `webhook.signing_key_rotated`, `webhook.test_queued`) with ids, key ids, event types, `is_active` and only the URL's scheme and host | `backend/routers/v1/webhooks.py` | `test_webhook_api.py` |
 | The delivery sweeper discovers due `webhook_deliveries` rows of every tenant under the read-only `webhook_delivery` service scope (it reaches no endpoint, key or attempt row, cannot write and cannot delete); each claim and write binds the workspace of the persisted row | `backend/database/rls.py`, `deliver_webhook` | `test_webhook_delivery.py` |
+| Delivery diagnostics (HOM-90) are `webhook:manage` only (never an API key) and always in the caller's own workspace: the list, one delivery with its latest 100 attempts, and an endpoint's counts per state. Another workspace's delivery id is `404 webhook_delivery_not_found`, its endpoint id `404 webhook_endpoint_not_found`, and the list never shows its rows. No answer carries the payload, its digest, the endpoint URL, a secret, headers or a signature | `backend/routers/v1/webhooks.py`, `list_deliveries`, `delivery_summary` | `test_webhook_admin_diagnostics.py` |
+| Redelivery (HOM-90) moves only a `dead_letter` or `failed` row with a stored payload back to `pending`, under a row lock, with the same event id and bytes; any other state or a missing payload is `409 webhook_delivery_not_redeliverable`, an inactive endpoint `409 webhook_endpoint_inactive`. The bulk route moves at most 500 rows of one endpoint. Both share a per-workspace limit (`WEBHOOK_REDELIVER_RATE_LIMIT_PER_HOUR`, `429 webhook_redeliver_rate_limited`), checked after every refusal and before any write, and are audited (`webhook.delivery_redelivered`, `webhook.dead_letters_redelivered`) with ids, states and counts only | `redeliver`, `redeliver_dead_letters` | `test_webhook_admin_diagnostics.py` |
 
 ## 6q. Supervisor review queue (HOM-73, ADR 0051)
 
