@@ -98,6 +98,9 @@ x-app-environment: &app-environment
   ASR_CHUNK_TARGET_SECONDS: "${ASR_CHUNK_TARGET_SECONDS:-600.0}"
   ASR_CHUNK_SEARCH_SECONDS: "${ASR_CHUNK_SEARCH_SECONDS:-30.0}"
   ASR_CHUNK_OVERLAP_SECONDS: "${ASR_CHUNK_OVERLAP_SECONDS:-2.0}"
+  # Supported private topology (HOM-106, ADR 0047). Empty means no topology
+  # host check.
+  DEPLOYMENT_TOPOLOGY: "${DEPLOYMENT_TOPOLOGY:-}"
   # Restricted PII mappings (ADR 0023): "key_id:base64(32 bytes)" from the
   # secret manager; empty keeps redaction but retains no originals.
   PII_MAPPING_KEYS: "${PII_MAPPING_KEYS:-}"
