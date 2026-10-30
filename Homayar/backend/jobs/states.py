@@ -19,6 +19,9 @@ class StageName(str, enum.Enum):
     ASR = "asr"
     DIARIZATION = "diarization"
     INTELLIGENCE = "intelligence"
+    # Checkpoint key of one long-call ASR chunk (HOM-40). Not a stage of its
+    # own: it never has a stage run and is not in ``STAGE_ORDER``.
+    ASR_CHUNK = "asr_chunk"
 
 
 STAGE_ORDER: tuple[StageName, ...] = (

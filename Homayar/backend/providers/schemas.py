@@ -83,6 +83,23 @@ class ASRLanguageDecision(ProviderSchema):
     policy_version: str = Field(min_length=1, max_length=64)
 
 
+class ASRChunkSpan(ProviderSchema):
+    """One chunk of a chunked call, in original seconds (``backend.speech.chunking``)."""
+
+    index: int = Field(ge=0)
+    start_seconds: float = Field(ge=0)  # audio given to ASR
+    end_seconds: float = Field(ge=0)
+    owned_start_seconds: float = Field(ge=0)  # the part of the timeline the chunk owns
+    owned_end_seconds: float = Field(ge=0)
+
+
+class ASRChunking(ProviderSchema):
+    """How a long call was cut for ASR (HOM-40); HOM-45/46 reconcile speakers by it."""
+
+    version: str = Field(min_length=1, max_length=64)
+    chunks: list[ASRChunkSpan] = Field(min_length=1)
+
+
 class ASRResult(ProviderSchema):
     provider: str = Field(min_length=1, max_length=128)
     model: str = Field(min_length=1, max_length=256)
@@ -93,6 +110,8 @@ class ASRResult(ProviderSchema):
     is_mock: bool = False
     # Optional so results and checkpoints written before HOM-39 still load.
     language_decision: ASRLanguageDecision | None = None
+    # Set only on the merged result of a chunked call (HOM-40); None otherwise.
+    chunking: ASRChunking | None = None
 
 
 class DiarizationRequest(ProviderSchema):
