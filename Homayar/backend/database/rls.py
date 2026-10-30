@@ -187,7 +187,9 @@ POLICIES: dict[str, tuple[str, str]] = {
     # workspace bound (the USING clause would let such a session reach another
     # tenant's row), and NO_DELETE_TABLES refuses DELETE.  Every write runs in
     # a session bound to the delivery's own workspace, without the scope.  The
-    # scope reaches no endpoint, key or attempt row.
+    # scope reaches no endpoint, key or attempt row.  USING cannot limit columns,
+    # so the scope reads every column of every tenant's deliveries (payload too):
+    # the sweeper must select only ids, workspace, state and next_attempt_at.
     "webhook_deliveries": (
         f"workspace_id = {TENANT} OR {SERVICE} = 'webhook_delivery'",
         f"workspace_id = {TENANT} AND {SERVICE} IS DISTINCT FROM 'webhook_delivery'",

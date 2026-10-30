@@ -98,6 +98,9 @@ ATTEMPTS = "webhook_delivery_attempts"
 PG_EVENT_UNIQUE = "webhook_deliveries_event_id_key"
 SQLITE_NAMING = {"uq": "uq_%(table_name)s_%(column_0_name)s"}
 SQLITE_EVENT_UNIQUE = "uq_webhook_deliveries_event_id"
+# A SQLite database built by ``create_all`` holds the endpoint's creator foreign key
+# without a name; this convention gives the reflected key the name the downgrade drops.
+SQLITE_FK_NAMING = {"fk": "%(table_name)s_%(column_0_name)s_fkey"}
 ENDPOINT_CREATOR_FK = "webhook_endpoints_created_by_user_id_fkey"
 ACTIVE_KEY_WHERE = sa.text("expires_at IS NULL")
 
@@ -304,7 +307,8 @@ def downgrade() -> None:
         "WHERE secret_ciphertext IS NULL",
         empty=b"",
     )
-    with op.batch_alter_table(ENDPOINTS, schema=None) as batch_op:
+    naming = SQLITE_FK_NAMING if _is_sqlite() else None
+    with op.batch_alter_table(ENDPOINTS, schema=None, naming_convention=naming) as batch_op:
         batch_op.drop_constraint(ENDPOINT_CREATOR_FK, type_="foreignkey")
         batch_op.drop_column("created_by_user_id")
         batch_op.drop_column("description")

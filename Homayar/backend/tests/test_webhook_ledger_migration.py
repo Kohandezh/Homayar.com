@@ -384,6 +384,94 @@ def test_the_migration_follows_the_previous_head():
         assert phrase in doc, phrase
 
 
+def test_the_downgrade_runs_on_a_sqlite_schema_built_by_create_all(tmp_path, monkeypatch):
+    """Dev and test databases on SQLite come from ``create_all``, where the endpoint's
+    creator foreign key has no name.  The downgrade must still find and drop it, and leave
+    the base schema."""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine, inspect
+
+    from backend.config import reset_settings_cache
+    from backend.database.model_registry import Base
+    from backend.observability.release import PROJECT_ROOT
+
+    url = f"sqlite:///{tmp_path / 'ledger.db'}"
+    engine = create_engine(url)
+    try:
+        Base.metadata.create_all(engine)
+        creator_keys = [
+            key
+            for key in inspect(engine).get_foreign_keys("webhook_endpoints")
+            if key["constrained_columns"] == ["created_by_user_id"]
+        ]
+        assert [key["name"] for key in creator_keys] == [None]  # the case under test
+
+        monkeypatch.setenv("DATABASE_URL", url)
+        monkeypatch.setenv("ENVIRONMENT", "test")
+        reset_settings_cache()
+        try:
+            config = Config(str(PROJECT_ROOT / "alembic.ini"))
+            command.stamp(config, "head")
+            command.downgrade(config, BASE_REVISION)
+        finally:
+            reset_settings_cache()
+
+        inspector = inspect(engine)
+        with engine.connect() as connection:
+            version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        assert version == BASE_REVISION
+        tables = set(inspector.get_table_names())
+        assert not tables & set(NEW_TABLES)
+        assert {"webhook_endpoints", "webhook_deliveries"} <= tables
+
+        endpoints = {
+            column["name"]: column for column in inspector.get_columns("webhook_endpoints")
+        }
+        assert set(endpoints) == {
+            "id",
+            "workspace_id",
+            "url",
+            "secret_ciphertext",
+            "event_types",
+            "is_active",
+            "created_at",
+            "updated_at",
+        }
+        assert endpoints["secret_ciphertext"]["nullable"] is False
+        endpoint_keys = inspector.get_foreign_keys("webhook_endpoints")
+        assert [
+            (key["constrained_columns"], key["referred_table"], key["options"].get("ondelete"))
+            for key in endpoint_keys
+        ] == [(["workspace_id"], "workspaces", "CASCADE")]
+
+        deliveries = {column["name"] for column in inspector.get_columns("webhook_deliveries")}
+        assert deliveries == {
+            "id",
+            "workspace_id",
+            "endpoint_id",
+            "event_id",
+            "event_type",
+            "state",
+            "attempt_count",
+            "next_attempt_at",
+            "last_status_code",
+            "last_error",
+            "created_at",
+            "updated_at",
+        }
+        uniques = inspector.get_unique_constraints("webhook_deliveries")
+        assert [unique["column_names"] for unique in uniques] == [["event_id"]]
+        assert inspector.get_check_constraints("webhook_deliveries") == []
+        indexes = {index["name"] for index in inspector.get_indexes("webhook_deliveries")}
+        assert indexes == {
+            "ix_webhook_deliveries_endpoint_id",
+            "ix_webhook_deliveries_workspace_id",
+        }
+    finally:
+        engine.dispose()
+
+
 # --- PostgreSQL: rows --------------------------------------------------------------------
 
 NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
