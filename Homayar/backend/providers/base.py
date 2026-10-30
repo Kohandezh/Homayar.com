@@ -108,6 +108,13 @@ class ASRProvider(_IdentifiedProvider, ABC):
     async def transcribe(self, request: ASRRequest) -> ASRResult:
         raise NotImplementedError
 
+    def language_policy_identity(self, language: str | None) -> dict | None:
+        """Language policy a checkpoint records for this request language.
+
+        ``None``: the adapter applies no policy, so the identity is unchanged.
+        """
+        return None
+
 
 class DiarizationProvider(_IdentifiedProvider, ABC):
     @abstractmethod

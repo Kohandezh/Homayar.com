@@ -2173,15 +2173,25 @@ def process_job(
             asr_record = _stage_record(StageName.ASR, manifests)
             records.append(asr_record)
             asr_request = ASRRequest(audio_path=str(media_path), language=claim.language)
+            asr_request_identity: dict[str, Any] = {
+                "language": asr_request.language,
+                "beam_size": asr_request.beam_size,
+                "vad_filter": asr_request.vad_filter,
+            }
+            # An auto language depends on the language policy (HOM-39). An
+            # explicit language does not, so its identity stays as before.
+            # getattr: some test doubles do not subclass ASRProvider.
+            policy_identity = getattr(active_providers.asr, "language_policy_identity", None)
+            language_policy = (
+                policy_identity(asr_request.language) if callable(policy_identity) else None
+            )
+            if isinstance(language_policy, dict):
+                asr_request_identity["language_policy"] = language_policy
             asr_identity = ckpt.stage_identity(
                 context,
                 StageName.ASR,
                 provider=active_providers.asr.identity(),
-                request={
-                    "language": asr_request.language,
-                    "beam_size": asr_request.beam_size,
-                    "vad_filter": asr_request.vad_filter,
-                },
+                request=asr_request_identity,
             )
             asr_reused = ckpt.resume_stage(
                 context, asr_identity, storage=active_storage, settings=settings

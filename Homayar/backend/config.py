@@ -651,6 +651,16 @@ class Settings(BaseSettings):
     # local model directory whose artifacts the manifest declares.
     whisper_local_files_only: bool = False
     whisper_model_path: str = ""
+    # Named Whisper profile (HOM-39, backend/providers/asr_profiles.py). Empty
+    # keeps the whisper_model/device/compute_type values above. A profile sets
+    # all three and ignores them; local_files_only and model_path still apply.
+    asr_profile: str = ""
+    # Language policy for auto requests (backend/speech/language_policy.py):
+    # a detected language outside this list, or under the threshold, falls back
+    # to the default language. Codes are normalized ("fa-IR" becomes "fa").
+    asr_allowed_languages: str = "fa,en"
+    asr_default_language: str = "fa"
+    asr_language_min_probability: float = 0.5
     model_artifact_root: str = ""
     # Speech synthesis (P0 wave): "unavailable" (default), "piper" (local
     # CLI) or "local_http" (private /v1/audio/speech).  tts_voices maps
@@ -999,6 +1009,20 @@ class Settings(BaseSettings):
                 self.deployment_mode,
                 ",".join(plaintext_hops),
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_asr_configuration(self) -> Settings:
+        # Imported here, like parse_pins above.
+        from backend.providers.asr_profiles import get_asr_profile
+        from backend.speech.language_policy import LanguagePolicy
+
+        if self.asr_profile:
+            get_asr_profile(self.asr_profile)
+            # The same name normalization as the provider factory.
+            if self.asr_provider.strip().lower().replace("-", "_") != "local_whisper":
+                raise ValueError("ASR_PROFILE needs ASR_PROVIDER=local_whisper")
+        LanguagePolicy.from_settings(self)
         return self
 
     def _check_transport(

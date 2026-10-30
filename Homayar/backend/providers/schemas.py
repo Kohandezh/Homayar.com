@@ -72,6 +72,17 @@ class ASRSegment(ProviderSchema):
         return self
 
 
+class ASRLanguageDecision(ProviderSchema):
+    """How the ASR language was chosen (``backend.speech.language_policy``)."""
+
+    source: Literal["requested", "detected", "fallback"]
+    requested: str | None = Field(default=None, min_length=1, max_length=32)
+    detected: str | None = Field(default=None, min_length=1, max_length=32)
+    probability: float | None = Field(default=None, ge=0, le=1)
+    reason: Literal["low_confidence", "no_speech"] | None = None
+    policy_version: str = Field(min_length=1, max_length=64)
+
+
 class ASRResult(ProviderSchema):
     provider: str = Field(min_length=1, max_length=128)
     model: str = Field(min_length=1, max_length=256)
@@ -80,6 +91,8 @@ class ASRResult(ProviderSchema):
     segments: List[ASRSegment] = Field(default_factory=list)
     duration_seconds: float = Field(default=0, ge=0)
     is_mock: bool = False
+    # Optional so results and checkpoints written before HOM-39 still load.
+    language_decision: ASRLanguageDecision | None = None
 
 
 class DiarizationRequest(ProviderSchema):

@@ -9,6 +9,7 @@ import httpx
 
 from backend.config import Settings
 from backend.providers import padyar
+from backend.providers.asr_profiles import get_asr_profile
 from backend.providers.base import (
     ASRProvider,
     DiarizationProvider,
@@ -31,6 +32,7 @@ from backend.providers.mocks import (
 )
 from backend.providers.openai_compatible import OpenAICompatibleIntelligenceProvider
 from backend.providers.whisper import LocalWhisperProvider
+from backend.speech.language_policy import LanguagePolicy
 
 _MOCK_ENVIRONMENTS = frozenset({"development", "test"})
 
@@ -55,13 +57,30 @@ def _unsupported_provider(kind: str) -> ProviderError:
 def create_asr_provider(settings: Settings) -> ASRProvider:
     name = _provider_name(settings.asr_provider)
     if name == "local_whisper":
+        # Offline runtime knobs; optional until the settings carry them.
+        offline = {
+            "local_files_only": bool(getattr(settings, "whisper_local_files_only", False)),
+            "model_path": getattr(settings, "whisper_model_path", None) or None,
+        }
+        language_policy = LanguagePolicy.from_settings(settings)
+        if settings.asr_profile:
+            # A profile replaces whisper_model, whisper_device and whisper_compute_type.
+            profile = get_asr_profile(settings.asr_profile)
+            return LocalWhisperProvider(
+                model_name=profile.model,
+                device=profile.device,
+                compute_type=profile.compute_type,
+                device_index=profile.device_index,
+                cpu_threads=profile.cpu_threads,
+                language_policy=language_policy,
+                **offline,
+            )
         return LocalWhisperProvider(
             model_name=settings.whisper_model,
             device=settings.whisper_device,
             compute_type=settings.whisper_compute_type,
-            # Offline runtime knobs; optional until the settings carry them.
-            local_files_only=bool(getattr(settings, "whisper_local_files_only", False)),
-            model_path=getattr(settings, "whisper_model_path", None) or None,
+            language_policy=language_policy,
+            **offline,
         )
     if name in {"mock", "mock_asr", "deterministic_mock"}:
         _require_mock_permission(settings)
