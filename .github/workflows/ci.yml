@@ -607,6 +607,38 @@ jobs:
           test "$(docker inspect --format '{{.Config.User}}' homayar-ci-console)" = "101:101"
           test "$(docker inspect --format '{{.Config.User}}' homayar-ci-api)" = "10001:10001"
 
+      # HOM-349: the image's ffmpeg still probes and decodes audio with the argv the
+      # backend builds (upload validation, ASR decode). The input is made in the container.
+      - name: Check that the API image decodes audio with its ffmpeg
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --interactive \
+            --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            homayar-ci/api:local python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          from backend.jobs.asr_chunks import build_decode_argv
+          from backend.media.validation import _build_ffmpeg_decode_command, _build_ffprobe_command
+
+          source = Path("/tmp/ci-sine.mp3")
+          subprocess.run(
+              ["ffmpeg", "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
+               "-i", "sine=frequency=440:duration=2:sample_rate=44100",
+               "-c:a", "libmp3lame", "-b:a", "32k", str(source)],
+              check=True,
+          )
+          probe = subprocess.run(_build_ffprobe_command("ffprobe", source), capture_output=True, check=True)
+          streams = json.loads(probe.stdout)["streams"]
+          assert [s["codec_name"] for s in streams] == ["mp3"], streams
+          check = subprocess.run(_build_ffmpeg_decode_command("ffmpeg", source, 2), capture_output=True, check=False)
+          assert check.returncode == 0 and not check.stderr, check
+          pcm = subprocess.run(build_decode_argv("ffmpeg", source), capture_output=True, check=True).stdout
+          assert 60_000 <= len(pcm) <= 68_000, len(pcm)
+          print(f"ffprobe, upload decode and ASR decode passed: {len(pcm)} bytes of 16 kHz PCM")
+          PY
+
       # WP08-T06 network layer (ADR 0031): probes from inside the api, worker,
       # scheduler and console containers as Compose attaches them; disposable
       # endpoints only, no provider is contacted.
