@@ -28,6 +28,11 @@ released set, and organization views decide per workspace and week.
 
 HOM-83: ``issue_cohort`` is the decision of ``GET /trends/issues``; the view and the
 supporting-conversation links (``trend_link_service``) both call it.
+
+HOM-290: P also reads each current run's stored judgment of the current rules
+(``trend_judgment_store``) and then needs no JSON for that run.  One more statement, S, reads
+one representative extraction per distinct stored key; its judged content is every run's of
+the key.  S runs only when P found a stored judgment.  A run without one is judged as before.
 """
 
 from __future__ import annotations
@@ -43,10 +48,12 @@ from typing import Any
 from zoneinfo import ZoneInfo, available_timezones
 
 from sqlalchemy import (
+    CTE,
     ColumnElement,
     and_,
     case,
     null,
+    or_,
     select,
     type_coerce,
     union,
@@ -92,6 +99,7 @@ from backend.services.coverage_service import (
     transcribable_clauses,
 )
 from backend.services.trend_judgment_cache import JudgmentCache, judgment_key
+from backend.services.trend_judgment_store import current_judgments, stored_contents
 
 TREND_DEFINITION_ID = "trends"
 TREND_DEFINITION_VERSION = 1
@@ -322,17 +330,25 @@ def _population_rows(
     cached_runs: Sequence[str] | None = None,
     *,
     results: bool = True,
+    stored: CTE | None = None,
 ):
     """Statement P: one row per conversation.  The joins cannot repeat a meeting:
     ``uq_ingestion_meeting``, ``uq_transcript_revision_current``,
-    ``uq_analysis_run_current`` and ``uq_analysis_extraction_run`` (if one ever broke,
-    ``tally`` refuses a meeting judged twice).  Only the current run and its own row.
+    ``uq_analysis_run_current``, ``uq_analysis_extraction_run`` and ``uq_trend_judgment_run``
+    (if one ever broke, ``tally`` refuses a meeting judged twice).  Only the current run and
+    its own row.
+
+    ``stored`` (HOM-290, ``trend_judgment_store.current_judgments``): the workspace's stored
+    judgments of the current rules, hash-joined on the current run.  ``content_key`` is the
+    run's stored key, or NULL.  For a run with a key, ``result`` is NULL and
+    ``extraction_run_id`` is the run (a stored judgment means the row exists).
 
     ``cached_runs`` (HOM-312, the judgment cache): the runs whose stored row the caller
     already judged.  For them ``result`` is NULL and ``extraction_run_id`` is the run (a
-    cached judgment means the row exists; rows are never removed while their run lives);
-    the other runs read their row with a subquery, so the wide extraction table is read only
-    for them.  Still one statement: the ids are one parameter.
+    cached judgment means the row exists; rows are never removed while their run lives).
+    With ``stored`` or ``cached_runs``, the other runs read their row with a subquery, so the
+    wide extraction table is read only for them.  Still one statement: the ids are one
+    parameter.
 
     ``results=False`` (the warm-up): no ``result`` column, so no JSON is read or decoded."""
     columns = [
@@ -365,7 +381,15 @@ def _population_rows(
             ),
         )
     )
-    if cached_runs is None:
+    known: list[ColumnElement[bool]] = []  # runs whose row is not read
+    if stored is not None:
+        statement = statement.add_columns(stored.c.content_key).outerjoin(
+            stored, stored.c.analysis_run_id == AnalysisRun.id
+        )
+        known.append(stored.c.content_key.is_not(None))
+    if cached_runs is not None:
+        known.append(_among_runs(db, cached_runs))
+    if not known:
         extraction = [AnalysisExtraction.analysis_run_id.label("extraction_run_id")]
         if results:
             extraction.append(AnalysisExtraction.result)
@@ -377,24 +401,27 @@ def _population_rows(
             ),
         )
     else:
-        cached = _among_runs(db, cached_runs)
+        skip = known[0] if len(known) == 1 else or_(*known)
         own_row = and_(
             AnalysisExtraction.analysis_run_id == AnalysisRun.id,
             AnalysisExtraction.workspace_id == workspace_id,
         )
         statement = statement.add_columns(
             case(
-                (cached, AnalysisRun.id),
+                (skip, AnalysisRun.id),
                 else_=select(AnalysisExtraction.analysis_run_id).where(own_row).scalar_subquery(),
             ).label("extraction_run_id"),
-            type_coerce(
-                case(
-                    (cached, null()),
-                    else_=select(AnalysisExtraction.result).where(own_row).scalar_subquery(),
-                ),
-                AnalysisExtraction.result.type,
-            ).label("result"),
         )
+        if results:
+            statement = statement.add_columns(
+                type_coerce(
+                    case(
+                        (skip, null()),
+                        else_=select(AnalysisExtraction.result).where(own_row).scalar_subquery(),
+                    ),
+                    AnalysisExtraction.result.type,
+                ).label("result"),
+            )
     return db.execute(statement.where(*clauses)).all()
 
 
@@ -532,7 +559,13 @@ def _judge_population(
     clauses = _population_clauses(
         workspace_id, filter_clauses(scope, filters, teams=teams), filters
     )
-    rows = _population_rows(db, workspace_id, clauses, None if cache is None else sorted(pinned))
+    rows = _population_rows(
+        db,
+        workspace_id,
+        clauses,
+        None if cache is None else sorted(pinned),
+        stored=current_judgments(workspace_id, definition),
+    )
     groups: dict[str, list[MediaGroupMember]] = defaultdict(list)
     for item in _group_members(db, workspace_id, clauses):
         groups[item.root_id].append(
@@ -545,18 +578,33 @@ def _judge_population(
     root_of = {member.ingestion_id: root for root, group in groups.items() for member in group}
     counted = {root: counted_copy_id(group) for root, group in groups.items()}
 
+    # HOM-290, statement S: the runs with a stored judgment of the current rules take the
+    # content of their key, judged once per key.  ``unstored``: a stored judgment whose run has
+    # no extraction row (against the invariant), read as no row.
+    keys = {
+        item.run_id: item.content_key
+        for item in rows
+        if has_segments(item.segment_count) and item.content_key is not None
+    }
     contents: dict[str, JudgedContent] = {}
+    unstored: set[str] = set()
+    if keys:
+        contents, unstored = stored_contents(
+            db, workspace_id=workspace_id, keys=keys, build=judge.content
+        )
     if cache is not None:
         hits: list[str] = []
         misses: dict[str, tuple[datetime, object]] = {}
         for item in rows:
             if not has_segments(item.segment_count) or item.extraction_run_id is None:
                 continue
+            if item.run_id in keys:
+                continue  # stored: never the cache
             if item.run_id in pinned:
                 hits.append(item.run_id)
             else:
                 misses[item.run_id] = (_utc(item.received_at), item.result)
-        contents = {run_id: pinned[run_id] for run_id in hits}
+        contents.update({run_id: pinned[run_id] for run_id in hits})
         contents.update(cache.resolve(key, hits=hits, misses=misses, build=judge.content))
 
     conversations = []
@@ -565,6 +613,7 @@ def _judge_population(
             continue  # coverage bucket no_transcript
         group_id = root_of.get(item.ingestion_id, item.ingestion_id)
         has_run = item.run_id is not None
+        extraction_run_id = None if item.run_id in unstored else item.extraction_run_id
         facts = ConversationFacts(
             meeting_id=item.meeting_id,
             ingestion_id=item.ingestion_id,
@@ -576,8 +625,8 @@ def _judge_population(
             analysis_state=StageState(item.run_state).value if has_run else None,
             analysis_revision_id=item.run_revision_id if has_run else None,
             analysis_is_mock=bool(item.run_is_mock) if has_run else False,
-            extraction_run_id=item.extraction_run_id,
-            extraction=item.result if item.extraction_run_id is not None else None,
+            extraction_run_id=extraction_run_id,
+            extraction=item.result if extraction_run_id is not None else None,
         )
         conversations.append(
             JudgedConversation(
@@ -587,7 +636,7 @@ def _judge_population(
                 language=item.language,
                 source_type=IngestionSourceType(item.source_type).value,
                 judgment=judge.judge(
-                    facts, contents.get(item.run_id) if item.extraction_run_id else None
+                    facts, contents.get(item.run_id) if extraction_run_id else None
                 ),
                 analysis_run_id=item.run_id,
             )
@@ -608,9 +657,10 @@ def warm_judgments(
 ) -> int:
     """The warm-up's work for one workspace (HOM-312, ``trend_judgment_warmup``): statement P over
     every transcribable conversation received in ``[start, end)``, with the runs already in
-    ``cache`` left out, and the stored rows of the others judged with the cache's
-    ``SignatureJudge`` and kept, the most recent first.  The workspace must be bound as the
-    tenant.  Returns the number of entries added.
+    ``cache`` and the runs with a stored judgment of the current rules (HOM-290: a request
+    reads those through their key, never the cache) left out, and the stored rows of the
+    others judged with the cache's ``SignatureJudge`` and kept, the most recent first.  The
+    workspace must be bound as the tenant.  Returns the number of entries added.
 
     Statement P runs without the JSON (``results=False``): it only chooses the runs, the
     newest first, at most the free room.  They go to ``cache.resolve`` in batches of at most
@@ -632,9 +682,16 @@ def warm_judgments(
     chosen = sorted(
         (
             (_utc(item.received_at), item.run_id)
-            for item in _population_rows(db, workspace_id, clauses, results=False)
+            for item in _population_rows(
+                db,
+                workspace_id,
+                clauses,
+                results=False,
+                stored=current_judgments(workspace_id, definition),
+            )
             if has_segments(item.segment_count)
             and item.extraction_run_id is not None
+            and item.content_key is None
             and item.run_id not in pinned
         ),
         reverse=True,
