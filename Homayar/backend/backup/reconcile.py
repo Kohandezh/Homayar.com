@@ -802,14 +802,20 @@ def _seal(report: dict[str, Any], key: BackupKey) -> dict[str, Any]:
     return {**report, "mac": key.mac("reconciliation", body.encode("utf-8"))}
 
 
-def load_report(path: Path, key: BackupKey) -> dict[str, Any]:
+def _read_report(path: Path, key: BackupKey) -> tuple[dict[str, Any], str]:
+    """The report and the digest of the exact bytes it was verified from."""
     try:
-        report = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        raw = Path(path).read_bytes()
+        report = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError) as exc:
         raise RestoreRefused("report_unreadable", str(path)) from exc
     if not isinstance(report, dict) or _seal(report, key).get("mac") != report.get("mac"):
         raise RestoreRefused("report_tampered", "reconciliation report MAC does not verify")
-    return report
+    return report, hashlib.sha256(raw).hexdigest()
+
+
+def load_report(path: Path, key: BackupKey) -> dict[str, Any]:
+    return _read_report(path, key)[0]
 
 
 def report_digest(path: Path) -> str:
@@ -1183,7 +1189,7 @@ def promote(
 
     staging = validate_database_name(staging_database)
     live = validate_database_name(live_database)
-    report = load_report(report_path, key)
+    report, report_sha256 = _read_report(report_path, key)
     if report.get("status") != "PASS":
         raise RestoreRefused("not_reconciled", f"reconciliation status is {report.get('status')}")
     if report.get("staging_database") != staging:
@@ -1192,9 +1198,13 @@ def promote(
         marker = read_marker(admin_url, staging)
         if not isinstance(marker, dict) or marker.get("state") != "reconciled":
             raise RestoreRefused("staging_not_reconciled", f"{staging} is not in state reconciled")
+        if marker.get("status") != "PASS":
+            raise RestoreRefused(
+                "not_reconciled", f"staging marker status is {marker.get('status')}"
+            )
         if (
             marker.get("backup_id") != report["backup_id"]
-            or marker.get("report_sha256") != report_digest(report_path)
+            or marker.get("report_sha256") != report_sha256
             or marker.get("manifest_mac") != report.get("manifest_mac")
         ):
             raise RestoreRefused(

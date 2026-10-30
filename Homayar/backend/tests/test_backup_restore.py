@@ -899,6 +899,52 @@ def test_a_changed_marker_or_a_held_lock_stops_every_staging_step(
     assert read_marker(_admin(), staging) == reconciled
     assert read_marker(_admin(), live) is False
 
+    # HOM-217: promote judges one consistent piece of evidence. The bytes it
+    # verified (seal, status) must be the bytes whose digest it compares with
+    # the marker, so a report swapped in between two reads promotes nothing.
+    older = tmp_path / "older-pass-report.json"
+    shutil.copy(report_path, older)
+    newer = _reconcile(set_dir, staging, target[0], target[1], tmp_path)
+    assert newer["status"] == "PASS", newer["statuses"]
+    newer_file = tmp_path / "newer-pass-report.json"
+    shutil.copy(report_path, newer_file)
+    shutil.copy(older, report_path)  # the path holds the older PASS report
+    swapped: list[bool] = []
+    real_read_marker = reconcile_module.read_marker
+
+    def swap_report_then_read(admin_url: str, database: str):
+        if database == staging and not swapped:
+            swapped.append(True)
+            shutil.copy(newer_file, report_path)  # the file changes between promote's reads
+        return real_read_marker(admin_url, database)
+
+    assert older.read_bytes() != newer_file.read_bytes()  # there is a swap to catch
+    monkeypatch.setattr(reconcile_module, "read_marker", swap_report_then_read)
+    with pytest.raises(RestoreRefused) as between_reads:
+        run_promote()
+    monkeypatch.setattr(reconcile_module, "read_marker", real_read_marker)
+    assert between_reads.value.code == "report_mismatch"
+    assert swapped == [True]  # the hook fired between promote's read and the comparison
+    assert report_path.read_bytes() == newer_file.read_bytes()
+    assert read_marker(_admin(), staging)["state"] == "reconciled"
+    assert read_marker(_admin(), live) is False
+
+    # The marker's own status is part of the gate: not PASS promotes nothing,
+    # with the report digest matching the marker (a mismatch cannot be the reason).
+    shutil.copy(newer_file, report_path)
+    for marker_status in ("FAIL", "WARN", None):
+        if marker_status is None:
+            current = read_marker(_admin(), staging)
+            write_marker(_admin(), staging, {k: v for k, v in current.items() if k != "status"})
+        else:
+            _change_marker(staging, status=marker_status)
+        with pytest.raises(RestoreRefused) as marker_not_pass:
+            run_promote()
+        assert marker_not_pass.value.code == "not_reconciled"
+        assert read_marker(_admin(), staging)["state"] == "reconciled"
+        assert read_marker(_admin(), live) is False
+    _change_marker(staging, status="PASS")
+
     # Promote: the marker changes after it was read, before the transaction re-reads it.
     # The renames of that transaction (old live retired, staging to live) roll back.
     with connect(with_database(_admin(), "postgres"), autocommit=True) as connection:
@@ -920,6 +966,24 @@ def test_a_changed_marker_or_a_held_lock_stops_every_staging_step(
     assert promoted["dropped_empty_database"].startswith(f"{live[:40]}_retired_")
     assert read_marker(_admin(), live)["state"] == "promoted"
     assert read_marker(_admin(), staging) is False
+
+
+def test_a_report_that_is_not_utf8_is_unreadable_everywhere(tmp_path):
+    """HOM-217: bytes that are not UTF-8 are an unreadable report, from both readers."""
+    path = tmp_path / "report.json"
+    path.write_bytes(b"\xff\xfe\x00")
+    with pytest.raises(RestoreRefused) as unreadable:
+        load_report(path, KEY)
+    assert unreadable.value.code == "report_unreadable"
+    with pytest.raises(RestoreRefused) as refused:
+        promote(
+            admin_url="postgresql+psycopg://nobody@127.0.0.1:1/none",
+            staging_database="hom217_restoring_1",
+            live_database="hom217_live_1",
+            report_path=path,
+            key=KEY,
+        )
+    assert refused.value.code == "report_unreadable"
 
 
 # --- RLS, tenant boundaries and object reconciliation -----------------------------------
