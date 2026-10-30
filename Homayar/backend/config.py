@@ -308,6 +308,26 @@ def _query_hosts(values: list[str]) -> list[str]:
     return hosts
 
 
+# One webhook retry delay is 1 second to 7 days (HOM-90, ADR 0050 D9).
+_WEBHOOK_RETRY_DELAY_MAX_SECONDS = 7 * 24 * 3600
+
+
+def parse_webhook_retry_delays(value: str) -> tuple[int, ...]:
+    """``WEBHOOK_RETRY_DELAYS_SECONDS``: comma-separated whole seconds; raises ValueError."""
+    items = [item.strip() for item in value.split(",")]
+    if not all(re.fullmatch(r"[0-9]+", item) for item in items):
+        raise ValueError(
+            "WEBHOOK_RETRY_DELAYS_SECONDS must be a comma-separated list of whole seconds"
+        )
+    delays = tuple(int(item) for item in items)
+    if not all(1 <= delay <= _WEBHOOK_RETRY_DELAY_MAX_SECONDS for delay in delays):
+        raise ValueError(
+            "WEBHOOK_RETRY_DELAYS_SECONDS values must be between 1 and "
+            f"{_WEBHOOK_RETRY_DELAY_MAX_SECONDS} seconds"
+        )
+    return delays
+
+
 # A hop's transport: "tls", "plaintext" (with the hosts it reaches) or "invalid".
 _Transport = tuple[Literal["tls", "plaintext", "invalid"], list[str]]
 
@@ -627,6 +647,11 @@ class Settings(BaseSettings):
     webhook_sweep_interval_seconds: int = 30  # due-delivery sweeper period
     webhook_max_endpoints_per_workspace: int = 20  # active endpoints only
     webhook_test_rate_limit_per_hour: int = 30  # test events queued, per workspace
+    # Retries (HOM-90, ADR 0050 D9): a failed attempt is sent again after the
+    # delay for its number (the last delay repeats); after max attempts the
+    # delivery moves to the dead letter.
+    webhook_max_attempts: int = 8  # 1 to 20
+    webhook_retry_delays_seconds: str = "60,300,1800,7200,18000,36000,36000"
     # Execution leases (WP06-T04): one policy object (backend.jobs.leases)
     # derives every timing decision from these; no other module keeps its own.
     job_lease_seconds: int = 120  # a RUNNING attempt is abandoned when not renewed
@@ -817,6 +842,10 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [value.strip() for value in self.cors_origins.split(",") if value.strip()]
 
+    @property
+    def webhook_retry_delays(self) -> tuple[int, ...]:
+        return parse_webhook_retry_delays(self.webhook_retry_delays_seconds)
+
     @model_validator(mode="after")
     def validate_security_configuration(self) -> Settings:
         if self.max_upload_size_mb <= 0 or self.max_audio_duration_seconds <= 0:
@@ -966,6 +995,9 @@ class Settings(BaseSettings):
             raise ValueError("WEBHOOK_MAX_ENDPOINTS_PER_WORKSPACE must be positive")
         if self.webhook_test_rate_limit_per_hour < 1:
             raise ValueError("WEBHOOK_TEST_RATE_LIMIT_PER_HOUR must be positive")
+        if not 1 <= self.webhook_max_attempts <= 20:
+            raise ValueError("WEBHOOK_MAX_ATTEMPTS must be between 1 and 20")
+        parse_webhook_retry_delays(self.webhook_retry_delays_seconds)  # raises ValueError
         if self.metrics_bearer_token and len(self.metrics_bearer_token.strip()) < 32:
             raise ValueError("METRICS_BEARER_TOKEN must be at least 32 characters")
         if not 0 <= self.metrics_cache_seconds <= 300:

@@ -437,13 +437,15 @@ def test_a_non_2xx_answer_fails_with_http_status(client, email_outbox, monkeypat
 
     deliver_webhook(delivery_id, now=now, http_client=Receiver(httpx.Response(status)).client)
 
+    # HOM-90: a failed attempt is retried after the first delay.
     row = _delivery(delivery_id)
     assert (row["state"], row["last_status_code"], row["last_error"]) == (
-        "failed",
+        "pending",
         status,
         "http_status",
     )
-    assert row["next_attempt_at"] is None and row["delivered_at"] is None
+    assert _utc(row["next_attempt_at"]) == now + timedelta(seconds=60)
+    assert row["delivered_at"] is None
     [attempt] = _attempts(delivery_id)
     assert (attempt["outcome"], attempt["status_code"], attempt["error_code"]) == (
         "failed",
@@ -465,7 +467,7 @@ def test_a_redirect_is_a_failure_and_is_never_followed(client, email_outbox, mon
     assert [str(request.url) for request in receiver.requests] == [HOOK]
     row = _delivery(delivery_id)
     assert (row["state"], row["last_status_code"], row["last_error"]) == (
-        "failed",
+        "pending",
         301,
         "http_status",
     )
@@ -480,7 +482,7 @@ def test_no_answer_fails_without_a_status(client, email_outbox, monkeypatch, now
     deliver_webhook(delivery_id, now=now, http_client=Receiver(answer).client)
 
     row = _delivery(delivery_id)
-    assert (row["state"], row["last_status_code"], row["last_error"]) == ("failed", None, code)
+    assert (row["state"], row["last_status_code"], row["last_error"]) == ("pending", None, code)
     [attempt] = _attempts(delivery_id)
     assert (attempt["outcome"], attempt["status_code"], attempt["error_code"]) == (
         "failed",
@@ -489,7 +491,7 @@ def test_no_answer_fails_without_a_status(client, email_outbox, monkeypatch, now
     )
 
 
-@pytest.mark.parametrize("state", ["delivered", "failed"])
+@pytest.mark.parametrize("state", ["delivered", "failed", "dead_letter"])
 def test_a_finished_delivery_is_not_sent(client, email_outbox, monkeypatch, now, state):
     _, _, delivery_id = _one_delivery(client, email_outbox, monkeypatch, now)
     _update(WebhookDelivery, delivery_id, state=state, delivered_at=now, next_attempt_at=now)
@@ -573,7 +575,7 @@ def test_a_lease_blocks_until_it_expires_then_the_same_bytes_go_again(
 def _assert_refused(delivery_id: str, receiver: Receiver, code: str) -> None:
     assert receiver.requests == []
     row = _delivery(delivery_id)
-    assert (row["state"], row["last_error"], row["next_attempt_at"]) == ("failed", code, None)
+    assert (row["state"], row["last_error"], row["next_attempt_at"]) == ("dead_letter", code, None)
     assert row["attempt_count"] == 0
     assert _attempts(delivery_id) == []
 
@@ -758,7 +760,11 @@ def test_log_lines_carry_no_secret_signature_query_or_payload(
 def _assert_timed_out(delivery_id: str, elapsed: float, deadline: float) -> None:
     assert elapsed < deadline + 2.5, elapsed
     row = _delivery(delivery_id)
-    assert (row["state"], row["last_status_code"], row["last_error"]) == ("failed", None, "timeout")
+    assert (row["state"], row["last_status_code"], row["last_error"]) == (
+        "pending",
+        None,
+        "timeout",
+    )
     [attempt] = _attempts(delivery_id)
     assert (attempt["outcome"], attempt["status_code"], attempt["error_code"]) == (
         "failed",
@@ -824,7 +830,7 @@ def test_celerys_soft_time_limit_during_the_send_is_a_timeout(
     deliver_webhook(delivery_id, now=now, http_client=Receiver(soft_limit).client)
 
     row = _delivery(delivery_id)
-    assert (row["state"], row["last_error"]) == ("failed", "timeout")
+    assert (row["state"], row["last_error"]) == ("pending", "timeout")
     assert _attempts(delivery_id)[0]["error_code"] == "timeout"
 
 
