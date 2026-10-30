@@ -58,8 +58,9 @@ SERVICE_SCOPE_USAGE_RECONCILIATION = "usage_reconciliation"
 # expired capacity slots across tenants (state/end columns only).
 SERVICE_SCOPE_VOICE_RECOVERY = "voice_recovery"
 # Webhook delivery sweeper (HOM-89): discovers due webhook_deliveries rows
-# across tenants (read-only); every send and every write then binds the
-# workspace read from the persisted delivery row.
+# across tenants (read-only: the policy refuses every write while the scope
+# is held); every send and every write then runs in a session bound to the
+# workspace read from the persisted delivery row, without this scope.
 SERVICE_SCOPE_WEBHOOK_DELIVERY = "webhook_delivery"
 
 ALL_GUCS: tuple[str, ...] = (

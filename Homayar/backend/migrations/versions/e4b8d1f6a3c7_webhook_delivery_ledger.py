@@ -48,8 +48,10 @@ rewritten.  Cascades from a workspace or a delivery run as the owner and still w
 Row-level security: the two new tables are tenant only.  ``webhook_deliveries`` gets
 its own policy: a session may read rows of its bound workspace, or every tenant's rows
 under the ``webhook_delivery`` service scope, so the sweeper can find due deliveries.
-The scope is read-only: the WITH CHECK stays tenant-bound, so every write binds the
-row's own workspace.  The application role also loses DELETE on
+The scope is read-only: the WITH CHECK refuses every insert and update while the scope
+is held, even with a workspace bound, because the USING clause would let such a session
+reach another tenant's row.  Every write runs in a session bound to the row's own
+workspace, without the scope.  The application role also loses DELETE on
 ``webhook_deliveries``, because the policy's USING clause would otherwise let the scope
 delete every tenant's rows, and the application never deletes a ledger row.  The scope
 reaches no endpoint, key or attempt row.

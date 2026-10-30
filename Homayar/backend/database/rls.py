@@ -176,12 +176,15 @@ POLICIES: dict[str, tuple[str, str]] = {
         f"workspace_id = {TENANT}",
     ),
     # The webhook sweeper (HOM-89) discovers due deliveries across tenants under
-    # the read-only 'webhook_delivery' service scope; every send and every write
-    # binds the delivery's own workspace (WITH CHECK stays tenant-bound).  The
+    # the 'webhook_delivery' service scope.  The scope is read-only: the WITH
+    # CHECK refuses every INSERT and UPDATE while it is held, even with a
+    # workspace bound (the USING clause would let such a session reach another
+    # tenant's row), and NO_DELETE_TABLES refuses DELETE.  Every write runs in
+    # a session bound to the delivery's own workspace, without the scope.  The
     # scope reaches no endpoint, key or attempt row.
     "webhook_deliveries": (
         f"workspace_id = {TENANT} OR {SERVICE} = 'webhook_delivery'",
-        f"workspace_id = {TENANT}",
+        f"workspace_id = {TENANT} AND {SERVICE} IS DISTINCT FROM 'webhook_delivery'",
     ),
     # Platform-level audit rows (login, OTP) carry no workspace; a share access
     # may *record* an audit row for the share's workspace but never read one.

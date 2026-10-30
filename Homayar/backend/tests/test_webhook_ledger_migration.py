@@ -334,11 +334,12 @@ def test_the_rls_registry_lists_the_webhook_tables():
     assert POLICIES["webhook_endpoints"] == TENANT_ONLY
     assert "webhook_delivery_attempts" in APPEND_ONLY_TABLES
     assert "webhook_signing_keys" not in APPEND_ONLY_TABLES  # rotation sets expires_at
-    # The sweeper discovers due rows across tenants; every write binds the row's tenant.
+    # The sweeper discovers due rows across tenants; no row is written while the scope is
+    # held, even with a workspace bound (SPEC Addendum 2).
     assert "webhook_deliveries" not in WORKSPACE_TABLES
     assert POLICIES["webhook_deliveries"] == (
         f"workspace_id = {TENANT} OR {SERVICE} = 'webhook_delivery'",
-        f"workspace_id = {TENANT}",
+        f"workspace_id = {TENANT} AND {SERVICE} IS DISTINCT FROM 'webhook_delivery'",
     )
     # The application never deletes a ledger row (SPEC Addendum 1, A2).
     assert NO_DELETE_TABLES == ("webhook_deliveries",)
@@ -832,7 +833,8 @@ def _assert_head_shapes(shapes: dict[str, dict]) -> None:
         using, check = _tenant_policy(shapes[table])
         assert using == check and "service_scope" not in using, table
     using, check = _tenant_policy(deliveries)
-    assert "'webhook_delivery'" in using and "service_scope" not in check
+    assert "'webhook_delivery'" in using and "'webhook_delivery'" in check
+    assert "IS DISTINCT FROM" in check
     assert all(shape["rls"] == [(True, True)] for shape in shapes.values())
     assert {table: shape["grants"] for table, shape in shapes.items()} == {
         "webhook_endpoints": ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -965,6 +967,7 @@ SET_SENDING = text(
     "WHERE id = :id"
 )
 DELETE_DELIVERY = text("DELETE FROM webhook_deliveries WHERE id = :id")
+MOVE_DELIVERY = text("UPDATE webhook_deliveries SET workspace_id = :w WHERE id = :id")
 RLS_REFUSED = "row-level security"
 NO_GRANT = "permission denied"
 
@@ -1022,31 +1025,54 @@ def test_the_webhook_delivery_scope_reads_the_deliveries_only(client, email_outb
         for table in TABLES:
             assert _visible(db, table) == set(), table
 
-    # The scope alone cannot write: the WITH CHECK stays tenant-bound.
+    # The scope alone cannot write: the WITH CHECK needs a bound workspace.
     target = {"id": first["webhook_deliveries"]}
     scope = SERVICE_SCOPE_WEBHOOK_DELIVERY
-    _app_refused(SET_SENDING, target, match=RLS_REFUSED, scope=scope)
     insert = WebhookDelivery.__table__.insert()
+    _app_refused(SET_SENDING, target, match=RLS_REFUSED, scope=scope)
     _app_refused(
         insert,
         _delivery(first["tenant"], first["webhook_endpoints"]),
         match=RLS_REFUSED,
         scope=scope,
     )
-    # Bound to another workspace, the scope still cannot write this row.
-    _app_refused(SET_SENDING, target, match=RLS_REFUSED, scope=scope, workspace=second)
     # It cannot delete either: the application role has no DELETE (A2).
     _app_refused(DELETE_DELIVERY, target, match=NO_GRANT, scope=scope)
 
-    # Bound to the row's own workspace, the same writes work.
-    assert _as_app(SET_SENDING, target, scope=scope, workspace=first) == 1
+    # The scope and a workspace together still read every tenant's rows, but write
+    # nothing (Addendum 2): not B's row moved into A, not A's own row, not a new row of A.
+    with factory() as db:
+        _bind(db, scope=scope, workspace=first)
+        assert _visible(db, "webhook_deliveries") == both
+    into_first = {"id": second["webhook_deliveries"], "w": first["tenant"]["workspace_id"]}
+    _app_refused(MOVE_DELIVERY, into_first, match=RLS_REFUSED, scope=scope, workspace=first)
+    _app_refused(SET_SENDING, target, match=RLS_REFUSED, scope=scope, workspace=first)
+    _app_refused(SET_SENDING, target, match=RLS_REFUSED, scope=scope, workspace=second)
+    _app_refused(
+        insert,
+        _delivery(first["tenant"], first["webhook_endpoints"]),
+        match=RLS_REFUSED,
+        scope=scope,
+        workspace=first,
+    )
+
+    # Bound to the row's own workspace only, the same writes work, and B's row stays
+    # out of reach.
     assert _as_app(SET_SENDING, target, workspace=first) == 1
     row = _delivery(first["tenant"], first["webhook_endpoints"])
-    _as_app(insert, row, scope=scope, workspace=first)
+    _as_app(insert, row, workspace=first)
+    assert _as_app(MOVE_DELIVERY, into_first, workspace=first) == 0
     assert (
-        _scalar("SELECT attempt_count FROM webhook_deliveries WHERE id = :id", id=target["id"]) == 2
+        _scalar("SELECT attempt_count FROM webhook_deliveries WHERE id = :id", id=target["id"]) == 1
     )
     assert row["id"] in _ids("webhook_deliveries")
+    assert (
+        _scalar(
+            "SELECT workspace_id FROM webhook_deliveries WHERE id = :id",
+            id=second["webhook_deliveries"],
+        )
+        == second["tenant"]["workspace_id"]
+    )
 
 
 @pytest.mark.postgres
