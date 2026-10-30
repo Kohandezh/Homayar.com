@@ -1071,6 +1071,9 @@ class ScorecardResultRecord(Base):
         UniqueConstraint(
             "scorecard_version_id", "meeting_id", "input_digest", name="uq_scorecard_result_input"
         ),
+        # The target of the criterion rows' composite foreign key.  ``id`` alone is already
+        # unique; this only lets a criterion row name its result's workspace and meeting.
+        UniqueConstraint("id", "workspace_id", "meeting_id", name="uq_scorecard_result_scope"),
         # First, so SQLite names it when an unknown outcome also breaks the reason rule.
         CheckConstraint(SCORECARD_OUTCOME_CHECK, name="ck_scorecard_result_outcome"),
         CheckConstraint(SCORECARD_RESULT_REASON_CHECK, name="ck_scorecard_result_reason"),
@@ -1100,9 +1103,8 @@ class CriterionResultRecord(Base):
     workspace_id: Mapped[str] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    result_id: Mapped[str] = mapped_column(
-        ForeignKey("scorecard_results.id", ondelete="CASCADE"), nullable=False
-    )
+    # Its foreign key is ``fk_scorecard_criterion_result_result`` below.
+    result_id: Mapped[str] = mapped_column(String(36), nullable=False)
     # A copy of the result's conversation: the purge and the backup reconciliation find
     # content rows by ``meeting_id``.
     meeting_id: Mapped[str] = mapped_column(
@@ -1128,6 +1130,19 @@ class CriterionResultRecord(Base):
     )
 
     __table_args__ = (
+        # A criterion row has its result's workspace and meeting.  The purge deletes
+        # criterion rows by their own ``meeting_id``, so a row that named another meeting
+        # would go with that meeting's purge and change a stored score.
+        ForeignKeyConstraint(
+            ["result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_scorecard_criterion_result_result",
+        ),
         # Its leading column also serves the ``result_id`` foreign key.
         UniqueConstraint("result_id", "position", name="uq_scorecard_criterion_result_position"),
         UniqueConstraint(

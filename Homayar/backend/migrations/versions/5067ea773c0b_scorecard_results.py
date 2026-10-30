@@ -21,7 +21,12 @@ again and to explain it criterion by criterion (F41, WP11):
   definition order, so later tickets can find the criteria that need a person.  It
   copies the result's ``meeting_id``.  ``uq_scorecard_criterion_result_position`` and
   ``uq_scorecard_criterion_result_criterion`` keep the position and the criterion id
-  unique per result.
+  unique per result.  ``fk_scorecard_criterion_result_result`` points
+  (``result_id``, ``workspace_id``, ``meeting_id``) at ``uq_scorecard_result_scope``
+  (``id``, ``workspace_id``, ``meeting_id``) of the result, so a criterion row always
+  has its result's workspace and meeting.  The purge deletes criterion rows by their
+  own ``meeting_id``; a row that named another meeting would go with that meeting's
+  purge and change a stored score.
 
 The checks copy the outcome and reason rules of ``backend/scorecards/README.md``.  They
 use no regex, so SQLite runs the same rules.  A check passes when its expression is
@@ -36,8 +41,10 @@ Why immutable: a stored score must never change silently (F41).  A new input or 
 scorecard version is a new row, and the ORM refuses to update or delete a stored row.
 Why the conversation purge still removes them: they are conversation content derived
 from a transcript, like ``analysis_extractions``.  The purge deletes them with bulk
-statements as the application role, so the tables are not in ``APPEND_ONLY_TABLES``
-and keep the default workspace-table grants.  Both are workspace tables under row-level
+statements as the application role, so the tables are not in ``APPEND_ONLY_TABLES``.
+They are in ``NO_UPDATE_TABLES``: the application role keeps SELECT, INSERT and DELETE
+but loses UPDATE, because a stored machine score never changes and only the purge
+removes it.  Both are workspace tables under row-level
 security (tenant only, never through a share token).  Cascades from a removed
 workspace, conversation, scorecard version or transcript revision also remove the rows.
 
@@ -174,6 +181,7 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "scorecard_version_id", "meeting_id", "input_digest", name="uq_scorecard_result_input"
         ),
+        sa.UniqueConstraint("id", "workspace_id", "meeting_id", name="uq_scorecard_result_scope"),
         *(sa.CheckConstraint(check, name=name) for name, check in RESULT_CHECKS.items()),
     )
     with op.batch_alter_table(RESULTS, schema=None) as batch_op:
@@ -203,7 +211,12 @@ def upgrade() -> None:
         sa.Column("candidate_evidence", sa.JSON(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["result_id"], [f"{RESULTS}.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["result_id", "workspace_id", "meeting_id"],
+            [f"{RESULTS}.id", f"{RESULTS}.workspace_id", f"{RESULTS}.meeting_id"],
+            ondelete="CASCADE",
+            name="fk_scorecard_criterion_result_result",
+        ),
         sa.ForeignKeyConstraint(["meeting_id"], ["meetings.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("result_id", "position", name="uq_scorecard_criterion_result_position"),
@@ -219,7 +232,7 @@ def upgrade() -> None:
         batch_op.create_index(
             CRITERION_WORKSPACE_MEETING_INDEX, ["workspace_id", "meeting_id"], unique=False
         )
-    # The tenant policy of the new tables and their grants.
+    # The tenant policy of the new tables, their grants and the UPDATE revoke.
     apply_row_level_security(op.get_bind())
 
 

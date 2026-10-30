@@ -12,14 +12,16 @@ removes it with the rest of the conversation's derived content.  The tests check
 * the ORM refuses to update any column of a stored row, or to delete one, in either
   table, while a flush that changes nothing works;
 * every deny case of the SPEC (section 4) is refused by its named constraint, and the
-  closest allow case passes (SQLite and PostgreSQL);
+  closest allow case passes (SQLite and PostgreSQL); a criterion row always has its
+  result's workspace and meeting (composite foreign key);
 * on SQLite, the migration builds the same two tables as the ORM, and its downgrade
   removes them and nothing else;
 * on PostgreSQL: the ORM schema (``create_all``) and the migrated schema are the same;
   upgrade from ``47676f445509`` creates the two tables, their policy and their grants,
   and downgrade removes them and leaves every other table as it was; tenant isolation;
   the application role may SELECT, INSERT and DELETE its own workspace's rows and none
-  of another's; deleting a workspace, a meeting or a scorecard version still removes
+  of another's, and may never UPDATE them, also after the policies are applied again;
+  deleting a workspace, a meeting or a scorecard version still removes
   the rows;
 * deleting a transcript revision removes the results scored from it;
 * the conversation purge removes the rows of the purged conversation only, a legal hold
@@ -47,6 +49,7 @@ from backend.database.relational import get_session_factory
 from backend.database.rls import (
     APP_ROLE,
     APPEND_ONLY_TABLES,
+    NO_UPDATE_TABLES,
     POLICIES,
     POLICY_NAME,
     SHARED_CONTENT_TABLES,
@@ -265,6 +268,10 @@ UNIQUE_COLUMNS = {
 
 
 def _names(constraint: str) -> str:
+    if constraint.startswith("fk_") and not _on_postgres():
+        # SQLite does not name a broken foreign key either.  Each deny names a workspace
+        # and a meeting that exist, so only the composite key can refuse it.
+        return "FOREIGN KEY constraint failed"
     if constraint in UNIQUE_COLUMNS and not _on_postgres():
         table, columns = UNIQUE_COLUMNS[constraint]
         return re.escape(", ".join(f"{table}.{column}" for column in columns))
@@ -588,6 +595,41 @@ def _assert_criterion_review_rules(parents: dict) -> None:
     _add(CriterionResultRecord, row(**insufficient, reason="direction_unknown", check_outcome=None))
 
 
+def _assert_criterion_scope_rules(parents: dict, other: dict) -> None:
+    """A criterion row has its result's workspace and meeting (Addendum 2, F1).
+
+    ``other`` is a conversation of another workspace.
+    """
+    key = "fk_scorecard_criterion_result_result"
+    result_id = _add(ScorecardResultRecord, _result(parents))
+    elsewhere = _parents(parents, key="elsewhere")  # another meeting of the same workspace
+    _refused(
+        CriterionResultRecord,
+        _criterion(parents, result_id, 0, meeting_id=elsewhere["meeting_id"]),
+        key,
+    )
+    _add(CriterionResultRecord, _criterion(parents, result_id, 0, meeting_id=parents["meeting_id"]))
+
+    # Another workspace's result with this workspace's id on the criterion row.
+    theirs = _add(ScorecardResultRecord, _result(other))
+    _refused(
+        CriterionResultRecord,
+        _criterion(other, theirs, 0, workspace_id=parents["workspace_id"]),
+        key,
+    )
+    _add(CriterionResultRecord, _criterion(other, theirs, 0, workspace_id=other["workspace_id"]))
+
+    # ``uq_scorecard_result_scope`` is only the target of that key: a second row with the
+    # same (id, workspace_id, meeting_id) already breaks the primary key.
+    with inspection_session_factory()() as db:
+        db.add(ScorecardResultRecord(**_result(parents, id=result_id)))
+        with pytest.raises(
+            IntegrityError, match=rf"{RESULTS}_pkey|uq_scorecard_result_scope|{RESULTS}\.id\b"
+        ):
+            db.flush()
+        db.rollback()
+
+
 RULES = (
     _assert_one_result_per_input,
     _assert_result_outcome_rules,
@@ -604,6 +646,12 @@ RULES = (
 def test_the_database_refuses_the_deny_cases_and_takes_the_allow_cases(client, email_outbox, rules):
     parents = _parents(_tenant(client, email_outbox, "rules"))
     rules(parents)
+
+
+def test_a_criterion_row_has_its_results_workspace_and_meeting(client, email_outbox):
+    parents = _parents(_tenant(client, email_outbox, "scope-a"))
+    other = _parents(_tenant(client, email_outbox, "scope-b"))
+    _assert_criterion_scope_rules(parents, other)
 
 
 # --- the ORM and the RLS lists ------------------------------------------------------------
@@ -662,7 +710,13 @@ def _declared(table) -> dict:
     return {
         "nullable": {column.name for column in table.columns if column.nullable},
         "foreign_keys": {
-            key.parent.name: (key.target_fullname, key.ondelete) for key in table.foreign_keys
+            (
+                constraint.name,
+                tuple(constraint.column_keys),
+                tuple(element.target_fullname for element in constraint.elements),
+                constraint.ondelete,
+            )
+            for constraint in table.foreign_key_constraints
         },
         "unique": {
             name: [column.name for column in constraint.columns]
@@ -710,13 +764,15 @@ def test_the_orm_declares_the_result_table():
     declared = _declared(table)
     assert declared["nullable"] == {"direction", "reason"}
     assert declared["foreign_keys"] == {
-        "workspace_id": ("workspaces.id", "CASCADE"),
-        "meeting_id": ("meetings.id", "CASCADE"),
-        "scorecard_version_id": ("scorecard_versions.id", "CASCADE"),
-        "transcript_revision_id": ("transcript_revisions.id", "CASCADE"),
+        (None, ("workspace_id",), ("workspaces.id",), "CASCADE"),
+        (None, ("meeting_id",), ("meetings.id",), "CASCADE"),
+        (None, ("scorecard_version_id",), ("scorecard_versions.id",), "CASCADE"),
+        (None, ("transcript_revision_id",), ("transcript_revisions.id",), "CASCADE"),
     }
     assert declared["unique"] == {
-        "uq_scorecard_result_input": ["scorecard_version_id", "meeting_id", "input_digest"]
+        "uq_scorecard_result_input": ["scorecard_version_id", "meeting_id", "input_digest"],
+        # The target of the criterion rows' composite foreign key.
+        "uq_scorecard_result_scope": ["id", "workspace_id", "meeting_id"],
     }
     assert declared["checks"] == RESULT_CHECKS
     assert declared["indexes"] == {
@@ -744,9 +800,18 @@ def test_the_orm_declares_the_criterion_table():
     declared = _declared(table)
     assert declared["nullable"] == {"reason", "decided_by", "check_outcome", "check_reason"}
     assert declared["foreign_keys"] == {
-        "workspace_id": ("workspaces.id", "CASCADE"),
-        "result_id": ("scorecard_results.id", "CASCADE"),
-        "meeting_id": ("meetings.id", "CASCADE"),
+        (None, ("workspace_id",), ("workspaces.id",), "CASCADE"),
+        (None, ("meeting_id",), ("meetings.id",), "CASCADE"),
+        (
+            "fk_scorecard_criterion_result_result",
+            ("result_id", "workspace_id", "meeting_id"),
+            (
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ),
+            "CASCADE",
+        ),
     }
     assert declared["unique"] == {
         "uq_scorecard_criterion_result_position": ["result_id", "position"],
@@ -801,13 +866,16 @@ def test_no_column_holds_an_inferred_number_or_a_score():
 def test_both_tables_are_workspace_tables_the_purge_can_delete():
     for table in TABLES:
         assert table in WORKSPACE_TABLES
-        # The conversation purge deletes them as the application role (Addendum A2).
+        # The conversation purge deletes them as the application role (Addendum A2), but
+        # the application role never updates them (Addendum 2, F3).
         assert table not in APPEND_ONLY_TABLES
+        assert table in NO_UPDATE_TABLES
         assert table not in SHARED_CONTENT_TABLES  # never through a share token
         assert table not in UNPROTECTED_TABLES
         assert POLICIES[table] == (f"workspace_id = {TENANT}", f"workspace_id = {TENANT}")
         # The same policy as the extractions, the other immutable derived content.
         assert POLICIES[table] == POLICIES["analysis_extractions"]
+    assert NO_UPDATE_TABLES == (RESULTS, CRITERIA)
 
 
 def _changed(value: object) -> object:
@@ -917,6 +985,7 @@ def _reflect(connection, table: str) -> dict:
         "primary_key": inspector.get_pk_constraint(table)["constrained_columns"],
         "foreign_keys": sorted(
             (
+                key["name"] or "",
                 tuple(key["constrained_columns"]),
                 key["referred_table"],
                 tuple(key["referred_columns"]),
@@ -1162,13 +1231,18 @@ EXPECTED_CONSTRAINTS = {
                 "uq_scorecard_result_input",
                 "UNIQUE (scorecard_version_id, meeting_id, input_digest)",
             ),
+            ("uq_scorecard_result_scope", "UNIQUE (id, workspace_id, meeting_id)"),
         ]
     ),
     CRITERIA: dict(
         [
             (f"{CRITERIA}_pkey", "PRIMARY KEY (id)"),
             _cascade(CRITERIA, "workspace_id", "workspaces"),
-            _cascade(CRITERIA, "result_id", RESULTS),
+            (
+                "fk_scorecard_criterion_result_result",
+                "FOREIGN KEY (result_id, workspace_id, meeting_id) REFERENCES "
+                "scorecard_results(id, workspace_id, meeting_id) ON DELETE CASCADE",
+            ),
             _cascade(CRITERIA, "meeting_id", "meetings"),
             ("uq_scorecard_criterion_result_position", 'UNIQUE (result_id, "position")'),
             ("uq_scorecard_criterion_result_criterion", "UNIQUE (result_id, criterion_id)"),
@@ -1192,6 +1266,9 @@ EXPECTED_INDEXES = {
                 "uq_scorecard_result_input",
                 "scorecard_version_id, meeting_id, input_digest",
                 unique=True,
+            ),
+            _index(
+                RESULTS, "uq_scorecard_result_scope", "id, workspace_id, meeting_id", unique=True
             ),
             _index(RESULTS, f"ix_{RESULTS}_workspace_id", "workspace_id"),
             _index(RESULTS, f"ix_{RESULTS}_meeting_id", "meeting_id"),
@@ -1244,9 +1321,8 @@ def _assert_head_shape(table: str) -> dict:
     assert "homayar.workspace_id" in using
     assert "share" not in using and "service" not in using
     assert shape["rls"] == [(True, True)]
-    # The default workspace-table grants, like the extractions: no append-only revoke.
-    assert shape["grants"] == ["DELETE", "INSERT", "SELECT", "UPDATE"]
-    assert shape["grants"] == _shape("analysis_extractions")["grants"]
+    # The workspace-table grants without UPDATE (Addendum 2, F3); DELETE stays for the purge.
+    assert shape["grants"] == ["DELETE", "INSERT", "SELECT"]
     return shape
 
 
@@ -1267,6 +1343,7 @@ def test_the_migration_creates_and_drops_only_the_two_tables(
     from backend.config import reset_settings_cache
 
     parents = _parents(_tenant(client, email_outbox, "migration"))
+    other = _parents(_tenant(client, email_outbox, "migration-other"))
     orm_shapes = {table: _assert_head_shape(table) for table in TABLES}
     result_id = _add(ScorecardResultRecord, _result(parents))
     _add(CriterionResultRecord, _criterion(parents, result_id, 0))
@@ -1298,6 +1375,7 @@ def test_the_migration_creates_and_drops_only_the_two_tables(
         # The migrated schema refuses the same deny cases.
         for rules in RULES:
             rules(parents)
+        _assert_criterion_scope_rules(parents, other)
         assert _ids(RESULTS) and _ids(CRITERIA)
 
         # Down and up again with rows present.
@@ -1384,20 +1462,56 @@ def test_a_session_reads_and_writes_only_its_own_workspace(client, email_outbox)
         assert _workspaces(table) == sorted([first["workspace_id"], second["workspace_id"]])
 
 
+UPDATES = (
+    "UPDATE scorecard_results SET outcome = 'failed', reason = 'auto_fail'",
+    "UPDATE scorecard_criterion_results SET outcome = 'failed'",
+)
+
+
+def _privileges(table: str) -> dict[str, bool]:
+    return {
+        privilege: _scalar(
+            "SELECT has_table_privilege(:r, :t, :p)", r=APP_ROLE, t=table, p=privilege
+        )
+        for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE")
+    }
+
+
+def _assert_no_update(workspace_id: str) -> None:
+    """The rows are visible to the bound workspace, so the refusal is the missing grant."""
+    for statement in UPDATES:
+        with get_session_factory()() as db:
+            bind_tenant_context(db, workspace_id=workspace_id)
+            for table in TABLES:
+                assert db.scalar(text(f"SELECT count(*) FROM {table}")) == 1  # noqa: S608
+            with pytest.raises(DBAPIError, match="permission denied"):
+                db.execute(text(statement))
+            db.rollback()
+
+
+def _apply_as_owner() -> None:
+    from backend.database.rls import apply_row_level_security
+
+    with inspection_session_factory()() as db:
+        try:
+            apply_row_level_security(db.connection())
+        except Exception:
+            db.rollback()
+            raise
+        db.commit()
+
+
 @pytest.mark.postgres
-def test_the_app_role_reads_inserts_and_deletes_only_its_own_rows(client, email_outbox):
-    """DELETE is the purge path: the purge runs as the application role (Addendum A2)."""
+def test_the_app_role_reads_inserts_and_deletes_its_own_rows_and_never_updates(
+    client, email_outbox
+):
+    """DELETE is the purge path (Addendum A2); UPDATE is revoked (Addendum 2, F3)."""
     _requires_postgres()
     first = _parents(_tenant(client, email_outbox, "delete-a"))
     second = _parents(_tenant(client, email_outbox, "delete-b"))
+    expected = {"SELECT": True, "INSERT": True, "UPDATE": False, "DELETE": True}
     for table in TABLES:
-        privileges = {
-            privilege: _scalar(
-                "SELECT has_table_privilege(:r, :t, :p)", r=APP_ROLE, t=table, p=privilege
-            )
-            for privilege in ("SELECT", "INSERT", "DELETE")
-        }
-        assert privileges == {"SELECT": True, "INSERT": True, "DELETE": True}
+        assert _privileges(table) == expected
 
     factory = get_session_factory()
     with factory() as db:
@@ -1420,7 +1534,16 @@ def test_the_app_role_reads_inserts_and_deletes_only_its_own_rows(client, email_
     for table in TABLES:
         assert _workspaces(table) == [first["workspace_id"]]
 
-    # Bound to A: it reads its rows, and the purge's own statements remove them.
+    # Bound to A: no UPDATE of either table, and still none after the policies and the
+    # grants are applied again (the call is idempotent).
+    _assert_no_update(first["workspace_id"])
+    _apply_as_owner()
+    for table in TABLES:
+        assert _privileges(table) == expected
+    _assert_no_update(first["workspace_id"])
+
+    # Allow-control, bound to A: it reads its rows, and the purge's own statements
+    # delete them.
     with factory() as db:
         bind_tenant_context(db, workspace_id=first["workspace_id"])
         for table in TABLES:
