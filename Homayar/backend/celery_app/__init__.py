@@ -27,6 +27,8 @@ RETENTION_PURGE_TASK = "backend.jobs.run_retention_purge"
 # Analysis recompute after a transcript correction (HOM-63, ADR 0037).
 RECOMPUTE_ANALYSIS_TASK = "backend.jobs.recompute_meeting_analysis"
 RECOMPUTE_SWEEP_TASK = "backend.jobs.sweep_stale_analyses"
+# Delayed CRM records (HOM-88): retries records that arrived before their conversation.
+CRM_RECONCILIATION_TASK = "backend.jobs.reconcile_crm_records"
 # Signed webhook delivery (HOM-89, ADR 0049).
 DELIVER_WEBHOOK_TASK = "backend.jobs.deliver_webhook"
 WEBHOOK_SWEEP_TASK = "backend.jobs.sweep_webhook_deliveries"
@@ -173,6 +175,17 @@ def make_celery() -> Celery:
                 "options": {
                     "queue": PROCESSING_QUEUE,
                     "expires": float(settings.recompute_sweep_interval_seconds),
+                },
+            },
+            # - CRM reconciliation (HOM-88) applies pending CRM records whose
+            #   conversation arrived and queues the expired ones. Without beat
+            #   run python -m backend.jobs.crm_reconciliation
+            "crm-reconciliation": {
+                "task": CRM_RECONCILIATION_TASK,
+                "schedule": float(settings.crm_reconciliation_interval_seconds),
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.crm_reconciliation_interval_seconds),
                 },
             },
             # - webhook delivery sweep (HOM-89) publishes a delivery task for

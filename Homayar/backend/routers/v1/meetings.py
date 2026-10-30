@@ -47,6 +47,10 @@ from backend.media.channel_store import load_channel_inspection
 from backend.privacy.transcript_view import choose_view
 from backend.routers.v1.insights import _quality, invalid_time_range
 from backend.schemas.ingestions import IngestionResponse
+from backend.schemas.integrations import (
+    ConversationExternalLinkListResponse,
+    ConversationExternalLinkResponse,
+)
 from backend.schemas.meetings import (
     ChannelInspectionResponse,
     ConversationListResponse,
@@ -82,6 +86,7 @@ from backend.services.conversation_purge_service import (
     run_purge_attempt,
     tombstone_meeting,
 )
+from backend.services.crm_mapping_service import conversation_links
 from backend.services.download_service import deliver_recording, ensure_recording_playable
 from backend.services.entitlement_service import (
     QuotaExceededError,
@@ -1010,6 +1015,25 @@ def update_conversation(
 ) -> MeetingResponse:
     return update_meeting(
         conversation_id, payload, request, context=context, db=db, settings=settings
+    )
+
+
+@router.get(
+    "/conversations/{conversation_id}/external-links",
+    response_model=ConversationExternalLinkListResponse,
+    tags=["conversations"],
+)
+def list_conversation_external_links(
+    conversation_id: str,
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+) -> ConversationExternalLinkListResponse:
+    """The conversation's current CRM links (HOM-88), with the same 404 as
+    ``GET /conversations/{id}`` when the caller may not see the conversation."""
+    meeting = _get_meeting(db, context=context, meeting_id=conversation_id)
+    links = conversation_links(db, workspace_id=context.workspace.id, meeting_id=meeting.id)
+    return ConversationExternalLinkListResponse(
+        items=[ConversationExternalLinkResponse.model_validate(link) for link in links]
     )
 
 
