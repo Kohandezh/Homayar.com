@@ -118,12 +118,21 @@ describe("RegisterPage", () => {
     vi.restoreAllMocks();
   });
 
+  // The register form waits for the server's sign-up answer (HOM-336), so
+  // every test here answers GET /auth/methods at once.
+  function methodsAvailable() {
+    return vi.spyOn(api, "get").mockResolvedValue(
+      okResponse({ password: true, google: false, phone_otp: false, registration: true }),
+    );
+  }
+
   it("registers in the chosen language, clears the password and explains verification honestly", async () => {
     const user = userEvent.setup();
+    methodsAvailable();
     const post = vi.spyOn(api, "post").mockResolvedValue(okResponse({ status: "pending_verification" }, 202));
     renderConsole(<RegisterPage />, { lang: "en" });
 
-    await user.type(screen.getByLabelText("Full name"), "Person");
+    await user.type(await screen.findByLabelText("Full name"), "Person");
     await user.type(screen.getByLabelText("Work email"), "person@example.com");
     await user.type(screen.getByLabelText("Password"), "strong-password1");
     await user.type(screen.getByLabelText("Confirm password"), "strong-password1");
@@ -142,6 +151,7 @@ describe("RegisterPage", () => {
 
   it("maps an existing account and a weak password to specific messages", async () => {
     const user = userEvent.setup();
+    methodsAvailable();
     vi.spyOn(api, "post")
       .mockRejectedValueOnce(apiError(409, "account_exists"))
       .mockRejectedValueOnce(
@@ -149,7 +159,7 @@ describe("RegisterPage", () => {
       );
     renderConsole(<RegisterPage />);
 
-    await user.type(screen.getByLabelText("نام و نام خانوادگی"), "شخص");
+    await user.type(await screen.findByLabelText("نام و نام خانوادگی"), "شخص");
     await user.type(screen.getByLabelText("ایمیل کاری"), "person@example.com");
     await user.type(screen.getByLabelText("گذرواژه"), "strong-password1");
     await user.type(screen.getByLabelText("تکرار گذرواژه"), "strong-password1");
@@ -162,9 +172,10 @@ describe("RegisterPage", () => {
 
   it("stops a mismatched confirmation before calling the API", async () => {
     const user = userEvent.setup();
+    methodsAvailable();
     const post = vi.spyOn(api, "post");
     renderConsole(<RegisterPage />, { lang: "en" });
-    await user.type(screen.getByLabelText("Full name"), "Person");
+    await user.type(await screen.findByLabelText("Full name"), "Person");
     await user.type(screen.getByLabelText("Work email"), "person@example.com");
     await user.type(screen.getByLabelText("Password"), "strong-password1");
     await user.type(screen.getByLabelText("Confirm password"), "strong-password2");

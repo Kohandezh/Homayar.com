@@ -12,16 +12,23 @@ export interface AuthMethods {
   password: boolean;
   google: boolean;
   phone: boolean;
+  registration: boolean;
 }
 
 export const AUTH_METHODS_QUERY_KEY = ["auth", "methods"] as const;
 
-const PASSWORD_ONLY: AuthMethods = { password: true, google: false, phone: false };
+const PASSWORD_ONLY: AuthMethods = {
+  password: true,
+  google: false,
+  phone: false,
+  registration: true,
+};
 
 interface AuthMethodsResponse {
   password?: unknown;
   google?: unknown;
   phone_otp?: unknown;
+  registration?: unknown;
 }
 
 export async function getAuthMethods(): Promise<AuthMethods> {
@@ -30,6 +37,8 @@ export async function getAuthMethods(): Promise<AuthMethods> {
     password: response.data.password !== false,
     google: response.data.google === true,
     phone: response.data.phone_otp === true,
+    // An older server without the field counts as open: the server is the gate.
+    registration: response.data.registration !== false,
   };
 }
 

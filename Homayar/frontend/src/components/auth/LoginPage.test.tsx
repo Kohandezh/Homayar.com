@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
+import api from "@/lib/api";
 import LoginPage from "@/components/auth/LoginPage";
 import type { AuthContextValue } from "@/lib/auth-context";
 import { FIXTURE_USER, apiError, networkError, renderConsole, withAuthMethods } from "@/test/fixtures";
@@ -97,5 +98,46 @@ describe("LoginPage", () => {
     renderLogin({ lang: "en", queryClient: withAuthMethods({ google: true, phone: true }) });
     expect(screen.getByRole("button", { name: "Continue with Google" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign in with a phone code" })).toBeInTheDocument();
+  });
+
+  it("shows the register link only while the server leaves sign-up open", () => {
+    const { unmount } = renderLogin({ lang: "en", queryClient: withAuthMethods({ registration: false }) });
+    expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
+    unmount();
+
+    renderLogin({ lang: "en", queryClient: withAuthMethods({}) });
+    expect(screen.getByRole("link", { name: "Create an account" })).toBeInTheDocument();
+  });
+
+  it("never flashes the register link while the methods answer is loading", () => {
+    vi.spyOn(api, "get").mockImplementation(() => new Promise(() => {}));
+    renderLogin({ lang: "en" });
+
+    expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the register link when the methods answer is unavailable", async () => {
+    vi.spyOn(api, "get").mockRejectedValue(apiError(500, "unavailable"));
+    renderLogin({ lang: "en" });
+
+    // The methods query retries once before reporting unavailable.
+    const link = await screen.findByRole(
+      "link",
+      { name: "Create an account" },
+      { timeout: 5_000 },
+    );
+    expect(link).toBeInTheDocument();
+  });
+
+  it("explains that sign-up is closed for a registration_closed callback", () => {
+    renderLogin({ route: "/login?error=registration_closed", lang: "en" });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Sign-up is closed");
+  });
+
+  it("explains a closed sign-up in Persian for a registration_closed callback", () => {
+    renderLogin({ route: "/login?error=registration_closed" });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("ثبت‌نام در این سرور بسته است");
   });
 });

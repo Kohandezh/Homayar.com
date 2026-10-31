@@ -37,7 +37,12 @@ def test_auth_methods_report_only_enabled_and_configured_methods(client, setting
     response = client.get("/api/v1/auth/methods")
     assert response.status_code == 200, response.text
     # The test settings enable phone OTP with (fake) Asanak settings; Google is off.
-    assert response.json() == {"password": True, "google": False, "phone_otp": True}
+    assert response.json() == {
+        "password": True,
+        "google": False,
+        "phone_otp": True,
+        "registration": True,
+    }
     assert response.headers["cache-control"] == "no-store"
     assert "test-only-key" not in response.text
 
@@ -46,6 +51,7 @@ def test_auth_methods_report_only_enabled_and_configured_methods(client, setting
         "password": True,
         "google": False,
         "phone_otp": False,
+        "registration": True,
     }
     # "Enabled" is not "available": a flag without its credentials reports false
     # (and the settings validator refuses to start with that combination).

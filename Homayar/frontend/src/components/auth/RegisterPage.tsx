@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Mail, UserRound } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { register } from "@/lib/auth";
+import { useAuthMethods } from "@/lib/auth-methods";
 import { isolateLtr } from "@/lib/format";
 import { authErrorText, useAuthCopy } from "@/components/auth/auth-copy";
 import {
@@ -13,8 +14,17 @@ import {
   SubmitButton,
 } from "@/components/auth/AuthUi";
 
+/** Same bounds as the invitation accept page; anything else is not a token. */
+function usableInvitationToken(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length >= 32 && trimmed.length <= 256 ? trimmed : "";
+}
+
 export default function RegisterPage() {
   const { copy, lang } = useAuthCopy();
+  const { methods, status: methodsStatus } = useAuthMethods();
+  const [searchParams] = useSearchParams();
+  const invitationToken = usableInvitationToken(searchParams.get("invitation") ?? "");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,7 +45,7 @@ export default function RegisterPage() {
     setLoading(true);
     const address = email.trim();
     try {
-      await register({ name: name.trim(), email: address, password, locale: lang });
+      await register({ name: name.trim(), email: address, password, locale: lang, invitationToken });
       // Nothing secret stays in memory once the account exists.
       setPassword("");
       setConfirmation("");
@@ -45,6 +55,26 @@ export default function RegisterPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (!createdFor && methodsStatus === "loading") {
+    return (
+      <AuthCard title={copy.register.title} description={copy.register.description}>
+        <p role="status" className="auth-field-hint">{copy.common.loading}</p>
+      </AuthCard>
+    );
+  }
+
+  // HOM-336: a closed server shows the form only to a holder of an invitation
+  // token; while the answer is unavailable the form stays (the server gates).
+  const registrationClosed = methodsStatus === "ready" && !methods.registration && !invitationToken;
+
+  if (!createdFor && registrationClosed) {
+    return (
+      <AuthCard title={copy.register.closedTitle} description={copy.register.closedBody}>
+        <Link className="auth-primary-link" to="../login">{copy.register.signIn}</Link>
+      </AuthCard>
+    );
   }
 
   return (
@@ -59,7 +89,15 @@ export default function RegisterPage() {
             {copy.register.created(isolateLtr(createdFor))}
           </FormAlert>
           <p>{copy.register.createdNext}</p>
-          <Link className="auth-primary-link" to="../login">{copy.common.continueToSignIn}</Link>
+          <Link
+            className="auth-primary-link"
+            to="../login"
+            state={invitationToken
+              ? { from: { pathname: "/invitations/accept", search: `?token=${invitationToken}` } }
+              : undefined}
+          >
+            {copy.common.continueToSignIn}
+          </Link>
           <a href="/contact">{copy.common.contactSupport}</a>
         </div>
       ) : (

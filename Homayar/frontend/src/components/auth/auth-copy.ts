@@ -37,6 +37,7 @@ export interface AuthCopy {
     sessionExpired: string;
     googleFailed: string;
     googleLinkRequired: string;
+    registrationClosed: string;
     failed: string;
   };
   register: {
@@ -52,6 +53,8 @@ export interface AuthCopy {
     createdNext: string;
     failed: string;
     accountExists: string;
+    closedTitle: string;
+    closedBody: string;
   };
   verify: {
     title: string;
@@ -159,6 +162,8 @@ export const AUTH_COPY: Record<Lang, AuthCopy> = {
       googleFailed: "Google sign-in could not be completed. Try again or use your email.",
       googleLinkRequired:
         "This Google account's email already belongs to a Homayar account. Sign in with that account's existing method.",
+      registrationClosed:
+        "Sign-up is closed on this server. New accounts are created by invitation only.",
       failed: "Sign-in failed. Try again.",
     },
     register: {
@@ -175,6 +180,9 @@ export const AUTH_COPY: Record<Lang, AuthCopy> = {
         "Check your inbox for the verification link (valid for 24 hours). You can sign in now; uploading recordings needs a verified email. If it does not arrive, sign in and request a new link from the notice at the top of the console.",
       failed: "The account could not be created. Try again.",
       accountExists: "An account already exists for this email. Sign in or reset its password.",
+      closedTitle: "Sign-up is closed",
+      closedBody:
+        "New accounts are created by invitation only. Ask the workspace owner to invite you by email.",
     },
     verify: {
       title: "Verify your email",
@@ -280,6 +288,8 @@ export const AUTH_COPY: Record<Lang, AuthCopy> = {
       googleFailed: "ورود با Google کامل نشد. دوباره امتحان کنید یا با ایمیل وارد شوید.",
       googleLinkRequired:
         "ایمیل این حساب Google قبلاً برای یک حساب همایار ثبت شده است. با روش ورود فعلی همان حساب وارد شوید.",
+      registrationClosed:
+        "ثبت‌نام در این سرور بسته است. حساب تازه فقط با دعوت‌نامه ساخته می‌شود.",
       failed: "ورود انجام نشد. دوباره امتحان کنید.",
     },
     register: {
@@ -296,6 +306,9 @@ export const AUTH_COPY: Record<Lang, AuthCopy> = {
         "پیوند تأیید را در صندوق ایمیل خود پیدا کنید (اعتبار: ۲۴ ساعت). همین حالا می‌توانید وارد شوید، اما بارگذاری فایل صوتی به ایمیل تأییدشده نیاز دارد. اگر ایمیل نرسید، وارد شوید و از اعلان بالای کنسول پیوند تازه درخواست کنید.",
       failed: "حساب ساخته نشد. دوباره امتحان کنید.",
       accountExists: "برای این ایمیل قبلاً حساب ساخته شده است. وارد شوید یا گذرواژه را بازیابی کنید.",
+      closedTitle: "ثبت‌نام بسته است",
+      closedBody:
+        "حساب تازه فقط با دعوت‌نامه ساخته می‌شود. از مدیر فضای کاری بخواهید با ایمیل شما را دعوت کند.",
     },
     verify: {
       title: "تأیید ایمیل",
@@ -394,6 +407,8 @@ export function authErrorText(error: unknown, copy: AuthCopy, lang: Lang, fallba
       return copy.errors.unavailable;
     case "account_exists":
       return copy.register.accountExists;
+    case "registration_closed":
+      return copy.login.registrationClosed;
     case "invalid_verification_token":
       return copy.verify.invalid;
     case "invalid_reset_token":

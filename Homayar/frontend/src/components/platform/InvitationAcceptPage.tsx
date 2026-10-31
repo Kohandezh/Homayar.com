@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { ArrowRight, CheckCircle2, LogIn, MailCheck } from "lucide-react";
+import { ArrowRight, CheckCircle2, LogIn, MailCheck, UserRound } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { useAuth } from "@/lib/auth-context";
@@ -123,6 +123,17 @@ export default function InvitationAcceptPage() {
               <LogIn aria-hidden="true" size={15} />
               {isFa ? "ورود" : "Sign in"}
             </button>
+            {tokenIsValid && (
+              /* HOM-336: an invited newcomer without an account can still sign up. */
+              <button
+                type="button"
+                className="platform-button"
+                onClick={() => navigate(`/register?invitation=${encodeURIComponent(token)}`)}
+              >
+                <UserRound aria-hidden="true" size={15} />
+                {isFa ? "ساخت حساب" : "Create an account"}
+              </button>
+            )}
           </div>
         ) : !tokenIsValid ? (
           <ErrorState

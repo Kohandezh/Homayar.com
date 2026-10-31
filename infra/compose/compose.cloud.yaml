@@ -113,6 +113,7 @@ x-app-environment: &app-environment
   SMTP_FROM: "${SMTP_FROM:-noreply@homayar.com}"
   SMTP_USE_TLS: "${SMTP_USE_TLS:-false}"
   ENABLE_FREE_DEMO: "${ENABLE_FREE_DEMO:-true}"
+  REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-true}"
   DEMO_QUOTA_SECONDS: "${DEMO_QUOTA_SECONDS:-1800}"
   # Outbound HTTP(S) through an approved egress proxy when one is provided
   # (EGRESS_PROXY_URL). In this profile PostgreSQL, Redis and object storage

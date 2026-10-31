@@ -130,6 +130,8 @@ NGINX_IMAGE=nginx:1.30-alpine-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5
 LOG_LEVEL=INFO
 # Off until the owner decides (homlead, 2026-10-29). New sign-ups get no demo allowance.
 ENABLE_FREE_DEMO=false
+# Closed by the owner decision of 2026-10-29 (HOM-336). Only invited people can join.
+REGISTRATION_ENABLED=false
 ```
 
 - Why `127.0.0.1` is in `TRUSTED_HOSTS`: the api health check calls the API by that address.
@@ -610,7 +612,33 @@ go-live: 0 organizations, 0 users, 0 workspaces. Not measured yet: each must be 
 registers (`~/homayar/hc exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select (select count(*) from organizations),(select count(*) from users),(select count(*) from workspaces)"'`).
 
 Sign-up is open at go-live: anyone on the internet can create an account with its own empty
-organization. Closing it is HOM-336.
+organization. It is closed now: see "Sign-up (Closed)" below.
+
+## Sign-up (Closed)
+
+`REGISTRATION_ENABLED=false` in `config/settings.env` closes self-sign-up (HOM-336). The api
+refuses `POST /api/v1/auth/register` with `403 registration_closed`, and phone OTP and Google
+never create a new account. Everything an existing account needs still works: login, sessions,
+password reset, e-mail verification, workspace invitations.
+
+An invited person still joins:
+
+1. The workspace owner invites them from the console (Members page); the e-mail links to
+   `https://app.homayar.com/app/invitations/accept?token=<token>`.
+2. Signed out, the page offers "Create an account", which opens
+   `/app/register?invitation=<token>`. The register form accepts exactly that link.
+3. They create the account (the api checks the invitation token and the e-mail match), verify
+   the e-mail, and sign in. After sign-in they land back on the invitation page and accept.
+
+How to reopen:
+
+1. Set `REGISTRATION_ENABLED=true` in `config/settings.env`.
+2. Recreate the api container with the runbook's own command from "Restart and Stop":
+   `~/homayar/hc up -d --no-build --pull never --force-recreate --no-deps api`.
+3. Check: `curl -s https://app.homayar.com/api/v1/auth/methods` shows `"registration":true`.
+
+How to close again: set `REGISTRATION_ENABLED=false` and recreate the api the same way; the
+check must show `"registration":false`.
 
 ## Providers (Not Configured Yet)
 

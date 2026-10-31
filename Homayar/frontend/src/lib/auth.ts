@@ -59,6 +59,8 @@ export async function register(details: RegistrationDetails) {
     email: details.email,
     password: details.password,
     locale: details.locale ?? "fa",
+    // The API refuses extra fields, so the token travels only when present.
+    ...(details.invitationToken ? { invitation_token: details.invitationToken } : {}),
   });
 }
 

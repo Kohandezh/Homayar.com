@@ -101,7 +101,13 @@ export function testQueryClient() {
 /** A query client that already holds the server's GET /auth/methods answer. */
 export function withAuthMethods(methods: Partial<AuthMethods>) {
   const client = testQueryClient();
-  client.setQueryData(AUTH_METHODS_QUERY_KEY, { password: true, google: false, phone: false, ...methods });
+  client.setQueryData(AUTH_METHODS_QUERY_KEY, {
+    password: true,
+    google: false,
+    phone: false,
+    registration: true,
+    ...methods,
+  });
   return client;
 }
 

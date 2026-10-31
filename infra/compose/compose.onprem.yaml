@@ -129,6 +129,7 @@ x-app-environment: &app-environment
   SMTP_FROM: "${SMTP_FROM:-noreply@homayar.com}"
   SMTP_USE_TLS: "${SMTP_USE_TLS:-false}"
   ENABLE_FREE_DEMO: "${ENABLE_FREE_DEMO:-true}"
+  REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-true}"
   DEMO_QUOTA_SECONDS: "${DEMO_QUOTA_SECONDS:-1800}"
   # Network egress (WP08-T06, ADR 0031): api and worker sit on internal
   # networks with no route out; outbound HTTP(S) (AI, Google, Asanak) goes

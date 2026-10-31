@@ -513,6 +513,9 @@ class Settings(BaseSettings):
     enable_demo_account: bool = False
     enable_free_demo: bool = True
     demo_quota_seconds: int = 1800
+    # HOM-336: false closes every self-sign-up path (register, phone OTP,
+    # Google); only a workspace invitation lets a newcomer create an account.
+    registration_enabled: bool = True
 
     # STORAGE / UPLOAD
     storage_backend: Literal["local", "s3"] = "local"
