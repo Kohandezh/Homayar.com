@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from backend.config import Settings
+from backend.database.relational import get_session_factory
 from backend.database.saas_models import (
     AuditEvent,
     AuthIdentity,
@@ -28,10 +29,16 @@ from backend.database.saas_models import (
     WorkspaceInvitation,
     WorkspaceRole,
 )
+from backend.database.tenant_context import (
+    bind_capability_context,
+    bind_user_context,
+    current_context,
+)
 from backend.security.context import CSRF_COOKIE
 from backend.security.normalization import normalize_email, normalize_iranian_mobile
 from backend.security.tokens import random_token, token_digest
 from backend.services.auth_service import register_email_user
+from backend.services.member_service import invitation_open_for_email
 from backend.services.rate_limit_service import RateLimiter
 from backend.tests._database import TEST_APP_ROLE, inspection_session_factory
 from backend.tests._isolation import canonical_database_url, empty_database_url
@@ -287,6 +294,35 @@ class TestPhoneOtp:
             assert error_code(response) == "registration_closed"
             assert "set-cookie" not in response.headers
             assert table_counts() == before
+
+    def test_a_refused_challenge_is_consumed_and_cannot_be_replayed(
+        self, client: TestClient, settings: Settings, sms_outbox: list[dict[str, str]]
+    ):
+        requested = client.post("/api/v1/auth/otp/request", json={"phone": "09121230003"})
+        assert requested.status_code == 202, requested.text
+        payload = {
+            "challenge_id": requested.json()["challenge_id"],
+            "code": sms_outbox[-1]["code"],
+        }
+        before = table_counts()
+
+        refused = client.post("/api/v1/auth/otp/verify", json=payload)
+
+        if settings.registration_enabled:
+            assert refused.status_code == 200, refused.text
+            return
+        assert refused.status_code == 403, refused.text
+        assert error_code(refused) == "registration_closed"
+        assert "set-cookie" not in refused.headers
+        assert table_counts() == before
+
+        # The refusal keeps the security state: the challenge is consumed, so
+        # the same code cannot be presented again (review fix 3).
+        replayed = client.post("/api/v1/auth/otp/verify", json=payload)
+        assert replayed.status_code == 400, replayed.text
+        assert error_code(replayed) == "invalid_otp"
+        assert "set-cookie" not in replayed.headers
+        assert table_counts() == before
 
     def test_a_known_phone_still_signs_in_while_closed(
         self, client: TestClient, settings: Settings, sms_outbox: list[dict[str, str]]
@@ -564,3 +600,59 @@ class TestInvitationLookupUnderRowLevelSecurity:
         )
 
         assert response.status_code == 202, response.text
+
+    def test_the_row_is_invisible_to_the_app_role_without_the_capability(
+        self, client: TestClient, settings: Settings
+    ):
+        raw_token = seed_invitation(settings, email=REGISTER_PAYLOAD["email"])
+        digest = token_digest(f"workspace-invitation:{raw_token}", settings)
+        lookup = select(WorkspaceInvitation).where(WorkspaceInvitation.token_hash == digest)
+
+        # The engine the requests use: SET ROLE homayar_app, no context bound.
+        with get_session_factory()() as db:
+            assert current_context(db).invitation_token_hash is None
+            assert db.scalar(lookup) is None
+            bind_capability_context(db, invitation_token_hash=digest)
+            assert db.scalar(lookup) is not None
+
+
+class TestInvitationCapabilityScoping:
+    """The invitation capability is bound for the lookup only, then the session
+    is back to whatever context it had before (HOM-336 review fix 1)."""
+
+    def test_a_valid_token_leaves_no_capability_behind(
+        self, client: TestClient, settings: Settings
+    ):
+        raw_token = seed_invitation(settings, email=REGISTER_PAYLOAD["email"])
+
+        with inspection_session_factory()() as db:
+            assert invitation_open_for_email(
+                db, raw_token=raw_token, email=REGISTER_PAYLOAD["email"], settings=settings
+            )
+            assert current_context(db).invitation_token_hash is None
+
+    def test_an_invalid_token_leaves_no_capability_behind(
+        self, client: TestClient, settings: Settings
+    ):
+        with inspection_session_factory()() as db:
+            assert not invitation_open_for_email(
+                db,
+                raw_token="x" * 43,
+                email=REGISTER_PAYLOAD["email"],
+                settings=settings,
+            )
+            assert current_context(db).invitation_token_hash is None
+
+    def test_a_context_bound_before_the_check_survives_it(
+        self, client: TestClient, settings: Settings
+    ):
+        raw_token = seed_invitation(settings, email=REGISTER_PAYLOAD["email"])
+
+        with inspection_session_factory()() as db:
+            bind_user_context(db, "user-before-the-check")
+            assert invitation_open_for_email(
+                db, raw_token=raw_token, email=REGISTER_PAYLOAD["email"], settings=settings
+            )
+            context = current_context(db)
+            assert context.invitation_token_hash is None
+            assert context.user_id == "user-before-the-check"

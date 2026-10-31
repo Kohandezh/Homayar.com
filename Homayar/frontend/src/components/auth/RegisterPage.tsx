@@ -93,7 +93,12 @@ export default function RegisterPage() {
             className="auth-primary-link"
             to="../login"
             state={invitationToken
-              ? { from: { pathname: "/invitations/accept", search: `?token=${invitationToken}` } }
+              ? {
+                  from: {
+                    pathname: "/invitations/accept",
+                    search: `?token=${encodeURIComponent(invitationToken)}`,
+                  },
+                }
               : undefined}
           >
             {copy.common.continueToSignIn}

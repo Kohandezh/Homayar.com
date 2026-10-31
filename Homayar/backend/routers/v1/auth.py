@@ -722,8 +722,11 @@ def otp_verify(
         ) from exc
     except RegistrationClosedError as exc:
         # An unknown phone cannot create an account while sign-up is closed
-        # (HOM-336); nothing the request wrote may survive.
-        db.rollback()
+        # (HOM-336). The challenge state is security state, like the
+        # invalid-OTP branch: the attempt and its consumption survive, so a
+        # refused code cannot be presented again. Nothing else was written;
+        # the refusal happens before the user row is built.
+        db.commit()
         raise HTTPException(
             status_code=403,
             detail={"code": "registration_closed", "message": str(exc)},

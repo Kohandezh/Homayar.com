@@ -143,10 +143,12 @@ describe("RegisterPage", () => {
 
   it("sends an invited newcomer back to the invitation page after signing in", async () => {
     const user = userEvent.setup();
+    // A "=" must be percent-encoded on the way out, like the invitation page does.
+    const tokenNeedingEncoding = `i${"=".repeat(10)}3`.repeat(4);
     vi.spyOn(api, "post").mockResolvedValue(okResponse({}, 202));
     renderRegister({
       lang: "en",
-      route: `/register?invitation=${TOKEN}`,
+      route: `/register?invitation=${tokenNeedingEncoding}`,
       queryClient: withAuthMethods({ registration: false }),
     });
 
@@ -159,7 +161,10 @@ describe("RegisterPage", () => {
     await user.click(await screen.findByRole("link", { name: "Continue to sign in" }));
     const state = JSON.parse(screen.getByTestId("location-probe").textContent ?? "null");
     expect(state).toEqual({
-      from: { pathname: "/invitations/accept", search: `?token=${TOKEN}` },
+      from: {
+        pathname: "/invitations/accept",
+        search: `?token=${encodeURIComponent(tokenNeedingEncoding)}`,
+      },
     });
   }, 15_000);
 
