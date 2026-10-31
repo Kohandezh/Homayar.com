@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from sqlalchemy import event, func, select, update
 
 from backend.database.relational import get_engine
@@ -1090,6 +1091,16 @@ def test_links_follow_record_scope_shares_redaction_and_deletion(client, email_o
 # --- 4. cost, and the notice on every trend answer --------------------------------------------
 
 
+# The "executive" call below gives no window, so its window is the last four closed Tehran
+# weeks of "now" (role_trend_service.organization_query).  Only while "now" is in Tehran
+# [2026-10-03, 2026-10-31) does that window cover this test's seed week (2026-09-26), whose
+# single-agent population withholds the block; the empty weeks after 2026-10-31 release it
+# and its coverage definitions name "conversations" (HOM-370).  Frozen to the last date the
+# test passed on main.
+_FROZEN_NOW = datetime(2026, 10, 30, 12, 0, tzinfo=UTC)
+
+
+@freeze_time(_FROZEN_NOW)
 def test_link_statement_counts_and_notices(client, email_outbox, monkeypatch):
     owner, people, _ = _workspace_with_roles(
         client, email_outbox, monkeypatch, roles={"sup": "member"}
