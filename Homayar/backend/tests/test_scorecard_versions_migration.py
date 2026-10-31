@@ -54,6 +54,7 @@ from backend.tests._database import (
     inspection_session_factory,
     is_postgres_url,
 )
+from backend.tests._migration_locks import lock_tables_against_analyze
 from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "47676f445509"
@@ -589,6 +590,7 @@ def test_the_migration_creates_and_drops_only_the_table(
         command.downgrade(config, NEW_REVISION)
         # The re-upgrade applies the live RLS registry (HOM-89), so the baseline must too.
         with inspection_session_factory()() as db:
+            lock_tables_against_analyze(db.connection())  # HOM-352
             apply_row_level_security(db.connection())
             db.commit()
         others = _other_tables()  # after the stamp, which adds alembic_version

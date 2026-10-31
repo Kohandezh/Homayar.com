@@ -93,6 +93,7 @@ from backend.tests._database import (
     inspection_session_factory,
     is_postgres_url,
 )
+from backend.tests._migration_locks import lock_tables_against_analyze
 from backend.tests.conftest import login_user, register_user
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
@@ -1494,6 +1495,7 @@ def _apply_as_owner() -> None:
 
     with inspection_session_factory()() as db:
         try:
+            lock_tables_against_analyze(db.connection())  # HOM-352
             apply_row_level_security(db.connection())
         except Exception:
             db.rollback()
