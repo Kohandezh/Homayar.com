@@ -43,6 +43,8 @@ export interface RegistrationDetails {
   password: string;
   /** Account language; the API accepts "fa" (default) or "en". */
   locale?: "fa" | "en";
+  /** Workspace invitation token (HOM-336); passes the closed-sign-up gate. */
+  invitationToken?: string;
 }
 
 export interface OtpChallenge {

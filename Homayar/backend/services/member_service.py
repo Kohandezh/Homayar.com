@@ -19,6 +19,8 @@ from backend.database.tenant_context import (
     bind_capability_context,
     bind_tenant_context,
     bind_user_context,
+    current_context,
+    restore_context,
 )
 from backend.security.authorization import can_grant, can_manage_member
 from backend.security.normalization import normalize_email
@@ -117,6 +119,43 @@ def invitation_status(
     if _as_utc(invitation.expires_at) <= (now or datetime.now(UTC)):
         return "expired"
     return "pending"
+
+
+def invitation_open_for_email(
+    db: Session,
+    *,
+    raw_token: str,
+    email: str,
+    settings: Settings,
+    now: datetime | None = None,
+) -> bool:
+    """Whether ``raw_token`` names an open invitation addressed to ``email``.
+
+    The closed-registration gate on ``POST /auth/register`` calls this (HOM-336).
+    That request has no signed-in user, so the presented token is the only
+    capability that makes the invitation row visible under row-level security;
+    it is bound for the lookup and the exact previous context is restored
+    right after, so nothing of the lookup leaks into the request.
+    """
+    now = now or datetime.now(UTC)
+    digest = token_digest(f"workspace-invitation:{raw_token}", settings)
+    previous = current_context(db)
+    bind_capability_context(db, invitation_token_hash=digest)
+    try:
+        invitation = db.scalar(
+            select(WorkspaceInvitation).where(WorkspaceInvitation.token_hash == digest)
+        )
+    finally:
+        restore_context(db, previous)
+    if invitation is None:
+        return False
+    if invitation.accepted_at is not None:
+        return False
+    if invitation.revoked_at is not None:
+        return False
+    if _as_utc(invitation.expires_at) <= now:
+        return False
+    return invitation.email == normalize_email(email)
 
 
 def list_workspace_members(db: Session, workspace_id: str) -> list[MemberRecord]:

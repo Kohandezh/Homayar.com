@@ -214,6 +214,7 @@ product default. Secrets among them come from the secret manager, never from bui
 | `ENABLE_PHONE_AUTH`, `ASANAK_API_KEY` (secret), `ASANAK_SENDER` | off | Phone OTP through Asanak |
 | `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USERNAME`, `SMTP_PASSWORD` (secret), `SMTP_FROM`, `SMTP_USE_TLS` | empty | Verification, password-reset and invitation e-mail (STARTTLS on 587, TLS on 465). Without `SMTP_HOST` no e-mail is sent: registration and resend still answer, invitations fail with `invitation_delivery_failed` and are revoked. |
 | `ENABLE_FREE_DEMO`, `DEMO_QUOTA_SECONDS` | `true`, `1800` | Demo allowance of new workspaces |
+| `REGISTRATION_ENABLED` | `true` | Self-sign-up switch (HOM-336). `false` refuses `POST /api/v1/auth/register` with `403 registration_closed` unless the request carries an open workspace invitation token for the same e-mail, and stops phone OTP and Google from creating accounts; `/api/v1/auth/methods` reports it as `"registration": false` |
 | `EGRESS_PROXY_URL` | empty | `http://egress-proxy:3128` when the egress profile runs (see "Network egress") |
 
 Plan catalog: the API start creates missing catalog plans and never rewrites an existing

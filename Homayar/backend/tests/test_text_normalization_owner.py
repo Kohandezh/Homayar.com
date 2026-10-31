@@ -4705,8 +4705,10 @@ BASE_FINGERPRINTS: dict = {
         ("EmailDeliveryError", "51a915476ca1c54bee35bf00"),
         ("_send_verification_message", "04f23206f6e498a157b3c102"),
         ("_send_reset_message", "82b22e5b5657ab6553344988"),
-        ("register", "18bc6b38b775adadba09cbf8"),
-        ("available_auth_methods", "e4fdb700a3c39287feac91d2"),
+        # HOM-336: registration gate
+        ("register", "806e61411285d2aa296d88cd"),
+        # HOM-336: registration gate
+        ("available_auth_methods", "d07fd0aee8e06ee78ed831fc"),
         ("auth_methods", "02dba6ec316b12a85a623ae2"),
         ("login", "e90c1f009ca453965a4651d0"),
         ("refresh", "a78380eb83c85dc6184c9104"),
@@ -4722,7 +4724,8 @@ BASE_FINGERPRINTS: dict = {
         ("otp_request", "d656f4339ac14c193b185425"),
         ("google_start", "d14e104dc36f6d3223ce3473"),
         ("google_link_start", "82b1718e7e2f3e3ec4ba9b96"),
-        ("google_callback", "1bb4860adb5475aeec5d4745"),
+        # HOM-336: registration gate
+        ("google_callback", "5c6199e646bcdd382784ba21"),
     ],
     "voicemail/ingest.py": [
         ("Expr", "46f10c1143fabcc0d13523a7"),
@@ -4745,7 +4748,7 @@ BASE_FINGERPRINTS: dict = {
 }
 BASE_MASKED: dict[str, str] = {
     "security/normalization.py:normalize_iranian_mobile": "9d1c4b862e8e51f94b6894cf",
-    "routers/v1/auth.py:otp_verify": "15d9f6646eba236af6fa751c",
+    "routers/v1/auth.py:otp_verify": "04a605b3e9bb14bc08ced36a",  # HOM-336: registration gate
     "voicemail/ingest.py:normalize_caller_number": "7ee4cb76bc47d81b36437e4d",
 }
 FROZEN_FILES: dict[str, str] = {
@@ -4817,9 +4820,11 @@ FROZEN_FILES: dict[str, str] = {
     "backend/privacy/mapping_crypto.py": (
         "f3bea7cd866f961b03c1e342c540c2a38ccd1402cdba76fea1f4780075e9efa3"
     ),
-    "backend/schemas/auth.py": "d6ec760646b22f89bd112b0df07f4d51cee6c9ac51d10d9daa67ae95b450050d",
-    "backend/services/otp_service.py": (
-        "0bc30e19ec5449d3729d65033812fbf00c0dd786a915b97c9bc89251a1112214"
+    "backend/schemas/auth.py": (  # HOM-336: registration gate
+        "c623d7cd068c21d2eab2f6b231b0a828397eaaa8180015e16fbd324095f9b802"
+    ),
+    "backend/services/otp_service.py": (  # HOM-336: registration gate
+        "c6d9399b19cdfea93bd12296cd574922366e77c09d51620075d4beedf478e7de"
     ),
 }
 BASE_SIGNATURES: dict[str, str] = {

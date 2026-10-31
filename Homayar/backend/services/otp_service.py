@@ -19,6 +19,7 @@ from backend.database.saas_models import (
 from backend.security.normalization import normalize_iranian_mobile
 from backend.security.tokens import token_digest
 from backend.services.audit_service import record_audit_event
+from backend.services.auth_service import RegistrationClosedError
 from backend.services.tenancy_service import create_personal_workspace
 
 
@@ -164,6 +165,8 @@ def verify_otp(
         if user is None or not user.is_active:
             raise OtpVerificationError("Account is unavailable")
     else:
+        if not settings.registration_enabled:
+            raise RegistrationClosedError("Self-registration is closed on this server")
         user = User(
             phone_e164=challenge.phone_e164,
             phone_verified_at=now,

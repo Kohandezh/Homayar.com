@@ -185,6 +185,11 @@ def clear_context(session: Session) -> None:
     _store(session, TenantContext())
 
 
+def restore_context(session: Session, context: TenantContext) -> None:
+    """Put the session back to an earlier exact context (after a narrow capability)."""
+    _store(session, context)
+
+
 def _replace(context: TenantContext, **changes: Any) -> TenantContext:
     data = {
         "user_id": context.user_id,

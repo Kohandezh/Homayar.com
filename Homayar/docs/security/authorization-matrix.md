@@ -169,6 +169,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 
 `+session` (HOM-82) is a read from a signed-in session only: every bearer that looks like an API key (valid, unknown, revoked, expired, over its rate limit) gets `401 api_key_not_accepted` before any key lookup, the workspace and the permission. Today: the team comparison `GET /api/v1/trends/teams`, the agent self-view `GET /api/v1/trends/me` and the supporting conversations `GET /api/v1/trends/conversations` (HOM-83).
 
+`POST /api/v1/auth/register` stays `public`, but with `REGISTRATION_ENABLED=false` (HOM-336) it is refused with `403 registration_closed` unless the request carries an open workspace invitation token for the same e-mail. Phone OTP (`POST /api/v1/auth/otp/verify`) and Google (`GET /api/v1/auth/google/callback`) never create an account while that setting is false; existing accounts sign in as usual.
+
 <!-- matrix:routes:start -->
 | Method | Path | Policy |
 | --- | --- | --- |

@@ -24,6 +24,7 @@ from backend.security.normalization import normalize_email
 from backend.security.tokens import random_token, token_digest
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
+from backend.services.auth_service import RegistrationClosedError
 from backend.services.tenancy_service import create_personal_workspace
 
 
@@ -207,6 +208,8 @@ async def complete_google_oauth(
             raise AccountLinkRequiredError(
                 "Sign in to your existing account before linking Google"
             )
+        if not settings.registration_enabled:
+            raise RegistrationClosedError("Self-registration is closed on this server")
         user = User(
             email=email,
             email_verified_at=now,

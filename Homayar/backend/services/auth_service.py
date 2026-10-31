@@ -45,6 +45,10 @@ class RegistrationConflictError(ValueError):
     pass
 
 
+class RegistrationClosedError(ValueError):
+    """REGISTRATION_ENABLED is false and no open invitation covers this signup."""
+
+
 class InvalidOneTimeTokenError(ValueError):
     pass
 

@@ -44,6 +44,7 @@ from backend.services.auth_service import (
     AuthenticationError,
     InvalidOneTimeTokenError,
     RefreshTokenReplayError,
+    RegistrationClosedError,
     RegistrationConflictError,
     SessionTokens,
     VerificationNotApplicableError,
@@ -65,6 +66,7 @@ from backend.services.google_oauth_service import (
     start_google_oauth,
 )
 from backend.services.logging_service import logger
+from backend.services.member_service import invitation_open_for_email
 from backend.services.otp_service import (
     IdentityLinkConflictError,
     OtpCooldownError,
@@ -218,6 +220,22 @@ async def register(
 ) -> MessageResponse:
     ip = _client_ip(request)
     _rate_limit(settings, f"register:ip:{token_digest(ip, settings)}", limit=5, window_seconds=3600)
+    if not settings.registration_enabled:
+        # Refused before the duplicate-e-mail check so a closed server never
+        # tells a stranger whether an address has an account (HOM-336).
+        if payload.invitation_token is None or not invitation_open_for_email(
+            db,
+            raw_token=payload.invitation_token,
+            email=str(payload.email),
+            settings=settings,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "registration_closed",
+                    "message": "Self-registration is closed on this server",
+                },
+            )
     try:
         user, verification_token = register_email_user(
             db,
@@ -264,6 +282,7 @@ def available_auth_methods(settings: Settings) -> AuthMethodsResponse:
         phone_otp=bool(
             settings.enable_phone_auth and settings.asanak_api_key and settings.asanak_sender
         ),
+        registration=settings.registration_enabled,
     )
 
 
@@ -701,6 +720,17 @@ def otp_verify(
             status_code=400,
             detail={"code": "invalid_otp", "message": str(exc)},
         ) from exc
+    except RegistrationClosedError as exc:
+        # An unknown phone cannot create an account while sign-up is closed
+        # (HOM-336). The challenge state is security state, like the
+        # invalid-OTP branch: the attempt and its consumption survive, so a
+        # refused code cannot be presented again. Nothing else was written;
+        # the refusal happens before the user row is built.
+        db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "registration_closed", "message": str(exc)},
+        ) from exc
     _set_session_cookies(response, tokens, settings)
     return _session_response(db, user, tokens.access_expires_in)
 
@@ -765,6 +795,12 @@ async def google_callback(
     except AccountLinkRequiredError:
         db.rollback()
         query = urlencode({"error": "account_link_required"})
+        return RedirectResponse(f"{settings.frontend_url}/login?{query}", status_code=302)
+    except RegistrationClosedError:
+        # An unknown Google subject cannot create an account while sign-up is
+        # closed (HOM-336); no session cookie is set.
+        db.rollback()
+        query = urlencode({"error": "registration_closed"})
         return RedirectResponse(f"{settings.frontend_url}/login?{query}", status_code=302)
     except GoogleOAuthError:
         db.rollback()

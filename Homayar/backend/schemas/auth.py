@@ -23,6 +23,9 @@ class RegisterRequest(StrictRequest):
     password: str
     display_name: str = Field(min_length=1, max_length=160)
     locale: Literal["fa", "en"] = "fa"
+    # HOM-336: only read when REGISTRATION_ENABLED is false, where it must
+    # name an open invitation for the same e-mail.
+    invitation_token: str | None = Field(default=None, min_length=32, max_length=256)
 
     _password_strength = field_validator("password")(validate_password_strength)
 
@@ -106,6 +109,8 @@ class AuthMethodsResponse(BaseModel):
     password: bool
     google: bool
     phone_otp: bool
+    # HOM-336: whether the console may offer self-sign-up at all.
+    registration: bool
 
 
 class VerificationResendResponse(BaseModel):

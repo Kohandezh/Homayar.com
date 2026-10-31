@@ -17,6 +17,7 @@ import {
 function googleError(search: string, copy: AuthCopy): string {
   const code = new URLSearchParams(search).get("error");
   if (code === "account_link_required") return copy.login.googleLinkRequired;
+  if (code === "registration_closed") return copy.login.registrationClosed;
   if (code) return copy.login.googleFailed;
   return "";
 }
@@ -26,7 +27,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { signIn, status, endReason } = useAuth();
   const { copy, lang } = useAuthCopy();
-  const { methods } = useAuthMethods();
+  const { methods, status: methodsStatus } = useAuthMethods();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -51,12 +52,18 @@ export default function LoginPage() {
 
   const callbackError = googleError(location.search, copy);
   const message = error ? authErrorText(error, copy, lang, copy.login.failed) : callbackError;
+  // HOM-336: the register link waits for the server's answer; while loading it
+  // stays hidden so a closed production server never flashes it.
+  const registerOffered =
+    methodsStatus === "unavailable" || (methodsStatus === "ready" && methods.registration);
 
   return (
     <AuthCard
       title={copy.login.title}
       description={copy.login.description}
-      footer={<p>{copy.login.newHere} <Link to="../register">{copy.login.createAccount}</Link></p>}
+      footer={registerOffered
+        ? <p>{copy.login.newHere} <Link to="../register">{copy.login.createAccount}</Link></p>
+        : undefined}
     >
       {endReason === "expired" && !message && <FormAlert tone="info">{copy.login.sessionExpired}</FormAlert>}
       <GoogleSignInOption divider={copy.common.orEmail} />
