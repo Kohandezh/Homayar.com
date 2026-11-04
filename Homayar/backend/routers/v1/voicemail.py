@@ -44,7 +44,11 @@ from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import QuotaExceededError
 from backend.services.ingestion_service import IngestionIdentity, audit_rejection
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
-from backend.services.team_service import validate_agent_attribution, validate_team_attribution
+from backend.services.team_service import (
+    authorize_attribution_change,
+    validate_agent_attribution,
+    validate_team_attribution,
+)
 from backend.services.upload_service import UploadRejectedError, stage_upload
 from backend.storage import StorageError
 from backend.voicemail.ingest import (
@@ -354,7 +358,28 @@ def update_voicemail_route(
     if voicemail is None:
         raise _not_found()
     fields = payload.model_fields_set
-    changed: list[str] = []
+    # Assignment (HOM-369, ADR 0054).  A value equal to the current one is not a
+    # change, so a client that sends back the whole record needs no extra right.
+    # Every check runs before any field is written.
+    assignment: dict[str, str | None] = {}
+    if "assigned_user_id" in fields and payload.assigned_user_id != voicemail.assigned_user_id:
+        assignment["agent_user_id"] = payload.assigned_user_id
+    if "assigned_team_id" in fields and payload.assigned_team_id != voicemail.assigned_team_id:
+        assignment["team_id"] = payload.assigned_team_id
+    authorize_attribution_change(
+        context,
+        current_agent_user_id=voicemail.assigned_user_id,
+        changes=assignment,
+        record="voicemail",
+    )
+    if assignment.get("team_id") is not None:
+        assignment["team_id"] = validate_team_attribution(
+            db, context=context, team_id=assignment["team_id"]
+        )
+    if "agent_user_id" in assignment:
+        assignment["agent_user_id"] = validate_agent_attribution(
+            db, context=context, agent_user_id=assignment["agent_user_id"]
+        )
     now = datetime.now(UTC)
     action = (
         db.scalar(
@@ -366,30 +391,33 @@ def update_voicemail_route(
         if voicemail.follow_up_action_id
         else None
     )
-    if "assigned_user_id" in fields:
-        voicemail.assigned_user_id = validate_agent_attribution(
-            db, context=context, agent_user_id=payload.assigned_user_id
+    state = (
+        payload.follow_up_state
+        if "follow_up_state" in fields and payload.follow_up_state is not None
+        else None
+    )
+    if state is FollowUpState.ACTION_CREATED and action is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "no_follow_up_action",
+                "message": "No follow-up action exists for this voicemail",
+            },
         )
+    assignment_before = {
+        "assigned_team_id": voicemail.assigned_team_id,
+        "assigned_user_id": voicemail.assigned_user_id,
+    }
+    changed: list[str] = []
+    if "agent_user_id" in assignment:
+        voicemail.assigned_user_id = assignment["agent_user_id"]
         if action is not None:
             action.assignee_user_id = voicemail.assigned_user_id
         changed.append("assigned_user_id")
-    if "assigned_team_id" in fields:
-        voicemail.assigned_team_id = (
-            validate_team_attribution(db, context=context, team_id=payload.assigned_team_id)
-            if payload.assigned_team_id is not None
-            else None
-        )
+    if "team_id" in assignment:
+        voicemail.assigned_team_id = assignment["team_id"]
         changed.append("assigned_team_id")
-    if "follow_up_state" in fields and payload.follow_up_state is not None:
-        state = payload.follow_up_state
-        if state is FollowUpState.ACTION_CREATED and action is None:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "no_follow_up_action",
-                    "message": "No follow-up action exists for this voicemail",
-                },
-            )
+    if state is not None:
         voicemail.follow_up_state = state.value
         if state is FollowUpState.DONE:
             voicemail.follow_up_done_at = voicemail.follow_up_done_at or now
@@ -405,6 +433,25 @@ def update_voicemail_route(
         raise HTTPException(
             status_code=422,
             detail={"code": "no_changes", "message": "No updatable field was provided"},
+        )
+    if assignment:
+        # Ids only.  The action says which follow-up the change moved, if any.
+        record_audit_event(
+            db,
+            event_type=AuditEventType.VOICEMAIL_ASSIGNMENT_CHANGED,
+            actor_user_id=context.actor.user.id,
+            workspace_id=context.workspace.id,
+            target_type="voicemail",
+            target_id=voicemail.id,
+            request_id=getattr(request.state, "request_id", None),
+            details={
+                "assigned_team_id_before": assignment_before["assigned_team_id"],
+                "assigned_team_id_after": voicemail.assigned_team_id,
+                "assigned_user_id_before": assignment_before["assigned_user_id"],
+                "assigned_user_id_after": voicemail.assigned_user_id,
+                "follow_up_action_id": voicemail.follow_up_action_id,
+            },
+            settings=settings,
         )
     record_audit_event(
         db,

@@ -141,6 +141,7 @@ class AuditEventType(StrEnum):
     USAGE_RECONCILED = "usage.reconciled", "entitlement"
     VOICE_NODE_DRAIN_CHANGED = "voice.node.drain_changed", "voice_media_node"
     VOICE_NODE_REGISTERED = "voice.node.registered", "voice_media_node"
+    VOICEMAIL_ASSIGNMENT_CHANGED = "voicemail.assignment_changed", "voicemail"
     VOICEMAIL_CLASSIFIED = "voicemail.classified", "voicemail"
     VOICEMAIL_UPDATED = "voicemail.updated", "voicemail"
     WEBHOOK_DEAD_LETTERS_REDELIVERED = "webhook.dead_letters_redelivered", "webhook_endpoint"
