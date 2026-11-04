@@ -36,7 +36,7 @@ from backend.tests.conftest import login_user, register_user
 APP_LOGIN = "homayar_audit_app_probe"
 READER_LOGIN = "homayar_audit_reader_probe"
 HOP_ROLE = "homayar_audit_reader_hop_probe"
-HEAD_REVISION = "484a6df74abf"  # HOM-73: review items, after HOM-56
+HEAD_REVISION = "a651110b03c3"  # HOM-74: review decisions, after HOM-73
 PREVIOUS_REVISION = "d8a2f4c6b1e3"
 
 

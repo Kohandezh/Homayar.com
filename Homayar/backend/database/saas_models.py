@@ -1298,6 +1298,238 @@ class ReviewItem(Base):
         ),
         # The queue order (earliest due first) and its keyset pages.
         Index("ix_review_items_queue", "workspace_id", "status", "due_at", "id"),
+        # The target of the composite foreign keys of the criterion decisions and the
+        # human results (HOM-74): ``(id, scorecard_result_id)`` names exactly the result
+        # an item is reviewing.  A NULL result id is fine (``id`` alone is unique).
+        Index("uq_review_items_result", "id", "scorecard_result_id", unique=True),
+    )
+
+
+# The criterion decisions of a review (HOM-74, WP14-T03).  A decision, a reviewer
+# outcome and an override reason are codes from these frozen lists, never free text,
+# so no personal data reaches the audit log.  The reviewer outcomes are exactly the
+# engine's ``REVIEWER_OUTCOMES`` (``backend.scorecards``).
+REVIEW_DECISIONS: tuple[str, ...] = ("accept", "override")
+REVIEW_REVIEWER_OUTCOMES: tuple[str, ...] = ("passed", "failed", "not_applicable")
+REVIEW_OVERRIDE_REASONS: tuple[str, ...] = (
+    "evidence_missed",
+    "evidence_misread",
+    "transcript_error",
+    "context_outside_call",
+    "policy_exception",
+    "other",
+)
+REVIEW_NOTE_MAX_LENGTH = 2000
+
+REVIEW_DECISION_CHECK = f"decision IN {_sql_list(REVIEW_DECISIONS)}"
+REVIEW_DECISION_MACHINE_OUTCOME_CHECK = (
+    f"machine_outcome IN "
+    f"{_sql_list(('passed', 'failed', 'not_applicable', 'insufficient_evidence'))}"
+)
+REVIEW_DECISION_REVIEWER_OUTCOME_CHECK = (
+    f"reviewer_outcome IN {_sql_list(REVIEW_REVIEWER_OUTCOMES)}"
+)
+REVIEW_DECISION_REASON_CODE_CHECK = (
+    f"reason_code IS NULL OR reason_code IN {_sql_list(REVIEW_OVERRIDE_REASONS)}"
+)
+REVIEW_DECISION_NOTE_LENGTH_CHECK = f"note IS NULL OR length(note) <= {REVIEW_NOTE_MAX_LENGTH}"
+# An accept confirms the machine outcome and carries no reason code.  A note on an
+# accept is allowed.  No check names a user column: ``decided_by_user_id`` is SET NULL
+# when a user is removed, and a check on it would make the removal fail.
+REVIEW_DECISION_ACCEPT_CHECK = (
+    "decision <> 'accept' OR (reviewer_outcome = machine_outcome AND reason_code IS NULL)"
+)
+# An override changes the outcome and needs a reason code and a non-blank note.  So a
+# machine ``insufficient_evidence`` can never be accepted: the reviewer outcome cannot
+# be ``insufficient_evidence``, so only an override can settle such a criterion.
+REVIEW_DECISION_OVERRIDE_CHECK = (
+    "decision <> 'override' OR (reviewer_outcome <> machine_outcome "
+    "AND reason_code IS NOT NULL AND note IS NOT NULL AND length(trim(note)) > 0)"
+)
+
+
+class ReviewCriterionDecision(Base):
+    """One human decision on one criterion of the machine result under review, inside
+    one review item (HOM-74, WP14-T03, F44).
+
+    The machine rows are never written; the human decision lives only here.  An accept
+    confirms the machine outcome; an override changes it and needs a reason code from
+    the frozen list and a non-blank note.  ``machine_outcome`` is a copy of the
+    criterion row's outcome at decision time, so the decision explains itself even if
+    the criterion row is rebuilt.  The row can change while the review is in progress
+    (the service of PR 2 upserts it on the item's compare-and-set), so it is NOT
+    immutable.  The three composite foreign keys tie the decision to its item's result,
+    to its result's own workspace and meeting, and to a criterion of that result.
+    Tenant-only, never through a share token; the conversation purge deletes the rows.
+    """
+
+    __tablename__ = "review_criterion_decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    # A copy of the result's conversation: the purge and the backup reconciliation find
+    # content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_review_criterion_decisions_item`` below.
+    review_item_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # Its foreign keys are ``fk_review_criterion_decisions_result`` and
+    # ``fk_review_criterion_decisions_criterion`` below.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # The criterion key, as in ``scorecard_criterion_results.criterion_id``.
+    criterion_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    machine_outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    reviewer_outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String(32))
+    # Free text from the reviewer; required for an override, allowed on an accept.
+    note: Mapped[str | None] = mapped_column(Text)
+    # ``[]`` for an accept; the service of PR 2 fills it for an override.
+    evidence: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    decided_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # A decision names only the result its item is reviewing (``uq_review_items_result``).
+        ForeignKeyConstraint(
+            ["review_item_id", "scorecard_result_id"],
+            ["review_items.id", "review_items.scorecard_result_id"],
+            ondelete="CASCADE",
+            name="fk_review_criterion_decisions_item",
+        ),
+        # So the workspace and the meeting copies are the result's (and so the item's).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_review_criterion_decisions_result",
+        ),
+        # So a decision names a criterion of that result
+        # (``uq_scorecard_criterion_result_criterion``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "criterion_id"],
+            ["scorecard_criterion_results.result_id", "scorecard_criterion_results.criterion_id"],
+            ondelete="CASCADE",
+            name="fk_review_criterion_decisions_criterion",
+        ),
+        # One current decision per criterion per item.
+        UniqueConstraint(
+            "review_item_id", "criterion_id", name="uq_review_criterion_decisions_criterion"
+        ),
+        CheckConstraint(REVIEW_DECISION_CHECK, name="ck_review_criterion_decisions_decision"),
+        CheckConstraint(
+            REVIEW_DECISION_MACHINE_OUTCOME_CHECK,
+            name="ck_review_criterion_decisions_machine_outcome",
+        ),
+        CheckConstraint(
+            REVIEW_DECISION_REVIEWER_OUTCOME_CHECK,
+            name="ck_review_criterion_decisions_reviewer_outcome",
+        ),
+        CheckConstraint(
+            REVIEW_DECISION_REASON_CODE_CHECK, name="ck_review_criterion_decisions_reason_code"
+        ),
+        CheckConstraint(
+            REVIEW_DECISION_NOTE_LENGTH_CHECK, name="ck_review_criterion_decisions_note_length"
+        ),
+        CheckConstraint(REVIEW_DECISION_ACCEPT_CHECK, name="ck_review_criterion_decisions_accept"),
+        CheckConstraint(
+            REVIEW_DECISION_OVERRIDE_CHECK, name="ck_review_criterion_decisions_override"
+        ),
+        CheckConstraint(CRITERION_KEY_CHECK, name="ck_review_criterion_decisions_criterion_key"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_review_criterion_decisions_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class ReviewResultRecord(Base):
+    """The human score of one completed review: the machine result scored again by the
+    same engine with the reviewer outcomes (HOM-74, WP14-T03, F44).
+
+    One row per completed item that has a scorecard result.  ``reviewer_outcomes`` is
+    the engine input and ``result`` the engine output (``ScorecardResult.to_json()``),
+    both stored exactly; the integer columns next to them copy what a list or a check
+    needs without reading the JSON.  The machine rows are never written, so the machine
+    score and the human score stay separate.  Immutable, like ``scorecard_results``: a
+    stored human result never changes, and only the conversation purge removes rows
+    (bulk deletes).  No user column: the table has no UPDATE grant, so a ``SET NULL``
+    action on a user column would need an update.  The completer is the item's assignee
+    and the audit actor.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "review_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_review_results_item`` below.
+    review_item_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # Its foreign keys are ``fk_review_results_item`` and
+    # ``fk_review_results_scorecard_result`` below.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # The calculation version the engine reported, for example ``scorecards/1``.
+    scorecards_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    # The engine input: ``{criterion_id: reviewer_outcome}``.
+    reviewer_outcomes: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(40))
+    complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    pass_threshold: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The score denominator and numerator, and the other two parts of the denominator.
+    applicable_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    earned_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    insufficient_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # The human result names only the result its item is reviewing
+        # (``uq_review_items_result``), and only its item.
+        ForeignKeyConstraint(
+            ["review_item_id", "scorecard_result_id"],
+            ["review_items.id", "review_items.scorecard_result_id"],
+            ondelete="CASCADE",
+            name="fk_review_results_item",
+        ),
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_review_results_scorecard_result",
+        ),
+        UniqueConstraint("review_item_id", name="uq_review_results_item"),
+        # First, so SQLite names it when an unknown outcome also breaks the reason rule.
+        CheckConstraint(SCORECARD_OUTCOME_CHECK, name="ck_review_result_outcome"),
+        CheckConstraint(SCORECARD_RESULT_REASON_CHECK, name="ck_review_result_reason"),
+        CheckConstraint(SCORECARD_RESULT_THRESHOLD_CHECK, name="ck_review_result_threshold"),
+        CheckConstraint(SCORECARD_RESULT_WEIGHTS_CHECK, name="ck_review_result_weights"),
+        CheckConstraint(SCORECARD_RESULT_COMPLETE_CHECK, name="ck_review_result_complete"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_review_results_workspace_meeting", "workspace_id", "meeting_id"),
     )
 
 
@@ -3744,6 +3976,29 @@ def _refuse_scorecard_result_update(_mapper, _connection, target: object) -> Non
 @event.listens_for(CriterionResultRecord, "before_delete")
 def _refuse_scorecard_result_delete(_mapper, _connection, target: object) -> None:
     raise ScorecardResultImmutableError(
+        f"{type(target).__name__} rows are immutable; only the conversation purge removes them"
+    )
+
+
+class ReviewResultImmutableError(RuntimeError):
+    """An ORM update or delete tried to change a stored human review result."""
+
+
+@event.listens_for(ReviewResultRecord, "before_update")
+def _refuse_review_result_update(_mapper, _connection, target: object) -> None:
+    changed = _changed_columns(target)
+    if changed:
+        raise ReviewResultImmutableError(
+            f"{type(target).__name__} rows are immutable; complete the review again instead "
+            f"(attempted: {', '.join(sorted(changed))})"
+        )
+
+
+# Only the ORM unit of work is refused.  The conversation purge removes the rows with
+# bulk ``delete()`` statements, which fire no mapper event.
+@event.listens_for(ReviewResultRecord, "before_delete")
+def _refuse_review_result_delete(_mapper, _connection, target: object) -> None:
+    raise ReviewResultImmutableError(
         f"{type(target).__name__} rows are immutable; only the conversation purge removes them"
     )
 

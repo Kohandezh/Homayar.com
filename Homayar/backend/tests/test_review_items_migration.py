@@ -97,7 +97,10 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "484a6df74abf"
 BASE_REVISION = "5067ea773c0b"  # HOM-56: scorecard results
+HEAD_REVISION = "a651110b03c3"  # HOM-74: review decisions, after HOM-73
 TABLE = "review_items"
+# The index the HOM-74 head adds to this table; this migration alone does not build it.
+HEAD_INDEX = "uq_review_items_result"
 NOW = datetime(2026, 10, 30, 9, 0, tzinfo=UTC)
 STARTED = NOW + timedelta(hours=1)
 FINISHED = NOW + timedelta(hours=2)
@@ -469,6 +472,9 @@ INDEXES = {
     "ix_review_items_scorecard_result_id": (["scorecard_result_id"], False),
     "ix_review_items_queue": (["workspace_id", "status", "due_at", "id"], False),
     "uq_review_items_active_meeting": (["workspace_id", "meeting_id"], True),
+    # Added by the HOM-74 head: the target of the decisions' and the human results'
+    # composite foreign keys.
+    HEAD_INDEX: (["id", "scorecard_result_id"], True),
 }
 
 
@@ -652,7 +658,7 @@ def test_the_migration_follows_the_previous_head():
 def test_the_code_has_one_migration_head_this_revision():
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == NEW_REVISION
+    assert code_migration_head() == HEAD_REVISION
 
 
 def _reflect(connection) -> dict:
@@ -714,9 +720,17 @@ def test_on_sqlite_the_migration_builds_the_orm_table_and_drops_only_it():
             module = _migration_module()
             with Operations.context(MigrationContext.configure(connection)):
                 module.upgrade()
-            assert _reflect(connection) == orm
+            # The ORM's ``uq_review_items_result`` is created by the HOM-74 head above
+            # this revision; at this revision the table does not have it yet.
+            without_head_index = {
+                **orm,
+                "indexes": [row for row in orm["indexes"] if row[0] != HEAD_INDEX],
+                "index_sql": [row for row in orm["index_sql"] if row[0] != HEAD_INDEX],
+            }
+            assert _reflect(connection) == without_head_index
             assert sorted(name for name, _ in orm["checks"]) == sorted(CHECKS)
-            (partial,) = [sql for name, sql in orm["index_sql"] if name.startswith("uq_")]
+            uq_sql = [sql for name, sql in orm["index_sql"] if name.startswith("uq_")]
+            partial = next(sql for sql in uq_sql if "WHERE" in sql)
             assert partial.endswith(f"WHERE {ACTIVE_WHERE}")
 
             assert _schema_sql(connection) == before  # the upgrade changed no other table
@@ -918,8 +932,17 @@ EXPECTED_INDEXES = dict(
         _index(f"ix_{TABLE}_assignee_user_id", "assignee_user_id"),
         _index(f"ix_{TABLE}_scorecard_result_id", "scorecard_result_id"),
         _index("ix_review_items_queue", "workspace_id, status, due_at, id"),
+        # Added by the HOM-74 head: the target of the composite foreign keys of the
+        # review decisions and the human results.
+        _index(HEAD_INDEX, "id, scorecard_result_id", unique=True),
     ]
 )
+
+
+def _without_head_index(shape: dict) -> dict:
+    """The shape of the table at revision ``NEW_REVISION``: the HOM-74 head above it
+    adds ``uq_review_items_result``, so at this revision the table does not have it."""
+    return {**shape, "indexes": {k: v for k, v in shape["indexes"].items() if k != HEAD_INDEX}}
 
 
 def _assert_head_shape() -> dict:
@@ -980,7 +1003,7 @@ def test_the_migration_creates_and_drops_only_the_table(
     config = _alembic(monkeypatch, settings)
     try:
         command.stamp(config, "head")
-        command.downgrade(config, NEW_REVISION)  # a no-op while this revision is the head
+        command.downgrade(config, NEW_REVISION)
         others = _other_tables()  # after the stamp, which adds alembic_version
         command.downgrade(config, BASE_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
@@ -993,7 +1016,8 @@ def test_the_migration_creates_and_drops_only_the_table(
 
         command.upgrade(config, NEW_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == NEW_REVISION
-        assert _shape() == orm_shape  # the migrated schema equals the ORM
+        # The migrated schema equals the ORM, minus the HOM-74 head's index.
+        assert _shape() == _without_head_index(orm_shape)
         assert _ids() == set()  # the downgrade dropped the rows with the table
         assert _other_tables() == others
 
@@ -1007,7 +1031,7 @@ def test_the_migration_creates_and_drops_only_the_table(
         command.downgrade(config, BASE_REVISION)
         assert _other_tables() == others
         command.upgrade(config, NEW_REVISION)
-        assert _shape() == orm_shape
+        assert _shape() == _without_head_index(orm_shape)
         assert _ids() == set()
         assert _other_tables() == others
         command.upgrade(config, "head")
