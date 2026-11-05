@@ -1,4 +1,4 @@
-"""The supervisor review queue (HOM-73, ADR 0051).
+"""The supervisor review queue (HOM-73, ADR 0051; HOM-74, ADR 0053).
 
 * ``GET /review-items``: the visible items, ``due_at`` then ``id``, keyset pages.
   ``review:read``.  Filters: ``status`` (repeatable; default ``open`` and
@@ -10,10 +10,15 @@
   selections (201).  ``workspace:manage`` with CSRF.
 * ``POST /review-items/{item_id}/assign``, ``/due-time``, ``/start``, ``/complete``,
   ``/cancel``: ``review:manage`` with CSRF and the revision the caller read.
+* ``GET /review-items/{item_id}/criteria``: the criteria view, the machine score next to
+  the human score (HOM-74).  ``review:read``.
+* ``POST /review-items/{item_id}/criteria/{criterion_id}/decision``: accept or override
+  one criterion (HOM-74).  ``review:manage`` with CSRF.
 
 An item the caller may not see is ``404 review_item_not_found``, never 403.  Every
-change is audited; the record rules are in ``backend.services.review_queue_service``.
-No API key carries a review permission.
+change is audited; the record rules are in ``backend.services.review_queue_service``,
+the decision rules in ``backend.services.review_decision_service``.  No API key carries
+a review permission.
 """
 
 from __future__ import annotations
@@ -28,6 +33,8 @@ from backend.database.relational import get_db
 from backend.jobs.leases import as_utc
 from backend.review_sampling import SamplingError
 from backend.schemas.review_items import (
+    ReviewCriteriaResponse,
+    ReviewDecisionRequest,
     ReviewItemAssignRequest,
     ReviewItemCancelRequest,
     ReviewItemCreateRequest,
@@ -47,6 +54,7 @@ from backend.security.context import (
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.coverage_service import COVERAGE_VERSION, CoverageWindowError
+from backend.services.review_decision_service import criteria_data, decide_criterion
 from backend.services.review_queue_service import (
     Change,
     ItemView,
@@ -365,8 +373,9 @@ def complete_review_item(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> ReviewItemResponse:
-    """The assignee only; the item must be ``in_review``.  Criterion decisions are HOM-74:
-    completing only closes the queue entry."""
+    """The assignee only; the item must be ``in_review``.  An item with a scorecard
+    result also stores its human score: the machine result scored again with the
+    reviewer outcomes of the item's decisions (HOM-74).  The machine rows never change."""
     now = datetime.now(UTC)
     try:
         change = complete_item(
@@ -403,3 +412,61 @@ def cancel_review_item(
     except ReviewQueueError as error:
         raise _refused(error) from error
     return _commit(db, request, context, settings, change, now)
+
+
+@router.get("/{item_id}/criteria", response_model=ReviewCriteriaResponse)
+def read_review_item_criteria(
+    item_id: str,
+    context: WorkspaceContext = Depends(require_review_read),
+    db: Session = Depends(get_db),
+) -> ReviewCriteriaResponse:
+    """The item's criteria view: the machine score next to the human score (a preview
+    while the item is active, the stored row after completion) and each criterion's
+    machine outcome next to its decision."""
+    now = datetime.now(UTC)
+    try:
+        data = criteria_data(db, _caller(db, context, now), item_id=item_id)
+    except ReviewQueueError as error:
+        raise _refused(error) from error
+    return ReviewCriteriaResponse.model_validate(data)
+
+
+@router.post("/{item_id}/criteria/{criterion_id}/decision", response_model=ReviewCriteriaResponse)
+def decide_review_criterion(
+    item_id: str,
+    criterion_id: str,
+    payload: ReviewDecisionRequest,
+    request: Request,
+    context: WorkspaceContext = Depends(require_review_manage),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> ReviewCriteriaResponse:
+    """Accept or override one criterion of the item's machine result (the assignee only,
+    while the item is ``in_review``).  An identical decision writes nothing.  The audit
+    event carries codes, outcomes and turn indexes, never the note text."""
+    now = datetime.now(UTC)
+    try:
+        change = decide_criterion(
+            db,
+            _caller(db, context, now),
+            item_id=item_id,
+            criterion_id=criterion_id,
+            body=payload.model_dump(),
+            now=now,
+        )
+        data = criteria_data(db, _caller(db, context, now), item_id=item_id)
+    except ReviewQueueError as error:
+        raise _refused(error) from error
+    if change.event is not None:
+        _record(
+            db,
+            request,
+            context,
+            settings,
+            event_type=change.event,
+            target_type="review_item",
+            target_id=change.view.item.id,
+            details=change.details,
+        )
+        db.commit()
+    return ReviewCriteriaResponse.model_validate(data)

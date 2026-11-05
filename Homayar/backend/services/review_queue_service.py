@@ -46,11 +46,22 @@ from backend.database.saas_models import (
     REVIEW_ITEM_STATUSES,
     Meeting,
     Membership,
+    ReviewCriterionDecision,
     ReviewItem,
+    ReviewResultRecord,
     ScorecardResultRecord,
+    ScorecardVersion,
     WorkspaceRole,
+    new_id,
 )
 from backend.jobs.leases import as_utc
+from backend.scorecards import (
+    SCORECARDS_VERSION,
+    ConversationFacts,
+    ScorecardError,
+    ScorecardResult,
+    score_conversation,
+)
 from backend.security.authorization import membership_effective_clause, supervised_team_ids
 from backend.services.audit_event_types import AuditEventType
 from backend.services.review_sampling_service import ReviewSample, draw_review_sample
@@ -643,16 +654,137 @@ def start_item(
 def complete_item(
     db: Session, caller: Reviewer, *, item_id: str, expected_revision: int, now: datetime
 ) -> Change:
-    return _assignee_action(
+    """Close an ``in_review`` item; an item with a result also stores its human score.
+
+    The human score is the stored machine result scored again by the same engine with the
+    reviewer outcomes of the item's current decisions (HOM-74), written as one
+    ``review_results`` row in the same transaction as the status change.  The machine rows
+    are never written.  An item without a result completes as before, with no human result.
+    """
+    item, meeting = _writable(db, caller, item_id=item_id, expected_revision=expected_revision)
+    if item.assignee_user_id != caller.user_id:
+        raise ReviewQueueError(403, "review_not_assignee", "Only the assignee may do this")
+    if meeting.agent_user_id == caller.user_id:
+        raise ReviewQueueError(
+            422, "review_assignee_is_agent", "Nobody reviews their own conversation"
+        )
+    if item.status != "in_review":
+        raise ReviewQueueError(
+            409, "review_item_state_invalid", "The review item must be in_review"
+        )
+    prepared = _prepare_human_result(db, item) if item.scorecard_result_id is not None else None
+    compare_and_set(
         db,
-        caller,
-        item_id=item_id,
+        item,
         expected_revision=expected_revision,
-        needs_status="in_review",
-        values={"status": "completed", "completed_at": now},
-        event=AuditEventType.REVIEW_ITEM_COMPLETED,
         now=now,
+        values={"status": "completed", "completed_at": now},
     )
+    details: dict[str, Any] = {"revision": item.revision}
+    if prepared is not None:
+        result, scored, outcomes, decisions = prepared
+        row = ReviewResultRecord(
+            id=new_id(),
+            workspace_id=item.workspace_id,
+            meeting_id=item.meeting_id,
+            review_item_id=item.id,
+            scorecard_result_id=result.id,
+            scorecards_version=scored.scorecards_version,
+            reviewer_outcomes=outcomes,
+            outcome=scored.outcome,
+            reason=scored.reason,
+            complete=scored.complete,
+            pass_threshold=scored.pass_threshold,
+            applicable_weight=scored.applicable_weight,
+            earned_weight=scored.earned_weight,
+            failed_weight=scored.failed_weight,
+            insufficient_weight=scored.insufficient_weight,
+            result=scored.to_json(),
+            created_at=now,
+        )
+        db.add(row)
+        db.flush()
+        details = {
+            "revision": item.revision,
+            "scorecard_result_id": result.id,
+            "review_result_id": row.id,
+            "machine_outcome": result.outcome,
+            "machine_reason": result.reason,
+            "human_outcome": row.outcome,
+            "human_reason": row.reason,
+            "applicable_weight": row.applicable_weight,
+            "earned_weight": row.earned_weight,
+            "failed_weight": row.failed_weight,
+            "insufficient_weight": row.insufficient_weight,
+            "accepted_count": sum(1 for d in decisions if d.decision == "accept"),
+            "overridden_count": sum(1 for d in decisions if d.decision == "override"),
+        }
+    return Change(ItemView(item, meeting.team_id), AuditEventType.REVIEW_ITEM_COMPLETED, details)
+
+
+def score_human_result(
+    db: Session, result: ScorecardResultRecord, reviewer_outcomes: dict[str, str]
+) -> ScorecardResult:
+    """The stored machine result scored again with the reviewer outcomes, by the same
+    engine (HOM-74).  The one copy of the human-result scoring, used by completion and
+    by the criteria view's preview.
+
+    Raises ``409 scorecard_version_unsupported`` when the result is of another engine
+    version and ``409 review_result_not_computable`` when the stored version row is gone
+    or the engine refuses the stored input; nothing is written either way.
+    """
+    if result.scorecards_version != SCORECARDS_VERSION:
+        raise ReviewQueueError(
+            409,
+            "scorecard_version_unsupported",
+            f"{result.scorecards_version} is not this engine's {SCORECARDS_VERSION}",
+        )
+    version = db.scalar(
+        select(ScorecardVersion).where(
+            ScorecardVersion.workspace_id == result.workspace_id,
+            ScorecardVersion.id == result.scorecard_version_id,
+        )
+    )
+    if version is None:
+        raise ReviewQueueError(409, "review_result_not_computable", "The scorecard version is gone")
+    try:
+        return score_conversation(
+            version.document,
+            result.check_run,
+            ConversationFacts(result.conversation_type, result.direction),
+            reviewer_outcomes,
+        )
+    except ScorecardError as error:
+        raise ReviewQueueError(
+            409, "review_result_not_computable", "The engine refused the human result"
+        ) from error
+
+
+def _prepare_human_result(
+    db: Session, item: ReviewItem
+) -> tuple[ScorecardResultRecord, ScorecardResult, dict[str, str], list[ReviewCriterionDecision]]:
+    """Everything the human result is computed from, checked but nothing written yet.
+
+    Raises ``409 scorecard_version_unsupported`` for a result of another engine version
+    and ``409 review_result_not_computable`` when the engine refuses to score the stored
+    input again.
+    """
+    result = db.scalar(
+        select(ScorecardResultRecord).where(
+            ScorecardResultRecord.id == item.scorecard_result_id,
+            ScorecardResultRecord.workspace_id == item.workspace_id,
+        )
+    )
+    if result is None:  # the composite foreign key holds; this guards a broken row
+        raise ReviewQueueError(404, "review_item_not_found", "Review item not found")
+    decisions = list(
+        db.scalars(
+            select(ReviewCriterionDecision).where(ReviewCriterionDecision.review_item_id == item.id)
+        )
+    )
+    outcomes = {row.criterion_id: row.reviewer_outcome for row in decisions}
+    scored = score_human_result(db, result, outcomes)
+    return result, scored, outcomes, decisions
 
 
 def cancel_item(

@@ -119,6 +119,7 @@ class AuditEventType(StrEnum):
     ORGANIZATION_WORKSPACE_MEMBER_REMOVED = "organization.workspace.member_removed", "membership"
     PII_REVEALED = "pii.revealed", "meeting"
     RECONCILIATION_ITEM_RESOLVED = "reconciliation_item.resolved", "reconciliation_item"
+    REVIEW_CRITERION_DECIDED = "review_criterion.decided", "review_item"
     REVIEW_ITEM_ASSIGNED = "review_item.assigned", "review_item"
     REVIEW_ITEM_CANCELLED = "review_item.cancelled", "review_item"
     REVIEW_ITEM_COMPLETED = "review_item.completed", "review_item"

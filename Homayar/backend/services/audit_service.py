@@ -66,6 +66,9 @@ SENSITIVE_DETAIL_KEYS = {
     "cookie",
     "transcript",
 }
+# Detail keys whose value is a code from a frozen list, so the substring rules above
+# must not redact them: ``review_criterion.decided``'s ``reason_code`` (HOM-74).
+ENUM_CODE_DETAIL_KEYS = frozenset({"reason_code"})
 MAX_DETAIL_STRING_LENGTH = 500
 REDACTED = "[redacted]"
 # Owner decision 2026-10-17, option B: every string detail value is treated as
@@ -236,13 +239,14 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.MEETING_PURGE_REQUEUED: "administration",
     AuditEventType.REVIEW_SAMPLE_DRAWN: "administration",
     AuditEventType.RECONCILIATION_ITEM_RESOLVED: "administration",
-    # The supervisor review queue (HOM-73)
+    # The supervisor review queue (HOM-73) and its criterion decisions (HOM-74)
     AuditEventType.REVIEW_ITEM_CREATED: "administration",
     AuditEventType.REVIEW_ITEM_ASSIGNED: "administration",
     AuditEventType.REVIEW_ITEM_DUE_CHANGED: "administration",
     AuditEventType.REVIEW_ITEM_STARTED: "administration",
     AuditEventType.REVIEW_ITEM_COMPLETED: "administration",
     AuditEventType.REVIEW_ITEM_CANCELLED: "administration",
+    AuditEventType.REVIEW_CRITERION_DECIDED: "administration",
     AuditEventType.REVIEW_SAMPLE_ENQUEUED: "administration",
     # Deletion, retention and legal hold
     AuditEventType.MEETING_DELETED: "deletion",
@@ -308,6 +312,10 @@ class AuditImmutableError(RuntimeError):
 
 def _is_sensitive_key(key: str) -> bool:
     lowered = key.casefold()
+    if lowered in ENUM_CODE_DETAIL_KEYS:
+        # A code from a frozen list (``review_criterion.decided``'s reason_code), never
+        # a secret or free text; the substring rules below would redact it on "code".
+        return False
     return any(sensitive in lowered for sensitive in SENSITIVE_DETAIL_KEYS)
 
 

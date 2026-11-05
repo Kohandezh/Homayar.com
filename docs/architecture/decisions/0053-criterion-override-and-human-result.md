@@ -132,8 +132,9 @@ result. Removing a user sets `decided_by_user_id` to NULL and keeps the decision
 
 PR 2 writes `review_criterion.decided` per accepted write. The details are ids, codes,
 outcomes, turn indexes and the item revision, never the note text. `review_item.completed`
-gains the result ids, the machine and the human outcome and reason, and the four human
-weights, so the audit matches the stored human result.
+gains the result ids, the machine and the human outcome and reason, the four human
+weights and the counts of accepted and overridden criteria, so the audit matches the
+stored human result.
 
 ## Consequences
 
