@@ -80,6 +80,6 @@ free-text masking like other id keys. A refused change writes no audit event.
 
 - Voicemail: `PATCH /api/v1/voicemails/{id}` uses the two validators for its own
   `assigned_team_id` / `assigned_user_id`. Those fields are not the call's attribution,
-  and their rules do not change.
+  and their rules do not change. HOM-369 (ADR 0054) applies this rule to them.
 - No console screen changes a call's team or agent.
 - No migration and no schema change.

@@ -260,8 +260,11 @@ def authorize_attribution_change(
     *,
     current_agent_user_id: str | None,
     changes: Mapping[str, str | None],
+    record: str = "call",
 ) -> None:
-    """Refuse a change of a call's ``team_id`` / ``agent_user_id`` (HOM-360, ADR 0052).
+    """Refuse a change of a call's ``team_id`` / ``agent_user_id`` (HOM-360, ADR 0052)
+    or of a voicemail's ``assigned_team_id`` / ``assigned_user_id`` (HOM-369, ADR 0054);
+    ``record`` only selects the message text.
 
     ``changes`` holds only the fields whose new value differs from the current one, so
     an empty mapping needs no right.  The review queue decides who sees and works a
@@ -271,13 +274,26 @@ def authorize_attribution_change(
     """
     if not changes:
         return
+    if record == "voicemail":
+        messages = (
+            "An API key cannot change a voicemail's team or assignee",
+            "Only an owner or admin may change a voicemail's team or assignee",
+            "Nobody changes the team or assignee of a voicemail assigned to them,"
+            " or assigns one to themselves",
+        )
+    else:
+        messages = (
+            "An API key cannot change a call's team or agent",
+            "Only an owner or admin may change a call's team or agent",
+            "Nobody changes the team or agent of their own call",
+        )
     # A key is refused by itself too: until HOM-361 a stored key scope is not
     # intersected with ``API_KEY_SCOPES``, so ``has`` alone would trust a stray scope.
     # Its own message, so the integrator of an owner's key is not told to be an owner.
     if context.actor.api_key is not None:
-        message = "An API key cannot change a call's team or agent"
+        message = messages[0]
     elif not context.has(Permission.MEETING_ATTRIBUTE):
-        message = "Only an owner or admin may change a call's team or agent"
+        message = messages[1]
     else:
         message = None
     if message is not None:
@@ -291,7 +307,7 @@ def authorize_attribution_change(
             status_code=403,
             detail={
                 "code": "attribution_own_call",
-                "message": "Nobody changes the team or agent of their own call",
+                "message": messages[2],
             },
         )
 
