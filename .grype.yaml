@@ -8,34 +8,6 @@
 # the decision and a short reason. The full evidence is in that row.
 # Add a rule only together with its row.
 ignore:
-  # F001 accepted: not reachable: never imported
-  - vulnerability: GHSA-6v38-4h7w-rj9h
-    package:
-      name: authlib
-  # F002 accepted: not reachable: never imported
-  - vulnerability: GHSA-wvwj-cvrp-7pv5
-    package:
-      name: authlib
-  # F003 accepted: not reachable: never imported
-  - vulnerability: GHSA-7432-952r-cw78
-    package:
-      name: authlib
-  # F004 accepted: not reachable: never imported
-  - vulnerability: GHSA-7vr2-2fgp-9w7p
-    package:
-      name: authlib
-  # F005 accepted: not reachable: never imported
-  - vulnerability: GHSA-8m4g-j4wp-wgcg
-    package:
-      name: authlib
-  # F006 accepted: not reachable: never imported
-  - vulnerability: GHSA-m344-f55w-2m6j
-    package:
-      name: authlib
-  # F007 accepted: not reachable: never imported
-  - vulnerability: GHSA-pq5p-34cr-23v9
-    package:
-      name: authlib
   # F009 accepted: not reachable: no DNS lookups (check_deliverability=False)
   - vulnerability: GHSA-45c3-73f7-pv4m
     package:
