@@ -115,6 +115,9 @@ EXEMPT_DETAIL_KEYS = frozenset(
         "assigned_team_id_after",
         "assigned_user_id_before",
         "assigned_user_id_after",
+        # Ids before and after a voicemail follow-up action's assignee change (HOM-373).
+        "assignee_user_id_before",
+        "assignee_user_id_after",
     }
 )
 EXEMPT_DETAIL_SUFFIXES = (
@@ -209,6 +212,8 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.MEETING_ATTRIBUTION_CHANGED: "access",
     # A voicemail's assigned team and assignee follow the same rule (HOM-369).
     AuditEventType.VOICEMAIL_ASSIGNMENT_CHANGED: "access",
+    # A voicemail follow-up action's assignee is the same assignment (HOM-373).
+    AuditEventType.ACTION_ITEM_ASSIGNEE_CHANGED: "access",
     # Privacy-sensitive reads, original/unredacted access and exports
     AuditEventType.TRANSCRIPT_ORIGINAL_ACCESSED: "privacy_access",
     AuditEventType.PII_REVEALED: "privacy_access",
