@@ -321,6 +321,10 @@ How the stack was started on 2026-10-29 (measured). As `gpu`, in this order:
      also holds `Homayar/backend/tests` (open items).
    - If a Docker Hub download fails, build or pull on the admin Mac with `--platform linux/amd64`,
      then `docker save <image> | ssh homayar-local docker load`. It was not needed.
+   - A `uv sync` timeout in the api build means PyPI was too slow. The Dockerfile tries
+     `uv sync` up to 3 times. If the build still fails, see
+     [`release.md`](release.md#when-the-server-build-is-slow-or-times-out), which also has
+     the HOM-349 fallback that builds the image on a GitHub runner.
 
 5. Stores and the MinIO bucket and user:
 
