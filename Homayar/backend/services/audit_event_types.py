@@ -29,6 +29,7 @@ class AuditEventType(StrEnum):
     def group(self) -> str:
         return self.value.split(".", 1)[0]
 
+    ACTION_ITEM_ASSIGNEE_CHANGED = "action_item.assignee_changed", "action_item"
     ACTION_ITEM_CREATED = "action_item.created", "action_item"
     ACTION_ITEM_DELETED = "action_item.deleted", "action_item"
     ACTION_ITEM_UPDATED = "action_item.updated", "action_item"

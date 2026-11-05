@@ -87,6 +87,7 @@ from backend.services.meeting_service import latest_job_for_meeting
 from backend.services.quality_service import assess_meeting
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
 from backend.services.report_service import evidence_status_of, meeting_completeness
+from backend.services.team_service import authorize_attribution_change
 from backend.services.transcript_service import (
     SegmentEdit,
     TranscriptError,
@@ -99,6 +100,7 @@ from backend.services.transcript_service import (
     revision_by_id,
     segments_of,
 )
+from backend.voicemail.models import VoicemailMessage
 
 router = APIRouter(tags=["meeting intelligence"])
 
@@ -1092,6 +1094,21 @@ def _action_or_404(
     return action
 
 
+def _follow_up_voicemail(
+    db: Session,
+    *,
+    workspace_id: str,
+    action_id: str,
+) -> VoicemailMessage | None:
+    """The voicemail whose follow-up action this action is, or ``None`` (HOM-373)."""
+    return db.scalar(
+        select(VoicemailMessage).where(
+            VoicemailMessage.workspace_id == workspace_id,
+            VoicemailMessage.follow_up_action_id == action_id,
+        )
+    )
+
+
 @router.patch(
     "/meetings/{meeting_id}/actions/{action_id}",
     response_model=ActionItemResponse,
@@ -1112,6 +1129,34 @@ def update_action(
         meeting_id=meeting_id,
         action_id=action_id,
     )
+    voicemail = _follow_up_voicemail(db, workspace_id=context.workspace.id, action_id=action.id)
+    fields = set(payload.model_fields_set)
+    # A voicemail's follow-up action carries the voicemail's assignment, so its
+    # ``assignee_user_id`` is attribution and a change needs the ADR 0054 guard
+    # (HOM-373).  A value equal to the current one is not a change: it needs no
+    # right, is not validated again, is not written and is not listed in the
+    # audit ``fields``; a body with nothing else writes no audit row.  Every
+    # check runs before any field is written.  An action no voicemail links keeps
+    # plain work assignment under ``meeting:update``.
+    changed_assignee = False
+    if voicemail is not None and "assignee_user_id" in fields:
+        if payload.assignee_user_id != action.assignee_user_id:
+            changed_assignee = True
+            changes = {"agent_user_id": payload.assignee_user_id}
+            authorize_attribution_change(
+                context,
+                current_agent_user_id=action.assignee_user_id,
+                changes=changes,
+                record="voicemail",
+            )
+            authorize_attribution_change(
+                context,
+                current_agent_user_id=voicemail.assigned_user_id,
+                changes=changes,
+                record="voicemail",
+            )
+        else:
+            fields.discard("assignee_user_id")
     view = meeting_view(
         db,
         context=context,
@@ -1122,7 +1167,6 @@ def update_action(
         surface="actions",
     )
     current = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
-    fields = payload.model_fields_set
     # The stored text tells which shown placeholder was a fragment (HOM-284).
     if "description" in fields and payload.description is not None:
         action.description = view.restore(
@@ -1136,6 +1180,7 @@ def update_action(
             if payload.assignee_text
             else None
         )
+    assignee_before = action.assignee_user_id if changed_assignee else None
     if "assignee_user_id" in fields:
         _validate_assignee(
             db,
@@ -1149,17 +1194,38 @@ def update_action(
         action.priority = payload.priority
     if payload.status is not None:
         action.status = payload.status
-    record_audit_event(
-        db,
-        event_type=AuditEventType.ACTION_ITEM_UPDATED,
-        actor_user_id=context.actor.user.id,
-        workspace_id=context.workspace.id,
-        target_type="action_item",
-        target_id=action.id,
-        request_id=getattr(request.state, "request_id", None),
-        details={"fields": ",".join(sorted(fields))},
-        settings=settings,
-    )
+    if changed_assignee:
+        # Ids only.  The voicemail is named by its id key, which the audit
+        # masker leaves alone (HOM-373).
+        record_audit_event(
+            db,
+            event_type=AuditEventType.ACTION_ITEM_ASSIGNEE_CHANGED,
+            actor_user_id=context.actor.user.id,
+            workspace_id=context.workspace.id,
+            target_type="action_item",
+            target_id=action.id,
+            request_id=getattr(request.state, "request_id", None),
+            details={
+                "assignee_user_id_before": assignee_before,
+                "assignee_user_id_after": action.assignee_user_id,
+                "voice_message_id": voicemail.id,
+            },
+            settings=settings,
+        )
+    # A follow-up body that held only an unchanged assignee leaves ``fields``
+    # empty (HOM-373): the answer is the action, and no audit row names a change.
+    if fields:
+        record_audit_event(
+            db,
+            event_type=AuditEventType.ACTION_ITEM_UPDATED,
+            actor_user_id=context.actor.user.id,
+            workspace_id=context.workspace.id,
+            target_type="action_item",
+            target_id=action.id,
+            request_id=getattr(request.state, "request_id", None),
+            details={"fields": ",".join(sorted(fields))},
+            settings=settings,
+        )
     db.commit()
     db.refresh(action)
     return action_response(
