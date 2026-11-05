@@ -93,6 +93,71 @@ the commit, and uploads `release-manifest.json`, `build-info.json`, `image-label
 `build-args.txt` as the `release-manifest` artifact (90 days). The CI manifest records the local
 image id, because CI does not push images.
 
+## When the server build is slow or times out
+
+Every release builds the api image on the server (`homayar-local`, see
+[`app-server.md`](app-server.md), "First Start"). Its link to PyPI is slow, about 300 KB/s.
+On 2026-10-30 (HOM-349) `uv sync --locked` failed there while it downloaded
+`psycopg-binary`: uv stopped reading after its default 30 s HTTP timeout. HOM-364 changed
+the dependencies stage of `infra/docker/api.Dockerfile` so a slow link does not break the
+build:
+
+- `ENV UV_HTTP_TIMEOUT=300`: uv waits up to 300 s for one HTTP read. The default is 30 s.
+- `ENV UV_HTTP_RETRIES=10`: uv retries each HTTP request up to 10 times. The default is 3.
+- The `uv sync` instruction tries at most 3 times, all inside one `RUN`. Before each new
+  try it prints `uv sync attempt <N> of 3 failed; retrying in 15 s` to stderr and waits
+  15 s. After the third failed try it prints `uv sync failed after 3 attempts` and the
+  build fails. It never succeeds after a failed sync and never loops forever.
+- All tries share one `RUN` on purpose. uv keeps finished downloads in its cache
+  (`/root/.cache/uv` in the build container). A retry reuses them, so it does not download
+  everything again. A separate `RUN`, or a new build, would start with an empty cache.
+- There is no `RUN --mount=type=cache` and no `# syntax=` line. The server builds with the
+  legacy builder (`DOCKER_BUILDKIT=0`; it has no `docker buildx`, see
+  [`app-server.md`](app-server.md), "First Start" step 4), and the legacy builder rejects
+  `RUN --mount`.
+- These settings live only in the dependencies stage. The runtime stage is unchanged, so
+  the final image does not change.
+
+### What a timeout looks like in the build log
+
+When PyPI is too slow, the api image build log shows the retry lines and then the failure,
+for example:
+
+```text
+uv sync attempt 1 of 3 failed; retrying in 15 s
+uv sync attempt 2 of 3 failed; retrying in 15 s
+uv sync failed after 3 attempts
+```
+
+`docker build` then exits non-zero. Wait for a better network window and build again, or
+use the fallback below.
+
+### Fallback: build on a GitHub runner and load the image on the server (HOM-349)
+
+HOM-349 used this path when the server build still timed out (Linear comment on HOM-349,
+2026-10-30):
+
+1. Push a temporary branch that holds the release commit. Add a build-only workflow to it
+   if needed. The branch runs its own `ci.yml`: start it with
+   `gh workflow run ci.yml --ref <branch>`.
+2. In that workflow, build the image with the release build args (`build-args.txt`), then
+   run `docker save <image> | gzip` and upload the file as a workflow artifact with a
+   1-day retention. (The HOM-349 image was 261 MB.)
+3. Download the artifact on the admin Mac with a resumable download: a `curl` loop with
+   `--continue-at -`. Check the file's sha256.
+4. Load it on the server: feed the file to `ssh homayar-local docker load` on stdin. Then
+   check the image: the Python version, the Debian floor packages, the base pin, and
+   `/app/build-info.json` against the release manifest.
+5. Run the reviewed release script on the server with its side-image option. HOM-349 used
+   `--apply --use-side-image`. The script is a per-release reviewed script on the server,
+   not a file in this repository.
+6. Delete the temporary branch right after the download. The secret scan (gitleaks) checks
+   every remote branch, so the branch must not stay.
+
+Note: the server Docker uses the containerd image store. A loaded image's ID is the
+manifest digest, not the config digest the runner printed. Compare `/app/build-info.json`,
+not the image ID.
+
 ## Read the identity of a running backend
 
 * Prometheus: `homayar_build_info{source_sha="<commit>",migration_head="<rev>",...} 1`, next to

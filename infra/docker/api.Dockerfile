@@ -16,6 +16,10 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH=${VIRTUAL_ENV}/bin:${PATH}
 ENV UV_PROJECT_ENVIRONMENT=${VIRTUAL_ENV}
 ENV UV_LINK_MODE=copy
+# HOM-364: the release build runs on a server whose link to PyPI is slow (about
+# 300 KB/s). uv's default HTTP read timeout (30 s) made `uv sync` fail there.
+ENV UV_HTTP_TIMEOUT=300
+ENV UV_HTTP_RETRIES=10
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends build-essential libpq-dev \
@@ -24,11 +28,28 @@ RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 WORKDIR /workspace
 COPY Homayar/pyproject.toml Homayar/uv.lock ./
 # --locked refuses a uv.lock that is stale against pyproject.toml.
-RUN if [ "${INSTALL_AI_LOCAL}" = "true" ]; then \
-      uv sync --locked --no-dev --no-install-project --extra ai-local; \
-    else \
-      uv sync --locked --no-dev --no-install-project; \
-    fi
+# HOM-364: a slow link to PyPI can still break one `uv sync`, so try at most
+# 3 times inside this one RUN. uv keeps finished downloads in its cache
+# (/root/.cache/uv), and within one RUN the cache survives a failed try, so a
+# retry does not download everything again. A separate RUN or a new build
+# would start with an empty cache. After 3 failed tries the build fails.
+RUN sync_deps() { \
+      if [ "${INSTALL_AI_LOCAL}" = "true" ]; then \
+        uv sync --locked --no-dev --no-install-project --extra ai-local; \
+      else \
+        uv sync --locked --no-dev --no-install-project; \
+      fi; \
+    }; \
+    attempt=1; \
+    until sync_deps; do \
+      if [ "${attempt}" -ge 3 ]; then \
+        echo "uv sync failed after 3 attempts" >&2; \
+        exit 1; \
+      fi; \
+      echo "uv sync attempt ${attempt} of 3 failed; retrying in 15 s" >&2; \
+      sleep 15; \
+      attempt=$((attempt + 1)); \
+    done
 
 # hadolint ignore=DL3006
 FROM ${PYTHON_IMAGE} AS runtime
