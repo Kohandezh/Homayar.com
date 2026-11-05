@@ -236,11 +236,13 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | POST | /api/v1/review-items | review:manage +csrf |
 | POST | /api/v1/review-items/from-sample | workspace:manage +csrf |
 | GET | /api/v1/review-items/{item_id} | review:read |
+| GET | /api/v1/review-items/{item_id}/criteria | review:read |
 | POST | /api/v1/review-items/{item_id}/assign | review:manage +csrf |
 | POST | /api/v1/review-items/{item_id}/due-time | review:manage +csrf |
 | POST | /api/v1/review-items/{item_id}/start | review:manage +csrf |
 | POST | /api/v1/review-items/{item_id}/complete | review:manage +csrf |
 | POST | /api/v1/review-items/{item_id}/cancel | review:manage +csrf |
+| POST | /api/v1/review-items/{item_id}/criteria/{criterion_id}/decision | review:manage +csrf |
 | GET | /api/v1/admin/legal-holds | legal_hold:manage |
 | GET | /api/v1/admin/system-health | workspace:manage +operator |
 | GET | /api/v1/billing/plans | billing:read |
@@ -598,7 +600,7 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | Delivery diagnostics (HOM-90) are `webhook:manage` only (never an API key) and always in the caller's own workspace: the list, one delivery with its latest 100 attempts, and an endpoint's counts per state. Another workspace's delivery id is `404 webhook_delivery_not_found`, its endpoint id `404 webhook_endpoint_not_found`, and the list never shows its rows. No answer carries the payload, its digest, the endpoint URL, a secret, headers or a signature | `backend/routers/v1/webhooks.py`, `list_deliveries`, `delivery_summary` | `test_webhook_admin_diagnostics.py` |
 | Redelivery (HOM-90) moves only a `dead_letter` or `failed` row with a stored payload back to `pending`, under a row lock, with the same event id and bytes; any other state or a missing payload is `409 webhook_delivery_not_redeliverable`, an inactive endpoint `409 webhook_endpoint_inactive`. The bulk route moves at most 500 rows of one endpoint. Both share a per-workspace limit (`WEBHOOK_REDELIVER_RATE_LIMIT_PER_HOUR`, `429 webhook_redeliver_rate_limited`), checked after every refusal and before any write, and are audited (`webhook.delivery_redelivered`, `webhook.dead_letters_redelivered`) with ids, states and counts only | `redeliver`, `redeliver_dead_letters` | `test_webhook_admin_diagnostics.py` |
 
-## 6q. Supervisor review queue (HOM-73, ADR 0051)
+## 6q. Supervisor review queue and criterion decisions (HOM-73, ADR 0051; HOM-74, ADR 0053)
 
 | Rule | Enforcement | Test |
 |---|---|---|
@@ -609,6 +611,8 @@ One suite (`backend/tests/test_storage_contract.py`) runs the same guarantees ag
 | Every write names the revision it read (`expected_revision`); a stale one is `409 review_item_revision_conflict` with `details.current_revision`. The update is a compare-and-set on the revision, so two concurrent writes never both succeed. A closed item is `409 review_item_closed`. One active item per conversation: `409 review_item_exists` (also when a concurrent create hits `uq_review_items_active_meeting`) | `compare_and_set`, `create_item` | `test_review_queue_items.py`, `test_review_queue_concurrency.py` |
 | Every change is audited (`review_item.created`, `.assigned`, `.due_changed`, `.started`, `.completed`, `.cancelled`; `review_sample.enqueued` for a sample) with ids, codes, timestamps and the revision, never free text; a refusal and an assignment to the same person write none | `routers/v1/review_items.py` | `test_review_queue_items.py`, `test_review_queue_sample.py` |
 | `review_items` is a workspace table under row-level security (tenant only, never a share token); the conversation purge deletes its rows | `WORKSPACE_TABLES`, `conversation_purge_service` | `test_review_items_migration.py` |
+| Criterion decisions (HOM-74, ADR 0053): `POST /review-items/{item_id}/criteria/{criterion_id}/decision` (`review:manage` + CSRF, the assignee only) accepts or overrides one criterion of the item's machine result while the item is `in_review`. Checks, in order: visible `404 review_item_not_found`, revision `409 review_item_revision_conflict`, active `409 review_item_closed`, assignee `403 review_not_assignee`, not the call's agent `422 review_assignee_is_agent`, `in_review` `409 review_item_state_invalid`, a result `409 review_item_has_no_result`, the engine's version `409 scorecard_version_unsupported`, the criterion `404 criterion_not_found`, reviewable `422 criterion_not_reviewable`, then the body: `422 review_decision_invalid` (an unknown `decision`; an accept with `reason_code`/`evidence_turn_indexes`/another `reviewer_outcome`; an unknown override `reviewer_outcome`; a note over 2000 characters after strip `422 review_note_invalid`), `422 criterion_accept_not_possible` (an accept of `insufficient_evidence`), `422 override_matches_machine`, `422 reviewer_na_not_allowed`, `422 override_reason_required` (a missing/unknown reason code or a blank note), `422 override_evidence_required` (evidence missing, empty, over 20, duplicated, a non-integer, negative or beyond the transcript revision's `segment_count`). An identical decision (the stored form) writes nothing; every other write is one compare-and-set plus one `review_criterion.decided` audit event with ids, codes, outcomes, turn indexes and the revision — never the note text | `decide_criterion`, `backend/services/review_decision_service.py` | `test_review_decisions_api.py` |
+| Completing with a result (HOM-74): the machine result is scored again by the same engine with the reviewer outcomes of the item's decisions and one `review_results` row is stored in the same transaction; the machine rows never change. An engine refusal or a missing version row is `409 review_result_not_computable` (nothing written), another engine version `409 scorecard_version_unsupported`; an item without a result completes with no human result. `GET /review-items/{item_id}/criteria` (`review:read`) shows the machine score next to the human score (a preview while active, the stored row after completion) and each criterion's machine outcome next to its decision | `complete_item`, `criteria_data` | `test_review_decisions_api.py` |
 
 ## 7. Escalation paths and where they are refused
 
