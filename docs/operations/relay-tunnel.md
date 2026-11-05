@@ -1,38 +1,49 @@
 # Relay Tunnel Runbook
 
 This runbook covers the relay VPS and the frp tunnel that publish sites from the local
-production server to the internet (HOM-332). No secret value is in this file.
+production server to the internet (HOM-332). Public HTTPS moved to relay port 8080 on
+2026-11-05 (HOM-374, ADR 0055). No secret value is in this file.
 
-Published through the tunnel now: `inotex.padyar.com`, `elecomp.padyar.com` and
-`inotexpwa.padyar.com`. `app.homayar.com` comes later (HOM-328, see the last part of this
-runbook).
+Published through the tunnel now: `inotex.padyar.com`, `elecomp.padyar.com`,
+`inotexpwa.padyar.com` and `app.homayar.com` (HOM-328, see
+[`app-server.md`](app-server.md)). Their public URLs are:
+
+- `https://inotex.padyar.com:8080`
+- `https://elecomp.padyar.com:8080`
+- `https://inotexpwa.padyar.com:8080`
+- `https://app.homayar.com:8080`
 
 ## How It Works
 
 ```text
-visitor  -> TCP 443 or 80 ->  relay 193.93.169.205 (frps)
-                                  |  raw TCP, TLS does not end here
-                                  v
+visitor  -> TCP 8080 ->  relay 193.93.169.205 (frps, proxy https-8080)
+                              |  raw TCP, TLS does not end here
+                              v
             tunnel on TCP 7000 (TLS + token), opened by frpc from the local server
-                                  |
-                                  v
-local server: frpc (Docker) -> nginx 127.0.0.1:10443 or 127.0.0.1:10080
+                              |
+                              v
+local server: frpc (Docker) -> nginx 127.0.0.1:10443
                                with a PROXY protocol v2 header;
                                TLS ends here and nginx picks the site by SNI
 ```
 
-- The relay forwards raw TCP. It holds no site certificate and no app secret.
+- The relay forwards raw TCP on port 8080. It holds no site certificate and no app secret.
+- Relay ports 80, 443 and 8443 belong to the owner's `arange-tun` service, not to us. frps
+  never serves them.
 - frpc on the local server opens the connection to the relay. The local server needs no open
   inbound port.
 - frpc adds a PROXY protocol v2 header to each connection. nginx reads the real client IP
   from it, so logs, app rate limits and the admin lockout see the real visitor.
 - nginx chooses the site by the TLS SNI name, the same way it does for LAN traffic.
+- nginx also keeps the tunnel HTTP listener `127.0.0.1:10080`. Since HOM-374 no tunnel
+  traffic reaches it: the plain HTTP proxy through the relay is gone (relay port 80 is not
+  ours). Only the local server itself can still call it.
 
 ## Hosts
 
 | Host | SSH alias | Address | Role |
 | --- | --- | --- | --- |
-| Relay VPS | `homayar-relay` | public `193.93.169.205`, private `172.20.89.194` (1:1 NAT) | Ubuntu 24.04, user `ubuntu`, sudo without password. Runs `frps` only. Hostname `local-sites-tunnel`. OpenStack VM, provider security group `relay-web`. |
+| Relay VPS | `homayar-relay` | public `193.93.169.205`, private `172.20.89.194` (1:1 NAT) | Ubuntu 24.04, user `ubuntu`, sudo without password. Runs `frps` and the owner's `arange-tun` (installed 2026-11-03). Hostname `local-sites-tunnel`. OpenStack VM, provider security group `relay-web`. |
 | Local server | `homayar-local` | LAN `192.168.100.6` | Hostname `gpuserver`, user `gpu`. Runs the live Padyar products, nginx with 5 `padyar.com` sites, fail2ban, and the frpc container. `sudo` needs the owner's password. |
 
 Rules for the local server:
@@ -43,26 +54,47 @@ Rules for the local server:
 
 ## Ports
 
-| Host | Port | Listener | Why |
-| --- | --- | --- | --- |
-| Relay | 22/tcp | sshd | Admin access. Key login only. |
-| Relay | 80/tcp | frps (proxy `http-80`) | HTTP. The sites answer 301 to HTTPS. The ACME path stays reachable: the 3 sites renew their certificates through it (HTTP-01). |
-| Relay | 443/tcp | frps (proxy `https-443`) | HTTPS, raw TCP. TLS ends on the local nginx. |
-| Relay | 7000/tcp | frps (`bindPort`) | frpc control channel. TLS is forced, the client needs the token, and frpc checks the relay certificate against the tunnel CA. Open to all, because the local server's egress IP changes. |
-| Local | 127.0.0.1:10080 | nginx, `proxy_protocol` | Tunnel HTTP. Loopback only. |
-| Local | 127.0.0.1:10443 | nginx, `ssl http2 proxy_protocol` | Tunnel HTTPS. Loopback only. |
+Relay ports in use (measured 2026-11-05), one row each. "Ours" means the Homayar tunnel.
 
-frps listens on 80 and 443 only while frpc is logged in. Right after a relay reboot, only 22
-and 7000 listen until frpc reconnects.
+| Host | Port | Listener | Whose | Why |
+| --- | --- | --- | --- | --- |
+| Relay | 22/tcp | sshd | ours | Admin access. Key login only. |
+| Relay | 53/tcp | not known | not known, not ours, ask the owner | Not known, not ours, ask the owner. |
+| Relay | 80/tcp | arange-tun | owner's arange-tun | Owner's service. frps does not serve port 80. |
+| Relay | 443/tcp | arange-tun | owner's arange-tun | Owner's service. frps does not serve port 443. |
+| Relay | 2053/tcp | arange-tun | owner's arange-tun | Owner's service. |
+| Relay | 2083/tcp | arange-tun | owner's arange-tun | Owner's service. |
+| Relay | 2489/tcp | arange-tun-webui | owner's arange-tun | Admin web panel of arange-tun. See "The owner's arange-tun". |
+| Relay | 7000/tcp | frps (`bindPort`) | ours | frpc control channel. TLS is forced, the client needs the token, and frpc checks the relay certificate against the tunnel CA. Open to all, because the local server's egress IP changes. |
+| Relay | 8080/tcp | frps (proxy `https-8080`) | ours | Public HTTPS, raw TCP. TLS ends on the local nginx. HOM-374. |
+| Relay | 8443/tcp | arange-tun | owner's arange-tun | Also in frps `allowPorts`, but unused by us. See the note below. |
+| Relay | 19896/tcp | arange-tun | owner's arange-tun | Owner's service. |
+| Relay | 21578/tcp | not known | not known, not ours, ask the owner | Not known, not ours, ask the owner. |
+| Relay | 59675/tcp | arange-tun-server-59675 | owner's arange-tun | arange-tun control port (rathole transport). |
+| Local | 127.0.0.1:10080 | nginx, `proxy_protocol` | ours | Tunnel HTTP, loopback only. Since HOM-374 no tunnel traffic reaches it. |
+| Local | 127.0.0.1:10443 | nginx, `ssl http2 proxy_protocol` | ours | Tunnel HTTPS, loopback only. All public traffic goes here. |
+
+frps (`/etc/frp/frps.toml`, changed 2026-11-03 22:53 UTC) allows only ports 8080 and 8443
+(`allowPorts`). We use only 8080, with one proxy. Port 8443 stays in `allowPorts` but is
+unused by us: arange-tun also lists 8443, and on a shared port the first process to start
+after a reboot wins. The relay rebooted 2026-11-05 15:07:57 UTC, arange-tun bound 8443
+first, and the frpc proxy `https-8443` failed with `port unavailable`. That is why our HTTPS
+moved to 8080 (HOM-374, ADR 0055).
+
+frps listens on 7000 always, and on 8080 only while frpc is logged in with the
+`https-8080` proxy. Right after a relay reboot, only 22 and 7000 listen until frpc
+reconnects.
 
 Off on purpose: the frps dashboard (`webServer.port`), the frpc admin server, vhost ports,
 KCP, QUIC, tcpmux and the SSH gateway. None of them is set in the configs, so none listens.
 
 Firewalls:
 
-- Relay ufw: default deny incoming, allow 22, 80, 443, 7000 (IPv4 and IPv6 rules). This is
-  the real filter. The provider security group `relay-web` also has an "all inbound" rule, so
-  do not rely on it.
+- Relay ufw: default deny incoming. It allows 22, 80, 443 and 7000 (IPv4 and IPv6 rules,
+  opened for HOM-332), and the owner's arange-tun install also opened 2489, 8080, 8443 and
+  59675 (2026-11-03). Ports 80 and 443 are open from before, but arange-tun uses them now,
+  not us. Read the live list with `sudo ufw status verbose`. This is the real filter. The
+  provider security group `relay-web` also has an "all inbound" rule, so do not rely on it.
 - Local ufw is active. Loopback traffic (frpc to nginx) is always allowed. The LAN cannot
   reach 10080 or 10443, because nginx binds them to `127.0.0.1`.
 
@@ -83,7 +115,8 @@ Firewalls:
 | `/etc/systemd/system/frps.service` | root:root | 0644 | systemd unit |
 
 - frps runs as the system user `frps` (no login shell, no home). The unit gives it only
-  `CAP_NET_BIND_SERVICE`, so it can bind 80 and 443 without root.
+  `CAP_NET_BIND_SERVICE`, from the time frps held ports 80 and 443. Since HOM-374 its
+  allowed ports are 8080 and 8443, both above 1024, so the capability is unused.
 - The unit has `Restart=always`, `RestartSec=5` and is enabled at boot.
 - frps logs to the journal: `journalctl -u frps`.
 - The CA private key `/root/frp-ca/ca.key` never leaves the relay. It is kept so the server
@@ -119,6 +152,16 @@ Container:
 
 The token is read from a file by frp itself (`auth.tokenSource`, frp v0.64.0 and later). It is
 never in a config file, a command line or a container environment variable.
+
+`frpc.toml` holds one proxy (HOM-374):
+
+- `https-8080`: `remotePort = 8080`, local `127.0.0.1:10443`, PROXY protocol v2. All public
+  HTTPS traffic.
+
+The earlier plain HTTP proxy `http-8080` (local `127.0.0.1:10080`, `remotePort = 8080`) was
+removed with HOM-374. Relay port 80 belongs to arange-tun, so plain HTTP through the relay
+is gone for good, and the proxy could only answer a redirect to HTTPS anyway. The change
+script writes the new config ("Move HTTPS to Relay Port 8080").
 
 The exact `docker run` command is in "Rebuild or Recreate the Container".
 
@@ -318,22 +361,25 @@ the real client IP. The undo steps are in "Rollback" below.
 
 ## Check the Tunnel
 
-From any machine on the internet:
+From any machine on the internet (public URLs carry port 8080, HOM-374):
 
 ```bash
-curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://inotex.padyar.com/
-curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://elecomp.padyar.com/
-curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://inotexpwa.padyar.com/
+curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://inotex.padyar.com:8080/
+curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://elecomp.padyar.com:8080/
+curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://inotexpwa.padyar.com:8080/
+curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://app.homayar.com:8080/healthz
 nc -z -G 5 193.93.169.205 7000     # macOS; on Linux use: nc -z -w 5 193.93.169.205 7000
+nc -z -G 5 193.93.169.205 8080     # macOS; on Linux use: nc -z -w 5 193.93.169.205 8080
 ```
 
-`verify=0` means the certificate is valid. The status must match what the LAN gives.
+`verify=0` means the certificate is valid. The status must match what the LAN gives. Do not
+test port 443 or 8443 on the relay: arange-tun answers there, not us.
 
 On the relay:
 
 ```bash
 systemctl is-active frps
-sudo ss -ltnp | grep frps                          # 7000, 80 and 443
+sudo ss -ltnp | grep frps                          # 7000 and 8080 (8080 only with frpc logged in)
 sudo journalctl -u frps -n 50 --no-pager -o cat    # "client login info" when frpc connects
 sudo ufw status verbose
 ```
@@ -351,6 +397,65 @@ Never use a bare `docker inspect` (it prints the environment). Use `--format` wi
 you need, for example
 `docker inspect --format '{{.HostConfig.RestartPolicy.Name}} {{.HostConfig.NetworkMode}}' relay-tunnel-frpc`.
 
+## Move HTTPS to Relay Port 8080 (HOM-374)
+
+The change on the local server runs through the reviewed script
+`hom374-relay-https-8080.sh` (team hom374-t1, not in this repo), as user `gpu`. The relay
+needed no change: frps already allowed 8080, ufw and the provider security group already
+opened it, and arange-tun does not use it.
+
+What the script does:
+
+1. Backs up `frpc.toml` as
+   `/home/gpu/relay-tunnel/frpc.toml.hom374-before-<UTC stamp>`, with a `.sha256` file
+   next to it.
+2. Writes the new `frpc.toml` in place: one proxy `https-8080` (`remotePort = 8080`, local
+   `127.0.0.1:10443`, PROXY protocol v2). The plain HTTP proxy `http-8080` is removed.
+3. Restarts only the `relay-tunnel-frpc` container.
+4. Checks the 4 public sites on port 8080 and that the nginx access logs still show the
+   real client IP: `/var/log/nginx/inotex.access.log` and
+   `/var/log/nginx/app.homayar.com.access.log`.
+
+How to run it (as `gpu` on the local server):
+
+```bash
+bash hom374-relay-https-8080.sh --check
+bash hom374-relay-https-8080.sh --apply
+bash hom374-relay-https-8080.sh --undo /home/gpu/relay-tunnel/frpc.toml.hom374-before-<UTC stamp>
+```
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | OK. |
+| 1 | Preflight failed. Nothing was changed. |
+| 2 | Apply failed. The script undid the change. |
+| 3 | The relay refused port 8080. The script undid the change. |
+| 4 | The public site or client IP check failed. The new config stays (the old proxy is gone), so fix forward or run `--undo`. |
+| 5 | Undo failed. Read the output and repair by hand. |
+| 64 | Usage error. |
+
+The restart of `relay-tunnel-frpc` interrupts the public sites for about 2 seconds. Tell
+homlead first.
+
+## The Owner's arange-tun
+
+`arange-tun` is the owner's own service on the relay, installed 2026-11-03, run as root. It
+is not ours. Its parts:
+
+| Service | What |
+| --- | --- |
+| `arange-tun-server-59675` | rathole server, control port 59675. Its rathole client is `162.243.49.4`, not our local server. |
+| `arange-tun-webui` | admin web panel on port 2489. Its process also holds port 80. |
+| `arange-tun-monitor` | watchdog, sends Telegram alerts. |
+
+It holds relay ports 80, 443, 2053, 2083, 8443, 19896 and its control port 59675. Relay ufw
+opens 2489 to everyone, so the admin panel is reachable from the internet. That is the
+owner's choice. Risk in one line: an admin panel open to the internet. The Telegram alerts
+are also the owner's choice. Do not change any of it. If a port conflict appears (like the
+8443 race), ask the owner.
+
 ## Restart
 
 | Side | Command | Effect |
@@ -363,8 +468,8 @@ you need, for example
 Every command in this table interrupts the public sites: a frps restart for about 5 seconds, a
 container restart for about 2 seconds, a stop until the matching start. Tell the owner first.
 
-Measured on 2026-10-29, from the command until `https://inotex.padyar.com/` answered 200
-through the relay again. No manual step was needed in any case.
+Measured on 2026-10-29, from the command until `https://inotex.padyar.com/` (then port 443,
+before HOM-374) answered 200 through the relay again. No manual step was needed in any case.
 
 | Event | Sites back after | Detail |
 | --- | --- | --- |
@@ -453,35 +558,40 @@ That restart interrupts the public sites for about 2 seconds. Tell the owner fir
 The site certificates are separate from the tunnel CA. They stay on the local server. The
 relay never sees them.
 
-| Site | Renews with | Expires |
-| --- | --- | --- |
-| `inotex.padyar.com` | HTTP-01, webroot | 2027-01-28 10:33 UTC (renewed 2026-10-30) |
-| `elecomp.padyar.com` | HTTP-01, webroot | 2027-01-28 10:33 UTC (renewed 2026-10-30) |
-| `inotexpwa.padyar.com` | HTTP-01, webroot | 2026-11-29 12:16 UTC (due from 2026-10-30 12:16 UTC; the timer renews it) |
-| `avatar.padyar.com` | `dns-cloudflare`, token invalid | 2026-12-01 00:07 UTC |
-| `live.padyar.com` | `dns-cloudflare`, token invalid | 2026-12-01 00:50 UTC |
+Since HOM-374 the relay has no port 80 for us, so HTTP-01 does not work any more. Every
+renewal below is broken until the DNS-01 switch (plan at the end of this section) is done.
+The certificates themselves stay valid until their expiry date.
 
-The 3 published sites were switched to webroot on 2026-10-30 at 11:31 UTC (HOM-335). The same
-owner run renewed inotex and elecomp and reloaded nginx once, at 11:32 UTC.
+| Site | Renews with | Expires | Renewal |
+| --- | --- | --- | --- |
+| `inotex.padyar.com` | HTTP-01, webroot | 2027-01-28 10:33 UTC (renewed 2026-10-30) | broken until DNS-01 |
+| `elecomp.padyar.com` | HTTP-01, webroot | 2027-01-28 10:33 UTC (renewed 2026-10-30) | broken until DNS-01 |
+| `inotexpwa.padyar.com` | HTTP-01, webroot | 2026-11-29 12:16 UTC | broken until DNS-01. First to fix: it expires soonest. |
+| `app.homayar.com` | HTTP-01, webroot | 2027-01-27 13:04:56 UTC | broken until DNS-01 (own zone, see the plan) |
+| `avatar.padyar.com` | `dns-cloudflare`, token invalid | 2026-12-01 00:07 UTC | fixed by a valid `padyar.com` token |
+| `live.padyar.com` | `dns-cloudflare`, token invalid | 2026-12-01 00:50 UTC | fixed by a valid `padyar.com` token |
 
-How they renew:
+The 3 published Padyar sites were switched to webroot on 2026-10-30 at 11:31 UTC (HOM-335).
+The same owner run renewed inotex and elecomp and reloaded nginx once, at 11:32 UTC.
+
+How they were renewed before HOM-374:
 
 - `certbot.timer` runs `certbot -q renew --no-random-sleep-on-renew` twice a day on the local
   server. The window is 30 days before expiry (`renew_before_expiry` is not set).
-- The 3 published sites use `authenticator = webroot` with `/var/www/certbot`
+- The 3 published sites used `authenticator = webroot` with `/var/www/certbot`
   (`/etc/letsencrypt/renewal/<site>.conf`, with a `[[webroot_map]]` entry). This is HTTP-01:
-  Let's Encrypt asks for `http://<site>/.well-known/acme-challenge/<token>`. That request goes
-  through the relay (port 80) and the tunnel to nginx, and nginx serves the file from
-  `/var/www/certbot`. So renewal needs the relay, frpc and the ACME location in the port 80
-  server of each site. It needs no Cloudflare token.
+  Let's Encrypt asks for `http://<site>/.well-known/acme-challenge/<token>`. That request
+  went through relay port 80 and the tunnel to nginx, and nginx served the file from
+  `/var/www/certbot`. Relay port 80 now belongs to arange-tun, so the ACME request never
+  reaches us. That is why every HTTP-01 renewal fails from 2026-11-05.
 - `avatar.padyar.com` and `live.padyar.com` still use `dns-cloudflare` with the invalid token.
-  They are not published through the relay, so HTTP-01 does not work for them. Their renewal
-  fails on every run from 2026-11-01. The owner decides what happens to them.
+  Their renewal fails on every run from 2026-11-01. A valid `padyar.com` token fixes them.
 - After a real renewal, the deploy hook `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh`
   reloads nginx.
 
-The cause (HOM-335): from 2026-10-19 20:57 UTC, every timer run failed for inotex and elecomp
-with `Error determining zone_id: 9109 Invalid access token. Please confirm that you have supplied valid Cloudflare API credentials.`
+The cause of the older failures (HOM-335): from 2026-10-19 20:57 UTC, every timer run failed
+for inotex and elecomp with
+`Error determining zone_id: 9109 Invalid access token. Please confirm that you have supplied valid Cloudflare API credentials.`
 Cloudflare rejected the token in `/root/.secrets/cloudflare.ini`. That run was the first one
 inside their 30-day window. After about 10 failed calls in a short time, Cloudflare answers
 `10502 Too many authentication failures` instead. That is the same cause. The owner script then switched the 3 sites with
@@ -496,12 +606,13 @@ systemctl show certbot.service -p ExecMainStatus -p ExecMainExitTimestamp
 echo | openssl s_client -connect 192.168.100.6:443 -servername inotex.padyar.com 2>/dev/null | openssl x509 -noout -enddate
 ```
 
-No `Failed to renew` line may name inotex, elecomp or inotexpwa. With `-q`, a good renewal
-writes no certbot line, so check the expiry date too. From 2026-11-01, the avatar and live
-failures make `ExecMainStatus=1` even when the 3 sites renew fine. Read the journal, not only
-the status.
+From 2026-11-05 every timer run fails for the 4 HTTP-01 sites (no relay port 80). Expect
+`Failed to renew` lines for inotex, elecomp, inotexpwa and app until the DNS-01 switch is
+done. Keep checking the expiry dates: a date inside 30 days means act now.
 
-Test a renewal without changing anything (owner, `sudo`), one site at a time:
+Test a renewal without changing anything (owner, `sudo`), one site at a time. Until the
+DNS-01 switch is done, these dry runs fail (no relay port 80). After the switch, each must
+end with `Congratulations, all simulated renewals succeeded`.
 
 ```bash
 sudo certbot renew --dry-run --cert-name inotex.padyar.com --no-random-sleep-on-renew --no-directory-hooks
@@ -509,9 +620,9 @@ sudo certbot renew --dry-run --cert-name elecomp.padyar.com --no-random-sleep-on
 sudo certbot renew --dry-run --cert-name inotexpwa.padyar.com --no-random-sleep-on-renew --no-directory-hooks
 ```
 
-Each must end with `Congratulations, all simulated renewals succeeded`. A dry run uses the
-staging server, changes no certificate and does not reload nginx. `--no-directory-hooks` skips
-the pre and post hooks in `renewal-hooks/`, because certbot runs them even in a dry run.
+A dry run uses the staging server, changes no certificate and does not reload nginx.
+`--no-directory-hooks` skips the pre and post hooks in `renewal-hooks/`, because certbot runs
+them even in a dry run.
 
 Backup and undo: the owner script saved `/root/hom335-backup/letsencrypt-before.tgz` (root,
 0600) with `renewal/`, `renewal-hooks/` and `cli.ini` from before the switch. It holds no
@@ -528,19 +639,91 @@ The certificates stay as they are, because a renewal conf points to the `live/` 
 certificate version. No nginx reload is needed. After an undo, the 3 sites use `dns-cloudflare`
 again, so their renewal fails again until the token is fixed.
 
-If HTTP-01 ever stops working (no relay, or the ACME path is blocked), go back to DNS-01:
+### Plan: Renew by DNS-01 (dns-cloudflare)
 
-1. In Cloudflare, create a new API token with only Zone, DNS, Edit, for the zone `padyar.com`.
-2. The owner writes it to `/root/.secrets/cloudflare.ini` as `dns_cloudflare_api_token = ...`,
-   owner root, mode 0600. Never put the token in a ticket, a chat or this file.
-3. Switch each site back, one at a time. certbot tests it on staging before it saves it:
+HTTP-01 needs relay port 80, which we no longer have. So all 4 sites move to DNS-01 with the
+Cloudflare plugin. Owner steps, on the local server. inotexpwa first: it expires
+2026-11-29 12:16 UTC.
 
-```bash
-sudo certbot reconfigure --cert-name inotex.padyar.com --dns-cloudflare \
-  --dns-cloudflare-credentials /root/.secrets/cloudflare.ini --dns-cloudflare-propagation-seconds 30
-```
+1. In the Cloudflare dashboard, create the API token. Menu path: My Profile, on the left
+   API Tokens, Create Token, Create Custom Token. Permission: Zone, DNS, Edit. Zone
+   Resources: Include, Specific zone, `padyar.com`. Name it, for example
+   `homayar-certbot-padyar`, and note an expiry. Create Token shows the value once. Never
+   paste the token into a ticket, a chat, a commit or this file.
+2. Put it on the local server without it appearing in shell history, the process list or
+   on the screen. Run as a user with `sudo`, in one block:
 
-A valid token also fixes avatar and live, which still read that file.
+   ```bash
+   read -rs -p "Token: " TOKEN && printf '\n'
+   printf 'dns_cloudflare_api_token = %s\n' "$TOKEN" | sudo bash -c 'umask 077; tee /root/.secrets/cloudflare.ini >/dev/null'
+   unset TOKEN
+   sudo stat -c '%a %U:%G' /root/.secrets/cloudflare.ini    # must print: 600 root:root
+   ```
+
+   Check mode and owner with `stat`, never with `cat`. If it does not print
+   `600 root:root`, run `sudo chmod 600 /root/.secrets/cloudflare.ini`. The file must
+   contain one line, `dns_cloudflare_api_token = ...`.
+3. Check the plugin is installed: `sudo certbot plugins` must list `dns-cloudflare`.
+4. Before you switch anything, back up the renewal conf of every site you will touch,
+   with a new dated name (like HOM-335 did). The undo in step 8 restores these copies:
+
+   ```bash
+   sudo tar -czf /root/hom374-backup-letsencrypt-$(date -u +%Y%m%dT%H%M%SZ).tgz -C / etc/letsencrypt/renewal
+   for s in inotexpwa.padyar.com inotex.padyar.com elecomp.padyar.com; do sudo cp /etc/letsencrypt/renewal/$s.conf /etc/letsencrypt/renewal/$s.conf.bak-$(date -u +%Y%m%dT%H%M%SZ); done
+   ```
+5. Switch one site at a time. certbot tests the new settings on the staging server and
+   saves them only if the test works:
+
+   ```bash
+   sudo certbot reconfigure --cert-name inotexpwa.padyar.com --dns-cloudflare \
+     --dns-cloudflare-credentials /root/.secrets/cloudflare.ini --dns-cloudflare-propagation-seconds 30
+   sudo certbot reconfigure --cert-name inotex.padyar.com --dns-cloudflare \
+     --dns-cloudflare-credentials /root/.secrets/cloudflare.ini --dns-cloudflare-propagation-seconds 30
+   sudo certbot reconfigure --cert-name elecomp.padyar.com --dns-cloudflare \
+     --dns-cloudflare-credentials /root/.secrets/cloudflare.ini --dns-cloudflare-propagation-seconds 30
+   ```
+6. Dry run each switched site, then renew inotexpwa for real before 2026-11-29. It is
+   already inside its 30-day window, so a plain renew does it. The deploy hook reloads
+   nginx. Tell homlead first.
+
+   ```bash
+   sudo certbot renew --dry-run --cert-name inotexpwa.padyar.com --no-random-sleep-on-renew --no-directory-hooks
+   sudo certbot renew --cert-name inotexpwa.padyar.com --no-random-sleep-on-renew
+   ```
+7. Check the new expiry from the LAN:
+
+   ```bash
+   echo | openssl s_client -connect 192.168.100.6:443 -servername inotexpwa.padyar.com 2>/dev/null | openssl x509 -noout -enddate
+   ```
+
+   The date must be about 90 days ahead.
+8. Undo for one site: restore the step 4 copy of its renewal conf:
+
+   ```bash
+   sudo cp /etc/letsencrypt/renewal/<site>.conf.bak-<stamp> /etc/letsencrypt/renewal/<site>.conf
+   sudo certbot renew --dry-run --cert-name <site> --no-random-sleep-on-renew --no-directory-hooks
+   ```
+
+`app.homayar.com` (zone `homayar.com`, not `padyar.com`) also renews by HTTP-01 today and
+will fail too. It expires 2027-01-27 13:04:56 UTC. Two options for the owner, decision
+open:
+
+1. Add the zone `homayar.com` to the same token (Zone Resources: Include, another Specific
+   zone). One token, one file.
+2. A second token in its own file, for example
+   `/root/.secrets/cloudflare-homayar.ini`, used only by the `app.homayar.com` renewal.
+
+This is an owner decision, open. Note that a valid `padyar.com` token also fixes avatar and
+live, which read `/root/.secrets/cloudflare.ini`.
+
+What the plan needs from the owner:
+
+- The Cloudflare token, created as in step 1.
+- The `sudo` runs in steps 2 to 8.
+- The open decision about the `homayar.com` zone.
+
+Nobody asks for the token value in chat or Linear. The owner pastes it only into the shell
+of step 2.
 
 ## Rebuild or Recreate the Container
 
@@ -588,8 +771,10 @@ seconds for the container recreate. Tell the owner first.
 
 ## Rollback
 
-The full rollback takes the 3 sites off the internet for good (that is its goal), and the nginx
-reload in it can interrupt the sites if something is wrong. Tell the owner first.
+The full rollback takes all 4 published sites off the internet for good (that is its goal),
+and the nginx reload in it can interrupt the sites if something is wrong. Tell the owner
+first. It also removes the owner's arange-tun ufw rules if run as written (see the note at
+the `ufw` command below): never do that without the owner.
 
 Local server, as `gpu`:
 
@@ -649,31 +834,28 @@ sudo systemctl daemon-reload
 sudo userdel frps
 ```
 
-`ufw --force reset` turns ufw off and removes the added rules. `ufw disable` alone would keep
-the rules, and a later `ufw enable` would bring them back.
+`ufw --force reset` turns ufw off and removes the added rules. Since arange-tun moved in, it
+would also delete the owner's rules (2489, 8080, 8443, 59675 and more). Never run it without
+the owner. `ufw disable` alone would keep the rules, and a later `ufw enable` would bring them
+back.
 
-## Adding app.homayar.com Later (HOM-328)
+## app.homayar.com
 
-DNS for `app.homayar.com` already points at the relay. The tunnel forwards every name, so the
-relay and frpc need no change. Only nginx on the local server changes (an owner `sudo` step):
-
-1. Issue the certificate on the local server with HTTP-01 through the tunnel, like the 3 sites:
-   first a port 80 server with the tunnel listen and the ACME location (webroot
-   `/var/www/certbot`), then `certbot certonly --webroot -w /var/www/certbot -d app.homayar.com`.
-   Do not use `dns-cloudflare` (see "Site Certificates").
-2. Add a site file for `app.homayar.com` with the same tunnel lines as the 3 sites above:
-   `listen 127.0.0.1:10080 proxy_protocol;` and `listen 127.0.0.1:10443 ssl http2 proxy_protocol;`,
-   each with `include snippets/relay-tunnel-realip.conf;`. Add LAN listens only if the LAN
-   needs it.
-3. Proxy to the Homayar stack on `127.0.0.1:8080` (reserved for it). Set `X-Forwarded-For` and
-   `X-Real-IP` to `$remote_addr` (overwrite, do not append), like the Padyar sites, and make
-   the stack trust only `127.0.0.1` for those headers.
-4. `sudo nginx -t`, then `sudo systemctl reload nginx`. Never restart. A reload keeps open
-   connections, but a wrong config can interrupt all 5 sites. Tell the owner first.
-5. Until then, the tunnel default server refuses `app.homayar.com`.
+`app.homayar.com` is live since 2026-10-29 (HOM-328). Its stack, nginx site, certificate and
+public URL settings have their own runbook: [`app-server.md`](app-server.md). Its public URL
+is `https://app.homayar.com:8080` (HOM-374). The tunnel side needs nothing special: frps
+forwards every name, and nginx picks the site by SNI.
 
 ## Known Limits
 
+- **The relay is shared with arange-tun.** The owner's `arange-tun` can take a port that
+  frps also allows, after a reboot. Whoever starts first owns the shared port. That is how
+  8443 was lost (2026-11-05). frps now uses 8080, which arange-tun does not list, but a
+  future arange-tun change could take it too. After every relay reboot, check
+  "Check the Tunnel".
+- **Public URLs carry a port.** Every public URL is `https://<site>:8080` (HOM-374, ADR
+  0055). Relay port 443 belongs to arange-tun, so the plain `https://<site>/` form does not
+  reach us. A later owner decision can move to 443 again or to a different front.
 - **fail2ban bans do not block tunnel clients.** fail2ban bans with nftables on the local
   server, but tunnel clients reach nginx from `127.0.0.1`, which is in `ignoreip`. A banned IP
   can still come in through the relay. Follow-up: ban on the relay (for example, fail2ban on
@@ -696,16 +878,18 @@ relay and frpc need no change. Only nginx on the local server changes (an owner 
 
 | Symptom | Where to look | Likely cause and fix |
 | --- | --- | --- |
-| Sites time out from the internet | `nc -z -G 5 193.93.169.205 443` | Relay down, ufw changed, or the provider security group. Check "On the relay". |
+| Sites time out from the internet | `nc -z -G 5 193.93.169.205 8080` | Relay down, ufw changed, or the provider security group. Check "On the relay". |
+| frps or frpc log: `port unavailable` | `sudo journalctl -u frps -n 50 --no-pager -o cat`, `docker logs relay-tunnel-frpc` | Another process owns the remote port. Since HOM-374 we use only 8080. If arange-tun ever lists 8080 too, the first to start after a reboot wins. Ask the owner. |
+| A site answers with a wrong certificate on port 443 or 8443 | none (browser) | That is arange-tun on the relay, not us. Our HTTPS is on port 8080 only. Do not "fix" the stack or nginx. |
 | frpc log: `login to the server failed: register control error` | `docker logs relay-tunnel-frpc` | Token differs between the hosts. Run the `cmp` line in "Token Rotation", step 2. frps hides the reason on purpose (`detailedErrorsToClient = false`). |
 | frpc log: `x509: certificate ...` | `docker logs relay-tunnel-frpc` | Wrong or old `tls/ca.crt`, or the frps certificate expired. Compare fingerprints, or renew. |
 | frpc log: `dial tcp 193.93.169.205:7000: i/o timeout` | Mac or local server: `nc` to 7000 | Relay down, or ufw or the security group blocks 7000. |
 | frpc log: `connect to local service [127.0.0.1:10443] error` | `ss -ltn` on the local server | nginx has no tunnel listener: the owner change is not live or was rolled back. |
-| Relay listens on 7000 but not on 80 or 443 | `docker logs relay-tunnel-frpc` | frpc is not logged in. frps opens 80 and 443 only for a logged-in frpc. |
+| Relay listens on 7000 but not on 8080 | `docker logs relay-tunnel-frpc` | frpc is not logged in. frps opens 8080 only for a logged-in frpc with the `https-8080` proxy. |
 | A name gets a TLS alert or no answer through the relay | `/var/log/nginx/relay-tunnel-default.access.log` | Expected for any name without a tunnel listen (avatar, live, chat, random names). |
 | Access log shows `127.0.0.1` for tunnel requests | the site file | The `include snippets/relay-tunnel-realip.conf;` line is missing in that server block. |
 | frps does not start | `sudo journalctl -u frps -n 50 --no-pager -o cat` | Run `sudo -u frps /usr/local/bin/frps verify -c /etc/frp/frps.toml`. Check modes in "Files". |
 | `nginx -t` warns "protocol options redefined" for 10080 or 10443 | `sudo nginx -t` | A tunnel listen line has different options from the others. Make them all the same. |
 | A request through the relay stalls once, then works | `docker logs relay-tunnel-frpc` | The internet path between the local server and the relay drops packets now and then (1 of 5 pings was lost in the first survey). Retry. If it repeats often, look in the frpc log for reconnects (`try to connect to server`, `login to server success`). |
 | One site is not reachable through the relay, the others are | `grep -c relay-tunnel /etc/nginx/sites-available/<site>.padyar.com.conf` | The site file lost its tunnel lines (0 instead of 2). Follow "Re-apply the Tunnel Lines". |
-| A site certificate is close to expiry | `journalctl -u certbot.service --since "3 days ago" --no-pager \| grep 'Failed to renew'` | Renewal fails. See "Site Certificates (Let's Encrypt)". For the 3 webroot sites: the relay, frpc or the ACME path (`/.well-known/acme-challenge/` must answer 404 for an unknown token through the relay). For a `dns-cloudflare` certificate (avatar, live): the Cloudflare token. |
+| A site certificate is close to expiry | `journalctl -u certbot.service --since "3 days ago" --no-pager \| grep 'Failed to renew'` | Renewal fails. Since HOM-374 HTTP-01 is broken for all 4 sites (no relay port 80). Follow "Plan: Renew by DNS-01 (dns-cloudflare)" in "Site Certificates (Let's Encrypt)". A `dns-cloudflare` certificate (avatar, live) needs the Cloudflare token. |
