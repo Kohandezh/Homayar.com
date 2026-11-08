@@ -36,6 +36,8 @@ import re
 
 from sqlalchemy import Connection, text
 
+from backend.database.migration_locks import lock_tables_against_analyze
+
 APP_ROLE = "homayar_app"
 POLICY_NAME = "homayar_tenant_isolation"
 
@@ -550,10 +552,15 @@ def apply_row_level_security(connection: Connection, *, role: str = APP_ROLE) ->
 
     Policies are (re)created for every policy table that exists, so a later
     migration that adds a table or changes an expression simply calls this
-    again after its DDL.
+    again after its DDL.  On PostgreSQL every existing table is first locked
+    against ANALYZE (HOM-372), so the GRANT and the ALTER steps cannot
+    deadlock with an ANALYZE.  Call it inside an open transaction
+    (``engine.begin()`` or ``Session.connection()``): the lock is skipped
+    when the connection has no transaction yet.
     """
     if connection.dialect.name != "postgresql":
         return
+    lock_tables_against_analyze(connection)
     tables = existing_policy_tables(connection)
     for statement in ensure_app_role_statements(role) + enable_policy_statements(tables):
         connection.execute(text(statement))

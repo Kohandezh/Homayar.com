@@ -21,6 +21,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
 from backend.config import Settings
+from backend.database.migration_locks import lock_tables_against_analyze
 from backend.database.rls import APP_ROLE, AUDIT_READER_POLICY, AUDIT_READER_ROLE
 from backend.database.saas_models import AuditEvent, User, Workspace
 from backend.services.audit_event_types import lookup_audit_event_type
@@ -30,7 +31,6 @@ from backend.tests._database import (
     inspection_session_factory,
     is_postgres_url,
 )
-from backend.tests._migration_locks import lock_tables_against_analyze
 from backend.tests.conftest import login_user, register_user
 
 APP_LOGIN = "homayar_audit_app_probe"

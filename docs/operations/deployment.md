@@ -511,6 +511,12 @@ role the policies apply to.
 | `homayar_app` | Application role the policies target | Created `NOLOGIN NOSUPERUSER NOBYPASSRLS` by the migration; granted DML on all tables. |
 | Runtime login role | What `DATABASE_URL` authenticates as | Either a login role `IN ROLE homayar_app` (recommended; set `DATABASE_APP_ROLE=""`), or the owner role with `DATABASE_APP_ROLE=homayar_app` so every pooled connection runs `SET ROLE` on checkout. Never a superuser or `BYPASSRLS` role: production start-up refuses both. |
 
+The upgrade locks every existing table against ANALYZE (SHARE UPDATE EXCLUSIVE) at the
+start of its transaction, so autovacuum cannot deadlock with the migration (HOM-372).
+Normal reads and writes are not blocked. The `LOCK` has a 60 s timeout: on
+`LockNotAvailable`, find the blocking session in `pg_stat_activity`, let it finish, and
+retry the upgrade.
+
 Provisioning the recommended shape after the first migration:
 
 ```sql
