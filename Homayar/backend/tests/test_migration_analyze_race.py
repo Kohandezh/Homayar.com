@@ -1,17 +1,26 @@
-"""An ANALYZE that races an in-process Alembic run (HOM-352).
+"""An ANALYZE that races a migration or a registry apply (HOM-352, HOM-372).
 
-``apply_row_level_security`` first grants on every table (``GRANT ... ON ALL TABLES``
-rewrites each ``pg_class`` row, with no table lock) and then runs ``ALTER TABLE <t>
-ENABLE ROW LEVEL SECURITY`` (AccessExclusiveLock).  An ANALYZE in between holds a
-ShareUpdateExclusiveLock on the table, and on PostgreSQL 17 its in-place statistics
-write waits for the migration's transaction: a deadlock (CI, PR #206, autovacuum).
+``apply_row_level_security`` first grants on every table (``GRANT ... ON ALL
+TABLES`` rewrites each ``pg_class`` row, with no table lock) and then runs
+``ALTER TABLE <t> ENABLE ROW LEVEL SECURITY`` (AccessExclusiveLock).  An
+ANALYZE in between holds a ShareUpdateExclusiveLock on the table, and on
+PostgreSQL 17 its in-place statistics write waits for the migration's
+transaction: a deadlock (CI, PR #206, autovacuum).
+
+The lock that prevents the race is product code now (HOM-372):
+``backend.database.migration_locks.lock_tables_against_analyze`` takes the
+ANALYZE lock on every existing table at the start of the Alembic transaction
+(``backend/migrations/env.py``) and as the first statement of
+``apply_row_level_security`` itself, so callers outside Alembic (backup
+restore, development schema bootstrap) are covered too.  No test wrapper sits
+on ``MigrationContext.run_migrations`` any more: these cases run the product
+paths.
 
 The cases force that interleaving with a manual ANALYZE on a second connection.  Its
 session ``deadlock_timeout`` is longer than the migration's, so on a cycle the
 migration's backend runs the deadlock check first and is the one that fails, as on CI.
-``_migration_locks.py`` takes the ANALYZE lock on every existing table at the start of
-each Alembic transaction, so the race cannot start.  The allow-control runs the same
-interleaving without Alembic: PostgreSQL still reports that deadlock.
+The allow-control runs the same interleaving without the product paths:
+PostgreSQL still reports that deadlock.
 """
 
 from __future__ import annotations
@@ -28,18 +37,17 @@ import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
-from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from backend.config import Settings, reset_settings_cache
+from backend.database import migration_locks
+from backend.database.migration_locks import lock_tables_against_analyze
 from backend.database.rls import apply_row_level_security
 from backend.observability.release import PROJECT_ROOT
-from backend.tests import _migration_locks
 from backend.tests._database import TEST_APP_ROLE, inspection_session_factory
-from backend.tests._migration_locks import lock_tables_against_analyze
 
 ENABLE_RLS = re.compile(r"^ALTER TABLE (\S+) ENABLE ROW LEVEL SECURITY$")
 VERSION_UPDATE = re.compile(r"^(UPDATE|INSERT INTO) alembic_version\b")
@@ -83,6 +91,15 @@ def _latest_rls_revision(config: Config):
     raise AssertionError("no revision applies the row-level security registry")
 
 
+def _first_rls_revision(config: Config):
+    """The oldest revision whose upgrade calls ``apply_row_level_security``."""
+    revisions = list(ScriptDirectory.from_config(config).walk_revisions())
+    for revision in reversed(revisions):
+        if "apply_row_level_security(" in inspect.getsource(revision.module.upgrade):
+            return revision
+    raise AssertionError("no revision applies the row-level security registry")
+
+
 @contextmanager
 def _on_statement(pattern: re.Pattern[str], action: Callable[[str, int], None]) -> Iterator[list]:
     """Run ``action(match, backend pid)`` before the first statement that matches."""
@@ -107,6 +124,7 @@ class _Analyze:
     def __init__(self, url: str) -> None:
         self.url = _libpq(url)
         self.error: BaseException | None = None
+        self.blocked = False
         self.thread: threading.Thread | None = None
 
     def start(self, table: str) -> None:
@@ -132,6 +150,7 @@ class _Analyze:
                     (pid,),
                 ).fetchone()
                 if waiting and waiting[0]:
+                    self.blocked = True
                     return
                 assert time.monotonic() < deadline, "the ANALYZE neither blocked nor ended"
                 time.sleep(0.02)
@@ -157,6 +176,7 @@ def test_an_analyze_between_the_grant_and_the_alter_does_not_deadlock_the_migrat
             command.upgrade(config, revision.revision)
         assert seen, "the step never enabled row-level security"
         assert analyze.finish() is None
+        assert analyze.blocked
         command.upgrade(config, "head")
     finally:
         analyze.finish()
@@ -179,6 +199,26 @@ def test_an_analyze_does_not_deadlock_a_direct_registry_apply_of_a_test(client, 
             db.commit()
         assert seen, "the registry never enabled row-level security"
         assert analyze.finish() is None
+        assert analyze.blocked
+    finally:
+        analyze.finish()
+
+
+@pytest.mark.postgres
+def test_an_analyze_does_not_deadlock_the_registry_apply_without_a_prior_lock(client, settings):
+    # HOM-372: apply_row_level_security takes the lock itself, so a caller that does
+    # not lock first (backup restore, development schema bootstrap) is protected too.
+    analyze = _Analyze(settings.database_url)
+    try:
+        with (
+            inspection_session_factory()() as db,
+            _on_statement(ENABLE_RLS, lambda table, _pid: analyze.start(table)) as seen,
+        ):
+            apply_row_level_security(db.connection())
+            db.commit()
+        assert seen, "the registry never enabled row-level security"
+        assert analyze.finish() is None
+        assert analyze.blocked
     finally:
         analyze.finish()
 
@@ -214,8 +254,8 @@ def test_the_alembic_transaction_holds_the_analyze_lock_on_every_table_to_its_en
 
 @pytest.mark.postgres
 def test_the_same_interleaving_outside_alembic_still_reports_the_deadlock(client, settings):
-    # Allow-control: the lock is taken for Alembic runs only, so a real cycle between two
-    # plain sessions is still detected and reported, never absorbed.
+    # Allow-control: the lock is taken only by env.py and apply_row_level_security, so a
+    # real cycle between two plain sessions is still detected and reported, never absorbed.
     url = _libpq(settings.database_url)
     analyze = _Analyze(settings.database_url)
     with psycopg.connect(url) as session:
@@ -243,7 +283,7 @@ def test_a_materialized_view_does_not_break_the_lock(client):
 def test_a_held_table_lock_makes_the_lock_fail_and_the_timeout_is_restored(
     client, settings, monkeypatch
 ):
-    monkeypatch.setattr(_migration_locks, "LOCK_TIMEOUT", "200ms")
+    monkeypatch.setattr(migration_locks, "LOCK_TIMEOUT", "200ms")
     with inspection_session_factory()() as db:
         db.execute(text("SET LOCAL lock_timeout = '7s'"))
         lock_tables_against_analyze(db.connection())
@@ -260,15 +300,19 @@ def test_a_held_table_lock_makes_the_lock_fail_and_the_timeout_is_restored(
         holder.rollback()
 
 
-def test_offline_and_sqlite_runs_take_no_lock():
-    # Offline (SQL-generation) output and a SQLite connection stay as Alembic makes them.
+def test_offline_and_sqlite_runs_take_no_lock(monkeypatch, settings):
+    # Offline (SQL-generation) output through env.py and a SQLite connection stay as
+    # Alembic makes them.  The range ends before the first revision that calls
+    # apply_row_level_security: offline head fails on that revision on main already
+    # (it runs the helper on a mock connection), which is out of scope here.
+    config = _alembic(monkeypatch, settings)
+    before_rls = _first_rls_revision(config).down_revision
     output = io.StringIO()
-    offline = MigrationContext.configure(
-        dialect_name="postgresql",
-        opts={"as_sql": True, "output_buffer": output, "fn": lambda heads, context: []},
-    )
-    offline.run_migrations()
-    assert "LOCK" not in output.getvalue().upper()
+    config.output_buffer = output
+    command.upgrade(config, before_rls, sql=True)
+    sql = output.getvalue().upper()
+    assert "CREATE TABLE" in sql
+    assert "LOCK TABLE" not in sql
 
     engine = create_engine("sqlite://")
     try:
@@ -277,10 +321,7 @@ def test_offline_and_sqlite_runs_take_no_lock():
             event.listen(
                 connection, "before_cursor_execute", lambda *args: statements.append(args[2])
             )
-            online = MigrationContext.configure(connection, opts={"fn": lambda heads, context: []})
-            online.run_migrations()
-            assert statements
-            assert not [s for s in statements if "LOCK" in s.upper()]
-            assert connection.execute(text("SELECT count(*) FROM alembic_version")).scalar() == 0
+            lock_tables_against_analyze(connection)
+            assert not statements
     finally:
         engine.dispose()

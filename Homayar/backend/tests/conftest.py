@@ -35,7 +35,6 @@ from backend.tests._isolation import (
     summary_lines,
 )
 from backend.tests._live_s3 import live_s3_unavailable_reason
-from backend.tests._migration_locks import install as install_migration_locks
 from backend.tests._minio_s3 import minio_unavailable_reason
 from backend.tests._parallel import (
     cluster_lock,
@@ -74,8 +73,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    # HOM-352: an in-process Alembic run first takes the ANALYZE lock on every table.
-    install_migration_locks()
     # HOM-292: a pytest-xdist worker gets its own database, Redis index and directories.
     worker = worker_id(config)
     if worker is not None:

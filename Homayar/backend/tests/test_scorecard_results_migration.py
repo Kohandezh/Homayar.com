@@ -44,6 +44,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from backend.backup.reconcile import CONTENT_TABLES as RECONCILED_TABLES
 from backend.config import Settings
+from backend.database.migration_locks import lock_tables_against_analyze
 from backend.database.model_registry import Base
 from backend.database.relational import get_session_factory
 from backend.database.rls import (
@@ -93,7 +94,6 @@ from backend.tests._database import (
     inspection_session_factory,
     is_postgres_url,
 )
-from backend.tests._migration_locks import lock_tables_against_analyze
 from backend.tests.conftest import login_user, register_user
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
