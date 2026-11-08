@@ -20,8 +20,31 @@ ENV UV_LINK_MODE=copy
 # 300 KB/s). uv's default HTTP read timeout (30 s) made `uv sync` fail there.
 ENV UV_HTTP_TIMEOUT=300
 ENV UV_HTTP_RETRIES=10
+# HOM-377, CVE-2026-109518: the pinned base ships apt and libapt-pkg7.0 3.0.3,
+# and the newest base of 2026-11-05 still had 3.0.3, so the fix (3.0.4) comes
+# from trixie-security, not from a new base digest. The update and the upgrade
+# below are the one step that still runs apt 3.0.3 to fetch 3.0.4, so they set
+# Acquire::Retries=0: the advisory needs retries above 0 (the Debian default).
+# Every later apt-get in this stage runs with 3.0.4. The 3.0.4 floor check runs
+# right after the upgrade and before the installs, so they never run with apt 3.0.3.
 # hadolint ignore=DL3008
-RUN apt-get update \
+RUN apt-get -o Acquire::Retries=0 update \
+    && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
+    && arch="$(dpkg --print-architecture)" \
+    && for floor in \
+         "apt 3.0.4" \
+         "libapt-pkg7.0 3.0.4"; do \
+         package="${floor%% *}"; minimum="${floor#* }"; \
+         state="$(dpkg-query --show --showformat="\${db:Status-Status} \${Version}" "${package}:${arch}" 2>/dev/null || true)"; \
+         case "${state}" in \
+           "installed "?*) version="${state#installed }" ;; \
+           *) echo "${package} is not installed; its version floor is ${minimum}" >&2; exit 1 ;; \
+         esac; \
+         if ! dpkg --compare-versions "${version}" ge "${minimum}"; then \
+           echo "${package} ${version} is not at or above its floor ${minimum}" >&2; exit 1; \
+         fi; \
+         echo "${package} ${version} meets its floor ${minimum}"; \
+       done \
     && apt-get install --yes --no-install-recommends build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"
@@ -67,17 +90,27 @@ WORKDIR /app
 #   libmbedcrypto16 (ffmpeg via librist4): fixes CVE-2025-47917, CVE-2026-34872,
 #     CVE-2026-34873 and CVE-2026-34875.
 #   libaom3: fixes CVE-2023-6879.
+#   apt, libapt-pkg7.0 (HOM-377): fix CVE-2026-109518.
 #   ffmpeg, libtiff6: the trixie versions of today. CVE-2026-75143 (ffmpeg) and
 #     CVE-2026-52490 (tiffcrop) have no fix in Debian stable yet
 #     (docs/security/vulnerability-triage.md, "HOM-349 re-scan").
+# HOM-377, CVE-2026-109518: the pinned base ships apt and libapt-pkg7.0 3.0.3,
+# and the newest base of 2026-11-05 still had 3.0.3, so the fix (3.0.4) comes
+# from trixie-security, not from a new base digest. The update and the upgrade
+# below are the one step that still runs apt 3.0.3 to fetch 3.0.4, so they set
+# Acquire::Retries=0: the advisory needs retries above 0 (the Debian default).
+# Every later apt-get in this stage runs with 3.0.4.
 # hadolint ignore=DL3008
-RUN apt-get update \
+RUN apt-get -o Acquire::Retries=0 update \
+    && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
     && apt-get install --yes --no-install-recommends ca-certificates ffmpeg libgomp1 libmagic1 libpq5 \
     && rm -rf /var/lib/apt/lists/* \
     && arch="$(dpkg --print-architecture)" \
     && for floor in \
+         "apt 3.0.4" \
          "ffmpeg 7:7.1.5-0+deb13u1" \
          "libaom3 3.12.1-1+deb13u1" \
+         "libapt-pkg7.0 3.0.4" \
          "libmbedcrypto16 3.6.6-0.1~deb13u1" \
          "libtiff6 4.7.0-3+deb13u3"; do \
          package="${floor%% *}"; minimum="${floor#* }"; \

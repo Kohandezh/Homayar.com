@@ -760,11 +760,3 @@ ignore:
   - vulnerability: CVE-2026-85091
     package:
       name: zlib
-  # F210 follow-up: build-time only; runtime user cannot run apt; fix needs api.Dockerfile change
-  - vulnerability: CVE-2026-109518
-    package:
-      name: apt
-  # F210 follow-up: build-time only; runtime user cannot run apt; fix needs api.Dockerfile change
-  - vulnerability: CVE-2026-109518
-    package:
-      name: libapt-pkg7.0
