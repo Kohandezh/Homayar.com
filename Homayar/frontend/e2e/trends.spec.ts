@@ -5,9 +5,9 @@ import type { IssueTrendResponse, TrendCell, TrendLinkResponse, TrendRow } from 
 
 /**
  * Issue trends (HOM-237). The first two tests read the real demo backend.
- * Sample policy v1 needs 30 calls per cell and the seed has fewer, so the
- * real page shows `Too few calls` warnings, not computed cells, and no count
- * is fixed here. The third test answers `/api/v1/trends/**` in the browser
+ * Since HOM-365 the seed has 30 assessable calls per team and week, so the
+ * real page shows computed cells (`N of D · P%`) and no count is fixed here.
+ * The third test answers `/api/v1/trends/**` in the browser
  * with one computed and one withheld cell, and links the computed cell to a
  * real completed meeting found through the API.
  *

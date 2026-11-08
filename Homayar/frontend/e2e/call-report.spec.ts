@@ -3,9 +3,11 @@ import { consolePath, resumeSession } from "./demo";
 
 /**
  * The meeting page as a call report (HOM-245, WP12-T02) against the demo
- * seed, read only. The seed has 20 completed meetings (each with a recording,
- * evidence-backed findings and the `mock_analysis` notice) and 3 failed ones.
- * Ids differ in every database, so the meetings are looked up at run time.
+ * seed, read only. The seed ends with 20 completed console meetings (each
+ * with a recording, evidence-backed findings and the `mock_analysis` notice)
+ * after its 240 scripted trend calls (HOM-365), so the newest completed
+ * meeting is still a console one; plus 3 failed ones. Ids differ in every
+ * database, so the meetings are looked up at run time.
  *
  * Nothing here may change the shared backend: every meeting request that is
  * not a GET is aborted in the browser, and the test fails if one was tried.

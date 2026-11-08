@@ -3,17 +3,18 @@ import { consolePath, resumeSession } from "./demo";
 
 /**
  * The processing page against the demo seed (no mocks). The seed parks one
- * dead-letter job ("Quarterly pricing review #26", failure code
- * `asr_unavailable`, replayable) and fails two ("New branch onboarding #24",
- * "پیگیری سفارش مشتری #25", not replayable).
+ * dead-letter job ("Quarterly pricing review #266", index 265 of the console
+ * plan since HOM-365; failure code `asr_unavailable`, replayable) and fails
+ * two ("New branch onboarding #264", "پیگیری سفارش مشتری #265", not
+ * replayable).
  *
  * The Replay button is never clicked here: a replay cannot be undone through
  * the API and the seed's dead-letter job allows only three, so clicking it
  * would break later runs. Vitest covers the replay and its refusals.
  */
 
-const DEAD_LETTER_TITLE = "Quarterly pricing review #26";
-const FAILED_TITLES = ["New branch onboarding #24", "پیگیری سفارش مشتری #25"];
+const DEAD_LETTER_TITLE = "Quarterly pricing review #266";
+const FAILED_TITLES = ["New branch onboarding #264", "پیگیری سفارش مشتری #265"];
 
 function jobRow(grid: Locator, title: string) {
   return grid.getByRole("row", { name: new RegExp(escapeRegExp(title)) });

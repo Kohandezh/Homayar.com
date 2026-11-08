@@ -13,6 +13,13 @@ carries a team and an agent from ``MEETING_ATTRIBUTION``. Five extra agents
 (no password, not logins) give the ``Call Center`` team 5 distinct agents a
 week, so the demo workspace, that team and the trend views are released while
 ``Sales`` and ``Support`` (1 agent each) are withheld as small groups.
+
+HOM-365: the seed also writes 240 scripted customer calls (30 per closed week
+for ``Call Center`` and for ``Customer Care``), each processed by the real
+processor with a scripted taxonomy extraction, so the default ``/trends``
+query shows real percent values and trend lines. Those calls are dated from an
+explicit ``now=`` instant, so the trends tests never depend on today's date;
+every other test shrinks the plan back to the console demo (AC8 runtime).
 """
 
 from __future__ import annotations
@@ -21,9 +28,10 @@ import os
 import re
 import subprocess
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlencode
 
 import pytest
 from sqlalchemy import func, select
@@ -77,6 +85,9 @@ MEMBERSHIPS = {"owner": 1, "admin": 1, "member": 1 + len(AGENT_KEYS), "viewer": 
 INVITED = 3 + len(AGENT_KEYS)
 UNREACHABLE_DATABASE = "postgresql+psycopg://nobody:nothing@127.0.0.1:1/nothing"
 HOMAYAR_ROOT = Path(__file__).resolve().parents[2]
+# HOM-365: one past instant the endpoint test seeds at (AC6). Saturday 04:00
+# Asia/Tehran, the first hours of a week, so the anchor week is unambiguous.
+TRENDS_INSTANT = datetime(2026, 10, 31, 0, 30, tzinfo=UTC)
 
 # Every table the seed writes to, counted inside the demo workspace.
 WORKSPACE_TABLES = (
@@ -120,22 +131,35 @@ def _counts(workspace_id: str) -> dict[str, int]:
     return counts
 
 
+def _small_plan(monkeypatch) -> None:
+    """Shrink the seed to the console demo of HOM-175/HOM-326: no scripted
+    customer calls and no ``Customer Care`` team (HOM-365). Only the trends
+    tests pay for the full plan (AC8 runtime budget)."""
+    monkeypatch.setattr(demo_seed, "TREND_CALL_BLOCKS", ())
+    monkeypatch.setattr(demo_seed, "TEAMS", demo_seed.TEAMS[:3])
+
+
 def _planned_meeting_statuses() -> dict[str, int]:
     """Meeting statuses of a clean run, from the seed's own plan."""
     planned: dict[str, int] = {}
-    for outcome, count in demo_seed.MEETING_PLAN:
+    for outcome in _planned_outcomes():
         # A dead-lettered job shows its meeting as failed.
         status = "failed" if outcome == "dead_letter" else outcome
-        planned[status] = planned.get(status, 0) + count
+        planned[status] = planned.get(status, 0) + 1
     return planned
+
+
+def _planned_outcomes() -> list[str]:
+    """The planned outcome of every meeting, in seed order."""
+    return [outcome for _index, outcome, _script, _title in demo_seed._meeting_specs()]
 
 
 def _planned_job_states() -> dict[str, int]:
     states = {"completed": "completed", "partial": "completed", "processing": "running"}
     planned: dict[str, int] = {}
-    for outcome, count in demo_seed.MEETING_PLAN:
+    for outcome in _planned_outcomes():
         state = states.get(outcome, outcome)
-        planned[state] = planned.get(state, 0) + count
+        planned[state] = planned.get(state, 0) + 1
     return planned
 
 
@@ -179,7 +203,7 @@ def _assert_clean_run_state(workspace_id: str) -> None:
     assert audit["member.invitation.created"] == INVITED
     assert audit["member.invitation.accepted"] == INVITED
     assert "member.invitation.revoked" not in audit
-    planned = sum(count for _, count in demo_seed.MEETING_PLAN)
+    planned = len(_planned_outcomes())
     assert audit["meeting.uploaded"] == planned
     assert audit["ingestion.accepted"] == planned
     assert "ingestion.replayed" not in audit
@@ -218,7 +242,8 @@ def _get(client, workspace_id: str, path: str) -> dict:
     return response.json()
 
 
-def test_seed_creates_a_complete_demo_workspace(client, settings):
+def test_seed_creates_a_complete_demo_workspace(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     result = seed_demo_workspace(settings)
 
     with inspection_session_factory()() as db:
@@ -380,7 +405,8 @@ def test_seed_creates_a_complete_demo_workspace(client, settings):
         )
 
 
-def test_seed_is_idempotent(client, settings):
+def test_seed_is_idempotent(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     first = seed_demo_workspace(settings)
     before = _counts(first.workspace_id)
 
@@ -394,7 +420,8 @@ def test_seed_is_idempotent(client, settings):
     }
 
 
-def test_demo_accounts_log_in_and_console_pages_have_data(client, settings):
+def test_demo_accounts_log_in_and_console_pages_have_data(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     result = seed_demo_workspace(settings)
     workspace_id = result.workspace_id
 
@@ -425,19 +452,23 @@ def test_demo_accounts_log_in_and_console_pages_have_data(client, settings):
         assert quality["segment_count"] >= 1
 
 
-def test_clean_run_matches_the_plan(client, settings):
+def test_clean_run_matches_the_plan(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     result = seed_demo_workspace(settings)
 
     _assert_clean_run_state(result.workspace_id)
 
 
 def test_rerun_after_an_interrupted_invitation_matches_a_clean_run(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     import backend.services.member_service  # noqa: F401 - the module the seed calls
 
     _fail_once(monkeypatch, "backend.services.member_service.accept_invitation", on_call=2)
     with pytest.raises(RuntimeError, match="interrupted"):
         seed_demo_workspace(settings)
     monkeypatch.undo()
+    # ``undo`` also reverted the small plan; the rerun must still be small.
+    _small_plan(monkeypatch)
 
     result = seed_demo_workspace(settings)
 
@@ -445,6 +476,7 @@ def test_rerun_after_an_interrupted_invitation_matches_a_clean_run(client, setti
 
 
 def test_rerun_after_an_interrupted_meeting_matches_a_clean_run(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     import backend.jobs.processor  # noqa: F401 - the module the seed calls
 
     # The 5th process_job call belongs to a meeting planned as completed.
@@ -452,6 +484,8 @@ def test_rerun_after_an_interrupted_meeting_matches_a_clean_run(client, settings
     with pytest.raises(RuntimeError, match="interrupted"):
         seed_demo_workspace(settings)
     monkeypatch.undo()
+    # ``undo`` also reverted the small plan; the rerun must still be small.
+    _small_plan(monkeypatch)
 
     result = seed_demo_workspace(settings)
 
@@ -539,6 +573,7 @@ def test_module_entrypoint_exits_non_zero_in_production():
 
 
 def test_main_seeds_in_development_and_prints_logins(client, settings, monkeypatch, capsys):
+    _small_plan(monkeypatch)
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DATABASE_URL", settings.database_url)
     monkeypatch.setenv("DATABASE_APP_ROLE", settings.database_app_role)
@@ -589,14 +624,30 @@ def test_attribution_plan_covers_every_meeting():
         assert 1 <= weeks_back <= 4
 
 
-def test_every_meeting_has_one_accepted_ledger_row(client, settings):
+def test_every_meeting_has_one_accepted_ledger_row(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
+    # The anchor of a run without ``now``: read before and after, so a run that
+    # crosses Tehran midnight still passes (HOM-365: the CLI path dates from
+    # the real current week).
+    before = current_week_start(datetime.now(UTC))
     result = seed_demo_workspace(settings)
+    after = current_week_start(datetime.now(UTC))
 
     with inspection_session_factory()() as db:
         meetings = list(
             db.scalars(select(Meeting).where(Meeting.workspace_id == result.workspace_id))
         )
         assert len(meetings) == 30
+        rows = db.execute(
+            select(IngestionRecord.received_at).where(
+                IngestionRecord.workspace_id == result.workspace_id
+            )
+        ).scalars()
+        for received_at in rows:
+            received_at = _as_utc(received_at)
+            assert any(
+                anchor - timedelta(days=28) <= received_at < anchor for anchor in (before, after)
+            ), received_at
         for meeting in meetings:
             rows = list(
                 db.scalars(select(IngestionRecord).where(IngestionRecord.meeting_id == meeting.id))
@@ -621,9 +672,10 @@ def test_every_meeting_has_one_accepted_ledger_row(client, settings):
             assert audits == 1
 
 
-def test_ledger_rows_fall_in_the_four_closed_weeks(client, settings):
-    result = seed_demo_workspace(settings)
-    week_start = current_week_start(datetime.now(UTC))
+def test_ledger_rows_fall_in_the_four_closed_weeks(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
+    result = seed_demo_workspace(settings, now=TRENDS_INSTANT)
+    week_start = current_week_start(TRENDS_INSTANT)
 
     with inspection_session_factory()() as db:
         rows = db.execute(
@@ -644,7 +696,8 @@ def test_ledger_rows_fall_in_the_four_closed_weeks(client, settings):
     assert sum(weeks.values()) == 30
 
 
-def test_meetings_carry_the_planned_team_and_agent(client, settings):
+def test_meetings_carry_the_planned_team_and_agent(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     result = seed_demo_workspace(settings)
 
     with inspection_session_factory()() as db:
@@ -694,7 +747,8 @@ def test_meetings_carry_the_planned_team_and_agent(client, settings):
         assert len(agents) == 5
 
 
-def test_agents_are_members_without_a_password_and_cannot_log_in(client, settings):
+def test_agents_are_members_without_a_password_and_cannot_log_in(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     result = seed_demo_workspace(settings)
 
     with inspection_session_factory()() as db:
@@ -724,7 +778,8 @@ def test_agents_are_members_without_a_password_and_cannot_log_in(client, setting
     _login(client, result.accounts["owner"])
 
 
-def test_trend_views_release_the_demo_workspace(client, settings):
+def test_trend_views_release_the_demo_workspace(client, settings, monkeypatch):
+    _small_plan(monkeypatch)
     result = seed_demo_workspace(settings)
     org, workspace_id = result.organization_id, result.workspace_id
     _login(client, result.accounts["owner"])
@@ -764,13 +819,139 @@ def test_trend_views_release_the_demo_workspace(client, settings):
     assert issues["disclosure"]["status"] == "released"
 
 
-# --- a database seeded by the seed before HOM-326 ------------------------------------------
+# --- HOM-365: the trends page shows trends, not "Too few calls" ------------------------------
+
+
+def _trends_answer(client, workspace_id: str, **params) -> dict:
+    return _get(client, workspace_id, "/api/v1/trends/issues?" + urlencode(params))
+
+
+def _issue_point_cells(answer: dict) -> dict[str, list[dict]]:
+    """``issue id -> the cell of each series point`` (issue rows only)."""
+    cells: dict[str, list[dict]] = {}
+    for point in answer["points"]:
+        for row in point["rows"]:
+            if row["level"] == "issue":
+                cells.setdefault(row["issue"], []).append(row["cell"])
+    return cells
+
+
+def _computed_with_numerator(cells: dict[str, list[dict]]) -> list[str]:
+    """Issue ids computed with a numerator above 0 in every point (AC1)."""
+    return [
+        issue
+        for issue, point_cells in cells.items()
+        if point_cells
+        and all(
+            cell["status"] == "computed" and cell["numerator"] and cell["numerator"] > 0
+            for cell in point_cells
+        )
+    ]
+
+
+def _all_cells(answer: dict) -> list[dict]:
+    return [row["cell"] for row in answer["rows"]] + [
+        row["cell"] for point in answer["points"] for row in point["rows"]
+    ]
+
+
+def test_seed_refuses_a_naive_dating_instant(client, settings):
+    class _Offsetless(tzinfo):
+        """A ``tzinfo`` that refuses to name its offset, like the filters of
+        ``issue_trends`` refuse (``filters.py``): naive in a second way."""
+
+        def utcoffset(self, _dt) -> None:
+            return None
+
+        def dst(self, _dt) -> None:
+            return None
+
+        def tzname(self, _dt) -> None:
+            return None
+
+    naive_instants = (
+        TRENDS_INSTANT.replace(tzinfo=None),
+        TRENDS_INSTANT.replace(tzinfo=_Offsetless()),
+    )
+    for naive in naive_instants:
+        with pytest.raises(ValueError, match="timezone"):
+            seed_demo_workspace(settings, now=naive)
+
+    # Refused before any write: the database stays empty.
+    with inspection_session_factory()() as db:
+        assert db.scalar(select(func.count()).select_from(Organization)) == 0
+        assert db.scalar(select(func.count()).select_from(User)) == 0
+
+
+def test_trends_endpoint_shows_real_trends_at_a_fixed_instant(client, settings):
+    """One full seed at one past instant (AC6), then AC1 to AC4 against the real
+    endpoint with the page's default query: the 4 closed Asia/Tehran weeks before
+    the instant's week, ``grain=week``, ``timezone=Asia/Tehran``."""
+    result = seed_demo_workspace(settings, now=TRENDS_INSTANT)
+    _login(client, result.accounts["owner"])
+    anchor = current_week_start(TRENDS_INSTANT)
+    query = {
+        "from": (anchor - timedelta(days=28)).isoformat(),
+        "to": anchor.isoformat(),
+        "grain": "week",
+        "timezone": "Asia/Tehran",
+    }
+
+    workspace = _trends_answer(client, result.workspace_id, **query)
+
+    # AC1: at least 3 issue rows computed with a numerator in each of the 4 weeks.
+    assert len(workspace["points"]) == 4
+    workspace_cells = _issue_point_cells(workspace)
+    workspace_rows = _computed_with_numerator(workspace_cells)
+    assert len(workspace_rows) >= 3, sorted(workspace_rows)
+
+    # AC3: at least 2 of them move across the 4 weeks.
+    moving = [
+        issue
+        for issue in workspace_rows
+        if len({cell["ratio"] for cell in workspace_cells[issue]}) > 1
+    ]
+    assert len(moving) >= 2, moving
+
+    # AC2: two released teams (kind rate) whose own AC1 holds.
+    with inspection_session_factory()() as db:
+        ids_of = {name: team_id for team_id, name in _team_names(db, result.workspace_id).items()}
+    insufficient = []
+    for team_name in (demo_seed.CALL_CENTER, demo_seed.CUSTOMER_CARE):
+        team = _trends_answer(client, result.workspace_id, team_id=ids_of[team_name], **query)
+        assert team["disclosure"]["status"] == "released", team_name
+        assert team["disclosure"]["kind"] == "rate", team_name
+        assert len(_computed_with_numerator(_issue_point_cells(team))) >= 3, team_name
+        insufficient += [
+            cell
+            for cell in _all_cells(team)
+            if cell["status"] == "insufficient_sample" and cell["reason"] == "below_minimum_sample"
+        ]
+
+    # AC4: a cell the page shows as "Too few calls", in a released team's answer.
+    assert insufficient
+
+    # The full plan is idempotent too: a second run at the same instant
+    # writes nothing (HOM-365 review, turn 2).
+    before = _counts(result.workspace_id)
+    second = seed_demo_workspace(settings, now=TRENDS_INSTANT)
+    assert _counts(result.workspace_id) == before
+    assert second.workspace_id == result.workspace_id
+    assert second.meeting_count == result.meeting_count == 270
+
+
+# --- a database seeded by an older demo seed -----------------------------------------------
+
+
+def _legacy_idempotency_key(index: int) -> str:
+    """The seed's key format before HOM-365: two digits, 30 meetings."""
+    return f"demo-seed-meeting-{index + 1:02d}"
 
 
 def _seed_as_before_hom326(settings, monkeypatch) -> str:
     """Seed the way the seed did before HOM-326: no agents, the 2 old teams, no team or
-    agent on any meeting, and no ingestion ledger row (``accept_ingestion`` only runs
-    ``create``)."""
+    agent on any meeting, the legacy 2-digit idempotency keys, and no ingestion
+    ledger row (``accept_ingestion`` only runs ``create``)."""
     from backend.services import ingestion_service
 
     def without_ledger(_db, *, create, **_kwargs):
@@ -780,8 +961,10 @@ def _seed_as_before_hom326(settings, monkeypatch) -> str:
         )
 
     with monkeypatch.context() as patch:
+        _small_plan(patch)
         patch.setattr(demo_seed, "DEMO_AGENTS", ())
         patch.setattr(demo_seed, "TEAMS", demo_seed.TEAMS[:2])
+        patch.setattr(demo_seed, "_idempotency_key", _legacy_idempotency_key)
         patch.setattr(
             demo_seed,
             "MEETING_ATTRIBUTION",
@@ -810,6 +993,26 @@ def test_seed_refuses_a_database_seeded_before_the_ledger(client, settings, monk
 
     assert "Reset the database" in str(refused.value)
     # Nothing new: no agent, member, team, assignment, meeting, ledger row or audit event.
+    assert _counts(workspace_id) == before
+
+
+def test_seed_refuses_a_database_seeded_by_the_previous_seed(client, settings, monkeypatch):
+    """The shape of today's ``main`` seed: legacy 2-digit keys, but every demo
+    meeting does have its ingestion ledger row (HOM-326). The seed refuses it
+    too: its plan changed (HOM-365), so it can neither adopt nor skip those
+    meetings."""
+    with monkeypatch.context() as patch:
+        _small_plan(patch)
+        patch.setattr(demo_seed, "_idempotency_key", _legacy_idempotency_key)
+        result = seed_demo_workspace(settings)
+    workspace_id = result.workspace_id
+    before = _counts(workspace_id)
+
+    with pytest.raises(demo_seed.DemoSeedRefused, match="older demo seed") as refused:
+        seed_demo_workspace(settings)
+
+    assert "Reset the database" in str(refused.value)
+    # Nothing new: the refusal comes before any write to the workspace.
     assert _counts(workspace_id) == before
 
 

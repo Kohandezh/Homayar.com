@@ -10,8 +10,8 @@ import { consolePath, resumeSession } from "./demo";
  * they are.
  */
 
-/** A completed meeting of `backend/database/demo_seed.py` (index 9, plan "completed"). */
-const MEETING_TITLE = "Customer portal login issue #10";
+/** A completed meeting of `backend/database/demo_seed.py` (index 249 of the console plan, HOM-365). */
+const MEETING_TITLE = "Customer portal login issue #250";
 
 interface CreatedShare {
   meetingId: string;
