@@ -89,14 +89,34 @@ What it creates:
   audio and concurrent-job quotas for the current month.
 - One account per workspace role (owner, admin, member, viewer) on the reserved
   `demo.example.com` domain. The admin, member and viewer join through the invitation flow.
-- Two teams (Sales, Support), each with a supervisor and an agent.
-- 30 short meetings in Persian and English. The real job processor runs them with scripted
-  in-process providers (marked as mock), so they have transcripts, summaries, action items,
-  evidence and quality data. Some meetings are completed, some partial, failed, processing
-  or queued, and one job is dead-lettered so the replay button shows.
+- Four teams: Sales and Support (a supervisor and one agent each), and two call teams,
+  Call Center and Customer Care, that share the five demo agents.
+- 270 short meetings in Persian and English, all processed by the real job processor:
+  - 240 scripted customer calls (HOM-365), 30 per closed Tehran week for each call team,
+    whose scripted intelligence returns a real taxonomy extraction (intent, topics,
+    outcome) cited to the call's turns. They are dated in the 4 closed weeks before the
+    current week, so the `/trends` page shows real percent values and moving trend lines
+    for the workspace and both call teams, with some outcome rows still under the
+    30-call sample minimum ("Too few calls") on purpose.
+    The owner ruled on 2026-11-09 that these 240 calls are stored as non-mock analysis:
+    the trend views never count a mock analysis, and the product rule is not changed for
+    a demo. For these 240 calls only: the call report has no mock notice and can be
+    complete; the export has no "Mock output: yes" line; coverage counts them as
+    evaluated; the console shows no mock badge; the processing audit records
+    `mock: false`. What still marks them as demo data: the provider names
+    `demo_seed_call_*`, the `example.com` accounts and the generated near-silence
+    recordings. The 30 console meetings stay mock.
+  - The 30 console meetings of the original demo (HOM-175): every status the console
+    shows (completed, partial, failed, processing, queued, one dead-lettered job) with
+    transcripts, summaries, action items, evidence and quality data from scripted mock
+    providers. Mock analyses are excluded from the trend counts by design, and the
+    console meetings are created last, so the meetings, report and evidence pages still
+    open a mock demo call.
 - Usage events, one API key, two share links, and audit history for all of the above.
 
-The recordings are a few seconds of generated silence. No real audio, no network calls.
+The recordings are a few seconds of generated near-silence, unique per meeting (no real
+audio, no network calls). A database seeded by an older demo seed must be reset before
+this seed runs on it: the plan changed with HOM-365.
 
 The command prints the console URL and the logins. All four accounts share one password:
 

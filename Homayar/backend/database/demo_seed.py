@@ -2,12 +2,12 @@
 
 ``python -m backend.database.demo_seed`` (``make demo-seed``) fills a fresh
 database with one organization, one workspace on a paid plan, one account per
-workspace role, two teams, about thirty meetings in every status the product
-console shows, a dead-lettered job, usage, API keys, share links and audit
-history. Nothing comes from real people or real audio: accounts are on the
-reserved ``example.com`` domain, recordings are a few seconds of generated
-silence, and transcripts come from scripted in-process providers marked
-``is_mock``.
+workspace role, four teams, 270 meetings in every status the product console
+shows, a dead-lettered job, usage, API keys, share links and audit history.
+Nothing comes from real people or real audio: accounts are on the reserved
+``example.com`` domain, recordings are a few seconds of generated near-silence
+(unique per meeting, so no demo call is a media duplicate of another), and
+transcripts come from scripted in-process providers.
 
 Every row is written through the existing services (or, where no service
 exists, the same model writes the bootstrap code uses) on the application
@@ -23,15 +23,43 @@ current Asia/Tehran week (Saturday 00:00), from the meeting's index alone.
 The rows age: a week after the seed the oldest week leaves the 4-week window,
 so a shared demo database needs a fresh seed to show every meeting there.
 
+The seed holds two plans, both through the same ledger and processor:
+
+- **The console plan** (30 meetings, HOM-175/HOM-326): every status the
+  console shows, scripted mock providers marked ``is_mock``. Mock transcripts
+  and mock analyses are excluded from the trend counts by design (a mock
+  states nothing it can know), so these meetings populate the meetings,
+  report, transcript and evidence pages without touching the trends.
+- **The call plan** (240 meetings, HOM-365): scripted customer calls, 30 per
+  closed week for ``Call Center`` and for ``Customer Care``. Their providers
+  are the same scripts but not marked mock: the scripted intelligence returns
+  a real taxonomy extraction (HOM-53) whose labels cite turns of the call's
+  script, so the real analysis stage judges, stores and counts them. The
+  owner ruled on 2026-11-09 that these 240 calls are stored as non-mock
+  analysis, because the trend views never count a mock analysis and the
+  product rule is not changed for a demo. For these 240 calls only:
+  the call report has no mock notice and can be complete; the export has no
+  "Mock output: yes" line; coverage counts them as evaluated; the console
+  shows no mock badge; the processing audit records ``mock: false``. What
+  still marks them as demo data: the provider names ``demo_seed_call_*``,
+  the ``example.com`` accounts, and the generated near-silence recordings.
+  The call plan gives the default ``/trends`` query (4 closed Tehran weeks) at
+  least 30 assessable conversations per team per week: real percent values
+  and trend lines, with enough outcome abstentions that the outcome rows
+  still show "Too few calls" honestly. The two call teams share the five demo
+  agents; the weekly intent mix moves so the lines move. A database seeded
+  by an older seed (fewer or different meetings) must be reset and seeded
+  again. The 30 console meetings stay mock.
+
 The trend views only release a cohort with 0 or at least 5 distinct agents.
 Five extra agents (``agent1`` to ``agent5``) make that possible. They are
 workspace members with no password, so nobody can sign in as them, and they
-are not printed as logins. They are the agents of the ``Call Center`` team,
-which has all 5 in each of the 3 most recent closed weeks and is released.
-``Sales`` and ``Support`` keep their one agent each (member and viewer) and
-are withheld as small groups. Three meetings with no team let the rest of the
-workspace pass the same weekly test, so ``Call Center`` stays released next to
-them. ``MEETING_ATTRIBUTION`` holds the team, agent and week of each meeting.
+are not printed as logins. They are the agents of ``Call Center`` and
+``Customer Care``. ``Sales`` and ``Support`` keep their one agent each
+(member and viewer) and are withheld as small groups. Three console-plan
+meetings with no team let the rest of the workspace pass the same weekly
+test. ``MEETING_ATTRIBUTION`` holds the team, agent and week of each console
+meeting; ``TREND_CALL_BLOCKS`` holds the call plan.
 
 The seed is idempotent: each object has a fixed natural key and is skipped
 when it already exists, and audit events are only written together with the
@@ -42,6 +70,14 @@ trend view. It must be reset and seeded again.
 
 It refuses every environment except development and test before it opens a
 database connection.
+
+The dating instant (HOM-365): ``seed_demo_workspace(settings, now=...)``
+takes a timezone-aware datetime used only to choose the anchor week
+(``current_week_start(now)``) every ledger row is dated from; ``None`` means
+``datetime.now(UTC)``, read once per run, so the CLI and ``make demo-seed``
+stay relative to today. Everything else keeps the real clocks: ingestion
+acceptance, job deadlines, processing, audit and logins. A naive ``now``
+raises ``ValueError`` before any database write.
 """
 
 from __future__ import annotations
@@ -94,6 +130,7 @@ WORKER_ID = "demo-seed"
 API_KEY_NAME = "CRM integration (demo)"
 API_KEY_SCOPES = ("meeting:read", "meeting:create")
 SCRIPTED_PROVIDER_VERSION = "demo-seed-v1"
+CALL_PROVIDER_VERSION = "demo-seed-calls-v1"
 
 
 class DemoSeedRefused(RuntimeError):
@@ -220,7 +257,388 @@ TITLES: tuple[str, ...] = (
     "New branch onboarding",
 )
 
-# (status, how many). 30 meetings in total.
+# --- scripted customer calls (HOM-365) -------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CallScript:
+    """A scripted customer call whose intelligence returns a real taxonomy
+    extraction: the labels (intent, topics, outcome or an outcome abstention)
+    cite turns of this script, so the real analysis stage accepts them."""
+
+    key: str
+    language: str
+    title: str
+    turns: tuple[Turn, ...]
+    summary: str
+    action: tuple[str, str, int]  # description, owner, source turn
+    decision: tuple[str, int]  # description, source turn
+    intent: str  # taxonomy intent label id
+    intent_turn: int
+    topics: tuple[tuple[str, int], ...]  # topic label id, source turn
+    outcome: str | None  # taxonomy outcome label id; None abstains (unclear ending)
+    outcome_turn: int
+
+
+CALL_SCRIPTS: dict[str, CallScript] = {
+    call.key: call
+    for call in (
+        CallScript(
+            key="support_connectivity",
+            language="en",
+            title="Internet keeps dropping",
+            turns=(
+                Turn("SPEAKER_00", "Hello, my home internet keeps dropping every evening."),
+                Turn("SPEAKER_01", "I am sorry. I see line errors on your port since Monday."),
+                Turn("SPEAKER_00", "Can someone check the line, please?"),
+                Turn("SPEAKER_01", "I will schedule a technician visit for Thursday morning."),
+            ),
+            summary="The customer reported an unstable line; a technician visit was scheduled.",
+            action=("Schedule the technician visit", "Network Team", 3),
+            decision=("Technician visit on Thursday", 3),
+            intent="request_support",
+            intent_turn=0,
+            topics=(("connectivity", 0),),
+            outcome="follow_up_scheduled",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="support_connectivity_unresolved",
+            language="fa",
+            title="کندی اینترنت",
+            turns=(
+                Turn("SPEAKER_00", "سلام، اینترنت ما چند روز است خیلی کند است."),
+                Turn("SPEAKER_01", "بررسی کردم؛ از سمت خط مشکلی نمی‌بینم."),
+                Turn("SPEAKER_00", "پس چه کاری باید بکنیم؟"),
+                Turn("SPEAKER_01", "فعلاً کاری از دست ما برنمی‌آید؛ اگر ادامه داشت خبر بدهید."),
+            ),
+            summary="مشتری از کندی اینترنت گفت؛ بررسی نتیجه‌ای نداشت و برای پیگیری، تیکت ثبت شد.",
+            action=("ثبت تیکت پیگیری کندی", "پشتیبانی", 3),
+            decision=("بدون اقدام مشخص", 3),
+            intent="request_support",
+            intent_turn=0,
+            topics=(("connectivity", 0),),
+            outcome="unresolved",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="support_technical",
+            language="fa",
+            title="خرابی مودم",
+            turns=(
+                Turn("SPEAKER_00", "سلام، مودم من روشن نمی‌شود."),
+                Turn("SPEAKER_01", "چند ثانیه دکمهٔ ریست را نگه دارید."),
+                Turn("SPEAKER_00", "امتحان کردم، بالا نمی‌آید."),
+                Turn("SPEAKER_01", "پس به واحد فنی ارجاع می‌دهم تا تماس بگیرند."),
+            ),
+            summary="مودم مشتری روشن نمی‌شد؛ موضوع به واحد فنی ارجاع شد.",
+            action=("ارجاع به واحد فنی", "واحد فنی", 3),
+            decision=("ارجاع به واحد فنی", 3),
+            intent="request_support",
+            intent_turn=0,
+            topics=(("technical_fault", 1),),
+            outcome="escalated",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="support_account",
+            language="en",
+            title="Cannot sign in to the portal",
+            turns=(
+                Turn("SPEAKER_00", "Hi, I cannot sign in to the customer portal."),
+                Turn("SPEAKER_01", "I have reset your password; please check your email."),
+                Turn("SPEAKER_00", "It works now, thank you."),
+                Turn("SPEAKER_01", "You are welcome. Enjoy your day."),
+            ),
+            summary="A locked-out customer signed in again after a password reset.",
+            action=("Close the sign-in ticket", "Support", 3),
+            decision=("Reset the password", 1),
+            intent="request_support",
+            intent_turn=0,
+            topics=(("account_access", 0),),
+            outcome="resolved",
+            outcome_turn=2,
+        ),
+        CallScript(
+            key="support_abstain",
+            language="fa",
+            title="قطعی پراکنده خط",
+            turns=(
+                Turn("SPEAKER_00", "سلام، خط تلفن ما گاهی قطع می‌شود."),
+                Turn("SPEAKER_01", "چند بار اتفاق افتاده؟"),
+                Turn("SPEAKER_00", "نمی‌دانم، همسایه‌ها هم گفته‌اند شاید."),
+                Turn("SPEAKER_01", "ثبت می‌کنم؛ اگر نمونهٔ مشخصی داشتید زنگ بزنید."),
+            ),
+            summary="گزارش مبهم از قطعی پراکنده خط؛ شواهد کافی برای جمع‌بندی نبود.",
+            action=("ثبت گزارش قطعی پراکنده", "پشتیبانی", 3),
+            decision=("ثبت گزارش بدون جمع‌بندی", 3),
+            intent="request_support",
+            intent_turn=0,
+            topics=(("connectivity", 0),),
+            outcome=None,
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="billing_invoice",
+            language="fa",
+            title="مبلغ فاکتور اشتباه",
+            turns=(
+                Turn("SPEAKER_00", "سلام، مبلغ فاکتور این ماه اشتباه است."),
+                Turn("SPEAKER_01", "بررسی می‌کنم؛ بله، یک ردیف تکراری دیده می‌شود."),
+                Turn("SPEAKER_00", "لطفاً اصلاح کنید."),
+                Turn("SPEAKER_01", "فاکتور اصلاحی تا فردا صبح برایتان ارسال می‌شود."),
+            ),
+            summary="فاکتور مشتری ردیف تکراری داشت؛ فاکتور اصلاحی ارسال می‌شود.",
+            action=("ارسال فاکتور اصلاحی", "مالی", 3),
+            decision=("اصلاح فاکتور", 1),
+            intent="resolve_billing",
+            intent_turn=0,
+            topics=(("invoice", 0),),
+            outcome="follow_up_scheduled",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="billing_payment",
+            language="en",
+            title="Payment failed twice",
+            turns=(
+                Turn("SPEAKER_00", "Hello, my monthly payment failed twice."),
+                Turn("SPEAKER_01", "Your bank declined it; let me retry it now."),
+                Turn("SPEAKER_00", "Please do."),
+                Turn("SPEAKER_01", "It went through. You are all set."),
+            ),
+            summary="A declined payment succeeded on retry during the call.",
+            action=("Confirm the payment", "Billing", 3),
+            decision=("Retry the payment", 1),
+            intent="resolve_billing",
+            intent_turn=0,
+            topics=(("payment", 0),),
+            outcome="resolved",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="billing_unresolved",
+            language="en",
+            title="Charged twice this month",
+            turns=(
+                Turn("SPEAKER_00", "Hi, I was charged twice for this month."),
+                Turn("SPEAKER_01", "I see both charges; I cannot reverse them from here."),
+                Turn("SPEAKER_00", "So what happens now?"),
+                Turn("SPEAKER_01", "Our finance team has to look at it; I cannot promise a date."),
+            ),
+            summary="A double charge was confirmed but no fix was agreed on the call.",
+            action=("Open a finance case", "Finance", 3),
+            decision=("Hand the double charge to finance", 3),
+            intent="resolve_billing",
+            intent_turn=0,
+            topics=(("payment", 0),),
+            outcome="unresolved",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="billing_abstain",
+            language="fa",
+            title="سؤال دربارهٔ صورتحساب",
+            turns=(
+                Turn("SPEAKER_00", "سلام، دربارهٔ صورتحساب ماه گذشته سؤالی دارم."),
+                Turn("SPEAKER_01", "بفرمایید؛ فاکتور را باز کردم."),
+                Turn("SPEAKER_00", "این ردیف آخر برای چیست؟ خط بد قطع شد..."),
+                Turn("SPEAKER_01", "هلو؟ شنیدید؟ بعداً دوباره تماس بگیرید."),
+            ),
+            summary="سؤال مشتری دربارهٔ ردیف فاکتور ناتمام ماند؛ خط قطع شد.",
+            action=("ثبت تماس مجدد", "مالی", 3),
+            decision=("تماس قطع شد", 3),
+            intent="resolve_billing",
+            intent_turn=0,
+            topics=(("invoice", 0),),
+            outcome=None,
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="complaint_refund",
+            language="fa",
+            title="شکایت از بازگشت وجه",
+            turns=(
+                Turn("SPEAKER_00", "سلام، دو هفته است پول سفارشم برگشته نشده و خیلی عصبانی‌ام."),
+                Turn("SPEAKER_01", "حق دارید؛ درخواست بازگشت وجه را ثبت می‌کنم."),
+                Turn("SPEAKER_00", "کِی برمی‌گردد؟"),
+                Turn("SPEAKER_01", "به سرپرست هم ارجاع می‌دهم که پیگیری سریع‌تر شود."),
+            ),
+            summary="مشتری از تأخیر بازگشت وجه شکایت کرد؛ موضوع به سرپرست ارجاع شد.",
+            action=("ارجاع شکایت به سرپرست", "سرپرست", 3),
+            decision=("ثبت و ارجاع درخواست بازگشت وجه", 1),
+            intent="report_dissatisfaction",
+            intent_turn=0,
+            topics=(("refund", 0),),
+            outcome="escalated",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="complaint_delivery",
+            language="en",
+            title="Package a week late",
+            turns=(
+                Turn("SPEAKER_00", "Hello, I want to complain: my package is a week late."),
+                Turn("SPEAKER_01", "I am sorry about that; I see it left the hub yesterday."),
+                Turn("SPEAKER_00", "I needed it last week."),
+                Turn("SPEAKER_01", "I understand; I can only ask the courier to prioritize it."),
+            ),
+            summary="A late delivery complaint; no new delivery date could be promised.",
+            action=("Flag the shipment as priority", "Logistics", 3),
+            decision=("Prioritize the late shipment", 3),
+            intent="report_dissatisfaction",
+            intent_turn=0,
+            topics=(("delivery", 0),),
+            outcome="unresolved",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="complaint_refund_abstain",
+            language="fa",
+            title="شکایت از تأخیر بازپرداخت",
+            turns=(
+                Turn("SPEAKER_00", "سلام، گفته بودید سه روزه وجه برگردد؛ نشده."),
+                Turn("SPEAKER_01", "یک لحظه بررسی می‌کنم... سیستم کند است."),
+                Turn("SPEAKER_00", "خب، منتظرم."),
+                Turn("SPEAKER_01", "هنوز جوابی ندارم؛ تا آخر روز خبر می‌شوم شاید."),
+            ),
+            summary="شکایت از تأخیر بازپرداخت؛ پایان تماس روشن نبود.",
+            action=("پیگیری وضعیت بازپرداخت", "مالی", 3),
+            decision=("پایان نامشخص", 3),
+            intent="report_dissatisfaction",
+            intent_turn=0,
+            topics=(("refund", 0),),
+            outcome=None,
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="sales_pricing",
+            language="en",
+            title="Asking about plan prices",
+            turns=(
+                Turn("SPEAKER_00", "Hello, I am comparing plans for my small business."),
+                Turn("SPEAKER_01", "Happy to help; the business plan fits five people."),
+                Turn("SPEAKER_00", "What does it cost per month?"),
+                Turn("SPEAKER_01", "I will email you the full quote today."),
+            ),
+            summary="A prospect asked for plan pricing; a quote was promised.",
+            action=("Email the pricing quote", "Sales", 3),
+            decision=("Send a business-plan quote", 3),
+            intent="purchase_inquiry",
+            intent_turn=0,
+            topics=(("pricing", 1),),
+            outcome="follow_up_scheduled",
+            outcome_turn=3,
+        ),
+        CallScript(
+            key="sales_pricing_resolved",
+            language="fa",
+            title="استعلام قیمت اشتراک",
+            turns=(
+                Turn("SPEAKER_00", "سلام، قیمت اشتراک سالانه چقدر است؟"),
+                Turn("SPEAKER_01", "سالانه دو میلیون و چهارصد هزار تومان است."),
+                Turn("SPEAKER_00", "تخفیفی هم دارد؟"),
+                Turn("SPEAKER_01", "بله، پرداخت یکجا ده درصد تخفیف دارد."),
+                Turn("SPEAKER_00", "ممنون، پاسخم را کامل گرفتم."),
+            ),
+            summary="مشتری قیمت سالانه و تخفیف آن را پرسید و پاسخ کامل گرفت.",
+            action=("ثبت فرصت فروش", "فروش", 4),
+            decision=("اطلاع از قیمت سالانه", 1),
+            intent="purchase_inquiry",
+            intent_turn=0,
+            topics=(("pricing", 0),),
+            outcome="resolved",
+            outcome_turn=4,
+        ),
+    )
+}
+
+# The weekly intent mix of one call team: (script key, how many calls). Sums
+# to 30 a week; the mix moves week by week so the workspace trend lines move
+# (AC3). Every call states its intent and topics; the ``*_abstain`` scripts
+# leave the outcome unstated, so the outcome rows of each team-week sit under
+# the sample minimum of 30 (AC4) while the intent rows keep the full 30 (AC1).
+_WEEK_MIXES: dict[int, tuple[tuple[str, int], ...]] = {
+    1: (
+        ("support_connectivity", 3),
+        ("support_connectivity_unresolved", 2),
+        ("support_technical", 2),
+        ("support_account", 2),
+        ("support_abstain", 3),
+        ("billing_invoice", 2),
+        ("billing_payment", 2),
+        ("billing_unresolved", 2),
+        ("billing_abstain", 2),
+        ("complaint_refund", 2),
+        ("complaint_delivery", 2),
+        ("complaint_refund_abstain", 2),
+        ("sales_pricing", 2),
+        ("sales_pricing_resolved", 2),
+    ),
+    2: (
+        ("support_connectivity", 2),
+        ("support_connectivity_unresolved", 2),
+        ("support_technical", 1),
+        ("support_account", 2),
+        ("support_abstain", 2),
+        ("billing_invoice", 3),
+        ("billing_payment", 2),
+        ("billing_unresolved", 3),
+        ("billing_abstain", 3),
+        ("complaint_refund", 3),
+        ("complaint_delivery", 2),
+        ("complaint_refund_abstain", 2),
+        ("sales_pricing", 2),
+        ("sales_pricing_resolved", 1),
+    ),
+    3: (
+        ("support_connectivity", 3),
+        ("support_connectivity_unresolved", 3),
+        ("support_technical", 2),
+        ("support_account", 2),
+        ("support_abstain", 3),
+        ("billing_invoice", 2),
+        ("billing_payment", 1),
+        ("billing_unresolved", 2),
+        ("billing_abstain", 2),
+        ("complaint_refund", 2),
+        ("complaint_delivery", 2),
+        ("complaint_refund_abstain", 1),
+        ("sales_pricing", 3),
+        ("sales_pricing_resolved", 2),
+    ),
+    4: (
+        ("support_connectivity", 3),
+        ("support_connectivity_unresolved", 2),
+        ("support_technical", 2),
+        ("support_account", 1),
+        ("support_abstain", 2),
+        ("billing_invoice", 2),
+        ("billing_payment", 2),
+        ("billing_unresolved", 2),
+        ("billing_abstain", 3),
+        ("complaint_refund", 3),
+        ("complaint_delivery", 3),
+        ("complaint_refund_abstain", 2),
+        ("sales_pricing", 2),
+        ("sales_pricing_resolved", 1),
+    ),
+}
+
+CALL_CENTER = "Call Center"
+CUSTOMER_CARE = "Customer Care"
+
+# (team name, closed week before the anchor, script key, call count). The
+# call plan of HOM-365: 30 assessable calls per team per closed week. Tests
+# that do not read the trends shrink this to ``()`` (AC8 runtime budget).
+TREND_CALL_BLOCKS: tuple[tuple[str, int, str, int], ...] = tuple(
+    (team, week, key, count)
+    for team in (CALL_CENTER, CUSTOMER_CARE)
+    for week in (1, 2, 3, 4)
+    for key, count in _WEEK_MIXES[week]
+)
+
+# (status, how many). 30 meetings in total: the console plan of HOM-175.
 MEETING_PLAN: tuple[tuple[str, int], ...] = (
     ("completed", 20),
     ("partial", 3),
@@ -230,11 +648,10 @@ MEETING_PLAN: tuple[tuple[str, int], ...] = (
     ("queued", 2),
 )
 
-CALL_CENTER = "Call Center"
 _AGENT_KEYS = tuple(key for key, _name in DEMO_AGENTS)
 
-# (team name, agent key, weeks before the current week) per meeting index, in
-# ``_meeting_specs`` order. Week 1 is the most recent closed week. Only
+# (team name, agent key, weeks before the current week) per console-plan
+# meeting, in console-plan order. Week 1 is the most recent closed week. Only
 # completed and partial meetings enter the trend population; each closed week
 # then has 0 or at least 5 distinct agents, for the workspace and for the
 # rest outside ``Call Center``. The others carry no team and no agent, so a
@@ -261,9 +678,41 @@ MEETING_ATTRIBUTION: tuple[tuple[str | None, str | None, int], ...] = (
 )
 
 
-def _meeting_specs() -> list[tuple[int, str, Script, str]]:
-    specs: list[tuple[int, str, Script, str]] = []
+def _trend_meetings() -> tuple[tuple[str, str, int, CallScript], ...]:
+    """(team, agent key, closed week, call script) per scripted customer call,
+    in seed order. The five demo agents rotate inside each team-week, so every
+    team-week holds at least 5 distinct agents and is released as a rate
+    cohort (HOM-82)."""
+    slot_of: dict[tuple[str, int], int] = {}
+    meetings: list[tuple[str, str, int, CallScript]] = []
+    for team, week, key, count in TREND_CALL_BLOCKS:
+        call = CALL_SCRIPTS[key]
+        for _ in range(count):
+            slot = slot_of.get((team, week), 0)
+            slot_of[(team, week)] = slot + 1
+            meetings.append((team, _AGENT_KEYS[slot % len(_AGENT_KEYS)], week, call))
+    return tuple(meetings)
+
+
+def _attribution(index: int) -> tuple[str | None, str | None, int]:
+    """(team, agent key, closed week) of meeting ``index`` of the whole plan."""
+    trend = _trend_meetings()
+    if index < len(trend):
+        team, agent, week, _call = trend[index]
+        return team, agent, week
+    return MEETING_ATTRIBUTION[index - len(trend)]
+
+
+def _meeting_specs() -> list[tuple[int, str, Script | CallScript, str]]:
+    """Every meeting of the seed, in seed order: the scripted customer calls
+    first (HOM-365), then the console plan of HOM-175 at the tail, so the
+    console's newest completed meeting is still a scripted mock one."""
+    specs: list[tuple[int, str, Script | CallScript, str]] = []
     index = 0
+    for _team, _agent, _week, call in _trend_meetings():
+        title = f"{call.title} #{index + 1}"
+        specs.append((index, "completed", call, title))
+        index += 1
     for outcome, count in MEETING_PLAN:
         for _ in range(count):
             script = SCRIPTS[index % len(SCRIPTS)]
@@ -274,10 +723,20 @@ def _meeting_specs() -> list[tuple[int, str, Script, str]]:
 
 
 def _idempotency_key(index: int) -> str:
-    return f"demo-seed-meeting-{index + 1:02d}"
+    return f"demo-seed-meeting-{index + 1:03d}"
+
+
+# The seed's key format before HOM-365 (two digits, 30 meetings). A workspace
+# that still holds one of these was seeded by an older seed and is refused:
+# this seed's plan changed, so it can neither adopt nor skip those meetings.
+LEGACY_IDEMPOTENCY_KEYS: tuple[str, ...] = tuple(
+    f"demo-seed-meeting-{number:02d}" for number in range(1, 31)
+)
 
 
 def _duration_seconds(index: int) -> int:
+    if index < len(_trend_meetings()):
+        return 10 + (index * 3) % 8
     return 20 + (index * 7) % 40
 
 
@@ -285,17 +744,25 @@ def _received_at(index: int, week_start: datetime) -> datetime:
     """The ledger ``received_at`` of meeting ``index``: inside its planned closed week
     before ``week_start`` (Saturday 00:00 Asia/Tehran), Saturday to Thursday, 08:00 to
     16:00 Tehran time."""
-    _team, _agent, weeks_back = MEETING_ATTRIBUTION[index]
+    _team, _agent, weeks_back = _attribution(index)
     return week_start - timedelta(weeks=weeks_back) + timedelta(days=index % 6, hours=8 + index % 9)
 
 
-def _silent_wav(seconds: int) -> bytes:
+def _silent_wav(seconds: int, *, marker: int | None = None) -> bytes:
+    """Generated placeholder audio: silence, except that ``marker`` (the
+    meeting index) is written into the first frame. Without the marker every
+    recording of the same length would be byte-identical, the ingestion layer
+    would link them as media duplicates (case C, policy ``allow``) and every
+    linked copy would be excluded from the trend population."""
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as writer:
         writer.setnchannels(1)
         writer.setsampwidth(2)
         writer.setframerate(SAMPLE_RATE_HZ)
-        writer.writeframes(b"\x00\x00" * (SAMPLE_RATE_HZ * seconds))
+        frames = bytearray(b"\x00\x00" * (SAMPLE_RATE_HZ * seconds))
+        if marker is not None:
+            frames[0:2] = (marker % 32_767).to_bytes(2, "little")
+        writer.writeframes(bytes(frames))
     return buffer.getvalue()
 
 
@@ -443,6 +910,158 @@ def _scripted_bundle(script: Script, *, duration_seconds: int, outcome: str):
     )
 
 
+def _call_extraction(call: CallScript) -> dict:
+    """The taxonomy extraction of ``call`` (the shape of ``providers/mocks.py``,
+    HOM-53): intent and topics stated with cited turns and a confidence above
+    the explicit threshold, the outcome stated or abstained
+    (``insufficient_evidence``) when the script ends unclearly."""
+
+    def stated(label: str, turn: int) -> dict:
+        return {
+            "label": label,
+            "basis": "explicit",
+            "source_turn_indexes": [turn],
+            "confidence": 0.9,
+        }
+
+    outcome = (
+        {"status": "stated", "values": [stated(call.outcome, call.outcome_turn)]}
+        if call.outcome is not None
+        else {"status": "insufficient_evidence", "values": []}
+    )
+    return {
+        "intent": {"status": "stated", "values": [stated(call.intent, call.intent_turn)]},
+        "topic": {
+            "status": "stated",
+            "values": [stated(label, turn) for label, turn in call.topics],
+        },
+        "entity": {"status": "not_stated", "values": []},
+        "outcome": outcome,
+    }
+
+
+def _call_bundle(call: CallScript, *, duration_seconds: int):
+    """In-process providers for one scripted customer call (HOM-365): the same
+    script machinery as ``_scripted_bundle``, but nothing is marked ``is_mock``
+    and the intelligence returns the call's taxonomy extraction, so the real
+    analysis stage judges, stores and counts the call in the trend views."""
+    from backend.providers.base import (
+        ASRProvider,
+        DiarizationProvider,
+        IntelligenceProvider,
+        ProviderIdentity,
+        text_digest,
+    )
+    from backend.providers.factory import ProviderBundle
+    from backend.providers.schemas import (
+        ActionItem as ProviderActionItem,
+    )
+    from backend.providers.schemas import (
+        ASRRequest,
+        ASRResult,
+        ASRSegment,
+        DiarizationRequest,
+        DiarizationResult,
+        DiarizationSegment,
+        DiarizationStatus,
+        IntelligenceInsight,
+        IntelligenceRequest,
+        IntelligenceResult,
+    )
+
+    step = duration_seconds / len(call.turns)
+    times = [(round(i * step, 2), round((i + 1) * step, 2)) for i in range(len(call.turns))]
+    script_digest = text_digest("\n".join(turn.text for turn in call.turns))
+
+    class CallASR(ASRProvider):
+        def identity(self) -> ProviderIdentity:
+            return ProviderIdentity(
+                provider="demo_seed_call_asr",
+                model=CALL_PROVIDER_VERSION,
+                params={"script_sha256": script_digest},
+            )
+
+        async def transcribe(self, request: ASRRequest) -> ASRResult:
+            return ASRResult(
+                provider="demo_seed_call_asr",
+                model=CALL_PROVIDER_VERSION,
+                language=call.language,
+                text=" ".join(turn.text for turn in call.turns),
+                segments=[
+                    ASRSegment(
+                        index=i,
+                        text=turn.text,
+                        start_seconds=start,
+                        end_seconds=end,
+                        confidence=0.9,
+                    )
+                    for i, (turn, (start, end)) in enumerate(zip(call.turns, times, strict=True))
+                ],
+                duration_seconds=duration_seconds,
+                is_mock=False,
+            )
+
+    class CallDiarization(DiarizationProvider):
+        def identity(self) -> ProviderIdentity:
+            return ProviderIdentity(
+                provider="demo_seed_call_diarization",
+                model=CALL_PROVIDER_VERSION,
+                params={"available": True},
+            )
+
+        async def diarize(self, request: DiarizationRequest) -> DiarizationResult:
+            return DiarizationResult(
+                provider="demo_seed_call_diarization",
+                status=DiarizationStatus.AVAILABLE,
+                segments=[
+                    DiarizationSegment(
+                        speaker_label=turn.speaker, start_seconds=start, end_seconds=end
+                    )
+                    for turn, (start, end) in zip(call.turns, times, strict=True)
+                ],
+                is_mock=False,
+            )
+
+    class CallIntelligence(IntelligenceProvider):
+        def identity(self) -> ProviderIdentity:
+            return ProviderIdentity(
+                provider="demo_seed_call_intelligence",
+                model=CALL_PROVIDER_VERSION,
+                params={"script_sha256": script_digest},
+            )
+
+        async def analyze(self, request: IntelligenceRequest) -> IntelligenceResult:
+            decision, decision_turn = call.decision
+            description, owner, action_turn = call.action
+            return IntelligenceResult(
+                provider="demo_seed_call_intelligence",
+                model=CALL_PROVIDER_VERSION,
+                summary=call.summary,
+                summary_source_turn_indexes=list(range(len(request.turns))),
+                action_items=[
+                    ProviderActionItem(
+                        description=description, owner=owner, source_turn_indexes=[action_turn]
+                    )
+                ],
+                insights=[
+                    IntelligenceInsight(
+                        category="decision",
+                        description=decision,
+                        confidence=0.85,
+                        source_turn_indexes=[decision_turn],
+                    )
+                ],
+                extraction=_call_extraction(call),
+                is_mock=False,
+            )
+
+    return ProviderBundle(
+        asr=CallASR(),
+        diarization=CallDiarization(),
+        intelligence=CallIntelligence(),
+    )
+
+
 # --- environment and database --------------------------------------------------
 
 
@@ -577,31 +1196,58 @@ def _find_workspace(owner: User) -> Workspace | None:
 
 
 def _refuse_outdated_workspace(owner: User) -> None:
-    """Refuse a demo workspace an older seed wrote (before HOM-326): one of its demo
-    meetings has no ingestion ledger row. The seed finds those meetings by their keys
-    and would skip them, so they would stay out of every trend view."""
+    """Refuse a demo workspace an older seed wrote, before anything is added
+    to it. Two causes, one message each:
+
+    - before HOM-326: a demo meeting has no ingestion ledger row, so the trend
+      views would not count it;
+    - before HOM-365: the demo meetings carry the old 2-digit idempotency
+      keys. This seed's plan changed, so it can neither adopt those meetings
+      nor skip them (they would stay out of every trend view).
+    """
     from backend.services.ingestion_service import ingestion_for_meeting
     from backend.services.meeting_service import find_job_by_idempotency
 
     workspace = _find_workspace(owner)
     if workspace is None:
         return
-    missing = 0
+    without_ledger = 0
+    legacy = 0
     with _session(user_id=owner.id, workspace=workspace) as db:
+
+        def has_ledger(job) -> bool:
+            return (
+                ingestion_for_meeting(db, workspace_id=workspace.id, meeting_id=job.meeting_id)
+                is not None
+            )
+
         for index, _outcome, _script, _title in _meeting_specs():
             job = find_job_by_idempotency(
                 db, workspace_id=workspace.id, idempotency_key=_idempotency_key(index)
             )
-            if job is not None and (
-                ingestion_for_meeting(db, workspace_id=workspace.id, meeting_id=job.meeting_id)
-                is None
-            ):
-                missing += 1
-    if missing:
+            if job is not None and not has_ledger(job):
+                without_ledger += 1
+        for key in LEGACY_IDEMPOTENCY_KEYS:
+            job = find_job_by_idempotency(db, workspace_id=workspace.id, idempotency_key=key)
+            if job is None:
+                continue
+            if has_ledger(job):
+                legacy += 1
+            else:
+                without_ledger += 1
+    if without_ledger:
         raise DemoSeedRefused(
-            f"This database was seeded by an older demo seed: {missing} demo meetings have "
-            "no ingestion ledger row, so the trend views would not count them. The seed "
-            "does not repair it. Reset the database (drop it, apply the migrations), "
+            f"This database was seeded by an older demo seed: {without_ledger} demo "
+            "meetings have no ingestion ledger row, so the trend views would not count "
+            "them. The seed does not repair it. Reset the database (drop it, apply the "
+            "migrations), then run the demo seed again."
+        )
+    if legacy:
+        raise DemoSeedRefused(
+            f"This database was seeded by an older demo seed: {legacy} demo meetings "
+            "carry the old seed's idempotency keys, and this seed's meeting plan "
+            "changed, so it can neither adopt them nor skip them (they would stay out "
+            "of every trend view). Reset the database (drop it, apply the migrations), "
             "then run the demo seed again."
         )
 
@@ -793,10 +1439,14 @@ def _ensure_members(
 
 
 TEAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    # team name, supervisor, agents (a login role or an agent key)
+    # team name, supervisor, agents (a login role or an agent key). The first
+    # three are the console plan (HOM-175/HOM-326); ``Customer Care`` and its
+    # meetings are the call plan of HOM-365. The two call teams share the five
+    # demo agents, so both are released rate cohorts in the trend views.
     ("Sales", "admin", ("member",)),
     ("Support", "owner", ("viewer",)),
     (CALL_CENTER, "admin", _AGENT_KEYS),
+    (CUSTOMER_CARE, "admin", _AGENT_KEYS),
 )
 
 
@@ -921,7 +1571,7 @@ def _upload(
     *,
     index: int,
     title: str,
-    script: Script,
+    script: Script | CallScript,
     idempotency_key: str,
     team_id: str | None,
     agent_user_id: str | None,
@@ -957,8 +1607,8 @@ def _upload(
             untouched = existing.state == JobState.QUEUED and existing.attempt_count == 0
             return existing.id if untouched else None
         duration = _duration_seconds(index)
-        audio = _silent_wav(duration)
-        filename = f"demo-meeting-{index + 1:02d}.wav"
+        audio = _silent_wav(duration, marker=index)
+        filename = f"demo-meeting-{index + 1:03d}.wav"
         stored = create_object_storage(settings).put_stream(
             workspace.id,
             io.BytesIO(audio),
@@ -1116,16 +1766,23 @@ def _team_ids(workspace: Workspace, owner: User) -> dict[str, str]:
         return {name: team_id for name, team_id in rows}
 
 
-def _ensure_meetings(workspace: Workspace, people: Mapping[str, User], settings: Settings) -> None:
+def _ensure_meetings(
+    workspace: Workspace,
+    people: Mapping[str, User],
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+) -> None:
     from backend.jobs.processor import process_job
     from backend.services.role_trend_service import current_week_start
 
     owner = people["owner"]
     teams = _team_ids(workspace, owner)
-    # Read once, so one run dates every row against the same week.
-    week_start = current_week_start(datetime.now(UTC))
+    # Read once, so one run dates every row against the same week. ``now``
+    # only picks this anchor (HOM-365); every other clock stays real.
+    week_start = current_week_start(now if now is not None else datetime.now(UTC))
     for index, outcome, script, title in _meeting_specs():
-        team, agent, _weeks_back = MEETING_ATTRIBUTION[index]
+        team, agent, _weeks_back = _attribution(index)
         job_id = _upload(
             workspace,
             owner,
@@ -1147,13 +1804,18 @@ def _ensure_meetings(workspace: Workspace, people: Mapping[str, User], settings:
         elif outcome == "processing":
             _start_processing(workspace, job_id, settings)
         else:
+            bundle = (
+                _call_bundle(script, duration_seconds=_duration_seconds(index))
+                if isinstance(script, CallScript)
+                else _scripted_bundle(
+                    script, duration_seconds=_duration_seconds(index), outcome=outcome
+                )
+            )
             result = process_job(
                 job_id,
                 worker_id=WORKER_ID,
                 settings=settings,
-                providers=_scripted_bundle(
-                    script, duration_seconds=_duration_seconds(index), outcome=outcome
-                ),
+                providers=bundle,
             )
             if result["status"] != outcome:
                 raise RuntimeError(
@@ -1252,10 +1914,21 @@ def _meeting_count(workspace: Workspace) -> int:
 # --- public interface ----------------------------------------------------------
 
 
-def seed_demo_workspace(settings: Settings) -> DemoSeedResult:
-    """Create (or find) the demo workspace and return its logins."""
+def seed_demo_workspace(settings: Settings, *, now: datetime | None = None) -> DemoSeedResult:
+    """Create (or find) the demo workspace and return its logins.
+
+    ``now`` (HOM-365) is a timezone-aware datetime used only to choose the
+    anchor week every ledger row is dated from; ``None`` reads the real clock
+    once per run, as the CLI does. A naive ``now`` is refused before any
+    engine, connection or database write.
+    """
     # Before any engine, connection or import of the database layer.
     _refuse_unless_allowed(settings.environment)
+    if now is not None and (now.tzinfo is None or now.utcoffset() is None):
+        raise ValueError(
+            "now must be a timezone-aware datetime: it only chooses the anchor week "
+            "the demo ledger rows are dated from"
+        )
     _ensure_database(settings)
 
     accounts = _accounts()
@@ -1268,7 +1941,7 @@ def seed_demo_workspace(settings: Settings) -> DemoSeedResult:
     _ensure_members(workspace, users, agents, settings)
     _ensure_teams(workspace, people, settings)
     _ensure_api_key(workspace, users["owner"], settings)
-    _ensure_meetings(workspace, people, settings)
+    _ensure_meetings(workspace, people, settings, now=now)
     _ensure_shares(workspace, users, settings)
     return DemoSeedResult(
         workspace_id=workspace.id,

@@ -3,9 +3,10 @@ import { consolePath, resumeSession } from "./demo";
 
 /**
  * Transcript and speaker correction (HOM-246) against the demo seed. The
- * meeting is `Quarterly pricing review #8`, which no other spec uses; its id
- * is looked up at run time, and no revision number is assumed: each test reads
- * the current revision first and asserts relative to it.
+ * meeting is `Quarterly pricing review #248` (index 247 of the console plan,
+ * HOM-365), which no other spec uses; its id is looked up at run time, and no
+ * revision number is assumed: each test reads the current revision first and
+ * asserts relative to it.
  *
  * A correction creates a new revision whose segments have new ids, so the
  * tests track turns by `sequence` (stable across revisions). Revisions are
@@ -14,7 +15,7 @@ import { consolePath, resumeSession } from "./demo";
  * the history keeps growing (like `ai-policy.spec.ts`).
  */
 
-const MEETING_TITLE = "Quarterly pricing review #8";
+const MEETING_TITLE = "Quarterly pricing review #248";
 
 interface RevisionInfo {
   id: string;
@@ -59,9 +60,9 @@ async function findMeeting(page: Page): Promise<string> {
   expect(response.ok(), "GET /meetings?status=completed").toBeTruthy();
   const { items } = (await response.json()) as { items: { id: string; title: string }[] };
   expect(items.length, "completed meetings in the seed").toBeGreaterThan(0);
-  // The spec's guard: if #8 is items[0], this mission must stop and re-plan,
+  // The spec's guard: if #248 is items[0], this mission must stop and re-plan,
   // not silently pick another meeting.
-  expect(items[0]!.title, "#8 must not be the first completed meeting").not.toBe(MEETING_TITLE);
+  expect(items[0]!.title, "#248 must not be the first completed meeting").not.toBe(MEETING_TITLE);
   const meeting = items.find((item) => item.title === MEETING_TITLE);
   expect(meeting, `the seeded meeting "${MEETING_TITLE}"`).toBeTruthy();
   return meeting!.id;

@@ -80,8 +80,9 @@ test.describe("organization admin area (real backend, read only)", () => {
     const totals = page.getByRole("grid", { name: "Workspace totals" });
     await expect(totals).toBeVisible();
     const workspaceRow = totals.getByRole("row").filter({ hasText: ORG_NAME });
-    await expect(workspaceRow.getByRole("gridcell").first()).toHaveText("30");
-    await expect(page.getByRole("img", { name: /Meetings per workspace/ })).toHaveAttribute("aria-label", /: 30/);
+    // 270 seeded meetings since HOM-365 (240 scripted trend calls + the 30 console meetings).
+    await expect(workspaceRow.getByRole("gridcell").first()).toHaveText("270");
+    await expect(page.getByRole("img", { name: /Meetings per workspace/ })).toHaveAttribute("aria-label", /: 270/);
 
     // The organization group in the sidebar leads to the other pages.
     const group = page.getByRole("group", { name: "Organization" });
