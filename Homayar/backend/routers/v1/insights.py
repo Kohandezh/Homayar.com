@@ -992,6 +992,23 @@ def create_action(
         context=context,
         meeting_id=meeting_id,
     )
+    voicemail = _meeting_voicemail(db, workspace_id=context.workspace.id, meeting_id=meeting.id)
+    # On a voicemail's meeting a posted assignee is the voicemail's
+    # assignment, so it needs the ADR 0054 guard (HOM-375): every API key and
+    # every caller without ``meeting:attribute`` is refused, and nobody
+    # assigns a voicemail to themselves.  ``null`` or absent is no assignment
+    # and stays under ``meeting:update``; the guard runs before
+    # ``_validate_assignee``, so a member's non-member id is ``403``, not
+    # ``422``.  Nothing is written on refusal.
+    assigned_on_create = False
+    if voicemail is not None and payload.assignee_user_id is not None:
+        assigned_on_create = True
+        authorize_attribution_change(
+            context,
+            current_agent_user_id=voicemail.assigned_user_id,
+            changes={"agent_user_id": payload.assignee_user_id},
+            record="voicemail",
+        )
     _validate_assignee(
         db,
         workspace_id=context.workspace.id,
@@ -1056,6 +1073,26 @@ def create_action(
         details={"meeting_id": meeting.id},
         settings=settings,
     )
+    if assigned_on_create:
+        # The create was an assignment of the voicemail, so it leaves the
+        # same audit trail as a change on the actions route.  Ids only: the
+        # voicemail is named by its id key, which the audit masker leaves
+        # alone (HOM-375).
+        record_audit_event(
+            db,
+            event_type=AuditEventType.ACTION_ITEM_ASSIGNEE_CHANGED,
+            actor_user_id=context.actor.user.id,
+            workspace_id=context.workspace.id,
+            target_type="action_item",
+            target_id=action.id,
+            request_id=getattr(request.state, "request_id", None),
+            details={
+                "assignee_user_id_before": None,
+                "assignee_user_id_after": action.assignee_user_id,
+                "voice_message_id": voicemail.id,
+            },
+            settings=settings,
+        )
     db.commit()
     db.refresh(action)
     return action_response(
@@ -1094,17 +1131,22 @@ def _action_or_404(
     return action
 
 
-def _follow_up_voicemail(
+def _meeting_voicemail(
     db: Session,
     *,
     workspace_id: str,
-    action_id: str,
+    meeting_id: str,
 ) -> VoicemailMessage | None:
-    """The voicemail whose follow-up action this action is, or ``None`` (HOM-373)."""
+    """The voicemail whose meeting this is, or ``None`` (HOM-373, HOM-375).
+
+    Every action on that meeting carries the voicemail's assignment, not only
+    the follow-up action, so create, change and delete of an assignee there
+    all need the ADR 0054 guard.
+    """
     return db.scalar(
         select(VoicemailMessage).where(
             VoicemailMessage.workspace_id == workspace_id,
-            VoicemailMessage.follow_up_action_id == action_id,
+            VoicemailMessage.meeting_id == meeting_id,
         )
     )
 
@@ -1129,15 +1171,17 @@ def update_action(
         meeting_id=meeting_id,
         action_id=action_id,
     )
-    voicemail = _follow_up_voicemail(db, workspace_id=context.workspace.id, action_id=action.id)
+    voicemail = _meeting_voicemail(db, workspace_id=context.workspace.id, meeting_id=meeting.id)
     fields = set(payload.model_fields_set)
-    # A voicemail's follow-up action carries the voicemail's assignment, so its
-    # ``assignee_user_id`` is attribution and a change needs the ADR 0054 guard
-    # (HOM-373).  A value equal to the current one is not a change: it needs no
-    # right, is not validated again, is not written and is not listed in the
-    # audit ``fields``; a body with nothing else writes no audit row.  Every
-    # check runs before any field is written.  An action no voicemail links keeps
-    # plain work assignment under ``meeting:update``.
+    # Every action on a voicemail's meeting carries the voicemail's
+    # assignment, not only the follow-up action, so its ``assignee_user_id``
+    # is attribution and a change needs the ADR 0054 guard (HOM-373 on the
+    # follow-up, HOM-375 on every voicemail action).  A value equal to the
+    # current one is not a change: it needs no right, is not validated again,
+    # is not written and is not listed in the audit ``fields``; a body with
+    # nothing else writes no audit row.  Every check runs before any field is
+    # written.  An action on a meeting no voicemail names keeps plain work
+    # assignment under ``meeting:update``.
     changed_assignee = False
     if voicemail is not None and "assignee_user_id" in fields:
         if payload.assignee_user_id != action.assignee_user_id:
@@ -1212,8 +1256,9 @@ def update_action(
             },
             settings=settings,
         )
-    # A follow-up body that held only an unchanged assignee leaves ``fields``
-    # empty (HOM-373): the answer is the action, and no audit row names a change.
+    # A voicemail-action body that held only an unchanged assignee leaves
+    # ``fields`` empty (HOM-373): the answer is the action, and no audit row
+    # names a change.
     if fields:
         record_audit_event(
             db,
@@ -1262,6 +1307,31 @@ def delete_action(
         meeting_id=meeting_id,
         action_id=action_id,
     )
+    voicemail = _meeting_voicemail(db, workspace_id=context.workspace.id, meeting_id=meeting_id)
+    # Deleting a voicemail action removes an assignment when the action is the
+    # follow-up action or has an assignee, so it needs the ADR 0054 guard
+    # (HOM-375), twice as on the change route: the action's assignee and the
+    # voicemail's assignee never delete it.  An unassigned action that is not
+    # the follow-up is plain work under ``meeting:update``.  A refusal writes
+    # nothing: the action stays, the link stays, no audit row.
+    guarded_delete = False
+    if voicemail is not None and (
+        action.id == voicemail.follow_up_action_id or action.assignee_user_id is not None
+    ):
+        guarded_delete = True
+        changes = {"agent_user_id": None}
+        authorize_attribution_change(
+            context,
+            current_agent_user_id=action.assignee_user_id,
+            changes=changes,
+            record="voicemail",
+        )
+        authorize_attribution_change(
+            context,
+            current_agent_user_id=voicemail.assigned_user_id,
+            changes=changes,
+            record="voicemail",
+        )
     record_audit_event(
         db,
         event_type=AuditEventType.ACTION_ITEM_DELETED,
@@ -1273,6 +1343,29 @@ def delete_action(
         details={"meeting_id": meeting_id},
         settings=settings,
     )
+    if guarded_delete:
+        # The delete removed an assignment of the voicemail, so it leaves the
+        # same audit trail as a change (ids only, HOM-375).  PostgreSQL clears
+        # the follow-up link through ``ON DELETE SET NULL``; set it here too so
+        # SQLite behaves the same.  The state and the voicemail's own
+        # assignment stay as they are.
+        record_audit_event(
+            db,
+            event_type=AuditEventType.ACTION_ITEM_ASSIGNEE_CHANGED,
+            actor_user_id=context.actor.user.id,
+            workspace_id=context.workspace.id,
+            target_type="action_item",
+            target_id=action.id,
+            request_id=getattr(request.state, "request_id", None),
+            details={
+                "assignee_user_id_before": action.assignee_user_id,
+                "assignee_user_id_after": None,
+                "voice_message_id": voicemail.id,
+            },
+            settings=settings,
+        )
+        if action.id == voicemail.follow_up_action_id:
+            voicemail.follow_up_action_id = None
     db.delete(action)
     db.commit()
     return Response(status_code=204)
