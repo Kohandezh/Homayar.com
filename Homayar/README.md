@@ -97,10 +97,15 @@ What it creates:
     outcome) cited to the call's turns. They are dated in the 4 closed weeks before the
     current week, so the `/trends` page shows real percent values and moving trend lines
     for the workspace and both call teams, with some outcome rows still under the
-    30-call sample minimum ("Too few calls") on purpose. The trend views never count a
-    mock analysis, so these calls are stored as non-mock analysis and their reports,
-    exports, coverage and console pages show them like any analysed call; the provider
-    names `demo_seed_call_*` still say they are scripted.
+    30-call sample minimum ("Too few calls") on purpose.
+    The owner ruled on 2026-11-09 that these 240 calls are stored as non-mock analysis:
+    the trend views never count a mock analysis, and the product rule is not changed for
+    a demo. For these 240 calls only: the call report has no mock notice and can be
+    complete; the export has no "Mock output: yes" line; coverage counts them as
+    evaluated; the console shows no mock badge; the processing audit records
+    `mock: false`. What still marks them as demo data: the provider names
+    `demo_seed_call_*`, the `example.com` accounts and the generated near-silence
+    recordings. The 30 console meetings stay mock.
   - The 30 console meetings of the original demo (HOM-175): every status the console
     shows (completed, partial, failed, processing, queued, one dead-lettered job) with
     transcripts, summaries, action items, evidence and quality data from scripted mock

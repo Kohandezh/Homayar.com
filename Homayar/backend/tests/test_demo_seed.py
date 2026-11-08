@@ -40,6 +40,7 @@ from backend.database import demo_seed
 from backend.database.demo_seed import seed_demo_workspace
 from backend.database.saas_models import (
     ActionItem,
+    AnalysisRun,
     ApiKey,
     AuditEvent,
     DuplicateMediaPolicy,
@@ -61,11 +62,13 @@ from backend.database.saas_models import (
     Recording,
     RetentionMode,
     ShareLink,
+    StageCheckpoint,
     Subscription,
     SubscriptionStatus,
     Team,
     TeamAssignment,
     TeamRole,
+    TranscriptRevision,
     TranscriptSegment,
     UsageEvent,
     User,
@@ -938,6 +941,89 @@ def test_trends_endpoint_shows_real_trends_at_a_fixed_instant(client, settings):
     assert _counts(result.workspace_id) == before
     assert second.workspace_id == result.workspace_id
     assert second.meeting_count == result.meeting_count == 270
+
+
+# The four tables that carry the provider mock flag (the owner ruling of
+# 2026-11-09 covers exactly their rows).
+MOCK_FLAG_TABLES = (ProcessingStageRun, StageCheckpoint, TranscriptRevision, AnalysisRun)
+
+
+def test_only_call_plan_meetings_have_non_mock_analysis(client, settings, monkeypatch):
+    """The owner ruling of 2026-11-09: exactly the scripted trend calls are
+    stored as non-mock analysis; every console-plan row stays mock. A hybrid
+    plan (console plan plus three call meetings) keeps this cheap, and the
+    call/console split is derived from the plan, not from hard-coded counts.
+
+    The truthful reading of the flag: ``is_mock`` marks rows a provider
+    produced. Rows without a provider (the ``materialize`` stage run, and the
+    stage rows of the failed console meetings, which never reach a provider
+    identity) are ``is_mock=False`` on both plans, so the strict split below
+    covers rows that name a provider, and mock rows always name a console
+    meeting."""
+    monkeypatch.setattr(
+        demo_seed,
+        "TREND_CALL_BLOCKS",
+        (
+            (demo_seed.CALL_CENTER, 1, "support_connectivity", 2),
+            (demo_seed.CUSTOMER_CARE, 2, "billing_invoice", 1),
+        ),
+    )
+    result = seed_demo_workspace(settings)
+
+    with inspection_session_factory()() as db:
+        call_count = len(demo_seed._trend_meetings())
+        assert call_count == 3
+        call_keys = {demo_seed._idempotency_key(index) for index in range(call_count)}
+        jobs = {
+            job.meeting_id: job.idempotency_key
+            for job in db.scalars(
+                select(ProcessingJob).where(ProcessingJob.workspace_id == result.workspace_id)
+            )
+        }
+        call_meetings = {meeting for meeting, key in jobs.items() if key in call_keys}
+        console_meetings = set(jobs) - call_meetings
+
+        for model in MOCK_FLAG_TABLES:
+            if model is TranscriptRevision:
+                # A revision exists only once recognition succeeded, so its
+                # mock flag is always a provider's: strict split.
+                rows = [
+                    (meeting, is_mock, True)
+                    for meeting, is_mock in db.execute(
+                        select(model.meeting_id, model.is_mock).where(
+                            model.workspace_id == result.workspace_id
+                        )
+                    )
+                ]
+            else:
+                rows = list(
+                    db.execute(
+                        select(model.meeting_id, model.is_mock, model.provider.is_not(None)).where(
+                            model.workspace_id == result.workspace_id
+                        )
+                    )
+                )
+            assert rows, model.__tablename__
+            for meeting_id, is_mock, named_provider in rows:
+                if is_mock:
+                    # A mock provider only ever serves the console plan.
+                    assert meeting_id in console_meetings, model.__tablename__
+                elif named_provider:
+                    # Non-mock rows that name their producer exist only for
+                    # call-plan meetings.
+                    assert meeting_id in call_meetings, model.__tablename__
+            # The check is not empty: every table holds console mock rows.
+            assert any(is_mock for _meeting, is_mock, _provider in rows), model.__tablename__
+
+        # Every call meeting has a non-mock analysis run, and every non-mock
+        # run names the scripted call provider.
+        runs = list(
+            db.scalars(select(AnalysisRun).where(AnalysisRun.workspace_id == result.workspace_id))
+        )
+        non_mock = [run for run in runs if not run.is_mock and run.provider is not None]
+        assert {run.meeting_id for run in non_mock} == call_meetings
+        for run in non_mock:
+            assert run.provider.startswith("demo_seed_call_"), run.provider
 
 
 # --- a database seeded by an older demo seed -----------------------------------------------

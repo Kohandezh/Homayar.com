@@ -34,17 +34,22 @@ The seed holds two plans, both through the same ledger and processor:
   closed week for ``Call Center`` and for ``Customer Care``. Their providers
   are the same scripts but not marked mock: the scripted intelligence returns
   a real taxonomy extraction (HOM-53) whose labels cite turns of the call's
-  script, so the real analysis stage judges, stores and counts them. The trend
-  views never count a mock analysis, so these 240 calls are stored as normal
-  analysis: their reports, exports, coverage and console pages show them like
-  any analysed call, and the provider names ``demo_seed_call_*`` still say
-  they are scripted. That
-  gives the default ``/trends`` query (4 closed Tehran weeks) at least 30
-  assessable conversations per team per week: real percent values and trend
-  lines, with enough outcome abstentions that the outcome rows still show
-  "Too few calls" honestly. The two call teams share the five demo agents;
-  the weekly intent mix moves so the lines move. A database seeded by an
-  older seed (fewer or different meetings) must be reset and seeded again.
+  script, so the real analysis stage judges, stores and counts them. The
+  owner ruled on 2026-11-09 that these 240 calls are stored as non-mock
+  analysis, because the trend views never count a mock analysis and the
+  product rule is not changed for a demo. For these 240 calls only:
+  the call report has no mock notice and can be complete; the export has no
+  "Mock output: yes" line; coverage counts them as evaluated; the console
+  shows no mock badge; the processing audit records ``mock: false``. What
+  still marks them as demo data: the provider names ``demo_seed_call_*``,
+  the ``example.com`` accounts, and the generated near-silence recordings.
+  The call plan gives the default ``/trends`` query (4 closed Tehran weeks) at
+  least 30 assessable conversations per team per week: real percent values
+  and trend lines, with enough outcome abstentions that the outcome rows
+  still show "Too few calls" honestly. The two call teams share the five demo
+  agents; the weekly intent mix moves so the lines move. A database seeded
+  by an older seed (fewer or different meetings) must be reset and seeded
+  again. The 30 console meetings stay mock.
 
 The trend views only release a cohort with 0 or at least 5 distinct agents.
 Five extra agents (``agent1`` to ``agent5``) make that possible. They are
