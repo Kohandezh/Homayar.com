@@ -25,12 +25,11 @@ ENV UV_HTTP_RETRIES=10
 # from trixie-security, not from a new base digest. The update and the upgrade
 # below are the one step that still runs apt 3.0.3 to fetch 3.0.4, so they set
 # Acquire::Retries=0: the advisory needs retries above 0 (the Debian default).
-# Every later apt-get in this stage runs with 3.0.4.
+# Every later apt-get in this stage runs with 3.0.4. The 3.0.4 floor check runs
+# right after the upgrade and before the installs, so they never run with apt 3.0.3.
 # hadolint ignore=DL3008
 RUN apt-get -o Acquire::Retries=0 update \
     && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
-    && apt-get install --yes --no-install-recommends build-essential libpq-dev \
-    && rm -rf /var/lib/apt/lists/* \
     && arch="$(dpkg --print-architecture)" \
     && for floor in \
          "apt 3.0.4" \
@@ -45,7 +44,9 @@ RUN apt-get -o Acquire::Retries=0 update \
            echo "${package} ${version} is not at or above its floor ${minimum}" >&2; exit 1; \
          fi; \
          echo "${package} ${version} meets its floor ${minimum}"; \
-       done
+       done \
+    && apt-get install --yes --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 WORKDIR /workspace
 COPY Homayar/pyproject.toml Homayar/uv.lock ./
