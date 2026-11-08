@@ -1,6 +1,6 @@
 # ADR 0054: A voicemail's assignment needs the attribution right
 
-Date: 2026-11-05 · Status: Proposed (HOM-369; amended by HOM-373) · Builds on: ADR 0052
+Date: 2026-11-05 · Status: Proposed (HOM-369; amended by HOM-373 and HOM-375) · Builds on: ADR 0052
 
 All code paths are under `Homayar/backend/`.
 
@@ -64,11 +64,12 @@ workspace points at it with `follow_up_action_id`.
   action's current `assignee_user_id`. Clearing to `null` is a change when the current
   value is not `null`. Ids compare as exact strings, as for the voicemail's own
   assignment.
-- **R2.** On a follow-up action an unchanged `assignee_user_id` needs no right, is not
-  validated again, is not written and is not listed in the `action_item.updated` audit
+- **R2.** On every voicemail action (any action on a voicemail meeting, the follow-up
+  action included) an unchanged `assignee_user_id` needs no right, is not validated
+  again, is not written and is not listed in the `action_item.updated` audit
   `fields`. A body with only an unchanged assignee answers `200` and writes no audit
-  row. On any other action today's behaviour stays: the value is validated,
-  written and listed, also when unchanged.
+  row. On an action on a meeting that is not a voicemail meeting, today's behaviour
+  stays: the value is validated, written and listed, also when unchanged.
 - **R3.** A change needs `meeting:attribute`. Every API key is refused first, whatever
   its scopes, and every caller without the right (members, record-scoped supervisors)
   gets `403 attribution_change_denied`.
@@ -76,7 +77,7 @@ workspace points at it with `follow_up_action_id`.
   when the caller is the action's current `assignee_user_id`, the voicemail's
   `assigned_user_id`, or the new value.
 - **R5.** Order: meeting lookup (`404` as today), action lookup (`404 action_not_found`
-  as today), follow-up lookup, then the guard (R3, then R4), then `_validate_assignee`
+  as today), voicemail lookup, then the guard (R3, then R4), then `_validate_assignee`
   for a changed value only (`422 invalid_assignee`), then the writes. The guard runs
   before `meeting_view` and before any field of the action is assigned, so a member who
   sends a non-member id gets `403`, not `422`.
@@ -88,28 +89,99 @@ workspace points at it with `follow_up_action_id`.
   `assignee_user_id_before`, `assignee_user_id_after` (always both) and
   `voice_message_id`. Not `voicemail_id`: the word `voicemail` contains `email`, which
   the audit masker treats as personal data.
-- **R8.** Everything else is unchanged. The `assignee_user_id` of any other action item
-  is normal work assignment and stays under `meeting:update`. `assignee_text` is free
-  display text and never attribution. `description`, `due_at`, `priority` and `status`
-  of a follow-up action stay under `meeting:update`. `POST /meetings/{id}/actions`,
-  `DELETE /meetings/{id}/actions/{action_id}`, the voicemail route and the meetings
-  route do not change, and the guard keeps its signature, messages and behaviour for
-  its existing callers.
+- **R8.** Everything else is unchanged. The `assignee_user_id` of an action on a
+  meeting that is not a voicemail meeting is normal work assignment and stays under
+  `meeting:update`. `assignee_text` is free display text and never attribution.
+  `description`, `due_at`, `priority` and `status` of a voicemail action stay under
+  `meeting:update`. The voicemail route and the meetings route do not change, and
+  the guard keeps its signature, messages and behaviour for its existing callers.
 
 The voicemail's own assignment is not synced back from the action route: an accepted
 change there changes only the action. The voicemail route keeps syncing the action from
 the voicemail, as before.
 
+## Delete and create (HOM-375)
+
+Two side doors stayed open around the rules above: `POST /meetings/{id}/actions` on the
+voicemail's meeting created an action with any `assignee_user_id`, the caller's own id
+included, and `DELETE /meetings/{id}/actions/{action_id}` removed the follow-up action
+with no assignment check. A member could also post an unassigned action there and then
+patch its `assignee_user_id`, because only the linked action was guarded.
+
+Decision: the assignee of any action on a voicemail's meeting is the voicemail's
+assignment. An action is a voicemail action when its meeting is named by a
+`VoicemailMessage` row of the workspace in `meeting_id`. The guard is the same,
+`authorize_attribution_change` with `record="voicemail"`.
+
+Create, `POST /meetings/{meeting_id}/actions`:
+
+- **C1.** On a voicemail meeting, a body with a non-null `assignee_user_id` is an
+  assignment. It runs the guard with `current_agent_user_id=voicemail.assigned_user_id`
+  and `changes={"agent_user_id": <the value>}`. So: every API key and every caller
+  without `meeting:attribute` gets `403 attribution_change_denied`; an owner or admin
+  gets `403 attribution_own_call` when the value is their own id or when the voicemail's
+  `assigned_user_id` is their id.
+- **C2.** A body with `assignee_user_id` absent or `null` is not an assignment and stays
+  under `meeting:update` as today. `assignee_text` is free display text and never
+  attribution.
+- **C3.** Order: meeting lookup (`404` as today), voicemail lookup, the guard, then
+  `_validate_assignee` (`422 invalid_assignee`), then the source segment check, then
+  `meeting_view` and the writes. So a member who sends a non-member id gets `403`, not
+  `422`.
+- **C4.** A refusal writes nothing: no action row, no evidence row, no audit row.
+- **C5.** An accepted create with an assignee on a voicemail meeting writes
+  `action_item.created` (as today) and `action_item.assignee_changed` in the same
+  transaction, ids only: `assignee_user_id_before` = `null`, `assignee_user_id_after` =
+  the value, `voice_message_id` = the voicemail id. Target `action_item`, the new
+  action id.
+
+Delete, `DELETE /meetings/{meeting_id}/actions/{action_id}`:
+
+- **E1.** Deleting a voicemail action removes an assignment when the action is the
+  voicemail's follow-up action, or when its `assignee_user_id` is not `null`. Such a
+  delete runs the guard twice (as the PATCH route does), each time with
+  `changes={"agent_user_id": None}`: once with
+  `current_agent_user_id=action.assignee_user_id`, once with
+  `current_agent_user_id=voicemail.assigned_user_id`. So: every API key and every
+  caller without `meeting:attribute` gets `403 attribution_change_denied`; an owner or
+  admin gets `403 attribution_own_call` when they are the action's assignee or the
+  voicemail's assignee.
+- **E2.** Deleting a voicemail action that is not the follow-up action and has no
+  `assignee_user_id` stays under `meeting:update` as today.
+- **E3.** Order: meeting lookup (`404`), action lookup (`404 action_not_found`),
+  voicemail lookup, the guard, then the writes.
+- **E4.** A refusal writes nothing: the action stays, the voicemail's
+  `follow_up_action_id` stays, no audit row.
+- **E5.** An accepted guarded delete writes `action_item.deleted` (as today) and
+  `action_item.assignee_changed` in the same transaction, ids only:
+  `assignee_user_id_before` = the action's assignee (may be `null`),
+  `assignee_user_id_after` = `null`, `voice_message_id`. When the deleted action is the
+  follow-up action, the handler also sets `voicemail.follow_up_action_id = None` in the
+  same transaction (PostgreSQL does this through `ON DELETE SET NULL`; set it
+  explicitly so SQLite behaves the same). It does not change `follow_up_state` or the
+  voicemail's assignment.
+
+Change, `PATCH /meetings/{meeting_id}/actions/{action_id}`:
+
+- **P1.** HOM-373's rules R1 to R7 now apply to every voicemail action, not only the
+  follow-up action. Same guard calls, same order, same "unchanged value is not a
+  change" rule, same audit event. `voice_message_id` is the id of the voicemail whose
+  meeting holds the action.
+- **P2.** R8 stays for actions on meetings that are not voicemail meetings: their
+  `assignee_user_id` is normal work assignment under `meeting:update`.
+
 ## Consequences
 
 - Only an owner or admin changes or clears a voicemail's assignment, and never on a
   voicemail assigned to them, and never to themselves. The same holds for the assignee
-  of a voicemail's follow-up action through the actions route.
+  of every action on a voicemail's meeting through the actions route: set on create,
+  changed on update, removed on delete.
 - A client that sends back unchanged assignment values keeps working (V3, R2); one that
-  changed them with a member's session or with any API key now gets
-  `403 attribution_change_denied`.
+  set, changed or removed them with a member's session or with any API key now gets
+  `403 attribution_change_denied`, on create and delete too.
 - Every assignment change is visible in the audit log: `voicemail.assignment_changed`
-  on the voicemail route, `action_item.assignee_changed` on the actions route.
+  on the voicemail route, `action_item.assignee_changed` on the actions route, also on
+  an accepted create with an assignee and an accepted guarded delete.
 
 ## Not built
 

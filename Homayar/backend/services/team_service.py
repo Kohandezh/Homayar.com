@@ -264,8 +264,9 @@ def authorize_attribution_change(
 ) -> None:
     """Refuse a change of a call's ``team_id`` / ``agent_user_id`` (HOM-360, ADR 0052)
     or of a voicemail's ``assigned_team_id`` / ``assigned_user_id`` (HOM-369, ADR 0054);
-    ``record`` only selects the message text.  A voicemail follow-up action's
-    ``assignee_user_id`` is the same assignment and uses this guard too (HOM-373).
+    ``record`` only selects the message text.  Every action on a voicemail's
+    meeting carries that assignment, so its ``assignee_user_id`` uses this
+    guard too, on create, change and delete (HOM-373, HOM-375).
 
     ``changes`` holds only the fields whose new value differs from the current one, so
     an empty mapping needs no right.  The review queue decides who sees and works a
