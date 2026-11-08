@@ -175,6 +175,7 @@ from backend.services.trend_judgment_store import write_judgment
 from backend.speech.chunking import plan_chunks
 from backend.speech.text_view import TextViewOutcome, derive_text_view
 from backend.storage import ObjectStorage, StorageError, create_object_storage
+from backend.voicemail.models import VoicemailMessage
 
 # Stage pointer written by ``_set_stage`` -> stage that was in flight.
 STAGE_BY_POINTER: dict[str, StageName] = {
@@ -970,6 +971,20 @@ def _store_trend_judgment(db: Session, extraction: AnalysisExtraction) -> None:
         )
 
 
+def _is_voicemail_meeting(db: Session, meeting: Meeting) -> bool:
+    """Whether a ``VoicemailMessage`` row of the workspace names the meeting
+    (the ADR 0054 test, as HOM-375's ``_meeting_voicemail``)."""
+    return (
+        db.scalar(
+            select(VoicemailMessage).where(
+                VoicemailMessage.workspace_id == meeting.workspace_id,
+                VoicemailMessage.meeting_id == meeting.id,
+            )
+        )
+        is not None
+    )
+
+
 def persist_analysis(
     db: Session,
     *,
@@ -987,20 +1002,28 @@ def persist_analysis(
     ``revision`` (the full job and the recompute after a correction, HOM-63).
 
     The summary and the AI action items are replaced; a person's action items
-    stay.  The new analysis run becomes current and supersedes the previous
-    one (``provenance`` is passed to ``record_analysis_run``).  Evidence
-    (WP04-T03): every reference the provider offered is resolved against the
-    segments of the revision it read; anything else is rejected and counted,
-    never repaired or guessed.  The taxonomy extraction (HOM-53) is judged
-    against ``model_turns``, the turns the answering model received, and gets
-    its own row next to the new run.  Runs in the caller's fenced transaction.
+    stay.  On a voicemail meeting (a ``VoicemailMessage`` row names the
+    meeting) an AI action a person assigned (``assignee_user_id`` set through
+    the actions route, ADR 0054) is kept, every column unchanged; only AI
+    actions with a null ``assignee_user_id`` are replaced (HOM-380).  Every
+    other meeting replaces all of its AI actions, as before.  A kept action is
+    not written to, so the re-analysis never removes an assignment and writes
+    no ``action_item.assignee_changed`` row.  The new analysis run becomes
+    current and supersedes the previous one (``provenance`` is passed to
+    ``record_analysis_run``).  Evidence (WP04-T03): every reference the
+    provider offered is resolved against the segments of the revision it read;
+    anything else is rejected and counted, never repaired or guessed.  The
+    taxonomy extraction (HOM-53) is judged against ``model_turns``, the turns
+    the answering model received, and gets its own row next to the new run.
+    Runs in the caller's fenced transaction.
     """
-    db.execute(
-        delete(ActionItem).where(
-            ActionItem.meeting_id == meeting.id,
-            ActionItem.created_by == "ai",
-        )
-    )
+    replace_filters = [
+        ActionItem.meeting_id == meeting.id,
+        ActionItem.created_by == "ai",
+    ]
+    if _is_voicemail_meeting(db, meeting):
+        replace_filters.append(ActionItem.assignee_user_id.is_(None))
+    db.execute(delete(ActionItem).where(*replace_filters))
     db.execute(delete(MeetingSummary).where(MeetingSummary.meeting_id == meeting.id))
 
     plan = EvidencePlan()

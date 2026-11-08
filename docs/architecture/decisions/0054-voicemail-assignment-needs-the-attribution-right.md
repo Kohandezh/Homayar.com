@@ -1,6 +1,6 @@
 # ADR 0054: A voicemail's assignment needs the attribution right
 
-Date: 2026-11-05 · Status: Proposed (HOM-369; amended by HOM-373 and HOM-375) · Builds on: ADR 0052
+Date: 2026-11-05 · Status: Proposed (HOM-369; amended by HOM-373, HOM-375 and HOM-380) · Builds on: ADR 0052
 
 All code paths are under `Homayar/backend/`.
 
@@ -170,6 +170,40 @@ Change, `PATCH /meetings/{meeting_id}/actions/{action_id}`:
 - **P2.** R8 stays for actions on meetings that are not voicemail meetings: their
   `assignee_user_id` is normal work assignment under `meeting:update`.
 
+## Re-analysis (HOM-380)
+
+`persist_analysis` in `jobs/processor.py` replaces a meeting's analysis outputs.
+Two callers reach it: the full processing job (also a re-run of it) and the
+recompute after a transcript correction. A correction needs only
+`meeting:update`, so a member can trigger a recompute. The code deleted every
+AI action of the meeting. On a voicemail meeting an owner had set the
+`assignee_user_id` of an AI action through the actions route. The re-analysis
+then deleted that action, with no check and no `action_item.assignee_changed`
+audit row.
+
+Decision: on a voicemail meeting, a re-analysis keeps the AI actions a person
+assigned and replaces only the rest.
+
+- **A1.** A re-analysis is every call of `persist_analysis`: the full processing
+  job (the first run and every re-run) and the recompute after a transcript
+  correction.
+- **A2.** On a voicemail meeting, a re-analysis replaces only AI actions whose
+  `assignee_user_id` is null. An AI action with a non-null `assignee_user_id`
+  got that value from a person: the pipeline creates AI actions with a null
+  `assignee_user_id` (only `assignee_text`).
+- **A3.** A kept action is not changed at all: same id, `assignee_user_id`,
+  description, status, due, priority, `analysis_run_id`, `source_segment_id`,
+  evidence.
+- **A4.** On a meeting that is not a voicemail meeting, every AI action is
+  replaced, an assigned one too: there the assignee is normal work assignment
+  under `meeting:update` (R8, P2).
+- **A5.** Actions with `created_by` `voicemail_rules` or `user` are never
+  removed by a re-analysis, as before.
+- **A6.** A re-analysis writes no `action_item.assignee_changed` row, because
+  no assigned action is removed. The recompute's `meeting.recompute_completed`
+  audit row keeps its shape, and `action_item_count` still counts only the new
+  AI actions written by the run.
+
 ## Consequences
 
 - Only an owner or admin changes or clears a voicemail's assignment, and never on a
@@ -182,6 +216,9 @@ Change, `PATCH /meetings/{meeting_id}/actions/{action_id}`:
 - Every assignment change is visible in the audit log: `voicemail.assignment_changed`
   on the voicemail route, `action_item.assignee_changed` on the actions route, also on
   an accepted create with an assignee and an accepted guarded delete.
+- A person-set assignment on a voicemail meeting survives a re-analysis (A2, A3): the
+  full job and a correction's recompute keep every assigned AI action unchanged, and
+  write no `action_item.assignee_changed` row for it.
 
 ## Not built
 
