@@ -149,6 +149,8 @@ A deploy that nobody approves fails after 30 days.
      token answers 403. This proves the route is live and protected, and it stores
      no fake lead. A 503 here means `TURNSTILE_SECRET_KEY` is not set.
    - `https://www.homayar.com/fa` answers 301 to `https://homayar.com/fa`
+   - the HTML of `https://homayar.com/en` and `https://homayar.com/fa` contains
+     `href="https://app.homayar.com:8080"`, so the app links point at the app
 
    Each check retries for up to 5 minutes, because DNS and the certificate of a
    new custom domain can take a few minutes. The job fails if a check still fails.
@@ -332,6 +334,17 @@ npx -y pnpm@11.1.2 dev            # http://localhost:3000/en/contact
 `next dev` gets the D1 and e-mail bindings through `initOpenNextCloudflareForDev()`
 in `next.config.ts`. Without `NEXT_PUBLIC_TURNSTILE_SITE_KEY` the page uses the
 test site key `1x00000000000000000000AA`, which always passes.
+
+`NEXT_PUBLIC_APP_URL` is the public URL of the product app. The website's
+"Log in" and "Start" links point there. It is a build-time value: Next.js
+inlines it into the build. The production build sets it in
+`.github/workflows/deploy-website.yml` (step "Build for Cloudflare Workers")
+to `https://app.homayar.com:8080`, with no trailing slash. That URL is fixed
+by ADR 0055 (`docs/architecture/decisions/0055-public-https-on-relay-port-8080.md`),
+the app's public HTTPS on relay port 8080. When the variable is not set, the
+links fall back to `/app`. That is the case in local development and CI builds,
+which do not set it.
+
 Nothing is e-mailed locally. The local e-mail binding saves each message as a
 `.txt` and an `.html` file in a `miniflare-*/email/` folder under the system temp
 folder. Local D1 rows: `npx wrangler d1 execute homayar-website-contact --local --command "SELECT * FROM contact_requests"`.

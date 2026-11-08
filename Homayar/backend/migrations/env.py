@@ -7,6 +7,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from backend.config import get_settings
+from backend.database.migration_locks import lock_tables_against_analyze
 from backend.database.model_registry import Base
 
 # this is the Alembic Config object, which provides
@@ -82,6 +83,10 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
+            # HOM-372: take the ANALYZE lock on every existing table before the first
+            # step, so the GRANT/ALTER registry apply cannot deadlock with an ANALYZE
+            # (see backend/database/migration_locks.py).
+            lock_tables_against_analyze(connection)
             context.run_migrations()
 
 

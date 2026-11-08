@@ -30,6 +30,7 @@ from sqlalchemy import Connection, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from backend.config import Settings
+from backend.database.migration_locks import lock_tables_against_analyze
 from backend.database.relational import get_session_factory
 from backend.database.rls import (
     APP_ROLE,
@@ -54,7 +55,6 @@ from backend.tests._database import (
     inspection_session_factory,
     is_postgres_url,
 )
-from backend.tests._migration_locks import lock_tables_against_analyze
 from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "47676f445509"
