@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useSyncExternalStore, useTransition } from "react";
 import { localizeDigits, type Locale } from "@/lib/i18n";
+import { appUrl } from "@/lib/site";
 import { VoiceMark } from "./VoiceMark";
 
 type Phase = "idle" | "cover" | "load" | "reveal";
@@ -59,8 +60,7 @@ function internalHref(a: HTMLAnchorElement): string | null {
   const url = new URL(a.href, location.href);
   if (url.origin !== location.origin) return null;
   if (url.pathname.startsWith("/api/")) return null;
-  const app = process.env.NEXT_PUBLIC_APP_URL?.trim() || "/app";
-  if (url.pathname === app || url.pathname.startsWith(`${app}/`)) return null;
+  if (url.pathname === appUrl || url.pathname.startsWith(`${appUrl}/`)) return null;
   if (url.pathname === location.pathname && url.search === location.search) return null;
   return url.pathname + url.search + url.hash;
 }

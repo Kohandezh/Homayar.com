@@ -74,6 +74,8 @@ jobs:
       - name: Build for Cloudflare Workers
         env:
           NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}
+          # The app's public URL, fixed by ADR 0055 (public HTTPS on relay port 8080). No trailing slash.
+          NEXT_PUBLIC_APP_URL: https://app.homayar.com:8080
         run: |
           if [[ -z "${NEXT_PUBLIC_TURNSTILE_SITE_KEY}" ]]; then
             echo "::error title=Missing Turnstile site key::Set the GitHub variable TURNSTILE_SITE_KEY (Settings > Secrets and variables > Actions > Variables). See website/DEPLOY.md."
@@ -110,6 +112,24 @@ jobs:
               sleep 10
             done
           }
+          # The app links ("Log in", "Start") must point at the real app URL, so the
+          # build really had NEXT_PUBLIC_APP_URL set when it was inlined.
+          check_body() {
+            local name="$1" url="$2" want="$3" body="" deadline=$((SECONDS + 300))
+            while true; do
+              body="$(curl --silent --fail --max-time 15 "$url" || true)"
+              if grep --fixed-strings --quiet -- "$want" <<<"$body"; then
+                echo "ok: ${name}"
+                return 0
+              fi
+              if (( SECONDS >= deadline )); then
+                echo "::error title=Smoke test failed::${name}: the HTML does not contain '${want}'"
+                return 1
+              fi
+              echo "waiting: ${name}"
+              sleep 10
+            done
+          }
           contact_body='{"name":"Test User","email":"test@example.com","company":"Homayar QA","deployment":"saas","locale":"en"}'
           check "GET https://homayar.com/" '(307|200) .*' https://homayar.com/
           check "GET https://homayar.com/fa" '200 ' https://homayar.com/fa
@@ -118,3 +138,5 @@ jobs:
             --request POST --header 'Content-Type: application/json' --data "${contact_body}" \
             https://homayar.com/api/contact
           check "GET https://www.homayar.com/fa" '301 https://homayar\.com/fa' https://www.homayar.com/fa
+          check_body "app links on https://homayar.com/en" https://homayar.com/en 'href="https://app.homayar.com:8080"'
+          check_body "app links on https://homayar.com/fa" https://homayar.com/fa 'href="https://app.homayar.com:8080"'
