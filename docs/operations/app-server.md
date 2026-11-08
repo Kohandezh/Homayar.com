@@ -1,7 +1,8 @@
 # App Server Runbook (app.homayar.com)
 
 This runbook covers the production server that runs the product console and the API at
-`https://app.homayar.com` (HOM-328). No secret value is in this file.
+`https://app.homayar.com:8080` (HOM-328; the public port changed with HOM-374, see
+[`relay-tunnel.md`](relay-tunnel.md)). No secret value is in this file.
 
 The relay and the tunnel in front of this server have their own runbook:
 [`relay-tunnel.md`](relay-tunnel.md). General on-prem rules (secret names, image policy, database
@@ -23,7 +24,7 @@ roles, upgrade rules) are in [`deployment.md`](deployment.md).
 ## How a Request Arrives
 
 ```text
-visitor -> relay 193.93.169.205:443 (frps, raw TCP)
+visitor -> relay 193.93.169.205:8080 (frps, proxy https-8080, raw TCP)
         -> tunnel -> frpc (Docker, host network) on the local server
         -> host nginx 127.0.0.1:10443 (PROXY protocol; TLS ends here; site app.homayar.com)
         -> 127.0.0.1:8080 (Docker published port)
@@ -31,9 +32,16 @@ visitor -> relay 193.93.169.205:443 (frps, raw TCP)
 ```
 
 - DNS: `app.homayar.com` points to the relay `193.93.169.205`, DNS only (grey cloud).
+- The public URL is `https://app.homayar.com:8080` (HOM-374). Relay port 443 belongs to the
+  owner's `arange-tun`, and relay port 80 no longer reaches our nginx, so there is no plain
+  HTTP path through the relay and no ACME HTTP-01 path any more
+  ([relay-tunnel.md](relay-tunnel.md), "Site Certificates").
 - The relay and frpc forward every name. They need no change for this site.
 - TLS ends in the host nginx. The stack itself speaks only HTTP on `127.0.0.1:8080`.
-- Port 80 through the relay answers `301` to HTTPS, except the ACME path for certificate renewal.
+- Two different ports are both 8080 by coincidence: relay port 8080 (the public HTTPS port,
+  owned by frps on the relay) and the stack's `HTTP_PORT=8080` (`127.0.0.1:8080`, the Docker
+  published port on the local server, set in `config/settings.env`). A visitor hits the
+  first, the host nginx proxies to the second. Nothing links the two numbers.
 
 ## Hosts
 
@@ -98,7 +106,7 @@ Never print a secret:
 | Path | What |
 | --- | --- |
 | `/home/gpu/hom328-app-site.sh` | the reviewed owner script, sha256 `2d3b2846caddc68885291416883f789c9fb14c84a99c0cf4e80dae920866dd69` |
-| `/etc/nginx/sites-available/app.homayar.com.conf` | the site (content below), `root 0644`, sha256 `e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5` (measured, the block below without the HOM-340 recording location) |
+| `/etc/nginx/sites-available/app.homayar.com.conf` | the site (content below), `root 0644`, sha256 `e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5` (measured before HOM-374: the block below without the HOM-340 recording location and the HOM-374 changes) |
 | `/etc/nginx/sites-enabled/app.homayar.com.conf` | symlink to the file above |
 | `/etc/letsencrypt/live/app.homayar.com/` | the certificate (root only) |
 | `/etc/letsencrypt/renewal/app.homayar.com.conf` | renewal settings (measured: `authenticator = webroot`, `webroot_path = /var/www/certbot`, `key_type = ecdsa`, the same ACME account as the Padyar certificates) |
@@ -217,9 +225,70 @@ Docker on this host: SSH from the admin Mac comes from there.
 
 The stack sees `http` as the scheme. Cookies and HSTS do not depend on it. Measured: the stack's
 redirects are `http://app.homayar.com:8080/app/` (for `/app` and `/`) and
-`http://app.homayar.com:8080/api/v1/` (for `/api/v1`). The API's trailing-slash redirects are
+`http://app.homayar.com:8080/api/v1/` (for `/api/v1`, bundled nginx
+`infra/nginx/conf.d/homayar.conf:22-24`). The API's trailing-slash redirects are
 `http://app.homayar.com/...` (read from the code, not measured). Two `proxy_redirect` lines in
-the host site turn both into `https://app.homayar.com/...`.
+the host site turn both into the public origin. Since HOM-374 that is
+`https://app.homayar.com:8080/...` (before it, `https://app.homayar.com/...`).
+
+## Public URL Settings (Relay Port 8080)
+
+Every place in the repo, or in the server's live settings, that builds or checks a public app
+URL or origin. Checked 2026-11-05 (HOM-374). "Production value today" comes from "Settings"
+above (the live `config/settings.env`) or from the code, marked "read from code, not
+measured". The reasoning rule: an origin string includes the port; a cookie domain does not;
+the Host check below strips the port.
+
+| Where | Setting or code | Production value today | Port breaks it? | Exact new value or change |
+| --- | --- | --- | --- | --- |
+| `/home/gpu/homayar/config/settings.env` (live file, not in the repo; see "Settings") | `PUBLIC_ORIGIN` | `https://app.homayar.com` | Yes. Compose maps it to `PUBLIC_URL` and `FRONTEND_URL` (`infra/compose/compose.onprem.yaml:14-15`, read from code), and those build every link the API sends (rows below). | `PUBLIC_ORIGIN=https://app.homayar.com:8080` |
+| same file | `CORS_ORIGINS` | `https://app.homayar.com` | Yes. An origin includes the port, and a cross-origin caller now sends `Origin: https://app.homayar.com:8080`, which does not match. The console and the API are same-origin, so the console itself keeps working, but the setting must match. Passed as `allow_origins` in `Homayar/backend/main.py:214-217` (read from code, not measured). | `CORS_ORIGINS=https://app.homayar.com:8080` |
+| same file | `TRUSTED_HOSTS` | `app.homayar.com,127.0.0.1` | No. Starlette's TrustedHostMiddleware strips the port before the check (`headers.get("host", "").split(":")[0]`, starlette 0.47.3; read from code, not measured). The check lives at `Homayar/backend/main.py:210-213`. | No change |
+| same file | `COOKIE_DOMAIN` | not set (empty default) | No. A cookie domain never carries a port (`Homayar/backend/config.py:496`, `infra/compose/compose.onprem.yaml:37`). | No change |
+| same file | `SECURE_COOKIES` | `true` | No. The scheme stays https (`Homayar/backend/config.py:495`; production refuses false at `:1033-1034`). | No change |
+| `Homayar/backend/routers/v1/auth.py:119` | session cookie `"samesite": "lax"` (hardcoded) | `lax` | No. SameSite does not involve the port. | No change |
+| `Homayar/backend/services/email_service.py:87` | password reset link `{frontend_url}/reset-password?token=...` | `https://app.homayar.com/app/reset-password?...` (read from code, not measured) | Yes. The link goes to port 443, which arange-tun answers. | Fixed by `PUBLIC_ORIGIN` (row 1). No code change |
+| `Homayar/backend/services/email_service.py:121` | e-mail verify link `{frontend_url}/verify-email?token=...` | `https://app.homayar.com/app/verify-email?...` (read from code, not measured) | Yes, same as above. | Fixed by `PUBLIC_ORIGIN` |
+| `Homayar/backend/services/member_service.py:265` | invitation accept link `{frontend_url}/invitations/accept?...` | `https://app.homayar.com/app/invitations/accept?...` (read from code, not measured) | Yes, same as above. | Fixed by `PUBLIC_ORIGIN` |
+| `Homayar/backend/routers/v1/shares.py:153-156` | share link `{frontend_url}/share/{token}` | `https://app.homayar.com/app/share/...` (read from code, not measured) | Yes, same as above. | Fixed by `PUBLIC_ORIGIN` |
+| `Homayar/backend/routers/v1/auth.py:798,804,808` and `:809` | Google login redirects (`frontend_url`, and `public_url` for the success redirect) | Google login is off (`ENABLE_GOOGLE_AUTH` unset, default false, `Homayar/backend/config.py:502`) | Not today (feature off). When turned on: `GOOGLE_REDIRECT_URI` (`Homayar/backend/config.py:505`, default `http://localhost:8001/api/v1/auth/google/callback`) must be `https://app.homayar.com:8080/api/v1/auth/google/callback` and registered in the Google console. | Fixed by `PUBLIC_ORIGIN` for the redirects; set `GOOGLE_REDIRECT_URI` with the port if the feature is ever enabled |
+| `Homayar/backend/security/context.py:273-291` | CSRF check | double-submit cookie plus HMAC against the session; no Origin or Referer check, no URL in it (read from code, not measured) | No. | No change |
+| backend WebSocket origin checks | none | the backend has no WebSocket endpoint (`Homayar/backend/services/logging_service.py:171-173` even masks uvicorn's WebSocket handshake line; read from code, not measured) | No. | No change |
+| `Homayar/frontend/src/lib/api.ts:12` | `API_BASE_URL` from `VITE_API_URL` | built with `VITE_API_URL=/api/v1` (see "First Start", step 4): a relative path | No. Relative paths follow the page origin, port included. | No change |
+| `Homayar/frontend/src/components/platform/MeetingDetailPage.tsx:267` | playback media URL built on `window.location.origin` | resolved against the browser origin at runtime | No. It follows the browser, so it gets the port. | No change |
+| `Homayar/frontend/src/App.tsx:14` | router basename from `BASE_URL` | built with `VITE_BASE_PATH=/app/`: a relative path | No. | No change |
+| `infra/nginx/conf.d/homayar.conf:22-24,101-103,127-129` | bundled nginx redirects `return 308 /api/v1/;`, `return 308 /app/;`, `return 302 /app/;` | nginx makes them absolute with its listener port: `http://app.homayar.com:8080/...` (measured, see "Client IP and Scheme") | No. The host nginx rewrites them to the public origin (row below). | No change |
+| `infra/nginx/console.conf:45-46` | console-web directory redirect `try_files $uri $uri/ /app/index.html;` | nginx makes the `/app` to `/app/` redirect absolute with its listener port | No. The same host `proxy_redirect` change rewrites it. | No change |
+| `infra/nginx/includes/proxy-common.conf:15` | `proxy_redirect off;` in the bundled proxy | off | No. The API's `http://` redirects are rewritten by the host site, not here. | No change |
+| `infra/nginx/includes/security-headers.conf:7` | CSP `base-uri 'self'` and the other headers | origin-relative values | No. | No change |
+| `/etc/nginx/sites-available/app.homayar.com.conf` (quoted above) | `proxy_redirect http://app.homayar.com:8080/ https://app.homayar.com/;` and `proxy_redirect http://app.homayar.com/ https://app.homayar.com/;` | today they rewrite the stack's redirects to port 443 | Yes. Port 443 on the relay is arange-tun, so a browser following such a redirect leaves our site. | `proxy_redirect http://app.homayar.com:8080/ https://app.homayar.com:8080/;` and `proxy_redirect http://app.homayar.com/ https://app.homayar.com:8080/;` (owner `sudo`, then `sudo nginx -t && sudo systemctl reload nginx`) |
+| same file | port 80 server `location / { return 301 https://$host$request_uri; }` | `$host` carries no port, so the redirect goes to 443 | Not live: since HOM-374 no tunnel traffic reaches the port 80 server, so nothing through the relay hits it. | `return 301 https://$host:8080$request_uri;` (in the block above) |
+| `website/lib/site.ts:5` (public website) | `appUrl`, built from `NEXT_PUBLIC_APP_URL`, fallback `/app` | the build sets no `NEXT_PUBLIC_APP_URL` (`.github/workflows/deploy-website.yml:74-76` sets only the Turnstile key), so the fallback `/app` is live: the Log in and Start buttons (`website/components/site/Header.tsx:36`, `:39`, `website/components/site/Footer.tsx:32`, `website/components/site/MobileMenu.tsx:111`, `:114`) link to the website's own `/app` path (read from code, not measured) | No. The port does not break it, because it never pointed at `app.homayar.com`. The buttons are broken for an older reason: the website has no `/app` route. | `NEXT_PUBLIC_APP_URL=https://app.homayar.com:8080/app/` in the website build (a separate website ticket) |
+
+### Changes for production
+
+The env and nginx changes below go into one second reviewed script (after
+`hom374-relay-https-8080.sh`, which does the frpc side). That script is not written here.
+Until it runs, the stack's redirects and its links (share links, e-mail links) point at
+port 443, which arange-tun answers. So run it right after
+`hom374-relay-https-8080.sh --apply`.
+
+1. Compose env file changes, as user `gpu` (a Compose recreate):
+   `PUBLIC_ORIGIN=https://app.homayar.com:8080` and
+   `CORS_ORIGINS=https://app.homayar.com:8080` in `/home/gpu/homayar/config/settings.env`,
+   then `~/homayar/hc up -d --no-build --pull never` (recreates the services that read them:
+   api, worker, scheduler). This interrupts the API for about 17 s (measured for a restart).
+   Tell homlead first.
+2. Host nginx changes, owner `sudo` (a reload, never a restart): the two `proxy_redirect`
+   lines and the 301 target in the port 80 server, as in the block above, then
+   `sudo nginx -t && sudo systemctl reload nginx`.
+3. Code or image changes: none needed for the port. The URLs all come from settings. One
+   follow-up stays open as a decision, not code: the `homayar.com` zone choice for the DNS-01
+   renewal of this site's certificate (see `relay-tunnel.md`, "Plan: Renew by DNS-01").
+4. The public website: set `NEXT_PUBLIC_APP_URL=https://app.homayar.com:8080/app/` in the
+   website build, so the Log in and Start buttons point at the console instead of the
+   website's own `/app` path (an older bug, see the audit row). A separate website ticket,
+   named but not done here.
 
 ## Memory and CPU Budget
 
@@ -261,23 +330,29 @@ Every service shows `running healthy`, with two exceptions: `minio-bootstrap` is
 exit code 0 (`hc ps --all` shows `Exited (0)`), and the scheduler is `running` with no health
 value (it has no health check).
 
-From anywhere (measured 2026-10-29 14:05 UTC):
+From anywhere (public URL with port 8080, HOM-374; the 2026-10-29 results below were
+measured on the old port 443 URL):
 
 ```bash
-curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://app.homayar.com/healthz
-curl -sS https://app.homayar.com/readyz
-curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' http://app.homayar.com/
+curl -sS -o /dev/null -w '%{http_code} verify=%{ssl_verify_result}\n' https://app.homayar.com:8080/healthz
+curl -sS https://app.homayar.com:8080/readyz
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' https://app.homayar.com:8080/app
 ```
 
-Result: `200 verify=0`, the `ready` JSON, and `301 https://app.homayar.com/`. Also measured:
-`https://app.homayar.com/app/` is `200 verify=0`, `/app` is `308` to `https://app.homayar.com/app/`,
-the ACME path answers `404`, and HTTPS answers carry one header
-`Strict-Transport-Security: max-age=31536000`.
+Measured on the old URL on 2026-10-29 14:05 UTC: `200 verify=0`, the `ready` JSON, and `308`
+to `/app/`. Also measured: `https://app.homayar.com/app/` was `200 verify=0` and the ACME
+path answered `404`, and HTTPS answers carried one header
+`Strict-Transport-Security: max-age=31536000`. Expected on the new URL (read from the code,
+not measured): `/` answers `302` to `/app/`, and `/app` answers `308` to
+`https://app.homayar.com:8080/app/`. That last value is true only after the
+`proxy_redirect` change in "Changes for production": before it, the redirect goes to
+`https://app.homayar.com/app/` (port 443, arange-tun). There is no plain HTTP check any
+more: relay port 80 belongs to arange-tun and never reaches our nginx.
 
 Certificate expiry, without root (works from any machine):
 
 ```bash
-openssl s_client -connect app.homayar.com:443 -servername app.homayar.com </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -enddate
+openssl s_client -connect app.homayar.com:8080 -servername app.homayar.com </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -enddate
 ```
 
 - Measured 2026-10-29: subject and SAN `app.homayar.com`, issuer Let's Encrypt `YE2`, valid from
@@ -469,21 +544,26 @@ What the script does, and what each step interrupts:
 
 ## Host nginx Site and Certificate
 
-`/etc/nginx/sites-available/app.homayar.com.conf`, as the owner script (step 3) writes it, plus
-the HOM-340 recording location.
-Measured: the live file has sha256
+`/etc/nginx/sites-available/app.homayar.com.conf`, as the owner script (step 3) writes it,
+plus the HOM-340 recording location and the HOM-374 public-port changes (the two
+`proxy_redirect` lines, the 301 target and the comment header).
+Measured: the live file before HOM-374 has sha256
 `e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5`, the same as this block
-**without** the HOM-340 recording location (`location ~ ^/api/v1/(...)/recording$`).
-Not measured yet: that location was added by HOM-340 and is applied in rollout step 6 of
-[recording-delivery-on-prem.md](../architecture/recording-delivery-on-prem.md). Update the hash
-after that step.
+**without** the HOM-340 recording location (`location ~ ^/api/v1/(...)/recording$`) and
+without the HOM-374 changes.
+Not measured yet: the recording location was added by HOM-340 and is applied in rollout step 6 of
+[recording-delivery-on-prem.md](../architecture/recording-delivery-on-prem.md), and the
+HOM-374 lines by the second reviewed script. Update the hash after each of those steps.
 
 ```nginx
 # HOM-328 app.homayar.com: the Homayar console (/app/) and API (/api/v1/).
 # Runbook: docs/operations/app-server.md in the Homayar repository.
 # Public only through the relay tunnel (HOM-332): frpc sends relay traffic to
-# 127.0.0.1:10080 and 127.0.0.1:10443 with a PROXY protocol header. There are no
-# LAN listens: LAN users use the public name, which goes through the relay.
+# 127.0.0.1:10443 with a PROXY protocol header. There are no LAN listens:
+# LAN users use the public name, which goes through the relay.
+# Public URL since HOM-374: https://app.homayar.com:8080 (relay port 8080,
+# proxy https-8080). Relay port 80 no longer reaches this server, so the
+# port 80 server below sees no tunnel traffic and its ACME location is dead.
 # TLS ends here. The Homayar stack (Docker, user gpu) listens on 127.0.0.1:8080.
 
 server {
@@ -494,13 +574,14 @@ server {
     access_log /var/log/nginx/app.homayar.com.access.log;
     error_log  /var/log/nginx/app.homayar.com.error.log;
 
-    # HTTP-01 for the certificate renewal (certbot webroot).
+    # HTTP-01 for the certificate renewal (certbot webroot). Dead since HOM-374
+    # (no relay port 80); renewal moves to DNS-01. Kept for a later retry.
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/certbot;
         default_type "text/plain";
     }
 
-    location / { return 301 https://$host$request_uri; }
+    location / { return 301 https://$host:8080$request_uri; }
 }
 
 server {
@@ -538,9 +619,10 @@ server {
     proxy_set_header Upgrade           $http_upgrade;
     proxy_set_header Connection        $connection_upgrade;
     # The stack's nginx and the API build absolute redirects with http:// (and the
-    # nginx one with port 8080). Send them to the browser as https.
-    proxy_redirect http://app.homayar.com:8080/ https://app.homayar.com/;
-    proxy_redirect http://app.homayar.com/ https://app.homayar.com/;
+    # nginx one with port 8080). Send them to the browser as https on the public
+    # port (HOM-374).
+    proxy_redirect http://app.homayar.com:8080/ https://app.homayar.com:8080/;
+    proxy_redirect http://app.homayar.com/ https://app.homayar.com:8080/;
     proxy_connect_timeout 5s;
 
     # Recording uploads (POST /api/v1/uploads): 300m and streaming, with the stack's
@@ -586,28 +668,31 @@ server {
   server's `proxy_set_header` lines and the 16m body limit.
 - No LAN listens. LAN users use the public name, which goes through the relay.
 
-Certificate: Let's Encrypt, HTTP-01 with the webroot `/var/www/certbot`, through the relay's
-port 80, with the ACME account the Padyar certificates use. Renewal:
+Certificate: Let's Encrypt, issued 2026-10-29 with HTTP-01 through the relay's then port 80,
+webroot `/var/www/certbot`, with the ACME account the Padyar certificates use. It expires
+2027-01-27 13:04:56 UTC. Renewal:
 
-- `certbot.timer` runs twice a day and renews within 30 days of expiry, through the same path.
-- After a renewal, `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh` reloads nginx.
-- If the tunnel is down, certbot keeps trying for 30 days.
+- Since HOM-374 the relay has no port 80 for us, so this HTTP-01 renewal is broken. It fails
+  on every timer run until the site moves to DNS-01. The plan, with the owner steps and the
+  open `homayar.com` zone decision, is in
+  [`relay-tunnel.md`](relay-tunnel.md), "Plan: Renew by DNS-01 (dns-cloudflare)".
+- `certbot.timer` runs twice a day and renews within 30 days of expiry. After a real renewal,
+  `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh` reloads nginx.
 - The timer's exit code is shared with the Padyar renewals, which fail today
   ([HOM-335](https://linear.app/homayar/issue/HOM-335)). Check the app certificate with the
   `openssl` command in "Health Checks".
-- Test without changing anything (owner):
-  `sudo certbot renew --dry-run --cert-name app.homayar.com --no-directory-hooks`.
+- A dry run would fail the same way (no port 80): the DNS-01 plan replaces this check.
 
 ## First Owner Account
 
 The owner creates the first organization, workspace and owner account by self-registration in the
 console. No SMTP is needed, and nobody else sees the password.
 
-1. Open `https://app.homayar.com/app/register`. Check that the browser shows a valid certificate.
+1. Open `https://app.homayar.com:8080/app/register`. Check that the browser shows a valid certificate.
 2. Enter a name, the e-mail address and a new password (10 to 128 characters, at least one letter
    and one number), then the password again.
-3. Sign in at `https://app.homayar.com/app/login`. The organization and the workspace carry the
-   name you typed.
+3. Sign in at `https://app.homayar.com:8080/app/login`. The organization and the workspace carry
+   the name you typed.
 4. A banner says the e-mail is not verified. Uploads stay blocked until e-mail (SMTP) or phone
    sign-in exists. Sign-in works.
 
@@ -628,7 +713,7 @@ password reset, e-mail verification, workspace invitations.
 An invited person still joins:
 
 1. The workspace owner invites them from the console (Members page); the e-mail links to
-   `https://app.homayar.com/app/invitations/accept?token=<token>`.
+   `https://app.homayar.com:8080/app/invitations/accept?token=<token>`.
 2. Signed out, the page offers "Create an account", which opens
    `/app/register?invitation=<token>`. The register form accepts exactly that link.
 3. They create the account (the api checks the invitation token and the e-mail match), verify
@@ -639,7 +724,7 @@ How to reopen:
 1. Set `REGISTRATION_ENABLED=true` in `config/settings.env`.
 2. Recreate the api container with the runbook's own command from "Restart and Stop":
    `~/homayar/hc up -d --no-build --pull never --force-recreate --no-deps api`.
-3. Check: `curl -s https://app.homayar.com/api/v1/auth/methods` shows `"registration":true`.
+3. Check: `curl -s https://app.homayar.com:8080/api/v1/auth/methods` shows `"registration":true`.
 
 How to close again: set `REGISTRATION_ENABLED=false` and recreate the api the same way; the
 check must show `"registration":false`.
