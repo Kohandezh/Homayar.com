@@ -11,8 +11,21 @@ ARG SQUID_PACKAGE=squid
 # The pinned base does not pin the package: apk installs the squid of the Alpine
 # 3.22 repository on the day of the build (6.12-r0 on 2026-10-23). Set
 # SQUID_PACKAGE (e.g. squid=6.12-r0) to pin its version for a release.
+# HOM-379, CVE-2026-4738: the base ships zlib 1.3.2-r1 and the newest base of
+# 2026-11-09 still did, so upgrade it from the Alpine repository and fail the
+# build when zlib is missing or below 1.4-r0, the fixed version.
 # hadolint ignore=DL3018
-RUN apk add --no-cache "${SQUID_PACKAGE}"
+RUN apk add --no-cache "${SQUID_PACKAGE}" \
+    && apk add --no-cache --upgrade zlib \
+    && zlib_version="$(apk list --installed zlib 2>/dev/null | sed -n 's/^zlib-\([0-9][^ ]*\) .*/\1/p')" \
+    && if [ -z "${zlib_version}" ]; then \
+         echo "zlib is not installed; its version floor is 1.4-r0" >&2; exit 1; \
+       fi \
+    && case "$(apk version -t "${zlib_version}" 1.4-r0)" in \
+         '<') echo "zlib ${zlib_version} is not at or above its floor 1.4-r0" >&2; exit 1 ;; \
+         '='|'>') echo "zlib ${zlib_version} meets its floor 1.4-r0" ;; \
+         *) echo "apk cannot compare zlib ${zlib_version} with 1.4-r0" >&2; exit 1 ;; \
+       esac
 COPY infra/egress/entrypoint.sh /usr/local/bin/homayar-egress
 USER squid
 EXPOSE 3128

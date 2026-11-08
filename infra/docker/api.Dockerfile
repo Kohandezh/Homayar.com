@@ -94,6 +94,9 @@ WORKDIR /app
 #   ffmpeg, libtiff6: the trixie versions of today. CVE-2026-75143 (ffmpeg) and
 #     CVE-2026-52490 (tiffcrop) have no fix in Debian stable yet
 #     (docs/security/vulnerability-triage.md, "HOM-349 re-scan").
+#   zlib1g (HOM-379): fixes CVE-2026-76844 and CVE-2026-85091, both High, fixed
+#     in 1:1.3.dfsg+really1.3.1-1+deb13u1. Read on 2026-11-09; the newest base
+#     of that day still shipped +b1, so the fix comes from trixie-security.
 # HOM-377, CVE-2026-109518: the pinned base ships apt and libapt-pkg7.0 3.0.3,
 # and the newest base of 2026-11-05 still had 3.0.3, so the fix (3.0.4) comes
 # from trixie-security, not from a new base digest. The update and the upgrade
@@ -103,7 +106,7 @@ WORKDIR /app
 # hadolint ignore=DL3008
 RUN apt-get -o Acquire::Retries=0 update \
     && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
-    && apt-get install --yes --no-install-recommends ca-certificates ffmpeg libgomp1 libmagic1 libpq5 \
+    && apt-get install --yes --no-install-recommends ca-certificates ffmpeg libgomp1 libmagic1 libpq5 zlib1g \
     && rm -rf /var/lib/apt/lists/* \
     && arch="$(dpkg --print-architecture)" \
     && for floor in \
@@ -112,7 +115,8 @@ RUN apt-get -o Acquire::Retries=0 update \
          "libaom3 3.12.1-1+deb13u1" \
          "libapt-pkg7.0 3.0.4" \
          "libmbedcrypto16 3.6.6-0.1~deb13u1" \
-         "libtiff6 4.7.0-3+deb13u3"; do \
+         "libtiff6 4.7.0-3+deb13u3" \
+         "zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1"; do \
          package="${floor%% *}"; minimum="${floor#* }"; \
          state="$(dpkg-query --show --showformat="\${db:Status-Status} \${Version}" "${package}:${arch}" 2>/dev/null || true)"; \
          case "${state}" in \

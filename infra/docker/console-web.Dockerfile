@@ -23,7 +23,12 @@ FROM ${NGINX_IMAGE} AS runtime
 # The console and the reverse proxy need no curl (health checks use BusyBox wget),
 # and curl 8.22.0-r0 brought 7 CVEs (HOM-350). This check stops a re-pin to a base
 # that ships curl or libcurl again.
+# HOM-379, CVE-2026-4738: the base ships zlib 1.3.2-r1 and the newest base of
+# 2026-11-09 still did, so upgrade it from the Alpine repository and fail the
+# build when zlib is missing or below 1.4-r0, the fixed version.
+# hadolint ignore=DL3018
 RUN rm -f /etc/nginx/conf.d/default.conf \
+    && apk add --no-cache --upgrade zlib \
     && if ! apk info -e nginx >/dev/null 2>&1; then \
          echo "apk cannot answer package queries (HOM-350)" >&2; exit 1; \
        fi \
@@ -31,7 +36,16 @@ RUN rm -f /etc/nginx/conf.d/default.conf \
          if apk info -e "${package}" >/dev/null 2>&1; then \
            echo "${package} must not be in the console-web image (HOM-350)" >&2; exit 1; \
          fi; \
-       done
+       done \
+    && zlib_version="$(apk list --installed zlib 2>/dev/null | sed -n 's/^zlib-\([0-9][^ ]*\) .*/\1/p')" \
+    && if [ -z "${zlib_version}" ]; then \
+         echo "zlib is not installed; its version floor is 1.4-r0" >&2; exit 1; \
+       fi \
+    && case "$(apk version -t "${zlib_version}" 1.4-r0)" in \
+         '<') echo "zlib ${zlib_version} is not at or above its floor 1.4-r0" >&2; exit 1 ;; \
+         '='|'>') echo "zlib ${zlib_version} meets its floor 1.4-r0" ;; \
+         *) echo "apk cannot compare zlib ${zlib_version} with 1.4-r0" >&2; exit 1 ;; \
+       esac
 COPY infra/nginx/console.conf /etc/nginx/nginx.conf
 COPY --from=build --chown=101:101 /workspace/dist /usr/share/nginx/html/app
 USER 101:101
