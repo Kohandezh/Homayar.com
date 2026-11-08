@@ -227,9 +227,11 @@ The stack sees `http` as the scheme. Cookies and HSTS do not depend on it. Measu
 redirects are `http://app.homayar.com:8080/app/` (for `/app` and `/`) and
 `http://app.homayar.com:8080/api/v1/` (for `/api/v1`, bundled nginx
 `infra/nginx/conf.d/homayar.conf:22-24`). The API's trailing-slash redirects are
-`http://app.homayar.com/...` (read from the code, not measured). Two `proxy_redirect` lines in
-the host site turn both into the public origin. Since HOM-374 that is
-`https://app.homayar.com:8080/...` (before it, `https://app.homayar.com/...`).
+`http://app.homayar.com/...` (read from the code, not measured). The host site's two
+`proxy_redirect` lines (the owner's edit of 2026-11-03) turn all of them into
+`https://$http_host/...`. `$http_host` is the Host header as the browser sent it, port
+included, so through the relay that is `https://app.homayar.com:8080/...` (measured
+2026-11-08 from outside, for `/`).
 
 ## Public URL Settings (Relay Port 8080)
 
@@ -261,27 +263,32 @@ the Host check below strips the port.
 | `infra/nginx/console.conf:45-46` | console-web directory redirect `try_files $uri $uri/ /app/index.html;` | nginx makes the `/app` to `/app/` redirect absolute with its listener port | No. The same host `proxy_redirect` change rewrites it. | No change |
 | `infra/nginx/includes/proxy-common.conf:15` | `proxy_redirect off;` in the bundled proxy | off | No. The API's `http://` redirects are rewritten by the host site, not here. | No change |
 | `infra/nginx/includes/security-headers.conf:7` | CSP `base-uri 'self'` and the other headers | origin-relative values | No. | No change |
-| `/etc/nginx/sites-available/app.homayar.com.conf` (quoted above) | `proxy_redirect http://app.homayar.com:8080/ https://app.homayar.com/;` and `proxy_redirect http://app.homayar.com/ https://app.homayar.com/;` | today they rewrite the stack's redirects to port 443 | Yes. Port 443 on the relay is arange-tun, so a browser following such a redirect leaves our site. | `proxy_redirect http://app.homayar.com:8080/ https://app.homayar.com:8080/;` and `proxy_redirect http://app.homayar.com/ https://app.homayar.com:8080/;` (owner `sudo`, then `sudo nginx -t && sudo systemctl reload nginx`) |
-| same file | port 80 server `location / { return 301 https://$host$request_uri; }` | `$host` carries no port, so the redirect goes to 443 | Not live: since HOM-374 no tunnel traffic reaches the port 80 server, so nothing through the relay hits it. | `return 301 https://$host:8080$request_uri;` (in the block above) |
+| `/etc/nginx/sites-available/app.homayar.com.conf` (quoted above) | `proxy_redirect http://app.homayar.com:8080/ https://$http_host/;` and `proxy_redirect http://app.homayar.com/ https://$http_host/;` | the owner's lines since 2026-11-03: they rewrite the stack's redirects to `https://$http_host/...`, and `$http_host` keeps the port | No. The rewritten redirects keep the public port 8080. | No change: done by the owner on 2026-11-03, by hand, with `$http_host` (which keeps the port). Backup `app.homayar.com.conf.bak-pre-port` next to the live file |
+| same file | port 80 server `location / { return 301 https://$http_host$request_uri; }` | the owner's line since 2026-11-03. `$http_host` keeps the port the client sent. A request on port 80 has none, so the target is port 443 | Not live: since HOM-374 no tunnel traffic reaches the port 80 server, so nothing through the relay hits it. | No change: done by the owner on 2026-11-03, by hand |
 | `website/lib/site.ts:5` (public website) | `appUrl`, built from `NEXT_PUBLIC_APP_URL`, fallback `/app` | the build sets no `NEXT_PUBLIC_APP_URL` (`.github/workflows/deploy-website.yml:74-76` sets only the Turnstile key), so the fallback `/app` is live: the Log in and Start buttons (`website/components/site/Header.tsx:36`, `:39`, `website/components/site/Footer.tsx:32`, `website/components/site/MobileMenu.tsx:111`, `:114`) link to the website's own `/app` path (read from code, not measured) | No. The port does not break it, because it never pointed at `app.homayar.com`. The buttons are broken for an older reason: the website has no `/app` route. | `NEXT_PUBLIC_APP_URL=https://app.homayar.com:8080/app/` in the website build (a separate website ticket) |
 
 ### Changes for production
 
-The env and nginx changes below go into one second reviewed script (after
-`hom374-relay-https-8080.sh`, which does the frpc side). That script is not written here.
-Until it runs, the stack's redirects and its links (share links, e-mail links) point at
-port 443, which arange-tun answers. So run it right after
-`hom374-relay-https-8080.sh --apply`.
+The env part below is the second reviewed script, `hom374-app-url-8080-v2.sh` (after
+`hom374-relay-https-8080.sh`, which does the frpc side). It is not in this repo. It changes
+only `PUBLIC_ORIGIN` and `CORS_ORIGINS` in `/home/gpu/homayar/config/settings.env`, checks
+the owner's three nginx lines first and refuses any other nginx state, and never writes,
+tests or reloads nginx itself. It has `--check`, `--apply` and `--undo <STAMP>` (backup
+`settings.env.hom374-before-<STAMP>`, log `/home/gpu/homayar/hom374-t4-<STAMP>.log`). It has
+not run yet: `settings.env` still has the old values (checked 2026-11-09). Until it runs,
+the stack's links (share links, e-mail links) point at port 443, which arange-tun answers.
+The relay side is live, so run it as soon as homlead agrees.
 
-1. Compose env file changes, as user `gpu` (a Compose recreate):
-   `PUBLIC_ORIGIN=https://app.homayar.com:8080` and
+1. Compose env file changes, as user `gpu`, done by `hom374-app-url-8080-v2.sh` (a Compose
+   recreate): `PUBLIC_ORIGIN=https://app.homayar.com:8080` and
    `CORS_ORIGINS=https://app.homayar.com:8080` in `/home/gpu/homayar/config/settings.env`,
-   then `~/homayar/hc up -d --no-build --pull never` (recreates the services that read them:
-   api, worker, scheduler). This interrupts the API for about 17 s (measured for a restart).
-   Tell homlead first.
-2. Host nginx changes, owner `sudo` (a reload, never a restart): the two `proxy_redirect`
-   lines and the 301 target in the port 80 server, as in the block above, then
-   `sudo nginx -t && sudo systemctl reload nginx`.
+   then `~/homayar/hc up -d --no-build --pull never --no-deps api worker scheduler`
+   (recreates only the services that read them: api, worker, scheduler). This interrupts
+   the API for about 17 s (measured for a restart). Tell homlead first.
+2. Host nginx changes, owner `sudo` (a reload, never a restart): done by the owner by hand
+   on 2026-11-03, backup `app.homayar.com.conf.bak-pre-port` next to the live file, then
+   an nginx reload. The two `proxy_redirect` lines and the 301 target in the port 80 server
+   are the owner's lines, as in the block above. No script changes nginx.
 3. Code or image changes: none needed for the port. The URLs all come from settings. One
    follow-up stays open as a decision, not code: the `homayar.com` zone choice for the DNS-01
    renewal of this site's certificate (see `relay-tunnel.md`, "Plan: Renew by DNS-01").
@@ -342,10 +349,11 @@ curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' https://app.homayar.co
 Measured on the old URL on 2026-10-29 14:05 UTC: `200 verify=0`, the `ready` JSON, and `308`
 to `/app/`. Also measured: `https://app.homayar.com/app/` was `200 verify=0` and the ACME
 path answered `404`, and HTTPS answers carried one header
-`Strict-Transport-Security: max-age=31536000`. Expected on the new URL (read from the code,
-not measured): `/` answers `302` to `/app/`, and `/app` answers `308` to
-`https://app.homayar.com:8080/app/`. That last value is true only after the
-`proxy_redirect` change in "Changes for production": before it, the redirect goes to
+`Strict-Transport-Security: max-age=31536000`. On the new URL, `/` redirects to
+`https://app.homayar.com:8080/app/` (measured 2026-11-08 from outside), and `/app`
+answers `308` to `https://app.homayar.com:8080/app/` (read from the code, not measured;
+the same `proxy_redirect` line as `/`). That target comes from the owner's two
+`proxy_redirect` lines (2026-11-03). Before those lines, the redirect went to
 `https://app.homayar.com/app/` (port 443, arange-tun). There is no plain HTTP check any
 more: relay port 80 belongs to arange-tun and never reaches our nginx.
 
@@ -545,15 +553,22 @@ What the script does, and what each step interrupts:
 ## Host nginx Site and Certificate
 
 `/etc/nginx/sites-available/app.homayar.com.conf`, as the owner script (step 3) writes it,
-plus the HOM-340 recording location and the HOM-374 public-port changes (the two
-`proxy_redirect` lines, the 301 target and the comment header).
+plus the HOM-340 recording location and the HOM-374 public-port lines (the two
+`proxy_redirect` lines and the 301 target). The HOM-374 part is the owner's hand edit of
+2026-11-03 (backup `app.homayar.com.conf.bak-pre-port` next to the live file), not a script,
+and it is only the three directive lines: the 301 target in the port 80 server (live line
+22) and the two `proxy_redirect` lines (live lines 61 and 62), in the same places as in the
+HOM-328 file. The comment lines in the block are this runbook's wording; the live file
+keeps the HOM-328 comments (read, not measured).
 Measured: the live file before HOM-374 has sha256
-`e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5`, the same as this block
-**without** the HOM-340 recording location (`location ~ ^/api/v1/(...)/recording$`) and
-without the HOM-374 changes.
-Not measured yet: the recording location was added by HOM-340 and is applied in rollout step 6 of
-[recording-delivery-on-prem.md](../architecture/recording-delivery-on-prem.md), and the
-HOM-374 lines by the second reviewed script. Update the hash after each of those steps.
+`e6b37f5a83d16328eaf0bd77a64fe263a4617c69f50cb67301904dd1e9e1d2b5`. This block differs
+from that file in the HOM-340 recording location
+(`location ~ ^/api/v1/(...)/recording$`), the three HOM-374 directive lines, and the
+comments this runbook changed for HOM-374 (the header, the ACME comment and the
+`proxy_redirect` comment). Not measured after the owner's edit, so the hash is from before it.
+Update the hash after each change to the live file. Not measured yet: rollout step 6 of
+[recording-delivery-on-prem.md](../architecture/recording-delivery-on-prem.md) applies the
+recording location.
 
 ```nginx
 # HOM-328 app.homayar.com: the Homayar console (/app/) and API (/api/v1/).
@@ -581,7 +596,7 @@ server {
         default_type "text/plain";
     }
 
-    location / { return 301 https://$host:8080$request_uri; }
+    location / { return 301 https://$http_host$request_uri; }
 }
 
 server {
@@ -619,10 +634,11 @@ server {
     proxy_set_header Upgrade           $http_upgrade;
     proxy_set_header Connection        $connection_upgrade;
     # The stack's nginx and the API build absolute redirects with http:// (and the
-    # nginx one with port 8080). Send them to the browser as https on the public
-    # port (HOM-374).
-    proxy_redirect http://app.homayar.com:8080/ https://app.homayar.com:8080/;
-    proxy_redirect http://app.homayar.com/ https://app.homayar.com:8080/;
+    # nginx one with port 8080). Send them to the browser as https on the host the
+    # browser used: $http_host keeps the port (HOM-374, the owner's edit of
+    # 2026-11-03).
+    proxy_redirect http://app.homayar.com:8080/ https://$http_host/;
+    proxy_redirect http://app.homayar.com/ https://$http_host/;
     proxy_connect_timeout 5s;
 
     # Recording uploads (POST /api/v1/uploads): 300m and streaming, with the stack's
