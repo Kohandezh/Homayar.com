@@ -541,6 +541,9 @@ INDEXES = {
     "ix_review_items_scorecard_result_id": (("scorecard_result_id",), False),
     "ix_review_items_queue": (("workspace_id", "status", "due_at", "id"), False),
     ACTIVE_INDEX: (("workspace_id", "meeting_id"), True),
+    # Added by the HOM-74 head: the target of the review decisions' and the human
+    # results' composite foreign keys.
+    "uq_review_items_result": (("id", "scorecard_result_id"), True),
 }
 
 
@@ -668,6 +671,10 @@ def test_on_sqlite_the_migration_builds_the_designed_table_and_drops_only_it(tmp
             Base.metadata.create_all(connection)
             orm = _reflect(connection)
             _table().drop(connection)
+            # The two HOM-74 tables of the head already exist (``create_all``); drop
+            # them, so the head's own migration can build them again below.
+            for name in ("review_criterion_decisions", "review_results"):
+                Base.metadata.tables[name].drop(connection)
             before = _sqlite_objects(connection)
         _assert_designed_sqlite_shape(orm)
 
@@ -675,9 +682,19 @@ def test_on_sqlite_the_migration_builds_the_designed_table_and_drops_only_it(tmp
         command.stamp(config, revision.down_revision)
         command.upgrade(config, revision.revision)
         with engine.connect() as connection:
-            assert _reflect(connection) == orm
+            # The ORM's ``uq_review_items_result`` is created by the HOM-74 head above
+            # this revision; at this revision the table does not have it yet.
+            assert _reflect(connection) == {
+                **orm,
+                "indexes": {
+                    name: parts
+                    for name, parts in orm["indexes"].items()
+                    if name != "uq_review_items_result"
+                },
+            }
             assert [row for row in _sqlite_objects(connection) if row[2] != TABLE] == before
-        command.stamp(config, "head")
+        # The head's own migration completes the schema, so ``alembic check`` passes.
+        command.upgrade(config, "head")
         _check(config)
 
         # The migrated table refuses the same deny cases.
@@ -685,8 +702,8 @@ def test_on_sqlite_the_migration_builds_the_designed_table_and_drops_only_it(tmp
         for rules in RULES:
             rules(scratch)
 
-        command.stamp(config, revision.revision)
-        command.downgrade(config, "-1")
+        # Back below this revision: the head's tables and index go with it.
+        command.downgrade(config, revision.down_revision)
         with engine.connect() as connection:
             version = connection.exec_driver_sql("SELECT version_num FROM alembic_version")
             assert version.scalar() == revision.down_revision
@@ -788,6 +805,11 @@ PG_FOREIGN_KEYS = sorted(
 )
 PG_INDEXES = {
     f"{TABLE}_pkey": f"CREATE UNIQUE INDEX {TABLE}_pkey ON public.{TABLE} USING btree (id)",
+    # The HOM-74 head's unique index (the target of its composite foreign keys).
+    "uq_review_items_result": (
+        f"CREATE UNIQUE INDEX uq_review_items_result ON public.{TABLE} "
+        "USING btree (id, scorecard_result_id)"
+    ),
     **{
         name: f"CREATE INDEX {name} ON public.{TABLE} USING btree ({', '.join(columns)})"
         for name, (columns, unique) in INDEXES.items()
@@ -887,7 +909,7 @@ def test_on_postgres_the_migration_creates_and_drops_only_the_table(
     config = _alembic(monkeypatch, settings.database_url)
     try:
         command.stamp(config, "head")
-        command.downgrade(config, revision.revision)  # a no-op while it is the head
+        command.downgrade(config, revision.revision)
         others = _other_tables()  # after the stamp, which adds alembic_version
         command.downgrade(config, "-1")
         assert _scalar("SELECT version_num FROM alembic_version") == revision.down_revision
@@ -897,7 +919,16 @@ def test_on_postgres_the_migration_creates_and_drops_only_the_table(
         assert _scalar("SELECT count(*) FROM meetings") == meetings
 
         command.upgrade(config, revision.revision)
-        assert _shape() == orm_shape  # the migrated schema equals the ORM
+        # The migrated schema equals the ORM, minus the HOM-74 head's
+        # ``uq_review_items_result``, which this revision does not have yet.
+        assert _shape() == {
+            **orm_shape,
+            "indexes": {
+                name: definition
+                for name, definition in orm_shape["indexes"].items()
+                if name != "uq_review_items_result"
+            },
+        }
         assert _ids() == set()
         assert _other_tables() == others
         command.upgrade(config, "head")
