@@ -21,7 +21,9 @@
 # (S1, S2, S3), switches current, migrates, runs the HOM-290 trend backfill,
 # starts everything and runs the after-checks C1 to C10. Any failure from the
 # stop on starts the rollback: restore the dump, restore settings, switch
-# current back, restart on the start images.
+# current back, restart on the start images. When the stop or the database
+# restore itself fails, the writers stay stopped and the script exits 3 with
+# the exact manual steps.
 #
 # Exit codes: 0 done or already done; 1 rolled back; 2 refused, or preflight
 # or build failed (nothing live changed); 3 rollback failed (manual action
@@ -1085,22 +1087,25 @@ rollback() {  # R1 to R5 with the gating of Addendum A3: R2 (the database
     elif [[ ! -s "$BACKUP/db.dump" ]]; then
       record rollback R2 FAIL "no usable dump in $BACKUP"
       rb_fail=1
-    elif ! run dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
-      'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB"; createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"'; then
-      record rollback R2 FAIL "could not reset the database"
-      rb_fail=1
-    elif ! run_in "$BACKUP/db.dump" dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
-      'pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; then
-      record rollback R2 FAIL "pg_restore failed"
-      rb_fail=1
     else
-      v="$(db_version "$rb_r")" || v=""
-      if [[ "$v" == "$DB_START_VERSION" ]]; then
-        r2_ok=1
-        record rollback R2 PASS "the database is back at $DB_START_VERSION"
-      else
-        record rollback R2 FAIL "the database is at '$v', expected $DB_START_VERSION"
+      say "R2: restoring the database from $BACKUP/db.dump"
+      if ! run dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
+        'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB"; createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"'; then
+        record rollback R2 FAIL "could not reset the database"
         rb_fail=1
+      elif ! run_in "$BACKUP/db.dump" dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
+        'pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; then
+        record rollback R2 FAIL "pg_restore failed"
+        rb_fail=1
+      else
+        v="$(db_version "$rb_r")" || v=""
+        if [[ "$v" == "$DB_START_VERSION" ]]; then
+          r2_ok=1
+          record rollback R2 PASS "the database is back at $DB_START_VERSION"
+        else
+          record rollback R2 FAIL "the database is at '$v', expected $DB_START_VERSION"
+          rb_fail=1
+        fi
       fi
     fi
   else

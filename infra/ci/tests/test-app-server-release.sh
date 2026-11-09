@@ -1227,6 +1227,23 @@ c_rollback_r1_fails() (
   db_is "$HEAD_REV"
 )
 
+c_rollback_r1_fails_no_migrate() (
+  prepare
+  # the backup check fails in B3 (before any migration), and the rollback
+  # stop (the 2nd stop) fails: no restore is needed, but R5 is still gated
+  # on R1, so nothing is ever started
+  touch "$state/backup-mismatch" "$state/fail-stop-2"
+  run_script --apply --release "$SHA_T"
+  want_rc 3
+  want_out "R5 SKIPPED"
+  want_out "R3 PASS"
+  want_out "R4 PASS"
+  want_out "by hand"
+  file_has "$HOME_F/config/settings.env" '^PUBLIC_ORIGIN=https://app.homayar.com$'
+  current_is "$S12"
+  want_up_count 0 # no B8 (B3 failed first) and no R5 (R1 failed)
+)
+
 # --- run all cases -------------------------------------------------------------
 
 run_case c_usage_no_mode
@@ -1260,6 +1277,7 @@ run_case c_p12_bad_present_images
 run_case c_p12_same_release_bad_images
 run_case c_rollback_step_failure
 run_case c_rollback_r1_fails
+run_case c_rollback_r1_fails_no_migrate
 
 printf '%d passed, %d failed\n' "$passed" "$failed"
 [[ "$failed" -eq 0 ]]

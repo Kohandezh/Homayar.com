@@ -463,8 +463,10 @@ Use the reviewed script `infra/scripts/app-server-release.sh` (HOM-358). It
 checks everything first, builds or accepts the two images, stops the writers,
 dumps the database and proves the dump restores, writes the settings plan,
 switches `current`, migrates, runs the trend backfill, starts the stack and
-runs the after-checks. Any failure after the stop rolls the whole change back
-by itself. Nobody runs the steps by hand.
+runs the after-checks. Any failure after the stop starts the rollback, which
+undoes the change by itself; only when the stop or the database restore itself
+fails does it leave the app stopped, print the manual steps and exit 3.
+Nobody runs the steps by hand.
 
 What it interrupts: the console and the API for the whole change window.
 Expected downtime is about 3 to 5 minutes (an estimate until first measured:
@@ -553,7 +555,10 @@ The update script (HOM-358) rolls back by itself: when any check fails after
 it stopped the writers, it restores the database from the backup dump,
 restores `config/settings.env`, switches `current` back and restarts the stack
 on the start images. It logs every step and exits 1 (rolled back) or 3
-(rollback failed, with the exact commands to run by hand). The backup folder
+(rollback failed, with the exact commands to run by hand). If the stop or the
+database restore itself fails, the script does not restart the app: the
+writers stay stopped, the exit is 3, and the operator runs the printed steps
+(stop first, then the restore, then up). The backup folder
 `~/homayar/backups/release-<sha12>-<ts>/` and the new images always stay; the
 script never deletes them.
 
