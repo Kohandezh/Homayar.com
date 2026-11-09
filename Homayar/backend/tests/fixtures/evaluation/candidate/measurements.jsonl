@@ -1,0 +1,4 @@
+{"request_id": "r1", "latency_ms": 100.0, "input_tokens": 10, "output_tokens": 5, "cost": 0.001, "provider": "llamacpp", "slices": {"language": "fa"}}
+{"request_id": "r2", "latency_ms": 200.0, "input_tokens": 20, "cost": 0.002, "provider": "llamacpp", "slices": {"language": "fa"}}
+{"request_id": "r3", "latency_ms": 300.0, "output_tokens": 7, "provider": "openai", "slices": {"language": "en"}}
+{"request_id": "r4", "cost": null, "provider": null, "slices": {"language": "en", "tier": "cold"}}

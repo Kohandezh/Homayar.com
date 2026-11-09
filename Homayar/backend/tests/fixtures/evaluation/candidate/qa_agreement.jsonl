@@ -1,0 +1,4 @@
+{"item_id": "p1", "rating_a": "a", "rating_b": "b", "criterion": "c1"}
+{"item_id": "p2", "rating_a": "b", "rating_b": "b", "criterion": "c1"}
+{"item_id": "p3", "rating_a": "a", "rating_b": "a", "criterion": "c2"}
+{"item_id": "p4", "rating_a": "b", "rating_b": "a", "criterion": "c2"}

@@ -1,0 +1,7 @@
+{"query_id": "q1", "relevance": {"d1": 2, "d2": 1}, "ranked": ["d1", "d2", "d3"], "slices": {"language": "fa"}}
+{"query_id": "q2", "relevance": {"d1": 2}, "ranked": ["d2", "d1"], "slices": {"language": "fa"}}
+{"query_id": "q3", "relevance": {"d1": 1}, "ranked": ["d1"], "slices": {"language": "fa"}}
+{"query_id": "q4", "relevance": {"d1": 2, "d2": 2}, "ranked": [], "slices": {"language": "fa"}}
+{"query_id": "q5", "relevance": {"d1": 3}, "ranked": ["d1", "d2"], "slices": {"language": "en"}}
+{"query_id": "q6", "relevance": {"d1": 0, "d2": 0}, "ranked": ["d1"], "slices": {"language": "en"}}
+{"query_id": "q7", "relevance": {"d9": 2}, "ranked": ["d9", "d1"]}

@@ -1,0 +1,3 @@
+{"item_id": "i1", "gold": "book_meeting", "predicted": "book_meeting", "slices": {"language": "fa"}}
+{"item_id": "i2", "gold": "book_meeting", "predicted": "cancel_meeting", "slices": {"language": "fa"}}
+{"item_id": "i3", "gold": "cancel_meeting", "predicted": null, "slices": {"language": "en"}}

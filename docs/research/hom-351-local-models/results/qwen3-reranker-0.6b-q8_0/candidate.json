@@ -1,0 +1,24 @@
+{
+  "candidate": "qwen3-reranker-0.6b-q8_0",
+  "config": {
+    "harness_version": 1,
+    "label": "qwen3-reranker-0.6b-q8_0",
+    "mode": "rerank",
+    "note": "llama-server b11960 macos-arm64: -m qwen3-reranker-0.6b-q8_0.gguf --alias qwen3-reranker-0.6b-q8_0 --rerank --host 127.0.0.1 --port 8082 -ngl all -c 8192 -b 8192 -ub 8192"
+  },
+  "evaluations": [
+    {
+      "name": "rerank_all",
+      "kind": "retrieval",
+      "path": "retrieval_rerank_all.jsonl",
+      "args": ["--ks", "1,3,5"]
+    },
+    {
+      "name": "rerank_dense_top10",
+      "kind": "retrieval",
+      "path": "retrieval_rerank_dense_top10.jsonl",
+      "args": ["--ks", "1,3,5"]
+    }
+  ],
+  "slices": ["language"]
+}

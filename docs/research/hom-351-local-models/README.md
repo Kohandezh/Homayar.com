@@ -21,6 +21,11 @@ In each `server.log`, the local models folder is shown as `<models>`.
   its time in seconds). An `embed` or `rerank` run saves the rankings, not the raw
   `/v1/embeddings` vectors or `/v1/rerank` responses. `server.log` is the `llama-server` log of
   that run.
+- `results/<candidate>/candidate.json` is the HOM-70 manifest of that run's evaluations, and
+  `candidate-report.json` is the candidate report built from it (per-slice sample size,
+  bootstrap interval, abstention, coverage). `measurements` is `not_measured`: the run kept
+  only aggregate speed, not per-request latency. Regenerate from `Homayar/` with
+  `uv run python -m backend.evaluation.candidate ../docs/research/hom-351-local-models/results/<candidate>/candidate.json > ../docs/research/hom-351-local-models/results/<candidate>/candidate-report.json`.
 
 The fixtures are synthetic and small on purpose. No real customer data, no real names, phone
 numbers or ids (phones use `0999 000 xxxx` and the `555-01xx` fiction range, e-mails use
