@@ -138,6 +138,32 @@ class TTSProvider(_IdentifiedProvider, ABC):
         raise NotImplementedError
 
 
+@dataclass(frozen=True)
+class RerankHit:
+    """One reranked document: its input position and relevance score."""
+
+    index: int
+    score: float
+
+
+class EmbeddingProvider(_IdentifiedProvider, ABC):
+    """Text embeddings (HOM-351): vectors in input order, one per text."""
+
+    @abstractmethod
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        raise NotImplementedError
+
+
+class RerankProvider(_IdentifiedProvider, ABC):
+    """Reranking (HOM-351): documents scored against a query, best first."""
+
+    @abstractmethod
+    async def rerank(
+        self, query: str, documents: list[str], top_n: int | None = None
+    ) -> list[RerankHit]:
+        raise NotImplementedError
+
+
 class SMSProvider(ABC):
     @abstractmethod
     async def send(self, request: SMSRequest) -> SMSResult:

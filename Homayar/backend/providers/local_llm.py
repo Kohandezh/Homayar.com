@@ -17,6 +17,10 @@ specific and nothing here is qualified.
 from __future__ import annotations
 
 from backend.providers import egress
+from backend.providers.embeddings import (
+    OpenAICompatibleEmbeddingProvider,
+    OpenAICompatibleRerankProvider,
+)
 from backend.providers.openai_compatible import OpenAICompatibleIntelligenceProvider
 from backend.providers.registry import ModelManifest
 
@@ -68,3 +72,89 @@ def local_llm_manifest_template(
     }
     ModelManifest.model_validate(document)  # the template itself is valid
     return document
+
+
+def _local_service_manifest_template(
+    stage: str,
+    server: str,
+    *,
+    model: str,
+    base_url: str | None,
+    languages: list[str] | None,
+    tasks: list[str],
+    notes: str,
+) -> dict[str, object]:
+    """A *development* manifest document for one local endpoint stage, the
+    same rules as ``local_llm_manifest_template`` (local endpoint, identity
+    from the real adapter, ``UNKNOWN`` licence, ``unpinned`` revision)."""
+    if server not in LOCAL_LLM_SERVERS:
+        raise ValueError(f"unknown local LLM server {server!r}")
+    url = base_url or LOCAL_LLM_SERVERS[server]
+    if stage == "embedding":
+        adapter = OpenAICompatibleEmbeddingProvider(base_url=url, model=model)
+    else:
+        adapter = OpenAICompatibleRerankProvider(base_url=url, model=model)
+    identity = adapter.identity()
+    endpoint = str(identity.params["endpoint"])
+    problem = egress.validate_endpoint(endpoint, kind="local")
+    if problem is not None:
+        raise ValueError(f"a local {stage} endpoint must be local: {problem}")
+    safe_model = "".join(c if c.isalnum() or c in "._-" else "-" for c in model.lower())
+    document: dict[str, object] = {
+        "manifest_id": f"{stage}.{server.replace('_', '-')}.{safe_model}"[:80],
+        "version": 1,
+        "stage": stage,
+        "status": "development",
+        "provider": identity.provider,
+        "model": identity.model,
+        "model_revision": "unpinned",
+        "identity_params": dict(identity.params),
+        "languages": languages or ["fa"],
+        "tasks": tasks,
+        "license": "UNKNOWN",
+        "license_policy": "review_required",
+        "endpoint_kind": "private",
+        "endpoint": endpoint,
+        "region": "on-premise",
+        "offline_capable": False,
+        "structured_output": "none",
+        "notes": notes,
+    }
+    ModelManifest.model_validate(document)  # the template itself is valid
+    return document
+
+
+def local_embedding_manifest_template(
+    server: str,
+    *,
+    model: str,
+    base_url: str | None = None,
+    languages: list[str] | None = None,
+) -> dict[str, object]:
+    return _local_service_manifest_template(
+        "embedding",
+        server,
+        model=model,
+        base_url=base_url,
+        languages=languages,
+        tasks=["embedding"],
+        notes=f"Template for a local {server} embedding endpoint; not qualified.",
+    )
+
+
+def local_rerank_manifest_template(
+    server: str,
+    *,
+    model: str,
+    base_url: str | None = None,
+    languages: list[str] | None = None,
+) -> dict[str, object]:
+    return _local_service_manifest_template(
+        "rerank",
+        server,
+        model=model,
+        base_url=base_url,
+        languages=languages,
+        tasks=["rerank"],
+        notes=f"Template for a local {server} rerank endpoint; not qualified.",
+    )

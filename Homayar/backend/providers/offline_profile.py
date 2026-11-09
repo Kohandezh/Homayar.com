@@ -30,7 +30,7 @@ from backend.providers.base import ProviderError
 from backend.providers.policy import AiPolicy
 from backend.providers.registry import (
     MANIFEST_STAGES,
-    TTS_STAGE,
+    STAGES,
     EndpointKind,
     ManifestError,
     ManifestRegistry,
@@ -149,7 +149,9 @@ def evaluate_offline_profile(
     pinned artifacts (it could fetch weights at runtime)."""
     verdicts: list[StageVerdict] = []
     for stage in MANIFEST_STAGES:
-        stage_policy = policy.stage(stage) if stage != TTS_STAGE else None
+        # Only a processing stage has a policy entry; tts, embedding and
+        # rerank (HOM-351) are judged on placement alone (Ruling 2026-11-10).
+        stage_policy = policy.stage(stage) if stage in STAGES else None
         if stage_policy is not None and EndpointKind.CLOUD in stage_policy.endpoint_kinds:
             verdicts.append(StageVerdict(stage, DENIED, POLICY_ALLOWS_CLOUD))
             continue

@@ -1,0 +1,40 @@
+{
+  "fixture_version": 1,
+  "note": "Synthetic passages and queries for HOM-351. No real data. Relevance: 2 = answers the query, 1 = related. Unlisted passages count as 0. The WP13 gold corpus replaces this set later.",
+  "passages": [
+    {"id": "p01", "text": "برای ریستارت مودم، آن را خاموش کنید، ۳۰ ثانیه صبر کنید و دوباره روشن کنید."},
+    {"id": "p02", "text": "اگر چراغ Internet روی روتر قرمز است، کابل تلفن را بررسی کنید و با پشتیبانی تماس بگیرید."},
+    {"id": "p03", "text": "هزینه پرداخت تکراری حداکثر تا سه روز کاری به حساب مشتری برگشت داده می‌شود."},
+    {"id": "p04", "text": "برای لغو قرارداد، مشتری باید با واحد حفظ مشتری صحبت کند و کد ملی را اعلام کند."},
+    {"id": "p05", "text": "بسته اینترنت سازمانی ۱۰۰ مگابیت ماهانه ۴ میلیون و ۸۰۰ هزار تومان است."},
+    {"id": "p06", "text": "نوبت نصب مودم را می‌توان از طریق تماس تلفنی یا اپلیکیشن رزرو کرد."},
+    {"id": "p07", "text": "اگر سفارش بیش از هفت روز در راه بماند، مشتری می‌تواند شکایت ثبت کند تا به سرپرست ارسال برسد."},
+    {"id": "p08", "text": "در صورت قفل شدن حساب کاربری، لینک بازنشانی رمز با پیامک برای مشتری ارسال می‌شود."},
+    {"id": "p09", "text": "To restart your router, unplug it, wait 30 seconds, and plug it back in."},
+    {"id": "p10", "text": "Duplicate charges are refunded within three business days."},
+    {"id": "p11", "text": "Business fiber plans start at 500 megabits for $199 per month with a 12 month contract."},
+    {"id": "p12", "text": "If a technician misses an installation appointment, the case is escalated to the field operations manager."},
+    {"id": "p13", "text": "After five wrong password attempts the account is locked. An agent can unlock it and send a reset link."},
+    {"id": "p14", "text": "Router rental costs $20 per month and appears as a separate line on the invoice."},
+    {"id": "p15", "text": "ساعت کاری مرکز تماس از ۸ صبح تا ۱۰ شب است، حتی در روزهای تعطیل."},
+    {"id": "p16", "text": "برای تغییر نشانی صورتحساب، فرم تغییر مشخصات را در پنل کاربری پر کنید."},
+    {"id": "p17", "text": "سرعت اینترنت با افزایش تعداد دستگاه‌های متصل به Wi-Fi ممکن است کم شود."},
+    {"id": "p18", "text": "Our call center is open from 8 am to 10 pm every day, including holidays."},
+    {"id": "p19", "text": "پیش‌فاکتور رسمی ظرف یک روز کاری به ایمیل مشتری ارسال می‌شود."},
+    {"id": "p20", "text": "VPN شرکتی روی اینترنت خانگی کار می‌کند، ولی پورت‌های خاص ممکن است بسته باشند."}
+  ],
+  "queries": [
+    {"query_id": "r01", "language": "fa", "text": "مودم را چطور ریستارت کنم؟", "relevance": {"p01": 2, "p09": 2, "p02": 1}},
+    {"query_id": "r02", "language": "fa", "text": "پول پرداخت دوبار کی برمی‌گردد؟", "relevance": {"p03": 2, "p10": 2}},
+    {"query_id": "r03", "language": "fa", "text": "چطور قراردادم را فسخ کنم؟", "relevance": {"p04": 2}},
+    {"query_id": "r04", "language": "fa", "text": "قیمت بسته ۱۰۰ مگابیت سازمانی", "relevance": {"p05": 2, "p11": 1}},
+    {"query_id": "r05", "language": "fa", "text": "سفارشم ۱۰ روز است نرسیده، شکایت کجا ثبت کنم؟", "relevance": {"p07": 2}},
+    {"query_id": "r06", "language": "fa", "text": "حسابم قفل شده و رمز یادم نیست", "relevance": {"p08": 2, "p13": 2}},
+    {"query_id": "r07", "language": "fa", "text": "چراغ Internet روتر TP-Link قرمز شده", "relevance": {"p02": 2, "p01": 1, "p09": 1}},
+    {"query_id": "r08", "language": "fa", "text": "مرکز تماس تا ساعت ۱۰ شب باز است؟", "relevance": {"p15": 2, "p18": 2}},
+    {"query_id": "r09", "language": "en", "text": "How long does a refund for a double charge take?", "relevance": {"p10": 2, "p03": 2}},
+    {"query_id": "r10", "language": "en", "text": "technician did not come for installation", "relevance": {"p12": 2, "p06": 1}},
+    {"query_id": "r11", "language": "en", "text": "why is there a router fee on my bill", "relevance": {"p14": 2}},
+    {"query_id": "r12", "language": "en", "text": "pre-invoice by email for business plan", "relevance": {"p19": 2, "p11": 1, "p05": 1}}
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "base_url": "http://127.0.0.1:8082/v1",
+  "command": "uv run python ../docs/research/hom-351-local-models/run_eval.py rerank --base-url http://127.0.0.1:8082/v1 --label qwen3-reranker-0.6b-q8_0 --model qwen3-reranker-0.6b-q8_0 --out ../docs/research/hom-351-local-models/results/qwen3-reranker-0.6b-q8_0 --dense ../docs/research/hom-351-local-models/results/bge-m3-q8_0/retrieval_dense.jsonl --server-pid 61370 --note 'llama-server b11960 macos-arm64: -m qwen3-reranker-0.6b-q8_0.gguf --alias qwen3-reranker-0.6b-q8_0 --rerank --host 127.0.0.1 --port 8082 -ngl all -c 8192 -b 8192 -ub 8192'",
+  "evaluations": {
+    "rerank_all": {
+      "command": "uv run python -m backend.evaluation retrieval ../docs/research/hom-351-local-models/results/qwen3-reranker-0.6b-q8_0/retrieval_rerank_all.jsonl --ks 1,3,5 --slices language",
+      "output": "eval/retrieval_rerank_all.json"
+    },
+    "rerank_dense_top": {
+      "command": "uv run python -m backend.evaluation retrieval ../docs/research/hom-351-local-models/results/qwen3-reranker-0.6b-q8_0/retrieval_rerank_dense_top10.jsonl --ks 1,3,5 --slices language",
+      "output": "eval/retrieval_rerank_dense_top10.json"
+    }
+  },
+  "harness_version": 1,
+  "label": "qwen3-reranker-0.6b-q8_0",
+  "memory": {
+    "label": "measured on Apple M-series with Metal, proxy only",
+    "measured": true,
+    "peak_rss_mib": 1595.5,
+    "peak_top_mem": "1034M",
+    "peak_top_mem_mib": 1034.0,
+    "pid": 61370,
+    "rss_samples": 36
+  },
+  "mode": "rerank",
+  "note": "llama-server b11960 macos-arm64: -m qwen3-reranker-0.6b-q8_0.gguf --alias qwen3-reranker-0.6b-q8_0 --rerank --host 127.0.0.1 --port 8082 -ngl all -c 8192 -b 8192 -ub 8192",
+  "speed": {
+    "label": "measured on Apple M-series with Metal, proxy only",
+    "pairs": 360,
+    "pairs_per_second": 11.7
+  },
+  "summary": {
+    "rerank_all": {
+      "hit@1": {
+        "all": 1.0,
+        "language=en": 1.0,
+        "language=fa": 1.0
+      },
+      "mrr": {
+        "all": 1.0,
+        "language=en": 1.0,
+        "language=fa": 1.0
+      },
+      "ndcg@5": {
+        "all": 0.9767540917699223,
+        "language=en": 0.9841375461872729,
+        "language=fa": 0.9730623645612471
+      },
+      "recall@3": {
+        "all": 0.9027777777777777,
+        "language=en": 0.9166666666666666,
+        "language=fa": 0.8958333333333333
+      }
+    },
+    "rerank_dense_top": {
+      "hit@1": {
+        "all": 1.0,
+        "language=en": 1.0,
+        "language=fa": 1.0
+      },
+      "mrr": {
+        "all": 1.0,
+        "language=en": 1.0,
+        "language=fa": 1.0
+      },
+      "ndcg@5": {
+        "all": 0.9862741477826096,
+        "language=en": 0.9841375461872729,
+        "language=fa": 0.987342448580278
+      },
+      "recall@3": {
+        "all": 0.9444444444444443,
+        "language=en": 0.9166666666666666,
+        "language=fa": 0.9583333333333333
+      }
+    }
+  },
+  "wall_seconds": 31.5
+}

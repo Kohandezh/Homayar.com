@@ -1,0 +1,419 @@
+{
+  "input_sha256": "aedf45f9cac2747f2b3657014eeebdb70324cd7dc763b5955b30bb2c669e0c1b",
+  "kind": "retrieval",
+  "options": {
+    "ks": [
+      1,
+      3,
+      5
+    ],
+    "slices": [
+      "language"
+    ]
+  },
+  "slices": {
+    "all": {
+      "metrics": {
+        "hit@1": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "hit@1",
+          "numerator": 12.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "hit@3": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "hit@3",
+          "numerator": 12.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "hit@5": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "hit@5",
+          "numerator": 12.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "mrr": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "mrr",
+          "numerator": 12.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "ndcg@1": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "ndcg@1",
+          "numerator": 12.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "ndcg@3": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "ndcg@3",
+          "numerator": 11.669906696650866,
+          "reason": null,
+          "value": 0.9724922247209055
+        },
+        "ndcg@5": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "ndcg@5",
+          "numerator": 11.835289773391315,
+          "reason": null,
+          "value": 0.9862741477826096
+        },
+        "precision@1": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "precision@1",
+          "numerator": 12.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "precision@3": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "precision@3",
+          "numerator": 7.333333333333334,
+          "reason": null,
+          "value": 0.6111111111111112
+        },
+        "precision@5": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "precision@5",
+          "numerator": 4.8,
+          "reason": null,
+          "value": 0.39999999999999997
+        },
+        "recall@1": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "recall@1",
+          "numerator": 6.999999999999999,
+          "reason": null,
+          "value": 0.5833333333333333
+        },
+        "recall@3": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "recall@3",
+          "numerator": 11.333333333333332,
+          "reason": null,
+          "value": 0.9444444444444443
+        },
+        "recall@5": {
+          "denominator": 12,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 12,
+          "name": "recall@5",
+          "numerator": 12.0,
+          "reason": null,
+          "value": 1.0
+        }
+      }
+    },
+    "language=en": {
+      "metrics": {
+        "hit@1": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "hit@1",
+          "numerator": 4.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "hit@3": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "hit@3",
+          "numerator": 4.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "hit@5": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "hit@5",
+          "numerator": 4.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "mrr": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "mrr",
+          "numerator": 4.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "ndcg@1": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "ndcg@1",
+          "numerator": 4.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "ndcg@3": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "ndcg@3",
+          "numerator": 3.8429023063507524,
+          "reason": null,
+          "value": 0.9607255765876881
+        },
+        "ndcg@5": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "ndcg@5",
+          "numerator": 3.9365501847490916,
+          "reason": null,
+          "value": 0.9841375461872729
+        },
+        "precision@1": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "precision@1",
+          "numerator": 4.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "precision@3": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "precision@3",
+          "numerator": 2.333333333333333,
+          "reason": null,
+          "value": 0.5833333333333333
+        },
+        "precision@5": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "precision@5",
+          "numerator": 1.6,
+          "reason": null,
+          "value": 0.4
+        },
+        "recall@1": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "recall@1",
+          "numerator": 2.3333333333333335,
+          "reason": null,
+          "value": 0.5833333333333334
+        },
+        "recall@3": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "recall@3",
+          "numerator": 3.6666666666666665,
+          "reason": null,
+          "value": 0.9166666666666666
+        },
+        "recall@5": {
+          "denominator": 4,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 4,
+          "name": "recall@5",
+          "numerator": 4.0,
+          "reason": null,
+          "value": 1.0
+        }
+      }
+    },
+    "language=fa": {
+      "metrics": {
+        "hit@1": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "hit@1",
+          "numerator": 8.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "hit@3": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "hit@3",
+          "numerator": 8.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "hit@5": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "hit@5",
+          "numerator": 8.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "mrr": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "mrr",
+          "numerator": 8.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "ndcg@1": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "ndcg@1",
+          "numerator": 8.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "ndcg@3": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "ndcg@3",
+          "numerator": 7.8270043903001145,
+          "reason": null,
+          "value": 0.9783755487875143
+        },
+        "ndcg@5": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "ndcg@5",
+          "numerator": 7.898739588642224,
+          "reason": null,
+          "value": 0.987342448580278
+        },
+        "precision@1": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "precision@1",
+          "numerator": 8.0,
+          "reason": null,
+          "value": 1.0
+        },
+        "precision@3": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "precision@3",
+          "numerator": 5.0,
+          "reason": null,
+          "value": 0.625
+        },
+        "precision@5": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "precision@5",
+          "numerator": 3.2,
+          "reason": null,
+          "value": 0.4
+        },
+        "recall@1": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "recall@1",
+          "numerator": 4.666666666666666,
+          "reason": null,
+          "value": 0.5833333333333333
+        },
+        "recall@3": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "recall@3",
+          "numerator": 7.666666666666666,
+          "reason": null,
+          "value": 0.9583333333333333
+        },
+        "recall@5": {
+          "denominator": 8,
+          "n_abstained": 0,
+          "n_excluded": 0,
+          "n_items": 8,
+          "name": "recall@5",
+          "numerator": 8.0,
+          "reason": null,
+          "value": 1.0
+        }
+      }
+    }
+  },
+  "version": "evaluation/1"
+}

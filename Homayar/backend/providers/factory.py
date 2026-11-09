@@ -13,12 +13,18 @@ from backend.providers.asr_profiles import get_asr_profile
 from backend.providers.base import (
     ASRProvider,
     DiarizationProvider,
+    EmbeddingProvider,
     IntelligenceProvider,
     MockProviderDisabledError,
     ProviderError,
+    RerankProvider,
     TTSProvider,
 )
 from backend.providers.diarization import UnavailableDiarizationProvider
+from backend.providers.embeddings import (
+    OpenAICompatibleEmbeddingProvider,
+    OpenAICompatibleRerankProvider,
+)
 from backend.providers.local_tts import (
     LocalHTTPTTSProvider,
     PiperCLITTSProvider,
@@ -168,6 +174,42 @@ def create_intelligence_fallbacks(
             client=client,
         ),
     )
+
+
+def create_embedding_provider(
+    settings: Settings,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> EmbeddingProvider:
+    """Local embedding adapter (HOM-351). No cloud fallback exists: an empty
+    base URL or model name is ``embedding_provider_unconfigured``."""
+    base_url = _setting(settings, "local_embedding_base_url")
+    model = _setting(settings, "local_embedding_model")
+    if not base_url or not model:
+        raise ProviderError(
+            "embedding_provider_unconfigured",
+            "Local embedding provider is not configured",
+            retryable=False,
+        )
+    return OpenAICompatibleEmbeddingProvider(base_url=base_url, model=model, client=client)
+
+
+def create_rerank_provider(
+    settings: Settings,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> RerankProvider:
+    """Local reranker adapter (HOM-351). No cloud fallback exists: an empty
+    base URL or model name is ``rerank_provider_unconfigured``."""
+    base_url = _setting(settings, "local_rerank_base_url")
+    model = _setting(settings, "local_rerank_model")
+    if not base_url or not model:
+        raise ProviderError(
+            "rerank_provider_unconfigured",
+            "Local rerank provider is not configured",
+            retryable=False,
+        )
+    return OpenAICompatibleRerankProvider(base_url=base_url, model=model, client=client)
 
 
 def _setting(settings: Settings, name: str, default: str = "") -> str:
