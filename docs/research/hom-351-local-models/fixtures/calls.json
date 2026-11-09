@@ -1,0 +1,329 @@
+{
+  "fixture_version": 1,
+  "note": "Synthetic calls for HOM-351. No real customer data. Names, phone numbers, e-mails and ids are invented. The WP13 gold corpus replaces this set later.",
+  "calls": [
+    {
+      "call_id": "fa01",
+      "language": "fa",
+      "turns": [
+        {"speaker_label": "agent", "text": "سلام، پشتیبانی اینترنت، بفرمایید.", "start_seconds": 0, "end_seconds": 3},
+        {"speaker_label": "customer", "text": "سلام. من کیان آزمونی هستم. دو روز است اینترنت خانه‌ام کاملا قطع است.", "start_seconds": 3, "end_seconds": 9},
+        {"speaker_label": "agent", "text": "متاسفم. لطفا شماره تماس ثبت‌شده را بگویید.", "start_seconds": 9, "end_seconds": 13},
+        {"speaker_label": "customer", "text": "۰۹۹۹۰۰۰۰۱۰۱", "start_seconds": 13, "end_seconds": 16},
+        {"speaker_label": "agent", "text": "خط شما مشکل فنی دارد. یک تکنسین روز شنبه ۱۴۰۵/۰۸/۱۷ به منزل شما می‌آید. شماره پیگیری TK-58213 است.", "start_seconds": 16, "end_seconds": 26},
+        {"speaker_label": "customer", "text": "باشه، ممنون. شنبه خانه هستم.", "start_seconds": 26, "end_seconds": 29}
+      ],
+      "gold": {
+        "intent": "request_support",
+        "outcome": "follow_up_scheduled",
+        "entities": [
+          {"type": "person_name", "value": "کیان آزمونی"},
+          {"type": "phone", "value": "۰۹۹۹۰۰۰۰۱۰۱"},
+          {"type": "date", "value": "۱۴۰۵/۰۸/۱۷"},
+          {"type": "reference_id", "value": "TK-58213"}
+        ],
+        "key_facts": [
+          {"id": "fa01-k1", "all_of": [["اینترنت"], ["قطع"]]},
+          {"id": "fa01-k2", "all_of": [["تکنسین", "کارشناس فنی"], ["شنبه", "۱۴۰۵/۰۸/۱۷", "17"]]}
+        ],
+        "qa": [
+          {"id": "fa01-q1", "question": "تکنسین چه روزی مراجعه می‌کند؟", "answers": ["شنبه", "۱۴۰۵/۰۸/۱۷"]},
+          {"id": "fa01-q2", "question": "شماره پیگیری چیست؟", "answers": ["TK-58213"]}
+        ]
+      }
+    },
+    {
+      "call_id": "fa02",
+      "language": "fa",
+      "turns": [
+        {"speaker_label": "customer", "text": "سلام، من نیلوفر نمونه‌زاده هستم. قبض این ماه را دو بار از کارتم برداشته‌اند.", "start_seconds": 0, "end_seconds": 7},
+        {"speaker_label": "agent", "text": "سلام خانم نمونه‌زاده. شماره صورتحساب را دارید؟", "start_seconds": 7, "end_seconds": 11},
+        {"speaker_label": "customer", "text": "بله، INV-7741. مبلغ ۳۲۰ هزار تومان دو بار کم شده.", "start_seconds": 11, "end_seconds": 17},
+        {"speaker_label": "agent", "text": "درست می‌فرمایید، پرداخت تکراری ثبت شده. مبلغ اضافه همین الان برگشت داده شد و تا سه روز کاری به حسابتان می‌نشیند.", "start_seconds": 17, "end_seconds": 27},
+        {"speaker_label": "customer", "text": "عالی، خیلی ممنون.", "start_seconds": 27, "end_seconds": 29}
+      ],
+      "gold": {
+        "intent": "resolve_billing",
+        "outcome": "resolved",
+        "entities": [
+          {"type": "person_name", "value": "نیلوفر نمونه‌زاده"},
+          {"type": "reference_id", "value": "INV-7741"},
+          {"type": "amount", "value": "۳۲۰ هزار تومان"}
+        ],
+        "key_facts": [
+          {"id": "fa02-k1", "all_of": [["دو بار", "تکراری", "دوبار"]]},
+          {"id": "fa02-k2", "all_of": [["برگشت", "بازگشت", "استرداد", "عودت"]]}
+        ],
+        "qa": [
+          {"id": "fa02-q1", "question": "چه مبلغی دو بار کسر شده است؟", "answers": ["۳۲۰ هزار", "320 هزار", "۳۲۰٬۰۰۰"]},
+          {"id": "fa02-q2", "question": "پول برگشتی تا چند روز به حساب می‌نشیند؟", "answers": ["سه روز", "۳ روز", "3 روز"]}
+        ]
+      }
+    },
+    {
+      "call_id": "fa03",
+      "language": "fa",
+      "turns": [
+        {"speaker_label": "customer", "text": "سلام. می‌خواهم اشتراکم را لغو کنم. قیمت‌ها خیلی بالا رفته.", "start_seconds": 0, "end_seconds": 5},
+        {"speaker_label": "agent", "text": "سلام. برای احراز هویت کد ملی را بفرمایید.", "start_seconds": 5, "end_seconds": 9},
+        {"speaker_label": "customer", "text": "۰۰۰۰۰۰۰۰۰۱", "start_seconds": 9, "end_seconds": 12},
+        {"speaker_label": "agent", "text": "ممنون. لغو قرارداد را من نمی‌توانم انجام بدهم. تماس شما را به واحد حفظ مشتری وصل می‌کنم.", "start_seconds": 12, "end_seconds": 20},
+        {"speaker_label": "customer", "text": "باشه، وصل کنید.", "start_seconds": 20, "end_seconds": 22}
+      ],
+      "gold": {
+        "intent": "cancel_service",
+        "outcome": "escalated",
+        "entities": [
+          {"type": "national_id", "value": "۰۰۰۰۰۰۰۰۰۱"}
+        ],
+        "key_facts": [
+          {"id": "fa03-k1", "all_of": [["لغو"]]},
+          {"id": "fa03-k2", "all_of": [["حفظ مشتری", "واحد دیگر", "ارجاع", "منتقل", "وصل"]]}
+        ],
+        "qa": [
+          {"id": "fa03-q1", "question": "چرا مشتری می‌خواهد اشتراک را لغو کند؟", "answers": ["قیمت"]},
+          {"id": "fa03-q2", "question": "تماس به کدام واحد وصل شد؟", "answers": ["حفظ مشتری"]}
+        ]
+      }
+    },
+    {
+      "call_id": "fa04",
+      "language": "fa",
+      "turns": [
+        {"speaker_label": "customer", "text": "سلام، برای شرکتمان بسته اینترنت سازمانی می‌خواهیم. قیمت بسته ۱۰۰ مگابیت چند است؟", "start_seconds": 0, "end_seconds": 8},
+        {"speaker_label": "agent", "text": "سلام. بسته ۱۰۰ مگابیت ماهانه ۴ میلیون و ۸۰۰ هزار تومان است.", "start_seconds": 8, "end_seconds": 14},
+        {"speaker_label": "customer", "text": "پیش‌فاکتور رسمی را برای ما ایمیل کنید؟", "start_seconds": 14, "end_seconds": 17},
+        {"speaker_label": "agent", "text": "حتما. نشانی ایمیل را بفرمایید.", "start_seconds": 17, "end_seconds": 19},
+        {"speaker_label": "customer", "text": "procure.test@example.com", "start_seconds": 19, "end_seconds": 22},
+        {"speaker_label": "agent", "text": "پیش‌فاکتور تا فردا برایتان ارسال می‌شود.", "start_seconds": 22, "end_seconds": 25}
+      ],
+      "gold": {
+        "intent": "purchase_inquiry",
+        "outcome": "follow_up_scheduled",
+        "entities": [
+          {"type": "email", "value": "procure.test@example.com"},
+          {"type": "amount", "value": "۴ میلیون و ۸۰۰ هزار تومان"}
+        ],
+        "key_facts": [
+          {"id": "fa04-k1", "all_of": [["۱۰۰ مگابیت", "100 مگابیت", "سازمانی"]]},
+          {"id": "fa04-k2", "all_of": [["پیش‌فاکتور", "پیش فاکتور", "پیشفاکتور"]]}
+        ],
+        "qa": [
+          {"id": "fa04-q1", "question": "قیمت ماهانه بسته ۱۰۰ مگابیت چقدر است؟", "answers": ["۴ میلیون و ۸۰۰", "4 میلیون و 800", "۴٫۸ میلیون", "۴۸۰۰۰۰۰", "4800000"]},
+          {"id": "fa04-q2", "question": "پیش‌فاکتور به کدام ایمیل فرستاده می‌شود؟", "answers": ["procure.test@example.com"]}
+        ]
+      }
+    },
+    {
+      "call_id": "fa05",
+      "language": "fa",
+      "turns": [
+        {"speaker_label": "customer", "text": "سلام، مودم جدید خریده‌ام و برای نصب وقت می‌خواهم.", "start_seconds": 0, "end_seconds": 5},
+        {"speaker_label": "agent", "text": "سلام. نزدیک‌ترین وقت خالی دوشنبه ساعت ۱۰ صبح است. مناسب است؟", "start_seconds": 5, "end_seconds": 11},
+        {"speaker_label": "customer", "text": "بله، دوشنبه ساعت ۱۰ خوب است.", "start_seconds": 11, "end_seconds": 14},
+        {"speaker_label": "agent", "text": "وقت نصب شما ثبت شد. کد نوبت شما AP-2290 است.", "start_seconds": 14, "end_seconds": 20},
+        {"speaker_label": "customer", "text": "ممنون، خداحافظ.", "start_seconds": 20, "end_seconds": 22}
+      ],
+      "gold": {
+        "intent": "schedule_appointment",
+        "outcome": "resolved",
+        "entities": [
+          {"type": "time", "value": "ساعت ۱۰ صبح"},
+          {"type": "reference_id", "value": "AP-2290"}
+        ],
+        "key_facts": [
+          {"id": "fa05-k1", "all_of": [["نصب"]]},
+          {"id": "fa05-k2", "all_of": [["دوشنبه"]]}
+        ],
+        "qa": [
+          {"id": "fa05-q1", "question": "نصب چه روزی و چه ساعتی است؟", "answers": ["دوشنبه"]},
+          {"id": "fa05-q2", "question": "کد نوبت چیست؟", "answers": ["AP-2290"]}
+        ]
+      }
+    },
+    {
+      "call_id": "fa06",
+      "language": "fa",
+      "turns": [
+        {"speaker_label": "customer", "text": "سلام. سفارشم با شماره ORD-30917 ده روز است نرسیده. واقعا از خدمات شما ناراضی هستم.", "start_seconds": 0, "end_seconds": 8},
+        {"speaker_label": "agent", "text": "سلام، عذر می‌خواهم. سیستم نشان می‌دهد بسته در انبار مانده است.", "start_seconds": 8, "end_seconds": 14},
+        {"speaker_label": "customer", "text": "این قابل قبول نیست. می‌خواهم با مدیر صحبت کنم.", "start_seconds": 14, "end_seconds": 18},
+        {"speaker_label": "agent", "text": "شکایت شما را برای سرپرست واحد ارسال ثبت کردم. ایشان امروز با شما تماس می‌گیرند.", "start_seconds": 18, "end_seconds": 26}
+      ],
+      "gold": {
+        "intent": "report_dissatisfaction",
+        "outcome": "escalated",
+        "entities": [
+          {"type": "reference_id", "value": "ORD-30917"}
+        ],
+        "key_facts": [
+          {"id": "fa06-k1", "all_of": [["نرسیده", "تاخیر", "تأخیر", "نرسید"]]},
+          {"id": "fa06-k2", "all_of": [["سرپرست", "مدیر"]]}
+        ],
+        "qa": [
+          {"id": "fa06-q1", "question": "سفارش چند روز است نرسیده؟", "answers": ["ده روز", "۱۰ روز", "10 روز"]},
+          {"id": "fa06-q2", "question": "بسته الان کجاست؟", "answers": ["انبار"]}
+        ]
+      }
+    },
+    {
+      "call_id": "fa07",
+      "language": "fa",
+      "turns": [
+        {"speaker_label": "customer", "text": "سلام. نمی‌توانم وارد حساب کاربری‌ام در اپلیکیشن شوم. رمز را هم عوض کردم ولی نشد.", "start_seconds": 0, "end_seconds": 8},
+        {"speaker_label": "agent", "text": "سلام. الان سامانه احراز هویت کند است. همکار فنی باید بررسی کند.", "start_seconds": 8, "end_seconds": 14},
+        {"speaker_label": "customer", "text": "من الان پشت فرمانم. می‌شود بعدا با من تماس بگیرید؟ شماره‌ام ۰۹۹۹۰۰۰۰۲۰۲ است.", "start_seconds": 14, "end_seconds": 21},
+        {"speaker_label": "agent", "text": "حتما. همکار فنی تا ساعت ۵ عصر امروز با شماره ۰۹۹۹۰۰۰۰۲۰۲ تماس می‌گیرد.", "start_seconds": 21, "end_seconds": 28}
+      ],
+      "gold": {
+        "intent": "request_callback",
+        "outcome": "follow_up_scheduled",
+        "entities": [
+          {"type": "phone", "value": "۰۹۹۹۰۰۰۰۲۰۲"},
+          {"type": "phone", "value": "۰۹۹۹۰۰۰۰۲۰۲"},
+          {"type": "time", "value": "ساعت ۵ عصر"}
+        ],
+        "key_facts": [
+          {"id": "fa07-k1", "all_of": [["حساب", "ورود", "وارد"]]},
+          {"id": "fa07-k2", "all_of": [["تماس"]]}
+        ],
+        "qa": [
+          {"id": "fa07-q1", "question": "همکار فنی تا چه ساعتی تماس می‌گیرد؟", "answers": ["۵ عصر", "5 عصر", "ساعت ۵", "17"]},
+          {"id": "fa07-q2", "question": "مشکل مشتری چیست؟", "answers": ["حساب", "ورود", "وارد"]}
+        ]
+      }
+    },
+    {
+      "call_id": "fa08",
+      "language": "fa",
+      "turns": [
+        {"speaker_label": "customer", "text": "سلام، از دیشب Wi-Fi روتر TP-Link ام وصل می‌شود ولی هیچ سایتی باز نمی‌شود.", "start_seconds": 0, "end_seconds": 7},
+        {"speaker_label": "agent", "text": "سلام. لطفا روتر را خاموش کنید، ۳۰ ثانیه صبر کنید و دوباره روشن کنید.", "start_seconds": 7, "end_seconds": 13},
+        {"speaker_label": "customer", "text": "انجام دادم... الان چراغ Internet سبز شد و سایت‌ها باز می‌شوند.", "start_seconds": 13, "end_seconds": 22},
+        {"speaker_label": "agent", "text": "عالی. مشکل حل شد. شماره درخواست شما SR-6604 است.", "start_seconds": 22, "end_seconds": 27}
+      ],
+      "gold": {
+        "intent": "request_support",
+        "outcome": "resolved",
+        "entities": [
+          {"type": "reference_id", "value": "SR-6604"}
+        ],
+        "key_facts": [
+          {"id": "fa08-k1", "all_of": [["روتر", "مودم", "router"]]},
+          {"id": "fa08-k2", "all_of": [["خاموش", "ری‌استارت", "ریستارت", "راه‌اندازی مجدد", "restart"]]}
+        ],
+        "qa": [
+          {"id": "fa08-q1", "question": "روتر مشتری چه مارکی است؟", "answers": ["TP-Link"]},
+          {"id": "fa08-q2", "question": "مشتری چند ثانیه باید صبر کند؟", "answers": ["۳۰", "30", "سی"]}
+        ]
+      }
+    },
+    {
+      "call_id": "en01",
+      "language": "en",
+      "turns": [
+        {"speaker_label": "customer", "text": "Hi, this is Dana Testwell. My last invoice, INV-20931, charged me $84.50 instead of $64.50.", "start_seconds": 0, "end_seconds": 8},
+        {"speaker_label": "agent", "text": "Let me check. Yes, a router rental fee was added by mistake.", "start_seconds": 8, "end_seconds": 13},
+        {"speaker_label": "agent", "text": "I have removed it. You will see a $20 credit on your next invoice.", "start_seconds": 13, "end_seconds": 19},
+        {"speaker_label": "customer", "text": "Great, thank you.", "start_seconds": 19, "end_seconds": 21}
+      ],
+      "gold": {
+        "intent": "resolve_billing",
+        "outcome": "resolved",
+        "entities": [
+          {"type": "person_name", "value": "Dana Testwell"},
+          {"type": "reference_id", "value": "INV-20931"},
+          {"type": "amount", "value": "$84.50"},
+          {"type": "amount", "value": "$64.50"},
+          {"type": "amount", "value": "$20"}
+        ],
+        "key_facts": [
+          {"id": "en01-k1", "all_of": [["rental", "fee", "overcharge", "overcharged", "wrong amount", "incorrect"]]},
+          {"id": "en01-k2", "all_of": [["credit"]]}
+        ],
+        "qa": [
+          {"id": "en01-q1", "question": "How much credit will the customer get?", "answers": ["$20", "20"]},
+          {"id": "en01-q2", "question": "What fee was added by mistake?", "answers": ["router rental"]}
+        ]
+      }
+    },
+    {
+      "call_id": "en02",
+      "language": "en",
+      "turns": [
+        {"speaker_label": "customer", "text": "Hello, we are opening a second office and want a business fiber line. What does the 500 megabit plan cost?", "start_seconds": 0, "end_seconds": 8},
+        {"speaker_label": "agent", "text": "The 500 megabit business plan is $199 per month with a 12 month contract.", "start_seconds": 8, "end_seconds": 14},
+        {"speaker_label": "customer", "text": "Please send a written quote to quotes@example.com.", "start_seconds": 14, "end_seconds": 18},
+        {"speaker_label": "agent", "text": "Sure, you will have the quote by Friday.", "start_seconds": 18, "end_seconds": 21}
+      ],
+      "gold": {
+        "intent": "purchase_inquiry",
+        "outcome": "follow_up_scheduled",
+        "entities": [
+          {"type": "email", "value": "quotes@example.com"},
+          {"type": "amount", "value": "$199"}
+        ],
+        "key_facts": [
+          {"id": "en02-k1", "all_of": [["500"]]},
+          {"id": "en02-k2", "all_of": [["quote"]]}
+        ],
+        "qa": [
+          {"id": "en02-q1", "question": "How long is the contract?", "answers": ["12 month", "12-month", "twelve month", "12 months"]},
+          {"id": "en02-q2", "question": "When will the quote arrive?", "answers": ["Friday"]}
+        ]
+      }
+    },
+    {
+      "call_id": "en03",
+      "language": "en",
+      "turns": [
+        {"speaker_label": "customer", "text": "I was promised an installation on November 12 and nobody came. This is the second time.", "start_seconds": 0, "end_seconds": 7},
+        {"speaker_label": "agent", "text": "I am very sorry. I cannot see why the visit was cancelled.", "start_seconds": 7, "end_seconds": 12},
+        {"speaker_label": "customer", "text": "I want this escalated. I took a day off work for nothing.", "start_seconds": 12, "end_seconds": 17},
+        {"speaker_label": "agent", "text": "I have escalated it to the field operations manager. Your complaint number is CMP-1187.", "start_seconds": 17, "end_seconds": 24}
+      ],
+      "gold": {
+        "intent": "report_dissatisfaction",
+        "outcome": "escalated",
+        "entities": [
+          {"type": "date", "value": "November 12"},
+          {"type": "reference_id", "value": "CMP-1187"}
+        ],
+        "key_facts": [
+          {"id": "en03-k1", "all_of": [["installation", "install"]]},
+          {"id": "en03-k2", "all_of": [["escalat"]]}
+        ],
+        "qa": [
+          {"id": "en03-q1", "question": "What is the complaint number?", "answers": ["CMP-1187"]},
+          {"id": "en03-q2", "question": "On what date was the installation promised?", "answers": ["November 12", "Nov 12", "12 November"]}
+        ]
+      }
+    },
+    {
+      "call_id": "en04",
+      "language": "en",
+      "turns": [
+        {"speaker_label": "customer", "text": "Hi, I am locked out of my account after too many password attempts.", "start_seconds": 0, "end_seconds": 5},
+        {"speaker_label": "agent", "text": "I can help. What phone number is on the account?", "start_seconds": 5, "end_seconds": 8},
+        {"speaker_label": "customer", "text": "555-0142.", "start_seconds": 8, "end_seconds": 10},
+        {"speaker_label": "agent", "text": "Thanks. I have unlocked the account and sent a reset link by text message.", "start_seconds": 10, "end_seconds": 16},
+        {"speaker_label": "customer", "text": "Got it, I am logged in now. Thanks.", "start_seconds": 16, "end_seconds": 19}
+      ],
+      "gold": {
+        "intent": "request_support",
+        "outcome": "resolved",
+        "entities": [
+          {"type": "phone", "value": "555-0142"}
+        ],
+        "key_facts": [
+          {"id": "en04-k1", "all_of": [["locked", "lock"]]},
+          {"id": "en04-k2", "all_of": [["unlock", "reset"]]}
+        ],
+        "qa": [
+          {"id": "en04-q1", "question": "Why was the customer locked out?", "answers": ["password attempts", "too many"]},
+          {"id": "en04-q2", "question": "How was the reset link sent?", "answers": ["text message", "sms", "text"]}
+        ]
+      }
+    }
+  ]
+}
