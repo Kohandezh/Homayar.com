@@ -524,6 +524,34 @@ jobs:
       - name: Validate on-prem Compose profile
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem config --quiet
 
+      # HOM-383: the demo overlay of demo.homayar.com (used instead of the
+      # app-server overlay, with the project name fixed by demo-site.sh).
+      # The second step also renders the egress profile: Compose prunes the
+      # unused outbound network under --profile onprem alone, so its subnet
+      # 172.29.34.0/24 is only validated with the egress profile included.
+      - name: Validate on-prem demo Compose overlay
+        run: >-
+          docker compose
+          --project-name homayar-demo
+          --file infra/compose/compose.onprem.yaml
+          --file infra/compose/compose.onprem.demo.yaml
+          --profile onprem
+          config --quiet
+        env:
+          MIGRATION_DATABASE_URL: postgresql://homayar:ci-only@postgres:5432/homayar
+
+      - name: Validate on-prem demo Compose overlay with the egress profile
+        run: >-
+          docker compose
+          --project-name homayar-demo
+          --file infra/compose/compose.onprem.yaml
+          --file infra/compose/compose.onprem.demo.yaml
+          --profile onprem
+          --profile egress
+          config --quiet
+        env:
+          MIGRATION_DATABASE_URL: postgresql://homayar:ci-only@postgres:5432/homayar
+
       - name: Validate on-prem Compose profile with the egress proxy
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem --profile egress config --quiet
 
@@ -694,7 +722,10 @@ jobs:
           infra/ci/security-scan.sh
           infra/ci/tests/test-check-source-contract.sh
           infra/ci/tests/test-app-server-release.sh
+          infra/ci/tests/test-demo-site.sh
           infra/scripts/app-server-release.sh
+          infra/scripts/demo-site.sh
+          infra/scripts/demo-site-nginx.sh
           infra/scripts/backup-postgres.sh
           infra/scripts/restore-postgres.sh
           infra/scripts/backup-minio.sh
@@ -705,6 +736,9 @@ jobs:
 
       - name: Selftest the app-server release script
         run: bash infra/ci/tests/test-app-server-release.sh
+
+      - name: Selftest the demo site scripts
+        run: bash infra/ci/tests/test-demo-site.sh
 
       - name: Lint Dockerfile templates
         run: >-
