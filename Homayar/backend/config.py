@@ -710,6 +710,13 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     local_ai_base_url: str = ""
+    # Local embedding and reranker endpoints (HOM-351, ADR 0047 D5): private
+    # OpenAI-compatible servers next to LOCAL_AI_BASE_URL. No cloud fallback:
+    # empty means the stage is unconfigured.
+    local_embedding_base_url: str = ""
+    local_embedding_model: str = ""
+    local_rerank_base_url: str = ""
+    local_rerank_model: str = ""
     # Offline weights (P0 wave): refuse runtime downloads and load a pinned
     # local model directory whose artifacts the manifest declares.
     whisper_local_files_only: bool = False

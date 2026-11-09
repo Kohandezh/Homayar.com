@@ -41,7 +41,13 @@ STAGES = ("asr", "diarization", "intelligence")
 # Speech synthesis has manifests (local runtime, offline profile) but is not a
 # stage of the conversation-processing bundle: STAGES stays the processing set.
 TTS_STAGE = "tts"
-MANIFEST_STAGES = (*STAGES, TTS_STAGE)
+# Retrieval stages (HOM-351): embedding and reranking each run on a private
+# OpenAI-compatible server, set by their own base URL (it may be the same
+# host as chat). They are manifest stages, not stages of the
+# conversation-processing bundle.
+EMBEDDING_STAGE = "embedding"
+RERANK_STAGE = "rerank"
+MANIFEST_STAGES = (*STAGES, TTS_STAGE, EMBEDDING_STAGE, RERANK_STAGE)
 UNREGISTERED = "unregistered"
 
 Scalar = str | int | float | bool
@@ -106,7 +112,7 @@ class ModelManifest(BaseModel):
 
     manifest_id: str
     version: int = Field(ge=1)
-    stage: Literal["asr", "diarization", "intelligence", "tts"]
+    stage: Literal["asr", "diarization", "intelligence", "tts", "embedding", "rerank"]
     status: ManifestStatus
     provider: str = Field(min_length=1, max_length=128)
     model: str = Field(min_length=1, max_length=256)

@@ -682,6 +682,9 @@ def test_offline_profile_resolves_every_stage_locally_or_unavailable(tmp_path: P
         "diarization": UNAVAILABLE,
         "intelligence": LOCAL,
         "tts": LOCAL,
+        # HOM-351 manifest stages with no bundle adapter (HOM-93 wires them).
+        "embedding": UNAVAILABLE,
+        "rerank": UNAVAILABLE,
     }
     # Local-only policy refuses the private endpoints: unavailable, not denied.
     local_only = evaluate_offline_profile(resolved, PRESETS["local_only"], artifact_root=tmp_path)

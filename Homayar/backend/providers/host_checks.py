@@ -549,6 +549,10 @@ def _dependency_targets(settings: Any, environ: Mapping[str, str]) -> list[tuple
         add("storage", storage)
     if local_ai := _setting_text(settings, "local_ai_base_url"):
         add("local_ai", local_ai)
+    if local_embedding := _setting_text(settings, "local_embedding_base_url"):
+        add("local_embedding", local_embedding)
+    if local_rerank := _setting_text(settings, "local_rerank_base_url"):
+        add("local_rerank", local_rerank)
     if proxy := _proxy(environ):
         add("egress_proxy", proxy[1])
     return targets
