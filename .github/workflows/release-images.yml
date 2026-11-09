@@ -1,0 +1,121 @@
+name: Release images
+
+# Side-image fallback for the app server release (HOM-358, section 5 of the
+# rollout script). The server's link to PyPI and Debian is slow, so the local
+# image build can fail (HOM-349, HOM-377). Dispatch this workflow with the
+# release commit, download the artifact, docker load both images on the server,
+# then run app-server-release.sh with --use-side-image. No secrets: the images
+# are verified against the release manifest of the commit itself.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Release commit (40 lowercase hex characters)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REF: "${{ inputs.ref }}"
+
+jobs:
+  release-images:
+    name: Build and upload the release images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Refuse anything that is not a 40-hex commit
+        run: |
+          set -Eeuo pipefail
+          case "${REF}" in
+            ""|*[!0-9a-f]*)
+              echo "ref must be 40 lowercase hex characters, got '${REF}'" >&2
+              exit 2 ;;
+          esac
+          if [[ ${#REF} -ne 40 ]]; then
+            echo "ref must be exactly 40 characters, got ${#REF}" >&2
+            exit 2
+          fi
+
+      - name: Check out the release commit with full history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The release manifest reads every input from Git objects at the commit.
+          fetch-depth: 0
+          ref: "${{ env.REF }}"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213c495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate build-args.txt
+        run: |
+          set -Eeuo pipefail
+          python infra/release/release_manifest.py build-args --rev "${REF}" > build-args.txt
+          cat build-args.txt
+          grep --quiet --line-regexp "SOURCE_SHA=${REF}" build-args.txt
+
+      # Exactly the build of the release-manifest job in ci.yml: the same build
+      # args, nothing else (never override PYTHON_IMAGE or UV_VERSION).
+      - name: Build the API image
+        run: |
+          set -Eeuo pipefail
+          build_args=()
+          while IFS= read -r build_arg; do
+            build_args+=(--build-arg "${build_arg}")
+          done < build-args.txt
+          docker build --file infra/docker/api.Dockerfile "${build_args[@]}" \
+            --tag "homayar/api:${REF:0:12}" .
+
+      # The same args the rollout script builds with (app-server-release.sh, A1).
+      - name: Build the console-web image
+        run: |
+          set -Eeuo pipefail
+          docker build --file infra/docker/console-web.Dockerfile \
+            --build-arg VITE_API_URL=/api/v1 \
+            --build-arg VITE_BASE_PATH=/app/ \
+            --label "org.opencontainers.image.revision=${REF}" \
+            --tag "homayar/console-web:${REF:0:12}" .
+
+      - name: Verify the API image against the manifest
+        env:
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: |
+          set -Eeuo pipefail
+          container="$(docker create "homayar/api:${REF:0:12}")"
+          docker cp "${container}:/app/build-info.json" build-info.json
+          docker rm "${container}" >/dev/null
+          docker inspect --format '{{json .Config.Labels}}' "homayar/api:${REF:0:12}" > image-labels.json
+          python infra/release/release_manifest.py generate --rev "${REF}" \
+            --image "api=$(docker inspect --format '{{.Id}}' "homayar/api:${REF:0:12}")" \
+            --validation "ci=${RUN_URL}" \
+            --output release-manifest.json
+          python infra/release/release_manifest.py verify \
+            --manifest release-manifest.json \
+            --build-info build-info.json \
+            --image-labels image-labels.json
+          test "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "homayar/console-web:${REF:0:12}")" = "${REF}"
+
+      - name: Save the images and write SHA256SUMS
+        run: |
+          set -Eeuo pipefail
+          docker save "homayar/api:${REF:0:12}" | gzip -1 > "homayar-api-${REF:0:12}.tar.gz"
+          docker save "homayar/console-web:${REF:0:12}" | gzip -1 > "homayar-console-web-${REF:0:12}.tar.gz"
+          sha256sum "homayar-api-${REF:0:12}.tar.gz" "homayar-console-web-${REF:0:12}.tar.gz" > SHA256SUMS
+          cat SHA256SUMS
+          echo "S12=${REF:0:12}" >> "${GITHUB_ENV}"
+
+      - name: Upload the images as one artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-images-${{ env.S12 }}
+          path: |
+            homayar-api-*.tar.gz
+            homayar-console-web-*.tar.gz
+            SHA256SUMS
+          retention-days: 1
+          if-no-files-found: error
