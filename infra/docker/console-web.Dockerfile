@@ -37,10 +37,13 @@ RUN rm -f /etc/nginx/conf.d/default.conf \
            echo "${package} must not be in the console-web image (HOM-350)" >&2; exit 1; \
          fi; \
        done \
-    && zlib_version="$(apk list --installed zlib 2>/dev/null | sed -n 's/^zlib-\([0-9][^ ]*\) .*/\1/p')" \
-    && if [ -z "${zlib_version}" ]; then \
-         echo "zlib is not installed; its version floor is 1.4-r0" >&2; exit 1; \
-       fi \
+    && zlib_line="$(apk list --installed zlib 2>/dev/null)" \
+    && zlib_version="${zlib_line%% *}" \
+    && zlib_version="${zlib_version#zlib-}" \
+    && case "${zlib_version}" in \
+         [0-9]*) ;; \
+         *) echo "zlib is not installed; its version floor is 1.4-r0" >&2; exit 1 ;; \
+       esac \
     && case "$(apk version -t "${zlib_version}" 1.4-r0)" in \
          '<') echo "zlib ${zlib_version} is not at or above its floor 1.4-r0" >&2; exit 1 ;; \
          '='|'>') echo "zlib ${zlib_version} meets its floor 1.4-r0" ;; \
