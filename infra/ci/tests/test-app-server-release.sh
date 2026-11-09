@@ -35,6 +35,7 @@ START_API_ID="sha256:11111111111111111111111111111111111111111111111111111111111
 START_CW_ID="sha256:2222222222222222222222222222222222222222222222222222222222222222"
 
 HOME_F="$tmp/home"    # the fake /home/gpu/homayar
+CASE_OUT="$tmp/case-out" # every run's output of the current case (marker check)
 export APPREL_TEST_HOME="$HOME_F"
 export APPREL_STUB_STATE="$state"
 export PATH="$bin:$PATH"
@@ -636,6 +637,11 @@ case "$cmd" in
 
       stop)
         log "compose:stop"
+        n=$(( $(state stop-count 0) + 1 )); set_state stop-count "$n"
+        if [[ -e "$S/fail-stop-2" && "$n" == 2 ]]; then
+          echo "stop failed (injected)" >&2
+          exit 1
+        fi
         for s in "$@"; do set_svc "$s" "stopped||"; done
         exit 0
         ;;
@@ -728,9 +734,12 @@ chmod +x "$bin/curl" "$bin/docker"
 
 # --- case helpers --------------------------------------------------------------
 
-run_script() { # run_script <script args...>: sets OUT and RC
+run_script() { # run_script <script args...>: sets OUT and RC, and appends the
+  # run's output to the per-case file so run_case can check the secret marker
+  # even though the case functions run in their own subshells (review N1)
   RC=0
   OUT="$(bash "$subject" "$@" </dev/null 2>&1)" || RC=$?
+  printf '%s\n' "$OUT" >>"$CASE_OUT"
 }
 
 want_rc() {
@@ -774,6 +783,14 @@ db_is() {
     exit 1
   }
 }
+want_up_count() { # how many compose up calls ran (B8 is 1, a rollback R5 adds 1)
+  local got
+  got="$(cat "$state/up-count" 2>/dev/null || printf 0)"
+  [[ "$got" == "$1" ]] || {
+    detail "up-count is $got, want $1"
+    exit 1
+  }
+}
 current_is() {
   local got
   got="$(readlink -f "$HOME_F/current")"
@@ -786,19 +803,25 @@ current_is() {
 passed=0
 failed=0
 run_case() { # run_case <case function>: one PASS or FAIL line per case.
-  # The secret-marker check runs after every case (SPEC 6, review F9).
-  local name="${1#c_}"
-  if (
-    rc=0
-    "$1" || rc=1
-    want_no_secret || rc=1
-    exit "$rc"
-  ); then
+  # The secret-marker check runs in the parent, over the real outputs that
+  # run_script collected for every run of the case (SPEC 6, review N1), and
+  # over the case's script log files.
+  local name="${1#c_}" why="" f
+  : >"$CASE_OUT"
+  if "$1"; then :; else why="case failed"; fi
+  if grep -qF "$MARKER" "$CASE_OUT"; then
+    why="secret marker in a run's output"
+  fi
+  for f in "$HOME_F"/ops/*.log; do
+    [[ -e "$f" ]] || continue
+    if grep -qF "$MARKER" "$f"; then why="secret marker in $f"; fi
+  done
+  if [[ -z "$why" ]]; then
     passed=$((passed + 1))
     printf 'PASS %s\n' "$name"
   else
     failed=$((failed + 1))
-    printf 'FAIL %s\n' "$name"
+    printf 'FAIL %s (%s)\n' "$name" "$why"
   fi
 }
 
@@ -1048,6 +1071,11 @@ c_apply_migrate_failure() (
   file_has "$HOME_F/config/settings.env" '^PUBLIC_ORIGIN=https://app.homayar.com$'
   current_is "$S12"
   db_is "$BASE_REV"
+  # the R4 relink writes a relative link, like B5 (review N5)
+  [[ "$(readlink "$HOME_F/current")" == "releases/$S12" ]] || {
+    detail "current link is $(readlink "$HOME_F/current"), want releases/$S12"
+    exit 1
+  }
   want_no_secret
 )
 
@@ -1059,6 +1087,8 @@ c_apply_after_check_failure() (
   calls_has "pg_restore-live"
   current_is "$S12"
   db_is "$BASE_REV"
+  # B8 plus the rollback R5 (R2 succeeded, so R5 ran)
+  want_up_count 2
   want_no_secret
 )
 
@@ -1147,19 +1177,54 @@ c_p12_bad_present_images() (
   want_out "V1/V2"
 )
 
+c_p12_same_release_bad_images() (
+  prepare
+  # current already points to the target and its images fail V1/V2:
+  # a rebuild would re-tag the live image, so the script must refuse
+  ln -sfn "releases/$T12" "$HOME_F/current"
+  printf '%s\n' "$HEAD_REV" >"$state/db-version"
+  add_image "homayar/api:$T12" "sha256:7777777777777777777777777777777777777777777777777777777777777777" \
+    "$SHA_T" "ffffffffffffffffffffffffffffffffffffffff" "$HEAD_REV" ""
+  add_image "homayar/console-web:$T12" "sha256:8888888888888888888888888888888888888888888888888888888888888888" \
+    "$SHA_T" "" "" "1"
+  run_script --check --release "$SHA_T"
+  want_rc 2
+  want_out "equals the target"
+  calls_lack "docker:build"
+  calls_lack "compose:stop"
+)
+
 c_rollback_step_failure() (
   prepare
   # the after-checks fail (fail-c5) and the database restore in R2 fails:
-  # every rollback step must still run, and the exit must be 3
+  # R3 and R4 still run, R5 is skipped (Addendum A3), the exit is 3
   touch "$state/fail-c5" "$state/fail-live-restore"
   run_script --apply --release "$SHA_T"
   want_rc 3
   want_out "by hand"
+  want_out "R5 SKIPPED"
   calls_has "compose:stop"
   calls_has "pg_restore-live"
-  calls_has "compose:up"
+  want_up_count 1 # only the B8 up: R5 was skipped because R2 failed
   file_has "$HOME_F/config/settings.env" '^PUBLIC_ORIGIN=https://app.homayar.com$'
   current_is "$S12"
+)
+
+c_rollback_r1_fails() (
+  prepare
+  # the after-checks fail and the rollback stop (the 2nd stop) fails:
+  # R2 and R5 are skipped, R3 and R4 still run, the exit is 3
+  touch "$state/fail-c5" "$state/fail-stop-2"
+  run_script --apply --release "$SHA_T"
+  want_rc 3
+  want_out "R2 SKIPPED"
+  want_out "R5 SKIPPED"
+  want_out "by hand"
+  file_has "$HOME_F/config/settings.env" '^PUBLIC_ORIGIN=https://app.homayar.com$'
+  current_is "$S12"
+  want_up_count 1 # only the B8 up: R5 was skipped because R1 failed
+  # the restore never ran, so the database is still at the target head
+  db_is "$HEAD_REV"
 )
 
 # --- run all cases -------------------------------------------------------------
@@ -1192,7 +1257,9 @@ run_case c_already_done
 run_case c_side_image_missing
 run_case c_build_failed
 run_case c_p12_bad_present_images
+run_case c_p12_same_release_bad_images
 run_case c_rollback_step_failure
+run_case c_rollback_r1_fails
 
 printf '%d passed, %d failed\n' "$passed" "$failed"
 [[ "$failed" -eq 0 ]]

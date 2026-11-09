@@ -123,6 +123,14 @@ shielded() {  # only as `run shielded <cmd>`: the command and its children must
 
 now() { date +%s; }
 
+release_link_target() {  # the symlink target for a release folder: relative
+  # (releases/<name>, like B5 and the runbook) when it is under $H, else absolute
+  case "$1" in
+    "$H"/*) printf '%s' "${1#"$H"/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 random_tag() { od -An -N6 -tx1 /dev/urandom | tr -d ' \n'; }
 
 # The build identity is read with a real parser (python) inside the api image or
@@ -670,6 +678,9 @@ preflight() {
     elif [[ -n "$SIDE" ]]; then
       record P P12 FAIL "the present side images fail V1/V2"
       refuse "--use-side-image: $API_TAG and $CW_TAG are present but fail V1/V2; load the correct side images first"
+    elif [[ "$S_R" == "$T_R" ]]; then
+      record P P12 FAIL "the running release equals the target and its images fail V1/V2"
+      refuse "current already points to the target ($T_R) and its images fail V1/V2; a rebuild would re-tag the live image, so decide by hand (rebuild or roll back without this script)"
     else
       P12_MODE=build
       record P P12 PASS "the present target images fail V1/V2; a rebuild is planned (the build re-tags)"
@@ -1041,14 +1052,17 @@ manual_steps() {
   if [[ -n "$BACKUP" && -f "$BACKUP/settings.env" ]]; then
     say "  2. cp -p $BACKUP/settings.env $SETTINGS && chmod 600 $SETTINGS"
   fi
-  say "  3. ln -sfn $S_R $H/.current.manual && mv -T $H/.current.manual $H/current"
+  say "  3. ln -sfn $(release_link_target "$S_R") $H/.current.manual && mv -T $H/.current.manual $H/current"
   say "  4. $H/hc up -d --no-build --pull never"
   say "  5. the health checks of docs/operations/app-server.md (local /healthz and /readyz)"
 }
 
-rollback() {  # R1 to R5, each attempted, each logged; exit 1 when all pass, 3 when
-  # any failed (then the manual steps are printed)
-  local rb_r rb_fail=0 v
+rollback() {  # R1 to R5 with the gating of Addendum A3: R2 (the database
+  # restore) only after R1 (the stop) succeeded; R3 and R4 always (they are
+  # file operations); R5 (start the start release) only when R1 succeeded and
+  # R2 succeeded or was not needed. Exit 1 only when every needed step passed;
+  # otherwise exit 3 with the manual steps.
+  local rb_r rb_fail=0 r1_ok=0 r2_needed=0 r2_ok=0 v
   trap '' INT TERM
   say "ROLLBACK because: $1"
   rb_r="$(readlink -f "$H/current" 2>/dev/null || true)"
@@ -1056,6 +1070,7 @@ rollback() {  # R1 to R5, each attempted, each logged; exit 1 when all pass, 3 w
 
   say "R1: stopping the writers on $rb_r"
   if run dc "$T_UP" "$rb_r" stop api worker scheduler; then
+    r1_ok=1
     record rollback R1 PASS "compose stop api worker scheduler ran"
   else
     record rollback R1 FAIL "compose stop api worker scheduler failed"
@@ -1063,8 +1078,11 @@ rollback() {  # R1 to R5, each attempted, each logged; exit 1 when all pass, 3 w
   fi
 
   if [[ -n "$MIGRATE_STARTED" ]]; then
-    say "R2: restoring the database from $BACKUP/db.dump"
-    if [[ ! -s "$BACKUP/db.dump" ]]; then
+    r2_needed=1
+    if [[ "$r1_ok" != 1 ]]; then
+      record rollback R2 SKIPPED "R1 failed"
+      rb_fail=1
+    elif [[ ! -s "$BACKUP/db.dump" ]]; then
       record rollback R2 FAIL "no usable dump in $BACKUP"
       rb_fail=1
     elif ! run dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
@@ -1078,6 +1096,7 @@ rollback() {  # R1 to R5, each attempted, each logged; exit 1 when all pass, 3 w
     else
       v="$(db_version "$rb_r")" || v=""
       if [[ "$v" == "$DB_START_VERSION" ]]; then
+        r2_ok=1
         record rollback R2 PASS "the database is back at $DB_START_VERSION"
       else
         record rollback R2 FAIL "the database is at '$v', expected $DB_START_VERSION"
@@ -1085,7 +1104,7 @@ rollback() {  # R1 to R5, each attempted, each logged; exit 1 when all pass, 3 w
       fi
     fi
   else
-    record rollback R2 PASS "skipped: the migration never started"
+    record rollback R2 PASS "not needed: the migration never started"
   fi
 
   if [[ -n "$BACKUP" && -f "$BACKUP/settings.env" ]]; then
@@ -1101,13 +1120,13 @@ rollback() {  # R1 to R5, each attempted, each logged; exit 1 when all pass, 3 w
       rb_fail=1
     fi
   else
-    record rollback R3 PASS "skipped: no settings backup (nothing was written)"
+    record rollback R3 PASS "not needed: no settings backup (nothing was written)"
   fi
 
   say "R4: current must point back to $S_R"
   if [[ "$(readlink -f "$H/current" 2>/dev/null || true)" == "$S_R" ]]; then
     record rollback R4 PASS "current already points to $S_R"
-  elif ln -sfn "$S_R" "$H/.current.$TS.back" && mv -T "$H/.current.$TS.back" "$H/current"; then
+  elif ln -sfn "$(release_link_target "$S_R")" "$H/.current.$TS.back" && mv -T "$H/.current.$TS.back" "$H/current"; then
     record rollback R4 PASS "current switched back to $S_R"
   else
     rm -f "$H/.current.$TS.back"
@@ -1115,24 +1134,32 @@ rollback() {  # R1 to R5, each attempted, each logged; exit 1 when all pass, 3 w
     rb_fail=1
   fi
 
-  say "R5: up -d --no-build --pull never (start release), then C1 to C3 on it"
-  if ! run shielded dc "$T_UP" "$S_R" up -d --no-build --pull never; then
-    record rollback R5 FAIL "compose up of the start release failed"
-    rb_fail=1
-  elif ! wait_healthy "$S_R" ROLLBACK_DOWNTIME; then
-    record rollback R5 FAIL "the start release did not become healthy within $WAIT_SECONDS s"
-    rb_fail=1
-  elif ! c1_images rollback "$S_R" "$API_S_ID" "$CW_S_ID"; then
-    record rollback R5 FAIL "the start images do not run"
-    rb_fail=1
-  elif [[ "$(http_code 10 "$TMP/body" -H "$HOST_HEADER" "$PROXY/healthz")" != 200 ]]; then
-    record rollback R5 FAIL "local /healthz is not 200"
-    rb_fail=1
-  elif [[ "$(http_code 10 "$TMP/body" -H "$HOST_HEADER" "$PROXY/readyz")" != 200 ]]; then
-    record rollback R5 FAIL "local /readyz is not 200"
+  if [[ "$r1_ok" == 1 && ( "$r2_needed" != 1 || "$r2_ok" == 1 ) ]]; then
+    say "R5: up -d --no-build --pull never (start release), then C1 to C3 on it"
+    if ! run shielded dc "$T_UP" "$S_R" up -d --no-build --pull never; then
+      record rollback R5 FAIL "compose up of the start release failed"
+      rb_fail=1
+    elif ! wait_healthy "$S_R" ROLLBACK_DOWNTIME; then
+      record rollback R5 FAIL "the start release did not become healthy within $WAIT_SECONDS s"
+      rb_fail=1
+    elif ! c1_images rollback "$S_R" "$API_S_ID" "$CW_S_ID"; then
+      record rollback R5 FAIL "the start images do not run"
+      rb_fail=1
+    elif [[ "$(http_code 10 "$TMP/body" -H "$HOST_HEADER" "$PROXY/healthz")" != 200 ]]; then
+      record rollback R5 FAIL "local /healthz is not 200"
+      rb_fail=1
+    elif [[ "$(http_code 10 "$TMP/body" -H "$HOST_HEADER" "$PROXY/readyz")" != 200 ]]; then
+      record rollback R5 FAIL "local /readyz is not 200"
+      rb_fail=1
+    else
+      record rollback R5 PASS "start release up, healthy, C1 to C3 pass"
+    fi
+  elif [[ "$r1_ok" != 1 ]]; then
+    record rollback R5 SKIPPED "R1 failed; run the manual steps (they start with the stop)"
     rb_fail=1
   else
-    record rollback R5 PASS "start release up, healthy, C1 to C3 pass"
+    record rollback R5 SKIPPED "the database is not restored; the writers stay stopped"
+    rb_fail=1
   fi
 
   if [[ "$rb_fail" == 0 ]]; then
