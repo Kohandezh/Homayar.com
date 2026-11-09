@@ -40,6 +40,14 @@ used, unless that reading holds a reading of another class (it then reads
 across two identifiers, like ``0012345679 0912`` read as one ``00`` number).
 This reading also redacts some numbers that are not identifiers, such as a
 long code or a price list that happens to split into a card and an ID.
+Long price lists of 36 to 60 digits stay over-redacted on purpose, as the
+accepted cost of HOM-291 (HOM-296, owner ruling 2026-11-09): on the HOM-321
+gate corpus (seed 321, 20000 rows), 22.1% of them got a span on text-pii/8
+against 19.0% on the pre-HOM-291 text-pii/4.  Every rule tried that lowers
+this lost real identifiers: a split that must hold a piece in a usual written
+form lost 122 planted identifiers on 2000 rows, among them a card written as
+four groups of four, and one subject-export match; the mildest rule, cards in
+a split of 16 digits only, still lost 6 and stayed at 21.8%.
 For readings of different classes that overlap where no set of them covers
 every letter and digit, the whole overlap is redacted as one span with one
 placeholder and the value of its best reading (for example a phone glued to
