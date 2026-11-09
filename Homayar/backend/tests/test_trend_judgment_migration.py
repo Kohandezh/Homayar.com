@@ -59,7 +59,7 @@ from backend.tests.test_ingestion_ledger import _tenant
 
 NEW_REVISION = "f2c6a8e4b1d7"
 BASE_REVISION = "6d4ec2d2e498"  # HOM-58: conversation columns on meetings
-HEAD_REVISION = "a651110b03c3"  # HOM-74: review decisions, after HOM-73
+HEAD_REVISION = "02f616cbb655"  # HOM-75: calibration batches, after HOM-74
 TABLE = "trend_extraction_judgments"
 VERSION = "judgment/schema-test"
 KEY = "c0" * 32  # a content key: 64 hex (WU2 computes the real one)
