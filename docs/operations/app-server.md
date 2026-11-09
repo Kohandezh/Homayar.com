@@ -117,7 +117,9 @@ No other nginx, fail2ban or certbot file changes.
 
 ## Settings
 
-`config/settings.env` (measured, the live file):
+`config/settings.env`. The dotenv block below is the part of the live file that
+was measured on 2026-11-09. Two planned lines are not in it yet; see the notes
+under the block.
 
 ```dotenv
 APP_ENVIRONMENT=production
@@ -138,9 +140,18 @@ NGINX_IMAGE=nginx:1.30-alpine-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5
 LOG_LEVEL=INFO
 # Off until the owner decides (homlead, 2026-10-29). New sign-ups get no demo allowance.
 ENABLE_FREE_DEMO=false
-# Closed by the owner decision of 2026-10-29 (HOM-336). Only invited people can join.
-REGISTRATION_ENABLED=false
 ```
+
+Not measured because it is not in the live file yet (checked 2026-11-09):
+
+- `REGISTRATION_ENABLED=false` (HOM-336, the owner decision of 2026-10-29).
+  The release update script (HOM-358) appends it. Until that update runs, the
+  Compose default `true` applies, so sign-up is open.
+- `PUBLIC_ORIGIN=https://app.homayar.com:8080` and
+  `CORS_ORIGINS=https://app.homayar.com:8080` (HOM-374, ADR 0055). The same
+  update sets both. Until then both hold the port 443 origin shown above.
+  The nginx half of that change is an owner sudo step ("Changes for
+  production").
 
 - Why `127.0.0.1` is in `TRUSTED_HOSTS`: the api health check calls the API by that address.
   Without it, the api never becomes healthy and the proxy never starts. Through the relay a
@@ -448,37 +459,131 @@ Database roles after this:
 
 ## Update to a New Commit
 
-What it interrupts: the console and the API for about 30 to 60 seconds while api and proxy are
-recreated. Running jobs get 2 minutes to finish. The Padyar sites are not touched. An image build
-uses up to 4 CPUs and 3 GiB.
+Use the reviewed script `infra/scripts/app-server-release.sh` (HOM-358). It
+checks everything first, builds or accepts the two images, stops the writers,
+dumps the database and proves the dump restores, writes the settings plan,
+switches `current`, migrates, runs the trend backfill, starts the stack and
+runs the after-checks. Any failure after the stop starts the rollback, which
+undoes the change by itself; only when the stop or the database restore itself
+fails does it leave the app stopped, print the manual steps and exit 3.
+Nobody runs the steps by hand.
 
-1. On the admin Mac, send the new source as in "First Start", step 1, but only create the new
-   `releases/$S12` folder and do not switch `current` yet. Keep the old release folder.
-2. Images: build both with the new tag (step 4, on the server), or re-tag if no image input
-   changed. The inputs are `Homayar/`, `infra/docker/` and `infra/nginx/console.conf` (the `COPY`
-   lines of the two Dockerfiles). On the admin Mac, in the repository checkout, run
-   `git diff --name-only <old sha> <new sha> -- Homayar infra/docker infra/nginx/console.conf`.
-   If it prints nothing, run on the server, as `gpu`:
-   `docker tag homayar/api:<old sha12> homayar/api:<new sha12>`, and the same for
-   `homayar/console-web`. Check `docker images 'homayar/*'` on the server.
-3. Read the release notes and `deployment.md`, "Upgrade and Rollback" (migration rules, backups).
-4. Switch: `ln -sfn releases/$S12 ~/homayar/current`, then `~/homayar/hc config --quiet`.
-5. If the commit has a migration: `~/homayar/hc stop worker scheduler`, then
-   `~/homayar/hc --profile migrate run --rm -T migrate`.
-6. `~/homayar/hc up -d --no-build --pull never`, then the health checks.
+What it interrupts: the console and the API for the whole change window.
+Expected downtime is about 3 to 5 minutes (an estimate until first measured:
+from the stop of the writers until `/readyz` answers 200 again; the database is
+15 MB). The Padyar sites are not touched. An image build uses up to 4 CPUs and
+3 GiB.
 
-- The `readlink -f` in `hc` gives each release its own mount paths, so the proxy is recreated with
-  the new nginx files.
-- Measured: the two config-only updates on 2026-10-29 (`07e4fde`, `019a906`) used steps 1, 2
-  (re-tag), 4 and 6. Step 5 has not run on this server yet.
+1. On the admin Mac, in a checkout of the release commit, stage the new
+   release folder (like "First Start", step 1, but do not switch `current`),
+   add `build-args.txt`, and copy the script to the operator folder:
+
+   ```bash
+   SHA=<commit>; S12=${SHA:0:12}
+   ssh homayar-local "install -d -m 755 ~/homayar/releases/$S12"
+   git archive --format=tar "$SHA" | ssh homayar-local "tar -x -C ~/homayar/releases/$S12 && echo $SHA > ~/homayar/releases/$S12/SOURCE_SHA"
+   python3 infra/release/release_manifest.py build-args --rev "$SHA" | ssh homayar-local "cat > ~/homayar/releases/$S12/build-args.txt"
+   scp infra/scripts/app-server-release.sh homayar-local:~/homayar/ops/
+   ```
+
+2. Preflight, read-only, changes nothing:
+
+   ```bash
+   ssh homayar-local "bash ~/homayar/ops/app-server-release.sh --check --release $SHA </dev/null"
+   ```
+
+3. Tell the owner the downtime window (the console and the API stop answering
+   for some minutes).
+4. Apply, detached, so a dropped SSH line cannot stop the run:
+
+   ```bash
+   ssh homayar-local "setsid nohup bash ~/homayar/ops/app-server-release.sh --apply --release $SHA </dev/null >~/homayar/ops/release-$S12.out 2>&1 &"
+   ```
+
+5. Read the result: `cat ~/homayar/ops/release-$S12-status` (one line,
+   `EXIT <code> <ts> apply`), the `.out` file, and the newest
+   `~/homayar/ops/release-$S12-*.log`. Exit codes: 0 done or already done;
+   1 rolled back; 2 refused, or preflight or build failed (nothing live
+   changed); 3 rollback failed (the script prints the exact manual steps);
+   4 applied and the local checks pass, but the public check is worse than
+   the baseline (decide by hand).
+
+Notes:
+
+- The script also writes the settings plan of "Settings"
+  (`REGISTRATION_ENABLED=false` and both origins on port 8080) and proves the
+  backup restores before it changes anything live.
+- When the server build fails on the slow link (apt or PyPI, HOM-377), build
+  the images on GitHub instead: dispatch `.github/workflows/release-images.yml`
+  with `$SHA`, download the artifact `release-images-$S12`, check
+  `SHA256SUMS`, `docker load` both images, then run the script with
+  `--use-side-image`. Details in [`release.md`](release.md), "Fallback".
+- The HOM-340 host nginx recording location is NOT part of the update. It
+  stays a separate owner sudo step (HOM-366): add the location to the site
+  block above, run `nginx -t`, then a graceful reload. Leaving it out is safe;
+  it only spends host disk on slow downloads.
+
+### The trend backfill step (HOM-290)
+
+Right after the migration, `--apply` runs:
+
+```bash
+~/homayar/hc run --rm -T --no-deps api python -m backend.services.trend_judgment_store backfill
+```
+
+It fills the trend judgment store for meetings that have no stored judgments
+yet (HOM-290). It prints one JSON line of counts, which the script shows and
+keeps in the result block. It is idempotent: a rerun finds nothing new to
+write. To rerun it by hand, use the same command. A failure or a missing JSON
+line during the update makes the script roll back.
+
+### Manual update (appendix, emergencies only)
+
+Only when the script itself cannot run, and homlead agrees. As `gpu`, with
+both target images already built or loaded:
+
+1. `ln -sfn releases/$S12 ~/homayar/current`
+2. `~/homayar/hc stop api worker scheduler`
+3. `~/homayar/hc --profile migrate run --rm -T migrate`
+4. `~/homayar/hc up -d --no-build --pull never`, then the health checks.
+
+This path takes no backup and proves nothing; that is why the script exists.
 
 ## Rollback
 
-1. `ln -sfn releases/<old sha12> ~/homayar/current`
-2. `~/homayar/hc up -d --no-build --pull never`, then the health checks.
+The update script (HOM-358) rolls back by itself: when any check fails after
+it stopped the writers, it restores the database from the backup dump,
+restores `config/settings.env`, switches `current` back and restarts the stack
+on the start images. It logs every step and exits 1 (rolled back) or 3
+(rollback failed, with the exact commands to run by hand). If the stop or the
+database restore itself fails, the script does not restart the app: the
+writers stay stopped, the exit is 3, and the operator runs the printed steps
+(stop first, then the restore, then up). The backup folder
+`~/homayar/backups/release-<sha12>-<ts>/` and the new images always stay; the
+script never deletes them.
 
-Never downgrade the database. A migration that is not backward-compatible needs its own plan
-(`deployment.md`, "Upgrade and Rollback"). Not run on this server yet.
+Manual rollback, by hand (the exit 3 commands, or an owner decision after an
+exit 4). Stop the writers first, so the app cannot write into the database
+while it is being restored:
+
+```bash
+# 0. stop the writers
+~/homayar/hc stop api worker scheduler
+# 1. restore the database from the backup dump (only when the migration had
+#    started; never downgrade with alembic, restore the dump)
+cat ~/homayar/backups/release-<sha12>-<ts>/db.dump | \
+  ~/homayar/hc exec -T postgres sh -c 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB"; createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"; pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# 2. restore the settings file
+cp -p ~/homayar/backups/release-<sha12>-<ts>/settings.env ~/homayar/config/settings.env && chmod 600 ~/homayar/config/settings.env
+# 3. switch current back
+ln -sfn releases/<old sha12> ~/homayar/current
+# 4. start the stack again
+~/homayar/hc up -d --no-build --pull never
+```
+
+Then run the health checks. Never downgrade the database with alembic;
+restore the dump. A migration that is not backward-compatible needs its own
+plan (`deployment.md`, "Upgrade and Rollback").
 
 ## Restart and Stop
 
@@ -709,6 +814,10 @@ organization. It is closed now: see "Sign-up (Closed)" below.
 refuses `POST /api/v1/auth/register` with `403 registration_closed`, and phone OTP and Google
 never create a new account. Everything an existing account needs still works: login, sessions,
 password reset, e-mail verification, workspace invitations.
+
+Measured on 2026-11-09: the line is not in the live `config/settings.env` yet, so sign-up
+currently answers as open. The release update script (HOM-358) appends the line; after that
+update the text above is the live state.
 
 An invited person still joins:
 

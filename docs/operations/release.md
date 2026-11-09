@@ -132,31 +132,45 @@ uv sync failed after 3 attempts
 `docker build` then exits non-zero. Wait for a better network window and build again, or
 use the fallback below.
 
-### Fallback: build on a GitHub runner and load the image on the server (HOM-349)
+### Fallback: build on a GitHub runner and load the images on the server (HOM-349, HOM-358)
 
-HOM-349 used this path when the server build still timed out (Linear comment on HOM-349,
-2026-10-30):
+When the server build keeps failing on the slow link (HOM-349 for PyPI, HOM-377
+for the apt step), use the workflow `.github/workflows/release-images.yml`
+instead of a temporary branch:
 
-1. Push a temporary branch that holds the release commit. Add a build-only workflow to it
-   if needed. The branch runs its own `ci.yml`: start it with
-   `gh workflow run ci.yml --ref <branch>`.
-2. In that workflow, build the image with the release build args (`build-args.txt`), then
-   run `docker save <image> | gzip` and upload the file as a workflow artifact with a
-   1-day retention. (The HOM-349 image was 261 MB.)
-3. Download the artifact on the admin Mac with a resumable download: a `curl` loop with
-   `--continue-at -`. Check the file's sha256.
-4. Load it on the server: feed the file to `ssh homayar-local docker load` on stdin. Then
-   check the image: the Python version, the Debian floor packages, the base pin, and
-   `/app/build-info.json` against the release manifest.
-5. Run the reviewed release script on the server with its side-image option. HOM-349 used
-   `--apply --use-side-image`. The script is a per-release reviewed script on the server,
-   not a file in this repository.
-6. Delete the temporary branch right after the download. The secret scan (gitleaks) checks
-   every remote branch, so the branch must not stay.
+1. Dispatch the workflow from the Actions tab ("Release images", Run workflow)
+   with the full 40-hex commit of the release as the `ref` input. The first
+   step refuses anything that is not 40 lowercase hex characters. The workflow
+   needs no secrets: it checks out the commit with full history, generates
+   `build-args.txt` with `release_manifest.py build-args`, builds
+   `homayar/api:<sha12>` with exactly those build args and
+   `homayar/console-web:<sha12>` with the same args the rollout script uses
+   (`VITE_API_URL=/api/v1`, `VITE_BASE_PATH=/app/`, the revision label),
+   verifies the api image against a generated manifest like the CI job does,
+   saves both images with `docker save | gzip -1`, writes `SHA256SUMS`, and
+   uploads everything as ONE artifact `release-images-<sha12>` with a 1-day
+   retention.
+2. Download the artifact on the admin Mac, for example
+   `gh run download <run id> -n release-images-<sha12>`, or with a resumable
+   loop: `while ! curl --continue-at - -L -o <file> <url>; do sleep 5; done`.
+3. Check the download: `sha256sum -c SHA256SUMS`.
+4. Load both images on the server and run the release update in side-image
+   mode:
 
-Note: the server Docker uses the containerd image store. A loaded image's ID is the
-manifest digest, not the config digest the runner printed. Compare `/app/build-info.json`,
-not the image ID.
+   ```bash
+   gunzip -c homayar-api-<sha12>.tar.gz | ssh homayar-local docker load
+   gunzip -c homayar-console-web-<sha12>.tar.gz | ssh homayar-local docker load
+   ssh homayar-local "bash ~/homayar/ops/app-server-release.sh --check --use-side-image --release <sha40> </dev/null"
+   ssh homayar-local "setsid nohup bash ~/homayar/ops/app-server-release.sh --apply --use-side-image --release <sha40> </dev/null >~/homayar/ops/release-<sha12>.out 2>&1 &"
+   ```
+
+   (`app-server-release.sh` is the HOM-358 rollout script in this repository;
+   the runbook stages it on the server in `~/homayar/ops/`.)
+
+Note: the server Docker uses the containerd image store. A loaded image's ID is
+the manifest digest, not the config digest the runner printed. The script
+therefore checks `/app/build-info.json` and the revision labels (V1, V2, C4),
+never the image ID across machines.
 
 ## Read the identity of a running backend
 

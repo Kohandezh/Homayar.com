@@ -693,6 +693,8 @@ jobs:
           infra/ci/minio-contract-target.sh
           infra/ci/security-scan.sh
           infra/ci/tests/test-check-source-contract.sh
+          infra/ci/tests/test-app-server-release.sh
+          infra/scripts/app-server-release.sh
           infra/scripts/backup-postgres.sh
           infra/scripts/restore-postgres.sh
           infra/scripts/backup-minio.sh
@@ -700,6 +702,9 @@ jobs:
           infra/scripts/lib/compose.sh
           infra/egress/entrypoint.sh
           infra/egress/tests/test-egress-network.sh
+
+      - name: Selftest the app-server release script
+        run: bash infra/ci/tests/test-app-server-release.sh
 
       - name: Lint Dockerfile templates
         run: >-
