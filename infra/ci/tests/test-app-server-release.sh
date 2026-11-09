@@ -63,6 +63,10 @@ make_release() { # make_release <dir> <sha40> <rev> [more revs, in chain order]
     if [[ "$down" == "None" ]]; then
       printf '"""test"""\nrevision: str = "%s"\ndown_revision: Union[str, None] = None\n' "$rev" \
         >"$dir/Homayar/backend/migrations/versions/$(printf '%04d' "$i")_${rev}.py"
+    elif [[ "$i" == 2 ]]; then
+      # single-quoted style: 10 of the 44 real migration files use it (review F2)
+      printf "'''test'''\nrevision: str = '%s'\ndown_revision: str | Sequence[str] | None = '%s'\n" "$rev" "$down" \
+        >"$dir/Homayar/backend/migrations/versions/$(printf '%04d' "$i")_${rev}.py"
     else
       printf '"""test"""\nrevision: str = "%s"\ndown_revision: Union[str, None] = "%s"\n' "$rev" "$down" \
         >"$dir/Homayar/backend/migrations/versions/$(printf '%04d' "$i")_${rev}.py"
@@ -309,8 +313,8 @@ head_of_cwd() { # the head revision of the migrations in the current folder
   : >"$S/.h2"
   for f in Homayar/backend/migrations/versions/*.py; do
     [[ -e "$f" ]] || continue
-    rev="$(sed -n 's/^[[:space:]]*revision[[:space:]]*\(:[^=]*\)\?[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\2/p' "$f" | head -n 1)"
-    down="$(sed -n 's/^[[:space:]]*down_revision[[:space:]]*\(:[^=]*\)\?[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\2/p' "$f" | head -n 1)"
+    rev="$(sed -n 's/^[[:space:]]*revision[[:space:]]*\(:[^=]*\)\{0,1\}[[:space:]]*=[[:space:]]*\(["'"'"']\)\([^"'"'"']*\)\2.*/\3/p' "$f" | head -n 1)"
+    down="$(sed -n 's/^[[:space:]]*down_revision[[:space:]]*\(:[^=]*\)\{0,1\}[[:space:]]*=[[:space:]]*\(["'"'"']\)\([^"'"'"']*\)\2.*/\3/p' "$f" | head -n 1)"
     [[ -n "$rev" ]] || continue
     printf '%s\n' "$rev" >>"$S/.h1"
     printf '%s\n' "${down:-ROOT}" >>"$S/.h2"
@@ -495,6 +499,15 @@ case "$cmd" in
         svc="$1"; shift
         if [[ "${1:-}" == sh && "${2:-}" == -c ]]; then
           payload="$3"
+          # F1 guard: a psql call without -U (or without -d for the app
+          # database) would connect as role root on the real server and fail.
+          # The stub refuses it, so a regression cannot pass the selftest.
+          if [[ "$payload" == *psql* ]] &&
+            { [[ "$payload" != *'-U "$POSTGRES_USER"'* ]] || [[ "$payload" != *'-d '* ]]; }; then
+            log "compose:exec:$svc:psql-rejected"
+            echo "psql stub: -U and -d are required (got: $payload)" >&2
+            exit 1
+          fi
           case "$payload" in
             *observability.release*)
               # C4: sh -c payload <code> <expected sha> <expected head>
@@ -576,6 +589,10 @@ case "$cmd" in
               ;;
             *pg_restore*)
               log "compose:exec:$svc:pg_restore-live"
+              if [[ -e "$S/fail-live-restore" ]]; then
+                echo "pg_restore failed (injected)" >&2
+                exit 1
+              fi
               cat >/dev/null
               echo "$(state dump-version)" >"$S/db-version"
               exit 0
@@ -758,17 +775,25 @@ db_is() {
   }
 }
 current_is() {
-  [[ "$(readlink "$HOME_F/current")" == "releases/$1" ]] || {
-    detail "current points to $(readlink "$HOME_F/current"), want releases/$1"
+  local got
+  got="$(readlink -f "$HOME_F/current")"
+  [[ "$got" == "$HOME_F/releases/$1" ]] || {
+    detail "current points to $got, want $HOME_F/releases/$1"
     exit 1
   }
 }
 
 passed=0
 failed=0
-run_case() { # run_case <case function>: one PASS or FAIL line per case
+run_case() { # run_case <case function>: one PASS or FAIL line per case.
+  # The secret-marker check runs after every case (SPEC 6, review F9).
   local name="${1#c_}"
-  if ("$1"); then
+  if (
+    rc=0
+    "$1" || rc=1
+    want_no_secret || rc=1
+    exit "$rc"
+  ); then
     passed=$((passed + 1))
     printf 'PASS %s\n' "$name"
   else
@@ -1106,6 +1131,37 @@ c_build_failed() (
   want_no_secret
 )
 
+c_p12_bad_present_images() (
+  prepare
+  # both target images present, but the api one fails V1 (wrong build-info sha)
+  add_image "homayar/api:$T12" "sha256:5555555555555555555555555555555555555555555555555555555555555555" \
+    "$SHA_T" "ffffffffffffffffffffffffffffffffffffffff" "$HEAD_REV" ""
+  add_image "homayar/console-web:$T12" "sha256:6666666666666666666666666666666666666666666666666666666666666666" \
+    "$SHA_T" "" "" "1"
+  run_script --check --release "$SHA_T"
+  want_rc 0
+  want_out "rebuild is planned"
+  # with the side-image flag the same state must refuse
+  run_script --check --use-side-image --release "$SHA_T"
+  want_rc 2
+  want_out "V1/V2"
+)
+
+c_rollback_step_failure() (
+  prepare
+  # the after-checks fail (fail-c5) and the database restore in R2 fails:
+  # every rollback step must still run, and the exit must be 3
+  touch "$state/fail-c5" "$state/fail-live-restore"
+  run_script --apply --release "$SHA_T"
+  want_rc 3
+  want_out "by hand"
+  calls_has "compose:stop"
+  calls_has "pg_restore-live"
+  calls_has "compose:up"
+  file_has "$HOME_F/config/settings.env" '^PUBLIC_ORIGIN=https://app.homayar.com$'
+  current_is "$S12"
+)
+
 # --- run all cases -------------------------------------------------------------
 
 run_case c_usage_no_mode
@@ -1135,6 +1191,8 @@ run_case c_public_check_worse
 run_case c_already_done
 run_case c_side_image_missing
 run_case c_build_failed
+run_case c_p12_bad_present_images
+run_case c_rollback_step_failure
 
 printf '%d passed, %d failed\n' "$passed" "$failed"
 [[ "$failed" -eq 0 ]]

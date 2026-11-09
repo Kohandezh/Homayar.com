@@ -65,11 +65,11 @@ S_R="" S_S12="" T_R="" T_S12=""
 DB_START_VERSION="" DB_AFTER=""
 T_HEAD=""
 API_TAG="" CW_TAG="" API_T_ID="" CW_T_ID="" API_S_ID="" CW_S_ID=""
-REG_STATE="" PO_OLD="" CO_OLD="" PO_NEW="" CO_NEW="" PLAN_UNCHANGED=0
+REG_STATE="" REG_OLD="" PO_OLD="" CO_OLD="" PO_NEW="" CO_NEW="" PLAN_UNCHANGED=0
 SETTINGS_ARG="" BACKUP="" BUILD_LOG="" MIGRATE_STARTED=""
 DOWNTIME="(not measured)" DOWNTIME_START=0
 BACKFILL_LINE="(not run)"
-C9_BASE_OK="" C9_BASE_H="" C9_BASE_A="" C9_ATTENTION=""
+C9_BASE_H="" C9_BASE_A="" C9_ATTENTION=""
 ALREADY="" P12_MODE=""
 RESULTS=()
 
@@ -78,6 +78,12 @@ RESULTS=()
 say() {  # a line to the log file first, then to stdout; a dead stdout is ignored
   if [[ -n "$LOG" ]]; then printf '%s\n' "$*" >>"$LOG" || true; fi
   printf '%s\n' "$*" 2>/dev/null || true
+}
+
+say_err() {  # like say, but never to stdout: for functions whose stdout is
+  # captured with $( ); diagnostics there would become the captured value
+  if [[ -n "$LOG" ]]; then printf '%s\n' "$*" >>"$LOG" || true; fi
+  printf '%s\n' "$*" >&2 2>/dev/null || true
 }
 
 show() {  # show captured output: indented, long hex strings hidden (20 or more,
@@ -261,8 +267,11 @@ log_address() {  # the remote_addr of the proxy log line for this uri, empty if 
 
 # --- the migration head of a release folder ---------------------------------------
 
-revision_of() {  # revision_of <file> <which>: the revision or down_revision literal
-  sed -n "s/^[[:space:]]*$2[[:space:]]*\\(:[^=]*\\)\\{0,1\\}[[:space:]]*=[[:space:]]*\"\\([^\"]*\\)\".*/\\2/p" "$1" | head -n 1
+revision_of() {  # revision_of <file> <which>: the revision or down_revision literal.
+  # Accepts both quote styles the real migrations use ("x" and 'x'); the id
+  # must not contain a quote. Tuples (merge migrations) would not match; there
+  # are none on main today.
+  sed -n "s/^[[:space:]]*$2[[:space:]]*\\(:[^=]*\\)\\{0,1\\}[[:space:]]*=[[:space:]]*\\([\"']\\)\\([^\"']*\\)\\2.*/\\3/p" "$1" | head -n 1
 }
 
 compute_head() {  # compute_head <release-folder>: 0 ok; sets T_HEAD; prints why not
@@ -333,6 +342,13 @@ plan_settings() {  # 0 ok; sets REG_STATE PO_OLD CO_OLD PO_NEW CO_NEW PLAN_UNCHA
   else
     REG_STATE=append
   fi
+  # the old value is saved here: after B4 writes the plan, the live file can
+  # no longer answer what it was
+  if [[ "$REG_STATE" == append ]]; then
+    REG_OLD="(absent)"
+  else
+    REG_OLD="$(sed -n 's/^REGISTRATION_ENABLED=//p' "$SETTINGS")"
+  fi
   if [[ "$REG_STATE" == unchanged && "$PO_NEW" == "$PO_OLD" && "$CO_NEW" == "$CO_OLD" ]]; then
     PLAN_UNCHANGED=1
   fi
@@ -346,8 +362,8 @@ show_plan() {
   fi
   if [[ "$REG_STATE" == append ]]; then
     say "  REGISTRATION_ENABLED: absent -> false"
-  elif [[ "$REG_STATE" == set ]]; then
-    say "  REGISTRATION_ENABLED: $(sed -n 's/^REGISTRATION_ENABLED=//p' "$SETTINGS") -> false"
+  elif [[ "$REG_STATE" == "set" ]]; then
+    say "  REGISTRATION_ENABLED: $REG_OLD -> false"
   else
     say "  REGISTRATION_ENABLED: unchanged"
   fi
@@ -398,14 +414,14 @@ record() {  # record <phase> <check> <result> <detail>
 }
 
 db_version() {  # db_version <release>: the alembic version row (verified: exactly one);
-  # prints only the value, so callers can capture it
-  cap dc "$T_CALL" "$1" exec -T postgres sh -c 'psql -Atc "select version_num from alembic_version"' || {
-    say "the alembic_version query failed"
+  # prints only the value, so callers can capture it (diagnostics to stderr)
+  cap dc "$T_CALL" "$1" exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select version_num from alembic_version"' || {
+    say_err "the alembic_version query failed"
     return 1
   }
   local rows
   rows="$(grep -c . <<<"$RUN_OUT" || true)"
-  [[ "$rows" == 1 ]] || { say "the alembic_version query returned $rows rows"; return 1; }
+  [[ "$rows" == 1 ]] || { say_err "the alembic_version query returned $rows rows"; return 1; }
   tail -n 1 <<<"$RUN_OUT"
 }
 
@@ -632,12 +648,16 @@ preflight() {
   apply_plan "$SETTINGS" >"$SETTINGS_TMP"
   chmod 600 "$SETTINGS_TMP"
   SETTINGS_ARG="$SETTINGS_TMP"
-  line=0
-  dc "$T_CALL" "$T_R" config --quiet </dev/null || line=$?
+  if ! run dc "$T_CALL" "$T_R" config --quiet; then
+    SETTINGS_ARG=""
+    rm -f -- "$SETTINGS_TMP"
+    SETTINGS_TMP=""
+    record P P11 FAIL "docker compose config --quiet failed"
+    refuse "the target compose config does not render"
+  fi
   SETTINGS_ARG=""
   rm -f -- "$SETTINGS_TMP"
   SETTINGS_TMP=""
-  [[ "$line" == 0 ]] || { record P P11 FAIL "docker compose config --quiet exited $line"; refuse "the target compose config does not render"; }
   record P P11 PASS "the target compose config renders with the planned settings"
 
   # P12: the images
@@ -647,9 +667,12 @@ preflight() {
     if verify_images; then
       P12_MODE=present
       record P P12 PASS "both target images are present and pass V1/V2 (a rerun; no build)"
+    elif [[ -n "$SIDE" ]]; then
+      record P P12 FAIL "the present side images fail V1/V2"
+      refuse "--use-side-image: $API_TAG and $CW_TAG are present but fail V1/V2; load the correct side images first"
     else
-      record P P12 FAIL "the present target images fail V1/V2"
-      refuse "the present target images fail V1/V2; they will not be rebuilt in this mode"
+      P12_MODE=build
+      record P P12 PASS "the present target images fail V1/V2; a rebuild is planned (the build re-tags)"
     fi
   else
     if [[ -n "$SIDE" ]]; then
@@ -664,10 +687,8 @@ preflight() {
   C9_BASE_H="$(http_w 15 '%{http_code} %{ssl_verify_result}' "$PUBLIC/healthz")"
   C9_BASE_A="$(http_w 15 '%{http_code} %{redirect_url}' "$PUBLIC/app")"
   if [[ "$C9_BASE_H" == "200 0" ]]; then
-    C9_BASE_OK=1
     record P P13 PASS "public /healthz '$C9_BASE_H', /app '$C9_BASE_A'"
   else
-    C9_BASE_OK=""
     record P P13 PASS "record only: public /healthz '$C9_BASE_H', /app '$C9_BASE_A'"
   fi
 
@@ -677,25 +698,33 @@ preflight() {
   fi
 }
 
-public_check() {  # C9: never a rollback reason; sets C9_ATTENTION when worse
-  local phase="$1" h a
+public_check() {  # C9: never a rollback reason; sets C9_ATTENTION when worse.
+  # /healthz and /app are judged separately, each against its own P13 baseline.
+  local phase="$1" h a h_ok a_ok detail=""
   h="$(http_w 15 '%{http_code} %{ssl_verify_result}' "$PUBLIC/healthz")"
   a="$(http_w 15 '%{http_code} %{redirect_url}' "$PUBLIC/app")"
-  if [[ "$h" == "200 0" && "$a" == "308 $PUBLIC_APP_TARGET" ]]; then
-    record "$phase" C9 PASS "public /healthz '$h', /app redirects to $PUBLIC_APP_TARGET"
+  if [[ "$h" == "200 0" ]]; then
+    h_ok=1
+  elif [[ "$C9_BASE_H" != "200 0" && "$h" == "$C9_BASE_H" ]]; then
+    h_ok=1  # same as an already broken baseline: not worse
+  else
+    h_ok=""
+    detail="public /healthz '$h' is worse than its baseline '$C9_BASE_H'"
+  fi
+  if [[ "$a" == "308 $PUBLIC_APP_TARGET" ]]; then
+    a_ok=1
+  elif [[ "$C9_BASE_A" != "308 $PUBLIC_APP_TARGET" && "$a" == "$C9_BASE_A" ]]; then
+    a_ok=1  # same as an already broken baseline: not worse
+  else
+    a_ok=""
+    detail="${detail:+$detail; }public /app '$a' is worse than its baseline '$C9_BASE_A'"
+  fi
+  if [[ -n "$h_ok" && -n "$a_ok" ]]; then
+    record "$phase" C9 PASS "public /healthz '$h', /app '$a' (each at least as good as its baseline)"
     return 0
   fi
-  if [[ -z "$C9_BASE_OK" ]]; then
-    if [[ "$h" == "$C9_BASE_H" && "$a" == "$C9_BASE_A" ]]; then
-      record "$phase" C9 PASS "same as the (already broken) baseline: /healthz '$h', /app '$a'"
-    else
-      record "$phase" C9 FAIL "public /healthz '$h', /app '$a'; the broken baseline was '$C9_BASE_H' / '$C9_BASE_A'"
-      C9_ATTENTION=1
-    fi
-  else
-    record "$phase" C9 FAIL "public /healthz '$h', /app '$a'; the baseline was '$C9_BASE_H' / '$C9_BASE_A'"
-    C9_ATTENTION=1
-  fi
+  record "$phase" C9 FAIL "$detail"
+  C9_ATTENTION=1
   return 0
 }
 
@@ -987,135 +1016,132 @@ phase_b() {
 }
 
 db_scratch_version() {
-  cap dc "$T_CALL" "$S_R" exec -T postgres sh -c 'psql -Atc "select version_num from alembic_version" -d homayar_restorecheck' || return 1
+  cap dc "$T_CALL" "$S_R" exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d homayar_restorecheck -Atc "select version_num from alembic_version"' || return 1
   tail -n 1 <<<"$RUN_OUT"
 }
 
 db_scratch_tables() {
-  cap dc "$T_CALL" "$S_R" exec -T postgres sh -c "psql -Atc \"select count(*) from pg_tables where schemaname = 'public'\" -d homayar_restorecheck" || return 1
+  cap dc "$T_CALL" "$S_R" exec -T postgres sh -c "psql -U \"\$POSTGRES_USER\" -d homayar_restorecheck -Atc \"select count(*) from pg_tables where schemaname = 'public'\"" || return 1
   tail -n 1 <<<"$RUN_OUT"
 }
 
 db_live_tables() {
-  cap dc "$T_CALL" "$S_R" exec -T postgres sh -c "psql -Atc \"select count(*) from pg_tables where schemaname = 'public'\"" || return 1
+  cap dc "$T_CALL" "$S_R" exec -T postgres sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Atc \"select count(*) from pg_tables where schemaname = 'public'\"" || return 1
   tail -n 1 <<<"$RUN_OUT"
 }
 
 # --- rollback -----------------------------------------------------------------------
 
 manual_steps() {
-  local rb_r
-  rb_r="$(readlink -f "$H/current" 2>/dev/null || true)"
-  say "Run these by hand, as gpu, and check each result:"
-  if [[ -n "$MIGRATE_STARTED" && -n "$BACKUP" ]]; then
-    say "  # restore the database from the backup (through the compose line of the"
-    say "  # release $rb_r):"
-    say "  $rb_r: compose exec -T postgres sh -c 'dropdb --force -U \"\$POSTGRES_USER\" \"\$POSTGRES_DB\"; createdb -U \"\$POSTGRES_USER\" -O \"\$POSTGRES_USER\" \"\$POSTGRES_DB\"'"
-    say "  $BACKUP/db.dump | compose exec -T postgres sh -c 'pg_restore --exit-on-error -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\"'"
+  say "Run these by hand, as gpu, in this order, and check each result:"
+  say "  0. $H/hc stop api worker scheduler"
+  if [[ -n "$MIGRATE_STARTED" && -n "$BACKUP" && -s "$BACKUP/db.dump" ]]; then
+    say "  1. cat $BACKUP/db.dump | $H/hc exec -T postgres sh -c 'dropdb --force -U \"\$POSTGRES_USER\" \"\$POSTGRES_DB\"; createdb -U \"\$POSTGRES_USER\" -O \"\$POSTGRES_USER\" \"\$POSTGRES_DB\"; pg_restore --exit-on-error -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\"'"
   fi
-  if [[ -n "$BACKUP" ]]; then
-    say "  cp -p $BACKUP/settings.env $SETTINGS && chmod 600 $SETTINGS"
+  if [[ -n "$BACKUP" && -f "$BACKUP/settings.env" ]]; then
+    say "  2. cp -p $BACKUP/settings.env $SETTINGS && chmod 600 $SETTINGS"
   fi
-  say "  ln -sfn $S_R $H/.current.manual && mv -T $H/.current.manual $H/current"
-  say "  cd $S_R && API_IMAGE=homayar/api:$S_S12 CONSOLE_WEB_IMAGE=homayar/console-web:$S_S12 \\"
-  say "    docker compose --env-file $SETTINGS --env-file $SECRETS_ENV \\"
-  say "    --file infra/compose/compose.onprem.yaml --file infra/compose/compose.onprem.app-server.yaml \\"
-  say "    --profile onprem up -d --no-build --pull never"
-  say "  then the health checks of docs/operations/app-server.md"
+  say "  3. ln -sfn $S_R $H/.current.manual && mv -T $H/.current.manual $H/current"
+  say "  4. $H/hc up -d --no-build --pull never"
+  say "  5. the health checks of docs/operations/app-server.md (local /healthz and /readyz)"
 }
 
-rollback() {
-  local rb_r status
+rollback() {  # R1 to R5, each attempted, each logged; exit 1 when all pass, 3 when
+  # any failed (then the manual steps are printed)
+  local rb_r rb_fail=0 v
   trap '' INT TERM
   say "ROLLBACK because: $1"
   rb_r="$(readlink -f "$H/current" 2>/dev/null || true)"
   [[ -n "$rb_r" ]] || rb_r="$S_R"
 
   say "R1: stopping the writers on $rb_r"
-  run dc "$T_UP" "$rb_r" stop api worker scheduler || true
+  if run dc "$T_UP" "$rb_r" stop api worker scheduler; then
+    record rollback R1 PASS "compose stop api worker scheduler ran"
+  else
+    record rollback R1 FAIL "compose stop api worker scheduler failed"
+    rb_fail=1
+  fi
 
   if [[ -n "$MIGRATE_STARTED" ]]; then
     say "R2: restoring the database from $BACKUP/db.dump"
     if [[ ! -s "$BACKUP/db.dump" ]]; then
-      say "ROLLBACK FAILED: no usable dump in $BACKUP"
-      manual_steps
-      finish 3
+      record rollback R2 FAIL "no usable dump in $BACKUP"
+      rb_fail=1
+    elif ! run dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
+      'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB"; createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"'; then
+      record rollback R2 FAIL "could not reset the database"
+      rb_fail=1
+    elif ! run_in "$BACKUP/db.dump" dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
+      'pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; then
+      record rollback R2 FAIL "pg_restore failed"
+      rb_fail=1
+    else
+      v="$(db_version "$rb_r")" || v=""
+      if [[ "$v" == "$DB_START_VERSION" ]]; then
+        record rollback R2 PASS "the database is back at $DB_START_VERSION"
+      else
+        record rollback R2 FAIL "the database is at '$v', expected $DB_START_VERSION"
+        rb_fail=1
+      fi
     fi
-    run dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
-      'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB"; createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"' || {
-      say "ROLLBACK FAILED: could not reset the database"
-      manual_steps
-      finish 3
-    }
-    run_in "$BACKUP/db.dump" dc "$T_RESTORE" "$rb_r" exec -T postgres sh -c \
-      'pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"' || {
-      say "ROLLBACK FAILED: pg_restore failed"
-      manual_steps
-      finish 3
-    }
-    status="$(db_version "$rb_r")" || status=""
-    if [[ "$status" != "$DB_START_VERSION" ]]; then
-      say "ROLLBACK FAILED: the database is at '$status', expected $DB_START_VERSION"
-      manual_steps
-      finish 3
-    fi
-    say "The database is back at $DB_START_VERSION"
+  else
+    record rollback R2 PASS "skipped: the migration never started"
   fi
 
   if [[ -n "$BACKUP" && -f "$BACKUP/settings.env" ]]; then
     say "R3: restoring $SETTINGS from the backup"
-    cp -p "$BACKUP/settings.env" "$H/config/.settings.restore.$$" &&
+    if cp -p "$BACKUP/settings.env" "$H/config/.settings.restore.$$" &&
       chmod 600 "$H/config/.settings.restore.$$" &&
-      mv -f "$H/config/.settings.restore.$$" "$SETTINGS" || {
-        rm -f "$H/config/.settings.restore.$$"
-        say "ROLLBACK FAILED: could not restore $SETTINGS"
-        manual_steps
-        finish 3
-      }
+      mv -f "$H/config/.settings.restore.$$" "$SETTINGS" &&
+      [[ "$(sha256sum "$SETTINGS" | awk '{ print $1 }')" == "$(sha256sum "$BACKUP/settings.env" | awk '{ print $1 }')" ]]; then
+      record rollback R3 PASS "$SETTINGS restored"
+    else
+      rm -f "$H/config/.settings.restore.$$"
+      record rollback R3 FAIL "could not restore $SETTINGS"
+      rb_fail=1
+    fi
+  else
+    record rollback R3 PASS "skipped: no settings backup (nothing was written)"
   fi
 
-  if [[ "$(readlink -f "$H/current" 2>/dev/null || true)" != "$S_R" ]]; then
-    say "R4: switching current back to $S_R"
-    ln -sfn "releases/$S_S12" "$H/.current.$TS.back" &&
-      mv -T "$H/.current.$TS.back" "$H/current" || {
-        rm -f "$H/.current.$TS.back"
-        say "ROLLBACK FAILED: could not switch current back"
-        manual_steps
-        finish 3
-      }
+  say "R4: current must point back to $S_R"
+  if [[ "$(readlink -f "$H/current" 2>/dev/null || true)" == "$S_R" ]]; then
+    record rollback R4 PASS "current already points to $S_R"
+  elif ln -sfn "$S_R" "$H/.current.$TS.back" && mv -T "$H/.current.$TS.back" "$H/current"; then
+    record rollback R4 PASS "current switched back to $S_R"
+  else
+    rm -f "$H/.current.$TS.back"
+    record rollback R4 FAIL "could not switch current back"
+    rb_fail=1
   fi
 
-  say "R5: up -d --no-build --pull never (start release)"
-  run shielded dc "$T_UP" "$S_R" up -d --no-build --pull never || {
-    say "ROLLBACK FAILED: compose up of the start release failed"
-    manual_steps
-    finish 3
-  }
-  if ! wait_healthy "$S_R" ROLLBACK_DOWNTIME; then
-    say "ROLLBACK FAILED: the start release did not become healthy"
-    manual_steps
-    finish 3
+  say "R5: up -d --no-build --pull never (start release), then C1 to C3 on it"
+  if ! run shielded dc "$T_UP" "$S_R" up -d --no-build --pull never; then
+    record rollback R5 FAIL "compose up of the start release failed"
+    rb_fail=1
+  elif ! wait_healthy "$S_R" ROLLBACK_DOWNTIME; then
+    record rollback R5 FAIL "the start release did not become healthy within $WAIT_SECONDS s"
+    rb_fail=1
+  elif ! c1_images rollback "$S_R" "$API_S_ID" "$CW_S_ID"; then
+    record rollback R5 FAIL "the start images do not run"
+    rb_fail=1
+  elif [[ "$(http_code 10 "$TMP/body" -H "$HOST_HEADER" "$PROXY/healthz")" != 200 ]]; then
+    record rollback R5 FAIL "local /healthz is not 200"
+    rb_fail=1
+  elif [[ "$(http_code 10 "$TMP/body" -H "$HOST_HEADER" "$PROXY/readyz")" != 200 ]]; then
+    record rollback R5 FAIL "local /readyz is not 200"
+    rb_fail=1
+  else
+    record rollback R5 PASS "start release up, healthy, C1 to C3 pass"
   fi
-  if ! c1_images rollback "$S_R" "$API_S_ID" "$CW_S_ID"; then
-    say "ROLLBACK FAILED: the start images do not run"
-    manual_steps
-    finish 3
+
+  if [[ "$rb_fail" == 0 ]]; then
+    say "ROLLED BACK: $1"
+    finish 1
   fi
-  local code2
-  code2="$(http_code 10 "$TMP/body" -H "$HOST_HEADER" "$PROXY/healthz")"
-  if [[ "$code2" != 200 ]]; then
-    say "ROLLBACK FAILED: local /healthz answers $code2"
-    manual_steps
-    finish 3
-  fi
-  code2="$(http_code 10 "$TMP/body" -H "$HOST_HEADER" "$PROXY/readyz")"
-  if [[ "$code2" != 200 ]]; then
-    say "ROLLBACK FAILED: local /readyz answers $code2"
-    manual_steps
-    finish 3
-  fi
-  say "ROLLED BACK: $1"
-  finish 1
+  say "ROLLBACK FAILED: manual action is needed (the steps above)."
+  manual_steps
+  finish 3
 }
 
 # --- finish -------------------------------------------------------------------------
@@ -1163,7 +1189,7 @@ finish() {
 }
 
 db_version_quiet() {
-  cap dc "$T_CALL" "$1" exec -T postgres sh -c 'psql -Atc "select version_num from alembic_version"' || return 0
+  cap dc "$T_CALL" "$1" exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select version_num from alembic_version"' || return 0
   tail -n 1 <<<"$RUN_OUT"
 }
 
@@ -1306,9 +1332,10 @@ main() {
     finish 2
   fi
 
-  # phases B and C
+  # phases B and C. STATE stays "changing" through the after-checks: from B1
+  # until finish, a SIGINT or SIGTERM (or an unexpected stop) starts the
+  # rollback (SPEC 4.6, 4.7, review F6).
   phase_b
-  STATE=finishing
   if run_after_checks; then
     if [[ -n "$C9_ATTENTION" ]]; then finish 4; fi
     finish 0

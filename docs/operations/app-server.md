@@ -558,23 +558,27 @@ on the start images. It logs every step and exits 1 (rolled back) or 3
 script never deletes them.
 
 Manual rollback, by hand (the exit 3 commands, or an owner decision after an
-exit 4):
+exit 4). Stop the writers first, so the app cannot write into the database
+while it is being restored:
 
-1. Database, only if the migration had started. Never downgrade with alembic;
-   restore the dump:
+```bash
+# 0. stop the writers
+~/homayar/hc stop api worker scheduler
+# 1. restore the database from the backup dump (only when the migration had
+#    started; never downgrade with alembic, restore the dump)
+cat ~/homayar/backups/release-<sha12>-<ts>/db.dump | \
+  ~/homayar/hc exec -T postgres sh -c 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB"; createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"; pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# 2. restore the settings file
+cp -p ~/homayar/backups/release-<sha12>-<ts>/settings.env ~/homayar/config/settings.env && chmod 600 ~/homayar/config/settings.env
+# 3. switch current back
+ln -sfn releases/<old sha12> ~/homayar/current
+# 4. start the stack again
+~/homayar/hc up -d --no-build --pull never
+```
 
-   ```bash
-   cat ~/homayar/backups/release-<sha12>-<ts>/db.dump | \
-     ~/homayar/hc exec -T postgres sh -c 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB" && pg_restore --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-   ```
-
-2. `cp -p ~/homayar/backups/release-<sha12>-<ts>/settings.env ~/homayar/config/settings.env && chmod 600 ~/homayar/config/settings.env`
-3. `ln -sfn releases/<old sha12> ~/homayar/current`
-4. `~/homayar/hc up -d --no-build --pull never`, then the health checks.
-
-Never downgrade the database with alembic; restore the dump. A migration that
-is not backward-compatible needs its own plan (`deployment.md`, "Upgrade and
-Rollback").
+Then run the health checks. Never downgrade the database with alembic;
+restore the dump. A migration that is not backward-compatible needs its own
+plan (`deployment.md`, "Upgrade and Rollback").
 
 ## Restart and Stop
 
