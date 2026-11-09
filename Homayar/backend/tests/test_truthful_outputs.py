@@ -8,6 +8,7 @@ them from coming back.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import re
 from pathlib import Path
@@ -53,7 +54,11 @@ REMOVED_MODULES = (
 
 # Development-only data seeding for the legacy graph demo; never imported by the
 # application. Anything else that draws random numbers must use ``secrets``.
-RANDOM_ALLOWLIST = {"database/seed.py"}
+RANDOM_ALLOWLIST = {
+    "database/seed.py",
+    # seeded random.Random for bootstrap resampling only; no output value is random
+    "evaluation/candidate.py",
+}
 RANDOM_PATTERN = re.compile(r"^\s*(import random\b|from random import)", re.MULTILINE)
 
 
@@ -77,3 +82,61 @@ def test_no_random_numbers_outside_the_allowlist() -> None:
         if RANDOM_PATTERN.search(path.read_text(encoding="utf-8")):
             offenders.append(relative)
     assert offenders == [], f"random-number use outside the allowlist: {offenders}"
+
+
+def seeded_random_violations(source: str) -> list[str]:
+    """Uses of ``random`` in ``source`` other than an explicit ``random.Random(...)``."""
+    tree = ast.parse(source)
+    allowed = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr == "Random"
+        and isinstance(node.value, ast.Name)
+    }
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "random":
+            found.append(f"line {node.lineno}: from random import")
+        elif isinstance(node, ast.Import):
+            found.extend(
+                f"line {node.lineno}: import random as {alias.asname}"
+                for alias in node.names
+                if alias.name == "random" and alias.asname
+            )
+        elif isinstance(node, ast.Name) and node.id == "random" and id(node) not in allowed:
+            found.append(f"line {node.lineno}: random used other than random.Random")
+    return found
+
+
+@pytest.mark.parametrize(
+    ("source", "allowed"),
+    [
+        ("import random\nrandom.random()\n", False),
+        ("import random\nrandom.choice(x)\n", False),
+        ("import random\nrandom.seed(1)\n", False),
+        ("import random\nrandom.shuffle(x)\n", False),
+        ("from random import choice\n", False),
+        ("import random as r\nr.Random(1)\n", False),
+        ("import random\nf(random)\n", False),
+        ('import random\nrandom.Random("s").randrange(3)\n', True),
+    ],
+    ids=[
+        "random-random",
+        "random-choice",
+        "random-seed",
+        "random-shuffle",
+        "from-random-import",
+        "import-random-as",
+        "random-module-passed-on",
+        "explicit-random-Random",
+    ],
+)
+def test_seeded_random_check(source: str, allowed: bool) -> None:
+    assert (seeded_random_violations(source) == []) is allowed
+
+
+def test_candidate_report_uses_only_seeded_random() -> None:
+    source = (BACKEND_ROOT / "evaluation" / "candidate.py").read_text(encoding="utf-8")
+    assert "random.Random(" in source
+    assert seeded_random_violations(source) == []
