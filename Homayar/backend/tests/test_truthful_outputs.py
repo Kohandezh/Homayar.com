@@ -52,9 +52,10 @@ REMOVED_MODULES = (
     "backend.prompts",
 )
 
-# Development-only data seeding for the legacy graph demo; never imported by the
-# application. Anything else that draws random numbers must use ``secrets``.
+# Files that may import ``random``, each with its reason. Anything else that draws
+# random numbers must use ``secrets``.
 RANDOM_ALLOWLIST = {
+    # development-only data seeding for the legacy graph demo; never imported by the app
     "database/seed.py",
     # seeded random.Random for bootstrap resampling only; no output value is random
     "evaluation/candidate.py",
@@ -84,28 +85,95 @@ def test_no_random_numbers_outside_the_allowlist() -> None:
     assert offenders == [], f"random-number use outside the allowlist: {offenders}"
 
 
+def _is_none(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and node.value is None
+
+
+def _is_random_name(node: ast.expr) -> bool:
+    return isinstance(node, ast.Name) and node.id == "random"
+
+
+def _first_arg(call: ast.Call, keyword: str) -> ast.expr | None:
+    if call.args:
+        return call.args[0]
+    return next((k.value for k in call.keywords if k.arg == keyword), None)
+
+
+def _annotation_nodes(tree: ast.AST) -> set[int]:
+    roots: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign):
+            roots.append(node.annotation)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            a = node.args
+            params = [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg]
+            roots.extend(p.annotation for p in params if p is not None and p.annotation)
+            if node.returns is not None:
+                roots.append(node.returns)
+    return {id(n) for root in roots for n in ast.walk(root)}
+
+
 def seeded_random_violations(source: str) -> list[str]:
-    """Uses of ``random`` in ``source`` other than an explicit ``random.Random(...)``."""
+    """Uses of ``random`` in ``source`` other than a seeded ``random.Random(seed)``.
+
+    Allowed: ``random.Random(x)`` called with exactly one positional argument that is not
+    None and no keywords, and ``random.Random`` inside a type annotation.  Refused: every
+    other use of the module, ``<x>.seed()`` or ``<x>.seed(None)`` (re-seeds from the OS),
+    and reaching the module by its string name.
+    """
     tree = ast.parse(source)
-    allowed = {
+    in_annotation = _annotation_nodes(tree)
+    seeded = {
+        id(node.func)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and len(node.args) == 1
+        and not node.keywords
+        and not isinstance(node.args[0], ast.Starred)
+        and not _is_none(node.args[0])
+    }
+    ok_names = {
         id(node.value)
         for node in ast.walk(tree)
         if isinstance(node, ast.Attribute)
         and node.attr == "Random"
-        and isinstance(node.value, ast.Name)
+        and _is_random_name(node.value)
+        and (id(node) in seeded or id(node) in in_annotation)
     }
     found = []
     for node in ast.walk(tree):
+        line = f"line {getattr(node, 'lineno', '?')}"
         if isinstance(node, ast.ImportFrom) and node.module == "random":
-            found.append(f"line {node.lineno}: from random import")
+            found.append(f"{line}: from random import")
         elif isinstance(node, ast.Import):
             found.extend(
-                f"line {node.lineno}: import random as {alias.asname}"
+                f"{line}: import random as {alias.asname}"
                 for alias in node.names
                 if alias.name == "random" and alias.asname
             )
-        elif isinstance(node, ast.Name) and node.id == "random" and id(node) not in allowed:
-            found.append(f"line {node.lineno}: random used other than random.Random")
+        elif _is_random_name(node) and id(node) not in ok_names:
+            found.append(f"{line}: random used other than a seeded random.Random(seed)")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if name == "seed" and isinstance(func, ast.Attribute):
+                arg = _first_arg(node, "a")
+                if arg is None or _is_none(arg):
+                    found.append(f"{line}: .seed() without a seed re-seeds from the OS")
+            elif name in ("import_module", "__import__"):
+                arg = _first_arg(node, "name")
+                if isinstance(arg, ast.Constant) and arg.value == "random":
+                    found.append(f"{line}: random imported by its string name")
+        elif (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "modules"
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "sys"
+            and isinstance(node.slice, ast.Constant)
+            and node.slice.value == "random"
+        ):
+            found.append(f"{line}: random reached through sys.modules")
     return found
 
 
@@ -119,7 +187,15 @@ def seeded_random_violations(source: str) -> list[str]:
         ("from random import choice\n", False),
         ("import random as r\nr.Random(1)\n", False),
         ("import random\nf(random)\n", False),
+        ("import random\nrandom.Random().random()\n", False),
+        ("import random\nrandom.Random(None).random()\n", False),
+        ("import random\nR = random.Random\nR().random()\n", False),
+        ("import random\nrng = random.Random(1)\nrng.seed()\n", False),
+        ('import importlib\nimportlib.import_module("random")\n', False),
+        ('__import__("random")\n', False),
+        ('import sys\nsys.modules["random"]\n', False),
         ('import random\nrandom.Random("s").randrange(3)\n', True),
+        ("import random\ndef f(rng: random.Random) -> None: ...\n", True),
     ],
     ids=[
         "random-random",
@@ -129,7 +205,15 @@ def seeded_random_violations(source: str) -> list[str]:
         "from-random-import",
         "import-random-as",
         "random-module-passed-on",
+        "unseeded-Random",
+        "Random-None",
+        "Random-alias",
+        "instance-reseed",
+        "import-module",
+        "dunder-import",
+        "sys-modules",
         "explicit-random-Random",
+        "Random-annotation",
     ],
 )
 def test_seeded_random_check(source: str, allowed: bool) -> None:
