@@ -800,8 +800,12 @@ c_apply_happy() (
   last_call_after "compose:up" "compose:run:proxy:nginx_t"
   # the seed run: development only for that container, pull never, raised limit env
   file_has "$state/calls" "compose:run:api:demo_seed env=ENVIRONMENT=development ALLOW_MOCK_PROVIDERS=true"
-  # the files the apply writes
-  file_has "$HOME_F/config/settings.env" "API_IMAGE=$API_DEMO_TAG"
+  # the exact demo tag names (a doubled tag once slipped through substring checks)
+  file_has "$state/calls" "argv: tag homayar/api:d8e39a994f8b $API_DEMO_TAG"
+  file_has "$state/calls" "argv: tag homayar/console-web:d8e39a994f8b $CW_DEMO_TAG"
+  grep -q "^$API_DEMO_TAG|" "$state/images" || { detail "images lack the exact tag line $API_DEMO_TAG"; exit 1; }
+  grep -qx "API_IMAGE=$API_DEMO_TAG" "$HOME_F/config/settings.env" || { detail "settings.env API_IMAGE is not the exact demo tag"; exit 1; }
+  grep -qx "CONSOLE_WEB_IMAGE=$CW_DEMO_TAG" "$HOME_F/config/settings.env" || { detail "settings.env CONSOLE_WEB_IMAGE is not the exact demo tag"; exit 1; }
   file_has "$HOME_F/config/settings.env" "PUBLIC_ORIGIN=https://demo.homayar.com:8080"
   file_has "$HOME_F/config/settings.env" "REGISTRATION_ENABLED=false"
   file_has "$HOME_F/config/settings.env" "ENABLE_FREE_DEMO=false"
@@ -889,8 +893,8 @@ c_undo_yes() (
   run_script --undo --yes
   want_rc 0
   calls_has "compose:down"
-  grep '^argv: rmi' "$state/calls" | grep -qF -- "$API_DEMO_TAG" || { detail "rmi did not remove $API_DEMO_TAG"; exit 1; }
-  grep '^argv: rmi' "$state/calls" | grep -qF -- "$CW_DEMO_TAG" || { detail "rmi did not remove $CW_DEMO_TAG"; exit 1; }
+  grep -qxF "argv: rmi $API_DEMO_TAG $CW_DEMO_TAG" "$state/calls" || {
+    detail "undo must rmi exactly the two demo tags in one call"; exit 1; }
   file_has "$state/images" "$API_SRC|"
   file_has "$state/images" "$CW_SRC|"
   ! grep -qF -- "$API_DEMO_TAG|" "$state/images" || { detail "the demo api tag survived undo"; exit 1; }

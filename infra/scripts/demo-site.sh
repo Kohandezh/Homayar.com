@@ -591,7 +591,8 @@ step_mark() { printf '%s\n' "$TS" >"$H/config/.steps/$1"; }
 # --- --apply steps ---------------------------------------------------------------
 
 demo_tag_of() {  # demo_tag_of <repo:tag ref>: the matching homayar-demo/<name>:tag
-  printf 'homayar-demo/%s:%s' "${1##*/}" "${1##*:}"
+  local repo="${1%:*}" tag="${1##*:}"
+  printf 'homayar-demo/%s:%s' "${repo##*/}" "$tag"
 }
 
 apply_tags() {  # add the demo's own tags to the two image ids, so a later
