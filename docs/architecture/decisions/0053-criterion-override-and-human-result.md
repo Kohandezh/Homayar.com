@@ -154,6 +154,6 @@ stored human result.
 
 - Withdrawing a decision after it was written; a later decision replaces it through the
   same upsert.
-- Appeals and calibration (F46), and coaching (F47).
+- Appeals and coaching (F46, F47). Calibration is ADR 0056 (HOM-75).
 - The console pages for decisions and human results (HOM-265).
 - The data-subject export of decisions.

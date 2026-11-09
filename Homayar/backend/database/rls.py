@@ -106,6 +106,14 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     # the decisions, the purge deletes both.  Never through a share token.
     "review_criterion_decisions",
     "review_results",
+    # Blinded calibration batches (HOM-75): the service upserts the answers and the
+    # adjudications, the purge deletes the conversation's rows.  Never through a
+    # share token.
+    "calibration_batches",
+    "calibration_examples",
+    "calibration_participants",
+    "calibration_answers",
+    "calibration_adjudications",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",
@@ -369,12 +377,14 @@ NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records", "webhook_del
 # Tables the application role may read, insert and delete but never update.
 # ``scorecard_results`` and ``scorecard_criterion_results`` (HOM-56): a stored machine
 # score never changes (F41).  ``review_results`` (HOM-74): a stored human score never
-# changes either.  DELETE stays granted, because the conversation purge removes the
+# changes either.  ``calibration_examples`` (HOM-75): a batch's example list is fixed
+# at creation.  DELETE stays granted, because the conversation purge removes the
 # rows as the application role.
 NO_UPDATE_TABLES: tuple[str, ...] = (
     "scorecard_results",
     "scorecard_criterion_results",
     "review_results",
+    "calibration_examples",
 )
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on

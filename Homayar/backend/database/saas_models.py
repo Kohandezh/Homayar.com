@@ -1533,6 +1533,392 @@ class ReviewResultRecord(Base):
     )
 
 
+# The blinded calibration batches (HOM-75, WP14-T04).  A status and an outcome are
+# codes from these frozen lists, never free text, so no personal data reaches the
+# audit log.  The outcomes are exactly the reviewer outcomes of HOM-74, which are the
+# engine's ``REVIEWER_OUTCOMES`` (``backend.scorecards``).
+CALIBRATION_BATCH_STATUSES: tuple[str, ...] = ("open", "closed", "cancelled")
+CALIBRATION_OUTCOMES: tuple[str, ...] = REVIEW_REVIEWER_OUTCOMES
+CALIBRATION_TITLE_MAX_LENGTH = 200
+CALIBRATION_MAX_EXAMPLES = 50
+CALIBRATION_MAX_PARTICIPANTS = 20
+
+CALIBRATION_STATUS_CHECK = f"status IN {_sql_list(CALIBRATION_BATCH_STATUSES)}"
+CALIBRATION_REVISION_CHECK = "revision >= 1"
+# Free text from the review admin: not blank, at most the title length.
+CALIBRATION_TITLE_CHECK = (
+    f"length(trim(title)) > 0 AND length(title) <= {CALIBRATION_TITLE_MAX_LENGTH}"
+)
+# Each status has its own closing timestamp.  No check names a user column: the three
+# user columns are SET NULL when a user is removed, and a check on them would make the
+# removal fail.
+CALIBRATION_OPEN_FIELDS_CHECK = "status <> 'open' OR (closed_at IS NULL AND cancelled_at IS NULL)"
+CALIBRATION_CLOSED_FIELDS_CHECK = (
+    "status <> 'closed' OR (closed_at IS NOT NULL AND cancelled_at IS NULL)"
+)
+CALIBRATION_CANCELLED_FIELDS_CHECK = (
+    "status <> 'cancelled' OR (cancelled_at IS NOT NULL AND closed_at IS NULL)"
+)
+# The example list is fixed at creation: 1 to 50 examples, so position 0 to 49.
+CALIBRATION_POSITION_CHECK = f"position >= 0 AND position < {CALIBRATION_MAX_EXAMPLES}"
+CALIBRATION_OUTCOME_CHECK = f"outcome IN {_sql_list(CALIBRATION_OUTCOMES)}"
+# The adjudicator's note, the same length rule as a review note.
+CALIBRATION_NOTE_LENGTH_CHECK = f"note IS NULL OR length(note) <= {REVIEW_NOTE_MAX_LENGTH}"
+
+
+class CalibrationBatch(Base):
+    """One blinded calibration exercise: a fixed list of examples and a fixed list of
+    participants (HOM-75, WP14-T04, F46).
+
+    A review admin (workspace OWNER or ADMIN) creates the batch, records the
+    adjudications and closes it; only a closed batch shows answers next to
+    adjudications.  ``revision`` starts at 1 and grows by one with each close or
+    cancel, so a write is a compare-and-set on it, like ``review_items``.  Not
+    immutable: the service changes the status and the closing columns.  Not
+    conversation content: the conversation purge keeps the batch rows.  Tenant-only,
+    never through a share token.
+    """
+
+    __tablename__ = "calibration_batches"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Free text from the review admin; never copied to the audit log.
+    title: Mapped[str] = mapped_column(String(CALIBRATION_TITLE_MAX_LENGTH), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    closed_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    cancelled_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(CALIBRATION_STATUS_CHECK, name="ck_calibration_batches_status"),
+        CheckConstraint(CALIBRATION_REVISION_CHECK, name="ck_calibration_batches_revision"),
+        CheckConstraint(CALIBRATION_TITLE_CHECK, name="ck_calibration_batches_title"),
+        CheckConstraint(CALIBRATION_OPEN_FIELDS_CHECK, name="ck_calibration_batches_open_fields"),
+        CheckConstraint(
+            CALIBRATION_CLOSED_FIELDS_CHECK, name="ck_calibration_batches_closed_fields"
+        ),
+        CheckConstraint(
+            CALIBRATION_CANCELLED_FIELDS_CHECK, name="ck_calibration_batches_cancelled_fields"
+        ),
+        # The target of the composite foreign keys of the examples and the
+        # participants: ``(id, workspace_id)`` names exactly the batch in its
+        # workspace.
+        Index("uq_calibration_batches_scope", "id", "workspace_id", unique=True),
+        # The list order (newest first) and its keyset pages.
+        Index("ix_calibration_batches_list", "workspace_id", "created_at", "id"),
+    )
+
+
+class CalibrationExample(Base):
+    """One machine scorecard result of one conversation in one calibration batch
+    (HOM-75, WP14-T04, F46).
+
+    Immutable once written: the batch's example list is fixed at creation, so the
+    application role has no UPDATE on the table and no user column exists (a SET NULL
+    action on one would need an update).  ``position`` keeps the admin's order, 0 to
+    49.  The composite keys tie the example to its batch in its workspace and to its
+    result's own scope; ``uq_calibration_examples_meeting`` keeps one conversation at
+    most once per batch.  It is conversation content: the conversation purge deletes
+    the row, and the backup reconciliation counts it.  Tenant-only, never through a
+    share token.
+    """
+
+    __tablename__ = "calibration_examples"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_calibration_examples_batch`` below.
+    batch_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_calibration_examples_scorecard_result`` below.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # An example names only its own batch (``uq_calibration_batches_scope``).
+        ForeignKeyConstraint(
+            ["batch_id", "workspace_id"],
+            ["calibration_batches.id", "calibration_batches.workspace_id"],
+            ondelete="CASCADE",
+            name="fk_calibration_examples_batch",
+        ),
+        # So the workspace and the meeting are the result's own.
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_calibration_examples_scorecard_result",
+        ),
+        # One conversation once per batch.
+        UniqueConstraint("batch_id", "meeting_id", name="uq_calibration_examples_meeting"),
+        UniqueConstraint("batch_id", "position", name="uq_calibration_examples_position"),
+        CheckConstraint(CALIBRATION_POSITION_CHECK, name="ck_calibration_examples_position"),
+        # The target of the composite foreign keys of the answers and the
+        # adjudications: ``(id, batch_id, scorecard_result_id)`` names exactly the
+        # result the example holds, in the batch it belongs to.
+        Index(
+            "uq_calibration_examples_scope", "id", "batch_id", "scorecard_result_id", unique=True
+        ),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_calibration_examples_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class CalibrationParticipant(Base):
+    """One reviewer in one calibration batch (HOM-75, WP14-T04, F46).
+
+    The participant list is fixed at creation.  A removed user leaves the row with
+    ``user_id`` NULL, so the report still counts their answers.  Not conversation
+    content: the conversation purge keeps the row.  Tenant-only, never through a share
+    token.
+    """
+
+    __tablename__ = "calibration_participants"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_calibration_participants_batch`` below.
+    batch_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # A participant belongs to exactly one batch of its own workspace.
+        ForeignKeyConstraint(
+            ["batch_id", "workspace_id"],
+            ["calibration_batches.id", "calibration_batches.workspace_id"],
+            ondelete="CASCADE",
+            name="fk_calibration_participants_batch",
+        ),
+        # One participant once per batch.  A removed user leaves a NULL ``user_id``;
+        # NULLs are distinct, so several removed users may stay in one batch.
+        UniqueConstraint("batch_id", "user_id", name="uq_calibration_participants_user"),
+        # The target of the answers' participant foreign key.
+        Index("uq_calibration_participants_scope", "id", "batch_id", unique=True),
+    )
+
+
+class CalibrationAnswer(Base):
+    """One participant's outcome on one reviewable criterion of one example
+    (HOM-75, WP14-T04, F46).
+
+    The participant never sees the machine outcome through the calibration API: the
+    answer is their own word from the frozen outcome list.  The service of PR 2
+    upserts the row while the batch is open, so the table is not immutable.  The
+    composite foreign keys tie the answer to its example's batch and result, to its
+    participant's batch, to its result's own workspace and meeting, and to a criterion
+    of that result, so a buggy service cannot cross batches, results or workspaces.
+    Conversation content: the conversation purge deletes the row and the backup
+    reconciliation counts it.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "calibration_answers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    # A copy of the example's result's conversation: the purge and the backup
+    # reconciliation find content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign keys are ``fk_calibration_answers_example`` and
+    # ``fk_calibration_answers_participant`` below.
+    batch_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    example_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    participant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # Its foreign keys are ``fk_calibration_answers_result`` and
+    # ``fk_calibration_answers_criterion`` below.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # The criterion key, as in ``scorecard_criterion_results.criterion_id``.
+    criterion_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # An answer names only its example's batch and result
+        # (``uq_calibration_examples_scope``).
+        ForeignKeyConstraint(
+            ["example_id", "batch_id", "scorecard_result_id"],
+            [
+                "calibration_examples.id",
+                "calibration_examples.batch_id",
+                "calibration_examples.scorecard_result_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_calibration_answers_example",
+        ),
+        # So the participant is one of the same batch (``uq_calibration_participants_scope``).
+        ForeignKeyConstraint(
+            ["participant_id", "batch_id"],
+            ["calibration_participants.id", "calibration_participants.batch_id"],
+            ondelete="CASCADE",
+            name="fk_calibration_answers_participant",
+        ),
+        # So the workspace and the meeting copies are the result's own
+        # (``uq_scorecard_result_scope``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_calibration_answers_result",
+        ),
+        # So an answer names a criterion of that result
+        # (``uq_scorecard_criterion_result_criterion``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "criterion_id"],
+            ["scorecard_criterion_results.result_id", "scorecard_criterion_results.criterion_id"],
+            ondelete="CASCADE",
+            name="fk_calibration_answers_criterion",
+        ),
+        # One current answer per participant, example and criterion; answers may
+        # change until close.
+        UniqueConstraint(
+            "participant_id", "example_id", "criterion_id", name="uq_calibration_answers_criterion"
+        ),
+        CheckConstraint(CALIBRATION_OUTCOME_CHECK, name="ck_calibration_answers_outcome"),
+        CheckConstraint(CRITERION_KEY_CHECK, name="ck_calibration_answers_criterion_key"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_calibration_answers_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class CalibrationAdjudication(Base):
+    """The correct outcome of one reviewable criterion of one example, recorded by a
+    review admin who is not a participant of the batch (HOM-75, WP14-T04, F46).
+
+    The adjudication is hidden from the participants until the batch closes.  The
+    service of PR 2 upserts the row while the batch is open, so the table is not
+    immutable.  The same composite foreign keys as the answers (minus the participant)
+    tie the row to its example's batch and result and to a criterion of that result.
+    Conversation content: the conversation purge deletes the row and the backup
+    reconciliation counts it.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "calibration_adjudications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    # A copy of the example's result's conversation: the purge and the backup
+    # reconciliation find content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_calibration_adjudications_example`` below.
+    batch_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    example_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # Its foreign keys are ``fk_calibration_adjudications_result`` and
+    # ``fk_calibration_adjudications_criterion`` below.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # The criterion key, as in ``scorecard_criterion_results.criterion_id``.
+    criterion_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    # Free text from the adjudicator, at most the review note length.
+    note: Mapped[str | None] = mapped_column(Text)
+    decided_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # An adjudication names only its example's batch and result
+        # (``uq_calibration_examples_scope``).
+        ForeignKeyConstraint(
+            ["example_id", "batch_id", "scorecard_result_id"],
+            [
+                "calibration_examples.id",
+                "calibration_examples.batch_id",
+                "calibration_examples.scorecard_result_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_calibration_adjudications_example",
+        ),
+        # So the workspace and the meeting copies are the result's own
+        # (``uq_scorecard_result_scope``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_calibration_adjudications_result",
+        ),
+        # So an adjudication names a criterion of that result
+        # (``uq_scorecard_criterion_result_criterion``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "criterion_id"],
+            ["scorecard_criterion_results.result_id", "scorecard_criterion_results.criterion_id"],
+            ondelete="CASCADE",
+            name="fk_calibration_adjudications_criterion",
+        ),
+        # One current adjudication per example and criterion.
+        UniqueConstraint(
+            "example_id", "criterion_id", name="uq_calibration_adjudications_criterion"
+        ),
+        CheckConstraint(CALIBRATION_OUTCOME_CHECK, name="ck_calibration_adjudications_outcome"),
+        CheckConstraint(CRITERION_KEY_CHECK, name="ck_calibration_adjudications_criterion_key"),
+        CheckConstraint(
+            CALIBRATION_NOTE_LENGTH_CHECK, name="ck_calibration_adjudications_note_length"
+        ),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_calibration_adjudications_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
 class RunPolicySnapshot(Base):
     """The policy and model placement one processing attempt ran under
     (WP08-T02/T03, ADR 0027).  Written once per attempt, never changed; it

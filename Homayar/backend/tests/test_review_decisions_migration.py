@@ -113,6 +113,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "a651110b03c3"
 BASE_REVISION = "484a6df74abf"  # HOM-73: review items
+HEAD_REVISION = "02f616cbb655"  # HOM-75: calibration batches, after HOM-74
 DECISIONS = "review_criterion_decisions"
 RESULTS = "review_results"
 ITEMS = "review_items"
@@ -964,7 +965,13 @@ def test_both_tables_are_workspace_tables_the_purge_can_delete():
     # The service of PR 2 upserts decisions; a stored human result never changes.
     assert DECISIONS not in NO_UPDATE_TABLES
     assert RESULTS in NO_UPDATE_TABLES
-    assert NO_UPDATE_TABLES == ("scorecard_results", "scorecard_criterion_results", RESULTS)
+    assert NO_UPDATE_TABLES == (
+        "scorecard_results",
+        "scorecard_criterion_results",
+        RESULTS,
+        # HOM-75: a batch's example list is fixed at creation.
+        "calibration_examples",
+    )
 
 
 # --- immutability: the human result is written once ---------------------------------------
@@ -1140,7 +1147,8 @@ def test_the_migration_follows_the_previous_head():
 def test_the_code_has_one_migration_head_this_revision():
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == NEW_REVISION
+    # HOM-75 moved the head past this revision; this one stays the only head's parent.
+    assert code_migration_head() == HEAD_REVISION
 
 
 def _reflect(connection, table: str) -> dict:
@@ -1551,7 +1559,11 @@ def test_the_migration_creates_and_drops_only_the_two_tables(
     config = _alembic(monkeypatch, settings)
     try:
         command.stamp(config, "head")
-        others = _other_tables()  # after the stamp, which adds alembic_version
+        head_others = _other_tables()  # the head's own tables included
+        # Down to this revision first: the HOM-75 head's five calibration tables go
+        # with it, so the snapshot below covers only what this migration owns.
+        command.downgrade(config, NEW_REVISION)
+        others = _other_tables()
         command.downgrade(config, BASE_REVISION)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
         for table in TABLES:
@@ -1590,7 +1602,8 @@ def test_the_migration_creates_and_drops_only_the_two_tables(
             _scalar("SELECT indexname FROM pg_indexes WHERE indexname = :i", i=ITEM_INDEX)
             is not None
         )
-        assert _other_tables() == others
+        # Back at the head, with its HOM-75 tables again.
+        assert _other_tables() == head_others
     finally:
         reset_settings_cache()
 

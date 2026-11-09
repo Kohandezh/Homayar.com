@@ -1258,14 +1258,16 @@ def _new_revision():
     return found[0]
 
 
-def test_one_new_revision_follows_the_hom73_head_and_is_the_only_head():
+def test_one_new_revision_follows_the_hom73_head_and_stays_on_the_single_chain():
     revision = _new_revision()
     assert re.fullmatch(r"[0-9a-f]{12}", revision.revision)
     assert Path(revision.path).name == f"{revision.revision}_review_decisions.py"
-    assert _script().get_heads() == [revision.revision]
+    # A later head (HOM-75, the calibration tables) may sit on top of this one, but
+    # the chain stays single.
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == revision.revision
+    heads = _script().get_heads()
+    assert heads == [code_migration_head()]
     doc = revision.module.__doc__
     assert doc.splitlines()[0] == (
         "Criterion decisions and the human result, schema only (HOM-74, WP14-T03)"
@@ -1274,19 +1276,22 @@ def test_one_new_revision_follows_the_hom73_head_and_is_the_only_head():
         assert phrase in doc, phrase
 
 
-def test_alembic_heads_prints_exactly_the_new_revision():
-    revision = _new_revision()
+def test_alembic_heads_prints_exactly_one_head():
+    from backend.observability.release import code_migration_head
+
     shown = io.StringIO()
     command.heads(Config(str(PROJECT_ROOT / "alembic.ini"), stdout=shown))
     lines = [line for line in shown.getvalue().splitlines() if line.strip()]
-    assert lines == [f"{revision.revision} (head)"], shown.getvalue()
+    assert lines == [f"{code_migration_head()} (head)"], shown.getvalue()
 
 
-def test_every_head_pin_moves_to_the_new_revision():
-    revision = _new_revision()
+def test_every_head_pin_moves_to_the_head():
+    from backend.observability.release import code_migration_head
+
+    head = code_migration_head()
     for name in HEAD_PINS:
         module = importlib.import_module(f"backend.tests.{name}")
-        assert module.HEAD_REVISION == revision.revision, name
+        assert module.HEAD_REVISION == head, name
     pinned = [
         path.name
         for path in (PROJECT_ROOT / "backend" / "tests").glob("test_*.py")
@@ -1362,6 +1367,17 @@ def test_on_sqlite_the_migration_builds_the_orm_schema_and_its_downgrade_removes
             for name in TABLES:
                 _table(name).drop(connection)
             connection.exec_driver_sql(f"DROP INDEX {ITEM_RESULT_INDEX}")
+            # The five HOM-75 calibration tables of the head already exist
+            # (``create_all``); drop them, so the head's own migration can build
+            # them again below.
+            for name in (
+                "calibration_batches",
+                "calibration_examples",
+                "calibration_participants",
+                "calibration_answers",
+                "calibration_adjudications",
+            ):
+                Base.metadata.tables[name].drop(connection)
             before = _sqlite_objects(connection)
         assert (ITEM_RESULT_INDEX, ("id", "scorecard_result_id"), True) in orm[ITEMS]["indexes"]
         assert sorted(name for name, _ in orm[DECISIONS]["checks"]) == sorted(DECISION_CHECKS)
@@ -1379,15 +1395,18 @@ def test_on_sqlite_the_migration_builds_the_orm_schema_and_its_downgrade_removes
                 if row[2] not in TABLES and row[1] != ITEM_RESULT_INDEX
             ]
             assert unchanged == before
-        command.stamp(config, "head")
+        # The head's own migration (HOM-75 builds the calibration tables) completes
+        # the schema, so ``alembic check`` passes.
+        command.upgrade(config, "head")
         _check(config)
 
         scratch = _Scratch(engine)
         for rules in CHECK_RULES:
             rules(scratch)
 
-        command.stamp(config, revision.revision)
-        command.downgrade(config, "-1")
+        # Back below this revision: the head's tables, this one's tables and the item
+        # index go with the downgrade.
+        command.downgrade(config, revision.down_revision)
         with engine.connect() as connection:
             version = connection.exec_driver_sql("SELECT version_num FROM alembic_version")
             assert version.scalar() == revision.down_revision

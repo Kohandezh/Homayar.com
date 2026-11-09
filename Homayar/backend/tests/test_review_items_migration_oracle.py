@@ -672,8 +672,17 @@ def test_on_sqlite_the_migration_builds_the_designed_table_and_drops_only_it(tmp
             orm = _reflect(connection)
             _table().drop(connection)
             # The two HOM-74 tables of the head already exist (``create_all``); drop
-            # them, so the head's own migration can build them again below.
-            for name in ("review_criterion_decisions", "review_results"):
+            # them, so the head's own migration can build them again below.  The five
+            # HOM-75 calibration tables too.
+            for name in (
+                "review_criterion_decisions",
+                "review_results",
+                "calibration_batches",
+                "calibration_examples",
+                "calibration_participants",
+                "calibration_answers",
+                "calibration_adjudications",
+            ):
                 Base.metadata.tables[name].drop(connection)
             before = _sqlite_objects(connection)
         _assert_designed_sqlite_shape(orm)

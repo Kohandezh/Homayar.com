@@ -79,6 +79,9 @@ from backend.database.saas_models import (
     ActionItem,
     AnalysisExtraction,
     AnalysisRun,
+    CalibrationAdjudication,
+    CalibrationAnswer,
+    CalibrationExample,
     CriterionResultRecord,
     EvidenceSpan,
     MeetingSpeaker,
@@ -112,6 +115,11 @@ CONTENT_TABLES = tuple(
         ReviewItem,
         ReviewCriterionDecision,
         ReviewResultRecord,
+        # The calibration rows of a conversation (HOM-75).  The batches and the
+        # participants have no meeting of their own, so they are not content tables.
+        CalibrationExample,
+        CalibrationAnswer,
+        CalibrationAdjudication,
         MeetingSummary,
         ActionItem,
         MeetingSpeaker,

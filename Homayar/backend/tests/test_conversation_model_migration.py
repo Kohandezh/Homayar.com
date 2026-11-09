@@ -45,7 +45,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "6d4ec2d2e498"
 BASE_REVISION = "a7c3e9f5b2d1"
-HEAD_REVISION = "a651110b03c3"  # HOM-74: review decisions, after HOM-73
+HEAD_REVISION = "02f616cbb655"  # HOM-75: calibration batches, after HOM-74
 NEW_COLUMNS = (
     "conversation_type",
     "direction",
