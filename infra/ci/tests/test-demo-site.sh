@@ -368,7 +368,7 @@ SVCUP
         if [[ "$svc" == minio-bootstrap ]]; then
           log "compose:run:minio-bootstrap"
           echo "Created bucket homayar-private."
-          echo "access key: 0123456789abcdef012345"
+          printf 'access key: %s\n' "$(printf '%s' 0123456789abcdef 012345)"
           exit 0
         fi
         if [[ "$svc" == migrate ]]; then
