@@ -305,7 +305,7 @@ stack_healthy() {  # every demo service in its wanted state, like the runbook.
   rows="$(stack_rows)"
   [[ -n "$rows" ]] || return 1
   for s in proxy console-web api worker postgres redis minio; do
-    grep -qxE "$s[|]running[|]healthy[|]0?" <<<"$rows" || missing=1
+    grep -qxE "${s}[|]running[|]healthy[|]0?" <<<"$rows" || missing=1
   done
   grep -qxE 'scheduler[|]running[|][|]0?' <<<"$rows" || missing=1
   grep -qxF 'minio-bootstrap|exited||0' <<<"$rows" || missing=1
