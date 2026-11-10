@@ -298,14 +298,16 @@ stack_rows() {  # the ps rows of every demo service, or empty
   printf '%s\n' "$RUN_OUT"
 }
 
-stack_healthy() {  # every demo service in its wanted state, like the runbook
+stack_healthy() {  # every demo service in its wanted state, like the runbook.
+  # Compose prints exit code 0 for a running container (5.x; older ones may
+  # print nothing), so the exit code counts only for the exited one-shot.
   local rows="" missing=0 s
   rows="$(stack_rows)"
   [[ -n "$rows" ]] || return 1
   for s in proxy console-web api worker postgres redis minio; do
-    grep -qxF "$s|running|healthy|" <<<"$rows" || missing=1
+    grep -qxE "$s[|]running[|]healthy[|]0?" <<<"$rows" || missing=1
   done
-  grep -qxF 'scheduler|running||' <<<"$rows" || missing=1
+  grep -qxE 'scheduler[|]running[|][|]0?' <<<"$rows" || missing=1
   grep -qxF 'minio-bootstrap|exited||0' <<<"$rows" || missing=1
   return "$missing"
 }
@@ -397,8 +399,14 @@ run_checks() {  # every --check item; sets CHECK_READY and ALREADY_APPLIED;
     ready=0
   fi
 
+  # Asked before the memory and disk gates: a running demo uses part of that
+  # memory itself, so on an applied, healthy demo a low value is not a blocker.
+  if stack_healthy && healthz_ok; then already=1; fi
+
   if mem_ok; then
     record C8 PASS "$MEM_FREE bytes of memory available (need $MIN_MEM_BYTES)"
+  elif [[ -n "$already" ]]; then
+    record C8 INFO "$MEM_FREE bytes of memory available; the running demo uses part of it (gate only before the first --apply)"
   else
     record C8 FAIL "only $MEM_FREE bytes of memory available (need $MIN_MEM_BYTES)"
     ready=0
@@ -406,13 +414,14 @@ run_checks() {  # every --check item; sets CHECK_READY and ALREADY_APPLIED;
 
   if disk_ok; then
     record C9 PASS "$DISK_FREE bytes free under $H (need $MIN_DISK_BYTES)"
+  elif [[ -n "$already" ]]; then
+    record C9 INFO "$DISK_FREE bytes free under $H; the running demo uses part of it (gate only before the first --apply)"
   else
     record C9 FAIL "only $DISK_FREE bytes free under $H (need $MIN_DISK_BYTES)"
     ready=0
   fi
 
-  if stack_healthy && healthz_ok; then
-    already=1
+  if [[ -n "$already" ]]; then
     record C10 PASS "the demo stack is up and healthy (already applied)"
   else
     record C10 INFO "the demo stack is not up (fine before the first --apply)"

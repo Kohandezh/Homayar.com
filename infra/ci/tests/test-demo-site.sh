@@ -152,14 +152,14 @@ DC
 
 full_stack_rows() {
   cat >"$state/svc" <<'SVC'
-proxy|running|healthy|
-console-web|running|healthy|
-api|running|healthy|
-worker|running|healthy|
-scheduler|running||
-postgres|running|healthy|
-redis|running|healthy|
-minio|running|healthy|
+proxy|running|healthy|0
+console-web|running|healthy|0
+api|running|healthy|0
+worker|running|healthy|0
+scheduler|running||0
+postgres|running|healthy|0
+redis|running|healthy|0
+minio|running|healthy|0
 minio-bootstrap|exited||0
 SVC
   : >"$state/full-up"
@@ -327,14 +327,14 @@ case "$cmd" in
         done
         if (( ${#svcs[@]} == 0 )); then
           cat >"$S/svc" <<'SVCUP'
-proxy|running|healthy|
-console-web|running|healthy|
-api|running|healthy|
-worker|running|healthy|
-scheduler|running||
-postgres|running|healthy|
-redis|running|healthy|
-minio|running|healthy|
+proxy|running|healthy|0
+console-web|running|healthy|0
+api|running|healthy|0
+worker|running|healthy|0
+scheduler|running||0
+postgres|running|healthy|0
+redis|running|healthy|0
+minio|running|healthy|0
 minio-bootstrap|exited||0
 SVCUP
           : >"$S/full-up"
@@ -788,6 +788,26 @@ c_low_disk() (
   want_out "C9 FAIL"
 )
 
+c_low_memory_applied() (
+  # The running demo uses part of the memory itself: on an applied, healthy
+  # demo the gates are INFO, --check exits 0 and --apply reprints the summary
+  # (rehearsal finding: Compose prints exit code 0 for running services).
+  prepare
+  run_script --apply
+  want_rc 0
+  printf '1000000000\n' >"$state/mem-available"
+  printf '1000000000\n' >"$state/disk-available"
+  run_script --check
+  want_rc 0
+  want_out "C8 INFO"
+  want_out "C9 INFO"
+  want_out "C10 PASS"
+  run_script --apply
+  want_rc 0
+  want_out "already applied and healthy"
+  want_no_marker_anywhere
+)
+
 c_apply_happy() (
   prepare
   run_script --apply
@@ -1055,6 +1075,7 @@ run_case c_missing_image
 run_case c_missing_third_party_image
 run_case c_low_memory
 run_case c_low_disk
+run_case c_low_memory_applied
 run_case c_apply_happy
 run_case c_apply_idempotent
 run_case c_apply_marker_secrets_kept
