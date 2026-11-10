@@ -117,7 +117,7 @@ prepare_applied() { # a world as after a successful --apply, with marker secrets
   done
   {
     printf 'POSTGRES_PASSWORD=%saaaa\n' "$MARKER"
-    printf 'MIGRATION_DATABASE_URL=postgresql://homayar:%saaaa@postgres:5432/homayar\n' "$MARKER"
+    printf 'MIGRATION_DATABASE_URL=postgresql+psycopg://homayar:%saaaa@postgres:5432/homayar\n' "$MARKER"
     printf 'DATABASE_URL=postgresql+psycopg://homayar_api:%sbbbb@postgres:5432/homayar\n' "$MARKER"
     printf 'REDIS_PASSWORD=%scccc\n' "$MARKER"
     printf 'REDIS_URL=redis://:%scccc@redis:6379/0\n' "$MARKER"
@@ -814,6 +814,8 @@ c_apply_happy() (
   file_has "$HOME_F/dc" "compose.onprem.demo.yaml"
   file_mode "$HOME_F/dc" 700
   file_has "$HOME_F/secrets/secrets.env" "DATABASE_URL=postgresql+psycopg://homayar_api:"
+  # The image has psycopg 3 only: a bare postgresql:// migration DSN fails.
+  file_has "$HOME_F/secrets/secrets.env" "MIGRATION_DATABASE_URL=postgresql+psycopg://homayar:"
   file_mode "$HOME_F/secrets/secrets.env" 600
   file_mode "$HOME_F/secrets/demo-login" 600
   [[ "$(wc -l <"$HOME_F/secrets/demo-login" | tr -d '[:space:]')" == 5 ]] || { detail "demo-login must hold 5 lines"; exit 1; }

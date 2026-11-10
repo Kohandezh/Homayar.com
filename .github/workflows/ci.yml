@@ -538,7 +538,7 @@ jobs:
           --profile onprem
           config --quiet
         env:
-          MIGRATION_DATABASE_URL: postgresql://homayar:ci-only@postgres:5432/homayar
+          MIGRATION_DATABASE_URL: postgresql+psycopg://homayar:ci-only@postgres:5432/homayar
 
       - name: Validate on-prem demo Compose overlay with the egress profile
         run: >-
@@ -550,7 +550,7 @@ jobs:
           --profile egress
           config --quiet
         env:
-          MIGRATION_DATABASE_URL: postgresql://homayar:ci-only@postgres:5432/homayar
+          MIGRATION_DATABASE_URL: postgresql+psycopg://homayar:ci-only@postgres:5432/homayar
 
       - name: Validate on-prem Compose profile with the egress proxy
         run: docker compose --file infra/compose/compose.onprem.yaml --profile onprem --profile egress config --quiet

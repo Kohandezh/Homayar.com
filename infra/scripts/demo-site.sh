@@ -534,7 +534,9 @@ write_secrets_env() {  # secrets/secrets.env (600), from the secret files; the
     umask 077
     {
       printf 'POSTGRES_PASSWORD=%s\n' "$(read_secret postgres_password)"
-      printf 'MIGRATION_DATABASE_URL=postgresql://homayar:%s@postgres:5432/homayar\n' "$(read_secret postgres_password)"
+      # +psycopg: the image has psycopg 3 only; a bare postgresql:// makes
+      # SQLAlchemy load psycopg2, and migrate fails (rehearsal, HOM-383).
+      printf 'MIGRATION_DATABASE_URL=postgresql+psycopg://homayar:%s@postgres:5432/homayar\n' "$(read_secret postgres_password)"
       printf 'DATABASE_URL=postgresql+psycopg://homayar_api:%s@postgres:5432/homayar\n' "$(read_secret homayar_api_db_password)"
       printf 'REDIS_PASSWORD=%s\n' "$(read_secret redis_password)"
       printf 'REDIS_URL=redis://:%s@redis:6379/0\n' "$(read_secret redis_password)"
@@ -578,10 +580,10 @@ setup_home() {  # the demo home skeleton and config, only what is missing
   if [[ ${#SECRETS_NEW[@]} -gt 0 ]]; then
     say "Generated ${#SECRETS_NEW[@]} secret file(s) in $H/secrets (values never printed)"
   fi
-  if [[ ! -f "$H/secrets/secrets.env" || ${#SECRETS_NEW[@]} -gt 0 ]]; then
-    write_secrets_env || return 1
-    say "Wrote $H/secrets/secrets.env (600)"
-  fi
+  # secrets.env only holds values derived from the secret files, so it is
+  # written on every run: a fixed line format reaches an existing demo home.
+  write_secrets_env || return 1
+  say "Wrote $H/secrets/secrets.env (600, from the secret files)"
   return 0
 }
 

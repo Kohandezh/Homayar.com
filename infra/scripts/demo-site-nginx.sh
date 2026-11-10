@@ -141,8 +141,8 @@ SITE
 
 # --- prerequisites ----------------------------------------------------------------
 
-port_listens() {  # 0 when 127.0.0.1:$DEMO_PORT (or any address) listens on the port
-  ss -H -ltn 2>/dev/null | awk -v p=":$DEMO_PORT\$" '$4 ~ p { found = 1 } END { exit !found }'
+port_listens() {  # 0 when 127.0.0.1:$DEMO_PORT listens (the demo proxy's published port)
+  ss -H -ltn 2>/dev/null | awk -v a="127.0.0.1:$DEMO_PORT" '$4 == a { found = 1 } END { exit !found }'
 }
 
 other_site_uses_name() {  # prints enabled sites (not ours) with this server_name
@@ -159,7 +159,7 @@ other_site_uses_name() {  # prints enabled sites (not ours) with this server_nam
 }
 
 run_checks() {  # 0 when every prerequisite holds; prints PASS/FAIL per item
-  local ready=1 other tmp
+  local ready=1 other
   if [[ "$(id -u)" == 0 ]]; then
     say "  P1 PASS: running as root (uid 0)"
   else
@@ -210,15 +210,14 @@ run_checks() {  # 0 when every prerequisite holds; prints PASS/FAIL per item
   fi
 
   say "  The site file --apply would write: $SITE_FILE"
-  tmp="$(mktemp)"
-  site_content >"$tmp"
+  # A process substitution, not a temp file: --check writes nothing.
   if [[ -f "$SITE_FILE" ]]; then
     say "  Diff against the live site file:"
-    diff -u "$SITE_FILE" "$tmp" | sed 's/^/    | /' || true
+    diff -u "$SITE_FILE" <(site_content) | sed 's/^/    | /' || true
   else
-    say "  No live site file yet (this --apply would create it)."
+    say "  No live site file yet (this --apply would create it):"
+    site_content | sed 's/^/    | /'
   fi
-  rm -f -- "$tmp"
   return $(( 1 - ready ))
 }
 
