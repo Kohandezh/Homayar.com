@@ -783,7 +783,7 @@ leftover_demo_resources() {  # prints ids of containers, volumes and networks
 }
 
 undo_apply() {  # --undo --yes
-  local left
+  local left final_log
   if demo_config_complete; then
     run dc "$T_DOWN" down --volumes --remove-orphans || return 1
   else
@@ -798,8 +798,16 @@ undo_apply() {  # --undo --yes
     return 1
   fi
   say "No container, volume or network of $PROJECT remains."
+  # Keep this run's log as the final log line of the demo: move it out of
+  # logs/ before logs/ goes, so the lines below still have a file to go to.
+  # The undo log holds no secret.
+  final_log="$H/demo-site-undo-$TS.log"
+  if [[ -n "$LOG" && -f "$LOG" ]]; then
+    mv -f -- "$LOG" "$final_log"
+    LOG="$final_log"
+  fi
   rm -rf -- "$H/config" "$H/secrets" "$H/logs" "$H/dc" "$H/demo-site.lock"
-  say "Removed the demo home except src/ (config, secrets, logs, dc, lock)."
+  say "Removed the demo home except src/ and this log (config, secrets, logs, dc, lock)."
   say ""
   say "==== undo summary ===="
   say "Removed: the $PROJECT compose project (containers, volumes, networks), the two"
@@ -807,6 +815,7 @@ undo_apply() {  # --undo --yes
   say "The source images and every production resource (homayar-onprem) are untouched."
   say "Finish by hand when you want the folder gone:"
   say "  rm -rf $H/src"
+  say "  rm -f $final_log"
   say "  rmdir $H"
   return 0
 }
@@ -821,6 +830,7 @@ undo_plan() {  # --undo without --yes: print what would go, change nothing
     say "       $tag"
   done < <(demo_tag_refs)
   say "  3. the demo home except src/: $H/config $H/secrets $H/logs $H/dc $H/demo-site.lock"
+  say "     (the undo log stays as $H/demo-site-undo-<UTC stamp>.log)"
   say "Nothing else: no image id, no production tag, no homayar-onprem resource;"
   say "src/ stays (remove it by hand with: rm -rf $H/src)."
   say "Nothing was changed."

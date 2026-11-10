@@ -612,6 +612,10 @@ no_foreign_names() {
 want_no_marker_anywhere() { # the marker and the generated login password
   local f pw
   ! grep -qF -- "$MARKER" <<<"$OUT" || { detail "secret marker in the output"; exit 1; }
+  for f in "$HOME_F"/logs/*.log "$HOME_F"/demo-site-undo-*.log; do
+    [[ -e "$f" ]] || continue
+    ! grep -qF -- "$MARKER" "$f" || { detail "secret marker in $f"; exit 1; }
+  done
   if [[ -f "$HOME_F/secrets/demo-login" ]]; then
     pw="$(tail -n 1 "$HOME_F/secrets/demo-login")"
     ! grep -qF -- "$pw" <<<"$OUT" || { detail "the demo login password is in the output"; exit 1; }
@@ -903,6 +907,13 @@ c_undo_yes() (
   [[ -d "$HOME_F/src" ]] || { detail "src/ must survive undo"; exit 1; }
   [[ ! -e "$HOME_F/config" && ! -e "$HOME_F/secrets" && ! -e "$HOME_F/dc" ]] || { detail "undo left config, secrets or dc"; exit 1; }
   want_out "rm -rf $HOME_F/src"
+  # The final undo log survives at the home root, and every line after the
+  # removal of logs/ still reaches it (no write to a removed file).
+  want_no_out "No such file or directory"
+  undo_logs=("$HOME_F"/demo-site-undo-*.log)
+  [[ -f "${undo_logs[0]}" ]] || { detail "the final undo log is missing"; exit 1; }
+  file_has "${undo_logs[0]}" "==== undo summary ===="
+  file_has "${undo_logs[0]}" "exit code: 0"
   want_no_marker_anywhere
 )
 
