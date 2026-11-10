@@ -7,8 +7,9 @@ claims, and retrieval.
 
 - It is pure: standard library only, plus `backend.speech` (`benchmark`,
   `text_normalize`). No database, no network, no provider, no language model.
-- File I/O happens only in `loaders.py` and the CLI.
-- It is deterministic: the same input gives the same output. Nothing is random.
+- File I/O happens only in `loaders.py`, the CLI and `candidate.py`.
+- It is deterministic: the same input gives the same output. The only randomness is the
+  seeded bootstrap of the candidate report, which gives the same bytes for the same seed.
 - When a metric cannot be measured, its value is None and a reason code says why. It
   never reports 0 as a stand-in.
 - Every evaluator accepts an empty input. It returns None values with a reason, and does
@@ -309,6 +310,175 @@ written with `allow_nan=False`. The CLI never prints a traceback for bad data: a
 line on stderr and exit 1. Two runs on the same file and options print the same
 bytes.
 
+## Candidate report (HOM-70)
+
+A *candidate* is one model or prompt version under test. The candidate report is one JSON
+document with every evaluation result of that candidate. For every slice it gives the
+sample size, an uncertainty interval (or a reason why there is none), the abstention rate,
+the coverage, and latency and cost. HOM-71 reads this report to gate promotion. Thresholds
+and the incumbent comparison are not here.
+
+Run from `Homayar/`:
+
+```bash
+uv run python -m backend.evaluation.candidate <manifest.json>
+```
+
+From code: `build_candidate_report(manifest_path)` returns the same report as a JSON-safe
+dict. The version is `candidate-report/1` (`CANDIDATE_REPORT_VERSION`).
+
+### The manifest
+
+One JSON object, UTF-8. A relative path in it is read from the manifest's own folder, not
+from the current folder.
+
+| Key | Required | Rule | Default |
+| --- | --- | --- | --- |
+| `candidate` | yes | non-blank string | |
+| `evaluations` | yes | non-empty list of evaluations (below) | |
+| `config` | no | object or null: the candidate's settings, copied into the report | null |
+| `measurements` | no | path to a measurements JSONL, or null | null |
+| `currency` | no | non-blank string or null: the unit of `cost` | null |
+| `slices` | no | list of non-blank strings: the slice dimensions | `[]` |
+| `bootstrap` | no | `resamples` int >= 0 (1000), `seed` int (0), `confidence` number, 0 < c < 1 (0.95) | the defaults in brackets |
+| `min_slice_size` | no | int >= 1 | 30 |
+
+One evaluation:
+
+| Key | Required | Rule | Default |
+| --- | --- | --- | --- |
+| `name` | yes | non-blank string, unique in the manifest | |
+| `kind` | yes | one of `KINDS` | |
+| `path` | yes | path to the JSONL of that kind | |
+| `args` | no | list of strings: the CLI options of that kind, for example `["--ks", "1,3,5"]` | `[]` |
+
+The manifest is strict. Each of these is a data error:
+
+- An unknown key, at the top, in `bootstrap` or in an evaluation. The error names the key.
+  Why: a typo such as `min_slice_szie` must not be ignored in a promotion report.
+- A wrong type or a value out of range. A `bool` is not an int or a number.
+- A dimension that is repeated in `slices`, such as `["lang", "lang"]`. Why: each copy adds
+  every item again, so a slice looks twice as big and `insufficient_sample` can be false
+  for a slice that is too small.
+- An evaluation `name` with a `/` in it. Why: `insufficient_slices` entries are
+  `"<name>/<slice key>"`, so a `/` in the name makes them unclear.
+- `--slices` in `args`, also as `--slices=x` or as a short form that `argparse` would
+  expand to it (`--sl`, `--slic`). The slice dimensions come only from the top-level
+  `slices`, so every evaluation of the report uses the same slices.
+- `args` that the CLI would refuse: an unknown option, a bad value, or `--weights linear`
+  without `--categories`. This gives exit 1, not the CLI's exit 2, and no usage text.
+- A missing or unreadable file, or bad JSONL. The loader message names the line.
+- JSON nested so deeply that Python's `json` raises `RecursionError`.
+
+### Slices and metrics
+
+The slice keys are the ones of `evaluate_by_slice` with the manifest `slices`: `"all"`,
+then the `"<dim>=<value>"` keys, sorted. For each evaluation and slice key:
+
+- `n_input_items`: the JSONL records of this evaluation in this slice.
+- `insufficient_sample`: true when `n_input_items < min_slice_size`.
+- `detail`: exactly the object `python -m backend.evaluation` prints for this slice key,
+  with the same file and options.
+- `metrics`: one entry per metric. For most kinds these are the keys of the report's
+  `metrics`. For `qa_agreement` they are `kappa` plus `kappa[<criterion>]` for each
+  criterion. For `qa_score` it is `score_mae`.
+
+A metric entry has every field of `MetricValue.as_dict()`, plus:
+
+- `abstention_rate`: `n_abstained / n_items`. None when `n_items` is 0.
+- `coverage`: `n_items / (n_items + n_excluded)`, the share of the metric's input units
+  that it scored. None when that sum is 0.
+- `interval`: the uncertainty (below).
+
+### Uncertainty: percentile bootstrap
+
+`interval` has `method` (`percentile_bootstrap`), `confidence`, `resamples`, `seed`,
+`defined_resamples`, `low`, `high` and `reason`. The checks run in this order. The first one
+that applies sets `low` and `high` to None and `defined_resamples` to 0:
+
+1. `resamples` is 0: `bootstrap_disabled`.
+2. The metric's own `value` is None: `metric_undefined`.
+3. The slice has fewer than 2 input items: `too_few_items`.
+
+Otherwise the slice is resampled `resamples` times. The unit is one input item (one JSONL
+record), so a call with many entities moves as one unit. Each resample draws `n` indexes
+with `random.Random(f"{seed}:{evaluation name}:{slice key}").randrange(n)`, where `n` is
+`n_input_items`. A string seed does not depend on `PYTHONHASHSEED`, so the same manifest
+gives the same bytes. The metric function runs once per resample, and every metric keeps
+its value when it is not None.
+
+`defined_resamples` counts the resamples that gave a value for that metric. When it is 0,
+`reason` is `no_defined_resamples`. Otherwise `reason` is None, and `low` and `high` are
+nearest-rank percentiles of the sorted values at `alpha / 2` and `1 - alpha / 2`, where
+`alpha = 1 - confidence`. Nearest rank means `v[ceil(q * m) - 1]` for `m` values, in exact
+fractions, with the rank kept between 1 and `m`. For `confidence` 0.95 and 1000 values, the
+ranks are 25 and 975. `value` stays the value on the full slice. The interval is reported
+even when `defined_resamples` is below `resamples`; the count shows it.
+
+### Latency and cost: measurements
+
+The measurements file is JSONL, one record per request the candidate served. The file rules
+are the same as for the evaluation JSONL (blank lines skipped, unknown keys ignored, the
+error names the line). `load_measurements(path)` reads a file, `parse_measurement(record)`
+reads one object, and each record is a `Measurement`.
+
+| Key | Required | Rule |
+| --- | --- | --- |
+| `request_id` | yes | non-blank string |
+| `latency_ms` | no | number >= 0, or null |
+| `input_tokens`, `output_tokens` | no | int >= 0, or null |
+| `cost` | no | number >= 0, or null, in the manifest `currency` |
+| `provider` | no | non-blank string, or null |
+| `slices` | no | object of string to string |
+
+A non-null `cost` while the manifest `currency` is null is a data error.
+
+The report section `measurements` has `path` (as written in the manifest), `input_sha256`,
+`currency`, `reason` and `slices`. Without `measurements` in the manifest, `reason` is
+`not_measured` and `slices` is empty. Otherwise the slice keys follow the evaluations
+(`"all"` is there even for an empty file), and each slice has:
+
+- `n_requests` and `insufficient_sample` (`n_requests < min_slice_size`).
+- `latency_ms`: `n`, `n_missing`, `mean`, `p50`, `p90`, `p95` (nearest rank at 1/2, 9/10,
+  19/20) and `max`. With no latency, every number is None and `reason` is `no_latency`.
+- `cost`: `n`, `n_missing`, `total`, `mean_per_request` and `currency`. With no cost,
+  `total` and `mean_per_request` are None and `reason` is `no_cost`.
+- `tokens`: `input_total`, `output_total` (None when every record misses that field), and
+  `n_missing_input`, `n_missing_output`.
+- `providers`: request count per provider, and `n_missing_provider`. Two or more providers
+  in one slice show a provider mix. The report does not hide it.
+
+### The report
+
+Top-level keys: `version`, `evaluation_version`, `candidate`, `config`, `config_sha256`
+(SHA-256 of the compact sorted JSON of `config`, or None), `manifest_sha256`, `slices`,
+`min_slice_size`, `bootstrap`, `evaluations` (name to `kind`, `path`, `input_sha256`,
+`options`, `slices`), `measurements`, and `insufficient_slices`. That last one is the sorted
+list of `"<evaluation name>/<slice key>"` and `"measurements/<slice key>"` where
+`insufficient_sample` is true. `options` is the same as the CLI's, with the manifest
+`slices`. Paths are shown as written in the manifest, never made absolute, so the bytes do
+not depend on where the repository is.
+
+The output is written with sorted keys, `indent=2` and `allow_nan=False`. Exit codes: 0 on
+success. 1 on any data error, with exactly one `error: ` line on stderr and nothing on
+stdout. 2 on bad arguments to the candidate CLI itself. Two runs with the same manifest and
+files print the same bytes.
+
+New reason codes:
+
+| Code | Where | Meaning |
+| --- | --- | --- |
+| `bootstrap_disabled` | `interval` | `resamples` is 0 |
+| `metric_undefined` | `interval` | the metric's value on the full slice is None |
+| `too_few_items` | `interval` | the slice has fewer than 2 input items |
+| `no_defined_resamples` | `interval` | no resample gave a value for the metric |
+| `not_measured` | `measurements` | the manifest has no measurements file |
+| `no_latency` | `latency_ms` | no record in the slice has a latency |
+| `no_cost` | `cost` | no record in the slice has a cost |
+
+A real example is in `docs/research/hom-351-local-models/results/*/candidate.json` and
+`candidate-report.json`.
+
 ## Feeding the WP13 corpus
 
 1. Export each annotation layer to the JSONL shape of its kind above. Put the slice
@@ -317,8 +487,9 @@ bytes.
 3. Keep the CLI output: `input_sha256` and `version` tie a result to its exact input and
    definitions.
 
+Confidence intervals, bootstrap, latency and cost are in `candidate.py` (HOM-70, above).
+
 Not in this package:
 
 - Frozen-split hashing, thresholds and promotion gates belong to HOM-71.
-- Confidence intervals, bootstrap, latency and cost belong to HOM-70.
 - Wiring into the diarization pipeline and the published collar policy belong to HOM-50.

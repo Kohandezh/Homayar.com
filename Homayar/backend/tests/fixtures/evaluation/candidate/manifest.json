@@ -1,0 +1,11 @@
+{
+  "candidate": "fixture-candidate",
+  "slices": ["language"],
+  "min_slice_size": 2,
+  "bootstrap": {"resamples": 40, "seed": 0, "confidence": 0.95},
+  "evaluations": [
+    {"name": "dense", "kind": "retrieval", "path": "retrieval.jsonl", "args": ["--ks", "1,3"]},
+    {"name": "intent", "kind": "intent", "path": "intent.jsonl"},
+    {"name": "agreement", "kind": "qa_agreement", "path": "qa_agreement.jsonl"}
+  ]
+}

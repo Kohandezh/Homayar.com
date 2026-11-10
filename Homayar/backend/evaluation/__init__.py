@@ -41,7 +41,16 @@ from backend.evaluation.factual_support import (
 from backend.evaluation.loaders import KINDS, load_jsonl, parse_record
 from backend.evaluation.retrieval import RetrievalQuery, RetrievalReport, evaluate_retrieval
 
+_CANDIDATE_EXPORTS = (
+    "CANDIDATE_REPORT_VERSION",
+    "Measurement",
+    "build_candidate_report",
+    "load_measurements",
+    "parse_measurement",
+)
+
 __all__ = [
+    "CANDIDATE_REPORT_VERSION",
     "EVALUATION_VERSION",
     "KINDS",
     "AsrReport",
@@ -57,6 +66,7 @@ __all__ = [
     "EntityReport",
     "FactualSupportReport",
     "LabeledItem",
+    "Measurement",
     "MetricValue",
     "RatingPair",
     "RetrievalQuery",
@@ -65,6 +75,7 @@ __all__ = [
     "SpeakerTurn",
     "SupportLabel",
     "Utterance",
+    "build_candidate_report",
     "citation_is_valid",
     "cohen_kappa",
     "evaluate_asr",
@@ -76,7 +87,18 @@ __all__ = [
     "evaluate_retrieval",
     "kappa_by_criterion",
     "load_jsonl",
+    "load_measurements",
+    "parse_measurement",
     "parse_record",
     "score_diarization",
     "score_mae",
 ]
+
+
+def __getattr__(name: str) -> object:
+    # Lazy so `python -m backend.evaluation.candidate` does not re-run an imported module.
+    if name in _CANDIDATE_EXPORTS:
+        from backend.evaluation import candidate
+
+        return getattr(candidate, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

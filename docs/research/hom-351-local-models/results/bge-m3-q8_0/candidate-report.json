@@ -1,0 +1,1332 @@
+{
+  "bootstrap": {
+    "confidence": 0.95,
+    "method": "percentile_bootstrap",
+    "resamples": 1000,
+    "seed": 0
+  },
+  "candidate": "bge-m3-q8_0",
+  "config": {
+    "harness_version": 1,
+    "label": "bge-m3-q8_0",
+    "mode": "embed",
+    "note": "llama-server b11960 macos-arm64: -m bge-m3-q8_0.gguf --alias bge-m3-q8_0 --embedding --host 127.0.0.1 --port 8081 -ngl all -c 8192 -b 8192 -ub 8192"
+  },
+  "config_sha256": "c41c5e82e9222d4fc6e8ffa3eb9ba4d3e3f418f29533a9292eafccb46baf1538",
+  "evaluation_version": "evaluation/1",
+  "evaluations": {
+    "retrieval_dense": {
+      "input_sha256": "2d27b82ef3a7bf08f5584037ee2df85820ef59698a7a0a4f61fbe597bf0bb759",
+      "kind": "retrieval",
+      "options": {
+        "ks": [
+          1,
+          3,
+          5
+        ],
+        "slices": [
+          "language"
+        ]
+      },
+      "path": "retrieval_dense.jsonl",
+      "slices": {
+        "all": {
+          "detail": {
+            "metrics": {
+              "hit@1": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "hit@1",
+                "numerator": 12.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "hit@3": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "hit@3",
+                "numerator": 12.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "hit@5": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "hit@5",
+                "numerator": 12.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "mrr": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "mrr",
+                "numerator": 12.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "ndcg@1": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "ndcg@1",
+                "numerator": 12.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "ndcg@3": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "ndcg@3",
+                "numerator": 11.754550489913235,
+                "reason": null,
+                "value": 0.9795458741594363
+              },
+              "ndcg@5": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "ndcg@5",
+                "numerator": 11.83441204897893,
+                "reason": null,
+                "value": 0.9862010040815775
+              },
+              "precision@1": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "precision@1",
+                "numerator": 12.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "precision@3": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "precision@3",
+                "numerator": 7.333333333333334,
+                "reason": null,
+                "value": 0.6111111111111112
+              },
+              "precision@5": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "precision@5",
+                "numerator": 4.6000000000000005,
+                "reason": null,
+                "value": 0.38333333333333336
+              },
+              "recall@1": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "recall@1",
+                "numerator": 6.999999999999999,
+                "reason": null,
+                "value": 0.5833333333333333
+              },
+              "recall@3": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "recall@3",
+                "numerator": 11.333333333333332,
+                "reason": null,
+                "value": 0.9444444444444443
+              },
+              "recall@5": {
+                "denominator": 12,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 12,
+                "name": "recall@5",
+                "numerator": 11.666666666666666,
+                "reason": null,
+                "value": 0.9722222222222222
+              }
+            }
+          },
+          "insufficient_sample": true,
+          "metrics": {
+            "hit@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "hit@1",
+              "numerator": 12.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "hit@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "hit@3",
+              "numerator": 12.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "hit@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "hit@5",
+              "numerator": 12.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "mrr": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "mrr",
+              "numerator": 12.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "ndcg@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "ndcg@1",
+              "numerator": 12.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "ndcg@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.9490889629204355,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "ndcg@3",
+              "numerator": 11.754550489913235,
+              "reason": null,
+              "value": 0.9795458741594363
+            },
+            "ndcg@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.9607454855417951,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "ndcg@5",
+              "numerator": 11.83441204897893,
+              "reason": null,
+              "value": 0.9862010040815775
+            },
+            "precision@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "precision@1",
+              "numerator": 12.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "precision@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.7222222222222222,
+                "low": 0.5,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "precision@3",
+              "numerator": 7.333333333333334,
+              "reason": null,
+              "value": 0.6111111111111112
+            },
+            "precision@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.4500000000000001,
+                "low": 0.31666666666666665,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "precision@5",
+              "numerator": 4.6000000000000005,
+              "reason": null,
+              "value": 0.38333333333333336
+            },
+            "recall@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.7222222222222223,
+                "low": 0.4444444444444445,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "recall@1",
+              "numerator": 6.999999999999999,
+              "reason": null,
+              "value": 0.5833333333333333
+            },
+            "recall@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.8611111111111112,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "recall@3",
+              "numerator": 11.333333333333332,
+              "reason": null,
+              "value": 0.9444444444444443
+            },
+            "recall@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 12,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.9166666666666665,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 12,
+              "name": "recall@5",
+              "numerator": 11.666666666666666,
+              "reason": null,
+              "value": 0.9722222222222222
+            }
+          },
+          "n_input_items": 12
+        },
+        "language=en": {
+          "detail": {
+            "metrics": {
+              "hit@1": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "hit@1",
+                "numerator": 4.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "hit@3": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "hit@3",
+                "numerator": 4.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "hit@5": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "hit@5",
+                "numerator": 4.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "mrr": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "mrr",
+                "numerator": 4.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "ndcg@1": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "ndcg@1",
+                "numerator": 4.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "ndcg@3": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "ndcg@3",
+                "numerator": 3.8472668887613066,
+                "reason": null,
+                "value": 0.9618167221903267
+              },
+              "ndcg@5": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "ndcg@5",
+                "numerator": 3.8472668887613066,
+                "reason": null,
+                "value": 0.9618167221903267
+              },
+              "precision@1": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "precision@1",
+                "numerator": 4.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "precision@3": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "precision@3",
+                "numerator": 2.333333333333333,
+                "reason": null,
+                "value": 0.5833333333333333
+              },
+              "precision@5": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "precision@5",
+                "numerator": 1.4,
+                "reason": null,
+                "value": 0.35
+              },
+              "recall@1": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "recall@1",
+                "numerator": 2.3333333333333335,
+                "reason": null,
+                "value": 0.5833333333333334
+              },
+              "recall@3": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "recall@3",
+                "numerator": 3.6666666666666665,
+                "reason": null,
+                "value": 0.9166666666666666
+              },
+              "recall@5": {
+                "denominator": 4,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 4,
+                "name": "recall@5",
+                "numerator": 3.6666666666666665,
+                "reason": null,
+                "value": 0.9166666666666666
+              }
+            }
+          },
+          "insufficient_sample": true,
+          "metrics": {
+            "hit@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "hit@1",
+              "numerator": 4.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "hit@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "hit@3",
+              "numerator": 4.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "hit@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "hit@5",
+              "numerator": 4.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "mrr": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "mrr",
+              "numerator": 4.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "ndcg@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "ndcg@1",
+              "numerator": 4.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "ndcg@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.88545016657098,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "ndcg@3",
+              "numerator": 3.8472668887613066,
+              "reason": null,
+              "value": 0.9618167221903267
+            },
+            "ndcg@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.88545016657098,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "ndcg@5",
+              "numerator": 3.8472668887613066,
+              "reason": null,
+              "value": 0.9618167221903267
+            },
+            "precision@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "precision@1",
+              "numerator": 4.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "precision@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.6666666666666666,
+                "low": 0.41666666666666663,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "precision@3",
+              "numerator": 2.333333333333333,
+              "reason": null,
+              "value": 0.5833333333333333
+            },
+            "precision@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.4,
+                "low": 0.25,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "precision@5",
+              "numerator": 1.4,
+              "reason": null,
+              "value": 0.35
+            },
+            "recall@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.875,
+                "low": 0.37499999999999994,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "recall@1",
+              "numerator": 2.3333333333333335,
+              "reason": null,
+              "value": 0.5833333333333334
+            },
+            "recall@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.7499999999999999,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "recall@3",
+              "numerator": 3.6666666666666665,
+              "reason": null,
+              "value": 0.9166666666666666
+            },
+            "recall@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 4,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.7499999999999999,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 4,
+              "name": "recall@5",
+              "numerator": 3.6666666666666665,
+              "reason": null,
+              "value": 0.9166666666666666
+            }
+          },
+          "n_input_items": 4
+        },
+        "language=fa": {
+          "detail": {
+            "metrics": {
+              "hit@1": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "hit@1",
+                "numerator": 8.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "hit@3": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "hit@3",
+                "numerator": 8.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "hit@5": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "hit@5",
+                "numerator": 8.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "mrr": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "mrr",
+                "numerator": 8.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "ndcg@1": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "ndcg@1",
+                "numerator": 8.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "ndcg@3": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "ndcg@3",
+                "numerator": 7.907283601151927,
+                "reason": null,
+                "value": 0.9884104501439909
+              },
+              "ndcg@5": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "ndcg@5",
+                "numerator": 7.987145160217623,
+                "reason": null,
+                "value": 0.9983931450272029
+              },
+              "precision@1": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "precision@1",
+                "numerator": 8.0,
+                "reason": null,
+                "value": 1.0
+              },
+              "precision@3": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "precision@3",
+                "numerator": 5.0,
+                "reason": null,
+                "value": 0.625
+              },
+              "precision@5": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "precision@5",
+                "numerator": 3.2,
+                "reason": null,
+                "value": 0.4
+              },
+              "recall@1": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "recall@1",
+                "numerator": 4.666666666666666,
+                "reason": null,
+                "value": 0.5833333333333333
+              },
+              "recall@3": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "recall@3",
+                "numerator": 7.666666666666666,
+                "reason": null,
+                "value": 0.9583333333333333
+              },
+              "recall@5": {
+                "denominator": 8,
+                "n_abstained": 0,
+                "n_excluded": 0,
+                "n_items": 8,
+                "name": "recall@5",
+                "numerator": 8.0,
+                "reason": null,
+                "value": 1.0
+              }
+            }
+          },
+          "insufficient_sample": true,
+          "metrics": {
+            "hit@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "hit@1",
+              "numerator": 8.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "hit@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "hit@3",
+              "numerator": 8.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "hit@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "hit@5",
+              "numerator": 8.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "mrr": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "mrr",
+              "numerator": 8.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "ndcg@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "ndcg@1",
+              "numerator": 8.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "ndcg@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.9652313504319726,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "ndcg@3",
+              "numerator": 7.907283601151927,
+              "reason": null,
+              "value": 0.9884104501439909
+            },
+            "ndcg@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.9951794350816087,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "ndcg@5",
+              "numerator": 7.987145160217623,
+              "reason": null,
+              "value": 0.9983931450272029
+            },
+            "precision@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "precision@1",
+              "numerator": 8.0,
+              "reason": null,
+              "value": 1.0
+            },
+            "precision@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.75,
+                "low": 0.49999999999999994,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "precision@3",
+              "numerator": 5.0,
+              "reason": null,
+              "value": 0.625
+            },
+            "precision@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.5,
+                "low": 0.30000000000000004,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "precision@5",
+              "numerator": 3.2,
+              "reason": null,
+              "value": 0.4
+            },
+            "recall@1": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 0.7708333333333333,
+                "low": 0.4375,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "recall@1",
+              "numerator": 4.666666666666666,
+              "reason": null,
+              "value": 0.5833333333333333
+            },
+            "recall@3": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 0.875,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "recall@3",
+              "numerator": 7.666666666666666,
+              "reason": null,
+              "value": 0.9583333333333333
+            },
+            "recall@5": {
+              "abstention_rate": 0.0,
+              "coverage": 1.0,
+              "denominator": 8,
+              "interval": {
+                "confidence": 0.95,
+                "defined_resamples": 1000,
+                "high": 1.0,
+                "low": 1.0,
+                "method": "percentile_bootstrap",
+                "reason": null,
+                "resamples": 1000,
+                "seed": 0
+              },
+              "n_abstained": 0,
+              "n_excluded": 0,
+              "n_items": 8,
+              "name": "recall@5",
+              "numerator": 8.0,
+              "reason": null,
+              "value": 1.0
+            }
+          },
+          "n_input_items": 8
+        }
+      }
+    }
+  },
+  "insufficient_slices": [
+    "retrieval_dense/all",
+    "retrieval_dense/language=en",
+    "retrieval_dense/language=fa"
+  ],
+  "manifest_sha256": "7e856f9f5608f89859d96bf986586477749351dd625be82cbcbdddfc91567a7c",
+  "measurements": {
+    "currency": null,
+    "input_sha256": null,
+    "path": null,
+    "reason": "not_measured",
+    "slices": {}
+  },
+  "min_slice_size": 30,
+  "slices": [
+    "language"
+  ],
+  "version": "candidate-report/1"
+}

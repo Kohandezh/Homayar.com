@@ -1,0 +1,18 @@
+{
+  "candidate": "bge-m3-q8_0",
+  "config": {
+    "harness_version": 1,
+    "label": "bge-m3-q8_0",
+    "mode": "embed",
+    "note": "llama-server b11960 macos-arm64: -m bge-m3-q8_0.gguf --alias bge-m3-q8_0 --embedding --host 127.0.0.1 --port 8081 -ngl all -c 8192 -b 8192 -ub 8192"
+  },
+  "evaluations": [
+    {
+      "name": "retrieval_dense",
+      "kind": "retrieval",
+      "path": "retrieval_dense.jsonl",
+      "args": ["--ks", "1,3,5"]
+    }
+  ],
+  "slices": ["language"]
+}
