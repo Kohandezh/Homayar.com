@@ -910,7 +910,13 @@ main() {
     if [[ "$CHECK_READY" == 1 ]]; then finish 0; else finish 1; fi
   fi
 
-  # --apply and --undo take the lock and write a log
+  # --undo without --yes only prints the plan: no log, no lock, no write
+  if [[ "$MODE" == undo && "$YES" != 1 ]]; then
+    undo_plan
+    finish 2
+  fi
+
+  # --apply and --undo --yes take the lock and write a log
   [[ -d "$H" ]] || install -d -m 700 "$H"
   [[ -d "$H/logs" ]] || install -d -m 700 "$H/logs"
   LOG="$H/logs/demo-site-$TS.log"
@@ -924,10 +930,6 @@ main() {
   say "HOM-383 demo site $MODE, home $H, log $LOG"
 
   if [[ "$MODE" == undo ]]; then
-    if [[ "$YES" != 1 ]]; then
-      undo_plan
-      finish 2
-    fi
     if undo_apply; then finish 0; else finish 1; fi
   fi
 

@@ -904,12 +904,17 @@ c_undo_without_yes() (
   prepare
   run_script --apply
   want_rc 0
+  local before after
+  before="$(cd "$HOME_F" && find . -path ./src -prune -o -print | LC_ALL=C sort)"
   run_script --undo
   want_rc 2
   want_out "Nothing was changed."
   calls_lack "compose:down"
   calls_lack "docker:rmi"
   [[ -f "$HOME_F/config/settings.env" ]] || { detail "undo without --yes removed config"; exit 1; }
+  # The plan writes nothing: no new log, no lock, no file at all.
+  after="$(cd "$HOME_F" && find . -path ./src -prune -o -print | LC_ALL=C sort)"
+  [[ "$before" == "$after" ]] || { detail "undo without --yes changed the demo home"; exit 1; }
 )
 
 c_undo_yes() (
