@@ -151,7 +151,9 @@ other_site_uses_name() {  # prints enabled sites (not ours) with this server_nam
   for f in "$SITES_EN"/*; do
     [[ -e "$f" || -L "$f" ]] || continue
     [[ "$(basename -- "$f")" == "$SITE_NAME.conf" ]] && continue
-    if grep -q 'server_name demo\.homayar\.com' "$f" 2>/dev/null; then
+    # The directive, not one spelling: several names and any white space on the
+    # line count; a commented line does not. It may follow '{' or ';'.
+    if grep -Eq '(^|[{;])[[:space:]]*server_name([[:space:]][^;#]*)?[[:space:]]demo\.homayar\.com([[:space:];]|$)' "$f" 2>/dev/null; then
       printf '%s\n' "$f"
     fi
   done

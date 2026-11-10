@@ -309,11 +309,12 @@ cache, and `docker stats` every 2 seconds, which does not):
 | console-web | 128m | 29 MiB | 24 MiB |
 | postgres | 512m | 172 MiB | 77 MiB |
 | redis | 128m | 20 MiB | 9 MiB |
-| minio | 512m | 512 MiB | 478 MiB |
+| minio | 512m in the rehearsal, now 640m | 512 MiB | 478 MiB |
 | seed run (one-shot api) | 1536m | | 169 MiB |
 | login password run (one-shot api) | 768m | | 84 MiB |
 
 No container was OOM-killed (`memory.events`: `oom_kill 0` for every service). MinIO reached its
-limit during the seed (it reclaimed file cache 379 times) and settled at 360 MiB anonymous
-memory. If MinIO is ever OOM-killed on the server, raise `MINIO_MEM_LIMIT` in
-`config/settings.env` (production uses 768m).
+limit during the seed: a measured peak of 512 MiB of 512 MiB, cgroup `max` events 379 (it
+reclaimed file cache), then 360 MiB anonymous memory. So the MinIO limit is now 640m, which leaves
+room above that peak and is still below production's 768m. If MinIO is ever OOM-killed on the
+server, raise `MINIO_MEM_LIMIT` in `config/settings.env`.

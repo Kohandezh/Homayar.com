@@ -73,8 +73,10 @@ services:
     cpus: "${REDIS_CPUS:-1}"
 
   minio:
-    mem_limit: "${MINIO_MEM_LIMIT:-512m}"
-    memswap_limit: "${MINIO_MEM_LIMIT:-512m}"
+    # 640m, not 512m: in the rehearsal MinIO reached 512 MiB of 512 MiB during
+    # the seed (cgroup max events 379, no OOM kill). Production uses 768m.
+    mem_limit: "${MINIO_MEM_LIMIT:-640m}"
+    memswap_limit: "${MINIO_MEM_LIMIT:-640m}"
     cpus: "${MINIO_CPUS:-2}"
 
   minio-bootstrap:

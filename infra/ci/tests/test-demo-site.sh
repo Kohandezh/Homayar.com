@@ -993,6 +993,28 @@ c_nginx_check_other_site() (
   want_out "P7 FAIL"
 )
 
+c_nginx_check_other_site_two_names() (
+  prepare
+  printf 'LISTEN 0 128 127.0.0.1:8090 0.0.0.0:*\n' >"$state/ss-listeners"
+  printf 'server {\n    server_name old.homayar.com   demo.homayar.com;\n}\n' \
+    >"$NGROOT/etc/nginx/sites-enabled/other.conf"
+  write_id root 0
+  run_nginx --check
+  want_rc 1
+  want_out "P7 FAIL"
+)
+
+c_nginx_check_other_site_commented() (
+  prepare
+  printf 'LISTEN 0 128 127.0.0.1:8090 0.0.0.0:*\n' >"$state/ss-listeners"
+  printf 'server {\n    # server_name demo.homayar.com;\n    server_name other.homayar.com;\n}\n' \
+    >"$NGROOT/etc/nginx/sites-enabled/other.conf"
+  write_id root 0
+  run_nginx --check
+  want_rc 0
+  want_out "P7 PASS"
+)
+
 c_nginx_apply_ok() (
   prepare
   printf 'LISTEN 0 128 127.0.0.1:8090 0.0.0.0:*\n' >"$state/ss-listeners"
@@ -1092,6 +1114,8 @@ run_case c_nginx_not_root
 run_case c_nginx_check_ok
 run_case c_nginx_check_no_cert
 run_case c_nginx_check_other_site
+run_case c_nginx_check_other_site_two_names
+run_case c_nginx_check_other_site_commented
 run_case c_nginx_apply_ok
 run_case c_nginx_apply_t_fail_restores
 run_case c_nginx_apply_t_fail_no_previous
