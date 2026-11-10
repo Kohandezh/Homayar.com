@@ -267,7 +267,8 @@ In this order:
 ## Rehearsal
 
 Run on 2026-11-10 on the admin Mac (Docker Desktop 29.8, Compose 5.7, 8 GiB VM), mission
-`20261110-hom383`, at commit `5e69f36`. The script ran in a Linux container
+`20261110-hom383`. The first `--check` and `--apply` ran at commit `21b1167`. The rest ran at
+`5e69f36`, which changes only how the script sees an applied demo (not the apply steps). The script ran in a Linux container
 (`docker:29-cli` with bash, util-linux, iproute2 and curl; host network; the Docker socket
 mounted) as user `gpu`, with `DEMO_TEST_HOME` set to a scratch demo home. After the run, one more
 fix (`--undo` without `--yes` no longer writes a log or the lock) was checked the same way on
