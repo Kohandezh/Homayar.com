@@ -1,0 +1,2 @@
+# Fake hex value in a selftest stub of the demo site script (HOM-383), not a secret.
+a2aafd9ea8b8f213b6088b447af309dcdb538465:infra/ci/tests/test-demo-site.sh:generic-api-key:371

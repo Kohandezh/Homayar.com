@@ -8,6 +8,8 @@ The relay and the tunnel in front of this server have their own runbook:
 [`relay-tunnel.md`](relay-tunnel.md). General on-prem rules (secret names, image policy, database
 roles, upgrade rules) are in [`deployment.md`](deployment.md).
 
+The demo site `demo.homayar.com` (HOM-383), a separate stack on this server: [`demo-site.md`](demo-site.md).
+
 ## Status and How to Read This Page
 
 - **Running since 2026-10-29:** the Homayar stack on the local server, release `019a906aa9ef`
