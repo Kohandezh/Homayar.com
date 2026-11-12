@@ -26,8 +26,11 @@ from backend.tests.test_issue_trend_service import (
     ANSWER_KEYS,
     BASE,
     BILLING,
+    COMPLAINT,
     DAY,
     WINDOW,
+    add_team,
+    add_user,
     excluded,
     included,
     row,
@@ -378,3 +381,49 @@ def test_the_route_answers_now_by_default(client, email_outbox, monkeypatch):
     seed(_place(owner), received_at=datetime.now(UTC) - timedelta(hours=1))
     body = _get(people["member"], window=False).json()
     assert included(body) == 1
+
+
+# --- HOM-384: each team gets its own numbers --------------------------------------------------
+
+
+def test_two_teams_with_different_calls_get_different_numbers(client, email_outbox, monkeypatch):
+    """HOM-384 AC2, independent of the demo seed: one workspace, two teams
+    whose calls carry different issue mixes, each team big enough to be
+    released as a rate (the release setup of the role trend tests: enough
+    calls and at least 5 distinct agents). ``team_id`` answers each team's own
+    calls with its own numerators; without it both teams are counted. All
+    calls sit in the fixed ``WINDOW``, so nothing depends on today's date."""
+    owner, people = _people(client, email_outbox, monkeypatch, member="member")
+    member = people["member"]
+    place = _place(owner)
+    complaint_team = add_team(place, "HOM384 Complaints")
+    billing_team = add_team(place, "HOM384 Billing")
+    for team, extraction in ((complaint_team, COMPLAINT), (billing_team, BILLING)):
+        agents = [add_user(f"hom384-{number}") for number in range(5)]
+        for agent in agents:
+            for _ in range(8):
+                seed(place, team_id=team, agent_user_id=agent, extraction=extraction)
+
+    def issue_numerators(body: dict) -> dict[str, int | None]:
+        return {
+            row_["issue"]: row_["cell"]["numerator"]
+            for row_ in body["rows"]
+            if row_["level"] == "issue"
+        }
+
+    numbers = {}
+    for team in (complaint_team, billing_team):
+        answer = _get(member, ("team_id", team))
+        assert answer.status_code == 200, answer.text
+        body = answer.json()
+        assert body["disclosure"]["status"] == "released", team
+        assert body["disclosure"]["kind"] == "rate", team
+        assert included(body) == 40, team
+        numbers[team] = issue_numerators(body)
+
+    # Different issue mixes give different numbers for at least one issue row.
+    shared = set(numbers[complaint_team]) & set(numbers[billing_team])
+    assert shared
+    assert any(numbers[complaint_team][issue] != numbers[billing_team][issue] for issue in shared)
+    # Control: without team_id the answer counts both teams.
+    assert included(_get(member).json()) == 80

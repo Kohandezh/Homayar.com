@@ -852,6 +852,26 @@ def _computed_with_numerator(cells: dict[str, list[dict]]) -> list[str]:
     ]
 
 
+def _issue_window_cells(answer: dict) -> dict[str, dict]:
+    """``issue id -> cell`` of the window rows (issue rows only)."""
+    return {row["issue"]: row["cell"] for row in answer["rows"] if row["level"] == "issue"}
+
+
+def _point_issue_cells(answer: dict) -> list[dict[str, dict]]:
+    """``issue id -> cell`` per series point (issue rows only)."""
+    return [
+        {row["issue"]: row["cell"] for row in point["rows"] if row["level"] == "issue"}
+        for point in answer["points"]
+    ]
+
+
+def _shown_numbers(cell: dict | None) -> tuple[int | None, float | None]:
+    """The numbers the page shows in one cell: its numerator and ratio."""
+    if cell is None:
+        return (None, None)
+    return (cell["numerator"], cell["ratio"])
+
+
 def _all_cells(answer: dict) -> list[dict]:
     return [row["cell"] for row in answer["rows"]] + [
         row["cell"] for point in answer["points"] for row in point["rows"]
@@ -889,7 +909,9 @@ def test_seed_refuses_a_naive_dating_instant(client, settings):
 def test_trends_endpoint_shows_real_trends_at_a_fixed_instant(client, settings):
     """One full seed at one past instant (AC6), then AC1 to AC4 against the real
     endpoint with the page's default query: the 4 closed Asia/Tehran weeks before
-    the instant's week, ``grain=week``, ``timezone=Asia/Tehran``."""
+    the instant's week, ``grain=week``, ``timezone=Asia/Tehran``. HOM-384 AC1
+    folds in here (one full seed is slow): the two call teams carry different
+    weekly mixes, so their issue-family numbers differ."""
     result = seed_demo_workspace(settings, now=TRENDS_INSTANT)
     _login(client, result.accounts["owner"])
     anchor = current_week_start(TRENDS_INSTANT)
@@ -920,8 +942,10 @@ def test_trends_endpoint_shows_real_trends_at_a_fixed_instant(client, settings):
     with inspection_session_factory()() as db:
         ids_of = {name: team_id for team_id, name in _team_names(db, result.workspace_id).items()}
     insufficient = []
+    team_answers: dict[str, dict] = {}
     for team_name in (demo_seed.CALL_CENTER, demo_seed.CUSTOMER_CARE):
         team = _trends_answer(client, result.workspace_id, team_id=ids_of[team_name], **query)
+        team_answers[team_name] = team
         assert team["disclosure"]["status"] == "released", team_name
         assert team["disclosure"]["kind"] == "rate", team_name
         assert len(_computed_with_numerator(_issue_point_cells(team))) >= 3, team_name
@@ -933,6 +957,27 @@ def test_trends_endpoint_shows_real_trends_at_a_fixed_instant(client, settings):
 
     # AC4: a cell the page shows as "Too few calls", in a released team's answer.
     assert insufficient
+
+    # HOM-384 AC1: the two teams show different issue-family numbers: at least
+    # 3 issue rows of the window, and at least one issue row in every weekly point.
+    center, care = demo_seed.CALL_CENTER, demo_seed.CUSTOMER_CARE
+    window_cells = {name: _issue_window_cells(team_answers[name]) for name in (center, care)}
+    differing = {
+        issue
+        for issue in window_cells[center]
+        if _shown_numbers(window_cells[center][issue])
+        != _shown_numbers(window_cells[care].get(issue))
+    }
+    assert len(differing) >= 3, sorted(differing)
+    weekly = {name: _point_issue_cells(team_answers[name]) for name in (center, care)}
+    assert len(weekly[center]) == len(weekly[care]) == 4
+    for week_index, (center_week, care_week) in enumerate(
+        zip(weekly[center], weekly[care], strict=True)
+    ):
+        assert any(
+            _shown_numbers(cell) != _shown_numbers(care_week.get(issue))
+            for issue, cell in center_week.items()
+        ), week_index
 
     # The full plan is idempotent too: a second run at the same instant
     # writes nothing (HOM-365 review, turn 2).
@@ -1034,6 +1079,12 @@ def _legacy_idempotency_key(index: int) -> str:
     return f"demo-seed-meeting-{index + 1:02d}"
 
 
+def _hom365_idempotency_key(index: int) -> str:
+    """The seed's key format before HOM-384 (the HOM-365 plan): three digits,
+    270 meetings, with a ledger row per meeting."""
+    return f"demo-seed-meeting-{index + 1:03d}"
+
+
 def _seed_as_before_hom326(settings, monkeypatch) -> str:
     """Seed the way the seed did before HOM-326: no agents, the 2 old teams, no team or
     agent on any meeting, the legacy 2-digit idempotency keys, and no ingestion
@@ -1090,6 +1141,26 @@ def test_seed_refuses_a_database_seeded_by_the_previous_seed(client, settings, m
     with monkeypatch.context() as patch:
         _small_plan(patch)
         patch.setattr(demo_seed, "_idempotency_key", _legacy_idempotency_key)
+        result = seed_demo_workspace(settings)
+    workspace_id = result.workspace_id
+    before = _counts(workspace_id)
+
+    with pytest.raises(demo_seed.DemoSeedRefused, match="older demo seed") as refused:
+        seed_demo_workspace(settings)
+
+    assert "Reset the database" in str(refused.value)
+    # Nothing new: the refusal comes before any write to the workspace.
+    assert _counts(workspace_id) == before
+
+
+def test_seed_refuses_a_database_seeded_by_the_hom365_seed(client, settings, monkeypatch):
+    """The seed of the HOM-383 rehearsal: the HOM-365 plan, 3-digit
+    idempotency keys and a ledger row per meeting, so both call teams got the
+    same calls. This seed's plan changed again (HOM-384: each call team has
+    its own weekly mix), so it can neither adopt nor skip those meetings."""
+    with monkeypatch.context() as patch:
+        _small_plan(patch)
+        patch.setattr(demo_seed, "_idempotency_key", _hom365_idempotency_key)
         result = seed_demo_workspace(settings)
     workspace_id = result.workspace_id
     before = _counts(workspace_id)
