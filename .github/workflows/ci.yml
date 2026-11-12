@@ -310,7 +310,9 @@ jobs:
     # final shape, two shards, took steps of 10:21 and 13:29 (jobs 11:34 and 14:22) on run
     # 40817325867. The limit is about twice the slower job, rounded up to a multiple of 5,
     # and at least 30 minutes.
-    timeout-minutes: 30
+    # HOM-292: on 2026-11-12 shard 2 hit the 30 minute limit on main (run 43266694259) after the
+    # suite grew. The limit is 45 until the shards are rebalanced.
+    timeout-minutes: 45
     needs: source-contract
     services:
       postgres:
