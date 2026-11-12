@@ -236,16 +236,21 @@ if kind == "register":
     }
 else:
     fields = {"identifier": True, "password": True}
+# invitation_token is `str | None` in the real model, so JSON null is allowed
+# there only; locale (a Literal) and every required field must be a string.
+nullable = {"invitation_token"}
 
 errors = []
+parse_failed = False
 try:
     with open(path, encoding="utf-8") as fh:
         payload = json.load(fh)
 except (OSError, ValueError):
+    parse_failed = True
     payload = None
     errors.append({"type": "json_invalid", "loc": ["body"],
                    "msg": "Input should be a valid JSON and a JSON object"})
-if payload is not None and not isinstance(payload, dict):
+if not parse_failed and not isinstance(payload, dict):
     errors.append({"type": "model_type", "loc": ["body"],
                    "msg": "Input should be a valid dictionary or object"})
 if isinstance(payload, dict):
@@ -257,6 +262,8 @@ if isinstance(payload, dict):
         if name not in fields:
             errors.append({"type": "extra_forbidden", "loc": ["body", name],
                            "msg": "Extra inputs are not permitted"})
+        elif payload[name] is None and name in nullable:
+            pass
         elif not isinstance(payload[name], str):
             errors.append({"type": "string_type", "loc": ["body", name],
                            "msg": "Input should be a valid string"})
@@ -1339,7 +1346,7 @@ c_probe_register_body_name_denied() (
   want_out "C6 FAIL"
   want_out "register answered 422"
   want_out "C1 PASS"
-  want_out "C8 PASS"
+  want_out "C8 PASS: login with a wrong password"
   current_is "$S12"
   db_is "$BASE_REV"
   want_up_count 2 # the B8 up plus the rollback R5
@@ -1356,7 +1363,7 @@ c_probe_login_body_email_denied() (
   want_rc 1
   want_out "C8 FAIL"
   want_out "login answered 422"
-  want_out "C6 PASS"
+  want_out "C6 PASS: sign-up closed"
   current_is "$S12"
   db_is "$BASE_REV"
   want_up_count 2 # the B8 up plus the rollback R5
