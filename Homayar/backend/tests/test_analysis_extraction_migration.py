@@ -57,7 +57,7 @@ from backend.tests.test_privacy_routing import NID_FA, SEGMENTS, _SegmentedASR
 
 NEW_REVISION = "c7e2a9d4f1b6"
 BASE_REVISION = "e6c3a9f1d4b8"
-HEAD_REVISION = "02f616cbb655"  # HOM-75: calibration batches, after HOM-74
+HEAD_REVISION = "0c51985fcf36"  # HOM-76: review appeals, after HOM-75
 TABLE = "analysis_extractions"
 
 

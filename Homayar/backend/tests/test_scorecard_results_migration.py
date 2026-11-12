@@ -876,9 +876,15 @@ def test_both_tables_are_workspace_tables_the_purge_can_delete():
         assert POLICIES[table] == (f"workspace_id = {TENANT}", f"workspace_id = {TENANT}")
         # The same policy as the extractions, the other immutable derived content.
         assert POLICIES[table] == POLICIES["analysis_extractions"]
-    # HOM-74 adds the immutable human review results and HOM-75 the immutable
-    # calibration example list to the same list.
-    assert NO_UPDATE_TABLES == (RESULTS, CRITERIA, "review_results", "calibration_examples")
+    # HOM-74 adds the immutable human review results, HOM-75 the immutable
+    # calibration example list and HOM-76 the immutable appeal results to the same list.
+    assert NO_UPDATE_TABLES == (
+        RESULTS,
+        CRITERIA,
+        "review_results",
+        "calibration_examples",
+        "review_appeal_results",
+    )
 
 
 def _changed(value: object) -> object:

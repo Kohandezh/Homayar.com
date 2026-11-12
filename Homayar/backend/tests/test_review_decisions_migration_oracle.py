@@ -1367,15 +1367,18 @@ def test_on_sqlite_the_migration_builds_the_orm_schema_and_its_downgrade_removes
             for name in TABLES:
                 _table(name).drop(connection)
             connection.exec_driver_sql(f"DROP INDEX {ITEM_RESULT_INDEX}")
-            # The five HOM-75 calibration tables of the head already exist
-            # (``create_all``); drop them, so the head's own migration can build
-            # them again below.
+            # The five HOM-75 calibration tables and the three HOM-76 appeal tables
+            # of the head already exist (``create_all``); drop them, so the head's
+            # own migrations can build them again below.
             for name in (
                 "calibration_batches",
                 "calibration_examples",
                 "calibration_participants",
                 "calibration_answers",
                 "calibration_adjudications",
+                "review_appeal_results",
+                "review_appeal_criteria",
+                "review_appeals",
             ):
                 Base.metadata.tables[name].drop(connection)
             before = _sqlite_objects(connection)
@@ -1395,8 +1398,8 @@ def test_on_sqlite_the_migration_builds_the_orm_schema_and_its_downgrade_removes
                 if row[2] not in TABLES and row[1] != ITEM_RESULT_INDEX
             ]
             assert unchanged == before
-        # The head's own migration (HOM-75 builds the calibration tables) completes
-        # the schema, so ``alembic check`` passes.
+        # The head's own migrations (HOM-75 builds the calibration tables, HOM-76
+        # the appeal tables) complete the schema, so ``alembic check`` passes.
         command.upgrade(config, "head")
         _check(config)
 

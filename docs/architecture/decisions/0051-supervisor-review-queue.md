@@ -189,7 +189,7 @@ scopes with `API_KEY_SCOPES`, so a stray `review:*` key scope can never reach th
 
 - Criterion accept or override, reviewer outcomes and recalculated aggregates (HOM-74,
   ADR 0053). Completing an item here only closes the queue entry.
-- Appeals and coaching (F46, F47). Calibration is ADR 0056 (HOM-75).
+- Coaching (F47). Calibration is ADR 0056 (HOM-75) and appeals (F46) are ADR 0057 (HOM-76).
 - Reminders and notifications for due or overdue items.
 - The `review` coverage counter stays `review_records_unavailable`.
 - The data-subject export of review items.

@@ -115,6 +115,7 @@ from backend.tests.test_scorecard_results_migration import (
 )
 
 NEW_REVISION = "02f616cbb655"
+HEAD_REVISION = "0c51985fcf36"  # HOM-76: review appeals, after HOM-75
 BASE_REVISION = "a651110b03c3"  # HOM-74: review decisions
 BATCHES = "calibration_batches"
 EXAMPLES = "calibration_examples"
@@ -1190,6 +1191,8 @@ def test_every_table_is_a_workspace_table_and_only_examples_refuse_updates():
         "scorecard_criterion_results",
         "review_results",
         EXAMPLES,
+        # HOM-76: a stored score after an appeal never changes.
+        "review_appeal_results",
     )
 
 
@@ -1317,7 +1320,8 @@ def test_the_migration_follows_the_previous_head():
 def test_the_code_has_one_migration_head_this_revision():
     from backend.observability.release import code_migration_head
 
-    assert code_migration_head() == NEW_REVISION
+    # HOM-76 moved the head past this revision; this one stays the only head's parent.
+    assert code_migration_head() == HEAD_REVISION
 
 
 def _reflect(connection, table: str) -> dict:
@@ -1863,6 +1867,7 @@ def test_the_migration_creates_and_drops_only_the_five_tables(
     config = _alembic(monkeypatch, settings)
     try:
         command.stamp(config, "head")
+        head_others = _other_tables()  # the head's own tables included
         command.downgrade(config, BASE_REVISION)
         others = _other_tables()  # the five tables are gone with the downgrade
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_REVISION
@@ -1893,7 +1898,8 @@ def test_the_migration_creates_and_drops_only_the_five_tables(
         assert {table: _shape(table) for table in TABLES} == orm_shapes
         assert all(_ids(table) == set() for table in TABLES)
         command.upgrade(config, "head")
-        assert _other_tables() == others
+        # Back at the head, with its HOM-76 appeal tables again.
+        assert _other_tables() == head_others
     finally:
         reset_settings_cache()
 
