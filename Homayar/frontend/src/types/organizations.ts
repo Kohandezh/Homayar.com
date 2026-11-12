@@ -4,6 +4,23 @@
  * the path, never from a body.
  */
 
+import type {
+  AuditEvent,
+  AuditEventListParams,
+  AuditEventListResponse,
+  AuditEventTypeEntry,
+  AuditEventTypeListResponse,
+} from "./platform";
+
+/** The organization audit log answers the workspace audit shapes (HOM-243). */
+export type {
+  AuditEvent,
+  AuditEventListParams,
+  AuditEventListResponse,
+  AuditEventTypeEntry,
+  AuditEventTypeListResponse,
+};
+
 /** A role string as the server sends it; `src/lib/org-roles.ts` decides what it allows. */
 export type OrganizationRole = "owner" | "admin" | "analyst" | "executive";
 
@@ -225,4 +242,22 @@ export interface OrgAggregatesResponse {
   items: WorkspaceAggregate[];
   disclosure_policy: AggregateDisclosurePolicy;
   coverage_window: CoverageWindow;
+}
+
+/** One meeting's metadata in the cross-workspace records list (GET /records). */
+export interface OrgScopedRecord {
+  workspace_id: string;
+  meeting_id: string;
+  team_id: string | null;
+  title: string;
+  status: string;
+  language: string;
+  duration_seconds: number | null;
+  created_at: string;
+}
+
+export interface OrgRecordsResponse {
+  items: OrgScopedRecord[];
+  total: number;
+  truncated: boolean;
 }

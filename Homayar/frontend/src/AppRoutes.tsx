@@ -33,6 +33,8 @@ const OrgOverviewPage = lazy(() => import("@/components/org/OrgOverviewPage"));
 const OrgMembersPage = lazy(() => import("@/components/org/OrgMembersPage"));
 const OrgWorkspacesPage = lazy(() => import("@/components/org/OrgWorkspacesPage"));
 const OrgScopeGrantsPage = lazy(() => import("@/components/org/OrgScopeGrantsPage"));
+const OrgAuditPage = lazy(() => import("@/components/org/OrgAuditPage"));
+const OrgRecordsPage = lazy(() => import("@/components/org/OrgRecordsPage"));
 
 function RequireAuth() {
   const { status, retrySession } = useAuth();
@@ -160,6 +162,14 @@ export function AppRoutes() {
           <Route
             path="org/:organizationId/scope-grants"
             element={<OrgGuard permission="organization:member:read"><OrgScopeGrantsPage /></OrgGuard>}
+          />
+          <Route
+            path="org/:organizationId/audit"
+            element={<OrgGuard permission="organization:audit:read"><OrgAuditPage /></OrgGuard>}
+          />
+          <Route
+            path="org/:organizationId/records"
+            element={<OrgGuard permission="organization:records:read"><OrgRecordsPage /></OrgGuard>}
           />
         </Route>
       </Route>

@@ -27,13 +27,15 @@ const ROUTES = [
   { path: "/members", heading: "Organization members", read: "members" },
   { path: "/workspaces", heading: "Workspaces", read: "workspaces" },
   { path: "/scope-grants", heading: "Scope grants", read: "scope-grants" },
+  { path: "/audit", heading: "Audit log", read: "audit-events" },
+  { path: "/records", heading: "Records", read: "records" },
 ] as const;
 
 /** Which routes each org role may open (backend ORGANIZATION_ROLE_PERMISSIONS). */
 const OPENS: Record<string, readonly string[]> = {
-  owner: ["", "/members", "/workspaces", "/scope-grants"],
-  admin: ["", "/members", "/workspaces", "/scope-grants"],
-  analyst: ["", "/workspaces"],
+  owner: ["", "/members", "/workspaces", "/scope-grants", "/audit", "/records"],
+  admin: ["", "/members", "/workspaces", "/scope-grants", "/audit", "/records"],
+  analyst: ["", "/workspaces", "/records"],
   executive: ["", "/workspaces"],
 };
 

@@ -46,6 +46,23 @@ function memberName(member: WorkspaceMember): string {
   return member.display_name || member.email || member.phone_e164 || member.user_id;
 }
 
+/** One choosable actor of the actor filter: its id and the name to show. */
+export interface AuditActor {
+  user_id: string;
+  label: string;
+}
+
+/**
+ * The event-type catalog a filter bar works from: the state of whichever
+ * query serves it (the workspace catalog by default, an organization's own
+ * when the org audit page passes its query's state).
+ */
+export interface AuditCatalogState {
+  isPending: boolean;
+  isError: boolean;
+  items?: AuditEventTypeEntry[];
+}
+
 /**
  * One filter. Nothing selected means "no filter", so the empty value is the
  * cleared state of the select rather than an extra "all" entry.
@@ -159,23 +176,54 @@ function EventTypeFallbackField({
   );
 }
 
+interface FilterBarProps {
+  filters: AuditFilters;
+  onChange: (filters: AuditFilters) => void;
+  /** The workspace's members (the workspace page); the actor names come from them. */
+  members?: WorkspaceMember[];
+  /** Ready-made actor options (the organization page); they win over `members`. */
+  actors?: AuditActor[];
+  catalog?: AuditCatalogState;
+}
+
 /**
  * The filter row of the audit log. Every committed change is reported
  * upwards and ends up in the URL, so the filtered view can be shared and
  * reloaded. The one local state is the fallback field's uncommitted draft.
+ * The organization page passes its own actors and event-type catalog.
+ * Without a `catalog` the workspace catalog query is used. With one, that
+ * query never mounts, so no workspace request is sent.
  */
-export default function AuditFilterBar({
+export default function AuditFilterBar(props: FilterBarProps) {
+  if (props.catalog) return <FilterBarBody {...props} resolvedCatalog={props.catalog} />;
+  return <WorkspaceCatalogFilterBar {...props} />;
+}
+
+function WorkspaceCatalogFilterBar(props: FilterBarProps) {
+  const workspaceCatalog = useAuditEventTypes();
+  return (
+    <FilterBarBody
+      {...props}
+      resolvedCatalog={{
+        isPending: workspaceCatalog.isPending,
+        isError: workspaceCatalog.isError,
+        items: workspaceCatalog.data?.items,
+      }}
+    />
+  );
+}
+
+function FilterBarBody({
   filters,
   members,
+  actors,
   onChange,
-}: {
-  filters: AuditFilters;
-  members: WorkspaceMember[];
-  onChange: (filters: AuditFilters) => void;
-}) {
+  resolvedCatalog: catalog,
+}: FilterBarProps & { resolvedCatalog: AuditCatalogState }) {
   const { lang } = useI18n();
+  const actorOptions =
+    actors ?? (members ?? []).map((member) => ({ user_id: member.user_id, label: memberName(member) }));
   const isFa = lang === "fa";
-  const catalog = useAuditEventTypes();
   // The fallback field's uncommitted text; null means "follow the URL".
   const [eventTypeDraft, setEventTypeDraft] = useState<string | null>(null);
   const start = parseAuditDay(filters.from);
@@ -186,7 +234,7 @@ export default function AuditFilterBar({
   // The catalog decides the offered types. A URL value outside it (an old
   // shared link) stays chosen through one extra option, so the link keeps
   // meaning what it meant when it was shared.
-  const catalogItems = catalog.data?.items ?? [];
+  const catalogItems = catalog.items ?? [];
   const offered = new Set(catalogItems.map((entry) => entry.event_type));
   const unlisted = filters.eventType && !offered.has(filters.eventType) ? filters.eventType : "";
 
@@ -272,9 +320,9 @@ export default function AuditFilterBar({
         value={filters.actorUserId}
         onChange={(value) => set("actorUserId", value)}
       >
-        {members.map((member) => (
-          <ListBox.Item key={member.user_id} id={member.user_id} textValue={memberName(member)}>
-            {memberName(member)}
+        {actorOptions.map((actor) => (
+          <ListBox.Item key={actor.user_id} id={actor.user_id} textValue={actor.label}>
+            {actor.label}
             <ListBox.ItemIndicator />
           </ListBox.Item>
         ))}

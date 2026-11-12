@@ -9,6 +9,7 @@ const ORG_PERMISSIONS = [
   "organization:workspace:administer",
   "organization:analytics:read",
   "organization:records:read",
+  "organization:audit:read",
 ] as const;
 
 export type OrgPermission = (typeof ORG_PERMISSIONS)[number];

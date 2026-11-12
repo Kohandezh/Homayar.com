@@ -29,6 +29,12 @@ from backend.config import Settings, get_settings
 from backend.database.relational import get_db
 from backend.database.saas_models import OrganizationRole, WorkspaceRole
 from backend.issue_trends import TrendFilterError, TrendFilters
+from backend.schemas.admin import (
+    AuditEventListResponse,
+    AuditEventResponse,
+    AuditEventTypeListResponse,
+    AuditEventTypeResponse,
+)
 from backend.schemas.organizations import (
     AggregatesResponse,
     InstalledWorkspaceMemberResponse,
@@ -59,8 +65,14 @@ from backend.security.context import (
     require_organization_permission,
     require_organization_write_permission,
 )
+from backend.services import organization_audit_service as audit
 from backend.services import organization_service as service
 from backend.services import role_trend_service as roles
+from backend.services.admin_service import (
+    InvalidAuditCursor,
+    InvalidAuditRange,
+    sanitize_audit_details,
+)
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.issue_trend_service import TrendSeriesError
@@ -591,6 +603,95 @@ def revoke_scope_grant(
     )
     db.commit()
     return Response(status_code=204)
+
+
+# --- audit log (HOM-243) -------------------------------------------------------------------
+
+
+@router.get("/{organization_id}/audit-events", response_model=AuditEventListResponse)
+def list_organization_audit_events(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
+    event_type: str | None = Query(default=None, min_length=1, max_length=100),
+    outcome: str | None = Query(default=None, min_length=1, max_length=20),
+    actor_user_id: str | None = Query(default=None, min_length=1, max_length=36),
+    target_type: str | None = Query(default=None, min_length=1, max_length=60),
+    target_id: str | None = Query(default=None, min_length=1, max_length=100),
+    occurred_after: datetime | None = Query(default=None),
+    occurred_before: datetime | None = Query(default=None),
+    context: OrganizationContext = Depends(
+        require_organization_permission(OrganizationPermission.AUDIT_READ)
+    ),
+    db: Session = Depends(get_db),
+) -> AuditEventListResponse:
+    """The organization's own audit events (ADR 0060): the eight ``organization.*``
+    types whose ``details.organization_id`` names this organization, whether stored
+    with no workspace or bound to one of its workspaces.  Org owner and admin, a
+    session only; the filters, bounds, cursor and ordering are those of
+    ``GET /admin/audit-events``.
+    """
+    try:
+        page = audit.list_organization_audit_events(
+            db,
+            organization=context.organization,
+            limit=limit,
+            cursor=cursor,
+            event_type=event_type,
+            outcome=outcome,
+            actor_user_id=actor_user_id,
+            target_type=target_type,
+            target_id=target_id,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+        )
+    except InvalidAuditCursor as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_cursor", "message": str(exc)},
+        ) from exc
+    except InvalidAuditRange as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_audit_range", "message": str(exc)},
+        ) from exc
+    return AuditEventListResponse(
+        items=[
+            AuditEventResponse(
+                id=event.id,
+                actor_user_id=event.actor_user_id,
+                event_type=event.event_type,
+                target_type=event.target_type,
+                target_id=event.target_id,
+                outcome=event.outcome,
+                request_id=event.request_id,
+                details=sanitize_audit_details(event.details),
+                occurred_at=event.occurred_at,
+            )
+            for event in page.events
+        ],
+        next_cursor=page.next_cursor,
+    )
+
+
+@router.get("/{organization_id}/audit-event-types", response_model=AuditEventTypeListResponse)
+def list_organization_audit_event_types(
+    context: OrganizationContext = Depends(
+        require_organization_permission(OrganizationPermission.AUDIT_READ)
+    ),
+) -> AuditEventTypeListResponse:
+    """The organization part of the audit event catalog: the same access rule as
+    ``GET /organizations/{id}/audit-events``, only the eight ``organization.*``
+    types."""
+    return AuditEventTypeListResponse(
+        items=[
+            AuditEventTypeResponse(
+                event_type=member.value,
+                group=member.group,
+                target_type=member.target_type,
+            )
+            for member in audit.ORGANIZATION_EVENT_TYPES
+        ]
+    )
 
 
 # --- scoped analytics -------------------------------------------------------------------------
