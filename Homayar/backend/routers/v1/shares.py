@@ -548,10 +548,14 @@ def download_shared_recording(
     if not range_header or range_header.strip().startswith("bytes=0-"):
         _record_access(db, grant=grant, request=request, operation="download", settings=settings)
     db.commit()
-    return deliver_recording(
+    response = deliver_recording(
         storage=create_object_storage(settings),
         workspace_id=grant.share.workspace_id,
         recording=recording,
         range_header=range_header,
         presign_ttl_seconds=min(settings.storage_presign_ttl_seconds, 300),
     )
+    # HOM-379: the route already committed; the close makes sure the session is not
+    # used or held open while the body streams.
+    db.close()
+    return response
