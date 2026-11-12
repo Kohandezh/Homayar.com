@@ -3,6 +3,7 @@ import {
   AudioLines,
   BrainCircuit,
   ClipboardCheck,
+  ClipboardList,
   Gauge,
   HeartPulse,
   Inbox,
@@ -32,6 +33,11 @@ export interface MainNavEntry {
   path: string;
   label: NavLabel;
   icon: LucideIcon;
+  /**
+   * The permission the page needs; the sidebar hides the entry and the route
+   * guard blocks the page without it. Absent on pages every member sees.
+   */
+  permission?: Permission;
 }
 
 export interface AdminNavEntry extends MainNavEntry {
@@ -41,12 +47,13 @@ export interface AdminNavEntry extends MainNavEntry {
   operatorOnly?: boolean;
 }
 
-/** Workspace pages every member sees. */
+/** Workspace pages every member sees; an entry with a `permission` only those who have it. */
 export const MAIN_NAV: readonly MainNavEntry[] = [
   { path: "/", label: { fa: "نمای کلی", en: "Overview" }, icon: LayoutDashboard },
   { path: "/meetings", label: { fa: "جلسه‌ها", en: "Meetings" }, icon: AudioLines },
   { path: "/trends", label: { fa: "روند مسائل", en: "Issue trends" }, icon: TrendingUp },
   { path: "/voicemails", label: { fa: "پیام‌های صوتی", en: "Voicemail" }, icon: Voicemail },
+  { path: "/reviews", label: { fa: "صف بازبینی", en: "Review queue" }, icon: ClipboardList, permission: "review:read" },
   { path: "/search", label: { fa: "جست‌وجو", en: "Search" }, icon: Search },
 ];
 

@@ -120,7 +120,35 @@ describe("Sidebar navigation", () => {
     for (const hidden of ["Settings", "Usage", "Audit log", "Admin overview", "API keys"]) {
       expect(screen.queryByRole("link", { name: hidden })).not.toBeInTheDocument();
     }
-    for (const entry of MAIN_NAV) expect(screen.getByRole("link", { name: entry.label.en })).toBeInTheDocument();
+    // A member may review; a viewer may not, so the entry is the one main link
+    // that changes between them.
+    const mainLabels = MAIN_NAV.filter((entry) => entry.permission === undefined || role !== "viewer")
+      .map((entry) => entry.label.en);
+    for (const label of mainLabels) expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
+    if (role === "viewer") {
+      expect(screen.queryByRole("link", { name: "Review queue" })).not.toBeInTheDocument();
+    }
+  });
+
+  it("shows the Review queue entry only with review:read", () => {
+    // Allow case: a member has review:read, so the entry is there.
+    const member = renderSidebar(workspace("member"));
+    expect(screen.getByRole("link", { name: "Review queue" })).toHaveAttribute("href", "/reviews");
+    member.unmount();
+
+    // Deny case: a viewer never has it, and neither does an owner whose
+    // permissions array lacks it (the array is the only source).
+    renderSidebar(workspace("viewer"));
+    expect(screen.queryByRole("link", { name: "Review queue" })).not.toBeInTheDocument();
+  });
+
+  it("follows a present permissions array for the Review queue entry too", () => {
+    const withoutReview = renderSidebar(workspace("owner", ["meeting:read", "member:read"]));
+    expect(screen.queryByRole("link", { name: "Review queue" })).not.toBeInTheDocument();
+    withoutReview.unmount();
+
+    renderSidebar(workspace("viewer", ["review:read"]));
+    expect(screen.getByRole("link", { name: "Review queue" })).toBeInTheDocument();
   });
 
   it("follows a present permissions array instead of the role", () => {

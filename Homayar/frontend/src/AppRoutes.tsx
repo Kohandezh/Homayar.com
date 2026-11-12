@@ -26,6 +26,8 @@ const TrendsPage = lazy(() => import("@/components/trends/TrendsPage"));
 const VoicemailsPage = lazy(() => import("@/components/voicemail/VoicemailsPage"));
 const InvitationAcceptPage = lazy(() => import("@/components/platform/InvitationAcceptPage"));
 const SharedMeetingPage = lazy(() => import("@/components/platform/SharedMeetingPage"));
+const ReviewQueuePage = lazy(() => import("@/components/reviews/ReviewQueuePage"));
+const ReviewItemPage = lazy(() => import("@/components/reviews/ReviewItemPage"));
 
 const OrgOverviewPage = lazy(() => import("@/components/org/OrgOverviewPage"));
 const OrgMembersPage = lazy(() => import("@/components/org/OrgMembersPage"));
@@ -108,6 +110,24 @@ export function AppRoutes() {
           <Route index element={<OverviewPage />} />
           <Route path="meetings" element={<MeetingsPage />} />
           <Route path="meetings/:meetingId" element={<MeetingDetailPage />} />
+          {/* The review queue (HOM-265): a main page, not an admin page, but it
+              still needs review:read, so it goes through the same guard. */}
+          <Route
+            path="reviews"
+            element={
+              <AdminGuard entry={{ permission: "review:read" }}>
+                <ReviewQueuePage />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path="reviews/:itemId"
+            element={
+              <AdminGuard entry={{ permission: "review:read" }}>
+                <ReviewItemPage />
+              </AdminGuard>
+            }
+          />
           <Route path="trends" element={<TrendsPage />} />
           <Route path="voicemails" element={<VoicemailsPage />} />
           <Route path="search" element={<SearchPage />} />
