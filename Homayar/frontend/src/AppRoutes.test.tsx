@@ -167,6 +167,47 @@ describe("admin route guard", () => {
   });
 });
 
+describe("review queue routes", () => {
+  const LOAD = { timeout: 5000 };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(["/reviews", "/reviews/rev-1"])(
+    "shows a viewer the shared no-access page on %s, with no review-items request and no sidebar entry",
+    async (route) => {
+      const get = pendingReads();
+      const view = renderApp(route, workspace("viewer"));
+      expect(await screen.findByRole("heading", { level: 1, name: "No access" }, LOAD)).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Review queue" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Review queue" })).not.toBeInTheDocument();
+      expect(location()).toBe(route);
+      expect(requestedUrls(get).filter((url) => url.startsWith("/review-items"))).toEqual([]);
+      view.unmount();
+    },
+  );
+
+  it("opens the queue page for a member, who also sees the sidebar entry", async () => {
+    const get = pendingReads();
+    renderApp("/reviews", workspace("member"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Review queue" }, LOAD)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review queue" })).toHaveAttribute("href", "/reviews");
+    expect(requestedUrls(get).some((url) => url.startsWith("/review-items"))).toBe(true);
+  });
+
+  it("follows a present permissions array for the guard", async () => {
+    pendingReads();
+    const withoutReview = renderApp("/reviews", workspace("owner", ["meeting:read"]));
+    expect(await screen.findByRole("heading", { level: 1, name: "No access" }, LOAD)).toBeInTheDocument();
+    withoutReview.unmount();
+
+    pendingReads();
+    renderApp("/reviews", workspace("viewer", ["review:read"]));
+    expect(await screen.findByRole("heading", { level: 1, name: "Review queue" }, LOAD)).toBeInTheDocument();
+  });
+});
+
 describe("voice operations route (operator only)", () => {
   // The lazy page can take more than 1 s to load on a loaded machine, and
   // each case renders the routes up to three times.

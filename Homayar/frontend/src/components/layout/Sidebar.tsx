@@ -47,6 +47,9 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [logoutError, setLogoutError] = useState("");
   const isFa = lang === "fa";
   const adminEntries = ADMIN_NAV.filter((entry) => canOpenAdminEntry(can, entry));
+  // A main entry may need a permission too (the review queue); without it the
+  // link must not lead anywhere the guard would refuse.
+  const mainEntries = MAIN_NAV.filter((entry) => entry.permission === undefined || can.has(entry.permission));
 
   async function handleLogout() {
     setLogoutError("");
@@ -79,7 +82,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav aria-label={isFa ? "ناوبری اصلی" : "Main navigation"} className="-m-1 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1">
-        {MAIN_NAV.map((entry) => (
+        {mainEntries.map((entry) => (
           <NavItem key={entry.path} entry={entry} lang={lang} onNavigate={onNavigate} />
         ))}
 

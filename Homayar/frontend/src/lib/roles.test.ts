@@ -24,6 +24,8 @@ const MATRIX: Record<Permission, WorkspaceRole[]> = {
   "ai_policy:manage": ["owner"],
   "scorecard:read": ["owner", "admin", "member", "viewer"],
   "scorecard:manage": ["owner", "admin"],
+  "review:read": ["owner", "admin", "member"],
+  "review:manage": ["owner", "admin", "member"],
 };
 
 function workspace(role: WorkspaceRole, permissions?: unknown): AuthWorkspace {

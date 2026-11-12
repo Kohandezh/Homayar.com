@@ -29,6 +29,8 @@ const PERMISSIONS = [
   "ai_policy:manage",
   "scorecard:read",
   "scorecard:manage",
+  "review:read",
+  "review:manage",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -58,6 +60,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, readonly Permission[]> = {
     "api_key:manage",
     "scorecard:read",
     "scorecard:manage",
+    "review:read",
+    "review:manage",
   ],
   member: [
     "meeting:read",
@@ -67,6 +71,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, readonly Permission[]> = {
     "member:read",
     "team:read",
     "scorecard:read",
+    "review:read",
+    "review:manage",
   ],
   viewer: ["meeting:read", "member:read", "team:read", "scorecard:read"],
 };
