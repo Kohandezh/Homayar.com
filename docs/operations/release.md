@@ -172,6 +172,10 @@ the manifest digest, not the config digest the runner printed. The script
 therefore checks `/app/build-info.json` and the revision labels (V1, V2, C4),
 never the image ID across machines.
 
+Note: the after-checks C6 and C8 of `app-server-release.sh` POST the real auth
+bodies. A 422 there means the probe body no longer matches the request models
+in `Homayar/backend/schemas/auth.py` (update the script, not the server).
+
 ## Read the identity of a running backend
 
 * Prometheus: `homayar_build_info{source_sha="<commit>",migration_head="<rev>",...} 1`, next to

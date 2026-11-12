@@ -817,7 +817,8 @@ run_after_checks() {  # C1 to C10; 0 when C1 to C8 pass
 
   code="$(http_code 10 "$body" -H "$HOST_HEADER" "$PROXY/api/v1/auth/methods")"
   if [[ "$code" == 200 ]] && grep -Eq '"registration"[[:space:]]*:[[:space:]]*false' "$body"; then
-    printf '{"email":"%s","password":"release-check-P4ssw0rd","name":"Release Check"}\n' "$RELEASE_EMAIL" >"$TMP/reg.json"
+    # must satisfy RegisterRequest (extra="forbid"): email, password, display_name
+    printf '{"email":"%s","password":"release-check-P4ssw0rd","display_name":"Release Check"}\n' "$RELEASE_EMAIL" >"$TMP/reg.json"
     code="$(http_code 15 "$body" -H "$HOST_HEADER" -H 'Content-Type: application/json' \
       --data-binary "@$TMP/reg.json" "$PROXY/api/v1/auth/register")"
     if [[ "$code" == 403 ]] && grep -q registration_closed "$body"; then
@@ -846,7 +847,8 @@ run_after_checks() {  # C1 to C10; 0 when C1 to C8 pass
     fail=1
   fi
 
-  printf '{"email":"%s","password":"wrong-password-123A"}\n' "$RELEASE_EMAIL" >"$TMP/login.json"
+  # must satisfy LoginRequest (extra="forbid"): identifier, password
+  printf '{"identifier":"%s","password":"wrong-password-123A"}\n' "$RELEASE_EMAIL" >"$TMP/login.json"
   code="$(http_code 15 "$body" -H "$HOST_HEADER" -H 'Content-Type: application/json' \
     --data-binary "@$TMP/login.json" "$PROXY/api/v1/auth/login")"
   if [[ "$code" == 401 ]] && grep -q invalid_credentials "$body"; then
