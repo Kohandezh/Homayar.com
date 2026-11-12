@@ -250,8 +250,11 @@ the supervisor routes. The appellant uses the agent routes.
    above (full view) or to the appellant (agent view, with no reviewer user ids).
    Anyone else gets `404 review_appeal_not_found`.
 8. `POST /api/v1/review-appeals/{appeal_id}/assign` (`review:manage`, CSRF) takes
-   `expected_revision` and `assignee_user_id`. The order: visible (404); the revision
-   (409); `open` (`409 review_appeal_closed`); the new assignee is not the call's
+   `expected_revision` and `assignee_user_id`. The order: visible (404); the caller is
+   not the call's current agent and not the appellant (`422 appeal_assigner_is_party`;
+   only an owner or admin reaches it, because a member agent does not see the
+   appeal); the revision (409); `open` (`409 review_appeal_closed`); the new assignee
+   is not the call's
    current agent and not the appellant (`422 appeal_assignee_is_party`); the new
    assignee is not an original reviewer (`422 appeal_assignee_is_original_reviewer`);
    the HOM-73 `check_assignee` with its existing codes. The same assignee again
@@ -270,7 +273,10 @@ the supervisor routes. The appellant uses the agent routes.
    - the result's `scorecards_version` is the engine's, else
      `409 scorecard_version_unsupported`;
    - the body has exactly the appealed criteria, each once, else
-     `422 appeal_decisions_incomplete`; a change equal to the appealed outcome is
+     `422 appeal_decisions_incomplete`; an unknown key, an unknown `decision` or
+     `decided_outcome` value, an uphold with a `decided_outcome` or a `reason_code`, or
+     a criterion note over 2000 characters is `422 appeal_decision_invalid`; a change
+     equal to the appealed outcome is
      `422 appeal_change_matches`; a change to `not_applicable` when `na_allowed` is
      false is `422 reviewer_na_not_allowed`; a change without a known reason code or
      with a blank note is `422 override_reason_required`; a blank or too long
@@ -286,7 +292,16 @@ the supervisor routes. The appellant uses the agent routes.
 **Attribution changes.** Every write reads the meeting again. If
 `PATCH /meetings/{id}` changed the agent after filing, the appeal stays. The
 appellant can still withdraw it, and the new current agent can never decide it.
-Nobody acts on an appeal of a call where they are the current agent.
+Nobody acts on an appeal of a call where they are the current agent. An owner or admin
+who becomes the current agent (and is not the appellant) still sees the appeal through
+the supervisor routes, as ADR 0051 lets admins see every item, but cannot assign or
+decide it. The visibility check hides the appeal from a member agent and from every
+original reviewer, so `appeal_decider_is_party` (for members) and
+`appeal_decider_is_original_reviewer` stay as defence in depth.
+
+**A deleted appellant.** An open appeal whose appellant was deleted
+(`appellant_user_id` is NULL) stays open until a supervisor decides it. Nobody can
+withdraw it, and the decision notifies nobody.
 
 **Concurrency.** Assign, decide and withdraw are a compare-and-set on the appeal's
 `revision` (`UPDATE ... WHERE id AND workspace_id AND revision = :expected AND
@@ -329,14 +344,16 @@ name, a note or transcript text. `data` holds ids only (`appeal_id`,
 - `review_appeal.filed`: every user who could be assigned the appeal (owner, admin, or
   member supervising the call's current team, with review authority, effective
   membership), minus the appellant, the current agent and every original reviewer
-  (D2); at most 50, ordered by user id.
+  (D2). The supervisors of the call's current team come first, then the owners and
+  admins, each group ordered by user id; at most 50 in total.
 - `review_appeal.assigned`: the new assignee.
 - `review_appeal.decided`: the appellant (none when the user was removed).
 - `review_appeal.withdrawn`: the assignee, if any.
 
 There is at most one row per user, kind and appeal id. Two routes read them, for the
 caller's own rows in the current workspace only, and for session callers only. API
-keys get `403 api_key_scope_denied`.
+keys get `403 api_key_scope_denied`. Both routes need `notification:read`, a workspace
+permission every role holds and no API key can carry.
 
 - `GET /api/v1/notifications`: newest first, keyset pages, an `unread_only` filter.
 - `POST /api/v1/notifications/{notification_id}/read`: idempotent. Another user's
