@@ -67,6 +67,7 @@ from backend.services.share_service import (
     share_not_found,
     share_token_hash,
 )
+from backend.services.transcript_service import current_analysis_run, current_revision
 from backend.storage import create_object_storage
 
 router = APIRouter(tags=["meeting sharing"])
@@ -455,7 +456,8 @@ def export_share(
     )
     meeting = grant.meeting
     view = _share_view(db, grant=grant, settings=settings)
-    transcript = _transcript_response(db, meeting=meeting, view=view)
+    revision = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    transcript = _transcript_response(db, meeting=meeting, view=view, revision=revision)
     summary, actions = _summary_and_actions(db, grant=grant)
     rendered = render_meeting_export(
         MeetingExport(
@@ -477,10 +479,16 @@ def export_share(
                 for segment in transcript.segments
             ],
             actions=[_export_action(action, view) for action in actions],
-            transcript_revision=_export_revision(transcript),
+            transcript_revision=_export_revision(revision),
             summary_evidence_status=summary.evidence_status if summary else None,
             quality=_quality(db, meeting, with_job=False, settings=settings).model_dump(),
-            privacy=export_privacy(db, meeting=meeting, view=view, transcript=transcript),
+            privacy=export_privacy(
+                view=view,
+                revision=revision,
+                run=current_analysis_run(
+                    db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+                ),
+            ),
         ),
         format_name,
     )

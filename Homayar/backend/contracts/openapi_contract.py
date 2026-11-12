@@ -35,7 +35,7 @@ WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 # The major number follows the /api/v1 prefix. Additive change: bump the minor. A deliberate
 # breaking change inside /api/v1 (owner-approved, no route moves to /api/v2) also bumps the
 # minor, and the description names it as breaking with the old and new meaning (1.7.0).
-CONTRACT_VERSION = "1.8.0"
+CONTRACT_VERSION = "1.9.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -107,6 +107,13 @@ and `GET /api/v1/meetings/{meeting_id}`) adds `conversation_type` (`call`, `meet
 `external_source_system` and `external_conversation_id` (the conversation's id in its
 source system, both null or both set) and `started_at` (when it happened at the source, or
 null). A voicemail is `voicemail`. Every existing field keeps its name and value.
+
+**Transcript export pinning (1.9.0).** `GET /api/v1/meetings/{meeting_id}/export` takes an
+optional `revision_id` query parameter. When it is given and is not the id of the meeting's
+current transcript revision, the answer is `409 transcript_revision_mismatch` and nothing is
+exported. Without it the export uses the current revision, as before. Every successful export
+carries two headers: `X-Homayar-Export-Version` (the export format version) and
+`X-Homayar-Transcript-Revision` (the id of the exported revision, or `none`).
 
 **Errors.** Every error body is `{"error": {"code", "message", "request_id",
 "details"?}}`. `code` is stable; branch on it, not on `message`. Every response
@@ -201,6 +208,13 @@ OPERATION_NOTES: dict[tuple[str, str], str] = {
         "revision before filtering, and `completeness` names what is missing from the "
         "meeting's results."
     ),
+    ("get", "/api/v1/meetings/{meeting_id}/export"): (
+        "Since HOM-137 the optional `revision_id` pins the export to a revision: when it is "
+        "given and is not the id of the meeting's current transcript revision, the answer is "
+        "`409 transcript_revision_mismatch` and nothing is exported. Without it the export "
+        "uses the current revision. Every successful export carries `X-Homayar-Export-Version` "
+        "and `X-Homayar-Transcript-Revision` (the revision id, or `none`)."
+    ),
 }
 
 ERROR_DESCRIPTIONS: dict[int, str] = {
@@ -215,6 +229,14 @@ ERROR_DESCRIPTIONS: dict[int, str] = {
     422: "Request or media validation failed (`validation_error` and media codes).",
     429: "Rate limited (with `Retry-After`) or quota exhausted (without `Retry-After`).",
     503: "Temporarily unavailable. Retry with backoff; honour `Retry-After` when present.",
+}
+# A route whose status means something other than the shared text above. Read before
+# ERROR_DESCRIPTIONS; every other route keeps the shared text.
+ROUTE_ERROR_DESCRIPTIONS: dict[tuple[str, str, int], str] = {
+    ("get", "/api/v1/meetings/{meeting_id}/export", 409): (
+        "The given `revision_id` is not the id of the meeting's current transcript revision "
+        "(`transcript_revision_mismatch`). Nothing was exported."
+    ),
 }
 _UPLOAD_ERRORS = (400, 401, 403, 409, 410, 413, 422, 429, 503)
 _READ_ERRORS = (401, 403, 404, 422, 429, 503)
@@ -232,7 +254,7 @@ OPERATIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("get", "/api/v1/meetings/{meeting_id}/actions"): _READ_ERRORS,
     ("get", "/api/v1/meetings/{meeting_id}/evidence"): _READ_ERRORS,
     ("get", "/api/v1/meetings/{meeting_id}/quality"): _READ_ERRORS,
-    ("get", "/api/v1/meetings/{meeting_id}/export"): _READ_ERRORS,
+    ("get", "/api/v1/meetings/{meeting_id}/export"): (401, 403, 404, 409, 422, 429, 503),
     ("get", "/api/v1/trends/teams"): (401, 403, 422, 429, 503),
     ("get", "/api/v1/trends/me"): (401, 403, 422, 429, 503),
     ("get", "/api/v1/trends/conversations"): (401, 403, 422, 429, 503),
@@ -309,7 +331,9 @@ def build_contract(app: FastAPI) -> dict[str, Any]:
             operation = live["paths"][path][method]
         except KeyError:
             raise LookupError(f"The live app has no {method.upper()} {path}") from None
-        _document_errors(operation, error_statuses, name=f"{method.upper()} {path}")
+        _document_errors(
+            operation, error_statuses, name=f"{method.upper()} {path}", route=(method, path)
+        )
         note = OPERATION_NOTES.get((method, path))
         if note:
             own = operation.get("description")
@@ -345,7 +369,13 @@ def build_contract(app: FastAPI) -> dict[str, Any]:
     }
 
 
-def _document_errors(operation: dict[str, Any], statuses: tuple[int, ...], *, name: str) -> None:
+def _document_errors(
+    operation: dict[str, Any],
+    statuses: tuple[int, ...],
+    *,
+    name: str,
+    route: tuple[str, str],
+) -> None:
     """Add the table's error responses, without ever hiding one the route documents.
 
     Only FastAPI's own 422 (``HTTPValidationError``, which the app never sends)
@@ -360,7 +390,8 @@ def _document_errors(operation: dict[str, Any], statuses: tuple[int, ...], *, na
                 f"its row in OPERATIONS ({__name__}) so the live entry is used"
             )
         response: dict[str, Any] = {
-            "description": ERROR_DESCRIPTIONS[status],
+            "description": ROUTE_ERROR_DESCRIPTIONS.get((*route, status))
+            or ERROR_DESCRIPTIONS[status],
             "content": {"application/json": {"schema": {"$ref": _SCHEMA_REF + "ErrorResponse"}}},
         }
         if status in (429, 503):
