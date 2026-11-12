@@ -47,9 +47,12 @@ The seed holds two plans, both through the same ledger and processor:
   least 30 assessable conversations per team per week: real percent values
   and trend lines, with enough outcome abstentions that the outcome rows
   still show "Too few calls" honestly. The two call teams share the five demo
-  agents; the weekly intent mix moves so the lines move. A database seeded
-  by an older seed (fewer or different meetings) must be reset and seeded
-  again. The 30 console meetings stay mock.
+  agents, and each team has its own weekly intent mix (HOM-384):
+  ``Customer Care`` leans to billing and complaint calls, ``Call Center`` to
+  support calls, and each mix moves week by week, so the lines move and the
+  two teams show different numbers. A database seeded by an older seed
+  (fewer or different meetings, or the HOM-365 plan) must be reset and
+  seeded again. The 30 console meetings stay mock.
 
 The trend views only release a cohort with 0 or at least 5 distinct agents.
 Five extra agents (``agent1`` to ``agent5``) make that possible. They are
@@ -553,11 +556,14 @@ CALL_SCRIPTS: dict[str, CallScript] = {
     )
 }
 
-# The weekly intent mix of one call team: (script key, how many calls). Sums
-# to 30 a week; the mix moves week by week so the workspace trend lines move
-# (AC3). Every call states its intent and topics; the ``*_abstain`` scripts
-# leave the outcome unstated, so the outcome rows of each team-week sit under
-# the sample minimum of 30 (AC4) while the intent rows keep the full 30 (AC1).
+# The weekly intent mix of the ``Call Center`` call team: (script key, how
+# many calls). Sums to 30 a week; the mix moves week by week so the workspace
+# trend lines move (AC3). Every call states its intent and topics; the
+# ``*_abstain`` scripts leave the outcome unstated, so the outcome rows of
+# each team-week sit under the sample minimum of 30 (AC4) while the intent
+# rows keep the full 30 (AC1). ``Customer Care`` reads its own mix,
+# ``_CUSTOMER_CARE_MIXES`` (HOM-384), so the two teams show different
+# numbers.
 _WEEK_MIXES: dict[int, tuple[tuple[str, int], ...]] = {
     1: (
         ("support_connectivity", 3),
@@ -628,6 +634,88 @@ _WEEK_MIXES: dict[int, tuple[tuple[str, int], ...]] = {
 CALL_CENTER = "Call Center"
 CUSTOMER_CARE = "Customer Care"
 
+# The weekly intent mix of the ``Customer Care`` call team (HOM-384): the same
+# rules as the ``Call Center`` mix (30 calls a week, every script key at least
+# once so each issue family keeps a numerator above 0 and each abstain key its
+# unstated outcome), plus two of its own: it leans to the team's job, more
+# ``billing_*`` and ``complaint_*`` calls and fewer ``support_*`` calls than
+# the ``Call Center`` week of the same number, and it differs from that week
+# in the count of at least 4 keys. The mix moves week by week like the other
+# one.
+_CUSTOMER_CARE_MIXES: dict[int, tuple[tuple[str, int], ...]] = {
+    1: (
+        ("support_connectivity", 1),
+        ("support_connectivity_unresolved", 1),
+        ("support_technical", 1),
+        ("support_account", 1),
+        ("support_abstain", 1),
+        ("billing_invoice", 3),
+        ("billing_payment", 3),
+        ("billing_unresolved", 3),
+        ("billing_abstain", 3),
+        ("complaint_refund", 3),
+        ("complaint_delivery", 3),
+        ("complaint_refund_abstain", 3),
+        ("sales_pricing", 2),
+        ("sales_pricing_resolved", 2),
+    ),
+    2: (
+        ("support_connectivity", 1),
+        ("support_connectivity_unresolved", 1),
+        ("support_technical", 1),
+        ("support_account", 1),
+        ("support_abstain", 2),
+        ("billing_invoice", 4),
+        ("billing_payment", 3),
+        ("billing_unresolved", 3),
+        ("billing_abstain", 2),
+        ("complaint_refund", 3),
+        ("complaint_delivery", 3),
+        ("complaint_refund_abstain", 2),
+        ("sales_pricing", 2),
+        ("sales_pricing_resolved", 2),
+    ),
+    3: (
+        ("support_connectivity", 1),
+        ("support_connectivity_unresolved", 1),
+        ("support_technical", 1),
+        ("support_account", 2),
+        ("support_abstain", 1),
+        ("billing_invoice", 3),
+        ("billing_payment", 3),
+        ("billing_unresolved", 3),
+        ("billing_abstain", 2),
+        ("complaint_refund", 3),
+        ("complaint_delivery", 3),
+        ("complaint_refund_abstain", 2),
+        ("sales_pricing", 3),
+        ("sales_pricing_resolved", 2),
+    ),
+    4: (
+        ("support_connectivity", 1),
+        ("support_connectivity_unresolved", 2),
+        ("support_technical", 1),
+        ("support_account", 1),
+        ("support_abstain", 1),
+        ("billing_invoice", 2),
+        ("billing_payment", 3),
+        ("billing_unresolved", 3),
+        ("billing_abstain", 3),
+        ("complaint_refund", 3),
+        ("complaint_delivery", 3),
+        ("complaint_refund_abstain", 3),
+        ("sales_pricing", 2),
+        ("sales_pricing_resolved", 2),
+    ),
+}
+
+# Each call team reads its own weekly mix (HOM-384), so the two teams carry
+# different calls and their trend numbers differ.
+_TEAM_WEEK_MIXES: dict[str, dict[int, tuple[tuple[str, int], ...]]] = {
+    CALL_CENTER: _WEEK_MIXES,
+    CUSTOMER_CARE: _CUSTOMER_CARE_MIXES,
+}
+
 # (team name, closed week before the anchor, script key, call count). The
 # call plan of HOM-365: 30 assessable calls per team per closed week. Tests
 # that do not read the trends shrink this to ``()`` (AC8 runtime budget).
@@ -635,7 +723,7 @@ TREND_CALL_BLOCKS: tuple[tuple[str, int, str, int], ...] = tuple(
     (team, week, key, count)
     for team in (CALL_CENTER, CUSTOMER_CARE)
     for week in (1, 2, 3, 4)
-    for key, count in _WEEK_MIXES[week]
+    for key, count in _TEAM_WEEK_MIXES[team][week]
 )
 
 # (status, how many). 30 meetings in total: the console plan of HOM-175.
@@ -723,14 +811,19 @@ def _meeting_specs() -> list[tuple[int, str, Script | CallScript, str]]:
 
 
 def _idempotency_key(index: int) -> str:
-    return f"demo-seed-meeting-{index + 1:03d}"
+    # ``-v2-`` since HOM-384: the meeting plan changed (each call team got its
+    # own weekly mix), so the 3-digit keys of the HOM-365 plan became legacy.
+    return f"demo-seed-meeting-v2-{index + 1:03d}"
 
 
-# The seed's key format before HOM-365 (two digits, 30 meetings). A workspace
-# that still holds one of these was seeded by an older seed and is refused:
-# this seed's plan changed, so it can neither adopt nor skip those meetings.
-LEGACY_IDEMPOTENCY_KEYS: tuple[str, ...] = tuple(
-    f"demo-seed-meeting-{number:02d}" for number in range(1, 31)
+# The seed's key formats before this one: the HOM-365 plan (three digits, 270
+# meetings) and the HOM-175 plan before it (two digits, 30 meetings). A
+# workspace that still holds one of these was seeded by an older seed and is
+# refused: this seed's plan changed, so it can neither adopt nor skip those
+# meetings.
+LEGACY_IDEMPOTENCY_KEYS: tuple[str, ...] = (
+    *(f"demo-seed-meeting-{number:03d}" for number in range(1, 271)),
+    *(f"demo-seed-meeting-{number:02d}" for number in range(1, 31)),
 )
 
 
@@ -1197,13 +1290,16 @@ def _find_workspace(owner: User) -> Workspace | None:
 
 def _refuse_outdated_workspace(owner: User) -> None:
     """Refuse a demo workspace an older seed wrote, before anything is added
-    to it. Two causes, one message each:
+    to it. Three causes, two messages (the last two causes share one):
 
     - before HOM-326: a demo meeting has no ingestion ledger row, so the trend
       views would not count it;
     - before HOM-365: the demo meetings carry the old 2-digit idempotency
       keys. This seed's plan changed, so it can neither adopt those meetings
-      nor skip them (they would stay out of every trend view).
+      nor skip them (they would stay out of every trend view);
+    - before HOM-384: the demo meetings carry the HOM-365 3-digit idempotency
+      keys. The plan changed again (each call team has its own weekly mix
+      now), so those meetings can be neither adopted nor skipped either.
     """
     from backend.services.ingestion_service import ingestion_for_meeting
     from backend.services.meeting_service import find_job_by_idempotency

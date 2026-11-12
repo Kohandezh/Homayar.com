@@ -234,6 +234,11 @@ trends page shows the last four closed weeks. So a week after the seed, the olde
 leaves the trends window, and the newest week on the page has no data. Reset before a
 presentation when the seed is older than a few days.
 
+A demo database seeded before HOM-384 also needs one reset. That seed gave both call teams the
+same calls, so `Call Center` and `Customer Care` showed identical numbers on the trends page.
+The seed now refuses such a database instead of keeping it, so run the reset once and let it
+seed again.
+
 ## Remove the Demo Site
 
 In this order:
