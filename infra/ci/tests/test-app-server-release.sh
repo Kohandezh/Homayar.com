@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Selftest for infra/scripts/app-server-release.sh (HOM-358).
 #
-# Runs where bash >= 4.4, flock and coreutils exist (the CI ubuntu runner, or
-#   docker run --rm -v "$PWD":/work:ro -w /work ubuntu:24.04 \
+# Runs where bash >= 4.4, flock, coreutils and python3 exist (the CI ubuntu
+# runner, or
+#   docker run --rm -v "$PWD":/work:ro -w /work python:3.12-slim \
 #     bash infra/ci/tests/test-app-server-release.sh
 # ). It needs no network, no Docker and no root: the docker, curl and id
 # commands are stubs first on PATH, and APPREL_TEST_HOME points the script at
@@ -211,6 +212,67 @@ reg() {
   [[ -n "$v" ]] || v=true
   printf '%s' "$v"
 }
+check_body() { # check_body <register|login> <body file>: "VALID", or "422 <json>"
+  # The API validates the JSON body before the handler (FastAPI plus the
+  # StrictRequest models in Homayar/backend/schemas/auth.py). The stub mirrors
+  # the shape checks: a required field missing, an unknown field, a wrong JSON
+  # type, or a body that is not a JSON object answer 422 with {"detail":[...]}.
+  # Value rules (password strength, e-mail syntax) stay in the real models.
+  local f="${2:-/dev/null}"
+  [[ -n "$f" && -f "$f" ]] || f=/dev/null
+  python3 -I - "$1" "$f" <<'PY'
+import json
+import sys
+
+kind, path = sys.argv[1], sys.argv[2]
+# the fields of RegisterRequest / LoginRequest (Homayar/backend/schemas/auth.py)
+if kind == "register":
+    fields = {
+        "email": True,
+        "password": True,
+        "display_name": True,
+        "locale": False,
+        "invitation_token": False,
+    }
+else:
+    fields = {"identifier": True, "password": True}
+# invitation_token is `str | None` in the real model, so JSON null is allowed
+# there only; locale (a Literal) and every required field must be a string.
+nullable = {"invitation_token"}
+
+errors = []
+parse_failed = False
+try:
+    with open(path, encoding="utf-8") as fh:
+        payload = json.load(fh)
+except (OSError, ValueError):
+    parse_failed = True
+    payload = None
+    errors.append({"type": "json_invalid", "loc": ["body"],
+                   "msg": "Input should be a valid JSON and a JSON object"})
+if not parse_failed and not isinstance(payload, dict):
+    errors.append({"type": "model_type", "loc": ["body"],
+                   "msg": "Input should be a valid dictionary or object"})
+if isinstance(payload, dict):
+    for name, required in fields.items():
+        if required and name not in payload:
+            errors.append({"type": "missing", "loc": ["body", name],
+                           "msg": "Field required"})
+    for name in sorted(payload):
+        if name not in fields:
+            errors.append({"type": "extra_forbidden", "loc": ["body", name],
+                           "msg": "Extra inputs are not permitted"})
+        elif payload[name] is None and name in nullable:
+            pass
+        elif not isinstance(payload[name], str):
+            errors.append({"type": "string_type", "loc": ["body", name],
+                           "msg": "Input should be a valid string"})
+if errors:
+    print("422 " + json.dumps({"detail": errors}, separators=(",", ":")))
+else:
+    print("VALID")
+PY
+}
 
 code=000 body="" ctype="text/html" redir="" ssl=0
 case "$url" in
@@ -232,15 +294,25 @@ case "$url" in
     fi ;;
   http://127.0.0.1:8080/api/v1/auth/register)
     if svc_ok api; then
-      if [[ "$(reg)" == false ]]; then
-        code=403; ctype=application/json; body='{"code":"registration_closed","message":"closed"}'
+      v="$(check_body register "$data")"
+      if [[ "$v" == VALID ]]; then
+        if [[ "$(reg)" == false ]]; then
+          code=403; ctype=application/json; body='{"code":"registration_closed","message":"closed"}'
+        else
+          code=201; ctype=application/json; body='{"ok":true}'
+        fi
       else
-        code=201; ctype=application/json; body='{"ok":true}'
+        code="${v%% *}"; ctype=application/json; body="${v#* }"
       fi
     fi ;;
   http://127.0.0.1:8080/api/v1/auth/login)
     if svc_ok api; then
-      code=401; ctype=application/json; body='{"code":"invalid_credentials","message":"Invalid credentials"}'
+      v="$(check_body login "$data")"
+      if [[ "$v" == VALID ]]; then
+        code=401; ctype=application/json; body='{"code":"invalid_credentials","message":"Invalid credentials"}'
+      else
+        code="${v%% *}"; ctype=application/json; body="${v#* }"
+      fi
     fi ;;
   http://127.0.0.1:8080/api/v1/hom358-cap-probe)
     if svc_ok proxy; then
@@ -739,6 +811,14 @@ run_script() { # run_script <script args...>: sets OUT and RC, and appends the
   # even though the case functions run in their own subshells (review N1)
   RC=0
   OUT="$(bash "$subject" "$@" </dev/null 2>&1)" || RC=$?
+  printf '%s\n' "$OUT" >>"$CASE_OUT"
+}
+
+run_script_as() { # run_script_as <script file> <args...>: like run_script, but
+  # for a temp copy of the subject (the probe-body mutations run on copies,
+  # never on the real script)
+  RC=0
+  OUT="$(bash "$1" "${@:2}" </dev/null 2>&1)" || RC=$?
   printf '%s\n' "$OUT" >>"$CASE_OUT"
 }
 
@@ -1244,6 +1324,52 @@ c_rollback_r1_fails_no_migrate() (
   want_up_count 0 # no B8 (B3 failed first) and no R5 (R1 failed)
 )
 
+c_probe_bodies_allow_control() (
+  prepare
+  # allow-control for both probe mutations: the unchanged script on the same
+  # fixture passes C6 and C8 and the apply run succeeds
+  run_script_as "$subject" --apply --release "$SHA_T"
+  want_rc 0
+  want_out "C6 PASS"
+  want_out "C8 PASS"
+  want_no_secret
+)
+
+c_probe_register_body_name_denied() (
+  prepare
+  # a copy whose register body uses "name" (the HOM-358 production bug):
+  # the stub must answer 422, so C6 fails and the run rolls back
+  local mut="$tmp/register-name-mutation.sh"
+  sed 's/"display_name":"Release Check"/"name":"Release Check"/' "$subject" >"$mut"
+  run_script_as "$mut" --apply --release "$SHA_T"
+  want_rc 1
+  want_out "C6 FAIL"
+  want_out "register answered 422"
+  want_out "C1 PASS"
+  want_out "C8 PASS: login with a wrong password"
+  current_is "$S12"
+  db_is "$BASE_REV"
+  want_up_count 2 # the B8 up plus the rollback R5
+  want_no_secret
+)
+
+c_probe_login_body_email_denied() (
+  prepare
+  # a copy whose login body uses "email" (the HOM-358 production bug):
+  # the stub must answer 422, so C8 fails and the run rolls back
+  local mut="$tmp/login-email-mutation.sh"
+  sed 's/"identifier":"%s"/"email":"%s"/' "$subject" >"$mut"
+  run_script_as "$mut" --apply --release "$SHA_T"
+  want_rc 1
+  want_out "C8 FAIL"
+  want_out "login answered 422"
+  want_out "C6 PASS: sign-up closed"
+  current_is "$S12"
+  db_is "$BASE_REV"
+  want_up_count 2 # the B8 up plus the rollback R5
+  want_no_secret
+)
+
 # --- run all cases -------------------------------------------------------------
 
 run_case c_usage_no_mode
@@ -1278,6 +1404,9 @@ run_case c_p12_same_release_bad_images
 run_case c_rollback_step_failure
 run_case c_rollback_r1_fails
 run_case c_rollback_r1_fails_no_migrate
+run_case c_probe_bodies_allow_control
+run_case c_probe_register_body_name_denied
+run_case c_probe_login_body_email_denied
 
 printf '%d passed, %d failed\n' "$passed" "$failed"
 [[ "$failed" -eq 0 ]]
