@@ -48,6 +48,13 @@ class AuditEventType(StrEnum):
     AUTH_REFRESH_REPLAY_DETECTED = "auth.refresh_replay_detected", "login_session"
     AUTH_REGISTER = "auth.register", "user"
     AUTH_VERIFICATION_RESENT = "auth.verification_resent", "user"
+    # The blinded calibration batches (HOM-75): every event targets the batch, and its
+    # details hold ids, counts and revisions only, never an outcome, a note or the title.
+    CALIBRATION_ADJUDICATION_RECORDED = "calibration_adjudication.recorded", "calibration_batch"
+    CALIBRATION_ANSWER_RECORDED = "calibration_answer.recorded", "calibration_batch"
+    CALIBRATION_BATCH_CANCELLED = "calibration_batch.cancelled", "calibration_batch"
+    CALIBRATION_BATCH_CLOSED = "calibration_batch.closed", "calibration_batch"
+    CALIBRATION_BATCH_CREATED = "calibration_batch.created", "calibration_batch"
     INGESTION_ACCEPTED = "ingestion.accepted", "ingestion"
     INGESTION_CONFLICT = "ingestion.conflict", "ingestion"
     INGESTION_DUPLICATE_MEDIA = "ingestion.duplicate_media", "ingestion"

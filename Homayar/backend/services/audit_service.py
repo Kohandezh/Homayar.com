@@ -248,6 +248,12 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.REVIEW_ITEM_CANCELLED: "administration",
     AuditEventType.REVIEW_CRITERION_DECIDED: "administration",
     AuditEventType.REVIEW_SAMPLE_ENQUEUED: "administration",
+    # The blinded calibration batches (HOM-75)
+    AuditEventType.CALIBRATION_BATCH_CREATED: "administration",
+    AuditEventType.CALIBRATION_ANSWER_RECORDED: "administration",
+    AuditEventType.CALIBRATION_ADJUDICATION_RECORDED: "administration",
+    AuditEventType.CALIBRATION_BATCH_CLOSED: "administration",
+    AuditEventType.CALIBRATION_BATCH_CANCELLED: "administration",
     # Deletion, retention and legal hold
     AuditEventType.MEETING_DELETED: "deletion",
     AuditEventType.MEETING_RETENTION_EXPIRED: "deletion",
