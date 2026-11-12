@@ -12,9 +12,9 @@
       "identity_params": {
         "endpoint": "http://local-ai:8080/v1/chat/completions",
         "temperature": 0,
-        "prompt_version": 4,
-        "prompt_sha256": "78763901414d1a754bde539538c2a787",
-        "output_schema_sha256": "773b2ee28de3d41116853be4b32da86f"
+        "prompt_version": 5,
+        "prompt_sha256": "62a82190ec4d5ad6b9322d211d47ef44",
+        "output_schema_sha256": "de776c6855fa1fc151f307dc9c67423d"
       },
       "languages": [
         "fa",
