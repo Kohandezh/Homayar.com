@@ -219,6 +219,11 @@ def parse_record(kind: str, record: Mapping[str, Any]) -> object:
     parse = _parser(kind)
     if not isinstance(record, Mapping):
         raise ValueError(f"a record must be a JSON object, got {type(record).__name__}")
+    if record.get("origin") == "production_correction":
+        raise ValueError(
+            "a production correction record can never enter an evaluation corpus "
+            "(backend.evaluation.corrections owns it)"
+        )
     _check_finite(dict(record))
     return parse(record)
 

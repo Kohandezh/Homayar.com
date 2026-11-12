@@ -516,6 +516,11 @@ def _config_sha256(config: dict[str, Any] | None) -> str | None:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def config_sha256(config: dict[str, Any] | None) -> str | None:
+    """The pinned sha256 of a config object, or None for no config (HOM-70 rule)."""
+    return _config_sha256(config)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m backend.evaluation.candidate",
