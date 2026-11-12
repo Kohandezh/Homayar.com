@@ -1,0 +1,38 @@
+{
+  "schema": "homayar.model-manifests/1",
+  "manifests": [
+    {
+      "manifest_id": "intelligence.llama-cpp.qwen3-8b-q4km-demo",
+      "version": 1,
+      "stage": "intelligence",
+      "status": "qualified",
+      "provider": "openai_compatible",
+      "model": "qwen3-8b-q4km",
+      "model_revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+      "identity_params": {
+        "endpoint": "http://local-ai:8080/v1/chat/completions",
+        "temperature": 0,
+        "prompt_version": 4,
+        "prompt_sha256": "78763901414d1a754bde539538c2a787",
+        "output_schema_sha256": "773b2ee28de3d41116853be4b32da86f"
+      },
+      "languages": [
+        "fa",
+        "en"
+      ],
+      "tasks": [
+        "summary",
+        "action_items",
+        "insights"
+      ],
+      "license": "Apache-2.0",
+      "license_policy": "approved",
+      "endpoint_kind": "private",
+      "endpoint": "http://local-ai:8080/v1/chat/completions",
+      "region": "on-premise",
+      "offline_capable": false,
+      "structured_output": "json_schema_strict",
+      "notes": "llama.cpp llama-server, Qwen3-8B Q4_K_M, thinking off. GGUF: Qwen/Qwen3-8B-GGUF at 7c41481f57cb95916b40956ab2f0b139b296d974, Qwen3-8B-Q4_K_M.gguf, sha256 d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785, Apache-2.0 (ADR 0047 Amendment 1). Approved for internal demo use (homlead 2026-11-12); owner sign-off A5 in ADR 0047 still open; NVIDIA CUDA libraries and container under NVIDIA EULA, no redistribution."
+    }
+  ]
+}

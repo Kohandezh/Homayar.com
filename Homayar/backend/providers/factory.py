@@ -141,10 +141,14 @@ def create_intelligence_provider(
     name = _provider_name(settings.intelligence_provider)
     if name == "openai_compatible":
         endpoint, api_key = _compatible_endpoint(settings)
+        # LOCAL_AI_TIMEOUT_SECONDS applies to the LOCAL_AI_BASE_URL endpoint
+        # only (HOM-351); cloud endpoints and the fallback adapter keep 60 s.
+        timeout = settings.local_ai_timeout_seconds if settings.local_ai_base_url.strip() else 60.0
         return OpenAICompatibleIntelligenceProvider(
             base_url=endpoint,
             model=settings.llm_model,
             api_key=api_key,
+            timeout_seconds=timeout,
             client=client,
         )
     if name in {"mock", "mock_intelligence", "deterministic_mock"}:

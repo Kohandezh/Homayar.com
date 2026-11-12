@@ -710,6 +710,10 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     local_ai_base_url: str = ""
+    # Chat timeout for the LOCAL_AI_BASE_URL endpoint only (HOM-351): a local
+    # GPU server can need longer than a cloud API. Cloud endpoints and the
+    # LLM_FALLBACK_BASE_URL adapter keep the adapter's 60 s default.
+    local_ai_timeout_seconds: float = 60.0
     # Local embedding and reranker endpoints (HOM-351, ADR 0047 D5): private
     # OpenAI-compatible servers next to LOCAL_AI_BASE_URL. No cloud fallback:
     # empty means the stage is unconfigured.
@@ -989,6 +993,8 @@ class Settings(BaseSettings):
             parse_rate_limits(self.provider_rate_limits)  # raises ValueError
         if bool(self.llm_fallback_base_url.strip()) != bool(self.llm_fallback_model.strip()):
             raise ValueError("LLM_FALLBACK_BASE_URL and LLM_FALLBACK_MODEL are set together")
+        if not 0 < self.local_ai_timeout_seconds <= 900:
+            raise ValueError("LOCAL_AI_TIMEOUT_SECONDS must be above 0 and at most 900")
         if self.pii_mapping_keys or self.pii_mapping_active_key_id:
             from backend.privacy.mapping_crypto import parse_keyring
 
