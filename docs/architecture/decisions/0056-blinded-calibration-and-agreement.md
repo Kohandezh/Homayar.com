@@ -229,4 +229,4 @@ note), `calibration_batch.closed` (revision, counts, overall `compared`, `matche
 - Pairwise reviewer-to-reviewer agreement.
 - The data-subject export of calibration rows.
 - The console pages (HOM-249).
-- Appeals and coaching remain open (F46 second clause, F47).
+- Coaching remains open (F47). Appeals (F46 second clause) are ADR 0057 (HOM-76).

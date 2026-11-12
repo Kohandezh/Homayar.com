@@ -1919,6 +1919,392 @@ class CalibrationAdjudication(Base):
     )
 
 
+# Agent appeals of review results (HOM-76, WP14-T05).  A status, a disposition, a
+# criterion decision, an outcome and a reason code are codes from these frozen lists,
+# never free text, so no personal data reaches the audit log.  The appealed outcome is
+# one of the four machine outcomes (a criterion the reviewer did not decide keeps its
+# machine outcome in the human result); the changed outcome is a reviewer outcome
+# (``REVIEW_REVIEWER_OUTCOMES``); the change reason is an override reason
+# (``REVIEW_OVERRIDE_REASONS``).
+REVIEW_APPEAL_STATUSES: tuple[str, ...] = ("open", "decided", "withdrawn")
+REVIEW_APPEAL_DISPOSITIONS: tuple[str, ...] = ("upheld", "partially_granted", "granted")
+REVIEW_APPEAL_CRITERION_DECISIONS: tuple[str, ...] = ("uphold", "change")
+REVIEW_APPEAL_MAX_CRITERIA = 20
+REVIEW_APPEAL_WINDOW_DAYS = 14
+
+REVIEW_APPEAL_STATUS_CHECK = f"status IN {_sql_list(REVIEW_APPEAL_STATUSES)}"
+REVIEW_APPEAL_REVISION_CHECK = "revision >= 1"
+# The agent's reason: not blank, at most the review note length.
+REVIEW_APPEAL_REASON_NOTE_CHECK = (
+    f"length(trim(reason_note)) > 0 AND length(reason_note) <= {REVIEW_NOTE_MAX_LENGTH}"
+)
+REVIEW_APPEAL_DISPOSITION_CHECK = (
+    f"disposition IS NULL OR disposition IN {_sql_list(REVIEW_APPEAL_DISPOSITIONS)}"
+)
+REVIEW_APPEAL_DISPOSITION_NOTE_LENGTH_CHECK = (
+    f"disposition_note IS NULL OR length(disposition_note) <= {REVIEW_NOTE_MAX_LENGTH}"
+)
+# Each status has its own fields.  A decided appeal needs a disposition and a non-blank
+# note to the agent.  No check names a user column: the five user columns are SET NULL
+# when a user is removed, and a check on them would make the removal fail.
+REVIEW_APPEAL_OPEN_FIELDS_CHECK = (
+    "status <> 'open' OR (disposition IS NULL AND disposition_note IS NULL "
+    "AND decided_at IS NULL AND withdrawn_at IS NULL)"
+)
+REVIEW_APPEAL_DECIDED_FIELDS_CHECK = (
+    "status <> 'decided' OR (disposition IS NOT NULL AND decided_at IS NOT NULL "
+    "AND withdrawn_at IS NULL AND disposition_note IS NOT NULL "
+    "AND length(trim(disposition_note)) > 0)"
+)
+REVIEW_APPEAL_WITHDRAWN_FIELDS_CHECK = (
+    "status <> 'withdrawn' OR (withdrawn_at IS NOT NULL AND decided_at IS NULL "
+    "AND disposition IS NULL AND disposition_note IS NULL)"
+)
+REVIEW_APPEAL_APPEALED_OUTCOME_CHECK = REVIEW_DECISION_MACHINE_OUTCOME_CHECK.replace(
+    "machine_outcome", "appealed_outcome"
+)
+REVIEW_APPEAL_DECISION_CHECK = (
+    f"decision IS NULL OR decision IN {_sql_list(REVIEW_APPEAL_CRITERION_DECISIONS)}"
+)
+REVIEW_APPEAL_DECIDED_OUTCOME_CHECK = (
+    f"decided_outcome IS NULL OR decided_outcome IN {_sql_list(REVIEW_REVIEWER_OUTCOMES)}"
+)
+REVIEW_APPEAL_REASON_CODE_CHECK = REVIEW_DECISION_REASON_CODE_CHECK
+REVIEW_APPEAL_NOTE_LENGTH_CHECK = REVIEW_DECISION_NOTE_LENGTH_CHECK
+# A criterion row without a decision carries no decision fields.  A CHECK passes when
+# its expression is NULL, so the uphold and change rules start with ``decision IS
+# NULL OR`` and are false, never NULL, for a row they refuse.
+REVIEW_APPEAL_UNDECIDED_CHECK = (
+    "decision IS NOT NULL OR (decided_outcome IS NULL AND reason_code IS NULL AND note IS NULL)"
+)
+# An uphold keeps the human outcome: no new outcome and no reason code.  A note on an
+# uphold is allowed.
+REVIEW_APPEAL_UPHOLD_CHECK = (
+    "decision IS NULL OR decision <> 'uphold' OR (decided_outcome IS NULL AND reason_code IS NULL)"
+)
+# A change needs a new outcome that differs from the appealed one, a reason code and a
+# non-blank note.
+REVIEW_APPEAL_CHANGE_CHECK = (
+    "decision IS NULL OR decision <> 'change' OR (decided_outcome IS NOT NULL "
+    "AND decided_outcome <> appealed_outcome AND reason_code IS NOT NULL "
+    "AND note IS NOT NULL AND length(trim(note)) > 0)"
+)
+
+
+class ReviewAppeal(Base):
+    """One appeal by the agent of a call against one completed review item that has
+    a human result (HOM-76, WP14-T05, F46).
+
+    The agent files at most one appeal per review item (``uq_review_appeals_item``),
+    within ``REVIEW_APPEAL_WINDOW_DAYS`` of the review's completion, on 1 to
+    ``REVIEW_APPEAL_MAX_CRITERIA`` criteria (the service of PR 2 enforces the window
+    and the count).  A decider who is not a party to the call decides it.  The machine
+    result and the human result are never written: a granted change lives in
+    ``review_appeal_results``.  ``revision`` starts at 1 and grows by one with each
+    assign, decide or withdraw, so a write is a compare-and-set on it, like
+    ``review_items``.  Not immutable.  The composite keys tie the appeal to the result
+    its item reviewed, to that result's own workspace and meeting, and to an item that
+    has a human result.  Conversation content: the purge deletes the row and the
+    backup reconciliation counts it.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "review_appeals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # A copy of the item's conversation: the purge and the backup reconciliation find
+    # content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign keys are ``fk_review_appeals_item`` and
+    # ``fk_review_appeals_review_result`` below.
+    review_item_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # The item's machine result.  Its foreign keys are ``fk_review_appeals_item`` and
+    # ``fk_review_appeals_result`` below.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # The agent who filed.
+    appellant_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    # A copy of the item's assignee at filing.
+    original_reviewer_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)
+    # Free text from the agent; never copied to the audit log.
+    reason_note: Mapped[str] = mapped_column(Text, nullable=False)
+    # The decider.
+    assignee_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    assigned_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disposition: Mapped[str | None] = mapped_column(String(24))
+    # Free text from the decider to the agent; never copied to the audit log.
+    disposition_note: Mapped[str | None] = mapped_column(Text)
+    decided_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        # An appeal names only the result its item reviewed (``uq_review_items_result``).
+        ForeignKeyConstraint(
+            ["review_item_id", "scorecard_result_id"],
+            ["review_items.id", "review_items.scorecard_result_id"],
+            ondelete="CASCADE",
+            name="fk_review_appeals_item",
+        ),
+        # So the workspace and the meeting copies are the result's own
+        # (``uq_scorecard_result_scope``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_review_appeals_result",
+        ),
+        # So an appeal exists only for an item that has a human result
+        # (``uq_review_results_item``).
+        ForeignKeyConstraint(
+            ["review_item_id"],
+            ["review_results.review_item_id"],
+            ondelete="CASCADE",
+            name="fk_review_appeals_review_result",
+        ),
+        # One appeal per review item, ever.
+        UniqueConstraint("review_item_id", name="uq_review_appeals_item"),
+        CheckConstraint(REVIEW_APPEAL_STATUS_CHECK, name="ck_review_appeals_status"),
+        CheckConstraint(REVIEW_APPEAL_REVISION_CHECK, name="ck_review_appeals_revision"),
+        CheckConstraint(REVIEW_APPEAL_REASON_NOTE_CHECK, name="ck_review_appeals_reason_note"),
+        CheckConstraint(REVIEW_APPEAL_DISPOSITION_CHECK, name="ck_review_appeals_disposition"),
+        CheckConstraint(
+            REVIEW_APPEAL_DISPOSITION_NOTE_LENGTH_CHECK,
+            name="ck_review_appeals_disposition_note_length",
+        ),
+        CheckConstraint(REVIEW_APPEAL_OPEN_FIELDS_CHECK, name="ck_review_appeals_open_fields"),
+        CheckConstraint(
+            REVIEW_APPEAL_DECIDED_FIELDS_CHECK, name="ck_review_appeals_decided_fields"
+        ),
+        CheckConstraint(
+            REVIEW_APPEAL_WITHDRAWN_FIELDS_CHECK, name="ck_review_appeals_withdrawn_fields"
+        ),
+        # The target of the composite foreign keys of the criterion rows and the appeal
+        # result: ``(id, review_item_id, scorecard_result_id)`` names exactly the appeal
+        # with its item and result.
+        Index(
+            "uq_review_appeals_scope", "id", "review_item_id", "scorecard_result_id", unique=True
+        ),
+        # The appeals queue and its keyset pages.
+        Index("ix_review_appeals_queue", "workspace_id", "status", "created_at", "id"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_review_appeals_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class ReviewAppealCriterion(Base):
+    """One appealed criterion of one appeal, and later its decision (HOM-76,
+    WP14-T05, F46).
+
+    ``appealed_outcome`` is a copy of the criterion's outcome in the human result at
+    filing.  The decision columns stay NULL until the appeal is decided; then the
+    service of PR 2 writes them once: an uphold keeps the human outcome, a change
+    names a new reviewer outcome with a reason code and a non-blank note.  Not
+    immutable.  The composite keys tie the row to its appeal's item and result, to that
+    result's own workspace and meeting, and to a criterion of that result.
+    Conversation content: the purge deletes the row and the backup reconciliation
+    counts it.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "review_appeal_criteria"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    # A copy of the result's conversation: the purge and the backup reconciliation find
+    # content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_review_appeal_criteria_appeal`` below.
+    appeal_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    review_item_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # Its foreign keys are ``fk_review_appeal_criteria_appeal``,
+    # ``fk_review_appeal_criteria_result`` and ``fk_review_appeal_criteria_criterion``.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # The criterion key, as in ``scorecard_criterion_results.criterion_id``.
+    criterion_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    appealed_outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    decision: Mapped[str | None] = mapped_column(String(16))
+    decided_outcome: Mapped[str | None] = mapped_column(String(24))
+    reason_code: Mapped[str | None] = mapped_column(String(32))
+    # Free text from the decider; required for a change, allowed on an uphold.
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # A criterion row names only its appeal's item and result
+        # (``uq_review_appeals_scope``).
+        ForeignKeyConstraint(
+            ["appeal_id", "review_item_id", "scorecard_result_id"],
+            [
+                "review_appeals.id",
+                "review_appeals.review_item_id",
+                "review_appeals.scorecard_result_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_review_appeal_criteria_appeal",
+        ),
+        # So the workspace and the meeting copies are the result's own
+        # (``uq_scorecard_result_scope``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_review_appeal_criteria_result",
+        ),
+        # So the row names a criterion of that result
+        # (``uq_scorecard_criterion_result_criterion``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "criterion_id"],
+            ["scorecard_criterion_results.result_id", "scorecard_criterion_results.criterion_id"],
+            ondelete="CASCADE",
+            name="fk_review_appeal_criteria_criterion",
+        ),
+        # One row per appeal and criterion.
+        UniqueConstraint("appeal_id", "criterion_id", name="uq_review_appeal_criteria_criterion"),
+        CheckConstraint(
+            REVIEW_APPEAL_APPEALED_OUTCOME_CHECK,
+            name="ck_review_appeal_criteria_appealed_outcome",
+        ),
+        CheckConstraint(REVIEW_APPEAL_DECISION_CHECK, name="ck_review_appeal_criteria_decision"),
+        CheckConstraint(
+            REVIEW_APPEAL_DECIDED_OUTCOME_CHECK,
+            name="ck_review_appeal_criteria_decided_outcome",
+        ),
+        CheckConstraint(
+            REVIEW_APPEAL_REASON_CODE_CHECK, name="ck_review_appeal_criteria_reason_code"
+        ),
+        CheckConstraint(
+            REVIEW_APPEAL_NOTE_LENGTH_CHECK, name="ck_review_appeal_criteria_note_length"
+        ),
+        CheckConstraint(REVIEW_APPEAL_UNDECIDED_CHECK, name="ck_review_appeal_criteria_undecided"),
+        CheckConstraint(REVIEW_APPEAL_UPHOLD_CHECK, name="ck_review_appeal_criteria_uphold"),
+        CheckConstraint(REVIEW_APPEAL_CHANGE_CHECK, name="ck_review_appeal_criteria_change"),
+        CheckConstraint(CRITERION_KEY_CHECK, name="ck_review_appeal_criteria_criterion_key"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_review_appeal_criteria_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class ReviewAppealResult(Base):
+    """The score after a granted or partially granted appeal: the machine result
+    scored again by the same engine with the human outcomes plus the changed ones
+    (HOM-76, WP14-T05, F46).
+
+    One row per appeal at most; only an appeal with at least one ``change`` has one.
+    The columns copy ``review_results``: ``reviewer_outcomes`` is the engine input and
+    ``result`` the engine output.  The machine result and the human result are never
+    written.  Immutable, like ``review_results``: a stored appeal result never changes,
+    and only the conversation purge removes rows (bulk deletes).  No user column: the
+    table has no UPDATE grant, so a ``SET NULL`` action on a user column would need an
+    update.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "review_appeal_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_review_appeal_results_appeal`` below.
+    appeal_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    review_item_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # Its foreign keys are ``fk_review_appeal_results_appeal`` and
+    # ``fk_review_appeal_results_scorecard_result`` below.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # The calculation version the engine reported, for example ``scorecards/1``.
+    scorecards_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    # The engine input: ``{criterion_id: outcome}``, the human outcomes plus the changes.
+    reviewer_outcomes: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(40))
+    complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    pass_threshold: Mapped[int] = mapped_column(Integer, nullable=False)
+    # The score denominator and numerator, and the other two parts of the denominator.
+    applicable_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    earned_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    insufficient_weight: Mapped[int] = mapped_column(Integer, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # The appeal result names only its appeal's item and result
+        # (``uq_review_appeals_scope``).
+        ForeignKeyConstraint(
+            ["appeal_id", "review_item_id", "scorecard_result_id"],
+            [
+                "review_appeals.id",
+                "review_appeals.review_item_id",
+                "review_appeals.scorecard_result_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_review_appeal_results_appeal",
+        ),
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_review_appeal_results_scorecard_result",
+        ),
+        UniqueConstraint("appeal_id", name="uq_review_appeal_results_appeal"),
+        # First, so SQLite names it when an unknown outcome also breaks the reason rule.
+        CheckConstraint(SCORECARD_OUTCOME_CHECK, name="ck_review_appeal_result_outcome"),
+        CheckConstraint(SCORECARD_RESULT_REASON_CHECK, name="ck_review_appeal_result_reason"),
+        CheckConstraint(SCORECARD_RESULT_THRESHOLD_CHECK, name="ck_review_appeal_result_threshold"),
+        CheckConstraint(SCORECARD_RESULT_WEIGHTS_CHECK, name="ck_review_appeal_result_weights"),
+        CheckConstraint(SCORECARD_RESULT_COMPLETE_CHECK, name="ck_review_appeal_result_complete"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_review_appeal_results_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
 class RunPolicySnapshot(Base):
     """The policy and model placement one processing attempt ran under
     (WP08-T02/T03, ADR 0027).  Written once per attempt, never changed; it
@@ -4385,6 +4771,29 @@ def _refuse_review_result_update(_mapper, _connection, target: object) -> None:
 @event.listens_for(ReviewResultRecord, "before_delete")
 def _refuse_review_result_delete(_mapper, _connection, target: object) -> None:
     raise ReviewResultImmutableError(
+        f"{type(target).__name__} rows are immutable; only the conversation purge removes them"
+    )
+
+
+class ReviewAppealResultImmutableError(RuntimeError):
+    """An ORM update or delete tried to change a stored appeal result (HOM-76)."""
+
+
+@event.listens_for(ReviewAppealResult, "before_update")
+def _refuse_review_appeal_result_update(_mapper, _connection, target: object) -> None:
+    changed = _changed_columns(target)
+    if changed:
+        raise ReviewAppealResultImmutableError(
+            f"{type(target).__name__} rows are immutable; an appeal is decided once "
+            f"(attempted: {', '.join(sorted(changed))})"
+        )
+
+
+# Only the ORM unit of work is refused.  The conversation purge removes the rows with
+# bulk ``delete()`` statements, which fire no mapper event.
+@event.listens_for(ReviewAppealResult, "before_delete")
+def _refuse_review_appeal_result_delete(_mapper, _connection, target: object) -> None:
+    raise ReviewAppealResultImmutableError(
         f"{type(target).__name__} rows are immutable; only the conversation purge removes them"
     )
 
