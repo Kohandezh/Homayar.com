@@ -721,6 +721,7 @@ def test_fragments_change_no_transcript_span_or_provenance(
         "analysis_run_id",
         "evidence_status",
         "evidence",
+        "kind",
         "created_at",
         "updated_at",
         "view",
