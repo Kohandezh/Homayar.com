@@ -416,8 +416,9 @@ HEAD_PINS = (
     "test_trend_judgment_migration",
     "test_webhook_ledger_migration",
 )
-# HOM-133 moved the head past the appeals revision; the pins carry its comment.
-PIN_COMMENT = "# HOM-133: action item kind, after HOM-76"
+# HOM-133 and then HOM-77 moved the head past the appeals revision; the pins carry
+# the comment of the latest head.
+PIN_COMMENT = "# HOM-77: coaching tasks, after HOM-133"
 OWN_REVISIONS = {
     "test_review_decisions_migration": "a651110b03c3",
     "test_calibration_migration": BASE_HEAD,

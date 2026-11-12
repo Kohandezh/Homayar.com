@@ -15,10 +15,10 @@ Two steps, never merged:
 2. **Purge** (:func:`run_purge_attempt`, bounded, retried): removes the
    derived content rows (transcripts, segments, redacted versions, derived
    text views and entities, analysis, calibration answers, adjudications and
-   examples, appeal results, appeal criteria and appeals, review decisions and
-   human review results, review items, scorecard results, evidence,
-   summaries, action items, speakers, share recipients), scrubs the free-text
-   title and filename of the meeting/recording, removes object bytes
+   examples, coaching tasks, appeal results, appeal criteria and appeals, review
+   decisions and human review results, review items, scorecard results,
+   evidence, summaries, action items, speakers, share recipients), scrubs the
+   free-text title and filename of the meeting/recording, removes object bytes
    state-first/bytes-second behind the media row lock and closes the purge
    when every store is clean.  Ledger history (usage, provider usage, stage
    runs, audit, ingestion and media rows) is kept: it holds ids, amounts and
@@ -47,6 +47,7 @@ from backend.database.saas_models import (
     CalibrationAdjudication,
     CalibrationAnswer,
     CalibrationExample,
+    CoachingTask,
     ConversationPurge,
     CriterionResultRecord,
     EvidenceSpan,
@@ -262,6 +263,10 @@ def _remove_content(db: Session, *, workspace_id: str, meeting: Meeting) -> int:
         CalibrationAnswer,
         CalibrationAdjudication,
         CalibrationExample,
+        # The coaching tasks (HOM-77) before the appeal rows and the review rows: the
+        # cascades of the human result, the review item, the scorecard result and its
+        # criterion rows would otherwise remove them uncounted.
+        CoachingTask,
         ReviewAppealResult,
         ReviewAppealCriterion,
         ReviewAppeal,

@@ -78,7 +78,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "e4b8d1f6a3c7"
 BASE_REVISION = "565d2ccd4fca"  # HOM-88: CRM mapping tables
-HEAD_REVISION = "c4a8e2f7d913"  # HOM-133: action item kind, after HOM-76
+HEAD_REVISION = "5f3a91c0d7b2"  # HOM-77: coaching tasks, after HOM-133
 TABLES = (
     "webhook_endpoints",
     "webhook_signing_keys",

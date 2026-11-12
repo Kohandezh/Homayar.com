@@ -115,7 +115,7 @@ from backend.tests.test_scorecard_results_migration import (
 )
 
 NEW_REVISION = "02f616cbb655"
-HEAD_REVISION = "c4a8e2f7d913"  # HOM-133: action item kind, after HOM-76
+HEAD_REVISION = "5f3a91c0d7b2"  # HOM-77: coaching tasks, after HOM-133
 BASE_REVISION = "a651110b03c3"  # HOM-74: review decisions
 BATCHES = "calibration_batches"
 EXAMPLES = "calibration_examples"

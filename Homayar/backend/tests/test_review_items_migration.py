@@ -97,7 +97,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "484a6df74abf"
 BASE_REVISION = "5067ea773c0b"  # HOM-56: scorecard results
-HEAD_REVISION = "c4a8e2f7d913"  # HOM-133: action item kind, after HOM-76
+HEAD_REVISION = "5f3a91c0d7b2"  # HOM-77: coaching tasks, after HOM-133
 TABLE = "review_items"
 # The index the HOM-74 head adds to this table; this migration alone does not build it.
 HEAD_INDEX = "uq_review_items_result"

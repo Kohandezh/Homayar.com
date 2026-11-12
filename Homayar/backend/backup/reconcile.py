@@ -82,6 +82,7 @@ from backend.database.saas_models import (
     CalibrationAdjudication,
     CalibrationAnswer,
     CalibrationExample,
+    CoachingTask,
     CriterionResultRecord,
     EvidenceSpan,
     MeetingSpeaker,
@@ -127,6 +128,8 @@ CONTENT_TABLES = tuple(
         ReviewAppeal,
         ReviewAppealCriterion,
         ReviewAppealResult,
+        # The coaching tasks of a conversation (HOM-77).
+        CoachingTask,
         MeetingSummary,
         ActionItem,
         MeetingSpeaker,
