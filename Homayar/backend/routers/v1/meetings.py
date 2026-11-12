@@ -1402,13 +1402,18 @@ def download_recording(
         now=datetime.now(UTC),
     )
 
-    return deliver_recording(
+    response = deliver_recording(
         storage=create_object_storage(settings),
         workspace_id=context.workspace.id,
         recording=recording,
         range_header=request.headers.get("range"),
         presign_ttl_seconds=settings.storage_presign_ttl_seconds,
     )
+    # HOM-379: FastAPI 0.133 closes request-scoped yield dependencies only after the
+    # whole response is sent; this route shares its one session with the auth chain,
+    # so close it here to free the pooled connection before the body streams.
+    db.close()
+    return response
 
 
 @router.get("/workspaces/{workspace_id}/meetings/{meeting_id}/recording")
@@ -1439,7 +1444,7 @@ def play_recording(
         recording=meeting.recording,
         now=datetime.now(UTC),
     )
-    return deliver_recording(
+    response = deliver_recording(
         storage=create_object_storage(settings),
         workspace_id=context.workspace.id,
         recording=recording,
@@ -1447,6 +1452,10 @@ def play_recording(
         presign_ttl_seconds=settings.storage_presign_ttl_seconds,
         disposition="inline",
     )
+    # HOM-379: as the download route above - the session must not stay open (holding
+    # its pooled connection) for the whole streamed playback.
+    db.close()
+    return response
 
 
 def _seconds(ms: int) -> str:
