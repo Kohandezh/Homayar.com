@@ -716,7 +716,7 @@ def test_a8_the_request_asks_for_the_new_keys_under_prompt_version_4():
     assert {"summary_fields", "decisions", "key_moments"} <= set(schema["required"])
     assert "not_stated" in payload["messages"][0]["content"]
     identity = _adapter()(_valid_output()).identity()
-    assert identity.params["prompt_version"] == 4  # 4: the extraction (HOM-53)
+    assert identity.params["prompt_version"] == 5  # 4: the extraction (HOM-53), 5: HOM-133
 
 
 ALLOWED = [

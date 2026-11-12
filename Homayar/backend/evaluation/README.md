@@ -3,7 +3,7 @@
 HOM-69 (WP13-T05, features F80 and F81). This package scores system output against gold
 annotations. It covers speech recognition (WER, CER), diarization (DER, JER), intent
 classification, entity extraction, QA rater agreement, factual support of generated
-claims, and retrieval.
+claims, and retrieval. HOM-133 adds action item owner and due date (see "Action items").
 
 - It is pure: standard library only, plus `backend.speech` (`benchmark`,
   `text_normalize`). No database, no network, no provider, no language model.
@@ -227,6 +227,36 @@ judged not relevant, and an unjudged doc counts as 0.
   `n_abstained`.
 - A `k` that is not a positive int, or a negative relevance, raises `ValueError`.
 
+## Action items (HOM-133)
+
+`evaluate_action_items(items)` takes `ActionItemCase(gold_keep, gold_owner, gold_due,
+gold_kind, predicted_keep, predicted_owner, predicted_due, predicted_kind, item_id,
+language, slices)`. One case is one action item a provider returned. `gold_*` is what the
+call states: keep it or not, the owner, the due date (`date`) and the kind (`commitment`
+or `next_step`). `predicted_*` is what the system stored. None means "not stated" in gold
+and "left unset" in the prediction.
+
+The owner, due date and kind metrics use only cases where both `gold_keep` and
+`predicted_keep` are true. The other cases count in `n_excluded`.
+
+- `owner_precision` = predicted owners equal to gold / predicted owners that are not
+  None. Owners are compared after `normalize_for_matching` in the case's language.
+  `n_abstained` = cases with no predicted owner.
+- `due_precision` = predicted due dates equal to gold / predicted due dates that are not
+  None. `n_abstained` = cases with no predicted due date.
+- `owner_unset_rate` = cases with no predicted owner / cases whose gold owner is None. It
+  shows how often a missing owner stays unset.
+- `due_unset_rate`: the same for the due date.
+- `kind_accuracy` = predicted kind equal to gold / cases with a gold kind.
+- `keep_precision`, over all cases = cases kept that gold keeps / cases kept.
+- `wrong_owner_ids` and `wrong_due_ids` list, in input order, the cases whose predicted
+  owner or due date is not None and not equal to gold.
+
+F38 asks for owner and due date precision of at least 0.95 on held-out examples, and for
+unstated values to stay unset. The dev gate is `backend/tests/test_action_grounding_eval.py`
+over `tests/fixtures/evaluation/action_items/dev.jsonl`. The held-out set is
+`heldout.jsonl` in the same folder, scored by the reviewer's oracle test (ADR 0058).
+
 ## Reason codes
 
 | Code | Metrics | Meaning |
@@ -244,6 +274,12 @@ judged not relevant, and an unjudged doc counts as 0.
 | `no_audited_claims` | `support_rate` | every claim is `not_audited`, or there is none |
 | `no_claims` | `citation_validity` | no claim |
 | `no_relevant_documents` | retrieval metrics | no query has a relevant document |
+| `no_predicted_owners` | `owner_precision` | no case both sides keep has a predicted owner |
+| `no_predicted_due_dates` | `due_precision` | no case both sides keep has a predicted due date |
+| `no_unstated_owners` | `owner_unset_rate` | no case both sides keep has a gold owner of None |
+| `no_unstated_due_dates` | `due_unset_rate` | no case both sides keep has a gold due date of None |
+| `no_gold_kinds` | `kind_accuracy` | no case both sides keep has a gold kind |
+| `no_kept_items` | `keep_precision` | the system kept no case |
 | `non_finite_result` | any metric, and per-recording `der` | the inputs are finite, but the numerator, denominator or value overflowed in float math, or an int is too large for a float. Examples: a `score_mae` sum of two `1e308` errors, a retrieval relevance of `1100` (the gain `2 ** 1100 - 1` has no float, so only `ndcg@k` is affected). `value`, `numerator` and `denominator` are all None |
 
 ## JSONL input

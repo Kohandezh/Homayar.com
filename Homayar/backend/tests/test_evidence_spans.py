@@ -176,9 +176,9 @@ def test_findings_cite_authorized_turns_and_malformed_references_are_rejected(
     ]
     assert cited["evidence"][0]["transcript_revision_id"] == revision_id
     assert cited["evidence"][0]["evidence_type"] == "turn_reference"
-    uncited = by_description["بدون مرجع"]
-    assert uncited["evidence_status"] == "insufficient" and uncited["evidence"] == []
-    assert uncited["source_segment_id"] is None
+    # HOM-133 (ADR 0058, G1): an action with no cited turn is not stored at all.
+    assert "بدون مرجع" not in by_description
+    assert len(actions) == 1
 
     evidence = _get(client, workspace_id, f"/api/v1/meetings/{meeting_id}/evidence")
     assert evidence["analysis_run_id"] == run["id"]

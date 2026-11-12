@@ -45,7 +45,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "6d4ec2d2e498"
 BASE_REVISION = "a7c3e9f5b2d1"
-HEAD_REVISION = "0c51985fcf36"  # HOM-76: review appeals, after HOM-75
+HEAD_REVISION = "c4a8e2f7d913"  # HOM-133: action item kind, after HOM-76
 NEW_COLUMNS = (
     "conversation_type",
     "direction",

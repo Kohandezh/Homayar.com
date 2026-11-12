@@ -50,6 +50,17 @@ class ActionPriority(str, Enum):
     HIGH = "high"
 
 
+class ActionKind(str, Enum):
+    """Whether a speaker promised the action or only proposed it (HOM-133).
+
+    An item the provider does not label is a ``next_step``: it is never
+    counted as a commitment by default.
+    """
+
+    COMMITMENT = "commitment"
+    NEXT_STEP = "next_step"
+
+
 class ASRRequest(ProviderSchema):
     audio_path: str = Field(min_length=1, max_length=4096)
     language: Optional[str] = Field(default=None, min_length=2, max_length=32)
@@ -187,6 +198,10 @@ class ActionItem(ProviderSchema):
     due_date: Optional[date] = None
     priority: ActionPriority = ActionPriority.MEDIUM
     source_turn_indexes: List[int] = Field(default_factory=list)
+    # HOM-133: the label and the exact quoted words that ground owner and date.
+    kind: ActionKind = ActionKind.NEXT_STEP
+    owner_quote: str | None = Field(default=None, max_length=500)
+    due_quote: str | None = Field(default=None, max_length=200)
 
     @field_validator("source_turn_indexes")
     @classmethod

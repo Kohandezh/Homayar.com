@@ -319,6 +319,9 @@ class ActionItemResponse(BaseModel):
     analysis_run_id: str | None = None
     evidence_status: str = "insufficient"
     evidence: list[EvidenceRefResponse] = Field(default_factory=list)
+    # HOM-133 (ADR 0058): "commitment" or "next_step" for AI actions; null for a
+    # person's action, a voicemail rule action and older rows.
+    kind: str | None = None
     created_at: datetime
     updated_at: datetime
     # Gap G10: per item, because the list response has no envelope.

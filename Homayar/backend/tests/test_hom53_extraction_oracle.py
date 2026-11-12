@@ -758,8 +758,9 @@ def test_the_system_prompt_states_the_extraction_rules():
         assert word in prompt, word
 
 
-def test_the_prompt_version_is_4():
-    assert _adapter(_output()).identity().params["prompt_version"] == 4
+def test_the_prompt_version_is_5():
+    # 4: the extraction (HOM-53); 5: the action item kind and quotes (HOM-133).
+    assert _adapter(_output()).identity().params["prompt_version"] == 5
 
 
 @pytest.mark.parametrize(

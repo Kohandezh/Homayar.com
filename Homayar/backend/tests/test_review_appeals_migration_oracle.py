@@ -416,7 +416,8 @@ HEAD_PINS = (
     "test_trend_judgment_migration",
     "test_webhook_ledger_migration",
 )
-PIN_COMMENT = "# HOM-76: review appeals, after HOM-75"
+# HOM-133 moved the head past the appeals revision; the pins carry its comment.
+PIN_COMMENT = "# HOM-133: action item kind, after HOM-76"
 OWN_REVISIONS = {
     "test_review_decisions_migration": "a651110b03c3",
     "test_calibration_migration": BASE_HEAD,
@@ -1928,44 +1929,51 @@ def _new_revision():
     return found[0]
 
 
-def test_one_new_revision_follows_the_hom75_head_and_is_the_only_head():
+def test_one_new_revision_follows_the_hom75_head_and_stays_on_the_single_chain():
     revision = _new_revision()
     assert re.fullmatch(r"[0-9a-f]{12}", revision.revision)
     assert revision.revision != BASE_HEAD
     assert Path(revision.path).name == f"{revision.revision}_review_appeals.py"
-    assert _script().get_heads() == [revision.revision]
-    assert code_migration_head() == revision.revision
+    # A later head (HOM-133, the action item kind) may sit on top of this one, but
+    # the chain stays single.
+    assert _script().get_heads() == [code_migration_head()]
+    # This revision is still an ancestor of that single head.
+    on_chain = {
+        walked.revision
+        for walked in _script().walk_revisions(base="base", head=code_migration_head())
+    }
+    assert revision.revision in on_chain, sorted(on_chain)
     doc = revision.module.__doc__ or ""
     assert doc and "HOM-76" in doc.splitlines()[0], doc
     for phrase in ("Why", "No data changes", "Downgrade"):
         assert phrase in doc, phrase
 
 
-def test_alembic_heads_prints_exactly_the_new_revision():
-    revision = _new_revision()
+def test_alembic_heads_prints_exactly_one_head():
     shown = io.StringIO()
     command.heads(Config(str(PROJECT_ROOT / "alembic.ini"), stdout=shown))
     lines = [line for line in shown.getvalue().splitlines() if line.strip()]
-    assert lines == [f"{revision.revision} (head)"], shown.getvalue()
+    assert lines == [f"{code_migration_head()} (head)"], shown.getvalue()
 
 
-def test_every_head_pin_moves_to_the_new_revision_with_the_hom76_comment():
+def test_every_head_pin_moves_to_the_head_with_the_head_comment():
     revision = _new_revision()
+    head = code_migration_head()
     for name in HEAD_PINS:
         module = importlib.import_module(f"backend.tests.{name}")
-        assert module.HEAD_REVISION == revision.revision, name
+        assert module.HEAD_REVISION == head, name
     sources = {path.name: path.read_text(encoding="utf-8") for path in TESTS_DIR.glob("test_*.py")}
     stale = [
         name
         for name, source in sources.items()
-        if re.search(rf'HEAD_REVISION\s*=\s*"{BASE_HEAD}"', source)
+        if re.search(rf'HEAD_REVISION\s*=\s*"({BASE_HEAD}|{revision.revision})"', source)
     ]
     assert stale == []
     pins = [
         line.strip()
         for source in sources.values()
         for line in source.splitlines()
-        if re.match(rf'HEAD_REVISION\s*=\s*"{revision.revision}"', line.strip())
+        if re.match(rf'HEAD_REVISION\s*=\s*"{head}"', line.strip())
     ]
     assert len(pins) >= len(HEAD_PINS), pins
     for line in pins:

@@ -397,17 +397,17 @@ def test_findings_without_evidence_are_marked_counted_and_noticed(
     assert risk["finding_type"] == "insight" and risk["finding_index"] == 1
     assert risk["evidence_status"] == "insufficient"
     assert risk["supported"] is False and risk["evidence"] == []
-    uncited = by_text["بدون مرجع"]
-    assert uncited["finding_type"] == "action_item" and uncited["supported"] is False
+    # HOM-133 (ADR 0058, G1): the action with no cited turn is not stored at all.
+    assert "بدون مرجع" not in by_text
     cited = by_text["اعلام قیمت نهایی"]
     assert cited["evidence_status"] == "partial" and cited["supported"] is True
     assert report["qa"]["counts"] == {
-        "total": 5,
+        "total": 4,
         "supported": 3,
-        "unsupported": 2,
+        "unsupported": 1,
         "sufficient": 1,
         "partial": 2,
-        "insufficient": 2,
+        "insufficient": 1,
     }
     completeness = report["completeness"]
     assert completeness["is_complete"] is False

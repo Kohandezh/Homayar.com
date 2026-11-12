@@ -384,8 +384,9 @@ HEAD_PINS = (
     "test_trend_judgment_migration",
     "test_webhook_ledger_migration",
 )
-# HOM-76 moved the head past the calibration revision; the pins carry its comment.
-PIN_COMMENT = "# HOM-76: review appeals, after HOM-75"
+# HOM-76 and then HOM-133 moved the head past the calibration revision; the pins
+# carry the comment of the latest head.
+PIN_COMMENT = "# HOM-133: action item kind, after HOM-76"
 
 EXISTING_TABLES = (
     "scorecard_results",

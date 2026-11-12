@@ -113,7 +113,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "a651110b03c3"
 BASE_REVISION = "484a6df74abf"  # HOM-73: review items
-HEAD_REVISION = "0c51985fcf36"  # HOM-76: review appeals, after HOM-75
+HEAD_REVISION = "c4a8e2f7d913"  # HOM-133: action item kind, after HOM-76
 DECISIONS = "review_criterion_decisions"
 RESULTS = "review_results"
 ITEMS = "review_items"

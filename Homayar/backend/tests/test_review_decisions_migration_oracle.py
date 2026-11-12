@@ -87,6 +87,7 @@ from backend.tests._database import (
     is_postgres_url,
 )
 from backend.tests.conftest import login_user, register_user
+from backend.tests.test_action_item_kind_migration import remove_action_item_kind
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
@@ -1381,6 +1382,9 @@ def test_on_sqlite_the_migration_builds_the_orm_schema_and_its_downgrade_removes
                 "review_appeals",
             ):
                 Base.metadata.tables[name].drop(connection)
+            # HOM-133 adds ``action_items.kind``; take it out, so the head's own
+            # migration adds it again below.
+            remove_action_item_kind(connection)
             before = _sqlite_objects(connection)
         assert (ITEM_RESULT_INDEX, ("id", "scorecard_result_id"), True) in orm[ITEMS]["indexes"]
         assert sorted(name for name, _ in orm[DECISIONS]["checks"]) == sorted(DECISION_CHECKS)
@@ -1399,7 +1403,8 @@ def test_on_sqlite_the_migration_builds_the_orm_schema_and_its_downgrade_removes
             ]
             assert unchanged == before
         # The head's own migrations (HOM-75 builds the calibration tables, HOM-76
-        # the appeal tables) complete the schema, so ``alembic check`` passes.
+        # the appeal tables, HOM-133 the action item kind) complete the schema, so
+        # ``alembic check`` passes.
         command.upgrade(config, "head")
         _check(config)
 
