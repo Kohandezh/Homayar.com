@@ -254,6 +254,11 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.CALIBRATION_ADJUDICATION_RECORDED: "administration",
     AuditEventType.CALIBRATION_BATCH_CLOSED: "administration",
     AuditEventType.CALIBRATION_BATCH_CANCELLED: "administration",
+    # Agent appeals and their dispositions (HOM-76)
+    AuditEventType.REVIEW_APPEAL_FILED: "administration",
+    AuditEventType.REVIEW_APPEAL_ASSIGNED: "administration",
+    AuditEventType.REVIEW_APPEAL_WITHDRAWN: "administration",
+    AuditEventType.REVIEW_APPEAL_DECIDED: "administration",
     # Deletion, retention and legal hold
     AuditEventType.MEETING_DELETED: "deletion",
     AuditEventType.MEETING_RETENTION_EXPIRED: "deletion",

@@ -100,6 +100,12 @@ class Permission(str, Enum):
     # items.  Never carried by an API key.
     REVIEW_READ = "review:read"
     REVIEW_MANAGE = "review:manage"
+    # Agent appeals (HOM-76, ADR 0057): every role sees their own reviewed calls and
+    # files and withdraws their own appeals.  Never carried by an API key.
+    REVIEW_APPEAL = "review:appeal"
+    # The in-app notification inbox (HOM-76, ADR 0057 D6): every role reads their own
+    # rows and marks them read.  Never carried by an API key.
+    NOTIFICATION_READ = "notification:read"
 
 
 ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
@@ -125,6 +131,8 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.WEBHOOK_MANAGE,
             Permission.REVIEW_READ,
             Permission.REVIEW_MANAGE,
+            Permission.REVIEW_APPEAL,
+            Permission.NOTIFICATION_READ,
         }
     ),
     WorkspaceRole.MEMBER: frozenset(
@@ -138,6 +146,8 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.SCORECARD_READ,
             Permission.REVIEW_READ,
             Permission.REVIEW_MANAGE,
+            Permission.REVIEW_APPEAL,
+            Permission.NOTIFICATION_READ,
         }
     ),
     WorkspaceRole.VIEWER: frozenset(
@@ -146,6 +156,8 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.MEMBER_READ,
             Permission.TEAM_READ,
             Permission.SCORECARD_READ,
+            Permission.REVIEW_APPEAL,
+            Permission.NOTIFICATION_READ,
         }
     ),
 }

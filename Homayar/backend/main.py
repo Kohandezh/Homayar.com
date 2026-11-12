@@ -44,9 +44,11 @@ from backend.routers.v1 import integrations as integrations_v1
 from backend.routers.v1 import locations as locations_v1
 from backend.routers.v1 import meetings as meetings_v1
 from backend.routers.v1 import members as members_v1
+from backend.routers.v1 import notifications as notifications_v1
 from backend.routers.v1 import organizations as organizations_v1
 from backend.routers.v1 import privacy as privacy_v1
 from backend.routers.v1 import reports as reports_v1
+from backend.routers.v1 import review_appeals as review_appeals_v1
 from backend.routers.v1 import review_items as review_items_v1
 from backend.routers.v1 import scorecards as scorecards_v1
 from backend.routers.v1 import shares as shares_v1
@@ -273,6 +275,8 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(reports_v1.router, prefix=settings.api_prefix)
     app.include_router(review_items_v1.router, prefix=settings.api_prefix)
     app.include_router(calibration_batches_v1.router, prefix=settings.api_prefix)
+    app.include_router(review_appeals_v1.router, prefix=settings.api_prefix)
+    app.include_router(notifications_v1.router, prefix=settings.api_prefix)
     app.include_router(scorecards_v1.router, prefix=settings.api_prefix)
     app.include_router(shares_v1.router, prefix=settings.api_prefix)
     app.include_router(teams_v1.router, prefix=settings.api_prefix)
