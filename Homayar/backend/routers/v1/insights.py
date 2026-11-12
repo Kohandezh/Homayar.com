@@ -13,6 +13,7 @@ from backend.database.relational import get_db
 from backend.database.saas_models import (
     ActionItem,
     ActionStatus,
+    AnalysisRun,
     EvidenceSpan,
     EvidenceStatus,
     Meeting,
@@ -76,7 +77,9 @@ from backend.services.evidence_service import (
     list_evidence,
 )
 from backend.services.export_service import (
+    EXPORT_VERSION,
     ExportAction,
+    ExportAnalysis,
     ExportEvidence,
     ExportRevision,
     ExportSegment,
@@ -1718,22 +1721,13 @@ def _export_action(action: ActionItem, view: MeetingView) -> ExportAction:
 
 
 def export_privacy(
-    db: Session, *, meeting: Meeting, view: MeetingView, transcript: TranscriptResponse
+    *, view: MeetingView, revision: TranscriptRevision | None, run: AnalysisRun | None
 ) -> dict[str, object]:
     """Privacy provenance of an export: the view, the redacted version and
-    what the current analysis read (WP07-T06).  Never a value."""
-    revision = (
-        revision_by_id(
-            db,
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            revision_id=transcript.revision.id,
-        )
-        if transcript.revision is not None
-        else None
-    )
+    what the analysis read (WP07-T06).  Never a value.  ``run`` is the
+    analysis run row the caller already read, so the export's analysis and
+    privacy provenance name the same run (HOM-137, amendment B3)."""
     provenance = view.provenance(revision)
-    run = current_analysis_run(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     provenance["analysis_input_view"] = run.input_view if run is not None else None
     provenance["analysis_input_policy_digest"] = (
         run.input_policy_digest if run is not None else None
@@ -1741,19 +1735,54 @@ def export_privacy(
     return provenance
 
 
-def _export_revision(transcript: TranscriptResponse) -> ExportRevision | None:
-    revision = transcript.revision
+def _export_revision(revision: TranscriptRevision | None) -> ExportRevision | None:
     if revision is None:
         return None
     return ExportRevision(
         id=revision.id,
         revision_number=revision.revision_number,
-        source=revision.source,
+        # the row holds an enum; the export carries its plain value
+        source=getattr(revision.source, "value", revision.source),
         created_at=revision.created_at,
         asr_provider=revision.asr_provider,
         asr_model=revision.asr_model,
         is_mock=revision.is_mock,
     )
+
+
+def _export_analysis(run: AnalysisRun | None) -> ExportAnalysis | None:
+    """The analysis provenance of an export (HOM-137, D5): ids and names,
+    never a value.  ``None`` when the meeting has no current run and always
+    for a share export."""
+    if run is None:
+        return None
+    return ExportAnalysis(
+        run_id=run.id,
+        provider=run.provider,
+        model=run.model,
+        prompt_version=run.prompt_version,
+        prompt_sha256=run.prompt_sha256,
+        output_schema_sha256=run.output_schema_sha256,
+        schema_version=run.schema_version,
+        is_mock=run.is_mock,
+        transcript_revision_id=run.transcript_revision_id,
+    )
+
+
+def _refuse_stale_revision(revision: TranscriptRevision | None, revision_id: str | None) -> None:
+    """D4: an export asked to match a revision that is not the current one
+    answers 409 before anything is rendered or audited."""
+    if revision_id is None:
+        return
+    if revision is None or revision.id != revision_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "transcript_revision_mismatch",
+                "message": "The transcript has a different current revision; "
+                "export without revision_id or pass the current one",
+            },
+        )
 
 
 @router.get("/meetings/{meeting_id}/export")
@@ -1762,6 +1791,13 @@ def export_meeting(
     request: Request,
     format_name: Literal["txt", "json", "srt", "vtt"] = Query(alias="format"),
     view: ViewParam | None = _VIEW_QUERY,
+    revision_id: str | None = Query(
+        default=None,
+        description=(
+            "Export only when this is the id of the meeting's current transcript "
+            "revision; anything else answers 409 transcript_revision_mismatch."
+        ),
+    ),
     context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -1780,7 +1816,10 @@ def export_meeting(
         request=request,
         surface="export",
     )
-    transcript = _transcript_response(db, meeting=meeting, view=meeting_view_)
+    revision = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    _refuse_stale_revision(revision, revision_id)
+    transcript = _transcript_response(db, meeting=meeting, view=meeting_view_, revision=revision)
+    run = current_analysis_run(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     summary = db.scalar(
         select(MeetingSummary).where(
             MeetingSummary.workspace_id == context.workspace.id,
@@ -1817,10 +1856,11 @@ def export_meeting(
                 for segment in transcript.segments
             ],
             actions=[_export_action(action, meeting_view_) for action in actions],
-            transcript_revision=_export_revision(transcript),
+            transcript_revision=_export_revision(revision),
             summary_evidence_status=summary.evidence_status if summary else None,
             quality=_quality(db, meeting, settings=settings).model_dump(),
-            privacy=export_privacy(db, meeting=meeting, view=meeting_view_, transcript=transcript),
+            privacy=export_privacy(view=meeting_view_, revision=revision, run=run),
+            analysis=_export_analysis(run),
         ),
         format_name,
     )
@@ -1842,7 +1882,10 @@ def export_meeting(
         headers={
             "Content-Disposition": (
                 f'attachment; filename="homayar-{meeting.id}.{rendered.extension}"'
-            )
+            ),
+            "Cache-Control": "no-store",
+            "X-Homayar-Export-Version": str(EXPORT_VERSION),
+            "X-Homayar-Transcript-Revision": revision.id if revision is not None else "none",
         },
     )
 

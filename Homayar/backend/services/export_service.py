@@ -7,6 +7,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
+# The export envelope version (HOM-137): bumped when the shape of what an
+# export carries (provenance, analysis) changes in a way a consumer can see.
+EXPORT_VERSION = 1
+
 
 @dataclass(frozen=True)
 class ExportSegment:
@@ -57,6 +61,26 @@ class ExportRevision:
 
 
 @dataclass(frozen=True)
+class ExportAnalysis:
+    """Which analysis run the exported texts come from (HOM-137, D5).
+
+    Never a value: ids, provider names and hashes only.  A share export
+    carries none of it.
+    """
+
+    run_id: str
+    provider: str | None
+    model: str | None
+    prompt_version: str | None
+    prompt_sha256: str | None
+    output_schema_sha256: str | None
+    schema_version: int
+    is_mock: bool
+    # the revision the run analysed; may differ from the current revision
+    transcript_revision_id: str
+
+
+@dataclass(frozen=True)
 class MeetingExport:
     meeting_id: str
     title: str
@@ -75,6 +99,10 @@ class MeetingExport:
     # Privacy provenance (WP07-T06): which view the texts are and, for a
     # redacted export, the detector version, classes and policy digest.
     privacy: dict[str, Any] | None = None
+    # Export envelope version (HOM-137) and the analysis provenance of the
+    # exported texts (None on a share export).
+    export_version: int = EXPORT_VERSION
+    analysis: ExportAnalysis | None = None
 
 
 @dataclass(frozen=True)
@@ -136,11 +164,28 @@ def _privacy_lines(export: MeetingExport) -> list[str]:
     return lines
 
 
+def _provenance_lines(export: MeetingExport) -> list[str]:
+    """The export version and the analysis provenance (HOM-137, D5)."""
+    lines = [f"Export version: {export.export_version}"]
+    if export.analysis is not None:
+        analysis = export.analysis
+        lines.append(
+            f"Analysis: {analysis.provider} {analysis.model}, "
+            f"prompt version {analysis.prompt_version}, "
+            f"schema {analysis.schema_version}"
+        )
+    return lines
+
+
 def _render_subtitles(export: MeetingExport, *, vtt: bool) -> bytes:
     blocks = ["WEBVTT\n"] if vtt else []
-    if vtt and (export.quality is not None or _privacy_lines(export)):
+    if vtt and (export.quality is not None or _privacy_lines(export) or _provenance_lines(export)):
         blocks.append(
-            "NOTE\n" + "\n".join([*_privacy_lines(export), *_quality_lines(export)]) + "\n"
+            "NOTE\n"
+            + "\n".join(
+                [*_privacy_lines(export), *_quality_lines(export), *_provenance_lines(export)]
+            )
+            + "\n"
         )
     decimal = "." if vtt else ","
     for index, segment in enumerate(export.segments, start=1):
@@ -167,6 +212,7 @@ def _render_text(export: MeetingExport) -> bytes:
     privacy_lines = _privacy_lines(export)
     if privacy_lines:
         lines.extend(["Privacy", *privacy_lines, ""])
+    lines.extend(["Provenance", *_provenance_lines(export), ""])
     if export.transcript_revision is not None:
         revision = export.transcript_revision
         lines.append(

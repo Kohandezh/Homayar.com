@@ -14,8 +14,10 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -38,10 +40,14 @@ from backend.routers.v1.insights import (
     _VIEW_QUERY,
     ViewParam,
     _evidence_response,
+    _export_analysis,
+    _export_revision,
     _meeting_or_404,
     _quality,
+    _refuse_stale_revision,
     _view_fields,
     action_response,
+    export_privacy,
     meeting_view,
     summary_response,
 )
@@ -80,12 +86,19 @@ from backend.services.analysis_extraction import (
     label_names,
     quoted_regions,
 )
+from backend.services.audit_event_types import AuditEventType
+from backend.services.audit_service import record_audit_event
 from backend.services.evidence_service import (
     FINDING_ACTION_ITEM,
     FINDING_EXTRACTION,
     FINDING_INSIGHT,
     FINDING_SUMMARY,
     list_evidence,
+)
+from backend.services.report_export_service import (
+    EXPORT_VERSION,
+    ExportProvenance,
+    render_report_export,
 )
 from backend.services.report_service import (
     evidence_status_of,
@@ -95,7 +108,11 @@ from backend.services.report_service import (
     outcome_state,
     review_action_reason,
 )
-from backend.services.transcript_service import current_revision, segments_of
+from backend.services.transcript_service import (
+    current_analysis_run,
+    current_revision,
+    segments_of,
+)
 
 router = APIRouter(tags=["meeting intelligence"])
 
@@ -648,28 +665,28 @@ def _review_actions(
     return responses
 
 
-@router.get("/meetings/{meeting_id}/report", response_model=CallReportResponse)
-def get_call_report(
-    meeting_id: str,
-    request: Request,
-    view: ViewParam | None = _VIEW_QUERY,
-    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+def build_call_report(
+    db: Session,
+    *,
+    context: WorkspaceContext,
+    meeting: Meeting,
+    view: MeetingView,
+    current: TranscriptRevision | None,
+    settings: Settings,
 ) -> CallReportResponse:
-    """Summary, outcome, QA with evidence, review actions and completeness of
-    one meeting, in every processing state (never 404 for a missing summary)."""
-    meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
-    meeting_view_ = meeting_view(
-        db,
-        context=context,
-        meeting=meeting,
-        requested=view,
-        settings=settings,
-        request=request,
-        surface="report",
-    )
-    current = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    """The body of one call report read, in the caller's already built view
+    (HOM-137, D1, amendments A1 and B3).
+
+    Shared by ``GET /report`` and the report export.  The caller builds the
+    ``MeetingView`` with ``meeting_view(...)`` under its own surface, so one
+    request writes at most one ``transcript.original_accessed`` audit.
+    ``current`` is the current transcript revision row the caller already
+    read: the export checks ``revision_id`` against that same row, so the pin
+    check, the header, the provenance and the evidence statuses agree.  No
+    commit inside: the caller decides when a first redacted version or that
+    audit becomes visible.
+    """
+    meeting_view_ = view
     current_id = current.id if current is not None else None
 
     def render(span: EvidenceSpan) -> ReportEvidenceRef:
@@ -695,7 +712,7 @@ def get_call_report(
     quality = _quality(db, meeting, settings=settings)
     counts = finding_counts((finding.evidence_status, finding.supported) for finding in findings)
     unsupported = counts["unsupported"]
-    response = CallReportResponse(
+    return CallReportResponse(
         meeting_id=meeting.id,
         report_version=REPORT_VERSION,
         summary=report_summary,
@@ -715,5 +732,141 @@ def get_call_report(
         extraction=extraction,
         **_view_fields(meeting_view_),
     )
+
+
+@router.get("/meetings/{meeting_id}/report", response_model=CallReportResponse)
+def get_call_report(
+    meeting_id: str,
+    request: Request,
+    view: ViewParam | None = _VIEW_QUERY,
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> CallReportResponse:
+    """Summary, outcome, QA with evidence, review actions and completeness of
+    one meeting, in every processing state (never 404 for a missing summary)."""
+    meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
+    response = build_call_report(
+        db,
+        context=context,
+        meeting=meeting,
+        current=current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id),
+        view=meeting_view(
+            db,
+            context=context,
+            meeting=meeting,
+            requested=view,
+            settings=settings,
+            request=request,
+            surface="report",
+        ),
+        settings=settings,
+    )
     db.commit()  # a first redacted version or an original-access audit
     return response
+
+
+def _report_run(db: Session, *, meeting: Meeting, report: CallReportResponse) -> AnalysisRun | None:
+    """The analysis run a report export describes, read once (amendment B3).
+
+    The run that wrote the summary the report shows.  Without a summary, or
+    for a legacy summary that names no run, the meeting's current run.
+    """
+    run_id = report.summary.analysis_run_id if report.summary is not None else None
+    if run_id is None:
+        return current_analysis_run(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    return db.scalar(
+        select(AnalysisRun).where(
+            AnalysisRun.workspace_id == meeting.workspace_id,
+            AnalysisRun.meeting_id == meeting.id,
+            AnalysisRun.id == run_id,
+        )
+    )
+
+
+@router.get("/meetings/{meeting_id}/report/export")
+def export_call_report(
+    meeting_id: str,
+    request: Request,
+    format_name: Literal["pdf", "csv", "json"] = Query(alias="format"),
+    view: ViewParam | None = _VIEW_QUERY,
+    revision_id: str | None = Query(
+        default=None,
+        description=(
+            "Export only when this is the id of the meeting's current transcript "
+            "revision; anything else answers 409 transcript_revision_mismatch."
+        ),
+    ),
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """The call report as a downloadable file: PDF, CSV or JSON (HOM-137, F70).
+
+    Same access as the transcript export (``meeting:read`` plus the record
+    predicate and the tombstone), same privacy view, one ``meeting.exported``
+    audit with ``artifact=report``.  The JSON ``report`` value equals the body
+    of ``GET /report`` for the same caller and view; every export carries the
+    export version, the transcript revision and the analysis provenance.
+    """
+    meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
+    meeting_view_ = meeting_view(
+        db,
+        context=context,
+        meeting=meeting,
+        requested=view,
+        settings=settings,
+        request=request,
+        surface="export",
+    )
+    revision = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    _refuse_stale_revision(revision, revision_id)
+    report = build_call_report(
+        db,
+        context=context,
+        meeting=meeting,
+        view=meeting_view_,
+        current=revision,
+        settings=settings,
+    )
+    run = _report_run(db, meeting=meeting, report=report)
+    provenance = ExportProvenance(
+        export_version=EXPORT_VERSION,
+        artifact="report",
+        format=format_name,
+        generated_at=datetime.now(UTC),
+        meeting_id=meeting.id,
+        report_version=REPORT_VERSION,
+        transcript_revision=_export_revision(revision),
+        analysis=_export_analysis(run),
+        privacy=export_privacy(view=meeting_view_, revision=revision, run=run),
+    )
+    rendered = render_report_export(report, provenance, format_name, title=meeting.title)
+    record_audit_event(
+        db,
+        event_type=AuditEventType.MEETING_EXPORTED,
+        actor_user_id=context.actor.user.id,
+        workspace_id=context.workspace.id,
+        target_type="meeting",
+        target_id=meeting.id,
+        request_id=getattr(request.state, "request_id", None),
+        details={
+            "artifact": "report",
+            "format": format_name,
+            "view": meeting_view_.policy.view,
+        },
+        settings=settings,
+    )
+    db.commit()
+    return Response(
+        content=rendered.content,
+        media_type=rendered.media_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="homayar-report-{meeting.id}.{rendered.extension}"'
+            ),
+            "Cache-Control": "no-store",
+            "X-Homayar-Export-Version": str(EXPORT_VERSION),
+            "X-Homayar-Transcript-Revision": revision.id if revision is not None else "none",
+        },
+    )
