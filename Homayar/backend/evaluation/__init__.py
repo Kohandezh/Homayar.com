@@ -1,11 +1,16 @@
 """WP13 evaluators: WER/CER, DER/JER, intent, entities, QA agreement, factual support and
-retrieval (HOM-69).
+retrieval (HOM-69), and action item owner and due date (HOM-133).
 
 See ``README.md`` in this package.  Pure and deterministic: standard library plus
 ``backend.speech``.  File I/O only in ``loaders`` and the CLI (``python -m
 backend.evaluation``).
 """
 
+from backend.evaluation.action_items import (
+    ActionItemCase,
+    ActionItemReport,
+    evaluate_action_items,
+)
 from backend.evaluation.agreement import (
     RatingPair,
     ScorePair,
@@ -53,6 +58,8 @@ __all__ = [
     "CANDIDATE_REPORT_VERSION",
     "EVALUATION_VERSION",
     "KINDS",
+    "ActionItemCase",
+    "ActionItemReport",
     "AsrReport",
     "AuditedClaim",
     "Citation",
@@ -78,6 +85,7 @@ __all__ = [
     "build_candidate_report",
     "citation_is_valid",
     "cohen_kappa",
+    "evaluate_action_items",
     "evaluate_asr",
     "evaluate_by_slice",
     "evaluate_classification",

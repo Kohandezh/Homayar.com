@@ -86,7 +86,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "565d2ccd4fca"
 BASE_REVISION = "47676f445509"  # HOM-54: scorecard_versions
-HEAD_REVISION = "0c51985fcf36"  # HOM-76: review appeals, after HOM-75
+HEAD_REVISION = "c4a8e2f7d913"  # HOM-133: action item kind, after HOM-76
 PROFILES = "integration_mapping_profiles"
 RECORDS = "external_records"
 LEDGER = "integration_inbound_records"

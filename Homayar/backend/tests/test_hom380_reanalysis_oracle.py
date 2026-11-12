@@ -33,6 +33,7 @@ from backend.jobs.processor import process_job
 from backend.providers.factory import ProviderBundle
 from backend.providers.mocks import MockASRProvider, MockIntelligenceProvider
 from backend.providers.schemas import ActionItem as ProviderActionItem
+from backend.providers.schemas import ActionKind
 from backend.routers.v1 import voicemail as voicemail_router
 from backend.services.audit_event_types import AuditEventType
 from backend.tests._database import inspection_session_factory
@@ -43,8 +44,10 @@ from backend.tests.test_review_queue_access import stranger
 from backend.tests.test_uploads_api import _valid_metadata
 from backend.voicemail.models import VoicemailMessage
 
-ORIGINAL_TEXT = "پیگیری قرارداد انجام شود"
-CORRECTED_TEXT = "پیگیری فاکتور انجام شود"
+# HOM-133 (ADR 0058): the pipeline keeps an owner only when a cited turn names it,
+# so both texts name the owner and each action quotes the turn.
+ORIGINAL_TEXT = "کارشناس فروش پیگیری قرارداد را انجام می‌دهد"
+CORRECTED_TEXT = "کارشناس فروش پیگیری فاکتور را انجام می‌دهد"
 OWNER_TEXT = "کارشناس فروش"
 ACTIONS_PER_RUN = 2
 PATHS = ["recompute", "process_job"]
@@ -64,6 +67,8 @@ class _TwoActions(MockIntelligenceProvider):
                 description=f"Call back {index}: {said}",
                 owner=OWNER_TEXT,
                 source_turn_indexes=[0],
+                kind=ActionKind.COMMITMENT,
+                owner_quote=said,  # HOM-133: the words that name the owner
             )
             for index in range(ACTIONS_PER_RUN)
         ]

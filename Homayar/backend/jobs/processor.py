@@ -129,6 +129,7 @@ from backend.providers.schemas import (
     ProviderSchema,
     TranscriptTurn,
 )
+from backend.services.action_grounding import ground_action
 from backend.services.ai_policy_service import (
     DEFAULT_EFFECTIVE,
     EffectivePolicy,
@@ -150,6 +151,7 @@ from backend.services.evidence_service import (
     FINDING_INSIGHT,
     FINDING_SUMMARY,
     EvidencePlan,
+    ResolvedReferences,
     resolve_turn_references,
 )
 from backend.services.logging_service import logger
@@ -691,6 +693,18 @@ def _action_due_at(due_date) -> datetime | None:
     return datetime.combine(due_date, time.min, tzinfo=UTC)
 
 
+def _grounding_reference(meeting: Meeting) -> datetime:
+    """The call's date anchor for relative due dates (HOM-133, ADR 0058).
+
+    When the call happened (``started_at``), else when it was uploaded; a naive
+    value is read as UTC.
+    """
+    reference = meeting.started_at or meeting.created_at
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+    return reference
+
+
 def persist_stage_runs(
     db: Session,
     job: ProcessingJob,
@@ -1075,8 +1089,28 @@ def persist_analysis(
             now=now,
         )
         key_points.extend(claims.entries)
+        # HOM-133 (ADR 0058): owner and due date are kept only when a cited turn
+        # states them, judged against the turns the model received.
+        grounding_reference = _grounding_reference(meeting)
         for action in intelligence.action_items:
             references = resolve_turn_references(action.source_turn_indexes, segments)
+            grounded = ground_action(
+                action,
+                model_turns,
+                reference=grounding_reference,
+                language=revision.language,
+            )
+            if grounded is None:
+                # G1: no cited turn, so no row and no span.  Every reference the
+                # provider offered is still counted as rejected (no segments).
+                plan.cite(
+                    meeting=meeting,
+                    revision=revision,
+                    references=ResolvedReferences(segments=(), rejected=references.offered),
+                    finding_type=FINDING_ACTION_ITEM,
+                    now=now,
+                )
+                continue
             action_id = new_id()
             plan.cite(
                 meeting=meeting,
@@ -1093,9 +1127,10 @@ def persist_analysis(
                     workspace_id=meeting.workspace_id,
                     meeting_id=meeting.id,
                     description=action.description,
-                    assignee_text=action.owner,
-                    due_at=_action_due_at(action.due_date),
+                    assignee_text=grounded.owner,
+                    due_at=_action_due_at(grounded.due_date),
                     priority=action.priority.value,
+                    kind=grounded.kind,
                     source_segment_id=(source_segment.id if source_segment is not None else None),
                     source_timestamp_ms=(
                         source_segment.start_ms if source_segment is not None else None

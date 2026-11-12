@@ -4209,6 +4209,9 @@ class ActionItem(Base, TimestampMixin):
     evidence_status: Mapped[str] = mapped_column(
         String(16), default=EvidenceStatus.INSUFFICIENT.value, nullable=False
     )
+    # HOM-133 (ADR 0058): "commitment" or "next_step" for AI rows written from
+    # HOM-133 on.  Person rows, voicemail rule rows and older rows stay NULL.
+    kind: Mapped[str | None] = mapped_column(String(16))
 
     evidence: Mapped[list[EvidenceSpan]] = relationship(
         primaryjoin=(
@@ -4229,6 +4232,10 @@ class ActionItem(Base, TimestampMixin):
             name="ck_action_confidence",
         ),
         CheckConstraint(EVIDENCE_STATUS_CHECK, name="ck_action_evidence_status"),
+        CheckConstraint(
+            "kind IS NULL OR kind IN ('commitment', 'next_step')",
+            name="ck_action_kind",
+        ),
     )
 
 

@@ -77,6 +77,7 @@ from backend.tests._database import (
     is_postgres_url,
 )
 from backend.tests.conftest import login_user, register_user
+from backend.tests.test_action_item_kind_migration import remove_action_item_kind
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
@@ -687,6 +688,9 @@ def test_on_sqlite_the_migration_builds_the_designed_table_and_drops_only_it(tmp
                 "review_appeals",
             ):
                 Base.metadata.tables[name].drop(connection)
+            # HOM-133 adds ``action_items.kind``; take it out, so the head's own
+            # migration adds it again below.
+            remove_action_item_kind(connection)
             before = _sqlite_objects(connection)
         _assert_designed_sqlite_shape(orm)
 
