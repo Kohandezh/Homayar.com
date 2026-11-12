@@ -120,6 +120,10 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     "review_appeals",
     "review_appeal_criteria",
     "review_appeal_results",
+    # Coaching tasks from accepted findings (HOM-77): the service acknowledges,
+    # reassigns, closes and cancels them, the purge deletes the conversation's rows.
+    # Never through a share token.
+    "coaching_tasks",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",

@@ -2305,6 +2305,244 @@ class ReviewAppealResult(Base):
     )
 
 
+# Coaching tasks from accepted findings (HOM-77, WP14-T06).  A status, a finding source,
+# a follow-up outcome and a cancel reason are codes from these frozen lists, never free
+# text, so no personal data reaches the audit log.  The finding source names the stored
+# score that gave the ``failed`` outcome when the task was created.  Every note is at
+# most ``REVIEW_NOTE_MAX_LENGTH`` characters.
+COACHING_TASK_STATUSES: tuple[str, ...] = ("assigned", "acknowledged", "closed", "cancelled")
+# ``closed`` and ``cancelled`` are terminal.
+COACHING_TASK_ACTIVE_STATUSES: tuple[str, ...] = ("assigned", "acknowledged")
+COACHING_FINDING_SOURCES: tuple[str, ...] = ("human_result", "appeal_result")
+COACHING_FOLLOW_UP_OUTCOMES: tuple[str, ...] = ("improved", "partially_improved", "not_improved")
+COACHING_CANCEL_REASONS: tuple[str, ...] = (
+    "finding_overturned",
+    "agent_changed",
+    "duplicate",
+    "other",
+)
+# The latest due date at creation, and how long before it the due-soon reminder goes
+# out (the service and the reminder sweep of PR 2 use them; no check does).
+COACHING_MAX_DUE_DAYS = 90
+COACHING_REMINDER_LEAD_HOURS = 24
+
+COACHING_TASK_STATUS_CHECK = f"status IN {_sql_list(COACHING_TASK_STATUSES)}"
+COACHING_TASK_REVISION_CHECK = "revision >= 1"
+COACHING_FINDING_SOURCE_CHECK = f"finding_source IN {_sql_list(COACHING_FINDING_SOURCES)}"
+# What to practise: not blank, at most the review note length.
+COACHING_TASK_INSTRUCTION_CHECK = (
+    f"length(trim(instruction)) > 0 AND length(instruction) <= {REVIEW_NOTE_MAX_LENGTH}"
+)
+# The agent's optional reply exists only with the acknowledgement itself.
+COACHING_ACKNOWLEDGEMENT_NOTE_CHECK = (
+    f"acknowledgement_note IS NULL OR (length(acknowledgement_note) <= {REVIEW_NOTE_MAX_LENGTH} "
+    "AND acknowledged_at IS NOT NULL)"
+)
+COACHING_FOLLOW_UP_OUTCOME_CHECK = (
+    f"follow_up_outcome IS NULL OR follow_up_outcome IN {_sql_list(COACHING_FOLLOW_UP_OUTCOMES)}"
+)
+COACHING_FOLLOW_UP_NOTE_LENGTH_CHECK = (
+    f"follow_up_note IS NULL OR length(follow_up_note) <= {REVIEW_NOTE_MAX_LENGTH}"
+)
+COACHING_CANCEL_REASON_CHECK = (
+    f"cancel_reason IS NULL OR cancel_reason IN {_sql_list(COACHING_CANCEL_REASONS)}"
+)
+COACHING_CANCEL_NOTE_LENGTH_CHECK = (
+    f"cancel_note IS NULL OR length(cancel_note) <= {REVIEW_NOTE_MAX_LENGTH}"
+)
+# Each status has its own fields.  A follow-up review needs an acknowledged task, an
+# outcome and a non-blank note; a cancelled task may or may not have been acknowledged.
+# A CHECK passes when its expression is NULL, so each rule is false, never NULL, for a
+# row it refuses.  No check names a user column: the five user columns are SET NULL
+# when a user is removed, and a check on them would make the removal fail.
+COACHING_TASK_ASSIGNED_FIELDS_CHECK = (
+    "status <> 'assigned' OR (acknowledged_at IS NULL AND follow_up_outcome IS NULL "
+    "AND follow_up_note IS NULL AND closed_at IS NULL AND cancel_reason IS NULL "
+    "AND cancel_note IS NULL AND cancelled_at IS NULL)"
+)
+COACHING_TASK_ACKNOWLEDGED_FIELDS_CHECK = (
+    "status <> 'acknowledged' OR (acknowledged_at IS NOT NULL AND follow_up_outcome "
+    "IS NULL AND follow_up_note IS NULL AND closed_at IS NULL AND cancel_reason "
+    "IS NULL AND cancel_note IS NULL AND cancelled_at IS NULL)"
+)
+COACHING_TASK_CLOSED_FIELDS_CHECK = (
+    "status <> 'closed' OR (acknowledged_at IS NOT NULL AND closed_at IS NOT NULL "
+    "AND follow_up_outcome IS NOT NULL AND follow_up_note IS NOT NULL "
+    "AND length(trim(follow_up_note)) > 0 AND cancel_reason IS NULL "
+    "AND cancel_note IS NULL AND cancelled_at IS NULL)"
+)
+COACHING_TASK_CANCELLED_FIELDS_CHECK = (
+    "status <> 'cancelled' OR (cancelled_at IS NOT NULL AND cancel_reason IS NOT NULL "
+    "AND closed_at IS NULL AND follow_up_outcome IS NULL AND follow_up_note IS NULL)"
+)
+COACHING_TASK_ACTIVE_WHERE = f"status IN {_sql_list(COACHING_TASK_ACTIVE_STATUSES)}"
+
+
+class CoachingTask(Base):
+    """One coaching task from one accepted finding (HOM-77, WP14-T06, F47).
+
+    A task names exactly one finding: one criterion of one completed review item that
+    has a human result, whose final outcome is ``failed``.  The coachee
+    (``agent_user_id``) is the call's agent when the task is created and never
+    changes; the owner (``owner_user_id``) is the coach who does the follow-up review.
+    The coachee acknowledges, the owner closes the task with an outcome, and a
+    supervisor may cancel it.  At most one active (``assigned`` or ``acknowledged``)
+    task per finding (``uq_coaching_tasks_active_finding``); a closed or cancelled one
+    does not block a new one.  ``revision`` starts at 1 and grows by one with each
+    acknowledge, reassign, close or cancel, so a write is a compare-and-set on it, like
+    ``review_items``.  The reminder sweep sets the two ``*_notified_at`` columns once
+    each.  Not immutable.  The composite keys tie the task to the result its item
+    reviewed, to that result's own workspace and meeting, to an item that has a human
+    result and to a criterion of that result.  Conversation content: the purge deletes
+    the row and the backup reconciliation counts it.  Tenant-only, never through a
+    share token.
+    """
+
+    __tablename__ = "coaching_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # A copy of the item's conversation: the purge and the backup reconciliation find
+    # content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign keys are ``fk_coaching_tasks_item`` and
+    # ``fk_coaching_tasks_review_result`` below.
+    review_item_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # The item's machine result.  Its foreign keys are ``fk_coaching_tasks_item``,
+    # ``fk_coaching_tasks_result`` and ``fk_coaching_tasks_criterion`` below.
+    scorecard_result_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # The finding: a criterion key of that result, as in
+    # ``scorecard_criterion_results.criterion_id``.
+    criterion_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    finding_source: Mapped[str] = mapped_column(String(20), nullable=False)
+    # The coachee: the call's agent at creation, never changed.
+    agent_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    # The coach, who does the follow-up review.
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    # Free text from the supervisor: what to practise.  Never copied to the audit log.
+    instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="assigned", nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The agent's optional reply; never copied to the audit log.
+    acknowledgement_note: Mapped[str | None] = mapped_column(Text)
+    follow_up_outcome: Mapped[str | None] = mapped_column(String(30))
+    # Free text from the owner's follow-up review; never copied to the audit log.
+    follow_up_note: Mapped[str | None] = mapped_column(Text)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    cancel_reason: Mapped[str | None] = mapped_column(String(30))
+    # Free text with a cancel; never copied to the audit log.
+    cancel_note: Mapped[str | None] = mapped_column(Text)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    # The due-soon reminder and the overdue notice were sent (the sweep of PR 2).
+    reminder_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    overdue_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # A task names only the result its item reviewed (``uq_review_items_result``).
+        ForeignKeyConstraint(
+            ["review_item_id", "scorecard_result_id"],
+            ["review_items.id", "review_items.scorecard_result_id"],
+            ondelete="CASCADE",
+            name="fk_coaching_tasks_item",
+        ),
+        # So the workspace and the meeting copies are the result's own
+        # (``uq_scorecard_result_scope``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "workspace_id", "meeting_id"],
+            [
+                "scorecard_results.id",
+                "scorecard_results.workspace_id",
+                "scorecard_results.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_coaching_tasks_result",
+        ),
+        # So a task exists only for an item that has a human result
+        # (``uq_review_results_item``).
+        ForeignKeyConstraint(
+            ["review_item_id"],
+            ["review_results.review_item_id"],
+            ondelete="CASCADE",
+            name="fk_coaching_tasks_review_result",
+        ),
+        # So the task names a criterion of that result
+        # (``uq_scorecard_criterion_result_criterion``).
+        ForeignKeyConstraint(
+            ["scorecard_result_id", "criterion_id"],
+            ["scorecard_criterion_results.result_id", "scorecard_criterion_results.criterion_id"],
+            ondelete="CASCADE",
+            name="fk_coaching_tasks_criterion",
+        ),
+        CheckConstraint(COACHING_TASK_STATUS_CHECK, name="ck_coaching_tasks_status"),
+        CheckConstraint(COACHING_TASK_REVISION_CHECK, name="ck_coaching_tasks_revision"),
+        CheckConstraint(COACHING_FINDING_SOURCE_CHECK, name="ck_coaching_tasks_finding_source"),
+        CheckConstraint(COACHING_TASK_INSTRUCTION_CHECK, name="ck_coaching_tasks_instruction"),
+        CheckConstraint(
+            COACHING_ACKNOWLEDGEMENT_NOTE_CHECK, name="ck_coaching_tasks_acknowledgement_note"
+        ),
+        CheckConstraint(
+            COACHING_FOLLOW_UP_OUTCOME_CHECK, name="ck_coaching_tasks_follow_up_outcome"
+        ),
+        CheckConstraint(
+            COACHING_FOLLOW_UP_NOTE_LENGTH_CHECK, name="ck_coaching_tasks_follow_up_note_length"
+        ),
+        CheckConstraint(COACHING_CANCEL_REASON_CHECK, name="ck_coaching_tasks_cancel_reason"),
+        CheckConstraint(
+            COACHING_CANCEL_NOTE_LENGTH_CHECK, name="ck_coaching_tasks_cancel_note_length"
+        ),
+        CheckConstraint(
+            COACHING_TASK_ASSIGNED_FIELDS_CHECK, name="ck_coaching_tasks_assigned_fields"
+        ),
+        CheckConstraint(
+            COACHING_TASK_ACKNOWLEDGED_FIELDS_CHECK, name="ck_coaching_tasks_acknowledged_fields"
+        ),
+        CheckConstraint(COACHING_TASK_CLOSED_FIELDS_CHECK, name="ck_coaching_tasks_closed_fields"),
+        CheckConstraint(
+            COACHING_TASK_CANCELLED_FIELDS_CHECK, name="ck_coaching_tasks_cancelled_fields"
+        ),
+        CheckConstraint(CRITERION_KEY_CHECK, name="ck_coaching_tasks_criterion_key"),
+        # At most one active task per finding; a closed or cancelled one does not block
+        # a new one.
+        Index(
+            "uq_coaching_tasks_active_finding",
+            "review_item_id",
+            "criterion_id",
+            unique=True,
+            postgresql_where=text(COACHING_TASK_ACTIVE_WHERE),
+            sqlite_where=text(COACHING_TASK_ACTIVE_WHERE),
+        ),
+        # The supervisor list (earliest due first) and its keyset pages.
+        Index("ix_coaching_tasks_queue", "workspace_id", "status", "due_at", "id"),
+        # The agent's own list and its keyset pages.
+        Index("ix_coaching_tasks_agent", "workspace_id", "agent_user_id", "created_at", "id"),
+        # The reminder sweep.
+        Index("ix_coaching_tasks_due", "status", "due_at"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_coaching_tasks_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
 class RunPolicySnapshot(Base):
     """The policy and model placement one processing attempt ran under
     (WP08-T02/T03, ADR 0027).  Written once per attempt, never changed; it
