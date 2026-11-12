@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -137,6 +137,49 @@ def _decode_audit_cursor(cursor: str) -> tuple[datetime, str]:
     return occurred_at, event_id
 
 
+def audit_event_filter_conditions(
+    *,
+    event_type: str | None = None,
+    outcome: str | None = None,
+    actor_user_id: str | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+    occurred_after: datetime | None = None,
+    occurred_before: datetime | None = None,
+    cursor: str | None = None,
+) -> list[ColumnElement[bool]]:
+    """The shared WHERE conditions of an audit-event page query (HOM-243).
+
+    ``list_workspace_audit_events`` and the organization audit read compose
+    these with their own row-selection clause; the filters, the decoded
+    cursor predicate and the meaning of every bound stay identical.
+    """
+    conditions: list[ColumnElement[bool]] = []
+    if event_type is not None:
+        conditions.append(AuditEvent.event_type == event_type)
+    if outcome is not None:
+        conditions.append(AuditEvent.outcome == outcome)
+    if actor_user_id is not None:
+        conditions.append(AuditEvent.actor_user_id == actor_user_id)
+    if target_type is not None:
+        conditions.append(AuditEvent.target_type == target_type)
+    if target_id is not None:
+        conditions.append(AuditEvent.target_id == target_id)
+    if occurred_after is not None:
+        conditions.append(AuditEvent.occurred_at >= occurred_after)
+    if occurred_before is not None:
+        conditions.append(AuditEvent.occurred_at < occurred_before)
+    if cursor is not None:
+        cursor_time, cursor_id = _decode_audit_cursor(cursor)
+        conditions.append(
+            or_(
+                AuditEvent.occurred_at < cursor_time,
+                and_(AuditEvent.occurred_at == cursor_time, AuditEvent.id < cursor_id),
+            )
+        )
+    return conditions
+
+
 def list_workspace_audit_events(
     db: Session,
     *,
@@ -155,29 +198,19 @@ def list_workspace_audit_events(
         if _normalize_datetime(occurred_after) >= _normalize_datetime(occurred_before):
             raise InvalidAuditRange("occurred_after must be earlier than occurred_before")
 
-    query = select(AuditEvent).where(AuditEvent.workspace_id == workspace_id)
-    if event_type is not None:
-        query = query.where(AuditEvent.event_type == event_type)
-    if outcome is not None:
-        query = query.where(AuditEvent.outcome == outcome)
-    if actor_user_id is not None:
-        query = query.where(AuditEvent.actor_user_id == actor_user_id)
-    if target_type is not None:
-        query = query.where(AuditEvent.target_type == target_type)
-    if target_id is not None:
-        query = query.where(AuditEvent.target_id == target_id)
-    if occurred_after is not None:
-        query = query.where(AuditEvent.occurred_at >= occurred_after)
-    if occurred_before is not None:
-        query = query.where(AuditEvent.occurred_at < occurred_before)
-    if cursor is not None:
-        cursor_time, cursor_id = _decode_audit_cursor(cursor)
-        query = query.where(
-            or_(
-                AuditEvent.occurred_at < cursor_time,
-                and_(AuditEvent.occurred_at == cursor_time, AuditEvent.id < cursor_id),
-            )
-        )
+    query = select(AuditEvent).where(
+        AuditEvent.workspace_id == workspace_id,
+        *audit_event_filter_conditions(
+            event_type=event_type,
+            outcome=outcome,
+            actor_user_id=actor_user_id,
+            target_type=target_type,
+            target_id=target_id,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            cursor=cursor,
+        ),
+    )
 
     events = list(
         db.scalars(

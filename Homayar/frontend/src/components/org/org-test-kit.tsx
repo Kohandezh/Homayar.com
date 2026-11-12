@@ -15,7 +15,12 @@ import api from "@/lib/api";
 import type { AuthContextValue } from "@/lib/auth-context";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";
 import type {
+  AuditEvent,
+  AuditEventListResponse,
+  AuditEventTypeEntry,
   OrgMember,
+  OrgRecordsResponse,
+  OrgScopedRecord,
   OrgWorkspace,
   OrgAggregatesResponse,
   Organization,
@@ -99,6 +104,62 @@ export function grant(overrides: Partial<ScopeGrant> = {}): ScopeGrant {
     created_at: T,
     ...overrides,
   };
+}
+
+/** One organization audit event (HOM-243): the workspace audit shape. */
+export function auditEvent(overrides: Partial<AuditEvent> = {}): AuditEvent {
+  return {
+    id: "ev-1",
+    actor_user_id: ME,
+    event_type: "organization.member.granted",
+    target_type: "organization_membership",
+    target_id: "om-2",
+    outcome: "success",
+    request_id: "req-1",
+    details: { organization_id: ORG_ID, role: "analyst", user_id: "user-2" },
+    occurred_at: T,
+    ...overrides,
+  };
+}
+
+/** The organization part of the audit event catalog, sorted as the server sends it. */
+export function orgAuditEventTypes(): AuditEventTypeEntry[] {
+  return [
+    ["organization.member.changed", "organization_membership"],
+    ["organization.member.granted", "organization_membership"],
+    ["organization.member.revoked", "organization_membership"],
+    ["organization.scope.granted", "organization_scope_grant"],
+    ["organization.scope.revoked", "organization_scope_grant"],
+    ["organization.workspace.created", "workspace"],
+    ["organization.workspace.member_installed", "membership"],
+    ["organization.workspace.member_removed", "membership"],
+  ].map(([event_type, target_type]) => ({
+    event_type,
+    group: "organization",
+    target_type,
+  }));
+}
+
+/** One row of the cross-workspace records list (HOM-243). */
+export function scopedRecord(overrides: Partial<OrgScopedRecord> = {}): OrgScopedRecord {
+  return {
+    workspace_id: "ws-1",
+    meeting_id: "mt-1",
+    team_id: null,
+    title: "Weekly sync",
+    status: "completed",
+    language: "fa",
+    duration_seconds: 125,
+    created_at: T,
+    ...overrides,
+  };
+}
+
+export function recordsResponse(
+  items: OrgScopedRecord[],
+  overrides: Partial<OrgRecordsResponse> = {},
+): OrgRecordsResponse {
+  return { items, total: items.length, truncated: false, ...overrides };
 }
 
 /** The server's default window on 2026-10-28: the 4 closed weeks before Saturday 2026-10-24, Tehran. */
@@ -199,6 +260,10 @@ export interface OrgReads {
   aggregates?: Answer<WorkspaceAggregate[]>;
   /** The rest of the aggregates answer (the window, the policy); the items come from `aggregates`. */
   aggregatesBody?: Partial<Omit<OrgAggregatesResponse, "items">>;
+  /** One page of the audit log; the whole response body (HOM-243). */
+  auditEvents?: Answer<AuditEventListResponse>;
+  auditEventTypes?: Answer<AuditEventTypeEntry[]>;
+  records?: Answer<OrgRecordsResponse>;
 }
 
 function answer<T>(value: Answer<T>, wrap: (data: T) => unknown) {
@@ -217,7 +282,8 @@ export function mockOrgReads(reads: OrgReads = {}) {
   const role = detail instanceof Error || detail === "pending" ? "owner" : detail.role;
   const base = `/organizations/${encodeURIComponent(reads.id ?? ORG_ID)}`;
   let detailReads = 0;
-  return vi.spyOn(api, "get").mockImplementation((url: string) => {
+  return vi.spyOn(api, "get").mockImplementation((url: string, config?: { params?: unknown }) => {
+    void config;
     if (url === "/organizations") {
       const list = reads.list ?? [summary({ role })];
       return answer(list, (items) => ({ items, total: items.length }));
@@ -238,8 +304,24 @@ export function mockOrgReads(reads: OrgReads = {}) {
     if (url === `${base}/aggregates`) {
       return answer(reads.aggregates ?? [aggregate()], (items) => aggregatesResponse(items, reads.aggregatesBody));
     }
+    if (url === `${base}/audit-events`) {
+      return answer(reads.auditEvents ?? { items: [], next_cursor: null }, (data) => data);
+    }
+    if (url === `${base}/audit-event-types`) {
+      return answer(reads.auditEventTypes ?? orgAuditEventTypes(), (items) => ({ items }));
+    }
+    if (url === `${base}/records`) {
+      return answer(reads.records ?? recordsResponse([]), (data) => data);
+    }
     return Promise.reject(apiError(404, "not_found"));
   });
+}
+
+/** The query params sent to one path, in call order (`undefined` when none). */
+export function paramsSentTo(spy: ReturnType<typeof mockOrgReads>, url: string) {
+  return spy.mock.calls
+    .filter(([called]) => called === url)
+    .map(([, config]) => config?.params as Record<string, unknown> | undefined);
 }
 
 export function requestedUrls(spy: ReturnType<typeof mockOrgReads>) {

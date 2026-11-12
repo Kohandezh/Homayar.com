@@ -68,17 +68,32 @@ describe("organization switcher", { timeout: 60_000 }, () => {
       ["Organization members", `/org/${ORG_ID}/members`],
       ["Workspaces", `/org/${ORG_ID}/workspaces`],
       ["Scope grants", `/org/${ORG_ID}/scope-grants`],
+      ["Audit log", `/org/${ORG_ID}/audit`],
+      ["Records", `/org/${ORG_ID}/records`],
     ]);
     owner.unmount();
     vi.restoreAllMocks();
 
     mockOrgReads({ list: [summary({ role: "executive" })], detail: organization({ role: "executive" }) });
-    renderOrg(orgUrl("/workspaces"));
+    const executive = renderOrg(orgUrl("/workspaces"));
     await screen.findByRole("heading", { level: 1, name: "Workspaces" }, LOAD);
     const limited = screen.getByRole("group", { name: "Organization" });
     expect(within(limited).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Organization overview",
       "Workspaces",
+    ]);
+    executive.unmount();
+    vi.restoreAllMocks();
+
+    // An analyst sees Records but not the audit log (C4).
+    mockOrgReads({ list: [summary({ role: "analyst" })], detail: organization({ role: "analyst" }) });
+    renderOrg(orgUrl("/records"));
+    await screen.findByRole("heading", { level: 1, name: "Records" }, LOAD);
+    const analystNav = screen.getByRole("group", { name: "Organization" });
+    expect(within(analystNav).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Organization overview",
+      "Workspaces",
+      "Records",
     ]);
   });
 
@@ -93,6 +108,8 @@ describe("organization switcher", { timeout: 60_000 }, () => {
       "/org/org%201/members",
       "/org/org%201/workspaces",
       "/org/org%201/scope-grants",
+      "/org/org%201/audit",
+      "/org/org%201/records",
     ]);
     // The switcher shows the current organization as chosen.
     expect(screen.getByRole("button", { name: /Organization/ })).toHaveTextContent("Acme Group");
@@ -121,6 +138,8 @@ describe("organization switcher", { timeout: 60_000 }, () => {
       "اعضای سازمان",
       "فضاهای کاری",
       "دسترسی‌های محدود",
+      "گزارش رویدادها",
+      "سوابق",
     ]);
   });
 });

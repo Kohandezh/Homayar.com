@@ -16,22 +16,23 @@ const ALL = [
   "organization:workspace:administer",
   "organization:analytics:read",
   "organization:records:read",
+  "organization:audit:read",
 ];
 
 describe("orgPermissionsFor", () => {
-  it("gives owners and administrators all eight permissions", () => {
+  it("gives owners and administrators all nine permissions", () => {
     for (const role of ["owner", "admin"]) {
       expect([...orgPermissionsFor(role)].sort()).toEqual([...ALL].sort());
     }
   });
 
-  it("gives an analyst reads, analytics and records only", () => {
+  it("gives an analyst reads, analytics and records, but no audit", () => {
     expect([...orgPermissionsFor("analyst")].sort()).toEqual(
       ["organization:analytics:read", "organization:read", "organization:records:read", "organization:workspace:read"],
     );
   });
 
-  it("gives an executive no records and no member read", () => {
+  it("gives an executive no records, no member read and no audit", () => {
     expect([...orgPermissionsFor("executive")].sort()).toEqual(
       ["organization:analytics:read", "organization:read", "organization:workspace:read"],
     );

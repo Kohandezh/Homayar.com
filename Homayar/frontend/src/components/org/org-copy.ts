@@ -9,6 +9,8 @@ export const ORG_COPY = {
     navMembers: "Organization members",
     navWorkspaces: "Workspaces",
     navScopeGrants: "Scope grants",
+    navAudit: "Audit log",
+    navRecords: "Records",
 
     loadingOrganization: "Loading organization",
     organizationLoadFailed: "The organization could not be loaded.",
@@ -144,6 +146,38 @@ export const ORG_COPY = {
     revokeGrantBody: "{name} stops seeing {workspace} now.",
     grantRevoked: "Scope grant revoked.",
     revokeGrantFailed: "Revoking the scope grant failed.",
+
+    auditTitle: "Audit log",
+    auditIntro: "Who changed this organization, and when. Events are listed newest first.",
+    auditTableLabel: "Organization audit events",
+    columnTime: "Time",
+    columnEvent: "Event",
+    columnActor: "Actor",
+    columnTarget: "Target",
+    columnOutcome: "Outcome",
+    noTarget: "None",
+    systemActor: "System",
+    loadingAudit: "Loading audit events",
+    auditFailed: "The audit log could not be loaded.",
+    noAuditEvents: "No events have been recorded yet.",
+    noAuditEventsFiltered: "No events match these filters.",
+    auditPage: (n: string) => `Page ${n}`,
+    previous: "Previous",
+    next: "Next",
+    auditFirstPage: "First page",
+    clearRange: "Clear the date range",
+
+    recordsTitle: "Records",
+    recordsIntro: "Meeting metadata of the workspaces shared with you. An organization grant never opens a meeting's content.",
+    recordsTableLabel: "Organization records",
+    columnTitle: "Title",
+    columnLanguage: "Language",
+    columnDuration: "Duration",
+    recordsTotal: (count: number, n: string) => `Total: ${n} ${count === 1 ? "record" : "records"}`,
+    loadingRecords: "Loading records",
+    recordsFailed: "The records could not be loaded.",
+    noRecords: "No records are shared with you yet.",
+    recordsTruncated: "The list is cut: only part of the records is shown.",
   },
   fa: {
     organization: "سازمان",
@@ -152,6 +186,8 @@ export const ORG_COPY = {
     navMembers: "اعضای سازمان",
     navWorkspaces: "فضاهای کاری",
     navScopeGrants: "دسترسی‌های محدود",
+    navAudit: "گزارش رویدادها",
+    navRecords: "سوابق",
 
     loadingOrganization: "در حال بارگذاری سازمان",
     organizationLoadFailed: "سازمان بارگیری نشد.",
@@ -285,6 +321,38 @@ export const ORG_COPY = {
     revokeGrantBody: "{name} از همین حالا {workspace} را نمی‌بیند.",
     grantRevoked: "دسترسی محدود لغو شد.",
     revokeGrantFailed: "لغو دسترسی ناموفق بود.",
+
+    auditTitle: "گزارش رویدادها",
+    auditIntro: "چه کسی، چه کاری و چه زمانی در این سازمان انجام داده است. رویدادها از تازه به قدیم فهرست می‌شوند.",
+    auditTableLabel: "رویدادهای ممیزی سازمان",
+    columnTime: "زمان",
+    columnEvent: "رویداد",
+    columnActor: "عامل",
+    columnTarget: "هدف",
+    columnOutcome: "نتیجه",
+    noTarget: "بدون هدف",
+    systemActor: "سیستم",
+    loadingAudit: "در حال دریافت رویدادها",
+    auditFailed: "گزارش رویدادها بارگیری نشد.",
+    noAuditEvents: "هنوز رویدادی ثبت نشده است.",
+    noAuditEventsFiltered: "رویدادی با این فیلترها یافت نشد.",
+    auditPage: (n: string) => `صفحهٔ ${n}`,
+    previous: "قبلی",
+    next: "بعدی",
+    auditFirstPage: "صفحهٔ اول",
+    clearRange: "پاک کردن بازهٔ زمانی",
+
+    recordsTitle: "سوابق",
+    recordsIntro: "اطلاعات جلسه‌های فضاهای کاری‌ای که با شما به اشتراک گذاشته شده‌اند. دسترسی سازمانی هرگز محتوای جلسه را باز نمی‌کند.",
+    recordsTableLabel: "سوابق سازمان",
+    columnTitle: "عنوان",
+    columnLanguage: "زبان",
+    columnDuration: "مدت",
+    recordsTotal: (count: number, n: string) => `مجموع: ${n} سابقه`,
+    loadingRecords: "در حال بارگذاری سوابق",
+    recordsFailed: "سوابق بارگیری نشد.",
+    noRecords: "هنوز سابقه‌ای با شما به اشتراک گذاشته نشده است.",
+    recordsTruncated: "فهرست کامل نیست: فقط بخشی از سوابق نمایش داده می‌شود.",
   },
 } as const;
 
@@ -351,5 +419,17 @@ export const ORG_ERROR_CODES: ErrorCodeMessages = {
   member_not_found: {
     fa: "این عضو پیدا نشد.",
     en: "This member could not be found.",
+  },
+};
+
+/** Error codes of the organization audit log read (HOM-243). */
+export const ORG_AUDIT_ERROR_CODES: ErrorCodeMessages = {
+  invalid_cursor: {
+    fa: "فهرست رویدادها تغییر کرده است؛ از صفحهٔ اول دوباره ببینید.",
+    en: "The event list has changed; start again from the first page.",
+  },
+  invalid_audit_range: {
+    fa: "بازهٔ زمانی انتخاب‌شده معتبر نیست؛ آن را پاک کنید و دوباره انتخاب کنید.",
+    en: "The chosen date range is not valid; clear it and choose again.",
   },
 };

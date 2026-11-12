@@ -92,9 +92,10 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 | organization:workspace:administer | ✓ | ✓ | – | – |
 | organization:analytics:read | ✓ | ✓ | ✓ | ✓ |
 | organization:records:read | ✓ | ✓ | ✓ | – |
+| organization:audit:read | ✓ | ✓ | – | – |
 <!-- matrix:organization-permissions:end -->
 
-`organization:workspace:read` lists every workspace for owners/admins and only the granted ones for analysts/executives (§1a). `organization:member:manage` also owns scope grants.
+`organization:workspace:read` lists every workspace for owners/admins and only the granted ones for analysts/executives (§1a). `organization:member:manage` also owns scope grants. `organization:audit:read` (HOM-243, ADR 0060) reads the organization's own audit events (`GET /organizations/{organization_id}/audit-events` and `/audit-event-types`): the eight `organization.*` event types whose `details.organization_id` names the organization; it never reaches workspace content.
 
 ## 4. Role grant hierarchy (machine-checked)
 
@@ -356,6 +357,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/organizations/{organization_id}/records | organization:records:read |
 | GET | /api/v1/organizations/{organization_id}/trends/issues | organization:analytics:read |
 | GET | /api/v1/organizations/{organization_id}/workspaces/{workspace_id}/trends/issues | organization:records:read |
+| GET | /api/v1/organizations/{organization_id}/audit-events | organization:audit:read |
+| GET | /api/v1/organizations/{organization_id}/audit-event-types | organization:audit:read |
 | GET | /api/v1/locations | meeting:read |
 | POST | /api/v1/locations | workspace:manage +csrf |
 | POST | /api/v1/locations/resolve | meeting:read |

@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { NavLink, matchPath, useLocation, useNavigate } from "react-router";
-import { Building2, KeyRound, LayoutDashboard, Users, type LucideIcon } from "lucide-react";
+import { Building2, KeyRound, LayoutDashboard, ScrollText, Table2, Users, type LucideIcon } from "lucide-react";
 import { ListBox, Select, Separator, buttonVariants } from "@heroui/react";
 
 import { ORG_COPY, type OrgCopy } from "@/components/org/org-copy";
@@ -21,6 +21,8 @@ const ORG_NAV: readonly OrgNavEntry[] = [
   { suffix: "/members", label: (copy) => copy.navMembers, icon: Users, permission: "organization:member:read" },
   { suffix: "/workspaces", label: (copy) => copy.navWorkspaces, icon: Building2, permission: "organization:workspace:read" },
   { suffix: "/scope-grants", label: (copy) => copy.navScopeGrants, icon: KeyRound, permission: "organization:member:read" },
+  { suffix: "/audit", label: (copy) => copy.navAudit, icon: ScrollText, permission: "organization:audit:read" },
+  { suffix: "/records", label: (copy) => copy.navRecords, icon: Table2, permission: "organization:records:read" },
 ];
 
 /** The organization id of an `/org/<id>` path, decoded (`matchPath` leaves it as in the URL). */

@@ -361,6 +361,7 @@ class OrganizationPermission(str, Enum):
     WORKSPACE_ADMINISTER = "organization:workspace:administer"
     ANALYTICS_READ = "organization:analytics:read"
     RECORDS_READ = "organization:records:read"
+    AUDIT_READ = "organization:audit:read"
 
 
 _ORGANIZATION_ADMINISTRATION: frozenset[OrganizationPermission] = frozenset(OrganizationPermission)

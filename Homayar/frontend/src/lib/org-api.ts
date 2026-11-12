@@ -9,12 +9,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { apiErrorInfo } from "@/lib/api-errors";
 import type {
+  AuditEventListParams,
+  AuditEventListResponse,
+  AuditEventTypeListResponse,
   InstalledWorkspaceMember,
   OrgAggregatesResponse,
   OrgMember,
   OrgMemberGrantInput,
   OrgMemberListResponse,
   OrgMemberUpdateInput,
+  OrgRecordsResponse,
   OrgWorkspace,
   OrgWorkspaceCreateInput,
   OrgWorkspaceListResponse,
@@ -33,6 +37,12 @@ export const orgQueryKeys = {
   members: (organizationId: string) => ["organizations", "detail", organizationId, "members"] as const,
   workspaces: (organizationId: string) => ["organizations", "detail", organizationId, "workspaces"] as const,
   scopeGrants: (organizationId: string) => ["organizations", "detail", organizationId, "scope-grants"] as const,
+  auditEvents: (organizationId: string, params: AuditEventListParams) =>
+    ["organizations", "detail", organizationId, "audit-events", params] as const,
+  auditEventTypes: (organizationId: string) =>
+    ["organizations", "detail", organizationId, "audit-event-types"] as const,
+  records: (organizationId: string) =>
+    ["organizations", "detail", organizationId, "records"] as const,
   aggregatesRoot: (organizationId: string) => ["organizations", "detail", organizationId, "aggregates"] as const,
   aggregates: (organizationId: string, since: string | null) =>
     ["organizations", "detail", organizationId, "aggregates", { since }] as const,
@@ -75,6 +85,40 @@ export async function listOrgWorkspaces(organizationId: string, signal?: AbortSi
 
 export async function listScopeGrants(organizationId: string, signal?: AbortSignal): Promise<ScopeGrantListResponse> {
   const response = await api.get<ScopeGrantListResponse>(orgPath(organizationId, "scope-grants"), { signal });
+  return response.data;
+}
+
+/** One page of the organization audit log (HOM-243), filters included. */
+export async function listOrgAuditEvents(
+  organizationId: string,
+  params: AuditEventListParams,
+  signal?: AbortSignal,
+): Promise<AuditEventListResponse> {
+  const response = await api.get<AuditEventListResponse>(orgPath(organizationId, "audit-events"), {
+    params,
+    signal,
+  });
+  return response.data;
+}
+
+/** The organization part of the audit event catalog (HOM-243). */
+export async function listOrgAuditEventTypes(
+  organizationId: string,
+  signal?: AbortSignal,
+): Promise<AuditEventTypeListResponse> {
+  const response = await api.get<AuditEventTypeListResponse>(
+    orgPath(organizationId, "audit-event-types"),
+    { signal },
+  );
+  return response.data;
+}
+
+/** The cross-workspace records list (meeting metadata only, never content). */
+export async function listOrgRecords(
+  organizationId: string,
+  signal?: AbortSignal,
+): Promise<OrgRecordsResponse> {
+  const response = await api.get<OrgRecordsResponse>(orgPath(organizationId, "records"), { signal });
   return response.data;
 }
 
@@ -179,6 +223,30 @@ export function useScopeGrants(organizationId: string) {
   return useQuery({
     queryKey: orgQueryKeys.scopeGrants(organizationId),
     queryFn: ({ signal }) => listScopeGrants(organizationId, signal),
+    retry: false,
+  });
+}
+
+export function useOrgAuditEvents(organizationId: string, params: AuditEventListParams) {
+  return useQuery({
+    queryKey: orgQueryKeys.auditEvents(organizationId, params),
+    queryFn: ({ signal }) => listOrgAuditEvents(organizationId, params, signal),
+    retry: false,
+  });
+}
+
+export function useOrgAuditEventTypes(organizationId: string) {
+  return useQuery({
+    queryKey: orgQueryKeys.auditEventTypes(organizationId),
+    queryFn: ({ signal }) => listOrgAuditEventTypes(organizationId, signal),
+    retry: false,
+  });
+}
+
+export function useOrgRecords(organizationId: string) {
+  return useQuery({
+    queryKey: orgQueryKeys.records(organizationId),
+    queryFn: ({ signal }) => listOrgRecords(organizationId, signal),
     retry: false,
   });
 }
