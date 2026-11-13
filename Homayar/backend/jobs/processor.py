@@ -137,6 +137,7 @@ from backend.services.ai_policy_service import (
     record_run_snapshot,
 )
 from backend.services.analysis_claims import NO_CLAIMS, cite_claims
+from backend.services.analysis_dedupe import merge_duplicate_findings
 from backend.services.analysis_extraction import (
     cite_extraction,
     extraction_audit_details,
@@ -175,6 +176,7 @@ from backend.services.transcript_service import (
 )
 from backend.services.trend_judgment_store import write_judgment
 from backend.speech.chunking import plan_chunks
+from backend.speech.dates import TEHRAN
 from backend.speech.text_view import TextViewOutcome, derive_text_view
 from backend.storage import ObjectStorage, StorageError, create_object_storage
 from backend.voicemail.models import VoicemailMessage
@@ -262,6 +264,9 @@ class ClaimedJob:
     # 0034).  Unlike ``pii_classes`` it never takes an analysis endpoint's
     # stricter classes.
     view_classes: tuple[str, ...] = ()
+    # The call's date anchor read at claim (HOM-351): the HOM-133 grounding
+    # reference, sent to the analysis so the model gets the call's calendar.
+    reference_at: datetime | None = None
 
     @property
     def privacy_classes(self) -> list[PiiClass]:
@@ -388,6 +393,7 @@ def _claim_job(
                 policy_fingerprint=_policy_fingerprint(ai_policy.digest, pii_classes),
                 deadline_at=job.deadline_at,
                 view_classes=pii_classes,
+                reference_at=_grounding_reference(meeting),
             ),
             "claimed",
         )
@@ -712,6 +718,14 @@ def _grounding_reference(meeting: Meeting) -> datetime:
     if reference.tzinfo is None:
         reference = reference.replace(tzinfo=UTC)
     return reference
+
+
+def _call_day(reference: datetime) -> str:
+    """The Asia/Tehran day of ``reference`` (naive = UTC) as ``YYYY-MM-DD`` (HOM-351):
+    the first day of the calendar the analysis provider gets."""
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+    return reference.astimezone(TEHRAN).date().isoformat()
 
 
 def persist_stage_runs(
@@ -1040,6 +1054,10 @@ def persist_analysis(
     the answering model received, and gets its own row next to the new run.
     Runs in the caller's fenced transaction.
     """
+    if intelligence is not None:
+        # HOM-351: one entry per finding before grounding and storage, for the
+        # full job and the recompute alike.  A checkpoint keeps the raw output.
+        intelligence = merge_duplicate_findings(intelligence, language=revision.language)
     replace_filters = [
         ActionItem.meeting_id == meeting.id,
         ActionItem.created_by == "ai",
@@ -2138,11 +2156,13 @@ def analysis_candidates(
     turns: list[TranscriptTurn],
     language: str | None,
     call_id: str,
+    reference_at: datetime | None = None,
 ) -> list[AnalysisCandidate]:
     """The analysis request of every eligible candidate, in rank order.
 
     Each candidate gets the text its placement permits (WP08-T03): the
     original, or the redacted text under the classes ``classes_for`` returns.
+    ``reference_at`` is the call's date anchor (HOM-351); None sends no calendar.
     """
     candidates: list[AnalysisCandidate] = []
     for index in selection.order:
@@ -2157,6 +2177,7 @@ def analysis_candidates(
                     turns=analysis_turns,
                     language=language,
                     call_id=call_id,
+                    reference_at=reference_at,
                 ),
             )
         )
@@ -2239,6 +2260,7 @@ def _analyze(
         turns=turns,
         language=asr.language,
         call_id=claim.meeting_id,
+        reference_at=claim.reference_at,
     )
     identities: dict[int, ckpt.StageIdentity] = {}
     for candidate in candidates:
@@ -2246,6 +2268,10 @@ def _analyze(
         if candidate.privacy_digest is not None:
             # Only under a policy, so existing checkpoints keep their identity.
             identity_request["privacy_policy"] = candidate.privacy_digest
+        if candidate.request.reference_at is not None:
+            # HOM-351: the calendar is part of the input, so an analysis made for
+            # another call day is never reused.
+            identity_request["call_day"] = _call_day(candidate.request.reference_at)
         identities[candidate.index] = ckpt.stage_identity(
             context,
             StageName.INTELLIGENCE,

@@ -47,6 +47,7 @@ from backend.jobs.leases import LeasePolicy, database_now
 from backend.jobs.processor import (
     ProcessingError,
     _ensure_policy_current,
+    _grounding_reference,
     _health_session,
     _policy_fingerprint,
     _workspace_pii_classes,
@@ -118,6 +119,9 @@ class RecomputeWork:
     policy_fingerprint: str
     turns: tuple[TranscriptTurn, ...]
     deadline_at: datetime | None = None
+    # The call's date anchor (HOM-351): the same value the grounding uses, so the
+    # recompute's model gets the same call calendar as the full job's.
+    reference_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -337,6 +341,7 @@ def _load(
             ai_policy=ai_policy,
             policy_fingerprint=_policy_fingerprint(ai_policy.digest, pii_classes),
             turns=turns,
+            reference_at=_grounding_reference(meeting),
         )
 
 
@@ -389,6 +394,7 @@ def _analyze(
             turns=list(work.turns),
             language=work.language,
             call_id=work.meeting_id,
+            reference_at=work.reference_at,
         )
         first_classes = candidates[0].pii_classes
         candidate, result, failed = call_analysis(

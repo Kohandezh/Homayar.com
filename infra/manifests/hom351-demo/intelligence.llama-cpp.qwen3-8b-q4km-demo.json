@@ -13,8 +13,8 @@
         "endpoint": "http://local-ai:8080/v1/chat/completions",
         "temperature": 0,
         "max_tokens": 4096,
-        "prompt_version": 5,
-        "prompt_sha256": "62a82190ec4d5ad6b9322d211d47ef44",
+        "prompt_version": 6,
+        "prompt_sha256": "88cc825f7d10e5b2d91ee475fb0d398a",
         "output_schema_sha256": "cb703f57e95c7f2687ea3ed7fb521e81",
         "turn_index_bound": "per_call_max"
       },
