@@ -422,6 +422,40 @@ describe("TranscriptCorrection", () => {
     expect(screen.getByRole("button", { name: "Edit turn at 0:05" })).toBeInTheDocument();
   });
 
+  it("keeps an open correction form when a timeline edit request arrives for another turn", async () => {
+    mockApi();
+    const view = renderResults("owner");
+    expect(await screen.findByText("First line of the call")).toBeInTheDocument();
+    startEdit("Edit turn at 0:00");
+    fireEvent.change(screen.getByLabelText("Turn text"), { target: { value: "Unsaved edit" } });
+    // The speaker timeline asks for another turn's correction form (HOM-264).
+    view.rerender(
+      <MeetingResults meeting={MEETING} open={{ panel: "transcript", segmentId: "seg-2", seq: 2, edit: true }} />,
+    );
+    // The open form and its unsaved text stay; the requested segment is focused.
+    expect(screen.getByLabelText("Turn text")).toHaveValue("Unsaved edit");
+    await waitFor(() => expect(document.getElementById("segment-seg-2")).toHaveFocus());
+  });
+
+  it("drops a pending edit request while editing is not allowed, and never opens the form later", async () => {
+    currentTranscript = redactedCurrentTranscript();
+    mockApi();
+    const view = renderResults("owner");
+    expect(await screen.findByText("First line of the call")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show original transcript" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Show original$/ }));
+    await screen.findByText(/You are viewing the original transcript/);
+    // The timeline asks for the correction form while the audited original is on.
+    view.rerender(
+      <MeetingResults meeting={MEETING} open={{ panel: "transcript", segmentId: "seg-1", seq: 2, edit: true }} />,
+    );
+    // Leaving the original view must not open the form unasked.
+    fireEvent.click(screen.getByRole("button", { name: "Hide original" }));
+    expect(await screen.findByRole("button", { name: "Edit turn at 0:00" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Turn text")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save correction" })).not.toBeInTheDocument();
+  });
+
   it("names the row's author only once the members are loaded", async () => {
     let resolveMembers: (value: unknown) => void = () => undefined;
     const members = new Promise((resolve) => { resolveMembers = resolve; });

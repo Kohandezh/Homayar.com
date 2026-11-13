@@ -58,6 +58,8 @@ export interface ResultsOpenRequest {
   panel: ResultsTab;
   segmentId: string | null;
   seq: number;
+  /** HOM-264: also open the inline correction form for `segmentId` when the view allows editing. */
+  edit?: boolean;
 }
 
 function SpeakerEditor({ name, label, saveLabel, onSave }: { name: string; label: string; saveLabel: string; onSave: (value: string) => void }) {
@@ -138,6 +140,13 @@ export default function MeetingResults({
   const [appliedAt, setAppliedAt] = useState<number | null>(null);
   const [atOutcome, setAtOutcome] = useState<"found" | "missing" | null>(null);
   const [appliedOpen, setAppliedOpen] = useState<number | null>(open?.seq ?? null);
+  // HOM-264: an `edit` open request waits here until the transcript is loaded
+  // and the view allows editing, then opens the inline correction form. The
+  // apply block never runs on the first mount (appliedOpen starts at open.seq),
+  // so the initial state carries the request in.
+  const [pendingEditSegmentId, setPendingEditSegmentId] = useState<string | null>(
+    open?.edit === true && open.segmentId && can.updateMeeting ? open.segmentId : null,
+  );
   // HOM-246: one segment's inline correction, its saved note, the read-only
   // old revision the tab may show, and the history drawer. The saved note
   // follows the turn's `sequence`: a correction creates a new revision whose
@@ -220,6 +229,13 @@ export default function MeetingResults({
     setAppliedOpen(open.seq);
     setTab(resolvePanel(open.panel, tabs));
     resetFilters();
+    // An edit request never replaces an already open form (HOM-264): then it
+    // is just a show-segment request that keeps the form and its text.
+    setPendingEditSegmentId(
+      open.edit === true && open.segmentId && can.updateMeeting && editingSegmentId === null
+        ? open.segmentId
+        : null,
+    );
     if (open.segmentId) {
       setFocusSegment(open.segmentId);
       setViewingRevisionId(null);
@@ -412,6 +428,23 @@ export default function MeetingResults({
   const editingSegment = editingSegmentId === null
     ? null
     : (segments.find((segment) => segment.id === editingSegmentId) ?? null);
+
+  // An `edit` open request (HOM-264) is decided once, on the loaded view: it
+  // opens the existing inline correction form only when editing is allowed
+  // there and no other form is open. Otherwise it stays a normal
+  // show-segment request and never opens the form later, unasked. Consumed
+  // during render, the same way the open request itself is applied.
+  if (pendingEditSegmentId !== null && transcript.data !== undefined) {
+    if (
+      canEditSegments &&
+      editingSegmentId === null &&
+      segments.some((segment) => segment.id === pendingEditSegmentId)
+    ) {
+      setEditingSegmentId(pendingEditSegmentId);
+      setSavedRevision(null);
+    }
+    setPendingEditSegmentId(null);
+  }
 
   // Follow the audio (HOM-247): when the current turn changes, bring it into
   // view with the smallest scroll. Focus never moves, and an open correction

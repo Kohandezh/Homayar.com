@@ -28,6 +28,7 @@ import MeetingDataPanel from "@/components/platform/MeetingDataPanel";
 import MeetingResults, { type ResultsOpenRequest } from "@/components/platform/MeetingResults";
 import PlaybackShortcuts from "@/components/platform/PlaybackShortcuts";
 import ProcessingStatus from "@/components/platform/ProcessingStatus";
+import SpeakerTimeline from "@/components/platform/SpeakerTimeline";
 import { PROCESSING_COPY } from "@/components/platform/processing-copy";
 import { REPORT_COPY } from "@/components/platform/report-copy";
 import type { ResultsTab } from "@/components/platform/results-copy";
@@ -371,9 +372,15 @@ export default function MeetingDetailPage() {
     if (!open) setOpenRequest(null);
   }
 
-  function openPanel(panel: ResultsTab, segmentId: string | null = null) {
+  function openPanel(panel: ResultsTab, segmentId: string | null = null, edit = false) {
     setAdvancedOpen(true);
-    setOpenRequest((previous) => ({ panel, segmentId, seq: (previous?.seq ?? 0) + 1 }));
+    setOpenRequest((previous) => ({
+      panel,
+      segmentId,
+      // HOM-264: only the timeline asks for the inline correction form.
+      ...(edit ? { edit: true } : {}),
+      seq: (previous?.seq ?? 0) + 1,
+    }));
   }
 
   /** One entry point for every "play from here": evidence buttons and transcript turns (HOM-247). */
@@ -489,6 +496,20 @@ export default function MeetingDetailPage() {
           />
           {canPlay && <PlaybackShortcuts lang={lang} />}
         </>
+      )}
+
+      {/* HOM-264: who speaks when, after the player and before the call report. */}
+      {hasResults && (
+        <SpeakerTimeline
+          meetingId={meetingId}
+          playbackMs={playbackMs}
+          onOpenTurn={(segmentId, startMs) => {
+            openPanel("transcript", segmentId);
+            // A cue, not a play: the timeline never starts playback (G1/G2).
+            if (canPlay) seekTo(startMs);
+          }}
+          onCorrectTurn={(segmentId) => openPanel("transcript", segmentId, true)}
+        />
       )}
 
       {report.isLoading ? (
