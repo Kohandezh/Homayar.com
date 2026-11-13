@@ -3347,9 +3347,11 @@ class RetrievalEmbedding(Base):
 
     ``postgres:17-alpine`` has no pgvector, so the vector lives as portable
     bytes: float32 little-endian, ``4 * dimensions`` bytes.  ``embedding_version``
-    is the sha256 of a canonical JSON of the provider identity, the dimensions
-    and the index version (ADR 0068): a new model or a new index version never
-    overwrites an old vector, it writes a new row.  Written once, never
+    is the sha256 of a canonical JSON of the provider name, the model, the
+    dimensions and the index version only (ADR 0068 D4).  The provider params
+    (the endpoint URL) are not hashed, so moving the embedding server keeps
+    every vector valid.  A new model or a new index version never overwrites
+    an old vector, it writes a new row.  Written once, never
     updated (the application role holds no UPDATE grant); a reader of PR 2
     scores candidates inside one workspace through a ``VectorStore`` adapter.
     Conversation content: the purge deletes the row and the backup

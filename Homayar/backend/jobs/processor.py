@@ -129,6 +129,7 @@ from backend.providers.schemas import (
     ProviderSchema,
     TranscriptTurn,
 )
+from backend.retrieval.index import index_text_view
 from backend.services.action_grounding import ground_action
 from backend.services.ai_policy_service import (
     DEFAULT_EFFECTIVE,
@@ -950,7 +951,9 @@ def derive_revision_views(
     Under a text policy the redacted version the analysis input corresponds to
     (WP07-T06); always the normalised view and entities (ADR 0034), computed
     from the workspace's reader view.  Both are new rows next to the revision,
-    never a change to it; a text-view fault is recorded, not raised.
+    never a change to it; a text-view fault is recorded, not raised.  A usable
+    view is also indexed for retrieval (HOM-93, ADR 0068) in the same
+    transaction; an index fault is logged and never fails the job.
     """
     if analysis_classes:
         redact_revision(
@@ -960,7 +963,7 @@ def derive_revision_views(
             settings=settings,
             now=now,
         )
-    return derive_text_view(
+    outcome = derive_text_view(
         db,
         revision=revision,
         segments=segments,
@@ -971,6 +974,9 @@ def derive_revision_views(
         job_id=job_id,
         attempt=attempt,
     )
+    if outcome.view_id is not None:
+        index_text_view(db, view_id=outcome.view_id, workspace_id=revision.workspace_id, now=now)
+    return outcome
 
 
 @dataclass
