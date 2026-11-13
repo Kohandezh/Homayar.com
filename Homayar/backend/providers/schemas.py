@@ -184,6 +184,10 @@ class IntelligenceRequest(ProviderSchema):
     turns: List[TranscriptTurn] = Field(default_factory=list)
     language: str = Field(default="unknown", min_length=1, max_length=32)
     call_id: Optional[str] = Field(default=None, min_length=1, max_length=256)
+    # HOM-351: when the call happened, the anchor of the calendar the model gets
+    # (the processor sends the HOM-133 grounding reference).  A naive value is read
+    # as UTC.  None: no calendar, and the payload is what it was before.
+    reference_at: datetime | None = None
 
     @model_validator(mode="after")
     def require_transcript(self) -> "IntelligenceRequest":

@@ -6,7 +6,7 @@ import copy
 import json
 import logging
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -32,6 +32,7 @@ from backend.providers.base import (
     text_digest,
 )
 from backend.providers.schemas import IntelligenceRequest, IntelligenceResult
+from backend.speech.dates import TEHRAN, WEEKDAY_NAMES_FA, format_jalali
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +89,45 @@ SYSTEM_PROMPT = (
     "Do not translate the conversation into English. "
     "Quotes are never translated: owner_quote, due_quote and entity text are copied "
     "exactly as they appear in the turns. "
-    "Label ids, kinds and other values the schema fixes stay as the schema gives them."
+    "Label ids, kinds and other values the schema fixes stay as the schema gives them. "
+    "The 'calendar' array, when present, lists the day of the call (call_day true) and "
+    "the 13 days after it; each entry gives the Gregorian date, the Jalali date and the "
+    "Persian weekday name of one day. "
+    "The Persian week starts on Saturday (شنبه), so یکشنبه is Sunday and دوشنبه is Monday. "
+    "When the calendar is present, resolve a relative day such as today, tomorrow or the "
+    "day after tomorrow, and a weekday name, only with this calendar, and set due_date to "
+    "the 'date' of the matching entry; a weekday name means the first entry after the call "
+    "day that has that weekday. "
+    "When the calendar is present, use a date outside it only when a speaker states "
+    "that full date; otherwise set due_date to null and never guess a date. "
+    "These date rules also apply to the due_date of a decision."
 )
+
+# The call calendar (HOM-351): the call's local day and the 13 days after it, built
+# by code so the model never has to work out a weekday or a Jalali date.  Local days
+# are Asia/Tehran days, as in ``backend.speech.dates.extract_temporal``, the parser
+# the HOM-133 grounding judges a due date with.
+CALENDAR_DAYS = 14
+
+
+def _calendar(reference: datetime) -> list[dict[str, Any]]:
+    """The calendar entries for ``reference``; a naive value is read as UTC."""
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=UTC)
+    first = reference.astimezone(TEHRAN).date()
+    entries: list[dict[str, Any]] = []
+    for offset in range(CALENDAR_DAYS):
+        day = first + timedelta(days=offset)
+        entry: dict[str, Any] = {
+            "date": day.isoformat(),
+            "jalali": format_jalali(day),
+            "weekday": WEEKDAY_NAMES_FA[day.weekday()],
+        }
+        if offset == 0:
+            entry["call_day"] = True
+        entries.append(entry)
+    return entries
+
 
 # The taxonomy the extraction is asked in (HOM-53).  The analysis stage judges the
 # answer with the same pin (``backend.services.analysis_extraction``).
@@ -671,6 +709,9 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
             "transcript_text": request.transcript_text,
             "turns": [turn.model_dump(mode="json") for turn in request.turns],
         }
+        if request.reference_at is not None:
+            # Only with an anchor: a request without one sends what it always sent.
+            transcript["calendar"] = _calendar(request.reference_at)
         local_only: dict[str, Any] = {}
         if self._local_server:
             # Qwen3 thinks by default; the analysis needs only the JSON answer.
