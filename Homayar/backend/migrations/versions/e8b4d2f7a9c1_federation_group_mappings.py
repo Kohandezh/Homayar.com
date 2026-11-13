@@ -60,9 +60,9 @@ TABLE = "federation_group_mappings"
 MEMBERSHIPS = "memberships"
 AUTH_IDENTITIES = "auth_identities"
 SOURCE_CHECK_NAME = "ck_membership_source"
-SOURCE_CHECK_SQL = "source IN ('direct', 'federated')"
+SOURCE_CHECK_SQL = "source IN ('direct','federated')"
 ROLE_CHECK_NAME = "ck_federation_mapping_role"
-ROLE_CHECK_SQL = "role IN ('ADMIN', 'MEMBER', 'VIEWER')"
+ROLE_CHECK_SQL = "role IN ('ADMIN','MEMBER','VIEWER')"
 UNREVOKED_WHERE = sa.text("revoked_at IS NULL")
 ACTIVE_UNIQUE_INDEX = "uq_federation_group_mappings_active"
 
@@ -109,12 +109,10 @@ def upgrade() -> None:
         sa.Column("created_by_user_id", sa.String(length=36), nullable=False),
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("revoked_by_user_id", sa.String(length=36), nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
-        ),
+        # TimestampMixin sets both in Python, like every other table; no
+        # server default, or the migrated schema drifts from the ORM.
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(ROLE_CHECK_SQL, name=ROLE_CHECK_NAME),
         sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"], ondelete="CASCADE"),
