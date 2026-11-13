@@ -629,6 +629,15 @@ IMGSUP
       exec)
         while [[ "${1:-}" == -* ]]; do shift; done
         svc="$1"; shift
+        if [[ "$svc" == api && "$*" == "python -m backend.licensing status-line" ]]; then
+          log "compose:exec:$svc:license-status"
+          if [[ -e "$S/fail-license" ]]; then
+            echo "license status failed (injected)" >&2
+            exit 1
+          fi
+          echo "license: state=grace reason=- id=L-2027-001 customer=acme expires=2027-01-01T00:00:00Z grace_until=2027-01-15T00:00:00Z days_left=3 modules=insights,quality limits=audio_seconds=360000,concurrent_jobs=unlimited key=aaaaaaaaaaaaaaaa"
+          exit 0
+        fi
         if [[ "${1:-}" == sh && "${2:-}" == -c ]]; then
           payload="$3"
           case "$payload" in
@@ -1381,6 +1390,21 @@ c_status() (
   want_out "current release: $OLD_VER"
   want_out "$OLD_SHA"
   want_out "alembic version: $BASE_REV"
+  want_out "license: state=grace reason=- id=L-2027-001 customer=acme"
+  want_out "key=aaaaaaaaaaaaaaaa"
+  want_no_out "license: unreadable"
+  calls_has "compose:exec:api:license-status"
+  want_no_secret
+)
+
+c_status_license_unreadable() ( # HOM-109: a failed licence call is named, status still exits 0
+  prepare
+  touch "$state/fail-license"
+  run_script status
+  want_rc 0
+  want_out "license: unreadable"
+  want_no_out "license: state="
+  want_out "alembic version: $BASE_REV"
   want_no_secret
 )
 
@@ -2101,6 +2125,7 @@ run_case c_support_bundle_ok
 run_case c_support_bundle_finding_fails_closed
 run_case c_support_bundle_scan_error_fails_closed
 run_case c_status
+run_case c_status_license_unreadable
 run_case c_backup_execs_release_script
 run_case c_homyar_home_env_respected
 run_case c_http_port_from_operator_env

@@ -22,6 +22,7 @@ from backend.database.relational import (
     session_scope,
 )
 from backend.database.rls import assert_production_posture, describe_current_role
+from backend.licensing import offline_license
 from backend.observability.access_log import install_access_log_filter
 from backend.observability.correlation import correlation_scope, request_correlation_id
 from backend.observability.metrics import (
@@ -117,6 +118,22 @@ def _error_payload(*, code: str, message: str, request_id: str | None, details=N
     if details is not None:
         payload["error"]["details"] = details
     return payload
+
+
+LICENSE_HEADER = "X-Homayar-License"
+
+
+def _license_header_state(app: FastAPI, settings: Settings) -> str | None:
+    try:
+        status = offline_license.current_license_status(settings)
+    except Exception as exc:
+        if not getattr(app.state, "license_header_error_logged", False):
+            app.state.license_header_error_logged = True
+            logger.error("OFFLINE_LICENSE_EVALUATION_FAILED error_type=%s", type(exc).__name__)
+        return "invalid"
+    if not status.enforced or status.state == "valid":
+        return None
+    return status.state
 
 
 def create_app(runtime_settings: Settings | None = None) -> FastAPI:
@@ -261,6 +278,16 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
             response.headers["Strict-Transport-Security"] = (
                 "max-age=63072000; includeSubDomains; preload"
             )
+        return response
+
+    @app.middleware("http")
+    async def offline_license_header(request: Request, call_next):
+        # HOM-109 (ADR 0073): an enforced licence in any state but valid is
+        # named on every response; an evaluation error never fails the request.
+        response = await call_next(request)
+        state = _license_header_state(app, settings)
+        if state is not None:
+            response.headers[LICENSE_HEADER] = state
         return response
 
     app.include_router(auth_v1.router, prefix=settings.api_prefix)

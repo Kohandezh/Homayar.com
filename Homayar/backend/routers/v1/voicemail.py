@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
 from backend.database.saas_models import ActionItem, ActionStatus, Meeting
+from backend.licensing.offline_license import RESTRICTED_MESSAGE
 from backend.media import MediaValidationError
 from backend.schemas.meetings import JobResponse
 from backend.schemas.voicemail import (
@@ -42,7 +43,7 @@ from backend.security.context import (
 from backend.security.modules import require_module
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
-from backend.services.entitlement_service import QuotaExceededError
+from backend.services.entitlement_service import LicenseRestrictedError, QuotaExceededError
 from backend.services.ingestion_service import IngestionIdentity, audit_rejection
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
 from backend.services.team_service import (
@@ -101,6 +102,15 @@ def _media_failure(error: Exception) -> HTTPException:
             )
         status = 413 if error.code in {"media_file_too_large", "media_duration_exceeded"} else 422
         return HTTPException(status_code=status, detail={"code": error.code, "message": str(error)})
+    if isinstance(error, LicenseRestrictedError):
+        return HTTPException(
+            status_code=403,
+            detail={
+                "code": "license_restricted",
+                "message": RESTRICTED_MESSAGE,
+                "details": {"state": error.state, "reason": error.reason},
+            },
+        )
     if isinstance(error, QuotaExceededError):
         return HTTPException(
             status_code=429,
@@ -201,7 +211,13 @@ async def import_voicemail_route(
             status_code=exc.status_code,
             detail={"code": exc.code, "message": str(exc), "details": exc.details},
         ) from exc
-    except (UploadRejectedError, MediaValidationError, QuotaExceededError, StorageError) as exc:
+    except (
+        UploadRejectedError,
+        MediaValidationError,
+        QuotaExceededError,
+        LicenseRestrictedError,
+        StorageError,
+    ) as exc:
         db.rollback()
         audit_rejection(
             db,

@@ -128,8 +128,8 @@ BASE_WORKER_COMMAND = [
 ]
 COMPOSE_GOLDEN = {
     "compose.onprem.yaml": {
-        "services": "95dbf6058abc6ee61c0de87617624f34af651c25371b10d59cf4b8ff76f9f44a",
-        "worker_env": "8d4b71e15c593bdda6142191c67b267bd585abedf41bb188817f1b62f3ae5f6e",
+        "services": "26411f1b0f215982a3e363a501d7fec0850e6146e0f0ffda629aa18ef7d41071",
+        "worker_env": "1c0529c8ddc4e46f8973a67b962e545921879304685bc29163283d7a11e922d8",
         "rest": "0a015c8d4983d13c9339bf090fc7de9497865848679b8fb1de831c41eb52b1ff",
     },
     "compose.cloud.yaml": {

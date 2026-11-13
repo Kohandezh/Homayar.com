@@ -1901,7 +1901,7 @@ cmd_support_bundle() {
 # --- status ----------------------------------------------------------------------------------------
 
 cmd_status() {
-  local sid rec="" ref
+  local sid rec="" ref lic
   [[ -d "$OPS" ]] || { echo "REFUSED: $OPS does not exist" >&2; exit 2; }
   require_layout
   say "current release: $(package_env "$CUR" HOMAYAR_RELEASE_VERSION) sha $(package_env "$CUR" HOMAYAR_RELEASE_SHA)"
@@ -1913,6 +1913,13 @@ cmd_status() {
   stack_rows "$CUR" || true
   show "$STACK_ROWS"
   say "alembic version: $(db_version "$CUR" || printf 'unreadable')"
+  # HOM-109: the offline licence state line of the api container (ADR 0073)
+  lic=""
+  if cap dc "$T_CALL" "$CUR" exec -T api python -m backend.licensing status-line; then
+    lic="$(tail -n 1 <<<"$RUN_OUT")"
+  fi
+  [[ "$lic" == "license: "* ]] || lic="license: unreadable"
+  say "$lic"
   for sid in "$STATES"/*; do
     [[ -f "$sid/record.env" ]] || continue
     sid="${sid##*/}"

@@ -11,6 +11,8 @@ from backend.database.relational import get_db
 from backend.database.saas_models import JobState, ShareAudience
 from backend.jobs.outbox import dispatch_job
 from backend.jobs.replay import ReplayRefused, replay_dead_letter_job
+from backend.licensing.offline_license import current_license_status
+from backend.licensing.report import license_report
 from backend.media import MediaValidationPolicy
 from backend.media.channel_roles import (
     InvalidChannelRoleMapping,
@@ -41,6 +43,7 @@ from backend.schemas.admin import (
 )
 from backend.schemas.coverage import CoverageResponse, ReviewSampleRequest, ReviewSampleResponse
 from backend.schemas.meetings import JobResponse
+from backend.schemas.offline_license import OfflineLicenseResponse
 from backend.schemas.system_health import SystemHealthResponse
 from backend.security.context import (
     Permission,
@@ -745,3 +748,27 @@ def read_system_health(
     """
     response.headers["Cache-Control"] = "no-store"
     return SystemHealthResponse.model_validate(collector.collect())
+
+
+@router.get("/license", response_model=OfflineLicenseResponse)
+def read_offline_license(
+    response: Response,
+    context: WorkspaceContext = Depends(
+        require_platform_operator_read(Permission.WORKSPACE_MANAGE)
+    ),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> OfflineLicenseResponse:
+    """The offline licence of the install and the caller's workspace counters (HOM-109).
+
+    The state (``not_enforced``, ``valid``, ``grace``, ``expired``, ``invalid``,
+    ``missing``), the verified licence fields, the warnings, and one counter per
+    entitlement row of the workspace with its row limit, licence limit and the
+    remaining allowance under the smaller of the two. Guarded like
+    system-health: platform operators only, from a signed-in session (never an
+    API key). A read, not audited.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    return license_report(
+        db, workspace_id=context.workspace.id, status=current_license_status(settings)
+    )

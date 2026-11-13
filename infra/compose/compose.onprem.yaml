@@ -252,10 +252,15 @@ services:
       # Counters of all uvicorn workers in one tmpfs of their own (empty at every
       # container start, apart from the upload spool in /tmp): /metrics sums them.
       PROMETHEUS_MULTIPROC_DIR: /run/homayar-metrics
+      # HOM-109 (ADR 0073): empty OFFLINE_LICENSE_FILE = licence not enforced.
+      OFFLINE_LICENSE_FILE: "${OFFLINE_LICENSE_FILE:-}"
+      OFFLINE_LICENSE_TRUST_DIR: "${OFFLINE_LICENSE_TRUST_DIR:-/app/license/keys}"
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
       - "${MODEL_MANIFEST_DIR:-../manifests}:/app/manifests:ro"
+      # The host licence folder; the default ships in every package (infra/compose/license).
+      - "${OFFLINE_LICENSE_DIR:-./license}:/app/license:ro"
     depends_on:
       postgres:
         condition: service_healthy
@@ -337,10 +342,13 @@ services:
       WORKER_ASR_QUEUES: "${WORKER_ASR_QUEUES:-auto}"
       WORKER_VRAM_BUDGET_MIB: "${WORKER_VRAM_BUDGET_MIB:-0}"
       ASR_MODEL_VRAM_MIB: "${ASR_MODEL_VRAM_MIB:-0}"
+      OFFLINE_LICENSE_FILE: "${OFFLINE_LICENSE_FILE:-}"
+      OFFLINE_LICENSE_TRUST_DIR: "${OFFLINE_LICENSE_TRUST_DIR:-/app/license/keys}"
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
       - "${MODEL_MANIFEST_DIR:-../manifests}:/app/manifests:ro"
+      - "${OFFLINE_LICENSE_DIR:-./license}:/app/license:ro"
     depends_on:
       postgres:
         condition: service_healthy

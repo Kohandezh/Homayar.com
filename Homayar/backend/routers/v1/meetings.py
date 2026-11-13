@@ -36,6 +36,7 @@ from backend.database.saas_models import (
 )
 from backend.jobs.failures import MEETING_DELETED, cancel_job
 from backend.jobs.outbox import cancel_dispatch, dispatch_job
+from backend.licensing.offline_license import RESTRICTED_MESSAGE
 from backend.media import (
     ChannelAnalysisPolicy,
     MediaValidationError,
@@ -90,6 +91,7 @@ from backend.services.conversation_purge_service import (
 from backend.services.crm_mapping_service import conversation_links
 from backend.services.download_service import deliver_recording, ensure_recording_playable
 from backend.services.entitlement_service import (
+    LicenseRestrictedError,
     QuotaExceededError,
     get_usage_snapshot,
 )
@@ -297,6 +299,15 @@ def _upload_failure(error: Exception) -> HTTPException:
             headers=None
             if error.terminal
             else {"Retry-After": str(_TRANSIENT_RETRY_AFTER_SECONDS)},
+        )
+    if isinstance(error, LicenseRestrictedError):
+        return HTTPException(
+            status_code=403,
+            detail={
+                "code": "license_restricted",
+                "message": RESTRICTED_MESSAGE,
+                "details": {"state": error.state, "reason": error.reason},
+            },
         )
     if isinstance(error, QuotaExceededError):
         code = (
@@ -672,7 +683,7 @@ async def upload_meeting(
             # audit row of the decision is committed.
             db.commit()
             raise _ingestion_refusal(exc) from exc
-        except (QuotaExceededError, StorageError) as exc:
+        except (QuotaExceededError, LicenseRestrictedError, StorageError) as exc:
             db.rollback()
             raise _upload_failure(exc) from exc
         except (IntegrityError, UploadIdempotencyConflict):
