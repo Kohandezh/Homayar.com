@@ -4698,6 +4698,10 @@ BASE_FINGERPRINTS: dict = {
         ("router", "97dfb999c3f5737e563a0561"),
         ("_client_ip", "ecee4091cfd3a155f3c18a9c"),
         ("_rate_limit", "10b23026482e1e78e639ff83"),
+        # HOM-129: break-glass refusal answers like a wrong password
+        ("_refused_like_a_wrong_password", "61acd5e8ebd39a0fe6f73ad5"),
+        # HOM-129: break-glass refusal audit
+        ("_break_glass_refused", "87fac2bf26f4a8c9ada18d21"),
         ("_set_session_cookies", "b03346792fcaafba45db6581"),
         ("_clear_session_cookies", "b5383f371c1f680296c08887"),
         ("_user_response", "97731dfb70b5c932c1947fde"),
@@ -4711,11 +4715,38 @@ BASE_FINGERPRINTS: dict = {
         ("available_auth_methods", "d07fd0aee8e06ee78ed831fc"),
         ("auth_methods", "02dba6ec316b12a85a623ae2"),
         # HOM-128: federation re-check before login
-        ("login", "f1d16c199477a974b09a69c7"),
+        # HOM-129: break-glass window refusal and alerts
+        ("login", "ae5cfa91e7b67f9b0f210d7f"),
         # HOM-128: federation re-check before refresh
         ("refresh", "fabf1f17e3b027c505af39c1"),
         ("logout", "7b9060abc5a6a05e0188652b"),
         ("me", "10962d9a986e2417d4e9ff10"),
+        # HOM-129: privileged MFA routes
+        ("MFA_ATTEMPTS_PER_WINDOW", "9b592789746bb51953971feb"),
+        # HOM-129: privileged MFA routes
+        ("MFA_ATTEMPT_WINDOW_SECONDS", "e26bd3777f0ddbedf8636caa"),
+        # HOM-129: privileged MFA routes
+        ("MfaCodeRequest", "7d5b2f792f3adf3f3ae76b7f"),
+        # HOM-129: privileged MFA routes
+        ("MfaStatusResponse", "d42fd5d442bbccbb9a5682aa"),
+        # HOM-129: privileged MFA routes
+        ("MfaEnrollResponse", "d85b270a212a2bd628dfeb54"),
+        # HOM-129: privileged MFA routes
+        ("MfaRecoveryCodesResponse", "b47a29e186e393d631ac63cb"),
+        # HOM-129: privileged MFA routes
+        ("MfaVerifyResponse", "052da4dd082e591bbc147fcc"),
+        # HOM-129: privileged MFA routes
+        ("_mfa_rate_limit", "84dae852b095fdcc49fdedfc"),
+        # HOM-129: privileged MFA routes
+        ("read_mfa_status", "bca23f081e256529f50ff8a8"),
+        # HOM-129: privileged MFA routes
+        ("enroll_totp", "4bc40eb8286df8d1e684b1b8"),
+        # HOM-129: privileged MFA routes
+        ("confirm_totp", "31d35ee71f75d50613be3df8"),
+        # HOM-129: privileged MFA routes
+        ("verify_second_factor", "6c68adea0b4eab29906a77dd"),
+        # HOM-129: privileged MFA routes
+        ("regenerate_mfa_recovery_codes", "0accaecc123f9d9fdcd4f82c"),
         ("verify_email_endpoint", "b751a03b12a0b36d4f84826a"),
         ("VERIFICATION_RESEND_COOLDOWN_SECONDS", "725a6c4e41978242759d9fd0"),
         ("VERIFICATION_RESEND_PER_HOUR", "1822b297d1d7defaa77af846"),
@@ -4728,7 +4759,8 @@ BASE_FINGERPRINTS: dict = {
         ("google_link_start", "82b1718e7e2f3e3ec4ba9b96"),
         # HOM-336: registration gate
         # HOM-128: federation re-check before login
-        ("google_callback", "9b51dbd9433270e648fa8f74"),
+        # HOM-129: break-glass refusal and login method
+        ("google_callback", "35643c85e2b23400b9fc9736"),
     ],
     "voicemail/ingest.py": [
         ("Expr", "46f10c1143fabcc0d13523a7"),
@@ -4752,7 +4784,8 @@ BASE_FINGERPRINTS: dict = {
 BASE_MASKED: dict[str, str] = {
     "security/normalization.py:normalize_iranian_mobile": "9d1c4b862e8e51f94b6894cf",
     # HOM-128: federation re-check before login
-    "routers/v1/auth.py:otp_verify": "9dba4baff314ddcc0882f1b1",  # HOM-336: registration gate
+    # HOM-129: break-glass refusal and login method
+    "routers/v1/auth.py:otp_verify": "228ab680fb2c51583eaf404d",  # HOM-336: registration gate
     "voicemail/ingest.py:normalize_caller_number": "7ee4cb76bc47d81b36437e4d",
 }
 FROZEN_FILES: dict[str, str] = {
