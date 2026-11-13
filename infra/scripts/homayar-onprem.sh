@@ -12,7 +12,16 @@
 #   bash homayar-onprem.sh backup | restore | status
 #   bash homayar-onprem.sh support-bundle --output /tmp/homayar-bundle.tar.gz
 #   bash homayar-onprem.sh pack --source <checkout> --output <dir> \
-#     --version <v> --api-image R --console-web-image R --egress-proxy-image R
+#     --version <v> --api-image R --console-web-image R --egress-proxy-image R \
+#     --signing-key <ed25519.pem>
+#
+# A package is signed (HOM-107, ADR 0070): SHA256SUMS.sig holds the raw
+# 64-byte Ed25519 signature of the exact SHA256SUMS bytes, made by `pack`
+# with a private key that never leaves the signing host, and BUNDLE.manifest
+# describes the images, model files, licences and host requirements. install
+# and upgrade verify the signature against the public keys in the trust
+# directory (config/bundle-keys) before anything else and refuse unsigned or
+# tampered packages; there is no override flag.
 #
 # Install layout under HOMAYAR_HOME (default /opt/homayar):
 #   releases/<version>/   one extracted package per version
@@ -248,9 +257,226 @@ package_env() { # package_env <dir> <key>: the release.env value, or empty.
   printf '%s' "$value"
 }
 
-verify_package_signature() { # the HOM-107 seam: package signing comes there
-  say "WARNING: package is hash-checked, not signed (HOM-107)"
+key_is_ed25519_pub() { # key_is_ed25519_pub <pem>: 0 when the file holds
+  # exactly one PEM block, that block a PUBLIC KEY block, of Ed25519 type.
+  # OpenSSL 3 `pkey -pubin` alone would even read a private-key PEM, so the
+  # block headers are checked first (D3: anything else fails closed)
+  local f="$1" begins
+  grep -q 'PRIVATE KEY' "$f" 2>/dev/null && return 1
+  begins="$(grep -c -- '^-----BEGIN' "$f" 2>/dev/null || true)"
+  [[ "$begins" == 1 ]] || return 1
+  grep -q -- '^-----BEGIN PUBLIC KEY-----$' "$f" || return 1
+  grep -q -- '^-----END PUBLIC KEY-----$' "$f" || return 1
+  cap openssl pkey -pubin -in "$f" -noout -text || return 1
+  grep -q 'ED25519' <<<"$RUN_OUT"
+}
+
+key_fingerprint() { # key_fingerprint <pub-pem>: the first 16 hex characters of
+  # the sha256 of the key's DER public key (16, because the log filter hides
+  # runs of 20 or more hex characters)
+  local der_sum
+  der_sum="$(openssl pkey -pubin -in "$1" -outform DER 2>/dev/null | sha256sum | awk '{ print $1 }')" || return 1
+  printf '%s' "${der_sum:0:16}"
+}
+
+signing_key_fingerprint() { # signing_key_fingerprint <private-pem>: like
+  # key_fingerprint, derived from the private key (pack prints it; the key
+  # bytes themselves are never printed)
+  local der_sum
+  der_sum="$(openssl pkey -in "$1" -pubout -outform DER 2>/dev/null | sha256sum | awk '{ print $1 }')" || return 1
+  printf '%s' "${der_sum:0:16}"
+}
+
+verify_package_signature() { # verify_package_signature <staged-dir>: 0 when a
+  # trusted key verifies SHA256SUMS.sig over the exact SHA256SUMS bytes
+  # (HOM-107, ADR 0070). Trust comes only from the host's trust directory,
+  # never from the package; any trusted key may verify (rotation); a non
+  # Ed25519 PEM there fails closed and names the file.
+  local pkg="$1" trust key size fp any=0
+  trust="${HOMAYAR_BUNDLE_TRUST_DIR:-$H/config/bundle-keys}"
+  if [[ ! -f "$pkg/SHA256SUMS.sig" ]]; then
+    say "the package has no SHA256SUMS.sig signature"
+    return 1
+  fi
+  size="$(stat -c '%s' "$pkg/SHA256SUMS.sig" 2>/dev/null || printf 0)"
+  [[ "$size" == 64 ]] || {
+    say "SHA256SUMS.sig is ${size:-0} bytes; an Ed25519 signature is exactly 64"
+    return 1
+  }
+  if [[ ! -d "$trust" ]]; then
+    say "the trust directory $trust does not exist (install the bundle public key there, docs/operations/onprem-lifecycle.md)"
+    return 1
+  fi
+  local any=0 key
+  for key in "$trust"/*.pem; do
+    [[ -e "$key" || -L "$key" ]] || continue # the unexpanded glob: no *.pem at all
+    any=1
+    if [[ ! -f "$key" || -L "$key" ]]; then
+      say "the trust file ${key##*/} in $trust is not a regular file"
+      return 1
+    fi
+    if ! key_is_ed25519_pub "$key"; then
+      say "the trust file ${key##*/} in $trust is not an Ed25519 public key"
+      return 1
+    fi
+  done
+  if [[ "$any" != 1 ]]; then
+    say "the trust directory $trust holds no *.pem public keys"
+    return 1
+  fi
+  for key in "$trust"/*.pem; do
+    [[ -f "$key" ]] || continue
+    if cap openssl pkeyutl -verify -pubin -inkey "$key" -rawin \
+      -in "$pkg/SHA256SUMS" -sigfile "$pkg/SHA256SUMS.sig"; then
+      fp="$(key_fingerprint "$key")"
+      say "package signature verified by trust key ${key##*/} (fingerprint ${fp:-unknown})"
+      return 0
+    fi
+  done
+  say "no trusted key verifies the package signature"
+  return 1
+}
+
+sums_hash() { # sums_hash <pkg> <path>: the hash SHA256SUMS lists for the
+  # path. The whole text after the 64-hex hash and its two spaces is the
+  # path, so a path with spaces matches too.
+  awk -v p="$2" 'substr($0, 67) == p { print substr($0, 1, 64); exit }' "$1/SHA256SUMS"
+}
+
+license_ok() { # an SPDX id or LicenseRef-... (D5)
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9.+-]*$ ]]
+}
+
+verify_bundle_manifest() { # verify_bundle_manifest <dir>: 0 ok, else 1 with
+  # the reason said. The manifest is signed with the package, but a bad pack
+  # or a wrong bundle is still refused (D10).
+  local pkg="$1" line n=0 type rest path hash ref lic mid extra
+  local have_schema=0 release_seen=0 requires_n=0
+  local -a img_paths=() model_paths=()
+  [[ -f "$pkg/BUNDLE.manifest" ]] || { say "the package has no BUNDLE.manifest"; return 1; }
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    n=$((n + 1))
+    [[ -n "$line" ]] || { say "BUNDLE.manifest line $n is empty"; return 1; }
+    [[ "$line" != *$'\t'* ]] || { say "BUNDLE.manifest line $n holds a tab"; return 1; }
+    [[ "$line" != " "* && "$line" != *" " && "$line" != *"  "* ]] || {
+      say "BUNDLE.manifest line $n is not fields joined by one space"
+      return 1
+    }
+    type="${line%% *}"
+    if [[ "$n" == 1 ]]; then
+      [[ "$type" == schema ]] || { say "BUNDLE.manifest must start with the schema line"; return 1; }
+    fi
+    case "$type" in
+      schema)
+        [[ "$line" == "schema homayar-offline-bundle/1" ]] || {
+          say "BUNDLE.manifest line $n is not 'schema homayar-offline-bundle/1'"
+          return 1
+        }
+        [[ "$have_schema" == 0 ]] || { say "BUNDLE.manifest has more than one schema line"; return 1; }
+        have_schema=1
+        ;;
+      release)
+        [[ "$release_seen" == 0 ]] || { say "BUNDLE.manifest has more than one release line"; return 1; }
+        release_seen=1
+        IFS=' ' read -r _ path hash extra <<<"$line"
+        [[ -z "${extra:-}" ]] || { say "BUNDLE.manifest release line $n has an extra field"; return 1; }
+        [[ "$path" == "$(package_env "$pkg" HOMAYAR_RELEASE_VERSION)" &&
+          "$hash" == "$(package_env "$pkg" HOMAYAR_RELEASE_SHA)" ]] || {
+          say "the BUNDLE.manifest release line differs from release.env"
+          return 1
+        }
+        ;;
+      image)
+        IFS=' ' read -r _ path hash ref lic extra <<<"$line"
+        [[ -z "${extra:-}" ]] || { say "BUNDLE.manifest line $n has an extra field"; return 1; }
+        [[ "$path" == images/*.tar ]] || {
+          say "BUNDLE.manifest image line $n does not name an images/*.tar file: $path"
+          return 1
+        }
+        [[ -f "$pkg/$path" ]] || { say "BUNDLE.manifest image line $n names a missing file: $path"; return 1; }
+        local found=0 p
+        for p in "${img_paths[@]}"; do [[ "$p" == "$path" ]] && found=1; done
+        [[ "$found" == 0 ]] || { say "BUNDLE.manifest lists $path twice"; return 1; }
+        img_paths+=("$path")
+        [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || { say "BUNDLE.manifest image line $n has a bad hash for $path"; return 1; }
+        [[ "$hash" == "$(sums_hash "$pkg" "$path")" ]] || {
+          say "the BUNDLE.manifest image hash differs from SHA256SUMS for $path"
+          return 1
+        }
+        case "$path" in
+          images/api.tar) rest="$(package_env "$pkg" API_IMAGE)" ;;
+          images/console-web.tar) rest="$(package_env "$pkg" CONSOLE_WEB_IMAGE)" ;;
+          images/egress-proxy.tar) rest="$(package_env "$pkg" EGRESS_PROXY_IMAGE)" ;;
+          *)
+            say "BUNDLE.manifest image line $n cannot be matched to release.env: $path"
+            return 1
+            ;;
+        esac
+        [[ "$ref" == "$rest" ]] || {
+          say "the BUNDLE.manifest image reference for $path differs from release.env"
+          return 1
+        }
+        license_ok "$lic" || { say "the BUNDLE.manifest licence of $path is malformed: $lic"; return 1; }
+        ;;
+      model)
+        IFS=' ' read -r _ path hash lic mid extra <<<"$line"
+        [[ -z "${extra:-}" ]] || { say "BUNDLE.manifest line $n has an extra field"; return 1; }
+        [[ "$path" == models/* ]] || {
+          say "BUNDLE.manifest model line $n does not name a models/ file: $path"
+          return 1
+        }
+        [[ -f "$pkg/$path" ]] || { say "BUNDLE.manifest model line $n names a missing file: $path"; return 1; }
+        local found=0 p
+        for p in "${model_paths[@]}"; do [[ "$p" == "$path" ]] && found=1; done
+        [[ "$found" == 0 ]] || { say "BUNDLE.manifest lists $path twice"; return 1; }
+        model_paths+=("$path")
+        [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || { say "BUNDLE.manifest model line $n has a bad hash for $path"; return 1; }
+        [[ "$hash" == "$(sums_hash "$pkg" "$path")" ]] || {
+          say "the BUNDLE.manifest model hash differs from SHA256SUMS for $path"
+          return 1
+        }
+        license_ok "$lic" || { say "the BUNDLE.manifest licence of $path is malformed: $lic"; return 1; }
+        [[ -n "$mid" ]] || { say "BUNDLE.manifest model line $n has no manifest id"; return 1; }
+        ;;
+      requires)
+        IFS=' ' read -r _ path hash extra <<<"$line"
+        [[ -z "${extra:-}" ]] || { say "BUNDLE.manifest requires line $n has an extra field"; return 1; }
+        [[ -n "$path" && -n "$hash" ]] || { say "BUNDLE.manifest requires line $n is malformed"; return 1; }
+        requires_n=$((requires_n + 1))
+        ;;
+      *)
+        say "BUNDLE.manifest line $n has an unknown record type: $type"
+        return 1
+        ;;
+    esac
+  done <"$pkg/BUNDLE.manifest"
+  [[ "$have_schema" == 1 ]] || { say "BUNDLE.manifest has no schema line"; return 1; }
+  [[ "$release_seen" == 1 ]] || { say "BUNDLE.manifest has no release line"; return 1; }
+  [[ "$requires_n" -ge 1 ]] || { say "BUNDLE.manifest has no requires line"; return 1; }
+  local rel listed
+  for rel in "$pkg"/images/*.tar; do
+    [[ -e "$rel" ]] || continue
+    rel="${rel#"$pkg"/}"
+    listed=0
+    for p in "${img_paths[@]}"; do [[ "$p" == "$rel" ]] && listed=1; done
+    [[ "$listed" == 1 ]] || { say "BUNDLE.manifest has no image line for $rel"; return 1; }
+  done
+  while IFS= read -r -d '' rel; do
+    rel="${rel#"$pkg"/}"
+    listed=0
+    for p in "${model_paths[@]}"; do [[ "$p" == "$rel" ]] && listed=1; done
+    [[ "$listed" == 1 ]] || { say "BUNDLE.manifest has no model line for $rel"; return 1; }
+  done < <(find "$pkg/models" -type f -print0 2>/dev/null)
   return 0
+}
+
+print_bundle_requires() { # print_bundle_requires <staged>: the signed runtime
+  # requirements of the bundle (D11)
+  local line
+  say "bundle requirements (signed, from BUNDLE.manifest):"
+  while IFS= read -r line; do
+    say "  $line"
+  done < <(grep '^requires ' "$1/BUNDLE.manifest")
 }
 
 verify_package() { # verify_package <dir>: 0 ok, else 1 with the reason said
@@ -329,10 +555,11 @@ verify_package() { # verify_package <dir>: 0 ok, else 1 with the reason said
     return 1
   done < <(find "$pkg" ! -type f ! -type d -print)
 
-  # every file of the package is listed (SHA256SUMS itself is never listed)
+  # every file of the package is listed (SHA256SUMS and the signature over
+  # it, SHA256SUMS.sig, are the only unlisted names; D9)
   while IFS= read -r -d '' f; do
     path="${f#"$pkg"/}"
-    [[ "$path" == "SHA256SUMS" ]] && continue
+    [[ "$path" == "SHA256SUMS" || "$path" == "SHA256SUMS.sig" ]] && continue
     if ! grep -qxF "$path" "$paths"; then
       say "the package holds an unlisted file: $path"
       return 1
@@ -557,12 +784,16 @@ usage: bash homayar-onprem.sh <command> [flags] </dev/null
 commands:
   pack --source <checkout> --output <dir> --version <v>
        --api-image R --console-web-image R --egress-proxy-image R
-       build an unsigned package from a checkout and built images
+       --signing-key <ed25519.pem> [--model-root <dir>]
+       [--model-manifest <manifest.json>]...
+       build a signed package from a checkout, built images and
+       infra/offline/bundle.conf (HOM-107, ADR 0070)
   preflight [--offline]
        compose config, free disk, and the api-container host preflight
        (its exit code 0/1/2 is passed through)
   install --package <dir-or-tar>
-       first install of a verified package; refuses when current exists
+       first install of a verified, signed package; refuses when current
+       exists
   upgrade --package <dir-or-tar> [--max-backup-age-hours N]
        [--skip-backup-check "<reason>"] [--min-disk-gib N]
        data-preserving upgrade with a pre-migration dump and rollback
@@ -575,9 +806,11 @@ commands:
   status                              read-only overview, no secrets
 
 environment: HOMAYAR_HOME (default /opt/homayar), NODE_EXPORTER_TEXTFILE_DIR
-       (the backup freshness gauge). The health checks read HTTP_PORT and
-       BIND_ADDRESS from the environment or config/onprem.env (loopback and
-       8080 when unset).
+       (the backup freshness gauge), HOMAYAR_BUNDLE_SIGNING_KEY (pack's
+       signing key; --signing-key wins), HOMAYAR_BUNDLE_TRUST_DIR (the
+       bundle verifying keys, default $HOMAYAR_HOME/config/bundle-keys).
+       The health checks read HTTP_PORT and BIND_ADDRESS from the
+       environment or config/onprem.env (loopback and 8080 when unset).
 
 exit codes: 0 done (or already done); 1 failed and rolled back (data
 restored); 2 refused, or failed before any live change; 3 rollback failed,
@@ -589,6 +822,8 @@ EOF
 
 cmd_pack() {
   local src="" out="" api="" cw="" eg="" version="" sha ref part
+  local skey="" mroot="" mfile
+  local -a mfiles=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --source) [[ $# -ge 2 ]] || { usage; exit 2; }; src="$2"; shift 2 ;;
@@ -597,6 +832,9 @@ cmd_pack() {
       --api-image) [[ $# -ge 2 ]] || { usage; exit 2; }; api="$2"; shift 2 ;;
       --console-web-image) [[ $# -ge 2 ]] || { usage; exit 2; }; cw="$2"; shift 2 ;;
       --egress-proxy-image) [[ $# -ge 2 ]] || { usage; exit 2; }; eg="$2"; shift 2 ;;
+      --signing-key) [[ $# -ge 2 ]] || { usage; exit 2; }; skey="$2"; shift 2 ;;
+      --model-root) [[ $# -ge 2 ]] || { usage; exit 2; }; mroot="$2"; shift 2 ;;
+      --model-manifest) [[ $# -ge 2 ]] || { usage; exit 2; }; mfiles+=("$2"); shift 2 ;;
       *)
         usage
         exit 2
@@ -622,6 +860,36 @@ cmd_pack() {
     echo "REFUSED: the output folder is not empty: $out" >&2
     exit 2
   fi
+
+  # the signing key (D4): --signing-key wins over HOMAYAR_BUNDLE_SIGNING_KEY;
+  # a regular file, mode & 077 == 0, an Ed25519 private key; the key value is
+  # never copied into the package, printed or logged
+  [[ -n "$skey" ]] || skey="${HOMAYAR_BUNDLE_SIGNING_KEY:-}"
+  [[ -n "$skey" ]] || {
+    echo "REFUSED: no signing key; pass --signing-key <ed25519.pem> or set HOMAYAR_BUNDLE_SIGNING_KEY" >&2
+    exit 2
+  }
+  [[ -f "$skey" ]] || { echo "REFUSED: the signing key is not a regular file: $skey" >&2; exit 2; }
+  [[ $(stat -c '%a' "$skey") =~ ^[0-7]+$ ]] || { echo "REFUSED: cannot read the permissions of $skey" >&2; exit 2; }
+  if [[ $((8#$(stat -c '%a' "$skey") & 8#077)) != 0 ]]; then
+    echo "REFUSED: the signing key must have no group or other permission bits (chmod 600): $skey" >&2
+    exit 2
+  fi
+  # the type is checked from the public half only: the private key text must
+  # never reach a variable, a here-string or a log (D4, D11)
+  if [[ "$(openssl pkey -in "$skey" -pubout 2>/dev/null | openssl pkey -pubin -noout -text 2>/dev/null | head -n 1)" != "ED25519 Public-Key:" ]]; then
+    echo "REFUSED: the signing key is not an Ed25519 private key: $skey" >&2
+    exit 2
+  fi
+  if [[ -n "$mroot" || ${#mfiles[@]} -gt 0 ]] && { [[ -z "$mroot" ]] || [[ ${#mfiles[@]} == 0 ]]; }; then
+    echo "REFUSED: --model-root and --model-manifest are both needed together" >&2
+    exit 2
+  fi
+  if [[ ${#mfiles[@]} -gt 0 ]] && ! command -v python3 >/dev/null 2>&1; then
+    echo "REFUSED: reading model manifests needs python3 on the pack host" >&2
+    exit 2
+  fi
+
   mkdir -p "$out/infra" "$out/images"
   echo "pack: source $src, version $version, output $out"
 
@@ -637,9 +905,158 @@ cmd_pack() {
   done
   cp -a "$src/infra/compose" "$src/infra/scripts" "$src/infra/nginx" "$out/infra/"
 
+  # licences and requirements come from the checkout's bundle.conf (D6):
+  # 'license <image> <licence>' and 'requires <name> <constraint>' lines,
+  # '#' comments and empty lines ignored in this input file only
+  local conf="$src/infra/offline/bundle.conf" line n=0 f2 f3 f4
+  local lic_api="" lic_console_web="" lic_egress_proxy=""
+  local -a requires=()
+  [[ -f "$conf" ]] || { echo "REFUSED: $conf is missing (infra/offline/bundle.conf)" >&2; exit 2; }
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    n=$((n + 1))
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    IFS=' ' read -r line f2 f3 f4 <<<"$line"
+    [[ -n "$f3" && -z "${f4:-}" ]] || {
+      echo "REFUSED: bundle.conf line $n is malformed: $line $f2 $f3" >&2
+      exit 2
+    }
+    case "$line" in
+      license)
+        case "$f2" in
+          api) lic_api="$f3" ;;
+          console-web) lic_console_web="$f3" ;;
+          egress-proxy) lic_egress_proxy="$f3" ;;
+          *)
+            echo "REFUSED: bundle.conf line $n names an unknown image: $f2" >&2
+            exit 2
+            ;;
+        esac
+        ;;
+      requires)
+        requires+=("$f2 $f3")
+        ;;
+      *)
+        echo "REFUSED: bundle.conf line $n is malformed: $line $f2 $f3" >&2
+        exit 2
+        ;;
+    esac
+  done <"$conf"
+  for part in api console-web egress-proxy; do
+    case "$part" in
+      api) line="$lic_api" ;;
+      console-web) line="$lic_console_web" ;;
+      egress-proxy) line="$lic_egress_proxy" ;;
+    esac
+    [[ -n "$line" ]] || { echo "REFUSED: bundle.conf has no licence for $part" >&2; exit 2; }
+    license_ok "$line" || { echo "REFUSED: the bundle.conf licence of $part is malformed: $line" >&2; exit 2; }
+  done
+  [[ ${#requires[@]} -ge 1 ]] || { echo "REFUSED: bundle.conf has no requires line" >&2; exit 2; }
+
   run docker save --output "$out/images/api.tar" "$api" || exit 2
   run docker save --output "$out/images/console-web.tar" "$cw" || exit 2
   run docker save --output "$out/images/egress-proxy.tar" "$eg" || exit 2
+
+  # model files (D7): every file artifact of every operator manifest is
+  # hash-checked against its pin, copied under models/ and listed with its
+  # manifest's licence and id; the manifest JSON itself is copied under
+  # manifests/. Only pack needs python3 (install and upgrade never do).
+  local -a model_rows=() manifest_names=() seen_model_paths=()
+  local py_out tag cur_mid="" cur_lic="" kind mpath msha sum mrow seen
+  cat >"$TMP/read-model-manifest.py" <<'PYEOF'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        doc = json.load(fh)
+except Exception as exc:
+    print("cannot read the JSON: %s" % exc, file=sys.stderr)
+    sys.exit(1)
+if not isinstance(doc, dict) or doc.get("schema") != "homayar.model-manifests/1":
+    print("the schema is not homayar.model-manifests/1", file=sys.stderr)
+    sys.exit(1)
+mans = doc.get("manifests")
+if not isinstance(mans, list) or not mans:
+    print("the manifest file lists no manifests", file=sys.stderr)
+    sys.exit(1)
+for man in mans:
+    if not isinstance(man, dict):
+        print("a manifest entry is not an object", file=sys.stderr)
+        sys.exit(1)
+    print("M\t%s\t%s" % (man.get("manifest_id") or "", man.get("license") or ""))
+    arts = man.get("artifacts")
+    arts = arts if isinstance(arts, list) else []
+    for art in arts:
+        if not isinstance(art, dict):
+            print("an artifact entry is not an object", file=sys.stderr)
+            sys.exit(1)
+        print("A\t%s\t%s\t%s" % (art.get("kind") or "", art.get("path") or "", art.get("sha256") or ""))
+PYEOF
+  for mfile in "${mfiles[@]}"; do
+    [[ -f "$mfile" ]] || { echo "REFUSED: --model-manifest is not a file: $mfile" >&2; exit 2; }
+    py_out="$(python3 -I "$TMP/read-model-manifest.py" "$mfile" 2>&1)" || {
+      echo "REFUSED: cannot read the model manifest $mfile: ${py_out:-}" >&2
+      exit 2
+    }
+    for mrow in "${manifest_names[@]}"; do
+      [[ "$mrow" != "${mfile##*/}" ]] || {
+        echo "REFUSED: two model manifests share the basename ${mfile##*/}" >&2
+        exit 2
+      }
+    done
+    manifest_names+=("${mfile##*/}")
+    mkdir -p "$out/manifests"
+    cp -- "$mfile" "$out/manifests/${mfile##*/}" || exit 2
+    while IFS= read -r mrow; do
+      IFS=$'\t' read -r tag f2 f3 f4 <<<"$mrow"
+      if [[ "$tag" == M ]]; then
+        cur_mid="$f2"
+        cur_lic="$f3"
+        [[ -n "$cur_mid" && "$cur_mid" != *" "* ]] || {
+          echo "REFUSED: a manifest in $mfile has no manifest_id" >&2
+          exit 2
+        }
+        [[ -n "$cur_lic" ]] || { echo "REFUSED: the manifest $cur_mid has no license" >&2; exit 2; }
+        license_ok "$cur_lic" || {
+          echo "REFUSED: the license of $cur_mid is malformed: $cur_lic" >&2
+          exit 2
+        }
+        continue
+      fi
+      kind="$f2"
+      mpath="$f3"
+      msha="$f4"
+      [[ "$kind" == file ]] || {
+        echo "REFUSED: the artifact '${mpath:-?}' of $cur_mid is of kind '${kind:-none}'; dir artifacts are not supported yet" >&2
+        exit 2
+      }
+      [[ -n "$mpath" && "$mpath" != *" "* && "$mpath" != /* &&
+        "/$mpath/" != *"/../"* && "/$mpath/" != *"/./"* ]] || {
+        echo "REFUSED: the artifact path of $cur_mid is forbidden: $mpath" >&2
+        exit 2
+      }
+      for seen in "${seen_model_paths[@]}"; do
+        [[ "$seen" != "$mpath" ]] || {
+          echo "REFUSED: duplicate model artifact path $mpath (pinned by $cur_mid and an earlier manifest)" >&2
+          exit 2
+        }
+      done
+      seen_model_paths+=("$mpath")
+      [[ "$msha" =~ ^[0-9a-f]{64}$ ]] || {
+        echo "REFUSED: the artifact $mpath of $cur_mid has no sha256 pin" >&2
+        exit 2
+      }
+      [[ -f "$mroot/$mpath" ]] || { echo "REFUSED: the model file $mroot/$mpath does not exist" >&2; exit 2; }
+      sum="$(sha256sum "$mroot/$mpath" | awk '{ print $1 }')"
+      [[ "$sum" == "$msha" ]] || {
+        echo "REFUSED: the sha256 of $mpath differs from the pin of $cur_mid" >&2
+        exit 2
+      }
+      if [[ "$mpath" == */* ]]; then mkdir -p "$out/models/${mpath%/*}"; else mkdir -p "$out/models"; fi
+      cp -- "$mroot/$mpath" "$out/models/$mpath" || exit 2
+      model_rows+=("models/$mpath $sum $cur_lic $cur_mid")
+    done <<<"$py_out"
+  done
 
   {
     printf 'HOMAYAR_RELEASE_VERSION=%s\n' "$version"
@@ -649,12 +1066,40 @@ cmd_pack() {
     printf 'EGRESS_PROXY_IMAGE=%s\n' "$eg"
   } >"$out/release.env"
 
-  # SHA256SUMS last: every file of the package, except itself
-  (cd "$out" && find . -type f -not -name SHA256SUMS -printf '%P\0' | LC_ALL=C sort -z |
+  # BUNDLE.manifest (D5) before SHA256SUMS: it is a listed, signed file
+  {
+    printf 'schema homayar-offline-bundle/1\n'
+    printf 'release %s %s\n' "$version" "$sha"
+    printf 'image images/api.tar %s %s %s\n' \
+      "$(sha256sum "$out/images/api.tar" | awk '{ print $1 }')" "$api" "$lic_api"
+    printf 'image images/console-web.tar %s %s %s\n' \
+      "$(sha256sum "$out/images/console-web.tar" | awk '{ print $1 }')" "$cw" "$lic_console_web"
+    printf 'image images/egress-proxy.tar %s %s %s\n' \
+      "$(sha256sum "$out/images/egress-proxy.tar" | awk '{ print $1 }')" "$eg" "$lic_egress_proxy"
+    if [[ ${#model_rows[@]} -gt 0 ]]; then
+      printf 'model %s\n' "${model_rows[@]}" | LC_ALL=C sort
+    fi
+    for mrow in "${requires[@]}"; do
+      printf 'requires %s\n' "$mrow"
+    done
+  } >"$out/BUNDLE.manifest"
+
+  # SHA256SUMS last: every file of the package, except the hash list and
+  # the signature themselves at the root (a nested file of the same name is
+  # listed like any other file). The self-checks run BEFORE the signature,
+  # so a refused pack never leaves a SHA256SUMS.sig behind; then the raw
+  # 64-byte Ed25519 signature is made over those exact bytes (D2)
+  (cd "$out" && find . -type f ! -path ./SHA256SUMS ! -path ./SHA256SUMS.sig -printf '%P\0' | LC_ALL=C sort -z |
     xargs -0 sha256sum >SHA256SUMS) || exit 2
-  verify_package_signature "$out"
   verify_or_refuse_quiet "$out" || exit 2
+  local reason=""
+  if ! reason="$(verify_bundle_manifest "$out")"; then
+    echo "REFUSED: the packed BUNDLE.manifest does not verify (a bug in pack): ${reason:-}" >&2
+    exit 2
+  fi
+  run openssl pkeyutl -sign -inkey "$skey" -rawin -in "$out/SHA256SUMS" -out "$out/SHA256SUMS.sig" || exit 2
   echo "pack: wrote $out (version $version, sha ${sha:0:12})"
+  echo "pack: signing key fingerprint $(signing_key_fingerprint "$skey")"
   exit 0
 }
 
@@ -739,10 +1184,12 @@ cmd_install() {
   fi
   [[ -s "$CONFIG" ]] || refuse "$CONFIG is empty; write the operator settings first (docs/operations/deployment.md)"
 
-  verify_package_signature "$pkg" || refuse "the package signature check failed"
   staging="$(stage_package "$pkg" "$TMP/pkg")" || refuse "the package could not be read"
+  verify_package_signature "$staging" || refuse "the package signature check failed"
   verify_or_refuse "$staging"
-  record install V1 PASS "package verified (hash list and release.env)"
+  verify_bundle_manifest "$staging" || refuse "the BUNDLE.manifest check failed"
+  print_bundle_requires "$staging"
+  record install V1 PASS "package verified (signature, hash list, release.env, BUNDLE.manifest)"
 
   # Stage in a temp folder for the checks that start nothing; then rename
   # BEFORE the first compose call that creates a container. Compose resolves
@@ -1008,10 +1455,12 @@ cmd_upgrade() {
   say "homayar-onprem upgrade, package $pkg, log $LOG"
 
   local staging new_ver new_sha cur_ver cur_sha gauge="" textdir nowts age
-  verify_package_signature "$pkg" || refuse "the package signature check failed"
   staging="$(stage_package "$pkg" "$TMP/pkg")" || refuse "the package could not be read"
+  verify_package_signature "$staging" || refuse "the package signature check failed"
   verify_or_refuse "$staging"
-  record upgrade V1 PASS "package verified"
+  verify_bundle_manifest "$staging" || refuse "the BUNDLE.manifest check failed"
+  print_bundle_requires "$staging"
+  record upgrade V1 PASS "package verified (signature, hash list, release.env, BUNDLE.manifest)"
 
   new_ver="$(package_env "$staging" HOMAYAR_RELEASE_VERSION)"
   new_sha="$(package_env "$staging" HOMAYAR_RELEASE_SHA)"

@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Selftest for infra/scripts/homayar-onprem.sh (HOM-110).
+# Selftest for infra/scripts/homayar-onprem.sh (HOM-110, HOM-107).
 #
-# Runs where bash >= 4.4, coreutils and python3 exist (the CI ubuntu runner,
-# or
+# Runs where bash >= 4.4, coreutils, openssl and python3 exist (the CI ubuntu
+# runner, or
 #   docker run --rm -v "$PWD":/work:ro -w /work python:3.12-slim \
 #     bash infra/ci/tests/test-homayar-onprem.sh
 # ). It needs no network, no Docker and no root: the docker, curl and git
 # commands are stubs first on PATH, and ONPREM_TEST_HOME points the script
 # at a fake /opt/homayar built in a temp folder. The fake operator env file
 # holds the marker ZzOnpremKrit42; every case asserts the marker never
-# reaches the output or the script's log files.
+# reaches the output or the script's log files. Since HOM-107 every fixture
+# package is signed with a throwaway Ed25519 key generated at run time, and
+# the fake home's config/bundle-keys holds that key's public half (the
+# real openssl of the test image signs and verifies for real).
 set -Eeuo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -50,6 +53,29 @@ export ONPREM_TEST_HOME="$HOME_F"
 export HOMAYAR_STUB_STATE="$state"
 export NODE_EXPORTER_TEXTFILE_DIR="$HOME_F/gauge"
 export PATH="$bin:$PATH"
+
+# HOM-107: every fixture package is signed at run time with throwaway Ed25519
+# keys made in the test temp folder (never committed). The public key of the
+# main key seeds the trust directory of the fake home; ALT_KEY is the
+# rotation-era second key, RSA_KEY proves a wrong algorithm is refused.
+KEY="$tmp/keys/bundle-signing-key.pem"
+PUB="$tmp/keys/bundle-signing-key.pub.pem"
+ALT_KEY="$tmp/keys/bundle-alt-key.pem"
+ALT_PUB="$tmp/keys/bundle-alt-key.pub.pem"
+RSA_KEY="$tmp/keys/bundle-rsa-key.pem"
+mkdir -p "$tmp/keys"
+openssl genpkey -algorithm ed25519 -out "$KEY" 2>/dev/null
+openssl genpkey -algorithm ed25519 -out "$ALT_KEY" 2>/dev/null
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RSA_KEY" 2>/dev/null
+chmod 600 "$KEY" "$ALT_KEY" "$RSA_KEY"
+openssl pkey -in "$KEY" -pubout -out "$PUB" 2>/dev/null
+openssl pkey -in "$ALT_KEY" -pubout -out "$ALT_PUB" 2>/dev/null
+TRUST="$HOME_F/config/bundle-keys"
+key_fingerprint() { # first 16 hex of the sha256 of the public key DER
+  openssl pkey -in "$1" -pubout -outform DER 2>/dev/null | sha256sum | cut -c1-16
+}
+FINGERPRINT="$(key_fingerprint "$KEY")"
+ALT_FINGERPRINT="$(key_fingerprint "$ALT_KEY")"
 
 OUT=""
 RC=0
@@ -108,6 +134,29 @@ make_release_tree() { # make_release_tree <dir>: the infra part of a release
   printf 'server_name homayar;\n' >"$1/infra/nginx/homayar.conf"
 }
 
+sign_pkg() { # sign_pkg <dir>: sign SHA256SUMS with the throwaway fixture key
+  openssl pkeyutl -sign -inkey "$KEY" -rawin -in "$1/SHA256SUMS" \
+    -out "$1/SHA256SUMS.sig" 2>/dev/null
+}
+
+write_bundle_manifest() { # write_bundle_manifest <dir> <version> <sha> <api> <cw> <eg>
+  {
+    printf 'schema homayar-offline-bundle/1\n'
+    printf 'release %s %s\n' "$2" "$3"
+    printf 'image images/api.tar %s %s LicenseRef-Homayar-Proprietary\n' \
+      "$(sha256sum "$1/images/api.tar" | awk '{ print $1 }')" "$4"
+    printf 'image images/console-web.tar %s %s LicenseRef-Homayar-Proprietary\n' \
+      "$(sha256sum "$1/images/console-web.tar" | awk '{ print $1 }')" "$5"
+    printf 'image images/egress-proxy.tar %s %s LicenseRef-Homayar-Proprietary\n' \
+      "$(sha256sum "$1/images/egress-proxy.tar" | awk '{ print $1 }')" "$6"
+    printf 'requires bash >=4.4\n'
+    printf 'requires openssl >=3.0\n'
+    printf 'requires docker-engine >=27.3.1\n'
+    printf 'requires docker-compose-plugin >=2.29.7\n'
+    printf 'requires nvidia-container-toolkit gpu-profile-only\n'
+  } >"$1/BUNDLE.manifest"
+}
+
 make_package() { # make_package <dir> <version> <sha> <api> <cw> <eg> <api-id> <cw-id> <eg-id> <head>
   local dir="$1"
   rm -rf -- "$dir"
@@ -123,13 +172,34 @@ make_package() { # make_package <dir> <version> <sha> <api> <cw> <eg> <api-id> <
     printf 'CONSOLE_WEB_IMAGE=%s\n' "$5"
     printf 'EGRESS_PROXY_IMAGE=%s\n' "$6"
   } >"$dir/release.env"
-  (cd "$dir" && find . -type f -not -name SHA256SUMS -printf '%P\0' | LC_ALL=C sort -z |
-    xargs -0 sha256sum >SHA256SUMS)
+  write_bundle_manifest "$dir" "$2" "$3" "$4" "$5" "$6"
+  (cd "$dir" && find . -type f ! -path ./SHA256SUMS ! -path ./SHA256SUMS.sig -printf '%P\0' |
+    LC_ALL=C sort -z | xargs -0 sha256sum >SHA256SUMS)
+  sign_pkg "$dir"
 }
 
-write_sums() { # rewrite SHA256SUMS of a package (after tampering)
-  (cd "$1" && find . -type f -not -name SHA256SUMS -printf '%P\0' | LC_ALL=C sort -z |
-    xargs -0 sha256sum >SHA256SUMS)
+write_sums() { # rewrite SHA256SUMS of a package (after tampering) and re-sign
+  # it, so the refusal under test is the tampered rule, not the signature
+  (cd "$1" && find . -type f ! -path ./SHA256SUMS ! -path ./SHA256SUMS.sig -printf '%P\0' |
+    LC_ALL=C sort -z | xargs -0 sha256sum >SHA256SUMS)
+  sign_pkg "$1"
+}
+
+rewrite_sums_unsigned() { # rewrite SHA256SUMS without re-signing (a broken
+  # re-pack: the signature no longer covers the new hash list)
+  (cd "$1" && find . -type f ! -path ./SHA256SUMS ! -path ./SHA256SUMS.sig -printf '%P\0' |
+    LC_ALL=C sort -z | xargs -0 sha256sum >SHA256SUMS)
+}
+
+seed_trust() { # the trust directory of the fake home holds the fixture key
+  mkdir -p "$TRUST"
+  cp "$PUB" "$TRUST/bundle-key-test.pem"
+}
+
+make_checkout() { # make_checkout <dir>: a clean checkout with every part pack
+  # reads, including infra/offline/bundle.conf from the repo
+  mkdir -p "$1/infra/compose" "$1/infra/scripts" "$1/infra/nginx" "$1/infra/offline"
+  cp "$here/../../../infra/offline/bundle.conf" "$1/infra/offline/bundle.conf"
 }
 
 add_image() { # add_image <tag> <id> <label> <bisha> <bihead>: seed the stub
@@ -160,6 +230,7 @@ prepare() { # a fresh fake home and stub state; 0.5.0 already installed
   rm -rf -- "$HOME_F" "$state"
   mkdir -p "$state" "$bin" "$HOME_F"/{config,ops,state,releases,gauge}
   write_env
+  seed_trust
   write_gauge 3600
   make_release_tree "$HOME_F/releases/$OLD_VER"
   {
@@ -200,6 +271,31 @@ latest_state_id() {
     if [[ -z "$best" || "$sid" > "$best" ]]; then best="$sid"; fi
   done
   printf '%s' "$best"
+}
+
+MODEL_ROOT="$tmp/model-root"
+MODEL_MANIFEST="$tmp/demo-model-manifest.json"
+write_model_fixture() { # one pinned model file plus its operator manifest
+  rm -rf -- "$MODEL_ROOT"
+  mkdir -p "$MODEL_ROOT/asr/demo"
+  printf 'demo model weights\n' >"$MODEL_ROOT/asr/demo/model.bin"
+  local sha
+  sha="$(sha256sum "$MODEL_ROOT/asr/demo/model.bin" | awk '{ print $1 }')"
+  cat >"$MODEL_MANIFEST" <<M
+{
+  "schema": "homayar.model-manifests/1",
+  "manifests": [
+    {
+      "manifest_id": "asr.demo-model",
+      "license": "MIT",
+      "artifacts": [
+        {"path": "asr/demo/model.bin", "kind": "file", "sha256": "$sha"}
+      ]
+    }
+  ]
+}
+M
+  printf '%s' "$sha"
 }
 
 record_value() { # record_value <state-id> <key>
@@ -706,6 +802,12 @@ run_script() { # run_script <args...>: sets OUT and RC; collects output for
   printf '%s\n' "$OUT" >>"$CASE_OUT"
 }
 
+run_env() { # run_env <VAR=VAL> <args...>: like run_script with one env pair
+  RC=0
+  OUT="$(env "$1" bash "$subject" "${@:2}" </dev/null 2>&1)" || RC=$?
+  printf '%s\n' "$OUT" >>"$CASE_OUT"
+}
+
 want_rc() {
   [[ "$RC" == "$1" ]] || { detail "exit $RC, want $1"; exit 1; }
 }
@@ -811,10 +913,11 @@ c_usage_unknown_flag() (
 c_pack_ok() (
   prepare
   printf '%s\n' "$NEW_SHA" >"$state/git-sha"
-  local src="$tmp/checkout" out="$tmp/outpkg"
-  mkdir -p "$src/infra/compose" "$src/infra/scripts" "$src/infra/nginx"
+  local src="$tmp/checkout" out="$tmp/outpkg" h
+  make_checkout "$src"
   run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
-    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG"
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY"
   want_rc 0
   file_has "$out/release.env" "^HOMAYAR_RELEASE_VERSION=$NEW_VER$"
   file_has "$out/release.env" "^HOMAYAR_RELEASE_SHA=$NEW_SHA$"
@@ -825,6 +928,32 @@ c_pack_ok() (
     exit 1
   }
   file_has "$out/SHA256SUMS" "release.env"
+  # HOM-107: the package is signed and described
+  [[ -f "$out/SHA256SUMS.sig" ]] || { detail "no SHA256SUMS.sig"; exit 1; }
+  [[ "$(stat -c '%s' "$out/SHA256SUMS.sig")" == 64 ]] || {
+    detail "SHA256SUMS.sig is not exactly 64 bytes"
+    exit 1
+  }
+  openssl pkeyutl -verify -pubin -inkey "$PUB" -rawin -in "$out/SHA256SUMS" \
+    -sigfile "$out/SHA256SUMS.sig" >/dev/null 2>&1 || {
+    detail "SHA256SUMS.sig does not verify with the signing key's public key"
+    exit 1
+  }
+  file_has "$out/BUNDLE.manifest" "^schema homayar-offline-bundle/1$"
+  file_has "$out/BUNDLE.manifest" "^release $NEW_VER $NEW_SHA$"
+  h="$(sha256sum "$out/images/api.tar" | awk '{ print $1 }')"
+  file_has "$out/BUNDLE.manifest" "^image images/api.tar $h $NEW_API LicenseRef-Homayar-Proprietary$"
+  h="$(sha256sum "$out/images/console-web.tar" | awk '{ print $1 }')"
+  file_has "$out/BUNDLE.manifest" "^image images/console-web.tar $h $NEW_CW LicenseRef-Homayar-Proprietary$"
+  h="$(sha256sum "$out/images/egress-proxy.tar" | awk '{ print $1 }')"
+  file_has "$out/BUNDLE.manifest" "^image images/egress-proxy.tar $h $NEW_EG LicenseRef-Homayar-Proprietary$"
+  file_has "$out/BUNDLE.manifest" "^requires bash >=4.4$"
+  file_has "$out/BUNDLE.manifest" "^requires nvidia-container-toolkit gpu-profile-only$"
+  file_has "$out/SHA256SUMS" "BUNDLE.manifest"
+  want_out "fingerprint $FINGERPRINT"
+  want_no_out "not signed"
+  want_no_out "PRIVATE KEY"
+  ! grep -rqF "PRIVATE KEY" "$out" || { detail "a package file holds private key material"; exit 1; }
   # the packed package verifies: prove it by installing nothing, just verify
   # through an install refusal that reaches the verify step
   run_script status
@@ -836,9 +965,10 @@ c_pack_dirty_tree() (
   printf '%s\n' "$NEW_SHA" >"$state/git-sha"
   touch "$state/git-dirty"
   local src="$tmp/checkout-dirty" out="$tmp/outpkg-dirty"
-  mkdir -p "$src/infra/compose" "$src/infra/scripts" "$src/infra/nginx"
+  make_checkout "$src"
   run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
-    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG"
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY"
   want_rc 2
   want_out "dirty"
 )
@@ -847,10 +977,12 @@ c_pack_refuses_nonempty_output() (
   prepare
   printf '%s\n' "$NEW_SHA" >"$state/git-sha"
   local src="$tmp/checkout2" out="$tmp/outpkg2"
-  mkdir -p "$src/infra/compose" "$src/infra/scripts" "$src/infra/nginx" "$out"
+  make_checkout "$src"
+  mkdir -p "$out"
   touch "$out/already-here"
   run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
-    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG"
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY"
   want_rc 2
   want_out "not empty"
 )
@@ -881,6 +1013,11 @@ c_install_happy() (
   fi
   calls_has "compose:up:cwd=$HOME_F/releases/$OLD_VER"
   calls_has "compose:run:migrate:cwd=$HOME_F/releases/$OLD_VER"
+  # HOM-107: the run names the verifying key's fingerprint and the signed
+  # requirements, and the old unsigned-warning line is gone
+  want_out "fingerprint $FINGERPRINT"
+  want_out "requires bash >=4.4"
+  want_no_out "not signed"
   want_no_secret
 )
 
@@ -956,6 +1093,8 @@ c_pkg_dotdot_path_refused() (
   prepare_fresh
   printf '%s  ../evil.txt\n' "$(sha256sum "$tmp/pkg-$OLD_VER/release.env" | awk '{ print $1 }')" \
     >>"$tmp/pkg-$OLD_VER/SHA256SUMS"
+  # the appended line re-signs so the forbidden path is the rule under test
+  sign_pkg "$tmp/pkg-$OLD_VER"
   run_script install --package "$tmp/pkg-$OLD_VER"
   want_rc 2
   want_out "forbidden path"
@@ -1023,6 +1162,9 @@ c_upgrade_same_version_other_sha() (
   prepare
   sed -i "s|^HOMAYAR_RELEASE_SHA=.*|HOMAYAR_RELEASE_SHA=ffffffffffffffffffffffffffffffffffffffff|" \
     "$tmp/pkg-$OLD_VER/release.env"
+  # keep the signed bundle manifest in sync so the version rule is what refuses
+  sed -i "s|^release $OLD_VER $OLD_SHA$|release $OLD_VER ffffffffffffffffffffffffffffffffffffffff|" \
+    "$tmp/pkg-$OLD_VER/BUNDLE.manifest"
   write_sums "$tmp/pkg-$OLD_VER"
   run_script upgrade --package "$tmp/pkg-$OLD_VER"
   want_rc 2
@@ -1386,6 +1528,541 @@ c_skip_reason_control_char_refused() (
   want_no_secret
 )
 
+# --- HOM-107: signing cases ----------------------------------------------------------
+
+pack_denied() { # a pack refusal that must leave no signature behind
+  want_rc 2
+  [[ ! -e "$2/SHA256SUMS.sig" ]] || { detail "$2 holds a SHA256SUMS.sig"; exit 1; }
+}
+
+c_pack_key_from_env() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-env" out="$tmp/outpkg-env" h
+  make_checkout "$src"
+  run_env "HOMAYAR_BUNDLE_SIGNING_KEY=$KEY" pack --source "$src" --output "$out" \
+    --version "$NEW_VER" --api-image "$NEW_API" --console-web-image "$NEW_CW" \
+    --egress-proxy-image "$NEW_EG"
+  want_rc 0
+  [[ -f "$out/SHA256SUMS.sig" ]] || { detail "no SHA256SUMS.sig"; exit 1; }
+  openssl pkeyutl -verify -pubin -inkey "$PUB" -rawin -in "$out/SHA256SUMS" \
+    -sigfile "$out/SHA256SUMS.sig" >/dev/null 2>&1 || {
+    detail "SHA256SUMS.sig does not verify"
+    exit 1
+  }
+  file_has "$out/BUNDLE.manifest" "^schema homayar-offline-bundle/1$"
+  want_out "fingerprint $FINGERPRINT"
+  want_no_secret
+)
+
+c_pack_no_key_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-nokey" out="$tmp/outpkg-nokey"
+  make_checkout "$src"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG"
+  pack_denied "$OUT" "$out"
+  want_out "signing key"
+)
+
+c_pack_key_mode_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-mode" out="$tmp/outpkg-mode" laxkey="$tmp/keys/lax-key.pem"
+  make_checkout "$src"
+  cp "$KEY" "$laxkey"
+  chmod 644 "$laxkey"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$laxkey"
+  pack_denied "$OUT" "$out"
+  want_out "permission"
+)
+
+c_pack_key_not_ed25519_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-rsa" out="$tmp/outpkg-rsa"
+  make_checkout "$src"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$RSA_KEY"
+  pack_denied "$OUT" "$out"
+  want_out "Ed25519"
+)
+
+c_pack_key_missing_file_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-gone" out="$tmp/outpkg-gone"
+  make_checkout "$src"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$tmp/keys/no-such-key.pem"
+  pack_denied "$OUT" "$out"
+)
+
+c_pack_models_included() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local sha src="$tmp/checkout-models" out="$tmp/outpkg-models"
+  make_checkout "$src"
+  sha="$(write_model_fixture)"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY" --model-root "$MODEL_ROOT" --model-manifest "$MODEL_MANIFEST"
+  want_rc 0
+  [[ -f "$out/models/asr/demo/model.bin" ]] || { detail "the model file was not copied"; exit 1; }
+  cmp -s "$MODEL_ROOT/asr/demo/model.bin" "$out/models/asr/demo/model.bin" || {
+    detail "the copied model file differs"
+    exit 1
+  }
+  [[ -f "$out/manifests/demo-model-manifest.json" ]] || { detail "the manifest was not copied"; exit 1; }
+  file_has "$out/BUNDLE.manifest" "^model models/asr/demo/model.bin $sha MIT asr.demo-model$"
+  file_has "$out/SHA256SUMS" "models/asr/demo/model.bin"
+  file_has "$out/SHA256SUMS" "manifests/demo-model-manifest.json"
+  # the packed bundle with models installs end to end
+  prepare_fresh
+  run_script install --package "$out"
+  want_rc 0
+  current_is "$NEW_VER"
+  want_no_secret
+)
+
+c_pack_model_sha_mismatch_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-ms" out="$tmp/outpkg-ms"
+  make_checkout "$src"
+  write_model_fixture >/dev/null
+  printf 'extra bytes\n' >>"$MODEL_ROOT/asr/demo/model.bin"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY" --model-root "$MODEL_ROOT" --model-manifest "$MODEL_MANIFEST"
+  pack_denied "$OUT" "$out"
+  want_out "asr/demo/model.bin"
+)
+
+c_pack_model_dir_artifact_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local sha src="$tmp/checkout-dir" out="$tmp/outpkg-dir"
+  make_checkout "$src"
+  sha="$(write_model_fixture)"
+  sed -i 's/"kind": "file"/"kind": "dir"/' "$MODEL_MANIFEST"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY" --model-root "$MODEL_ROOT" --model-manifest "$MODEL_MANIFEST"
+  pack_denied "$OUT" "$out"
+  want_out "dir artifacts"
+)
+
+c_pack_model_no_license_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-nolic" out="$tmp/outpkg-nolic"
+  make_checkout "$src"
+  write_model_fixture >/dev/null
+  sed -i 's/"license": "MIT",//' "$MODEL_MANIFEST"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY" --model-root "$MODEL_ROOT" --model-manifest "$MODEL_MANIFEST"
+  pack_denied "$OUT" "$out"
+  want_out "license"
+)
+
+c_pack_model_dotdot_path_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local sha src="$tmp/checkout-dd" out="$tmp/outpkg-dd"
+  make_checkout "$src"
+  sha="$(sha256sum "$HOME_F/config/onprem.env" | awk '{ print $1 }')"
+  write_model_fixture >/dev/null
+  sed -i "s|asr/demo/model.bin|../../onprem.env|" "$MODEL_MANIFEST"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY" --model-root "$MODEL_ROOT" --model-manifest "$MODEL_MANIFEST"
+  pack_denied "$OUT" "$out"
+)
+
+c_pack_model_flags_half_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-half" out="$tmp/outpkg-half"
+  make_checkout "$src"
+  write_model_fixture >/dev/null
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY" --model-manifest "$MODEL_MANIFEST"
+  want_rc 2
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY" --model-root "$MODEL_ROOT"
+  want_rc 2
+)
+
+c_pack_bundle_conf_missing_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-noconf" out="$tmp/outpkg-noconf"
+  mkdir -p "$src/infra/compose" "$src/infra/scripts" "$src/infra/nginx"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY"
+  pack_denied "$OUT" "$out"
+  want_out "bundle.conf"
+)
+
+c_pack_bundle_conf_license_missing_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-nolic-conf" out="$tmp/outpkg-nolic-conf"
+  make_checkout "$src"
+  sed -i '/^license console-web /d' "$src/infra/offline/bundle.conf"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY"
+  pack_denied "$OUT" "$out"
+  want_out "console-web"
+)
+
+c_pack_bundle_conf_no_requires_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-noreq" out="$tmp/outpkg-noreq"
+  make_checkout "$src"
+  sed -i '/^requires /d' "$src/infra/offline/bundle.conf"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY"
+  pack_denied "$OUT" "$out"
+  want_out "requires"
+)
+
+c_pack_nested_sums_name_listed_ok() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local src="$tmp/checkout-nested" out="$tmp/outpkg-nested"
+  make_checkout "$src"
+  # a nested file that shares the hash list's name must still be listed
+  printf 'not the package hash list\n' >"$src/infra/scripts/SHA256SUMS"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY"
+  want_rc 0
+  file_has "$out/SHA256SUMS" "infra/scripts/SHA256SUMS"
+  [[ -f "$out/SHA256SUMS.sig" ]] || { detail "no SHA256SUMS.sig"; exit 1; }
+  # and the packed bundle installs with the nested file listed
+  prepare_fresh
+  run_script install --package "$out"
+  want_rc 0
+  current_is "$NEW_VER"
+  want_no_secret
+)
+
+c_pack_model_duplicate_path_refused() (
+  prepare
+  printf '%s\n' "$NEW_SHA" >"$state/git-sha"
+  local sha src="$tmp/checkout-dup" out="$tmp/outpkg-dup"
+  make_checkout "$src"
+  sha="$(write_model_fixture)"
+  sed "s/asr.demo-model/other.model/" "$MODEL_MANIFEST" >"$tmp/other-model-manifest.json"
+  run_script pack --source "$src" --output "$out" --version "$NEW_VER" \
+    --api-image "$NEW_API" --console-web-image "$NEW_CW" --egress-proxy-image "$NEW_EG" \
+    --signing-key "$KEY" --model-root "$MODEL_ROOT" \
+    --model-manifest "$MODEL_MANIFEST" --model-manifest "$tmp/other-model-manifest.json"
+  want_rc 2
+  want_out "duplicate model artifact path"
+  [[ ! -e "$out/SHA256SUMS.sig" ]] || { detail "a refused pack left a signature"; exit 1; }
+  want_no_secret
+)
+
+c_install_unsigned_refused() (
+  prepare_fresh
+  rm -f "$tmp/pkg-$OLD_VER/SHA256SUMS.sig"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  want_out "Nothing was changed."
+  calls_lack "docker:load"
+  releases_untouched
+  [[ ! -e "$HOME_F/current" && ! -L "$HOME_F/current" ]] || {
+    detail "current exists after the refusal"
+    exit 1
+  }
+)
+
+c_install_untrusted_key_refused() (
+  prepare_fresh
+  openssl pkeyutl -sign -inkey "$ALT_KEY" -rawin -in "$tmp/pkg-$OLD_VER/SHA256SUMS" \
+    -out "$tmp/pkg-$OLD_VER/SHA256SUMS.sig" 2>/dev/null
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  want_out "Nothing was changed."
+  calls_lack "docker:load"
+  releases_untouched
+  # the same untrusted package with its own public PEM shipped inside: the
+  # package never provides trust
+  cp "$ALT_PUB" "$tmp/pkg-$OLD_VER/untrusted-key.pem"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  calls_lack "docker:load"
+  releases_untouched
+)
+
+c_install_sig_bad_refused() (
+  prepare_fresh
+  head -c 63 "$tmp/pkg-$OLD_VER/SHA256SUMS.sig" >"$tmp/pkg-$OLD_VER/short.sig"
+  mv "$tmp/pkg-$OLD_VER/short.sig" "$tmp/pkg-$OLD_VER/SHA256SUMS.sig"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  releases_untouched
+  prepare_fresh
+  head -c 64 /dev/urandom >"$tmp/pkg-$OLD_VER/SHA256SUMS.sig"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  releases_untouched
+)
+
+c_install_tamper_rewritten_refused() (
+  prepare_fresh
+  printf 'tampered\n' >>"$tmp/pkg-$OLD_VER/infra/nginx/homayar.conf"
+  rewrite_sums_unsigned "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  want_out "Nothing was changed."
+  calls_lack "docker:load"
+  releases_untouched
+)
+
+c_install_trust_missing_refused() (
+  prepare_fresh
+  rm -rf "$TRUST"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  releases_untouched
+  prepare_fresh
+  mkdir -p "$TRUST"
+  rm -f "$TRUST"/*
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  releases_untouched
+)
+
+c_install_trust_private_key_pem_refused() (
+  prepare_fresh
+  # an Ed25519 private key next to the valid public key: openssl 3 pkey
+  # -pubin would read it, but a trust file must be a PUBLIC key (D3)
+  cp "$KEY" "$TRUST/private-key.pem"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  want_out "private-key.pem"
+  want_no_out "PRIVATE KEY"
+  releases_untouched
+)
+
+c_install_trust_not_regular_pem_refused() (
+  prepare_fresh
+  mkdir "$TRUST/folder.pem"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  want_out "folder.pem"
+  releases_untouched
+  prepare_fresh
+  ln -s "$TRUST/nowhere.pem" "$TRUST/dangling.pem"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  want_out "dangling.pem"
+  releases_untouched
+)
+
+c_install_trust_rsa_pem_refused() (
+  prepare_fresh
+  openssl pkey -in "$RSA_KEY" -pubout -out "$TRUST/wrong-algorithm.pem" 2>/dev/null
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "signature"
+  want_out "wrong-algorithm.pem"
+  releases_untouched
+)
+
+c_install_manifest_missing_refused() (
+  prepare_fresh
+  rm -f "$tmp/pkg-$OLD_VER/BUNDLE.manifest"
+  write_sums "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  want_out "Nothing was changed."
+  calls_lack "docker:load"
+  releases_untouched
+)
+
+c_install_manifest_image_hash_refused() (
+  prepare_fresh
+  sed -i "s|^image images/api.tar [0-9a-f]\\{64\\} |image images/api.tar $(printf '0%.0s' {1..64}) |" \
+    "$tmp/pkg-$OLD_VER/BUNDLE.manifest"
+  write_sums "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  releases_untouched
+)
+
+c_install_manifest_ref_mismatch_refused() (
+  prepare_fresh
+  sed -i "s|^image images/api.tar \([0-9a-f]*\) $OLD_API |image images/api.tar \1 homayar/api:9.9.9 |" \
+    "$tmp/pkg-$OLD_VER/BUNDLE.manifest"
+  write_sums "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  releases_untouched
+)
+
+c_install_manifest_license_refused() (
+  prepare_fresh
+  sed -i "s|^image images/api.tar \(.*\) LicenseRef-Homayar-Proprietary$|image images/api.tar \1 Bad Licence|" \
+    "$tmp/pkg-$OLD_VER/BUNDLE.manifest"
+  write_sums "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  releases_untouched
+)
+
+c_install_manifest_model_missing_line_refused() (
+  prepare_fresh
+  mkdir -p "$tmp/pkg-$OLD_VER/models/asr"
+  printf 'an unlisted model\n' >"$tmp/pkg-$OLD_VER/models/asr/extra.bin"
+  write_sums "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  releases_untouched
+)
+
+c_install_manifest_line_missing_file_refused() (
+  prepare_fresh
+  printf 'model models/gone.bin %s MIT gone.model\n' "$(printf 'a%.0s' {1..64})" \
+    >>"$tmp/pkg-$OLD_VER/BUNDLE.manifest"
+  write_sums "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  releases_untouched
+)
+
+c_install_manifest_unknown_record_refused() (
+  prepare_fresh
+  printf 'frobnicate one two\n' >>"$tmp/pkg-$OLD_VER/BUNDLE.manifest"
+  write_sums "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  releases_untouched
+)
+
+c_install_manifest_no_requires_refused() (
+  prepare_fresh
+  sed -i '/^requires /d' "$tmp/pkg-$OLD_VER/BUNDLE.manifest"
+  write_sums "$tmp/pkg-$OLD_VER"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  releases_untouched
+)
+
+c_install_unlisted_sig2_refused() (
+  prepare_fresh
+  cp "$tmp/pkg-$OLD_VER/SHA256SUMS.sig" "$tmp/pkg-$OLD_VER/SHA256SUMS.sig2"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "unlisted file: SHA256SUMS.sig2"
+  releases_untouched
+  prepare_fresh
+  cp "$PUB" "$tmp/pkg-$OLD_VER/extra.pem"
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 2
+  want_out "unlisted file: extra.pem"
+  releases_untouched
+)
+
+c_install_rotation_second_key() (
+  prepare_fresh
+  cp "$ALT_PUB" "$TRUST/rotation-new-key.pem"
+  openssl pkeyutl -sign -inkey "$ALT_KEY" -rawin -in "$tmp/pkg-$OLD_VER/SHA256SUMS" \
+    -out "$tmp/pkg-$OLD_VER/SHA256SUMS.sig" 2>/dev/null
+  run_script install --package "$tmp/pkg-$OLD_VER"
+  want_rc 0
+  current_is "$OLD_VER"
+  want_out "fingerprint $ALT_FINGERPRINT"
+  want_no_secret
+)
+
+c_upgrade_unsigned_refused() (
+  prepare
+  rm -f "$tmp/pkg-$NEW_VER/SHA256SUMS.sig"
+  run_script upgrade --package "$tmp/pkg-$NEW_VER"
+  want_rc 2
+  want_out "signature"
+  want_out "Nothing was changed."
+  current_is "$OLD_VER"
+  calls_lack "compose:stop"
+  calls_lack "compose:exec:postgres:pg_dump"
+  want_no_secret
+)
+
+c_upgrade_untrusted_key_refused() (
+  prepare
+  openssl pkeyutl -sign -inkey "$ALT_KEY" -rawin -in "$tmp/pkg-$NEW_VER/SHA256SUMS" \
+    -out "$tmp/pkg-$NEW_VER/SHA256SUMS.sig" 2>/dev/null
+  run_script upgrade --package "$tmp/pkg-$NEW_VER"
+  want_rc 2
+  want_out "signature"
+  current_is "$OLD_VER"
+  calls_lack "compose:stop"
+  calls_lack "compose:exec:postgres:pg_dump"
+  want_no_secret
+)
+
+c_upgrade_tamper_rewritten_refused() (
+  prepare
+  printf 'tampered\n' >>"$tmp/pkg-$NEW_VER/infra/nginx/homayar.conf"
+  rewrite_sums_unsigned "$tmp/pkg-$NEW_VER"
+  run_script upgrade --package "$tmp/pkg-$NEW_VER"
+  want_rc 2
+  want_out "signature"
+  current_is "$OLD_VER"
+  calls_lack "compose:stop"
+  calls_lack "compose:exec:postgres:pg_dump"
+  want_no_secret
+)
+
+c_upgrade_manifest_broken_refused() (
+  prepare
+  sed -i '/^requires /d' "$tmp/pkg-$NEW_VER/BUNDLE.manifest"
+  write_sums "$tmp/pkg-$NEW_VER"
+  run_script upgrade --package "$tmp/pkg-$NEW_VER"
+  want_rc 2
+  want_out "BUNDLE.manifest"
+  current_is "$OLD_VER"
+  calls_lack "compose:stop"
+  calls_lack "compose:exec:postgres:pg_dump"
+  want_no_secret
+)
+
 # --- run all cases -------------------------------------------------------------------
 
 run_case c_usage_no_command
@@ -1438,6 +2115,45 @@ run_case c_pkg_no_slash_image_ref_ok
 run_case c_skip_reason_control_char_refused
 run_case c_support_bundle_logs_empty_count_zero
 run_case c_support_bundle_scan_crash_fails_closed
+# HOM-107
+run_case c_pack_key_from_env
+run_case c_pack_no_key_refused
+run_case c_pack_key_mode_refused
+run_case c_pack_key_not_ed25519_refused
+run_case c_pack_key_missing_file_refused
+run_case c_pack_models_included
+run_case c_pack_model_sha_mismatch_refused
+run_case c_pack_model_dir_artifact_refused
+run_case c_pack_model_no_license_refused
+run_case c_pack_model_dotdot_path_refused
+run_case c_pack_model_flags_half_refused
+run_case c_pack_bundle_conf_missing_refused
+run_case c_pack_bundle_conf_license_missing_refused
+run_case c_pack_bundle_conf_no_requires_refused
+run_case c_pack_nested_sums_name_listed_ok
+run_case c_pack_model_duplicate_path_refused
+run_case c_install_unsigned_refused
+run_case c_install_untrusted_key_refused
+run_case c_install_sig_bad_refused
+run_case c_install_tamper_rewritten_refused
+run_case c_install_trust_missing_refused
+run_case c_install_trust_rsa_pem_refused
+run_case c_install_trust_private_key_pem_refused
+run_case c_install_trust_not_regular_pem_refused
+run_case c_install_manifest_missing_refused
+run_case c_install_manifest_image_hash_refused
+run_case c_install_manifest_ref_mismatch_refused
+run_case c_install_manifest_license_refused
+run_case c_install_manifest_model_missing_line_refused
+run_case c_install_manifest_line_missing_file_refused
+run_case c_install_manifest_unknown_record_refused
+run_case c_install_manifest_no_requires_refused
+run_case c_install_unlisted_sig2_refused
+run_case c_install_rotation_second_key
+run_case c_upgrade_unsigned_refused
+run_case c_upgrade_untrusted_key_refused
+run_case c_upgrade_tamper_rewritten_refused
+run_case c_upgrade_manifest_broken_refused
 
 printf '%d passed, %d failed\n' "$passed" "$failed"
 [[ "$failed" -eq 0 ]]
