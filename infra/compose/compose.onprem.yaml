@@ -85,9 +85,26 @@ x-app-environment: &app-environment
   DIARIZATION_PROVIDER: "${DIARIZATION_PROVIDER:-unavailable}"
   INTELLIGENCE_PROVIDER: "${INTELLIGENCE_PROVIDER:-openai_compatible}"
   LOCAL_AI_BASE_URL: "${LOCAL_AI_BASE_URL:-}"
+  # Chat model and timeout for the LOCAL_AI_BASE_URL endpoint (HOM-351). The
+  # timeout (above 0, at most 900) applies to that endpoint only; cloud
+  # endpoints and LLM_FALLBACK_BASE_URL keep the adapter's 60 s.
+  LLM_MODEL: "${LLM_MODEL:-default}"
+  LOCAL_AI_TIMEOUT_SECONDS: "${LOCAL_AI_TIMEOUT_SECONDS:-60}"
+  # Output cap (256 to 32768) and sampling profile (greedy or
+  # qwen3-nonthinking) for the LOCAL_AI_BASE_URL endpoint only (HOM-351).
+  LOCAL_AI_MAX_TOKENS: "${LOCAL_AI_MAX_TOKENS:-4096}"
+  LOCAL_AI_SAMPLING: "${LOCAL_AI_SAMPLING:-greedy}"
   WHISPER_MODEL: "${WHISPER_MODEL:-base}"
   WHISPER_DEVICE: "${WHISPER_DEVICE:-cpu}"
   WHISPER_COMPUTE_TYPE: "${WHISPER_COMPUTE_TYPE:-int8}"
+  # Offline weights (HOM-351 GPU demo): load a pinned local model directory,
+  # refuse runtime downloads, and verify manifest artifacts under
+  # MODEL_ARTIFACT_ROOT (paths in the manifest are relative to it). HF_HUB_OFFLINE
+  # is read by huggingface_hub; empty behaves like unset.
+  WHISPER_MODEL_PATH: "${WHISPER_MODEL_PATH:-}"
+  WHISPER_LOCAL_FILES_ONLY: "${WHISPER_LOCAL_FILES_ONLY:-false}"
+  HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-}"
+  MODEL_ARTIFACT_ROOT: "${MODEL_ARTIFACT_ROOT:-}"
   # Named Whisper profile and language policy (HOM-39, ADR 0044). An empty
   # profile keeps the WHISPER_* values above.
   ASR_PROFILE: "${ASR_PROFILE:-}"

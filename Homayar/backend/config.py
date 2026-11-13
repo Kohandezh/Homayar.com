@@ -63,6 +63,12 @@ SECRET_REDACTED = "**********"  # noqa: S105 - redaction marker, not a credentia
 # that must rebuild Settings from a dump (tests); nothing else should pass it.
 REVEAL_SECRETS_CONTEXT = "reveal_secrets"
 
+# LOCAL_AI_MAX_TOKENS range and the LOCAL_AI_SAMPLING names (HOM-351 U5). The
+# names equal openai_compatible.SAMPLING_PROFILES; a test keeps them equal.
+LOCAL_AI_MAX_TOKENS_MIN = 256
+LOCAL_AI_MAX_TOKENS_MAX = 32768
+LOCAL_AI_SAMPLING_PROFILES: tuple[str, ...] = ("greedy", "qwen3-nonthinking")
+
 
 def _serialize_secret(value: str, info: SerializationInfo) -> str:
     context = info.context or {}
@@ -710,6 +716,18 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     local_ai_base_url: str = ""
+    # Chat timeout for the LOCAL_AI_BASE_URL endpoint only (HOM-351): a local
+    # GPU server can need longer than a cloud API. Cloud endpoints and the
+    # LLM_FALLBACK_BASE_URL adapter keep the adapter's 60 s default
+    # (openai_compatible.DEFAULT_TIMEOUT_SECONDS; a test keeps them equal).
+    local_ai_timeout_seconds: float = 60.0
+    # Output cap and sampling profile for the LOCAL_AI_BASE_URL endpoint only
+    # (HOM-351 U5). Cloud and fallback adapters always send the adapter's
+    # DEFAULT_MAX_TOKENS and greedy sampling. The defaults equal the adapter's
+    # constants (a test keeps them equal); the adapter module is not imported
+    # here because it is slow to import.
+    local_ai_max_tokens: int = 4096
+    local_ai_sampling: str = "greedy"
     # Local embedding and reranker endpoints (HOM-351, ADR 0047 D5): private
     # OpenAI-compatible servers next to LOCAL_AI_BASE_URL. No cloud fallback:
     # empty means the stage is unconfigured.
@@ -989,6 +1007,19 @@ class Settings(BaseSettings):
             parse_rate_limits(self.provider_rate_limits)  # raises ValueError
         if bool(self.llm_fallback_base_url.strip()) != bool(self.llm_fallback_model.strip()):
             raise ValueError("LLM_FALLBACK_BASE_URL and LLM_FALLBACK_MODEL are set together")
+        if not 0 < self.local_ai_timeout_seconds <= 900:
+            raise ValueError("LOCAL_AI_TIMEOUT_SECONDS must be above 0 and at most 900")
+        if isinstance(self.local_ai_max_tokens, bool) or not (
+            LOCAL_AI_MAX_TOKENS_MIN <= self.local_ai_max_tokens <= LOCAL_AI_MAX_TOKENS_MAX
+        ):
+            raise ValueError(
+                f"LOCAL_AI_MAX_TOKENS must be a whole number from {LOCAL_AI_MAX_TOKENS_MIN} "
+                f"to {LOCAL_AI_MAX_TOKENS_MAX}"
+            )
+        if self.local_ai_sampling not in LOCAL_AI_SAMPLING_PROFILES:
+            raise ValueError(
+                "LOCAL_AI_SAMPLING must be one of: " + ", ".join(LOCAL_AI_SAMPLING_PROFILES)
+            )
         if self.pii_mapping_keys or self.pii_mapping_active_key_id:
             from backend.privacy.mapping_crypto import parse_keyring
 
