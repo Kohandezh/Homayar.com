@@ -1732,6 +1732,11 @@ def test_on_postgres_the_migration_creates_and_drops_only_the_coaching_table(
     config = _alembic(monkeypatch, settings.database_url)
     try:
         command.stamp(config, "head")
+        others_head = _other_tables()
+        # HOM-128 sits on top, so its objects are gone below the head; the
+        # base-state snapshot is taken at this revision, where every other
+        # table already exists (each comparison stays like with like).
+        command.downgrade(config, revision.revision)
         others = _other_tables()
         command.downgrade(config, BASE_HEAD)
         assert _scalar("SELECT version_num FROM alembic_version") == BASE_HEAD
@@ -1743,10 +1748,10 @@ def test_on_postgres_the_migration_creates_and_drops_only_the_coaching_table(
             assert _count(name) == count, name
 
         command.upgrade(config, "head")
-        assert _scalar("SELECT version_num FROM alembic_version") == revision.revision
+        assert _scalar("SELECT version_num FROM alembic_version") == code_migration_head()
         assert _shape() == orm
         assert _ids() == set()
-        assert _other_tables() == others
+        assert _other_tables() == others_head
         _check(config)
 
         for index, rules in enumerate((*CHECK_RULES, *UNIQUE_RULES)):
@@ -1765,7 +1770,7 @@ def test_on_postgres_the_migration_creates_and_drops_only_the_coaching_table(
         command.upgrade(config, "head")
         assert _shape() == orm
         assert _ids() == set()
-        assert _other_tables() == others
+        assert _other_tables() == others_head
         _check(config)
     finally:
         reset_settings_cache()
