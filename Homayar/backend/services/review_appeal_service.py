@@ -1063,6 +1063,14 @@ def decide_appeal(
     changes = {
         d.criterion.criterion_id: d.decided_outcome for d in decisions if d.decision == "change"
     }
+    # HOM-77 (ADR 0062 D2): a decision that would cancel a coaching task whose coachee
+    # the decider is refuses here, before the first write.  A local import: the coaching
+    # service imports this module.
+    from backend.services import coaching_service
+
+    coaching_service.check_decider_not_coachee(
+        db, appeal=appeal, changes=changes, decider_user_id=caller.user_id
+    )
     scored = None
     outcomes: dict[str, str] = {}
     if changes:
@@ -1124,6 +1132,11 @@ def decide_appeal(
         appeal_result_id = stored.id
         final_outcome = stored.outcome
     db.flush()
+    # HOM-77 (ADR 0062 D3): a change of a coached criterion to an outcome other than
+    # failed cancels its active coaching task, in this transaction.
+    coaching_service.cancel_overturned(
+        db, appeal=appeal, changes=changes, decider_user_id=caller.user_id, now=now
+    )
     notification_service.notify_appeal(
         db,
         appeal=appeal,

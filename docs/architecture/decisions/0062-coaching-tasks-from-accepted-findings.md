@@ -277,7 +277,35 @@ item. When an appeal is decided later (the HOM-76 decide route) and it changes a
 criterion that has an active coaching task to an outcome other than `failed`, the
 same transaction cancels that task with `finding_overturned`
 (`cancelled_by_user_id` = the decider), writes its audit event and notifies the
-coachee and the owner.
+coachee and the owner (the owner only when the owner is not the decider, as D6 says
+for every cancel). The decider is never that task's coachee (D2): a decider who is
+the coachee of an active task this decision would cancel is refused with
+`422 appeal_decider_is_party` before anything is written, even when they are no
+longer the call's agent.
+
+**Details fixed in PR 2.** The design left these open; PR 2 decides them:
+
+- Routes 3 and 9 (the detail and the history) need `coaching:respond`, like the HOM-76
+  appeal detail needs `review:appeal`. The service then answers the supervisor view,
+  the coachee view or `404 coaching_task_not_found`.
+- `GET /api/v1/coaching-tasks` shows every status when no `status` filter is given, so
+  a closed task's follow-up outcome stays visible to the allowed roles (F47). A bad
+  filter is `422 coaching_filter_invalid`, like `review_filter_invalid`.
+- The agent view also holds `revision` (the coachee needs it to acknowledge),
+  `agent_user_id` (the caller), `created_at`, `updated_at`, `closed_at` and
+  `cancelled_at`. It never holds the cancel note.
+- The history roles are `coachee`, `owner` (the current owner), `reviewer` and
+  `system`. In the coachee's view any other actor is `reviewer` with a null id, and a
+  user id stays in the details only when it is the coachee's or the current owner's.
+- Every text (the instruction and each note) is stored after Python `str.strip()`,
+  which also removes tabs and newlines. A required text that is blank after the strip
+  is refused; an optional note (acknowledgement, cancel) that is blank is stored as
+  no note.
+- The acknowledgement note is checked after the state check.
+- An owner or admin who is the call's current agent (and not the coachee) still sees
+  the task through the supervisor routes, as ADR 0051 and ADR 0057 let admins see
+  every item, but never creates, reassigns, closes or cancels it
+  (`422 coaching_actor_is_agent`).
 
 ### D4. Reminders and overdue notices (PR 2)
 
@@ -303,6 +331,14 @@ left gets its due-soon reminder on the first sweep, because the window rule alre
 holds. A task that is already overdue on its first sweep gets only the overdue notice:
 the sweep sets `reminder_notified_at` too, with no due-soon row, so a late reminder
 never follows an overdue notice.
+
+PR 2 also fixes these details. The two marks are not a user's write: they never
+change `revision` or `updated_at`, so they never cause a revision conflict for the
+coachee or the owner. A deleted call gets no notice. One run handles at most 500
+tasks per workspace (earliest `due_at` first); the next run takes the rest. Each task
+commits on its own, so a second sweep at the same time waits for the row and then
+finds the mark set. The sweep reports its heartbeat as `coaching_reminders`, like the
+other periodic tasks.
 
 ### D5. Audit history
 
