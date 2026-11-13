@@ -312,6 +312,7 @@ The routes of a product module (`quality`: scorecards, review items, calibration
 | GET | /api/v1/meetings/{meeting_id}/playback | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/transcript | meeting:read |
 | GET | /api/v1/meetings/{meeting_id}/transcript/revisions | meeting:read |
+| GET | /api/v1/meetings/{meeting_id}/transcript/timeline | meeting:read |
 | POST | /api/v1/meetings/{meeting_id}/transcript/corrections | meeting:update +csrf |
 | POST | /api/v1/meetings/{meeting_id}/analysis/recompute | meeting:update +csrf |
 | GET | /api/v1/meetings/{meeting_id}/evidence | meeting:read |
