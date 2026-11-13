@@ -3394,6 +3394,7 @@ class RetrievalEmbedding(Base):
         CheckConstraint(
             "length(vector) = 4 * dimensions", name="ck_retrieval_embedding_vector_size"
         ),
+        CheckConstraint("length(text_sha256) = 64", name="ck_retrieval_embedding_text_sha256"),
         CheckConstraint("length(embedding_version) = 64", name="ck_retrieval_embedding_version"),
         Index("ix_retrieval_embedding_workspace_version", "workspace_id", "embedding_version"),
     )
@@ -5100,6 +5101,7 @@ def _changed_columns(target: object) -> set[str]:
 @event.listens_for(PiiMapping, "before_update")
 @event.listens_for(TranscriptTextView, "before_update")
 @event.listens_for(TextViewSegment, "before_update")
+@event.listens_for(RetrievalEmbedding, "before_update")
 @event.listens_for(TextViewEntity, "before_update")
 def _refuse_segment_update(_mapper, _connection, target: object) -> None:
     changed = _changed_columns(target)

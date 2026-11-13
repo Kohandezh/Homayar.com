@@ -29,10 +29,24 @@ redacted when the workspace enforces a redaction policy.
 `retrieval_entries` holds one row per `text_view_segments` row under one
 `index_version`. The source is `text_view_segments.text`, the normalized text
 of ADR 0034. That text is already redacted when the workspace enforces a
-redaction policy, so an index row never holds text a default reader could not
-see. The row copies the segment's lineage: meeting, revision, text view, text
-view segment and raw segment ids, the sequence, the revision number, the
-language, the text and its sha256. `index_version` (for example
+redaction policy, and an index row is never returned as evidence unless its
+text view matches the workspace's current default reader view. The rule: an
+entry is evidence only while its text view's (`input_view`,
+`input_policy_digest`) equals the default reader view of the workspace now, as
+`backend.privacy.transcript_view.choose_view(workspace, requested=None, ...)`
+gives it: original with no digest when redaction is off, redacted with the
+policy digest when it is on. Same rule as `routers/v1/reports.py:528-533`.
+Readers join `transcript_text_views` through `text_view_id`. PR 2's read
+primitives apply the rule, and HOM-94 must keep it. Said plainly: after an
+admin changes the redaction policy, old entries stop being evidence at once;
+they come back only when a new text view is derived and indexed (the indexer
+then deletes the old-policy entries). The row copies the segment's lineage:
+meeting, revision, text view, text view segment and raw segment ids, the
+sequence, the revision number, the language, the text and its sha256. PR 2
+copies `workspace_id` and `meeting_id` of an entry from its
+`text_view_segments` row, and those of an embedding from its entry, never from
+the caller. PR 2 tests that invariant. Composite foreign keys that pin the
+copy are a possible later change. `index_version` (for example
 `retrieval-index/1`) names the index layout. A different layout writes new rows
 under a new version; it never overwrites the old ones. The unique constraint on
 (text_view_segment_id, index_version) keeps one entry per segment and version.
@@ -61,8 +75,11 @@ so its cost is bounded by the candidate set PR 2 (and HOM-95) pass in.
 
 ### D4. Embedding version: a new model never overwrites an old vector
 
-`embedding_version` is the sha256 of a canonical JSON of the provider identity
-(`provider`, `model`, `params`), the `dimensions` and the `index_version`. The
+`embedding_version` is the sha256 of a canonical JSON of `provider`, `model`,
+`dimensions` and `index_version` only. `ProviderIdentity.params` is NOT hashed:
+for the shipped adapter it is the endpoint URL, and moving the server must not
+invalidate every vector. Same model, same dimensions and same index version
+mean the same vector space. The
 unique constraint on (entry_id, embedding_version) keeps one vector per entry
 and version. A new model or a new index version never overwrites an old vector;
 it writes new rows. A reindex for a new version can run next to the old index
@@ -131,9 +148,11 @@ tables of this decision.
   re-applied row-level security; no pgvector, no extension, no stored tsvector
   column, no trigger.
 - `retrieval_embeddings` holds no UPDATE grant for the application role: a
-  vector is written once and deleted only by the purge. `retrieval_entries`
-  keeps UPDATE, because PR 2 sets `superseded_at` and re-syncs the ACL snapshot
-  columns.
+  vector is written once and never changed. It is deleted by the purge, or by
+  cascade when its entry is deleted (the indexer removing old-policy entries in
+  D1, a reindex swapping out the old index version in D4, a hard delete in D8).
+  `retrieval_entries` keeps UPDATE, because PR 2 sets `superseded_at` and
+  re-syncs the ACL snapshot columns.
 - The stored ACL snapshot can be stale between the last index run and the live
   row. A stale snapshot can never leak: every read joins the live meeting and
   applies `RecordAccess.meeting_clause`, so a removed or re-attributed record

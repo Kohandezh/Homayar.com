@@ -84,6 +84,7 @@ ENTRY_CHECKS = {
 EMBEDDING_CHECKS = {
     "ck_retrieval_embedding_dimensions": "dimensions >= 1 AND dimensions <= 4096",
     "ck_retrieval_embedding_vector_size": "length(vector) = 4 * dimensions",
+    "ck_retrieval_embedding_text_sha256": "length(text_sha256) = 64",
     "ck_retrieval_embedding_version": "length(embedding_version) = 64",
 }
 # The partial live index's WHERE clause, as in the ORM.

@@ -84,6 +84,7 @@ from backend.database.saas_models import (
     StageState,
     Team,
     TextViewSegment,
+    TranscriptImmutableError,
     TranscriptRevision,
     TranscriptSegment,
     TranscriptSource,
@@ -123,6 +124,7 @@ ENTRY_CHECKS = {
 EMBEDDING_CHECKS = {
     "ck_retrieval_embedding_dimensions": "dimensions >= 1 AND dimensions <= 4096",
     "ck_retrieval_embedding_vector_size": "length(vector) = 4 * dimensions",
+    "ck_retrieval_embedding_text_sha256": "length(text_sha256) = 64",
     "ck_retrieval_embedding_version": "length(embedding_version) = 64",
 }
 # The partial live index's WHERE clause, character for character.
@@ -369,6 +371,18 @@ def _assert_vector_size_rules(tenant: dict) -> None:
     )
 
 
+def _assert_embedding_text_sha256_rules(tenant: dict) -> None:
+    setup = _indexed(tenant, "embedding_text_sha256")
+    entry_id = _add(RetrievalEntry, _entry(setup))
+    _refused(
+        RetrievalEmbedding,
+        _embedding(setup, entry_id, text_sha256="a" * 63),
+        "ck_retrieval_embedding_text_sha256",
+    )
+    # Allow-control: a full sha256 hex digest.
+    _add(RetrievalEmbedding, _embedding(setup, entry_id, text_sha256="a" * 64))
+
+
 def _assert_embedding_version_rules(tenant: dict) -> None:
     setup = _indexed(tenant, "embedding_version")
     entry_id = _add(RetrievalEntry, _entry(setup))
@@ -386,6 +400,7 @@ RULES = (
     _assert_text_sha256_rules,
     _assert_dimensions_rules,
     _assert_vector_size_rules,
+    _assert_embedding_text_sha256_rules,
     _assert_embedding_version_rules,
 )
 
@@ -433,6 +448,28 @@ def test_a_second_embedding_of_the_same_entry_and_version_is_refused(client, ema
         RetrievalEmbedding,
         _embedding(setup, entry_id, embedding_version=OTHER_VERSION, model="another-model"),
     )
+
+
+# --- an embedding row is written once, at the ORM guard too (SPEC revision 2, R5) --------------
+
+
+def test_an_embedding_row_cannot_be_updated_but_a_new_version_row_can(client, email_outbox):
+    tenant = _tenant(client, email_outbox, "immutable")
+    setup = _indexed(tenant, "immutable")
+    entry_id = _add(RetrievalEntry, _entry(setup))
+    embedding_id = _add(RetrievalEmbedding, _embedding(setup, entry_id))
+    with inspection_session_factory()() as db:
+        row = db.get(RetrievalEmbedding, embedding_id)
+        row.vector = b"\x00" * 8
+        with pytest.raises(TranscriptImmutableError, match="RetrievalEmbedding"):
+            db.flush()
+        db.rollback()
+    # Allow-control: a new version of the same entry is a new row, not an update.
+    _add(
+        RetrievalEmbedding,
+        _embedding(setup, entry_id, embedding_version=OTHER_VERSION, model="another-model"),
+    )
+    assert len(_ids(EMBEDDINGS, entry_id=entry_id)) == 2
 
 
 # --- the ORM declares the design ---------------------------------------------------------------
