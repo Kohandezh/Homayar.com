@@ -117,7 +117,8 @@ by start.
 
 `asr_nonspeech_gate_enabled: bool = True` in `backend/config.py`, next to the ASR chunking
 settings; the factory passes it to both `LocalWhisperProvider` constructions. It is the
-rollback switch.
+rollback switch. Both Compose `x-app-environment` anchors pass it as
+`ASR_NONSPEECH_GATE_ENABLED` with the code default (SPEC amendment 3).
 
 ## Measurements
 
