@@ -362,10 +362,18 @@ def _schema(database: Outcome) -> dict[str, Any]:
 
 
 def _queue(jobs: Outcome | None, redis: Outcome) -> dict[str, Any]:
+    from backend.celery_app import DECLARED_QUEUES
+
     broker_length = None
     if redis.state == "done":
-        length = _gauge(redis.value.snapshot, "homayar_broker_queue_length")
-        broker_length = None if length is None else int(length)
+        # The sum over every declared queue (HOM-42): waiting meeting jobs are
+        # in the ASR queues, so processing alone would hide them.
+        lengths = [
+            _gauge(redis.value.snapshot, "homayar_broker_queue_length", queue=name)
+            for name in DECLARED_QUEUES
+        ]
+        if all(length is not None for length in lengths):
+            broker_length = int(sum(lengths))
     if jobs is None or jobs.state != "done":
         return {
             "status": "unknown",

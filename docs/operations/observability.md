@@ -116,7 +116,7 @@ instead of the API's request threadpool.
 | `homayar_dispatch_outbox` | `state` | `job_dispatches` |
 | `homayar_dispatch_oldest_due_age_seconds` | none (age of the oldest due, unpublished row; 0 when none is due) | `job_dispatches` |
 | `homayar_provider_endpoints`, `homayar_provider_circuits_open`, `homayar_provider_endpoints_failing`, `homayar_provider_endpoints_failed_15m`, `homayar_provider_consecutive_failures_max` | `stage` (`asr`, `diarization`, `intelligence`, `tts`, `other`) | `provider_health` |
-| `homayar_broker_queue_length` | `queue` | Redis `LLEN processing` |
+| `homayar_broker_queue_length` | `queue` (`processing`, `asr-cpu`, `asr-gpu`) | Redis `LLEN` of each declared queue, one sample per queue (HOM-42, ADR 0074): meeting jobs wait in `asr-cpu` / `asr-gpu`, the sweeps in `processing` |
 | `homayar_periodic_task_last_success_timestamp_seconds`, `..._last_failure_...`, `..._last_run_...`, `..._last_duration_seconds` | `task` | sweep heartbeats |
 | `homayar_periodic_task_result` | `task`, `field` | the last run's outcome counters (for example `retention_purge`/`purges_failed`) |
 | `homayar_periodic_task_interval_seconds` | `task` | configured beat interval |

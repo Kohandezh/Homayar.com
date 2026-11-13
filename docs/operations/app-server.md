@@ -344,6 +344,74 @@ count against the limit.
   the worker limit above and `WORKER_MEMORY_BUDGET_MIB` must agree: set the budget to the
   `mem_limit` of the worker service.
 
+### Worker readiness and the ASR queues (HOM-42, ADR 0074)
+
+Meeting jobs (ASR, diarization, analysis) no longer wait in `processing`. A job that needs a
+GPU (the `gpu-p40-large-v3` profile, or `WHISPER_DEVICE=cuda`) goes to `asr-gpu`. Every other
+meeting job goes to `asr-cpu`. The api picks the queue from its own settings. When the api
+does not see `ASR_PROFILE`, it publishes to `asr-cpu`, and a GPU worker takes that too.
+
+At start the worker checks what it can run. It reuses the HOM-108 preflight checks: the
+local ASR runtime, the NVIDIA driver, and free VRAM on the target GPU against the VRAM the
+model needs (3584 MiB for `gpu-p40-large-v3`, times the worker processes). Then it adds the
+ASR queues it qualifies for to `--queues processing`. A GPU-qualified worker takes `asr-gpu`
+and `asr-cpu`. A CPU worker takes `asr-cpu`. A worker that fails the check takes no ASR
+queue, still runs the periodic sweeps on `processing`, and does not warm a model. The worker
+command does not change.
+
+- `WORKER_ASR_QUEUES` (`auto`; `off` takes no ASR queue), `WORKER_VRAM_BUDGET_MIB` (`0`, no
+  budget: only the free VRAM counts) and `ASR_MODEL_VRAM_MIB` (`0`, the built-in estimate)
+  reach the worker only.
+- `-X` / `--exclude-queues` is not supported for the worker at all. The worker decides
+  `asr-cpu` and `asr-gpu` from its readiness check and never leaves its queues empty. So with
+  `-X` an unqualified worker still consumes `processing`, and it logs `worker_queue_refused`
+  for ASR queues you never named. Use `--queues` (keep `--queues processing`) and
+  `WORKER_ASR_QUEUES` instead: `off` for a worker that must not take meeting jobs.
+- If a worker still gets a message from an ASR queue it is not qualified for (a race at
+  start, or a manual `add_consumer`), it puts the message back (`asr_job_requeued`) and stops
+  consuming that queue (`asr_consumer_cancelled queue=<q>`), so a qualified worker takes it.
+- `worker_not_qualified reason=<reason> requirement=<cpu|gpu>` in the worker log (level
+  ERROR, right after `worker_readiness` at start) means this worker runs no meeting job.
+  The reason names the failed check, for example `gpu_driver_failed`, `gpu_memory_failed`
+  or `vram_over_budget`. `worker_readiness` lists the measured values.
+- A GPU job is never run on a CPU-only worker and never falls back to the CPU. It waits in
+  `asr-gpu` until a qualified worker is up. The waiting count is
+  `homayar_broker_queue_length{queue="asr-gpu"}` on `/metrics`. In the system health page,
+  `broker_queue_length` is the sum of the three queues.
+
+Check one worker container, and all live workers with their queues:
+
+```bash
+~/homayar/hc exec worker python -m backend.jobs.worker_readiness --check
+~/homayar/hc exec worker python -m backend.jobs.worker_readiness --workers
+```
+
+`--check` prints the readiness record as JSON and exits 0 (qualified), 1 (not qualified) or
+2 (configuration error). `--workers` prints each live worker with its readiness and active
+queues, and each queue with its length and consumer count. It exits 1 when an ASR queue has
+waiting messages and no consumer, and 2 when the broker cannot be reached.
+
+Release step: right after a deploy that includes this change (HOM-42), run both commands
+above on the server:
+
+1. `~/homayar/hc exec worker python -m backend.jobs.worker_readiness --check`. Expect exit 0
+   on the GPU worker, with `"qualified": true` and `"queues": ["asr-gpu", "asr-cpu"]`.
+2. `~/homayar/hc exec worker python -m backend.jobs.worker_readiness --workers`. Expect
+   `"ok": true`.
+
+If `--check` fails, the worker takes no meeting job and every new meeting job waits in
+`asr-cpu` or `asr-gpu`. Look at:
+
+- `reason` in the JSON, and the `checks` list (each failed check has a `detail` line).
+- `asr_runtime_failed`: the CTranslate2 probe. It runs in a child Python process; it fails
+  when CTranslate2 is missing from the image, cannot load its CUDA libraries, or sees no CUDA
+  device. The worker image must be the `-gpu` image.
+- `gpu_driver_failed`: run `~/homayar/hc exec worker nvidia-smi`. It must list the P40. When
+  `nvidia-smi` is missing or fails inside the worker container, the GPU is not passed to
+  that container.
+- `gpu_memory_failed` or `vram_over_budget`: free VRAM (`vram_free_mib`) or the budget is
+  below `vram_required_mib`. `vram_allowed_processes` says how many processes fit.
+
 ## Health Checks
 
 On the server (measured: 200, and `/readyz` says database and redis `ready`):

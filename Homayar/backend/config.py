@@ -788,6 +788,16 @@ class Settings(BaseSettings):
     # Resident memory of one loaded ASR model (MiB). 0: use the built-in
     # estimate from the profile or the model name.
     asr_model_memory_mib: int = 0
+    # Worker readiness and ASR routing (HOM-42, ADR 0074). "auto": the worker
+    # checks its ASR runtime at start and consumes the ASR queues it qualifies
+    # for. "off": the worker consumes no ASR queue.
+    worker_asr_queues: str = "auto"
+    # VRAM the worker's ASR processes may use in total (MiB). 0: no budget,
+    # only the free VRAM of the GPU counts.
+    worker_vram_budget_mib: int = 0
+    # VRAM of one loaded ASR model (MiB). 0: use the built-in estimate from the
+    # profile or the model name.
+    asr_model_vram_mib: int = 0
     model_artifact_root: str = ""
     # Speech synthesis (P0 wave): "unavailable" (default), "piper" (local
     # CLI) or "local_http" (private /v1/audio/speech).  tts_voices maps
@@ -1249,7 +1259,20 @@ class Settings(BaseSettings):
             raise ValueError("WORKER_MEMORY_BUDGET_MIB must be 0 (no budget) or more")
         if self.asr_model_memory_mib < 0:
             raise ValueError("ASR_MODEL_MEMORY_MIB must be 0 (built-in estimate) or more")
+        # Worker readiness (HOM-42, ADR 0074).
+        if self.worker_vram_budget_mib < 0:
+            raise ValueError("WORKER_VRAM_BUDGET_MIB must be 0 (no budget) or more")
+        if self.asr_model_vram_mib < 0:
+            raise ValueError("ASR_MODEL_VRAM_MIB must be 0 (built-in estimate) or more")
         return self
+
+    @field_validator("worker_asr_queues")
+    @classmethod
+    def validate_worker_asr_queues(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in {"auto", "off"}:
+            raise ValueError("WORKER_ASR_QUEUES must be auto or off")
+        return value
 
     def asr_chunk_settings(self) -> ChunkSettings:
         """The long-call chunking of these settings; raises ``ValueError`` when invalid."""

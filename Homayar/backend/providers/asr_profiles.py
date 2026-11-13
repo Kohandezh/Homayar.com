@@ -31,6 +31,9 @@ class ASRProfile:
     # Resident memory of one loaded model in one worker process (RAM, MiB).
     # The worker capacity check reads it (HOM-41, ADR 0067).
     memory_mib: int = 0
+    # GPU memory of one loaded model in one worker process (VRAM, MiB). 0 for
+    # a CPU profile. The worker readiness check reads it (HOM-42, ADR 0074).
+    vram_mib: int = 0
     notes: str = ""
 
 
@@ -86,6 +89,8 @@ _PROFILES = (
         # HOM-351 measured a 3.0 GiB peak on the P40; 4608 plus the 512 MiB
         # worker base equals the demo's 5120 MiB limit.
         memory_mib=4608,
+        # HOM-351 measured a 2.9 GiB VRAM peak; 3584 leaves about 600 MiB headroom.
+        vram_mib=3584,
         notes="Tesla P40 (compute capability 6.1): int8 weights, float32 for the other layers.",
     ),
 )

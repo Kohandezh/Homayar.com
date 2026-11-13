@@ -253,6 +253,13 @@ services:
       ASR_BATCH_SIZE: "${ASR_BATCH_SIZE:-1}"
       WORKER_MEMORY_BUDGET_MIB: "${WORKER_MEMORY_BUDGET_MIB:-0}"
       ASR_MODEL_MEMORY_MIB: "${ASR_MODEL_MEMORY_MIB:-0}"
+      # Worker readiness and ASR routing (HOM-42, ADR 0074): worker-only
+      # settings. The worker checks its ASR runtime at start and adds the ASR
+      # queues it qualifies for to --queues processing. 0 = no VRAM budget,
+      # or the built-in VRAM estimate.
+      WORKER_ASR_QUEUES: "${WORKER_ASR_QUEUES:-auto}"
+      WORKER_VRAM_BUDGET_MIB: "${WORKER_VRAM_BUDGET_MIB:-0}"
+      ASR_MODEL_VRAM_MIB: "${ASR_MODEL_VRAM_MIB:-0}"
     volumes:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"

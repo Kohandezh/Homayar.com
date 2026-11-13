@@ -107,14 +107,15 @@ def heartbeat_store() -> Iterator[heartbeats.MemoryHeartbeatStore]:
 
 
 class _FakeRedis:
-    def __init__(self, queue_length: int) -> None:
-        self.queue_length = queue_length
+    # HOM-42: one length per declared queue; broker_queue_length is their sum.
+    def __init__(self, queue_lengths: dict[str, int]) -> None:
+        self.queue_lengths = queue_lengths
 
     def ping(self) -> bool:
         return True
 
-    def llen(self, _name: str) -> int:
-        return self.queue_length
+    def llen(self, name: str) -> int:
+        return self.queue_lengths[name]
 
     def close(self) -> None:
         pass
@@ -122,7 +123,7 @@ class _FakeRedis:
 
 @pytest.fixture
 def redis_up(monkeypatch) -> _FakeRedis:
-    fake = _FakeRedis(queue_length=4)
+    fake = _FakeRedis(queue_lengths={"processing": 1, "asr-cpu": 1, "asr-gpu": 2})
     monkeypatch.setattr(redis.Redis, "from_url", classmethod(lambda cls, url, **kwargs: fake))
     return fake
 

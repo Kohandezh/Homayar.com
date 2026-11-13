@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+
+from celery.exceptions import Reject
+
 from backend.celery_app import (
     ARTIFACT_CLEANUP_TASK,
     COACHING_REMINDER_TASK,
@@ -21,6 +25,60 @@ from backend.config import get_settings
 from backend.observability.correlation import correlation_scope, job_correlation_id
 from backend.observability.heartbeats import run_with_heartbeat
 
+logger = logging.getLogger(__name__)
+
+
+def _asr_delivery_guard(task, job_id: str, workspace_id: str | None) -> dict | None:
+    """Run ASR only on a worker whose readiness holds the job's queue (HOM-42).
+
+    ``None``: run the job here. A dict: the job was published again to its
+    queue (a message from before HOM-42). Raises ``Reject(requeue=True)``
+    when this worker must not take an ASR delivery (a start-up race).
+    """
+    import backend.celery_app as celery_module
+    from backend.jobs import dispatcher, worker_readiness
+
+    settings = get_settings()
+    delivery_queue = (task.request.delivery_info or {}).get("routing_key")
+    readiness = celery_module.current_worker_readiness()
+    if readiness is None:
+        # No worker_init readiness in this process: assess once and keep it.
+        readiness = worker_readiness.assess_worker_readiness(
+            settings, pool="solo", concurrency=1, probes=worker_readiness.default_probes()
+        )
+        celery_module.remember_worker_readiness(readiness)
+    decision = worker_readiness.asr_delivery_decision(readiness, delivery_queue, settings)
+    if decision == "run":
+        return None
+    if decision == "reroute":
+        target = worker_readiness.asr_queue_for(settings)
+        try:
+            dispatcher.publish_processing_job(job_id, settings, workspace_id=workspace_id)
+        except Exception as exc:
+            # Keep the message rather than lose the job; class name only.
+            logger.error(
+                "asr_job_reroute_failed from=%s to=%s error=%s",
+                delivery_queue,
+                target,
+                type(exc).__name__,
+            )
+            raise Reject(requeue=True) from None
+        logger.info("asr_job_rerouted from=%s to=%s", delivery_queue, target)
+        return {"job_id": job_id, "status": "rerouted", "queue": target}
+    logger.warning("asr_job_requeued queue=%s reason=%s", delivery_queue, readiness.reason)
+    # The requeued message goes back at once. Stop consuming that queue on this
+    # worker (it is consumed by mistake, for example after a manual
+    # add_consumer), so a qualified worker takes it. Best effort.
+    try:
+        celery_app.control.cancel_consumer(delivery_queue, destination=[task.request.hostname])
+    except Exception as exc:
+        logger.error(
+            "asr_consumer_cancel_failed queue=%s error=%s", delivery_queue, type(exc).__name__
+        )
+    else:
+        logger.info("asr_consumer_cancelled queue=%s", delivery_queue)
+    raise Reject(requeue=True)
+
 
 @celery_app.task(
     bind=True,
@@ -35,6 +93,14 @@ def process_meeting_job(self, job_id: str, workspace_id: str | None = None):
     # One correlation id per attempt (HOM-113): its audit events and log lines
     # carry ``job:<id>:<delivery>``; ``job:<id>`` is the prefix an operator searches.
     with correlation_scope(job_correlation_id(job_id, self.request.id)):
+        # Readiness guard (HOM-42): before the payload check and any ASR work.
+        # Only a broker delivery is routed. Eager mode and a direct call
+        # (``task.run(...)``; Celery's tracer sets called_directly=False for a
+        # delivery) have no delivery, so there is nothing to route.
+        if not self.request.is_eager and not self.request.called_directly:
+            rerouted = _asr_delivery_guard(self, job_id, workspace_id)
+            if rerouted is not None:
+                return rerouted
         # The message may assert a workspace; the persisted job is the authority.
         if not verify_job_payload(job_id, workspace_id):
             return {"job_id": job_id, "status": "rejected_payload"}

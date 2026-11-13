@@ -45,10 +45,10 @@ TEST_REDIS_CONTAINER_ENV = "TEST_REDIS_CONTAINER"
 WORKER_MODULE = "backend.tests._transport_worker"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# kombu's Redis transport keys: the declared queue at default priority and the
-# hash of deliveries handed to a consumer but not yet acknowledged (shared by
-# every consumer of the database).
-QUEUE_KEY = "processing"
+# kombu's Redis transport keys: one list per declared queue at default priority
+# (backend.celery_app.DECLARED_QUEUES; meeting jobs wait in the ASR queues since
+# HOM-42) and the hash of deliveries handed to a consumer but not yet
+# acknowledged (shared by every consumer of the database).
 UNACKED_KEY = "unacked"
 
 # Shortened lease for the drills (the deployed default is 120 s / 30 s): a
@@ -93,10 +93,13 @@ def flush_test_database(url: str) -> None:
 
 
 def queue_state(url: str) -> dict[str, int]:
-    """Deliveries waiting in the queue and deliveries held unacknowledged."""
+    """Deliveries waiting in the declared queues and deliveries held unacknowledged."""
+    from backend.celery_app import DECLARED_QUEUES
+
     client = redis_client(url)
     try:
-        return {"queued": int(client.llen(QUEUE_KEY)), "unacked": int(client.hlen(UNACKED_KEY))}
+        queued = sum(int(client.llen(key)) for key in DECLARED_QUEUES)
+        return {"queued": queued, "unacked": int(client.hlen(UNACKED_KEY))}
     finally:
         client.close()
 
