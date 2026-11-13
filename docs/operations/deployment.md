@@ -428,6 +428,8 @@ curl --fail --silent --show-error http://127.0.0.1:8080/readyz
 
 The production server for `app.homayar.com` (one shared host behind a host nginx TLS front) has its own runbook: [app-server.md](app-server.md). Its relay part is in [relay-tunnel.md](relay-tunnel.md).
 
+A customer install is driven by one operator command, `infra/scripts/homayar-onprem.sh`; see [onprem-lifecycle.md](onprem-lifecycle.md).
+
 For an HTTP-only local session, bind to loopback, set `APP_ENVIRONMENT=development`, and
 set `SECURE_COOKIES=false`. Production remains `APP_ENVIRONMENT=production` with secure
 cookies and TLS. Do not expose PostgreSQL, Redis, MinIO, or Neo4j ports publicly; the base
@@ -535,6 +537,8 @@ the transaction that follows), so behind a transaction-mode pooler use the direc
 role and leave `DATABASE_APP_ROLE` empty.
 
 ## Upgrade and Rollback
+
+For a customer (on-prem) install, use `infra/scripts/homayar-onprem.sh upgrade` and `rollback` instead of the steps below; they wrap them with a verified backup check, a pre-migration dump and an automatic rollback ([onprem-lifecycle.md](onprem-lifecycle.md)).
 
 **Mandatory internal TLS (HOM-161).** From this release, production refuses to start with
 a plaintext internal hop. Before upgrading:
