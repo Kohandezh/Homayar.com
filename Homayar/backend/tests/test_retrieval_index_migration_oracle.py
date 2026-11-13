@@ -1256,23 +1256,33 @@ def test_the_conversation_purge_removes_and_counts_both_tables_and_keeps_other_c
         _processed(client, tenant, settings, key=f"retrieval-purge-{index:04d}", index=index)
         for index in range(3)
     ]
+    before = {
+        meeting_id: (_ids(ENTRIES, meeting_id=meeting_id), _ids(EMBEDDINGS, meeting_id=meeting_id))
+        for meeting_id in (indexed, kept, plain)
+    }
     purged_entries, purged_vectors = _filled(_Database(tenant, "purge-indexed", meeting_id=indexed))
     staying_entries, staying_vectors = _filled(_Database(tenant, "purge-kept", meeting_id=kept))
     _Database(tenant, "purge-plain", meeting_id=plain)
-    assert (_count(ENTRIES, meeting_id=indexed), _count(EMBEDDINGS, meeting_id=indexed)) == (3, 4)
+    assert (len(purged_entries), len(purged_vectors)) == (3, 4)
+    assert _ids(ENTRIES, meeting_id=indexed) == before[indexed][0] | set(purged_entries)
+    assert _ids(EMBEDDINGS, meeting_id=indexed) == before[indexed][1] | set(purged_vectors)
 
     for meeting_id in (indexed, plain):
         _delete_conversation(client, tenant, meeting_id)
         purge = _purge(meeting_id)
         assert purge.state is PurgeState.COMPLETED, purge.last_error
-    assert (_count(ENTRIES, meeting_id=indexed), _count(EMBEDDINGS, meeting_id=indexed)) == (0, 0)
-    assert _ids(ENTRIES) == set(staying_entries)
-    assert _ids(EMBEDDINGS) == set(staying_vectors)
+    for meeting_id in (indexed, plain):
+        assert _count(ENTRIES, meeting_id=meeting_id) == 0
+        assert _count(EMBEDDINGS, meeting_id=meeting_id) == 0
+    assert _ids(ENTRIES) == before[kept][0] | set(staying_entries)
+    assert _ids(EMBEDDINGS) == before[kept][1] | set(staying_vectors)
     assert not (set(purged_entries) | set(purged_vectors)) & (_ids(ENTRIES) | _ids(EMBEDDINGS))
-    removed = _purge(plain).content_rows_removed
-    assert _purge(indexed).content_rows_removed == removed + len(purged_entries) + len(
-        purged_vectors
-    )
+    held = {
+        meeting_id: len(entries) + len(vectors) for meeting_id, (entries, vectors) in before.items()
+    }
+    added = len(purged_entries) + len(purged_vectors)
+    removed = _purge(plain).content_rows_removed - held[plain]
+    assert _purge(indexed).content_rows_removed == removed + held[indexed] + added
 
 
 def _sqlite_index_sql(connection, name: str) -> dict[str, str]:

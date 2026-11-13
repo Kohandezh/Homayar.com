@@ -45,6 +45,7 @@ from backend.media import (
 )
 from backend.media.channel_store import load_channel_inspection
 from backend.privacy.transcript_view import choose_view
+from backend.retrieval.index import refresh_meeting_acl
 from backend.routers.v1.insights import _quality, invalid_time_range
 from backend.schemas.ingestions import IngestionResponse
 from backend.schemas.integrations import (
@@ -973,6 +974,10 @@ def update_meeting(
             detail={"code": "no_changes", "message": "No updatable field was provided"},
         )
     if attribution:
+        # The retrieval index re-syncs its ACL snapshot in this same request
+        # (HOM-93, ADR 0068 D6): a stale snapshot can never leak, but it can
+        # hide evidence from the newly attributed team or agent.
+        refresh_meeting_acl(db, meeting=meeting, now=datetime.now(UTC))
         # Ids only.  The review item says which review the change moved, if any.
         record_audit_event(
             db,

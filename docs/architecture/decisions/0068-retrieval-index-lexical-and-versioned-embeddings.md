@@ -79,7 +79,9 @@ so its cost is bounded by the candidate set PR 2 (and HOM-95) pass in.
 `dimensions` and `index_version` only. `ProviderIdentity.params` is NOT hashed:
 for the shipped adapter it is the endpoint URL, and moving the server must not
 invalidate every vector. Same model, same dimensions and same index version
-mean the same vector space. The
+mean the same vector space. If a future adapter has a param that changes the
+vectors (for example a pooling or truncation option), that param must go into
+the hash by name; a transport param such as the endpoint never does. The
 unique constraint on (entry_id, embedding_version) keeps one vector per entry
 and version. A new model or a new index version never overwrites an old vector;
 it writes new rows. A reindex for a new version can run next to the old index
