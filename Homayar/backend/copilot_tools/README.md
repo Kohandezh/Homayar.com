@@ -46,8 +46,11 @@ Import the pure parts from `backend.copilot_tools`, and `run_tool` from
 has `name`, `description` (one English line), `required_permissions` (sorted by value) and
 `input_schema` (a JSON Schema object with `"additionalProperties": false`).
 
-The stored `input_schema` is deeply read-only (objects are `MappingProxyType`, arrays are
-tuples), so no code can open a schema after `REGISTRY_DIGEST` was taken.
+`ToolSpec` is immutable. It keeps the schema frozen in private storage, and
+`input_schema` is a read-only property that returns a fresh plain dict (with lists) on
+every access, equal to the tool's `tool_schemas()` entry. Changing the returned dict
+changes nothing in the registry, so no code can open a schema after `REGISTRY_DIGEST` was
+taken.
 
 `tool_schemas()` gives a fresh list of plain dicts, sorted by name, of `{"name",
 "description", "input_schema"}`. This is the shape a model's tool-use API takes. The schema property names

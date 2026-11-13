@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from dataclasses import FrozenInstanceError, dataclass, fields
 from types import MappingProxyType
 from typing import Any
 
@@ -86,17 +86,60 @@ def _thaw(value: Any) -> Any:
     return value
 
 
-@dataclass(frozen=True)
 class ToolSpec:
-    name: str
-    description: str  # one English line
-    required_permissions: tuple[Permission, ...]  # sorted by value; the caller needs all
-    # JSON Schema: type object, additionalProperties false.  Stored deeply read-only
-    # (objects are MappingProxyType, arrays are tuples); tool_schemas() gives plain copies.
-    input_schema: Mapping[str, Any]
+    """One tool: ``name``, ``description`` (one English line), ``required_permissions``
+    (sorted by value; the caller needs all) and ``input_schema`` (a JSON Schema object:
+    type object, ``additionalProperties`` false).
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "input_schema", _freeze(self.input_schema))
+    Immutable (SPEC A13).  The schema is kept frozen in private storage (objects are
+    ``MappingProxyType``, arrays are tuples).  ``input_schema`` is a read-only property that
+    returns a fresh plain dict (with lists) on every access, so changing the returned dict
+    changes nothing in the registry and ``REGISTRY_DIGEST`` stays true."""
+
+    __slots__ = ("_schema", "description", "name", "required_permissions")
+
+    name: str
+    description: str
+    required_permissions: tuple[Permission, ...]
+    _schema: Mapping[str, Any]
+
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        required_permissions: tuple[Permission, ...],
+        input_schema: Mapping[str, Any],
+    ) -> None:
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "description", description)
+        object.__setattr__(self, "required_permissions", tuple(required_permissions))
+        object.__setattr__(self, "_schema", _freeze(input_schema))
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return _thaw(self._schema)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise FrozenInstanceError(f"cannot assign to field {name!r}")
+
+    def __delattr__(self, name: str) -> None:
+        raise FrozenInstanceError(f"cannot delete field {name!r}")
+
+    def _key(self) -> tuple[str, str, tuple[Permission, ...], str]:
+        schema = json.dumps(self.input_schema, sort_keys=True, separators=(",", ":"))
+        return (self.name, self.description, self.required_permissions, schema)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ToolSpec):
+            return NotImplemented
+        return self._key() == other._key()
+
+    def __hash__(self) -> int:
+        return hash(self._key())
+
+    def __repr__(self) -> str:
+        permissions = [permission.value for permission in self.required_permissions]
+        return f"ToolSpec(name={self.name!r}, required_permissions={permissions!r})"
 
 
 _UUID: dict[str, Any] = {"type": "string", "pattern": ID_VALUE_PATTERN}
@@ -274,7 +317,7 @@ def tool_schemas() -> list[dict[str, Any]]:
         {
             "name": spec.name,
             "description": spec.description,
-            "input_schema": _thaw(spec.input_schema),
+            "input_schema": spec.input_schema,  # a fresh plain dict
         }
         for spec in sorted(TOOLS.values(), key=lambda spec: spec.name)
     ]
