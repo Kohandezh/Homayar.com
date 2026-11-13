@@ -545,6 +545,9 @@ class Settings(BaseSettings):
     api_key_rate_limit_per_hour: int = 600
     api_key_max_active_per_workspace: int = 20
     api_key_max_ttl_days: int = 365
+    # Export size limit (HOM-138, ADR 0063): an export whose strings sum to more
+    # characters than this answers 413 export_too_large before anything is rendered.
+    export_max_text_chars: int = 2_000_000
     upload_dir: str = str(PROJECT_ROOT / "data" / "legacy-uploads")
     upload_quarantine_dir: str = str(PROJECT_ROOT / "data" / "quarantine")
     max_upload_size_mb: int = 250
@@ -884,6 +887,8 @@ class Settings(BaseSettings):
     def validate_security_configuration(self) -> Settings:
         if self.max_upload_size_mb <= 0 or self.max_audio_duration_seconds <= 0:
             raise ValueError("Upload size and duration limits must be positive")
+        if self.export_max_text_chars < 1:
+            raise ValueError("EXPORT_MAX_TEXT_CHARS must be at least 1")
         if not 1 <= self.retention_days_default <= 3650:
             raise ValueError(
                 "RETENTION_DAYS_DEFAULT must be between 1 and 3650 (new workspaces start FINITE)"

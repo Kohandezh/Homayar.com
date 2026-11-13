@@ -49,6 +49,8 @@ from backend.routers.v1.insights import (
     action_response,
     export_privacy,
     meeting_view,
+    refuse_expired_export,
+    refuse_oversized_export,
     summary_response,
 )
 from backend.schemas.meetings import MeetingQualityResponse
@@ -99,6 +101,7 @@ from backend.services.report_export_service import (
     EXPORT_VERSION,
     ExportProvenance,
     render_report_export,
+    report_export_text_size,
 )
 from backend.services.report_service import (
     evidence_status_of,
@@ -808,8 +811,13 @@ def export_call_report(
     audit with ``artifact=report``.  The JSON ``report`` value equals the body
     of ``GET /report`` for the same caller and view; every export carries the
     export version, the transcript revision and the analysis provenance.
+
+    Order (HOM-138, D7): access (404), retention (410), revision pin (409),
+    size (413), then render, audit, commit.  Nothing is stored: every
+    download runs these checks again.
     """
     meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
+    refuse_expired_export(db, context=context, meeting=meeting)
     meeting_view_ = meeting_view(
         db,
         context=context,
@@ -841,6 +849,7 @@ def export_call_report(
         analysis=_export_analysis(run),
         privacy=export_privacy(view=meeting_view_, revision=revision, run=run),
     )
+    refuse_oversized_export(report_export_text_size(report, provenance), settings)
     rendered = render_report_export(report, provenance, format_name, title=meeting.title)
     record_audit_event(
         db,

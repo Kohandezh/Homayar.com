@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from datetime import datetime
 from typing import Any
 
@@ -110,6 +110,26 @@ class RenderedExport:
     content: bytes
     media_type: str
     extension: str
+
+
+def export_text_size(value: Any) -> int:
+    """The export text size (HOM-138, D5): the summed ``len()`` of every
+    string value in ``value``, through dicts (values only, keys excluded),
+    lists, tuples and dataclasses.  Numbers, booleans, dates and ``None``
+    count nothing.  Measured on the data before anything is rendered."""
+    total = 0
+    stack: list[Any] = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            total += len(item)
+        elif isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item)
+        elif is_dataclass(item) and not isinstance(item, type):
+            stack.extend(getattr(item, entry.name) for entry in fields(item))
+    return total
 
 
 def _timestamp(milliseconds: int, *, decimal: str) -> str:

@@ -84,12 +84,14 @@ from backend.services.export_service import (
     ExportRevision,
     ExportSegment,
     MeetingExport,
+    export_text_size,
     render_meeting_export,
 )
 from backend.services.meeting_service import latest_job_for_meeting
 from backend.services.quality_service import assess_meeting
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
 from backend.services.report_service import evidence_status_of, meeting_completeness
+from backend.services.retention_policy import is_retention_expired
 from backend.services.team_service import authorize_attribution_change
 from backend.services.transcript_service import (
     SegmentEdit,
@@ -1785,6 +1787,44 @@ def _refuse_stale_revision(revision: TranscriptRevision | None, revision_id: str
         )
 
 
+def conversation_retention_expired() -> HTTPException:
+    """410 for an export of a conversation past its retention (HOM-138, D6)."""
+    return HTTPException(
+        status_code=410,
+        detail={
+            "code": "conversation_retention_expired",
+            "message": "This conversation's retention has expired; it can no longer be exported",
+        },
+    )
+
+
+def refuse_expired_export(db: Session, *, context: WorkspaceContext, meeting: Meeting) -> None:
+    """D6: a workspace export of a conversation the retention sweep would
+    expire now answers 410.  A legal hold or an active processing job keeps
+    it exportable, exactly as it keeps the sweep away (``is_retention_expired``).
+    Called after the meeting lookup, so a caller who may not read the
+    meeting gets the 404 and never learns its retention state."""
+    if is_retention_expired(
+        db, workspace=context.workspace, meeting=meeting, now=datetime.now(UTC)
+    ):
+        raise conversation_retention_expired()
+
+
+def refuse_oversized_export(size: int, settings: Settings) -> None:
+    """D5: more export text than ``export_max_text_chars`` answers 413 before
+    anything is rendered or audited.  Exactly the limit is allowed."""
+    limit = settings.export_max_text_chars
+    if size > limit:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "export_too_large",
+                "message": "This export is larger than the export size limit",
+                "details": {"limit": limit},
+            },
+        )
+
+
 @router.get("/meetings/{meeting_id}/export")
 def export_meeting(
     meeting_id: str,
@@ -1802,11 +1842,14 @@ def export_meeting(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> Response:
+    # Order (HOM-138, D7): access (404), retention (410), revision pin (409),
+    # size (413), then render, audit, commit.
     meeting = _meeting_or_404(
         db,
         context=context,
         meeting_id=meeting_id,
     )
+    refuse_expired_export(db, context=context, meeting=meeting)
     meeting_view_ = meeting_view(
         db,
         context=context,
@@ -1836,34 +1879,33 @@ def export_meeting(
             .order_by(ActionItem.created_at.asc())
         )
     )
-    rendered = render_meeting_export(
-        MeetingExport(
-            meeting_id=meeting.id,
-            title=meeting.title,
-            language=meeting.language,
-            duration_seconds=meeting.duration_seconds,
-            created_at=meeting.created_at,
-            summary=meeting_view_.text(summary.overview) if summary else None,
-            topics=meeting_view_.texts(list(summary.topics or [])) if summary else [],
-            segments=[
-                ExportSegment(
-                    sequence=segment.sequence,
-                    speaker=segment.speaker_name,
-                    start_ms=segment.start_ms,
-                    end_ms=segment.end_ms,
-                    text=segment.text,
-                )
-                for segment in transcript.segments
-            ],
-            actions=[_export_action(action, meeting_view_) for action in actions],
-            transcript_revision=_export_revision(revision),
-            summary_evidence_status=summary.evidence_status if summary else None,
-            quality=_quality(db, meeting, settings=settings).model_dump(),
-            privacy=export_privacy(view=meeting_view_, revision=revision, run=run),
-            analysis=_export_analysis(run),
-        ),
-        format_name,
+    export = MeetingExport(
+        meeting_id=meeting.id,
+        title=meeting.title,
+        language=meeting.language,
+        duration_seconds=meeting.duration_seconds,
+        created_at=meeting.created_at,
+        summary=meeting_view_.text(summary.overview) if summary else None,
+        topics=meeting_view_.texts(list(summary.topics or [])) if summary else [],
+        segments=[
+            ExportSegment(
+                sequence=segment.sequence,
+                speaker=segment.speaker_name,
+                start_ms=segment.start_ms,
+                end_ms=segment.end_ms,
+                text=segment.text,
+            )
+            for segment in transcript.segments
+        ],
+        actions=[_export_action(action, meeting_view_) for action in actions],
+        transcript_revision=_export_revision(revision),
+        summary_evidence_status=summary.evidence_status if summary else None,
+        quality=_quality(db, meeting, settings=settings).model_dump(),
+        privacy=export_privacy(view=meeting_view_, revision=revision, run=run),
+        analysis=_export_analysis(run),
     )
+    refuse_oversized_export(export_text_size(export), settings)
+    rendered = render_meeting_export(export, format_name)
     record_audit_event(
         db,
         event_type=AuditEventType.MEETING_EXPORTED,

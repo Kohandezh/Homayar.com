@@ -91,5 +91,7 @@ Only string cells are neutralized; numbers we produce stay numbers.
 - Persian fonts, shaping and RTL in the PDF: any Unicode renders without
   raising, but Helvetica shows Persian glyphs as empty boxes until HOM-138.
 - Large export limits, stored exports, their retention and signed downloads.
+- HOM-138 added the Persian PDF, the export size limit, retention checks and
+  the revocation rules: see ADR 0063.
 - No report export through share links.
 - No console change.

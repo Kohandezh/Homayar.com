@@ -5,6 +5,7 @@ description = "Homayar multi-tenant conversation intelligence platform"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "alembic==1.16.5",
+  "arabic-reshaper==3.0.0",
   "authlib==1.9.1",
   "boto3==1.40.30",
   "celery[redis]==5.5.3",
@@ -20,6 +21,7 @@ dependencies = [
   "pydantic-settings==2.10.1",
   "pwdlib[argon2]==0.2.1",
   "pyjwt[crypto]==2.15.1",
+  "python-bidi==0.6.6",
   "python-multipart==0.0.30",
   "redis==5.2.1",
   "reportlab==4.4.3",
@@ -32,7 +34,6 @@ dependencies = [
 [project.optional-dependencies]
 ai-local = ["faster-whisper==1.2.0"]
 ldap = ["ldap3==2.9.1"]
-persian-export = ["arabic-reshaper==3.0.0", "python-bidi==0.6.6"]
 
 [dependency-groups]
 dev = [

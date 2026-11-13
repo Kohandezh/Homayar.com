@@ -864,9 +864,10 @@ def test_a10_the_openapi_contract_is_current_and_summary_keeps_its_shape():
     # conversations; 1.5.0: HOM-299 added aggregate metadata; 1.6.0: HOM-37 added the
     # channel inspection on meeting detail; 1.7.0: HOM-320 made the old /aggregates
     # fields follow HOM-82; 1.8.0: HOM-58 conversation fields on MeetingResponse;
-    # 1.9.0: HOM-137 transcript export pinning (revision_id, 409, export headers).
+    # 1.9.0: HOM-137 transcript export pinning (revision_id, 409, export headers);
+    # 1.10.0: HOM-138 export retention 410 and size 413.
     # SummaryResponse is unchanged.
-    assert snapshot["info"]["version"] == "1.9.0"
+    assert snapshot["info"]["version"] == "1.10.0"
     assert sorted(snapshot["components"]["schemas"]["SummaryResponse"]["properties"]) == [
         "analysis_run",
         "analysis_run_id",

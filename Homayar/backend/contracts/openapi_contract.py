@@ -35,7 +35,7 @@ WRITE_COMMAND = "uv run python -m backend.contracts.openapi_contract --write"
 # The major number follows the /api/v1 prefix. Additive change: bump the minor. A deliberate
 # breaking change inside /api/v1 (owner-approved, no route moves to /api/v2) also bumps the
 # minor, and the description names it as breaking with the old and new meaning (1.7.0).
-CONTRACT_VERSION = "1.9.0"
+CONTRACT_VERSION = "1.10.0"
 
 SECURITY_SCHEME = "HTTPBearer"
 
@@ -114,6 +114,14 @@ current transcript revision, the answer is `409 transcript_revision_mismatch` an
 exported. Without it the export uses the current revision, as before. Every successful export
 carries two headers: `X-Homayar-Export-Version` (the export format version) and
 `X-Homayar-Transcript-Revision` (the id of the exported revision, or `none`).
+
+**Export retention and size (1.10.0).** `GET /api/v1/meetings/{meeting_id}/export` adds two
+refusals. When the conversation's retention has expired (the retention sweep would delete it
+now), the answer is `410 conversation_retention_expired`. A conversation under legal hold, or
+with a processing job still queued or running, is not expired. When the export would carry more
+text than the server's export size limit, the answer is `413 export_too_large` with the limit in
+`error.details.limit`. Exports are never stored: each request is authorized and checked again.
+Every existing answer keeps its meaning.
 
 **Errors.** Every error body is `{"error": {"code", "message", "request_id",
 "details"?}}`. `code` is stable; branch on it, not on `message`. Every response
@@ -213,7 +221,10 @@ OPERATION_NOTES: dict[tuple[str, str], str] = {
         "given and is not the id of the meeting's current transcript revision, the answer is "
         "`409 transcript_revision_mismatch` and nothing is exported. Without it the export "
         "uses the current revision. Every successful export carries `X-Homayar-Export-Version` "
-        "and `X-Homayar-Transcript-Revision` (the revision id, or `none`)."
+        "and `X-Homayar-Transcript-Revision` (the revision id, or `none`). Since 1.10.0 a "
+        "conversation past its retention is `410 conversation_retention_expired` and an "
+        "export over the size limit is `413 export_too_large`. The checks run in this order: "
+        "access (`404`), retention (`410`), `revision_id` (`409`), size (`413`)."
     ),
 }
 
@@ -237,6 +248,14 @@ ROUTE_ERROR_DESCRIPTIONS: dict[tuple[str, str, int], str] = {
         "The given `revision_id` is not the id of the meeting's current transcript revision "
         "(`transcript_revision_mismatch`). Nothing was exported."
     ),
+    ("get", "/api/v1/meetings/{meeting_id}/export", 410): (
+        "The conversation's retention has expired (`conversation_retention_expired`). "
+        "Nothing was exported."
+    ),
+    ("get", "/api/v1/meetings/{meeting_id}/export", 413): (
+        "The export would be larger than the export size limit (`export_too_large`); "
+        "`error.details.limit` is the limit in characters. Nothing was exported."
+    ),
 }
 _UPLOAD_ERRORS = (400, 401, 403, 409, 410, 413, 422, 429, 503)
 _READ_ERRORS = (401, 403, 404, 422, 429, 503)
@@ -254,7 +273,17 @@ OPERATIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("get", "/api/v1/meetings/{meeting_id}/actions"): _READ_ERRORS,
     ("get", "/api/v1/meetings/{meeting_id}/evidence"): _READ_ERRORS,
     ("get", "/api/v1/meetings/{meeting_id}/quality"): _READ_ERRORS,
-    ("get", "/api/v1/meetings/{meeting_id}/export"): (401, 403, 404, 409, 422, 429, 503),
+    ("get", "/api/v1/meetings/{meeting_id}/export"): (
+        401,
+        403,
+        404,
+        409,
+        410,
+        413,
+        422,
+        429,
+        503,
+    ),
     ("get", "/api/v1/trends/teams"): (401, 403, 422, 429, 503),
     ("get", "/api/v1/trends/me"): (401, 403, 422, 429, 503),
     ("get", "/api/v1/trends/conversations"): (401, 403, 422, 429, 503),

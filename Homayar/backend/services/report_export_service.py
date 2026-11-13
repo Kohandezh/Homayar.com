@@ -2,9 +2,10 @@
 
 Pure functions: no database, no clock (the caller passes ``generated_at``),
 no network, no file reads.  ``report_export_payload`` is the single JSON
-source the CSV flattening describes; the PDF renderer escapes every dynamic
-string so stored markup can never become live markup.  Persian text renders
-without raising, but Helvetica shows no Persian glyphs (HOM-138).
+source the CSV flattening describes.  The PDF draws every line as plain text
+with the bundled Vazirmatn font, Persian joined and in right-to-left order
+(``backend.services.pdf_text``, HOM-138): no dynamic string is ever parsed
+as markup, so stored markup can never become live markup.
 """
 
 from __future__ import annotations
@@ -13,14 +14,12 @@ import csv
 import io
 import json
 import unicodedata
-import xml.sax.saxutils
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Flowable, SimpleDocTemplate, Spacer
 
 from backend.schemas.reports import CallReportResponse
 from backend.services.export_service import (
@@ -28,6 +27,15 @@ from backend.services.export_service import (
     ExportAnalysis,
     ExportRevision,
     RenderedExport,
+    export_text_size,
+)
+from backend.services.pdf_text import (
+    BOLD_FONT,
+    REGULAR_FONT,
+    LineStyle,
+    PlainTextParagraph,
+    clean_text,
+    register_fonts,
 )
 
 __all__ = [
@@ -37,6 +45,7 @@ __all__ = [
     "neutralize_csv_cell",
     "render_report_export",
     "report_export_payload",
+    "report_export_text_size",
 ]
 
 
@@ -104,6 +113,13 @@ def report_export_payload(report: CallReportResponse, provenance: ExportProvenan
     }
 
 
+def report_export_text_size(report: CallReportResponse, provenance: ExportProvenance) -> int:
+    """The export text size of a report export (HOM-138, D5): the summed
+    length of every string value of the JSON payload, keys excluded.  The
+    same number for every format, measured before anything is rendered."""
+    return export_text_size(report_export_payload(report, provenance))
+
+
 # --- CSV ----------------------------------------------------------------------
 
 
@@ -153,26 +169,12 @@ def _render_csv(payload: dict) -> bytes:
 # --- PDF ----------------------------------------------------------------------
 
 
-def _pdf_text(value: Any) -> str:
-    """The one helper every dynamic PDF string passes through.
-
-    C0 control characters except ``\\n`` become a space, then XML escaping,
-    then newlines become ``<br/>``.  No dynamic text reaches Paragraph
-    markup unescaped, so stored ``<img>``, ``<a>`` or ``<font>`` prints as
-    text and never loads a file or adds a link.
-    """
-    if not isinstance(value, str):
-        value = str(value)
-    cleaned = "".join(char if char == "\n" or ord(char) >= 32 else " " for char in value)
-    return xml.sax.saxutils.escape(cleaned).replace("\n", "<br/>")
-
-
 def _pdf_title(title: str) -> str:
     """The title as one line of plain text (amendment B4).
 
     Every control character (newline too) becomes a space and runs of spaces
-    become one, as the page prints them.  The visible title goes through
-    ``_pdf_text`` from this value and the ``/Title`` metadata is this value,
+    become one, as the page prints them.  The page draws this value (in its
+    visual form) and the ``/Title`` metadata is this value (logical order),
     so both say the same thing and neither carries markup.
     """
     return " ".join("".join(char if ord(char) >= 32 else " " for char in title).split())
@@ -214,91 +216,71 @@ def _quality_lines(report: CallReportResponse) -> list[str]:
     return lines
 
 
+# Vazirmatn needs a taller line than Helvetica: its marks reach above and below.
+_TITLE = LineStyle(BOLD_FONT, 18, 28, space_after=6)
+_HEADING = LineStyle(BOLD_FONT, 14, 22, space_before=12, space_after=4)
+_BODY = LineStyle(REGULAR_FONT, 10, 16, space_before=3)
+
+
 def _render_pdf(report: CallReportResponse, provenance: ExportProvenance, *, title: str) -> bytes:
+    register_fonts()
     buffer = io.BytesIO()
     plain_title = _pdf_title(title)
     document = SimpleDocTemplate(
-        buffer, pagesize=A4, invariant=1, pageCompression=0, title=plain_title
+        buffer,
+        pagesize=A4,
+        invariant=1,
+        pageCompression=0,
+        title=plain_title,
+        initialFontName=REGULAR_FONT,
+        initialFontSize=10,
+        initialLeading=16,
     )
-    styles = getSampleStyleSheet()
-    story: list[Paragraph] = [
-        Paragraph(_pdf_text(plain_title), styles["Title"]),
-        Spacer(1, 12),
-    ]
+    story: list[Flowable] = [PlainTextParagraph(plain_title, _TITLE), Spacer(1, 12)]
 
     def heading(text: str) -> None:
-        story.append(Paragraph(_pdf_text(text), styles["Heading2"]))
+        story.append(PlainTextParagraph(clean_text(text), _HEADING))
 
     def body(text: str) -> None:
-        story.append(Paragraph(_pdf_text(text), styles["BodyText"]))
+        story.append(PlainTextParagraph(clean_text(text), _BODY))
 
     revision = provenance.transcript_revision
     analysis = provenance.analysis
     privacy = provenance.privacy or {}
     heading("Provenance")
-    export_version_line = f"Export version: {provenance.export_version}"
-    story.extend(
-        [
-            Paragraph(_pdf_text(export_version_line), styles["BodyText"]),
-            Paragraph(
-                _pdf_text(
-                    "Report version: "
-                    + (str(provenance.report_version) if provenance.report_version else "none")
-                ),
-                styles["BodyText"],
-            ),
-            Paragraph(_pdf_text(f"Meeting id: {provenance.meeting_id}"), styles["BodyText"]),
-            Paragraph(
-                _pdf_text(
-                    "Transcript revision: "
-                    + (
-                        f"{revision.id} (number {revision.revision_number})"
-                        if revision is not None
-                        else "none"
-                    )
-                ),
-                styles["BodyText"],
-            ),
-            Paragraph(
-                _pdf_text(
-                    "Analysis: "
-                    + (
-                        f"{analysis.provider} {analysis.model}, "
-                        f"prompt version {analysis.prompt_version}"
-                        if analysis is not None
-                        else "none"
-                    )
-                ),
-                styles["BodyText"],
-            ),
-            Paragraph(_pdf_text(f"View: {privacy.get('view', 'none')}"), styles["BodyText"]),
-            Paragraph(
-                _pdf_text(f"Privacy enforced: {privacy.get('policy_enforced', False)}"),
-                styles["BodyText"],
-            ),
-            Paragraph(
-                _pdf_text(f"Generated at: {provenance.generated_at.isoformat()}"),
-                styles["BodyText"],
-            ),
-            Spacer(1, 6),
-        ]
+    body(f"Export version: {provenance.export_version}")
+    body(
+        "Report version: "
+        + (str(provenance.report_version) if provenance.report_version else "none")
     )
+    body(f"Meeting id: {provenance.meeting_id}")
+    body(
+        "Transcript revision: "
+        + (f"{revision.id} (number {revision.revision_number})" if revision is not None else "none")
+    )
+    body(
+        "Analysis: "
+        + (
+            f"{analysis.provider} {analysis.model}, prompt version {analysis.prompt_version}"
+            if analysis is not None
+            else "none"
+        )
+    )
+    body(f"View: {privacy.get('view', 'none')}")
+    body(f"Privacy enforced: {privacy.get('policy_enforced', False)}")
+    body(f"Generated at: {provenance.generated_at.isoformat()}")
+    story.append(Spacer(1, 6))
 
     heading("Summary")
     body(report.summary.overview if report.summary is not None else "none")
     story.append(Spacer(1, 6))
 
     heading("Outcome")
-    story.append(Paragraph(_pdf_text(f"State: {report.outcome.state}"), styles["BodyText"]))
+    body(f"State: {report.outcome.state}")
     for decision in report.outcome.decisions:
-        story.append(
-            Paragraph(
-                _pdf_text(
-                    f"- {decision.text} (evidence {decision.evidence_status}, "
-                    f"supported: {decision.supported})"
-                ),
-                styles["BodyText"],
-            )
+        body(
+            f"- {decision.text} (evidence {decision.evidence_status}, "
+            f"supported: {decision.supported})"
         )
     story.append(Spacer(1, 6))
 
@@ -306,14 +288,8 @@ def _render_pdf(report: CallReportResponse, provenance: ExportProvenance, *, tit
     for line in _quality_lines(report):
         body(line)
     for finding in report.qa.findings:
-        story.append(
-            Paragraph(
-                _pdf_text(
-                    f"- {finding.text} (evidence {finding.evidence_status}, "
-                    f"supported: {finding.supported})"
-                ),
-                styles["BodyText"],
-            )
+        body(
+            f"- {finding.text} (evidence {finding.evidence_status}, supported: {finding.supported})"
         )
     story.append(Spacer(1, 6))
 

@@ -13,6 +13,8 @@ anyio==4.14.2
     #   httpx
     #   starlette
     #   watchfiles
+arabic-reshaper==3.0.0
+    # via homayar-platform
 argon2-cffi==23.1.0
     # via pwdlib
 argon2-cffi-bindings==25.1.0
@@ -140,6 +142,8 @@ pydantic-core==2.33.2
 pydantic-settings==2.10.1
     # via homayar-platform
 pyjwt==2.15.1
+    # via homayar-platform
+python-bidi==0.6.6
     # via homayar-platform
 python-dateutil==2.9.0.post0
     # via
