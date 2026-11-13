@@ -724,8 +724,11 @@ jobs:
           infra/ci/security-scan.sh
           infra/ci/tests/test-check-source-contract.sh
           infra/ci/tests/test-app-server-release.sh
+          infra/ci/tests/test-homayar-onprem.sh
+          infra/ci/tests/oracle-homayar-onprem.sh
           infra/ci/tests/test-demo-site.sh
           infra/scripts/app-server-release.sh
+          infra/scripts/homayar-onprem.sh
           infra/scripts/demo-site.sh
           infra/scripts/demo-site-nginx.sh
           infra/scripts/backup-postgres.sh
@@ -738,6 +741,12 @@ jobs:
 
       - name: Selftest the app-server release script
         run: bash infra/ci/tests/test-app-server-release.sh
+
+      - name: Selftest the on-prem lifecycle script
+        run: bash infra/ci/tests/test-homayar-onprem.sh
+
+      - name: Independent oracle for the on-prem lifecycle script
+        run: bash infra/ci/tests/oracle-homayar-onprem.sh
 
       - name: Selftest the demo site scripts
         run: bash infra/ci/tests/test-demo-site.sh
