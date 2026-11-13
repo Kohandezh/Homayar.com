@@ -22,13 +22,21 @@ from backend.security.context import (
     require_platform_operator,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.voice.admission import AdmissionPolicy, VoiceControlPlane
 from backend.voice.models import VoiceCallSession, VoiceMediaNode
 from backend.voice.state import VoiceStateError
 
-router = APIRouter(prefix="/voice", tags=["voice"])
+# HOM-229: the tenant routes are guarded by the ``voice`` module; the four
+# platform-operator routes below are install infrastructure and stay unguarded.
+router = APIRouter(
+    prefix="/voice",
+    tags=["voice"],
+    dependencies=[Depends(require_module("voice"))],
+)
+operator_router = APIRouter(prefix="/voice", tags=["voice"])
 
 _control_plane: VoiceControlPlane | None = None
 
@@ -320,7 +328,7 @@ def capacity(
     )
 
 
-@router.post("/nodes", response_model=NodeResponse)
+@operator_router.post("/nodes", response_model=NodeResponse)
 def register_node(
     payload: NodeRegisterRequest,
     request: Request,
@@ -348,7 +356,7 @@ def register_node(
     return response
 
 
-@router.post("/nodes/{node_id}/heartbeat", response_model=NodeResponse)
+@operator_router.post("/nodes/{node_id}/heartbeat", response_model=NodeResponse)
 def node_heartbeat(
     node_id: str,
     payload: NodeHeartbeatRequest,
@@ -363,7 +371,7 @@ def node_heartbeat(
     return _node_response(node)
 
 
-@router.post("/nodes/{node_id}/drain", response_model=NodeResponse)
+@operator_router.post("/nodes/{node_id}/drain", response_model=NodeResponse)
 def drain_node(
     node_id: str,
     payload: NodeDrainRequest,
@@ -390,7 +398,7 @@ def drain_node(
     return response
 
 
-@router.post("/recover", response_model=RecoverResponse)
+@operator_router.post("/recover", response_model=RecoverResponse)
 def recover(
     context: WorkspaceContext = Depends(require_platform_operator(Permission.WORKSPACE_MANAGE)),
     db: Session = Depends(get_db),

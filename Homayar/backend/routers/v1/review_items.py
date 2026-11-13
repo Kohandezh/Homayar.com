@@ -51,6 +51,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.coverage_service import COVERAGE_VERSION, CoverageWindowError
@@ -74,7 +75,11 @@ from backend.services.review_queue_service import (
     start_item,
 )
 
-router = APIRouter(prefix="/review-items", tags=["review-items"])
+router = APIRouter(
+    prefix="/review-items",
+    tags=["review-items"],
+    dependencies=[Depends(require_module("quality"))],
+)
 
 require_review_read = require_permission(Permission.REVIEW_READ)
 require_review_manage = require_write_permission(Permission.REVIEW_MANAGE)

@@ -519,6 +519,9 @@ class Settings(BaseSettings):
     enable_demo_account: bool = False
     enable_free_demo: bool = True
     demo_quota_seconds: int = 1800
+    # HOM-229: modules turned off for the whole install (comma-separated
+    # registry keys; an unknown key refuses to start).
+    disabled_modules: str = ""
     # HOM-336: false closes every self-sign-up path (register, phone OTP,
     # Google); only a workspace invitation lets a newcomer create an account.
     registration_enabled: bool = True
@@ -883,11 +886,25 @@ class Settings(BaseSettings):
         return [value.strip() for value in self.cors_origins.split(",") if value.strip()]
 
     @property
+    def disabled_module_keys(self) -> frozenset[str]:
+        from backend.services.capability_registry import parse_disabled_modules
+
+        return parse_disabled_modules(self.disabled_modules)
+
+    @property
     def webhook_retry_delays(self) -> tuple[int, ...]:
         return parse_webhook_retry_delays(self.webhook_retry_delays_seconds)
 
     @model_validator(mode="after")
     def validate_security_configuration(self) -> Settings:
+        if self.disabled_modules:
+            # HOM-229: a typo must not silently leave a module on.
+            from backend.services.capability_registry import parse_disabled_modules
+
+            try:
+                parse_disabled_modules(self.disabled_modules)
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
         if self.max_upload_size_mb <= 0 or self.max_audio_duration_seconds <= 0:
             raise ValueError("Upload size and duration limits must be positive")
         if self.export_max_text_chars < 1:

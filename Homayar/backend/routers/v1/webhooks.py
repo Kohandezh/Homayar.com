@@ -57,6 +57,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.rate_limit_service import (
@@ -85,7 +86,11 @@ from backend.services.webhook_service import (
     url_audit_fields,
 )
 
-router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+router = APIRouter(
+    prefix="/webhooks",
+    tags=["webhooks"],
+    dependencies=[Depends(require_module("integrations"))],
+)
 
 
 def _as_utc(value: datetime | None) -> datetime | None:

@@ -1126,50 +1126,53 @@ def test_link_statement_counts_and_notices(client, email_outbox, monkeypatch):
         return count(persona, LINKS, ("trend_view", trend_view), *extra)
 
     alpha_block, row = ("team_id", alpha), ("row", "family:call_reason")
+    # every count includes the HOM-229 module guard's 3 billing statements (subscription,
+    # plan, plan version) of the guarded trends routes; the session-only routes (links and
+    # the teams/me views) share their one workspace resolution with the guard
     cases = [
         # (label, link request, view request, link statements, view statements)
         (
             "issues, a page",
             link(owner, "issues", alpha_block, row),
             count(owner, ISSUES, alpha_block),
-            7,
-            14,
+            10,
+            17,
         ),
         (
             "issues, a page of one",
             link(owner, "issues", alpha_block, row, ("limit", "1")),
             count(owner, ISSUES, alpha_block),
-            7,
-            14,
+            10,
+            17,
         ),
         (
             "issues, an empty page",
             link(owner, "issues", alpha_block, row, ("offset", "50")),
             count(owner, ISSUES, alpha_block),
-            5,
-            14,
+            8,
+            17,
         ),
         (
             "issues, a refused cell",
             link(owner, "issues", alpha_block, ("row", "family:qa")),
             count(owner, ISSUES, alpha_block),
-            5,
-            14,
+            8,
+            17,
         ),
-        ("me, a page", link(owner, "me", row), count(owner, ME), 7, 14),
+        ("me, a page", link(owner, "me", row), count(owner, ME), 10, 17),
         (
             "teams, owner",
             link(owner, "teams", alpha_block, row),
             count(owner, TEAMS, alpha_block),
-            8,
-            15,
+            11,
+            18,
         ),
         (
             "teams, a member who supervises",
             link(sup, "teams", alpha_block, row),
             count(sup, TEAMS, alpha_block),
-            9,
-            16,
+            12,
+            19,
         ),
     ]
     for label, (links, response), (views, view), pinned, pinned_view in cases:

@@ -12,6 +12,11 @@ with what the caller may see, never ``403``.  Reads, not audited.  Every answer 
 ``coverage/1`` counters of its window, the scorecard state and the missing-data
 indicators (HOM-81), a ``disclosure`` block (HOM-82), and the notice
 ``correlation_not_cause`` (HOM-83).
+
+The module guard of HOM-229 splits the file into two routers with the same prefix and
+tags: the key-accepting ``/trends/issues`` keeps the normal guard; the three session-only
+views are guarded through their own session-only workspace dependency, so the HOM-82
+answer to an API key comes before the module check, in every module state (ADR 0065).
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ from backend.security.context import (
     require_permission,
     require_workspace,
 )
+from backend.security.modules import require_module
 from backend.services import role_trend_service as roles
 from backend.services import trend_link_service as links
 from backend.services.issue_trend_service import (
@@ -52,7 +58,56 @@ from backend.services.issue_trend_service import (
     validate_series,
 )
 
-router = APIRouter(prefix="/trends", tags=["trends"])
+
+async def require_session_workspace(
+    actor: Actor = Depends(require_actor),
+    workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    db: Session = Depends(get_db),
+) -> WorkspaceContext:
+    """The workspace of a session-only trends route (HOM-82, HOM-229), resolved
+    once per request: the module guard and ``require_session_permission`` share
+    this dependency, so a session caller gets workspace resolution, the module
+    check and the permission check, in that order, on one resolution."""
+    return await require_workspace(actor=actor, workspace_id=workspace_id, db=db)
+
+
+def require_session_permission(permission: Permission):
+    """``permission`` from a signed-in session only (HOM-82).  ``require_actor``
+    answers every bearer that looks like an API key (valid, unknown, revoked,
+    expired, over its rate limit) with ``401 api_key_not_accepted`` before any
+    key lookup, so every key gets one answer, in every module state.  The
+    workspace comes from the shared ``require_session_workspace`` dependency:
+    the HOM-229 module guard has already run its check on that resolution
+    before this permission check."""
+
+    async def dependency(
+        context: WorkspaceContext = Depends(require_session_workspace),
+    ) -> WorkspaceContext:
+        if not context.has(permission):
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "permission_denied", "message": "Permission denied"},
+            )
+        return context
+
+    # Policy metadata read by the route-coverage test (never by the runtime).
+    dependency.homayar_permission = permission  # type: ignore[attr-defined]
+    dependency.homayar_write = False  # type: ignore[attr-defined]
+    dependency.homayar_session_only = True  # type: ignore[attr-defined]
+    return dependency
+
+
+router = APIRouter(
+    prefix="/trends",
+    tags=["trends"],
+    dependencies=[Depends(require_module("insights"))],
+)
+
+session_router = APIRouter(
+    prefix="/trends",
+    tags=["trends"],
+    dependencies=[Depends(require_module("insights", workspace=require_session_workspace))],
+)
 
 
 def _judgment_cache(request: Request):
@@ -70,32 +125,6 @@ def _refused(code: str, key: str | None, message: str, status_code: int = 422) -
         status_code=status_code,
         detail={"code": code, "key": key, "message": message, "details": {"key": key}},
     )
-
-
-def require_session_permission(permission: Permission):
-    """``permission`` from a signed-in session only (HOM-82).  ``require_actor`` answers
-    every bearer that looks like an API key (valid, unknown, revoked, expired, over its
-    rate limit) with ``401 api_key_not_accepted`` before any key lookup, so every key gets
-    one answer, before the workspace and the permission."""
-
-    async def dependency(
-        actor: Actor = Depends(require_actor),
-        workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
-        db: Session = Depends(get_db),
-    ) -> WorkspaceContext:
-        context = await require_workspace(actor=actor, workspace_id=workspace_id, db=db)
-        if not context.has(permission):
-            raise HTTPException(
-                status_code=403,
-                detail={"code": "permission_denied", "message": "Permission denied"},
-            )
-        return context
-
-    # Policy metadata read by the route-coverage test (never by the runtime).
-    dependency.homayar_permission = permission  # type: ignore[attr-defined]
-    dependency.homayar_write = False  # type: ignore[attr-defined]
-    dependency.homayar_session_only = True  # type: ignore[attr-defined]
-    return dependency
 
 
 def _view_query(request: Request, now: datetime) -> tuple:
@@ -190,7 +219,7 @@ def read_issue_trends(
     return IssueTrendResponse.model_validate({**answer, "notices": [ASSOCIATION_NOTICE]})
 
 
-@router.get("/teams", response_model=TeamComparisonResponse)
+@session_router.get("/teams", response_model=TeamComparisonResponse)
 def read_team_comparison(
     request: Request,
     context: WorkspaceContext = Depends(require_session_permission(Permission.MEETING_READ)),
@@ -231,7 +260,7 @@ def read_team_comparison(
     return TeamComparisonResponse.model_validate(answer)
 
 
-@router.get("/me", response_model=SelfTrendResponse)
+@session_router.get("/me", response_model=SelfTrendResponse)
 def read_self_trends(
     request: Request,
     context: WorkspaceContext = Depends(require_session_permission(Permission.MEETING_READ)),
@@ -261,7 +290,7 @@ def read_self_trends(
     return SelfTrendResponse.model_validate({**answer, "notices": [ASSOCIATION_NOTICE]})
 
 
-@router.get("/conversations", response_model=TrendLinkResponse)
+@session_router.get("/conversations", response_model=TrendLinkResponse)
 def read_trend_conversations(
     request: Request,
     context: WorkspaceContext = Depends(require_session_permission(Permission.MEETING_READ)),

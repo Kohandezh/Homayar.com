@@ -35,21 +35,25 @@ ROW = "issue:intent_report_dissatisfaction"
 
 # route -> statements of one request on the reference dataset.  A = 3 (session, user,
 # workspace membership); O = 4 (session, user, organization membership, scoped workspaces);
-# P and G = the 2 population statements; coverage = 9 (1 ledger + 8 facts).
+# P and G = the 2 population statements; coverage = 9 (1 ledger + 8 facts); M = the 3
+# statements of the HOM-229 module guard (subscription, plan, plan version) on every
+# guarded module route (the workspace trends and the voicemail module).  The session-only
+# views (teams, me, conversations) share their one workspace resolution with the guard,
+# so they too are base + M, nothing more.
 STATEMENTS = {
-    "trends_issues": 14,  # A + P, G + coverage (the HOM-80 pin)
-    "trends_issues_api_key": 15,  # key, user, last_used_at write, membership + P, G + coverage
-    "trends_issues_supervisor": 15,  # A + the supervisor's assignments + P, G + coverage
-    "trends_teams": 15,  # A + active teams + P, G + grouped coverage
-    "trends_me": 15,  # A + the agent's assignments (restricted) + P, G + coverage
-    "trends_conversations": 7,  # A + P, G + 2 evidence reads: ADR 0040 decision 13, 14 - 9 + 2
+    "trends_issues": 17,  # A + M + P, G + coverage (the HOM-80 pin)
+    "trends_issues_api_key": 18,  # key, user, last_used_at write, membership + M + P, G + coverage
+    "trends_issues_supervisor": 18,  # A + M + the supervisor's assignments + P, G + coverage
+    "trends_teams": 18,  # A + M + active teams + P, G + grouped coverage
+    "trends_me": 18,  # A + M + the agent's assignments (restricted) + P, G + coverage
+    "trends_conversations": 10,  # A + M + P, G + 2 evidence reads: ADR 0040 decision 13, 14 - 9 + 2
     "organization_trends": 28,  # O + 2 workspaces x (P, G, the caller's membership, coverage)
     # O + the analyst's scope grants + 1 workspace x (P, G, membership, its assignments, the
     # known meetings, coverage): ADR 0038 decision 7, A6
     "organization_trends_restricted": 19,
     "organization_drilldown": 17,  # O + active teams + P, G + membership + grouped coverage
     "organization_aggregates": 32,  # O + 2 workspaces x (2 counts + 12), ADR 0041 decision 25
-    "voicemail_analytics": 12,  # A + the voicemail rows + 8 facts (ADR 0041 decision 24)
+    "voicemail_analytics": 15,  # A + M + the voicemail rows + 8 facts (ADR 0041 decision 24)
     "admin_coverage": 12,  # A + coverage
 }
 

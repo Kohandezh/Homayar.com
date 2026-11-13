@@ -43,6 +43,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.audit_service import record_audit_event
 from backend.services.calibration_service import (
     Change,
@@ -57,7 +58,11 @@ from backend.services.calibration_service import (
 )
 from backend.services.review_queue_service import Reviewer, ReviewQueueError, reviewer
 
-router = APIRouter(prefix="/calibration-batches", tags=["calibration-batches"])
+router = APIRouter(
+    prefix="/calibration-batches",
+    tags=["calibration-batches"],
+    dependencies=[Depends(require_module("quality"))],
+)
 
 require_review_read = require_permission(Permission.REVIEW_READ)
 require_review_manage = require_write_permission(Permission.REVIEW_MANAGE)

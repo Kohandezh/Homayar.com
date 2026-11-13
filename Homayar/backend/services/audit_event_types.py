@@ -169,6 +169,8 @@ class AuditEventType(StrEnum):
     WEBHOOK_ENDPOINT_UPDATED = "webhook.endpoint_updated", "webhook_endpoint"
     WEBHOOK_SIGNING_KEY_ROTATED = "webhook.signing_key_rotated", "webhook_endpoint"
     WEBHOOK_TEST_QUEUED = "webhook.test_queued", "webhook_endpoint"
+    WORKSPACE_MODULE_DISABLED = "workspace.module.disabled", "workspace"
+    WORKSPACE_MODULE_ENABLED = "workspace.module.enabled", "workspace"
     WORKSPACE_SETTINGS_UPDATED = "workspace.settings.updated", "workspace"
 
 

@@ -72,6 +72,9 @@ def _route_policy(route: APIRoute) -> str:
                 suffix += " +session"
             found.append(f"{permission.value}{suffix}")
             return
+        if getattr(call, "homayar_module", None) is not None:
+            # HOM-229: the module guard is an input to the policy, not a policy
+            return
         if call is ctx.require_workspace:
             found.append("workspace")
             return
