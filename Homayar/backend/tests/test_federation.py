@@ -33,9 +33,9 @@ from backend.database.saas_models import (
     FederationGroupMapping,
     IdentityProvider,
     LoginSession,
-    Membership,
     Meeting,
     MeetingStatus,
+    Membership,
     User,
     WorkspaceRole,
 )
@@ -187,9 +187,12 @@ def _make_oidc_user(
         )
         db.add(user)
         db.flush()
-        identity = AuthIdentity(user_id=user.id, **_identity_kwargs(
-            organization_id, groups=groups, verified_at=verified_at, profile=profile
-        ))
+        identity = AuthIdentity(
+            user_id=user.id,
+            **_identity_kwargs(
+                organization_id, groups=groups, verified_at=verified_at, profile=profile
+            ),
+        )
         db.add(identity)
         db.commit()
         return user.id, identity.id
@@ -814,9 +817,7 @@ def test_refresh_gone_deprovisions_federated_rows_in_two_workspaces(client, emai
 
     # everything above must have been committed by the failing request
     with inspection_session_factory()() as db:
-        sessions = list(
-            db.scalars(select(LoginSession).where(LoginSession.user_id == fed.user_id))
-        )
+        sessions = list(db.scalars(select(LoginSession).where(LoginSession.user_id == fed.user_id)))
         assert sessions and all(session.revoked_at is not None for session in sessions)
         for workspace_id in (sales, ops):
             row = db.scalar(
@@ -828,9 +829,7 @@ def test_refresh_gone_deprovisions_federated_rows_in_two_workspaces(client, emai
             assert row is not None and row.is_active is False
         assert db.get(AuthIdentity, identity_id).revoked_at is not None
         deprovisioned = db.scalars(
-            select(AuditEvent).where(
-                AuditEvent.event_type == "federation.identity.deprovisioned"
-            )
+            select(AuditEvent).where(AuditEvent.event_type == "federation.identity.deprovisioned")
         ).all()
         assert [event.target_id for event in deprovisioned] == [fed.user_id]
 
@@ -913,9 +912,7 @@ def test_api_keys_of_federated_users_carry_a_freshness_gate(client, email_outbox
     stale = owner.client.get(
         list_url, headers={"Authorization": f"Bearer {raw_key}", "X-Workspace-ID": team}
     )
-    assert stale.status_code == 401 and _error(stale) == (
-        "federation_reauthentication_required"
-    )
+    assert stale.status_code == 401 and _error(stale) == ("federation_reauthentication_required")
 
     # a non-federated user's key has no gate
     plain = _persona(client, email_outbox, email="key-plain@example.com", name="Plain")
@@ -944,7 +941,7 @@ def test_api_keys_of_federated_users_carry_a_freshness_gate(client, email_outbox
 
 def test_login_refuses_a_stale_federated_identity(client, email_outbox):
     fed = _persona(client, email_outbox, email="logingate-fed@example.com", name="Fed")
-    plain = _persona(client, email_outbox, email="logingate-plain@example.com", name="Plain")
+    _persona(client, email_outbox, email="logingate-plain@example.com", name="Plain")
     identity_id = _graft_oidc_identity(fed.user_id, fed.organization_id)
     credentials = {"identifier": "logingate-fed@example.com", "password": "SecurePass123"}
 
@@ -982,8 +979,6 @@ def test_login_refuses_a_stale_federated_identity(client, email_outbox):
 
 
 def test_otp_refusal_keeps_the_challenge_consumed(client, email_outbox, sms_outbox):
-    from backend.services.auth_service import FederationReauthenticationRequired
-
     fed = _persona(client, email_outbox, email="otpgate-fed@example.com", name="Fed")
     identity_id = _graft_oidc_identity(fed.user_id, fed.organization_id)
     with inspection_session_factory()() as db:
@@ -1102,8 +1097,10 @@ def test_the_beat_schedule_has_the_federation_entry():
     from backend.jobs import federation_revalidation as job
 
     entry = celery_app.conf.beat_schedule["federation-revalidation"]
-    assert entry["task"] == FEDERATION_REVALIDATION_TASK == (
-        "backend.jobs.revalidate_federated_identities"
+    assert (
+        entry["task"]
+        == FEDERATION_REVALIDATION_TASK
+        == ("backend.jobs.revalidate_federated_identities")
     )
     assert entry["schedule"] == 300.0
     assert entry["options"] == {"queue": PROCESSING_QUEUE, "expires": 300.0}

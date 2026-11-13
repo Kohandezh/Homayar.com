@@ -86,9 +86,7 @@ def _audit(
     )
 
 
-@router.get(
-    "/{organization_id}/federation/group-mappings", response_model=GroupMappingListResponse
-)
+@router.get("/{organization_id}/federation/group-mappings", response_model=GroupMappingListResponse)
 def list_group_mappings(
     context: OrganizationContext = Depends(
         require_organization_permission(OrganizationPermission.WORKSPACE_ADMINISTER)
@@ -158,7 +156,7 @@ def create_group_mapping(
     db.add(mapping)
     try:
         db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Two identical concurrent posts: the partial unique index refused the
         # second one after both passed the SELECT.
         db.rollback()
@@ -168,7 +166,7 @@ def create_group_mapping(
                 "code": "group_mapping_exists",
                 "message": "An identical group mapping is already active",
             },
-        )
+        ) from exc
     _audit(
         request,
         db,

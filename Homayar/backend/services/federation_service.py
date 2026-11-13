@@ -237,9 +237,7 @@ def sync_federated_memberships(
         # and an active federated row there is removed below (SPEC 3.5).
         desired: dict[str, WorkspaceRole] = {}
         for workspace_id in sorted(candidates):
-            bind_tenant_context(
-                db, workspace_id=workspace_id, organization_id=organization_id
-            )
+            bind_tenant_context(db, workspace_id=workspace_id, organization_id=organization_id)
             workspace = db.scalar(select(Workspace).where(Workspace.id == workspace_id))
             if (
                 workspace is None
@@ -256,9 +254,7 @@ def sync_federated_memberships(
 
         for workspace_id in sorted(desired):
             role = desired[workspace_id]
-            bind_tenant_context(
-                db, workspace_id=workspace_id, organization_id=organization_id
-            )
+            bind_tenant_context(db, workspace_id=workspace_id, organization_id=organization_id)
             # Same lock order as the member routes (HOM-128 F4): the seat lock
             # first when the desired role holds one, then the row FOR UPDATE,
             # only then the hand-decision check.

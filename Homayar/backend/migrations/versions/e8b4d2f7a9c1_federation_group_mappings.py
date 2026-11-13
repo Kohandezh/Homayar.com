@@ -101,7 +101,9 @@ def upgrade() -> None:
         sa.Column("workspace_id", sa.String(length=36), nullable=False),
         sa.Column(
             "role",
-            sa.Enum("ADMIN", "MEMBER", "VIEWER", name="workspacerole", native_enum=False, length=16),
+            sa.Enum(
+                "ADMIN", "MEMBER", "VIEWER", name="workspacerole", native_enum=False, length=16
+            ),
             nullable=False,
         ),
         sa.Column("created_by_user_id", sa.String(length=36), nullable=False),
@@ -121,9 +123,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     with op.batch_alter_table(TABLE, schema=None) as batch_op:
-        batch_op.create_index(
-            f"ix_{TABLE}_organization_id", ["organization_id"], unique=False
-        )
+        batch_op.create_index(f"ix_{TABLE}_organization_id", ["organization_id"], unique=False)
         batch_op.create_index(f"ix_{TABLE}_workspace_id", ["workspace_id"], unique=False)
         batch_op.create_index(
             ACTIVE_UNIQUE_INDEX,
