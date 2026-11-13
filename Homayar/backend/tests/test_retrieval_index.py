@@ -74,6 +74,7 @@ from backend.database.saas_models import (
     WorkspaceRole,
 )
 from backend.database.tenant_context import bind_tenant_context
+from backend.jobs import recompute
 from backend.jobs.leases import as_utc
 from backend.jobs.processor import process_job
 from backend.privacy.redaction_service import policy_digest
@@ -96,6 +97,7 @@ from backend.retrieval.index import (
 from backend.retrieval.lexical import lexical_search
 from backend.retrieval.vector_store import TableVectorStore
 from backend.security.authorization import RecordAccess, resolve_record_access
+from backend.tests import test_analysis_recompute as _recompute_tests
 from backend.tests import test_row_level_security as _rls
 from backend.tests._database import inspection_session_factory
 from backend.tests.test_ingestion_ledger import _headers, _patch_media, _tenant, _upload
@@ -1099,6 +1101,10 @@ def test_b9_embed_entries_writes_skips_and_fails_honestly(
     invalid = run(FakeEmbeddingProvider(model="fake-embed-nan", bad_value=float("nan")))
     assert (invalid.state, invalid.reason_code) == ("failed", "embedding_response_invalid")
     assert invalid.written == 0
+    # R7: a value outside the float32 range is refused like a non-finite one.
+    overflow = run(FakeEmbeddingProvider(model="fake-embed-overflow", bad_value=3.5e38))
+    assert (overflow.state, overflow.reason_code) == ("failed", "embedding_response_invalid")
+    assert overflow.written == 0
     assert len(_embeddings(meeting_id)) == before  # nothing written, nothing raised
 
     # Only live entries of this workspace, in entry_ids, are embedded.
@@ -1592,3 +1598,116 @@ def test_an_index_refused_by_the_database_never_fails_the_job(
     assert _entry_count(meeting_id) == 0
     # Once the database accepts the rows, indexing the saved view works.
     assert _index(view.id, tenant["workspace_id"]).entry_count == 1
+
+
+# --- R7: vector values outside the float32 range ---------------------------------------
+
+FLOAT32_MAX = 3.4028234663852886e38  # the largest finite float32
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(3.5e38, id="3.5e38"),
+        pytest.param(-3.5e38, id="minus-3.5e38"),
+        pytest.param(1e39, id="1e39"),
+        pytest.param(10**400, id="10**400"),
+    ],
+)
+def test_b10_a_value_outside_float32_is_refused_with_value_error(value):
+    # pytest.raises(ValueError) does not catch OverflowError, so an
+    # OverflowError fails this test.
+    with pytest.raises(ValueError):
+        pack_vector([0.5, value])
+
+
+def test_b10_the_float32_limits_still_pack():
+    values = [FLOAT32_MAX, -FLOAT32_MAX]
+    assert unpack_vector(pack_vector(values), 2) == values
+
+
+# --- R8: an oversized query is refused before any SQL runs ------------------------------
+
+
+def _words(count: int) -> str:
+    return " ".join(f"w{index}" for index in range(count))
+
+
+def test_r8_an_oversized_query_is_refused_before_any_sql(client, email_outbox):
+    tenant = _tenant(client, email_outbox, "retrieval-oversized")
+    workspace_id = tenant["workspace_id"]
+    setup = _seed_view(tenant, "oversized", texts=(_words(33),))
+    assert _index(setup["text_view_id"], workspace_id).entry_count == 1
+    entry_id = _entries(setup["meeting_id"])[0].id
+
+    # At the limits the query runs: 1000 characters after strip, 32 tokens.
+    assert _search(workspace_id, "x" * 1000) == []
+    assert _search(workspace_id, "  " + "x" * 1000 + "  ") == []
+    assert [r.entry_id for r in _search(workspace_id, _words(32))] == [entry_id]
+
+    # Over the limits: a ValueError, no SQL statement, and the caller's
+    # transaction is still usable afterwards.
+    statements: list[str] = []
+    with inspection_session_factory()() as db:
+        db.execute(update(Meeting).where(Meeting.id == setup["meeting_id"]).values(title="kept"))
+
+        def capture(_conn, _cursor, statement, _params, _context, _many):
+            statements.append(statement)
+
+        event.listen(db.get_bind(), "before_cursor_execute", capture)
+        try:
+            for oversized in ("x" * 1001, "  " + "x" * 1001, _words(33)):
+                with pytest.raises(ValueError):
+                    lexical_search(
+                        db, access=_unrestricted(), workspace_id=workspace_id, query=oversized
+                    )
+        finally:
+            event.remove(db.get_bind(), "before_cursor_execute", capture)
+        assert statements == []
+        assert db.scalar(select(Meeting.title).where(Meeting.id == setup["meeting_id"])) == "kept"
+        db.commit()
+    with inspection_session_factory()() as db:
+        assert db.get(Meeting, setup["meeting_id"]).title == "kept"
+
+
+# --- R9: the text view recompute path indexes its new view ------------------------------
+
+
+def test_r9_the_recompute_path_indexes_its_new_view(client, email_outbox, settings, monkeypatch):
+    # The correction must not start the recompute itself: this test calls it.
+    monkeypatch.setattr(settings, "recompute_on_correction", False)
+    _, workspace_id, meeting_id = _recompute_tests._processed_meeting(
+        client, email_outbox, settings, monkeypatch
+    )
+    (old,) = _entries(meeting_id)
+    assert old.superseded_at is None
+    assert [r.entry_id for r in _search(workspace_id, "قرارداد")] == [old.id]
+
+    corrected = _recompute_tests._correct(client, workspace_id, meeting_id)
+    # Only the recompute derives a view of the corrected revision: until it
+    # runs, nothing indexes that revision, and the old one is not current.
+    assert {entry.revision_id for entry in _entries(meeting_id)} == {old.revision_id}
+    assert _search(workspace_id, "فاکتور") == []
+
+    result = recompute.recompute_meeting_analysis(
+        meeting_id,
+        corrected["id"],
+        workspace_id=workspace_id,
+        settings=settings,
+        providers=_recompute_tests._bundle(),
+    )
+    assert result == "completed"
+    with inspection_session_factory()() as db:
+        view = db.scalar(
+            select(TranscriptTextView).where(TranscriptTextView.revision_id == corrected["id"])
+        )
+    assert view is not None and view.state == StageState.COMPLETED
+    entries = {entry.revision_id: entry for entry in _entries(meeting_id)}
+    assert set(entries) == {old.revision_id, corrected["id"]}
+    new = entries[corrected["id"]]
+    assert new.text_view_id == view.id and new.superseded_at is None
+    assert entries[old.revision_id].superseded_at is not None  # the revision rule ran
+    assert [r.entry_id for r in _search(workspace_id, "فاکتور")] == [new.id]
+    assert _search(workspace_id, "قرارداد") == []
+    history = _search(workspace_id, "قرارداد", include_history=True)
+    assert [(r.entry_id, r.historical) for r in history] == [(old.id, True)]

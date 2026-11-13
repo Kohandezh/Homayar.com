@@ -36,8 +36,10 @@ from backend.retrieval.index import INDEX_VERSION
 from backend.services.logging_service import logger
 
 MAX_DIMENSIONS = 4096
+# The largest finite float32.  A larger value would overflow when packed.
+FLOAT32_MAX = struct.unpack("<f", b"\xff\xff\x7f\x7f")[0]
 REASON_DIMENSIONS_MISMATCH = "embedding_dimensions_mismatch"
-# The provider answered, but not with one finite vector per text.
+# The provider answered, but not with one valid float32 vector per text.
 REASON_RESPONSE_INVALID = "embedding_response_invalid"
 
 
@@ -54,7 +56,12 @@ def embedding_version(identity: ProviderIdentity, *, dimensions: int, index_vers
 
 
 def finite_values(values: Sequence[float]) -> list[float]:
-    """The values as floats.  Refuses empty, more than 4096, bool, non-finite."""
+    """The values as floats.  Every refusal is a ValueError.
+
+    Refused: an empty vector, more than 4096 values, a bool, a non-number, a
+    non-finite value, and a value outside the float32 range (it would
+    overflow in :func:`pack_vector`).
+    """
     if len(values) == 0:
         raise ValueError("a vector needs at least one value")
     if len(values) > MAX_DIMENSIONS:
@@ -64,9 +71,14 @@ def finite_values(values: Sequence[float]) -> list[float]:
         # bool is a subclass of int, so it is refused by name.
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise ValueError("a vector value must be a number")
-        number = float(value)
+        try:
+            number = float(value)
+        except OverflowError:  # an int too large for a float, for example 10**400
+            raise ValueError("a vector value must fit in float32") from None
         if not math.isfinite(number):
             raise ValueError("a vector value must be finite")
+        if abs(number) > FLOAT32_MAX:
+            raise ValueError("a vector value must fit in float32")
         numbers.append(number)
     return numbers
 

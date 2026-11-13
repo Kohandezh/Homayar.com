@@ -39,6 +39,9 @@ from backend.security.authorization import RecordAccess
 from backend.speech.text_normalize import get_normalizer
 
 MAX_LIMIT = 100
+# Bounds on a search query, checked before any SQL runs.
+MAX_QUERY_CHARS = 1000  # of the stripped query
+MAX_QUERY_TOKENS = 32  # of the normalized query
 # A literal, not a bound parameter, so the expression matches the GIN index
 # ``to_tsvector('simple', text)`` of PR 1 exactly.
 _FTS_CONFIG = literal_column("'simple'")
@@ -165,12 +168,21 @@ def lexical_search(
 
     ``limit`` must be 1..100.  The query is normalized with the normalizer of
     ``language``.  A query that is empty after normalizing returns nothing.
+    An oversized query is a ValueError before any SQL runs, on both
+    dialects: more than 1000 characters after strip, or more than 32 tokens
+    after normalizing.
     """
     if not 1 <= limit <= MAX_LIMIT:
         raise ValueError(f"limit must be 1..{MAX_LIMIT}")
-    normalized = get_normalizer(language)(query).strip()
+    stripped = query.strip()
+    if len(stripped) > MAX_QUERY_CHARS:
+        raise ValueError(f"a query holds at most {MAX_QUERY_CHARS} characters")
+    normalized = get_normalizer(language)(stripped).strip()
     if not normalized:
         return []
+    tokens = normalized.split()
+    if len(tokens) > MAX_QUERY_TOKENS:
+        raise ValueError(f"a query holds at most {MAX_QUERY_TOKENS} words")
     candidates = live_entries(
         db, access=access, workspace_id=workspace_id, include_history=include_history
     )
@@ -197,7 +209,7 @@ def lexical_search(
         ]
     # SQLite: every distinct token must appear, so each row matches all of
     # them and the score is the same for every result.
-    tokens = list(dict.fromkeys(normalized.split()))
+    tokens = list(dict.fromkeys(tokens))
     rows = db.execute(
         candidates.where(
             *(
