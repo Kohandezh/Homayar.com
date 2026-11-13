@@ -25,7 +25,7 @@ from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
@@ -285,6 +285,17 @@ def _policy_fingerprint(ai_policy_digest: str, pii_classes: tuple[str, ...]) -> 
     return f"{ai_policy_digest}:{','.join(pii_classes)}"
 
 
+def _current_policy_fingerprint(db: Session, workspace_id: str) -> str | None:
+    """The workspace's AI and redaction policy as it stands now (None: no workspace)."""
+    workspace = db.get(Workspace, workspace_id)
+    if workspace is None:
+        return None
+    return _policy_fingerprint(
+        current_policy(db, workspace_id=workspace_id).digest,
+        _workspace_pii_classes(workspace),
+    )
+
+
 def _ensure_policy_current(claim: ProviderWork) -> None:
     """Re-read the workspace's AI and redaction policy before a stage starts
     (WP08-T03).  A snapshot explains an attempt; it never authorizes work
@@ -293,15 +304,7 @@ def _ensure_policy_current(claim: ProviderWork) -> None:
     factory = get_session_factory()
     with factory() as db:
         bind_tenant_context(db, workspace_id=claim.workspace_id)
-        workspace = db.get(Workspace, claim.workspace_id)
-        current = (
-            _policy_fingerprint(
-                current_policy(db, workspace_id=claim.workspace_id).digest,
-                _workspace_pii_classes(workspace),
-            )
-            if workspace is not None
-            else None
-        )
+        current = _current_policy_fingerprint(db, claim.workspace_id)
     if current != claim.policy_fingerprint:
         raise ProcessingError(
             POLICY_CHANGED,
@@ -1208,6 +1211,99 @@ def persist_analysis(
     )
 
 
+# ``_finalize_failure`` outcome: the job failed for good (or dead-lettered) but
+# its transcript was kept and the meeting is partial (HOM-351 F4).
+PARTIAL_TERMINAL_OUTCOME = "failed_partial"
+
+
+class _DeliveredTranscript(NamedTuple):
+    """What ASR (and diarization) produced in this attempt: the inputs the
+    failed-analysis partial outcome writes (HOM-351 F4)."""
+
+    asr: ASRResult
+    diarization: DiarizationResult | None
+    turns: list[TranscriptTurn]
+    asr_identity: ckpt.StageIdentity | None
+
+
+def _write_asr_revision(
+    db: Session,
+    claim: ClaimedJob,
+    *,
+    job: ProcessingJob,
+    meeting: Meeting,
+    asr: ASRResult,
+    diarization: DiarizationResult | None,
+    turns: list[TranscriptTurn],
+    asr_record: StageRecord | None,
+    asr_identity: ckpt.StageIdentity | None,
+    settings: Settings,
+    now: datetime,
+) -> tuple[TranscriptRevision, list[TranscriptSegment], TextViewOutcome]:
+    """Append the ASR transcript as a new revision, with its derived text views
+    and the speaker rows.
+
+    Transcript revisions and speaker rows are appended to (WP04-T02): earlier
+    revisions stay readable and a person's speaker names survive
+    reprocessing. Shared by the success path and the failed-analysis partial
+    outcome (HOM-351 F4), so both write the transcript the same way."""
+    previous_revision = current_revision(
+        db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id
+    )
+    drafts = [
+        SegmentDraft(
+            sequence=index,
+            speaker_key=turn.speaker_label,
+            start_ms=round((turn.start_seconds or 0) * 1000),
+            end_ms=round((turn.end_seconds or 0) * 1000),
+            text=turn.text,
+            confidence=(asr.segments[index].confidence if index < len(asr.segments) else None),
+            language=asr.language,
+        )
+        for index, turn in enumerate(turns)
+    ]
+    revision, persisted_segments = create_revision(
+        db,
+        meeting=meeting,
+        source=TranscriptSource.ASR,
+        reason=REASON_REPROCESSING if previous_revision is not None else REASON_PROCESSING,
+        language=asr.language or claim.language,
+        drafts=drafts,
+        now=now,
+        provenance=EngineProvenance(
+            job_id=job.id,
+            attempt=job.attempt_count,
+            checkpoint_id=asr_record.checkpoint_id if asr_record is not None else None,
+            config_hash=asr_identity.input_hash if asr_identity is not None else None,
+            asr_provider=asr.provider,
+            asr_model=asr.model,
+            diarization_provider=(diarization.provider if diarization is not None else None),
+            diarization_status=(diarization.status.value if diarization is not None else "skipped"),
+            is_mock=asr.is_mock or (diarization.is_mock if diarization is not None else False),
+        ),
+    )
+    text_view = derive_revision_views(
+        db,
+        meeting=meeting,
+        revision=revision,
+        segments=persisted_segments,
+        analysis_classes=claim.pii_classes,
+        view_classes=claim.view_classes,
+        settings=settings,
+        now=now,
+        job_id=job.id,
+        attempt=job.attempt_count,
+    )
+    speaker_labels = {turn.speaker_label for turn in turns}
+    ensure_speakers(
+        db,
+        workspace_id=claim.workspace_id,
+        meeting_id=claim.meeting_id,
+        labels=sorted(speaker_labels or ({UNKNOWN_SPEAKER_LABEL} if turns else set())),
+    )
+    return revision, persisted_segments, text_view
+
+
 def _persist_success(
     claim: ClaimedJob,
     *,
@@ -1246,62 +1342,20 @@ def _persist_success(
         by_stage = {record.stage: record for record in records}
         asr_record = by_stage.get(StageName.ASR)
         intelligence_record = by_stage.get(StageName.INTELLIGENCE)
-        previous_revision = current_revision(
-            db, workspace_id=claim.workspace_id, meeting_id=claim.meeting_id
-        )
-        drafts = [
-            SegmentDraft(
-                sequence=index,
-                speaker_key=turn.speaker_label,
-                start_ms=round((turn.start_seconds or 0) * 1000),
-                end_ms=round((turn.end_seconds or 0) * 1000),
-                text=turn.text,
-                confidence=(asr.segments[index].confidence if index < len(asr.segments) else None),
-                language=asr.language,
-            )
-            for index, turn in enumerate(turns)
-        ]
-        revision, persisted_segments = create_revision(
+        revision, persisted_segments, text_view = _write_asr_revision(
             db,
+            claim,
+            job=job,
             meeting=meeting,
-            source=TranscriptSource.ASR,
-            reason=REASON_REPROCESSING if previous_revision is not None else REASON_PROCESSING,
-            language=asr.language or claim.language,
-            drafts=drafts,
-            now=now,
-            provenance=EngineProvenance(
-                job_id=job.id,
-                attempt=job.attempt_count,
-                checkpoint_id=asr_record.checkpoint_id if asr_record is not None else None,
-                config_hash=asr_identity.input_hash if asr_identity is not None else None,
-                asr_provider=asr.provider,
-                asr_model=asr.model,
-                diarization_provider=(diarization.provider if diarization is not None else None),
-                diarization_status=(
-                    diarization.status.value if diarization is not None else "skipped"
-                ),
-                is_mock=asr.is_mock or (diarization.is_mock if diarization is not None else False),
-            ),
-        )
-        text_view = derive_revision_views(
-            db,
-            meeting=meeting,
-            revision=revision,
-            segments=persisted_segments,
-            analysis_classes=claim.pii_classes,
-            view_classes=claim.view_classes,
+            asr=asr,
+            diarization=diarization,
+            turns=turns,
+            asr_record=asr_record,
+            asr_identity=asr_identity,
             settings=settings,
             now=now,
-            job_id=job.id,
-            attempt=job.attempt_count,
         )
         speaker_labels = {turn.speaker_label for turn in turns}
-        ensure_speakers(
-            db,
-            workspace_id=claim.workspace_id,
-            meeting_id=claim.meeting_id,
-            labels=sorted(speaker_labels or ({UNKNOWN_SPEAKER_LABEL} if turns else set())),
-        )
         persisted = persist_analysis(
             db,
             meeting=meeting,
@@ -1503,19 +1557,107 @@ def job_reservation_amount(db: Session, reservation_id: str) -> int:
     return reservation.reserved_value
 
 
+def _persist_failed_analysis_transcript(
+    db: Session,
+    claim: ClaimedJob,
+    *,
+    job: ProcessingJob,
+    records: list[StageRecord],
+    transcript: _DeliveredTranscript,
+    error_code: str,
+    now: datetime,
+    settings: Settings,
+) -> dict[str, Any] | None:
+    """Keep the transcript when the analysis fails terminally (HOM-351 F4).
+
+    The policy-refusal partial outcome, for a failed stage: ASR completed and
+    committed its checkpoint, a later stage failed for good, so the meeting
+    ends ``partial`` with the transcript persisted, the analysis run recorded
+    as failed with its code and no summary. Returns the audit details of what
+    was written, or None (and writes nothing) when the failure
+    happened before a committed transcript existed, or when the policy the
+    attempt started under is no longer current (a stale snapshot never
+    authorizes writing transcript views, WP08-T03)."""
+    by_stage = {record.stage: record for record in records}
+    asr_record = by_stage.get(StageName.ASR)
+    intelligence_record = by_stage.get(StageName.INTELLIGENCE)
+    if (
+        asr_record is None
+        or asr_record.state != StageState.COMPLETED
+        or asr_record.checkpoint_id is None
+        or intelligence_record is None
+        or intelligence_record.state != StageState.FAILED
+        or not transcript.turns
+    ):
+        return None
+    if _current_policy_fingerprint(db, claim.workspace_id) != claim.policy_fingerprint:
+        return None
+    meeting = db.get(Meeting, claim.meeting_id, with_for_update=True, populate_existing=True)
+    if meeting is None or meeting.deleted_at is not None:
+        return None
+
+    asr = transcript.asr
+    revision, persisted_segments, text_view = _write_asr_revision(
+        db,
+        claim,
+        job=job,
+        meeting=meeting,
+        asr=asr,
+        diarization=transcript.diarization,
+        turns=transcript.turns,
+        asr_record=asr_record,
+        asr_identity=transcript.asr_identity,
+        settings=settings,
+        now=now,
+    )
+    persisted = persist_analysis(
+        db,
+        meeting=meeting,
+        revision=revision,
+        segments=persisted_segments,
+        intelligence=None,
+        model_turns=[],
+        state=StageState.FAILED,
+        reason_code=error_code,
+        now=now,
+        provenance={
+            "job_id": job.id,
+            "attempt": job.attempt_count,
+            "checkpoint_id": None,
+            "config_hash": None,
+            "identity_params": None,
+            "input_view": "redacted" if claim.pii_classes else "original",
+            "input_policy_digest": claim.privacy_digest,
+            "manifest_digest": intelligence_record.manifest_digest,
+        },
+    )
+    # No settlement here: like every terminal failure on base, ``park_job``
+    # releases the allowance. A dead letter stays replayable, and only a
+    # completed job settles (one COMMITTED reservation per meeting).
+    return {
+        "revision_id": revision.id,
+        "revision_number": revision.revision_number,
+        "analysis_run_id": persisted.run.id,
+        **text_view.audit_details(),
+    }
+
+
 def _finalize_failure(
     claim: ClaimedJob,
     *,
     error: ProcessingError,
     settings: Settings,
     records: list[StageRecord] | None = None,
+    transcript: _DeliveredTranscript | None = None,
 ) -> str:
     """Record the failed attempt under the fence and apply the retry policy.
 
     Returns ``retry_scheduled`` (requeued through the outbox with back-off),
     ``failed`` (permanent), ``dead_letter`` (retry budget or job deadline
-    exhausted; replayable), ``cancelled`` (meeting deleted meanwhile) or
-    ``superseded`` (we no longer own the job; nothing written).
+    exhausted; replayable), ``PARTIAL_TERMINAL_OUTCOME`` (failed or dead
+    letter, but the transcript was kept: HOM-351 F4), ``cancelled`` (meeting
+    deleted meanwhile) or ``superseded`` (we no longer own the job; nothing
+    written).
     """
     policy = RetryPolicy.from_settings(settings)
     factory = get_session_factory()
@@ -1587,6 +1729,25 @@ def _finalize_failure(
                 state, code, failure_class = JobState.DEAD_LETTER, error.code, error.failure_class
                 message = f"{error.public_message}; the processing retry limit was reached"
                 terminal_reason = verdict.value
+            # A committed transcript survives a terminally failed analysis
+            # (HOM-351 F4). ``park_job`` then releases the allowance as on
+            # base. An attempt ended by a policy change never writes under its
+            # old snapshot. The analysis run carries the stage's own failure
+            # code, like its stage record.
+            partial_details = (
+                _persist_failed_analysis_transcript(
+                    db,
+                    claim,
+                    job=job,
+                    records=stage_records,
+                    transcript=transcript,
+                    error_code=error.code,
+                    now=now,
+                    settings=settings,
+                )
+                if transcript is not None and error.code != POLICY_CHANGED
+                else None
+            )
             park_job(
                 db,
                 job,
@@ -1598,9 +1759,14 @@ def _finalize_failure(
                 now=now,
                 release_reason=error.code,
             )
+            result = state.value
+            if partial_details is not None:
+                details.update(partial_details, meeting_outcome="partial")
+                if meeting is not None and meeting.deleted_at is None:
+                    meeting.status = MeetingStatus.PARTIAL
+                result = PARTIAL_TERMINAL_OUTCOME
             details["terminal_reason"] = terminal_reason
             event_type = AuditEventType.MEETING_PROCESSING_FAILED
-            result = state.value
         record_audit_event(
             db,
             event_type=event_type,
@@ -2262,6 +2428,9 @@ def process_job(
         return {"job_id": job_id, "status": status}
 
     records: list[StageRecord] = []
+    # The transcript a terminally failed later stage may still deliver
+    # (HOM-351 F4); set once the turns exist, read by the failure path.
+    delivered: _DeliveredTranscript | None = None
     heartbeat = LeaseHeartbeat(claim.lease, policy).start()
     try:
         active_storage = storage or create_object_storage(settings)
@@ -2495,6 +2664,7 @@ def process_job(
                 turns = _transcript_turns(asr, diarization)
                 if not turns and asr.text.strip():
                     turns = [TranscriptTurn(text=asr.text, speaker_label=UNKNOWN_SPEAKER_LABEL)]
+                delivered = _DeliveredTranscript(asr, diarization, turns, asr_identity)
 
                 _ensure_policy_current(claim)
                 _set_stage(claim, stage="analyzing")
@@ -2570,8 +2740,15 @@ def process_job(
         error=error,
         settings=settings,
         records=records,
+        transcript=delivered,
     )
     if outcome in {"retry_scheduled", "cancelled", "superseded"}:
         return {"job_id": job_id, "status": outcome, "code": error.code}
-    _run_voicemail_hook(claim, settings=settings, failure_reason=error.code)
+    # A kept transcript is ready for the voicemail follow-up, as on the
+    # policy-refusal partial path (R8).
+    _run_voicemail_hook(
+        claim,
+        settings=settings,
+        failure_reason=None if outcome == PARTIAL_TERMINAL_OUTCOME else error.code,
+    )
     return {"job_id": job_id, "status": "failed", "code": error.code}
