@@ -6,6 +6,8 @@ check, key and unique rule with its allow control on the ORM schema and on the m
 schema, the cascades and the SET NULL snapshot columns, the PostgreSQL-only full-text
 index, row-level security and grants, the conversation purge, the backup reconciliation,
 the migration ``a3c7e19d4b62`` after ``e8b4d2f7a9c1``, the moved head pins and ADR 0068.
+The SPEC revision 2 cases (R5, R6) were added from SPEC section 11 before that change was
+visible: the ORM refuses an in-place embedding update and the embedding digest has a check.
 """
 
 from __future__ import annotations
@@ -70,6 +72,7 @@ from backend.database.saas_models import (
     StageState,
     Team,
     TextViewSegment,
+    TranscriptImmutableError,
     TranscriptRevision,
     TranscriptSegment,
     TranscriptSource,
@@ -170,6 +173,7 @@ TEXT_SHA_CHECK = "ck_retrieval_entry_text_sha256"
 DIMENSIONS_CHECK = "ck_retrieval_embedding_dimensions"
 VECTOR_SIZE_CHECK = "ck_retrieval_embedding_vector_size"
 EMBEDDING_VERSION_CHECK = "ck_retrieval_embedding_version"
+EMBEDDING_TEXT_SHA_CHECK = "ck_retrieval_embedding_text_sha256"
 CHECKS = {
     ENTRIES: {
         SEQUENCE_CHECK: "sequence >= 0",
@@ -180,6 +184,7 @@ CHECKS = {
         DIMENSIONS_CHECK: "dimensions >= 1 AND dimensions <= 4096",
         VECTOR_SIZE_CHECK: "length(vector) = 4 * dimensions",
         EMBEDDING_VERSION_CHECK: "length(embedding_version) = 64",
+        EMBEDDING_TEXT_SHA_CHECK: "length(text_sha256) = 64",
     },
 }
 ENTRY_UNIQUE = "uq_retrieval_entry_segment_version"
@@ -308,6 +313,14 @@ def _table(name: str) -> Table:
     found = Base.metadata.tables.get(name)
     assert found is not None, f"the ORM declares no {name} table"
     return found
+
+
+def _mapped(name: str) -> type:
+    _table(name)
+    for mapper in Base.registry.mappers:
+        if getattr(mapper.local_table, "name", None) == name:
+            return mapper.class_
+    pytest.fail(f"no ORM class maps {name}")
 
 
 def _count(name: str, **where: str) -> int:
@@ -705,6 +718,27 @@ def _assert_embedding_version_rules(target) -> None:
         _allow(target, EMBEDDINGS, _embedding(target, entry_id, embedding_version=version))
 
 
+def _assert_embedding_text_sha256_rules(target) -> None:
+    entry_id = _new_entry(target)
+    digest = _sha(TEXTS[0])
+    for value in (digest[:63], "", "f" * 10):
+        _deny_check(
+            target,
+            EMBEDDINGS,
+            _embedding(target, entry_id, text_sha256=value),
+            EMBEDDING_TEXT_SHA_CHECK,
+        )
+    _deny_too_long(
+        target,
+        EMBEDDINGS,
+        _embedding(target, entry_id, text_sha256=digest + "0"),
+        EMBEDDING_TEXT_SHA_CHECK,
+    )
+    _deny_null(target, EMBEDDINGS, _embedding(target, entry_id, text_sha256=None), "text_sha256")
+    for value in (digest, "0" * 64, _sha(TEXTS[1]).upper()):
+        _allow(target, EMBEDDINGS, _embedding(target, entry_id, text_sha256=value))
+
+
 def _assert_embedding_required_columns(target) -> None:
     entry_id = _new_entry(target)
     for column in (
@@ -728,6 +762,7 @@ CHECK_RULES = (
     _assert_embedding_dimensions_rules,
     _assert_embedding_vector_size_rules,
     _assert_embedding_version_rules,
+    _assert_embedding_text_sha256_rules,
     _assert_embedding_required_columns,
 )
 
@@ -1007,6 +1042,78 @@ def test_the_unique_rules_refuse_a_second_row_and_take_another_version(client, e
 @pytest.mark.parametrize("rules", KEY_RULES, ids=_rule_id)
 def test_the_keys_refuse_a_missing_parent_and_take_an_existing_one(client, email_outbox, rules):
     rules(_Database(_tenant(client, email_outbox, "keys"), "keys"))
+
+
+def test_the_orm_refuses_an_in_place_embedding_update_and_takes_a_new_version_row(
+    client, email_outbox
+):
+    target = _Database(_tenant(client, email_outbox, "orm-vector"), "orm-vector")
+    embedding, entry = _mapped(EMBEDDINGS), _mapped(ENTRIES)
+    entry_id = _new_entry(target, index_version=INDEX_VERSION)
+    other_entry_id = _new_entry(target, 1, index_version=INDEX_VERSION)
+    first = _allow(
+        target, EMBEDDINGS, _embedding(target, entry_id, embedding_version=EMBEDDING_VERSION)
+    )
+    stored = _snapshot(EMBEDDINGS, first)
+
+    for changes in (
+        {"vector": bytes(reversed(_vector(DIMENSIONS)))},
+        {"vector": _vector(DIMENSIONS + 1), "dimensions": DIMENSIONS + 1},
+        {"text_sha256": _sha(TEXTS[1])},
+        {"embedding_version": OTHER_EMBEDDING_VERSION},
+        {"provider": "another-provider", "model": "another-model"},
+        {"entry_id": other_entry_id},
+    ):
+        with inspection_session_factory()() as db:
+            row = db.get(embedding, first)
+            for column, value in changes.items():
+                setattr(row, column, value)
+            attempted = re.escape(", ".join(sorted(changes)))
+            with pytest.raises(TranscriptImmutableError, match=rf"immutable.*{attempted}"):
+                db.flush()
+            db.rollback()
+        assert _snapshot(EMBEDDINGS, first) == stored, changes
+
+    with inspection_session_factory()() as db:
+        row = db.get(embedding, first)
+        row.vector = bytes(row.vector)
+        row.provider = str(row.provider)
+        db.flush()
+        db.commit()
+    assert _snapshot(EMBEDDINGS, first) == stored
+
+    replacement = _embedding(
+        target,
+        entry_id,
+        embedding_version=OTHER_EMBEDDING_VERSION,
+        vector=bytes(reversed(_vector(DIMENSIONS))),
+    )
+    replacement.pop("id")
+    replacement.pop("created_at")
+    with inspection_session_factory()() as db:
+        added = embedding(**replacement)
+        db.add(added)
+        db.commit()
+        second = added.id
+    assert _ids(EMBEDDINGS, entry_id=entry_id) == {first, second}
+    assert bytes(_snapshot(EMBEDDINGS, second)["vector"]) == replacement["vector"]
+    assert _snapshot(EMBEDDINGS, first) == stored
+
+    with inspection_session_factory()() as db:
+        db.delete(db.get(embedding, first))
+        db.commit()
+    assert _ids(EMBEDDINGS, entry_id=entry_id) == {second}
+
+    team = _team(target.workspace_id, "orm-moved")
+    with inspection_session_factory()() as db:
+        row = db.get(entry, entry_id)
+        row.superseded_at = LATER
+        row.team_id = team
+        row.acl_synced_at = LATER
+        db.commit()
+    moved = _snapshot(ENTRIES, entry_id)
+    assert (_utc(moved["superseded_at"]), moved["team_id"]) == (LATER, team)
+    assert _utc(moved["acl_synced_at"]) == LATER
 
 
 def _assert_cascades(first: dict, second: dict) -> None:
