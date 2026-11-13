@@ -166,6 +166,8 @@ jobs:
       # No Celery worker runs here, so jobs run inside the API process.
       TASKS_EAGER: "true"
       ALLOW_MOCK_PROVIDERS: "true"
+      # ADR 0076: off until the console has MFA enrolment screens.
+      PRIVILEGED_MFA_REQUIRED: "false"
       AUTO_CREATE_SCHEMA: "false"
       ENABLE_NEO4J_PROJECTION: "false"
       NEO4J_URI: bolt://127.0.0.1:1

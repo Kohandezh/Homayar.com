@@ -8,9 +8,12 @@ break-glass on and records every alert instead of sending email.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import sys
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -785,3 +788,78 @@ def test_the_cli_writes_only_its_result_to_stdout(
     assert err.count("BREAK_GLASS_ALERT_NO_RECIPIENTS") == 2, err
     # The handlers write to stdout again after the command.
     assert root_handler.stream is sys.__stdout__ and named_handler.stream is sys.__stdout__
+
+
+# --- turn 6: the alert leaves after the response ----------------------------------------
+
+SLOW_SEAM_SECONDS = 1.0
+
+
+def _timed_login(app, email: str, password: str) -> tuple[int, float, float]:
+    """``(status, seconds until the whole response was sent, seconds until the app
+    returned)``.  It calls the ASGI app directly: ``TestClient`` returns only after the
+    background tasks, so it cannot show when the response left."""
+    body = json.dumps({"identifier": email, "password": password}).encode()
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/v1/auth/login",
+        "raw_path": b"/api/v1/auth/login",
+        "root_path": "",
+        "query_string": b"",
+        "headers": [
+            (b"host", b"testserver"),
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+        "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
+    }
+    seen: dict[str, object] = {}
+
+    async def receive() -> dict:
+        if seen.get("request_sent"):
+            await asyncio.sleep(3600)  # no disconnect; cancelled when the app is done
+        seen["request_sent"] = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message: dict) -> None:
+        if message["type"] == "http.response.start":
+            seen["status"] = message["status"]
+        elif message["type"] == "http.response.body" and not message.get("more_body"):
+            seen["sent"] = time.perf_counter()
+
+    async def call() -> tuple[float, float]:
+        start = time.perf_counter()
+        await app(scope, receive, send)
+        return start, time.perf_counter()
+
+    start, done = asyncio.run(call())
+    return int(seen["status"]), float(seen["sent"]) - start, done - start
+
+
+def test_a_refused_right_password_answers_as_fast_as_a_wrong_one(
+    client, email_outbox, settings, monkeypatch
+):
+    calls: list[str] = []
+
+    def slow_seam(_settings, *, event: str, user_email: str | None, details: dict) -> None:
+        time.sleep(SLOW_SEAM_SECONDS)
+        calls.append(event)
+
+    monkeypatch.setattr(access, "send_break_glass_alert", slow_seam)
+    email, _, _ = _designate(client, email_outbox, settings, "bg-timing")
+
+    wrong_status, wrong_sent, _ = _timed_login(client.app, email, "WrongPass999")
+    status, sent, done = _timed_login(client.app, email, PASSWORD)
+
+    assert wrong_status == status == 401
+    # The answer left before the alert: well under the seam's delay, close to a wrong password.
+    assert sent < SLOW_SEAM_SECONDS / 2, (sent, wrong_sent)
+    assert sent < wrong_sent + SLOW_SEAM_SECONDS / 2, (sent, wrong_sent)
+    # The alert still ran once, in the same call, after the answer.
+    assert done >= SLOW_SEAM_SECONDS
+    assert calls == ["login_refused"]

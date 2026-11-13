@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
@@ -20,6 +21,7 @@ from pydantic import ValidationError
 from sqlalchemy import select, update
 
 from backend.config import Settings, get_settings
+from backend.database.relational import get_session_factory
 from backend.database.saas_models import (
     AuditEvent,
     LoginSession,
@@ -46,8 +48,12 @@ from backend.security.totp import (
     totp_at,
     verify_totp,
 )
-from backend.services.mfa_service import MfaError, decrypt_totp_secret
-from backend.tests._database import inspection_session_factory
+from backend.services.mfa_service import MfaError, confirm_totp_enrollment, decrypt_totp_secret
+from backend.tests._database import (
+    configured_database_url,
+    inspection_session_factory,
+    is_postgres_url,
+)
 from backend.tests.conftest import login_user, register_user
 
 MEMBERS = "/api/v1/members"
@@ -926,3 +932,75 @@ def test_codes_typed_in_persian_or_arabic_indic_digits_are_accepted(client, emai
     assert recovered.json()["method"] == "recovery_code"
     again = owner.login_again().post(VERIFY, json={"code": with_digit})
     assert again.status_code == 400 and _code_of(again) == "mfa_code_invalid"
+
+
+# --- two concurrent confirms (SPEC section 17) -------------------------------------------
+
+
+@pytest.mark.postgres
+def test_two_concurrent_confirms_of_one_re_enrolment_succeed_once(client, email_outbox, settings):
+    if not is_postgres_url(configured_database_url()):
+        pytest.skip("needs PostgreSQL row locks")
+    owner = _signup(client, email_outbox, "confirm-race")
+    _enrol(owner)
+    started = owner.post(ENROLL)  # a re-enrolment from the verified session
+    assert started.status_code == 200, started.text
+    code = _code(started.json()["secret"])
+    with inspection_session_factory()() as db:
+        session_id = db.scalar(
+            select(LoginSession.id).where(
+                LoginSession.user_id == owner.user_id, LoginSession.mfa_verified_at.is_not(None)
+            )
+        )
+
+    def confirm(db) -> int:
+        try:
+            confirm_totp_enrollment(
+                db,
+                user=db.get(User, owner.user_id),
+                session=db.get(LoginSession, session_id),
+                code=code,
+                settings=settings,
+            )
+        except MfaError as exc:
+            db.rollback()
+            return exc.status_code
+        db.commit()
+        return 200
+
+    outcome: dict[str, int] = {}
+
+    def second_confirm() -> None:
+        with get_session_factory()() as db:
+            # The row already sits in this session, read before the first confirm
+            # commits (as the freshness check reads it); held, so the session keeps it.
+            earlier = db.scalar(select(UserMfaTotp).where(UserMfaTotp.user_id == owner.user_id))
+            assert earlier is not None and earlier.pending_ciphertext is not None
+            outcome["second"] = confirm(db)
+
+    first = get_session_factory()()
+    try:
+        assert confirm_totp_enrollment(
+            first,
+            user=first.get(User, owner.user_id),
+            session=first.get(LoginSession, session_id),
+            code=code,
+            settings=settings,
+        )
+        second = threading.Thread(target=second_confirm)
+        second.start()
+        # The second confirm has read the row (with its pending secret) and now waits
+        # for the first one's row lock.
+        second.join(timeout=1.0)
+        assert second.is_alive(), "the second confirm did not wait for the first"
+        first.commit()
+        second.join(timeout=30)
+        assert not second.is_alive()
+    finally:
+        first.close()
+    # Exactly one 200: the second confirm re-reads the row under the lock and finds no
+    # pending secret any more.
+    assert outcome == {"second": 409}
+    with inspection_session_factory()() as db:
+        row = db.scalar(select(UserMfaTotp).where(UserMfaTotp.user_id == owner.user_id))
+        assert row.pending_ciphertext is None and row.confirmed_at is not None

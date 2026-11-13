@@ -3,11 +3,19 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
 from backend.config import Settings, get_settings
 from backend.database.relational import get_db
@@ -131,10 +139,34 @@ def _rate_limit(
         ) from exc
 
 
-def _invalid_credentials() -> HTTPException:
-    return HTTPException(
+def _refused_like_a_wrong_password(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    settings: Settings,
+    *,
+    email: str | None,
+    method: str,
+) -> JSONResponse:
+    """The wrong-password answer, with the break-glass alert sent after the response
+    (HOM-129): the mail server's delay must not tell a right password from a wrong one.
+    Same body as the API's HTTPException handler renders."""
+    background_tasks.add_task(
+        notify_break_glass,
+        settings,
+        event="login_refused",
+        user_email=email,
+        details={"method": method},
+    )
+    return JSONResponse(
         status_code=401,
-        detail={"code": "invalid_credentials", "message": "Invalid credentials"},
+        content={
+            "error": {
+                "code": "invalid_credentials",
+                "message": "Invalid credentials",
+                "request_id": getattr(request.state, "request_id", None),
+            }
+        },
+        background=background_tasks,
     )
 
 
@@ -343,9 +375,10 @@ def login(
     payload: LoginRequest,
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> SessionResponse:
+) -> SessionResponse | JSONResponse:
     ip = _client_ip(request)
     identifier_key = token_digest(payload.identifier.casefold(), settings)
     _rate_limit(settings, f"login:ip:{token_digest(ip, settings)}", limit=20, window_seconds=900)
@@ -389,10 +422,9 @@ def login(
         # Outside an open window a break-glass account looks like a wrong password.
         db.rollback()
         email = _break_glass_refused(db, exc, request, settings)
-        notify_break_glass(
-            settings, event="login_refused", user_email=email, details={"method": "password"}
+        return _refused_like_a_wrong_password(
+            request, background_tasks, settings, email=email, method="password"
         )
-        raise _invalid_credentials() from exc
     except FederationReauthenticationRequired as exc:
         # Nothing was created and nothing is revoked; the user signs in again
         # through the IdP first (HOM-128, 5e).
@@ -428,8 +460,12 @@ def login(
         )
     db.commit()
     if break_glass:
-        notify_break_glass(
-            settings, event="login", user_email=user.email, details={"method": "password"}
+        background_tasks.add_task(
+            notify_break_glass,
+            settings,
+            event="login",
+            user_email=user.email,
+            details={"method": "password"},
         )
     _set_session_cookies(response, tokens, settings)
     return _session_response(db, user, tokens.access_expires_in)
@@ -926,9 +962,10 @@ def otp_verify(
     payload: OtpVerifyRequest,
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> SessionResponse:
+) -> SessionResponse | JSONResponse:
     _rate_limit(
         settings,
         f"otp-verify:{token_digest(payload.challenge_id, settings)}",
@@ -956,10 +993,9 @@ def otp_verify(
         # is security state and stays consumed, as in the branch below.
         db.commit()
         email = _break_glass_refused(db, exc, request, settings)
-        notify_break_glass(
-            settings, event="login_refused", user_email=email, details={"method": "otp"}
+        return _refused_like_a_wrong_password(
+            request, background_tasks, settings, email=email, method="otp"
         )
-        raise _invalid_credentials() from exc
     except FederationReauthenticationRequired as exc:
         # The challenge is security state and stays consumed (HOM-128, 5e):
         # the commit stores the consumed challenge and, when the code also
@@ -1044,9 +1080,10 @@ async def google_callback(
     request: Request,
     state: str,
     code: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> RedirectResponse:
+) -> Response:
     try:
         user, redirect_path = await complete_google_oauth(
             db, state=state, code=code, settings=settings
@@ -1064,15 +1101,11 @@ async def google_callback(
         # A break-glass account never signs in with Google (HOM-129).
         db.rollback()
         email = _break_glass_refused(db, exc, request, settings)
-        # send_email_sync runs its own event loop: off this one.
-        await run_in_threadpool(
-            notify_break_glass,
-            settings,
-            event="login_refused",
-            user_email=email,
-            details={"method": "google"},
+        # The background task runs in a worker thread, so send_email_sync can
+        # start its own event loop.
+        return _refused_like_a_wrong_password(
+            request, background_tasks, settings, email=email, method="google"
         )
-        raise _invalid_credentials() from exc
     except FederationReauthenticationRequired:
         # Nothing was created and nothing is revoked; like the other refusals
         # here the browser gets the login page with the error name (HOM-128, 5e).

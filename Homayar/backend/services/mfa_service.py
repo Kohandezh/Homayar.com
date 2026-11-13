@@ -257,6 +257,21 @@ def _issue_recovery_codes(
 # --- enrolment --------------------------------------------------------------------------
 
 
+def _locked_factor_row(user_id: str):
+    """The user's factor row under a row lock, re-read from the database.
+
+    ``populate_existing``: the row may already sit in this session from the
+    freshness check, loaded before the lock; without it a second concurrent
+    confirm would see the pending secret the first one has just confirmed.
+    """
+    return (
+        select(UserMfaTotp)
+        .where(UserMfaTotp.user_id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
 def _check_enrolment_session(
     db: Session,
     *,
@@ -298,7 +313,7 @@ def start_totp_enrollment(
     _check_enrolment_session(db, user=user, session=session, settings=settings, now=now)
     secret = generate_totp_secret()
     key_id, nonce, ciphertext = encrypt_totp_secret(secret, user_id=user.id, settings=settings)
-    row = db.scalar(select(UserMfaTotp).where(UserMfaTotp.user_id == user.id).with_for_update())
+    row = db.scalar(_locked_factor_row(user.id))
     if row is None:
         row = UserMfaTotp(user_id=user.id)
         db.add(row)
@@ -331,7 +346,7 @@ def confirm_totp_enrollment(
     now = now or datetime.now(UTC)
     _keyring(settings)
     _check_enrolment_session(db, user=user, session=session, settings=settings, now=now)
-    row = db.scalar(select(UserMfaTotp).where(UserMfaTotp.user_id == user.id).with_for_update())
+    row = db.scalar(_locked_factor_row(user.id))
     if (
         row is None
         or row.pending_ciphertext is None
