@@ -791,6 +791,8 @@ class Settings(BaseSettings):
     asr_chunk_target_seconds: float = 600.0
     asr_chunk_search_seconds: float = 30.0
     asr_chunk_overlap_seconds: float = 2.0
+    # Music and tone gate (HOM-348, ADR 0078): the rollback switch.
+    asr_nonspeech_gate_enabled: bool = True
     # Warm workers and memory budget (HOM-41, ADR 0067): load the ASR model
     # when a worker process starts, so jobs reuse it instead of paying the
     # load time and memory spike on every job.

@@ -12,11 +12,13 @@ from backend.providers import warm_models
 from backend.providers.base import ASRProvider, ProviderError, ProviderIdentity
 from backend.providers.schemas import (
     ASRLanguageDecision,
+    ASRNonSpeechSpan,
     ASRRequest,
     ASRResult,
     ASRSegment,
     UNKNOWN_SPEAKER_LABEL,
 )
+from backend.services.logging_service import logger
 from backend.speech.language_policy import (
     POLICY_VERSION,
     LanguageDecision,
@@ -34,6 +36,14 @@ _T = TypeVar("_T")
 # one rescue call made when the default VAD kept no audio. On 8 kHz phone audio
 # the default threshold 0.5 can remove real speech (ADR 0044, amendment HOM-40).
 RESCUE_VAD_PARAMETERS: dict[str, Any] = {"threshold": 0.25}
+
+
+def _default_audio_loader(path: str) -> Any:
+    """Mono float32 samples at 16 kHz: the decode faster-whisper does for a
+    path (HOM-348). Imported here so the module loads without the library."""
+    from faster_whisper.audio import decode_audio
+
+    return decode_audio(path, sampling_rate=16000)
 
 
 def _device_index_kwarg(device_index: DeviceIndex) -> int | list[int] | None:
@@ -90,6 +100,8 @@ class LocalWhisperProvider(ASRProvider):
         cpu_threads: int = 0,
         language_policy: LanguagePolicy | None = None,
         batch_size: int = 1,
+        nonspeech_gate: bool = True,
+        audio_loader: Optional[Callable[[str], Any]] = None,
     ) -> None:
         if not model_name.strip() or not device.strip() or not compute_type.strip():
             raise ValueError("Whisper model, device, and compute type are required")
@@ -120,6 +132,11 @@ class LocalWhisperProvider(ASRProvider):
         # An injected model bypasses the warm cache completely (HOM-41).
         self._injected = model is not None
         self._batch_size = batch_size
+        # Music and tone gate (HOM-348, ADR 0078): drop decoded segments whose
+        # audio is music or a tone. ``audio_loader`` injects the samples a test
+        # wants; ``None`` decodes the path like faster-whisper does.
+        self._nonspeech_gate = nonspeech_gate
+        self._audio_loader = audio_loader
         # Per-instance batched pipeline for an injected model (never cached).
         self._injected_pipeline: Any = None
 
@@ -166,6 +183,15 @@ class LocalWhisperProvider(ASRProvider):
         if self._batch_size == 1:
             return None
         return {"batch_size": self._batch_size}
+
+    def nonspeech_identity(self) -> dict | None:
+        """The music and tone gate a checkpoint records (HOM-348, ADR 0078).
+        ``None`` (gate off) keeps the identity as before."""
+        if not self._nonspeech_gate:
+            return None
+        from backend.speech.nonspeech import NONSPEECH_VERSION
+
+        return {"version": NONSPEECH_VERSION}
 
     def _cache_key(self) -> tuple:
         """Every value that changes what is loaded. The language policy is not
@@ -290,6 +316,45 @@ class LocalWhisperProvider(ASRProvider):
         decision = decide(None, self._language_policy, _language_probabilities(info))
         return raw_segments, info, decision, kwargs
 
+    def _drop_nonspeech(
+        self, path: str, segments: list[ASRSegment]
+    ) -> tuple[list[ASRSegment], list[ASRNonSpeechSpan]]:
+        """Music and tone segments never become text (HOM-348, ADR 0078).
+
+        Fail open: any error, including a missing numpy or faster-whisper,
+        keeps the segments exactly as they are, and the result carries no
+        non-speech spans. A segment whose clipped span is empty or under
+        0.3 s is speech (amendment 1); a removed segment keeps its own,
+        unclipped times.
+        """
+        try:
+            from backend.speech.nonspeech import classify_span
+
+            loader = self._audio_loader or _default_audio_loader
+            samples = loader(path)
+            kept: list[ASRSegment] = []
+            spans: list[ASRNonSpeechSpan] = []
+            for segment in segments:
+                kind = classify_span(samples, 16_000, segment.start_seconds, segment.end_seconds)
+                if kind == "speech":
+                    kept.append(segment)
+                else:
+                    spans.append(
+                        ASRNonSpeechSpan(
+                            start_seconds=segment.start_seconds,
+                            end_seconds=segment.end_seconds,
+                            kind=kind,
+                        )
+                    )
+        except Exception as exc:  # the gate must never fail a transcript
+            logger.warning("ASR_NONSPEECH_GATE_FAILED error=%s", type(exc).__name__)
+            return segments, []
+        spans.sort(key=lambda span: span.start_seconds)
+        reindexed = [
+            segment.model_copy(update={"index": index}) for index, segment in enumerate(kept)
+        ]
+        return reindexed, spans
+
     def _transcribe_sync(self, request: ASRRequest) -> ASRResult:
         path = self._checked_path(request.audio_path)
         kwargs: dict[str, Any] = {
@@ -338,7 +403,15 @@ class LocalWhisperProvider(ASRProvider):
             segments.append(segment)
             text_parts.append(text)
 
+        # Before the gate: every decoded segment with text sets the duration,
+        # so the gate never changes it (amendment 2).
         segment_duration = max((segment.end_seconds for segment in segments), default=0.0)
+
+        non_speech: list[ASRNonSpeechSpan] = []
+        if self._nonspeech_gate and segments:
+            segments, non_speech = self._drop_nonspeech(path, segments)
+            text_parts = [segment.text for segment in segments]
+
         info_duration = float(getattr(info, "duration", 0) or 0)
         return ASRResult(
             provider="local_whisper",
@@ -346,6 +419,7 @@ class LocalWhisperProvider(ASRProvider):
             language=decision.language,
             text=" ".join(text_parts),
             segments=segments,
+            non_speech=non_speech,
             duration_seconds=max(segment_duration, info_duration),
             language_decision=ASRLanguageDecision(
                 source=decision.source.value,

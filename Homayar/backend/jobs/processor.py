@@ -2576,6 +2576,12 @@ def process_job(
             decode = decode_identity() if callable(decode_identity) else None
             if isinstance(decode, dict):
                 asr_request_identity["decode"] = decode
+            # The music and tone gate changes results, so a gated result must
+            # not be reused as an ungated checkpoint (HOM-348, ADR 0078).
+            nonspeech_identity = getattr(active_providers.asr, "nonspeech_identity", None)
+            nonspeech = nonspeech_identity() if callable(nonspeech_identity) else None
+            if isinstance(nonspeech, dict):
+                asr_request_identity["nonspeech"] = nonspeech
 
             def transcribe(request: ASRRequest) -> ASRResult:
                 return _call_provider(
@@ -2630,10 +2636,19 @@ def process_job(
                 # Silence or unintelligible audio is an honest outcome, not a
                 # worker failure: the audio was processed, nothing was found.
                 # Not a checkpoint: only completed results are committed.
+                only_nonspeech = bool(asr.non_speech)
                 asr_record.finish(
                     StageState.INSUFFICIENT_EVIDENCE,
-                    reason=StageReason.EMPTY_TRANSCRIPT,
-                    message="Speech recognition returned an empty transcript",
+                    reason=(
+                        StageReason.NON_SPEECH_AUDIO
+                        if only_nonspeech
+                        else StageReason.EMPTY_TRANSCRIPT
+                    ),
+                    message=(
+                        "Only music or tones were found; no speech was transcribed"
+                        if only_nonspeech
+                        else "Speech recognition returned an empty transcript"
+                    ),
                     provider=asr.provider,
                     model=asr.model,
                     is_mock=asr.is_mock,

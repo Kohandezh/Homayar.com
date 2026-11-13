@@ -34,6 +34,8 @@ STAGE_ORDER: tuple[StageName, ...] = (
 
 class StageReason(str, enum.Enum):
     EMPTY_TRANSCRIPT = "empty_transcript"
+    # The audio held only music or tones; the gate removed them all (HOM-348).
+    NON_SPEECH_AUDIO = "non_speech_audio"
     NO_TRANSCRIPT = "no_transcript"
     DIARIZATION_UNAVAILABLE = "diarization_unavailable"
     PROVIDER_ERROR = "provider_error"

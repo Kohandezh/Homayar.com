@@ -20,6 +20,7 @@ import threading
 import wave
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Final
 
@@ -32,7 +33,13 @@ from backend.media.validation import (
     _MAX_FFPROBE_ALLOCATION_BYTES,
     _MAX_PROBE_SIZE_BYTES,
 )
-from backend.providers.schemas import ASRChunking, ASRChunkSpan, ASRRequest, ASRResult
+from backend.providers.schemas import (
+    ASRChunking,
+    ASRChunkSpan,
+    ASRNonSpeechSpan,
+    ASRRequest,
+    ASRResult,
+)
 from backend.services.logging_service import logger
 from backend.speech.chunking import (
     CHUNKING_VERSION,
@@ -321,6 +328,32 @@ def transcribe_chunks[Identity](
     return merge_results(plans, results, decider=decider)
 
 
+def _merge_non_speech(
+    plans: Sequence[ChunkPlan], results: Sequence[ASRResult]
+) -> list[ASRNonSpeechSpan]:
+    """The chunks' non-speech spans in original time (HOM-348), kept by the
+    same ownership rule ``merge_chunk_segments`` uses for segments."""
+    spans: list[ASRNonSpeechSpan] = []
+    for plan, result in zip(plans, results, strict=True):
+        offset = Fraction(plan.start_sample, plan.sample_rate)
+        owned_start = Fraction(plan.owned_start_sample, plan.sample_rate)
+        owned_end = Fraction(plan.owned_end_sample, plan.sample_rate)
+        for span in result.non_speech:
+            start = Fraction(span.start_seconds) + offset
+            end = Fraction(span.end_seconds) + offset
+            if not owned_start <= (start + end) / 2 < owned_end:
+                continue
+            spans.append(
+                ASRNonSpeechSpan(
+                    start_seconds=float(start),
+                    end_seconds=float(end),
+                    kind=span.kind,
+                )
+            )
+    spans.sort(key=lambda span: (span.start_seconds, span.end_seconds))
+    return spans
+
+
 def merge_results(
     plans: Sequence[ChunkPlan],
     results: Sequence[ASRResult],
@@ -341,6 +374,7 @@ def merge_results(
         segments=segments,
         duration_seconds=plans[-1].end_sample / SAMPLE_RATE_HZ,
         is_mock=any(item.is_mock for item in results),
+        non_speech=_merge_non_speech(plans, results),
         chunking=ASRChunking(
             version=CHUNKING_VERSION,
             chunks=[
