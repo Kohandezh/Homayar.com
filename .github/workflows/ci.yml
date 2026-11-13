@@ -726,6 +726,7 @@ jobs:
           infra/ci/tests/test-app-server-release.sh
           infra/ci/tests/test-homayar-onprem.sh
           infra/ci/tests/oracle-homayar-onprem.sh
+          infra/ci/tests/oracle-homayar-onprem-signing.sh
           infra/ci/tests/test-demo-site.sh
           infra/scripts/app-server-release.sh
           infra/scripts/homayar-onprem.sh
@@ -747,6 +748,11 @@ jobs:
 
       - name: Independent oracle for the on-prem lifecycle script
         run: bash infra/ci/tests/oracle-homayar-onprem.sh
+
+      # HOM-107: the signing oracle probes the signed-bundle behaviour of
+      # pack/install/upgrade with its own throwaway Ed25519 keys.
+      - name: Signing oracle for the on-prem lifecycle script
+        run: bash infra/ci/tests/oracle-homayar-onprem-signing.sh
 
       - name: Selftest the demo site scripts
         run: bash infra/ci/tests/test-demo-site.sh

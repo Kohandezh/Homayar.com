@@ -51,7 +51,18 @@ IDE6="sha256:$(rep 62 32)"
 IDA7="sha256:$(rep 70 32)"
 IDC7="sha256:$(rep 71 32)"
 IDE7="sha256:$(rep 72 32)"
-WARN_LINE='WARNING: package is hash-checked, not signed (HOM-107)'
+
+# HOM-107: every fixture package is signed at run time with a throwaway
+# Ed25519 key (never committed); its public half seeds the trust directory of
+# the fake home, and the real openssl of the test image signs and verifies.
+KEY="$T/keys/bundle-signing-key.pem"
+PUB="$T/keys/bundle-signing-key.pub.pem"
+mkdir -p "$T/keys"
+openssl genpkey -algorithm ed25519 -out "$KEY" 2>/dev/null
+chmod 600 "$KEY"
+openssl pkey -in "$KEY" -pubout -out "$PUB" 2>/dev/null
+FINGERPRINT="$(openssl pkey -in "$KEY" -pubout -outform DER 2>/dev/null | sha256sum | cut -c1-16)"
+sign_pkg() { openssl pkeyutl -sign -inkey "$KEY" -rawin -in "$1/SHA256SUMS" -out "$1/SHA256SUMS.sig" 2>/dev/null; }
 
 cat >"$PY/mkimg.py" <<'PYEOF'
 import io
@@ -1541,11 +1552,12 @@ write_sums() {
   local d="$1"
   (
     cd "$d" || exit 1
-    find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
+    find . -type f ! -path ./SHA256SUMS ! -path ./SHA256SUMS.sig | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
       sha256sum -- "$f"
     done >"$T/sums.tmp"
   )
   mv -f "$T/sums.tmp" "$d/SHA256SUMS"
+  sign_pkg "$d"
 }
 
 write_release_env() {
@@ -1562,6 +1574,21 @@ make_pkg() {
   python3 -I "$PY/mkimg.py" "$d/images/console-web.tar" "$(img_spec "homayar/console-web:$v" "$idc" "$head" "$sha" "$v")"
   python3 -I "$PY/mkimg.py" "$d/images/egress-proxy.tar" "$(img_spec "homayar/egress-proxy:$v" "$ide" "$head" "$sha" "$v")"
   write_release_env "$d" "$v" "$sha"
+  {
+    printf 'schema homayar-offline-bundle/1\n'
+    printf 'release %s %s\n' "$v" "$sha"
+    printf 'image images/api.tar %s homayar/api:%s LicenseRef-Homayar-Proprietary\n' \
+      "$(sha256sum "$d/images/api.tar" | cut -d' ' -f1)" "$v"
+    printf 'image images/console-web.tar %s homayar/console-web:%s LicenseRef-Homayar-Proprietary\n' \
+      "$(sha256sum "$d/images/console-web.tar" | cut -d' ' -f1)" "$v"
+    printf 'image images/egress-proxy.tar %s homayar/egress-proxy:%s LicenseRef-Homayar-Proprietary\n' \
+      "$(sha256sum "$d/images/egress-proxy.tar" | cut -d' ' -f1)" "$v"
+    printf 'requires bash >=4.4\n'
+    printf 'requires openssl >=3.0\n'
+    printf 'requires docker-engine >=27.3.1\n'
+    printf 'requires docker-compose-plugin >=2.29.7\n'
+    printf 'requires nvidia-container-toolkit gpu-profile-only\n'
+  } >"$d/BUNDLE.manifest"
   write_sums "$d"
 }
 
@@ -1591,13 +1618,16 @@ rm -f "$D_MISSING/infra/nginx/includes/oracle.conf"
 D_DOTDOT="$(deny_copy deny-dotdot)"
 printf 'outside the package\n' >"$PKGS/outside-dotdot.txt"
 printf '%s  ../outside-dotdot.txt\n' "$(sha256sum "$PKGS/outside-dotdot.txt" | cut -d' ' -f1)" >>"$D_DOTDOT/SHA256SUMS"
+sign_pkg "$D_DOTDOT" # the appended line is signed so the path rule is what refuses
 
 D_ABS="$(deny_copy deny-abs)"
 printf 'absolute path target\n' >"$PKGS/outside-abs.txt"
 printf '%s  %s\n' "$(sha256sum "$PKGS/outside-abs.txt" | cut -d' ' -f1)" "$PKGS/outside-abs.txt" >>"$D_ABS/SHA256SUMS"
+sign_pkg "$D_ABS" # the appended line is signed so the path rule is what refuses
 
 D_BADLINE="$(deny_copy deny-badline)"
 printf 'this line is not a checksum line\n' >>"$D_BADLINE/SHA256SUMS"
+sign_pkg "$D_BADLINE" # the appended line is signed so the line rule is what refuses
 
 relenv_variant() {
   local d
@@ -1665,6 +1695,8 @@ ENVEOF
 fresh_world() {
   rm -rf -- "${HOMEF:?}" "${STUB:?}" "${RUNTMP:?}" "${TEXTFILE:?}"
   mkdir -p "$HOMEF/config" "$STUB/dockerroot" "$RUNTMP" "$TEXTFILE" "$T/backups"
+  mkdir -p "$HOMEF/config/bundle-keys"
+  cp "$PUB" "$HOMEF/config/bundle-keys/bundle-key-oracle.pem"
   write_env
   : >"$STUB/calls"
   : >"$STUB/events"
@@ -1913,7 +1945,8 @@ ok "the api was not started before migrate" snap_not "$STUB/migrate-snapshot" ap
 ok "api runs homayar/api:$V5 at the end" running_on api "homayar/api:$V5"
 ok "proxy runs at the end" snap_is "$STUB/svc" proxy running
 ok "every service was started from releases/$V5 (bind mounts keep that path), not a temp folder" started_from_final "$V5"
-ok "the unsigned-package warning line is printed" out_hasF "$WARN_LINE"
+ok "the signature line names the verifying key's fingerprint" out_hasF "fingerprint $FINGERPRINT"
+ok "the signed requirements are printed" out_hasF "requires bash >=4.4"
 ok "a log file ops/homayar-onprem-<ts>.log exists with mode 600" log_file_600
 ok "the lock is released" lock_free
 ok "no image or volume was removed" no_destructive
@@ -2074,7 +2107,7 @@ ok "worker runs homayar/api:$V6" running_on worker "homayar/api:$V6"
 ok "console-web runs homayar/console-web:$V6" running_on console-web "homayar/console-web:$V6"
 ok "the output prints the state id" out_hasF "$RID"
 ok "the output tells how to roll back" out_hasi 'rollback'
-ok "the unsigned-package warning line is printed" out_hasF "$WARN_LINE"
+ok "the signature line names the verifying key's fingerprint" out_hasF "fingerprint $FINGERPRINT"
 ok "no image or volume was removed or pruned" no_destructive
 ok "the lock is released" lock_free
 ok "a log file ops/homayar-onprem-<ts>.log exists with mode 600" log_file_600
@@ -2430,10 +2463,18 @@ end_case
 
 make_src() {
   rm -rf -- "${SRC:?}"
-  mkdir -p "$SRC/Homayar/backend"
+  mkdir -p "$SRC/Homayar/backend" "$SRC/infra/offline"
   write_infra "$SRC" "$V7"
   printf 'print("app")\n' >"$SRC/Homayar/backend/app.py"
   printf '%s\n' "$SHA7" >"$SRC/.oracle-git-head"
+  {
+    printf '# oracle bundle.conf fixture\n'
+    printf 'license api LicenseRef-Homayar-Proprietary\n'
+    printf 'license console-web LicenseRef-Homayar-Proprietary\n'
+    printf 'license egress-proxy LicenseRef-Homayar-Proprietary\n'
+    printf 'requires bash >=4.4\n'
+    printf 'requires openssl >=3.0\n'
+  } >"$SRC/infra/offline/bundle.conf"
 }
 pack_world() {
   fresh_world
@@ -2444,7 +2485,8 @@ pack_world() {
 }
 pack_args() {
   printf '%s\n' --source "$SRC" --output "$1" --version "$V7" \
-    --api-image "homayar/api:$V7" --console-web-image "homayar/console-web:$V7" --egress-proxy-image "homayar/egress-proxy:$V7"
+    --api-image "homayar/api:$V7" --console-web-image "homayar/console-web:$V7" --egress-proxy-image "homayar/egress-proxy:$V7" \
+    --signing-key "$KEY"
 }
 relenv_val() { grep -E "^$2=" "$1/release.env" | tail -n 1 | sed -E 's/^[^=]*=//' | tr -d "\"'"; }
 relenv_eq() { [[ -f "$1/release.env" && "$(relenv_val "$1" "$2")" == "$3" ]]; }
@@ -2456,7 +2498,7 @@ relenv_keys_exact() {
 sums_cover_all() {
   local d="$1" listed present_files
   listed="$(sed -E 's/^[0-9a-f]{64} [ *]//' "$d/SHA256SUMS" | LC_ALL=C sort)"
-  present_files="$(cd "$d" && find . -type f ! -path ./SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort)"
+  present_files="$(cd "$d" && find . -type f ! -path ./SHA256SUMS ! -path ./SHA256SUMS.sig | sed 's|^\./||' | LC_ALL=C sort)"
   [[ -n "$listed" && "$listed" == "$present_files" ]]
 }
 sums_verify() { (cd "$1" && sha256sum -c --strict --quiet SHA256SUMS >/dev/null 2>&1); }
@@ -2479,6 +2521,10 @@ ok "HOMAYAR_RELEASE_VERSION is $V7" relenv_eq "$PK1" HOMAYAR_RELEASE_VERSION "$V
 ok "HOMAYAR_RELEASE_SHA is the checkout HEAD" relenv_eq "$PK1" HOMAYAR_RELEASE_SHA "$SHA7"
 ok "API_IMAGE is homayar/api:$V7" relenv_eq "$PK1" API_IMAGE "homayar/api:$V7"
 ok "three image archives under images/" tar_count_is "$PK1" 3
+ok "SHA256SUMS.sig exists and is exactly 64 bytes" bash -c '[[ -f "$1/SHA256SUMS.sig" && "$(stat -c %s "$1/SHA256SUMS.sig")" == 64 ]]' _ "$PK1"
+ok "SHA256SUMS.sig verifies with the signing key's public key" bash -c 'openssl pkeyutl -verify -pubin -inkey "$2" -rawin -in "$1/SHA256SUMS" -sigfile "$1/SHA256SUMS.sig" >/dev/null 2>&1' _ "$PK1" "$PUB"
+ok "BUNDLE.manifest exists, is listed in SHA256SUMS and starts with the schema line" bash -c 'test -f "$1/BUNDLE.manifest" && grep -q "  BUNDLE.manifest" "$1/SHA256SUMS" && head -n 1 "$1/BUNDLE.manifest" | grep -qx "schema homayar-offline-bundle/1"' _ "$PK1"
+ok "the pack output names the signing key fingerprint" out_hasF "fingerprint $FINGERPRINT"
 ok "infra/compose/compose.onprem.yaml is copied from the checkout" cmp -s "$SRC/infra/compose/compose.onprem.yaml" "$PK1/infra/compose/compose.onprem.yaml"
 ok "infra/nginx is copied from the checkout" cmp -s "$SRC/infra/nginx/nginx.conf" "$PK1/infra/nginx/nginx.conf"
 end_case

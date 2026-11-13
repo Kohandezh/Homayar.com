@@ -38,16 +38,30 @@ console output or a support bundle.
 
 ## The package
 
-A release arrives as a folder (or a `.tar` of its contents):
+A release arrives as a folder (or a `.tar` of its contents), signed with an
+Ed25519 key (HOM-107, ADR 0070):
 
 - `SHA256SUMS`: one `sha256sum` line per file. A missing file, a changed
   file, an extra unlisted file, or a `..` or absolute path refuses the
   package.
+- `SHA256SUMS.sig`: the raw 64-byte Ed25519 signature over the exact bytes
+  of `SHA256SUMS`. `install` and `upgrade` verify it against the public
+  keys of the trust directory (below) before anything else; an unsigned or
+  tampered package is refused with exit 2 and nothing is changed. There is
+  no override flag.
+- `BUNDLE.manifest`: the signed description of the bundle (schema line,
+  `release` line, one `image` line per `images/*.tar` with its hash, image
+  reference and licence, one `model` line per file under `models/`, and the
+  `requires` lines of the host). A manifest that disagrees with the package
+  (a hash, an image reference, a licence, a missing or extra line) refuses
+  even when the signature is good.
 - `release.env`: exactly `HOMAYAR_RELEASE_VERSION`, `HOMAYAR_RELEASE_SHA`
   (40 hex), `API_IMAGE`, `CONSOLE_WEB_IMAGE`, `EGRESS_PROXY_IMAGE` with
   versioned tags. A `:local` or `:latest` tag is refused. The file is parsed
   as data, never sourced.
 - `images/*.tar`: `docker save` archives of the three images.
+- `models/`, `manifests/`: only when the package embeds model files (see
+  `pack --model-root` below).
 - `infra/`: the release's `compose/`, `scripts/` and `nginx/` folders.
 
 Build one from a clean checkout with already-built images:
@@ -57,10 +71,76 @@ bash homayar-onprem.sh pack --source <checkout> --output /tmp/homayar-0.6.0 \
   --version 0.6.0 \
   --api-image registry/homayar/api:0.6.0 \
   --console-web-image registry/homayar/console-web:0.6.0 \
-  --egress-proxy-image registry/homayar/egress-proxy:0.6.0
+  --egress-proxy-image registry/homayar/egress-proxy:0.6.0 \
+  --signing-key /path/to/bundle-signing-key.pem
 ```
 
-`pack` refuses a dirty checkout and a non-empty output folder.
+`pack` refuses a dirty checkout, a non-empty output folder, a missing
+signing key, a key with group or other permission bits, a key that is not
+Ed25519, and a checkout without `infra/offline/bundle.conf` (the committed
+file that holds the image licences and the `requires` lines written into
+`BUNDLE.manifest`). On success it prints the signing key's fingerprint.
+
+To embed model files, pass the operator model manifests and the model root
+(both flags together, the manifest flag repeatable):
+
+```bash
+bash homayar-onprem.sh pack ... --signing-key <key.pem> \
+  --model-root /path/to/model-artifacts \
+  --model-manifest infra/manifests/<set>/<model>.json
+```
+
+Every `file` artifact must exist under the model root and hash to its pin;
+it is copied to `models/<path>` and described by a signed `model` line with
+the manifest's licence and id. `dir` artifacts are refused (not supported
+yet). `pack` needs python3 on the packing host for this; `install` and
+`upgrade` never need python3.
+
+## Package signing
+
+The signature turns the hash list into a statement by the signer. The
+private key never lives in the repository, on the customer host or in CI:
+it stays on an offline signing host (or wherever you keep release
+credentials), mode 600, and only `pack` ever uses it. Test suites generate
+throwaway keys at run time; no key file is ever committed.
+
+Make a key pair once:
+
+```bash
+openssl genpkey -algorithm ed25519 -out bundle-signing-key.pem   # keep offline
+chmod 600 bundle-signing-key.pem
+openssl pkey -in bundle-signing-key.pem -pubout -out bundle-public.pem
+```
+
+Install the public half on the customer host, out of band (the package
+never carries trust):
+
+```bash
+mkdir -p /opt/homayar/config/bundle-keys
+cp bundle-public.pem /opt/homayar/config/bundle-keys/homayar-bundle.pem
+```
+
+`HOMAYAR_BUNDLE_TRUST_DIR` points the check somewhere else (tests use it);
+the default is `$HOMAYAR_HOME/config/bundle-keys`. Any `*.pem` there that
+is not an Ed25519 public key makes every install refuse (fail closed, the
+message names the file), so keep the directory to real bundle keys only. A
+package is accepted when **any** trusted key verifies it.
+
+The key fingerprint (first 16 hex of the sha256 of the key's DER public
+key) is printed by `pack` and by every verified `install` and `upgrade`,
+and lands in the `ops/` log, so you can see which key signed and which key
+verified. Fingerprints never contain key material.
+
+Rotation: generate the new key, copy the new public PEM next to the old one
+in `config/bundle-keys`, sign new packages with the new key, and remove the
+old PEM only when no old package ever needs to install again.
+
+What a refusal means: `signature` in the output says no trusted key could
+verify `SHA256SUMS.sig` over the package's `SHA256SUMS` (unsigned package,
+broken transfer, a re-packed package, or a key that is not trusted on this
+host); `BUNDLE.manifest` says the signed description disagrees with the
+package contents. Both exit 2, nothing was changed, and there is no flag to
+skip either check: get a good package or fix the trust directory.
 
 ## Install
 
@@ -70,7 +150,10 @@ First install on an empty host. Write `config/onprem.env` first, then:
 bash homayar-onprem.sh install --package /tmp/homayar-0.5.0 </dev/null
 ```
 
-The command verifies the package, extracts it to `releases/<version>`, loads
+The command stages the package, verifies its signature against the trust
+directory, checks the hash list and `release.env`, checks `BUNDLE.manifest`,
+prints the verifying key's fingerprint and the signed `requires` lines, then
+extracts the release to `releases/<version>`, loads
 the images, renders the Compose config with the operator env file, checks
 free disk, runs the host preflight, starts the stores, runs the migration
 job, starts the stack, waits for `/healthz` and `/readyz` on the proxy, and
@@ -88,7 +171,9 @@ never deleted.
 bash homayar-onprem.sh upgrade --package /tmp/homayar-0.6.0 </dev/null
 ```
 
-Before anything changes, the command checks: the stack is healthy; free disk
+Before anything changes, the command checks: the new package's signature,
+hash list and `BUNDLE.manifest` (exactly as `install` does); the stack is
+healthy; free disk
 on `HOMAYAR_HOME` and the Docker root (10 GiB default, `--min-disk-gib`); the
 new release's Compose config renders; and a verified full backup is fresh.
 Fresh means the `homayar_backup_last_success_timestamp_seconds` gauge in
@@ -204,9 +289,9 @@ preflight with `--host` inside the api container
 
 ## Limits
 
-- Packages are hash-checked, not signed. Signature checks come with HOM-107.
-  Until then, transfer packages over a trusted channel and check their
-  checksums by hand.
+- Packages are signed, but the signer is only as trustworthy as the signing
+  host: keep the key offline, and rotate it by adding the new public PEM to
+  `config/bundle-keys` (see "Package signing").
 - Settings changes between releases are manual: compare
   `releases/<old>/infra/compose/compose.onprem.yaml` with the new release
   and update `config/onprem.env` yourself before upgrading.
