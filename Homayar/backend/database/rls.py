@@ -124,6 +124,12 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     # reassigns, closes and cancels them, the purge deletes the conversation's rows.
     # Never through a share token.
     "coaching_tasks",
+    # Retrieval index entries and embeddings (HOM-93): the indexer of PR 2 writes
+    # them, the purge deletes the conversation's rows.  The stored ACL snapshot is
+    # a pre-filter; reads re-check the live meeting (HOM-94).  Never through a
+    # share token.
+    "retrieval_entries",
+    "retrieval_embeddings",
     # P0 wave
     "service_locations",
     "voice_workspace_limits",
@@ -396,14 +402,17 @@ NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records", "webhook_del
 # score never changes (F41).  ``review_results`` (HOM-74): a stored human score never
 # changes either.  ``calibration_examples`` (HOM-75): a batch's example list is fixed
 # at creation.  ``review_appeal_results`` (HOM-76): a stored score after an appeal
-# never changes, like a human score.  DELETE stays granted, because the conversation
-# purge removes the rows as the application role.
+# never changes, like a human score.  ``retrieval_embeddings`` (HOM-93): a vector is
+# written once; a new model or a new text writes a new row with a new
+# ``embedding_version``.  DELETE stays granted, because the conversation purge
+# removes the rows as the application role.
 NO_UPDATE_TABLES: tuple[str, ...] = (
     "scorecard_results",
     "scorecard_criterion_results",
     "review_results",
     "calibration_examples",
     "review_appeal_results",
+    "retrieval_embeddings",
 )
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on

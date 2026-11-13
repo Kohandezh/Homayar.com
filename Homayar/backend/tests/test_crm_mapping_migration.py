@@ -86,7 +86,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "565d2ccd4fca"
 BASE_REVISION = "47676f445509"  # HOM-54: scorecard_versions
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 PROFILES = "integration_mapping_profiles"
 RECORDS = "external_records"
 LEDGER = "integration_inbound_records"

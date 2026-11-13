@@ -84,6 +84,7 @@ from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
+from backend.tests.test_retrieval_index_migration import remove_retrieval_index_tables
 from backend.tests.test_scorecard_results_migration import (
     _criterion,
     _delete_conversation,
@@ -1468,7 +1469,9 @@ def test_on_sqlite_the_migration_builds_the_orm_table_and_its_downgrade_removes_
             table.drop(connection)
             # HOM-128 adds the federation mapping table and two columns; take
             # them out, so the head's own migration adds them again below.
+            # HOM-93 adds the retrieval index tables likewise.
             remove_federation_group_mappings(connection)
+            remove_retrieval_index_tables(connection)
             before = _sqlite_objects(connection)
         assert orm["checks"] == sorted(CHECKS)
 

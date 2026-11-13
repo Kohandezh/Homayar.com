@@ -89,6 +89,8 @@ from backend.database.saas_models import (
     MeetingSummary,
     PiiMapping,
     RedactedSegment,
+    RetrievalEmbedding,
+    RetrievalEntry,
     ReviewAppeal,
     ReviewAppealCriterion,
     ReviewAppealResult,
@@ -136,6 +138,10 @@ CONTENT_TABLES = tuple(
         TranscriptTextView,
         TextViewSegment,
         TextViewEntity,
+        # The retrieval index rows of a conversation (HOM-93): the embeddings
+        # next to their entries.
+        RetrievalEmbedding,
+        RetrievalEntry,
         PiiMapping,
         RedactedSegment,
         TranscriptRedaction,

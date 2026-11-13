@@ -418,7 +418,7 @@ HEAD_PINS = (
 )
 # HOM-133 and then HOM-77 moved the head past the appeals revision; the pins carry
 # the comment of the latest head.
-PIN_COMMENT = "# HOM-128: federation group mappings, after HOM-77"
+PIN_COMMENT = "# HOM-93: retrieval index, after HOM-128"
 OWN_REVISIONS = {
     "test_review_decisions_migration": "a651110b03c3",
     "test_calibration_migration": BASE_HEAD,

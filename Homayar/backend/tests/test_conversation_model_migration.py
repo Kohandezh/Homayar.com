@@ -45,7 +45,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "6d4ec2d2e498"
 BASE_REVISION = "a7c3e9f5b2d1"
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 NEW_COLUMNS = (
     "conversation_type",
     "direction",

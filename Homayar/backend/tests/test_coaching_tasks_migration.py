@@ -100,6 +100,7 @@ from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
+from backend.tests.test_retrieval_index_migration import remove_retrieval_index_tables
 from backend.tests.test_review_decisions_migration import _decision, _human, _item_values
 from backend.tests.test_scorecard_results_migration import (
     _add,
@@ -111,7 +112,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "5f3a91c0d7b2"
 BASE_REVISION = "c4a8e2f7d913"  # HOM-133: action item kind
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 TABLE = "coaching_tasks"
 TABLES = (TABLE,)
 APPEALS = "review_appeals"
@@ -1146,8 +1147,9 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             for name in reversed(TABLES):
                 Base.metadata.tables[name].drop(connection)
             # HOM-128 adds the federation mapping table and two columns on top;
-            # take them out too.
+            # HOM-93 adds the retrieval index tables; take them out too.
             remove_federation_group_mappings(connection)
+            remove_retrieval_index_tables(connection)
             before_objects = _objects(connection)
 
         config = _alembic_at(monkeypatch, url)

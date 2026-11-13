@@ -3237,6 +3237,168 @@ class TextViewEntity(Base):
     )
 
 
+# The retrieval index's dialect-specific index expressions (HOM-93).  They are
+# defined at module level because ``text`` is also a column name on these tables,
+# so the sqlalchemy ``text()`` wrapper cannot be called inside the class body.
+RETRIEVAL_LIVE_WHERE = text("superseded_at IS NULL")
+RETRIEVAL_FTS_EXPRESSION = text("to_tsvector('simple', text)")
+
+
+class RetrievalEntry(Base):
+    """One indexed text-view segment of one revision (HOM-93, WP17-T02, F57).
+
+    The lexical unit of the retrieval index: one row per ``text_view_segments``
+    row under one ``index_version``.  ``text`` is a copy of the segment's
+    normalized text (ADR 0034), already redacted when the workspace enforces a
+    redaction policy, so an index row never holds text a default reader could
+    not see.  ``team_id``, ``agent_user_id`` and ``created_by_user_id`` are a
+    snapshot of the record ACL (the exact fields of
+    ``RecordAccess.meeting_clause``) taken at ``acl_synced_at``: a pre-filter
+    only, never the authority.  Every read of PR 2 joins the live ``meetings``
+    row and applies the live record access (HOM-94), so deletion and
+    re-attribution act at once, before any reindex.  ``superseded_at`` marks
+    entries of a revision that stopped being current; NULL means the entry's
+    revision was current when indexed.  Not immutable: PR 2 updates only
+    ``superseded_at`` and the ACL snapshot columns.  Conversation content: the
+    purge deletes the row and the backup reconciliation counts it.
+    Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "retrieval_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # A copy of the segment's conversation: the purge and the backup
+    # reconciliation find content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    revision_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_revisions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text_view_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_text_views.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text_view_segment_id: Mapped[str] = mapped_column(
+        ForeignKey("text_view_segments.id", ondelete="CASCADE"), nullable=False
+    )
+    segment_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_segments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The segment's order inside the view.
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    # A copy of the revision's number, so listing entries of one revision never
+    # joins the revision row.
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    language: Mapped[str] = mapped_column(String(12), nullable=False)
+    # The normalized lexical text (a copy of ``text_view_segments.text``).
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Names the index layout and rules, e.g. ``retrieval-index/1``: a change in
+    # what is indexed writes new rows, never over the old ones.
+    index_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    # The ACL snapshot of ``Meeting.team_id``, ``Meeting.agent_user_id`` and
+    # ``Meeting.created_by_user_id``: SET NULL when the team or the user goes.
+    team_id: Mapped[str | None] = mapped_column(ForeignKey("teams.id", ondelete="SET NULL"))
+    agent_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    acl_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # NULL: the entry's revision was current when indexed.
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "text_view_segment_id", "index_version", name="uq_retrieval_entry_segment_version"
+        ),
+        CheckConstraint("sequence >= 0", name="ck_retrieval_entry_sequence"),
+        CheckConstraint("revision_number >= 1", name="ck_retrieval_entry_revision_number"),
+        CheckConstraint("length(text_sha256) = 64", name="ck_retrieval_entry_text_sha256"),
+        Index("ix_retrieval_entry_workspace_meeting", "workspace_id", "meeting_id"),
+        # The live entries of one workspace and index version (the NULL check of
+        # ``superseded_at`` must survive on both dialects).
+        Index(
+            "ix_retrieval_entry_live",
+            "workspace_id",
+            "index_version",
+            postgresql_where=RETRIEVAL_LIVE_WHERE,
+            sqlite_where=RETRIEVAL_LIVE_WHERE,
+        ),
+        # PostgreSQL full-text on the normalized text, the ``simple``
+        # configuration (the normalizer of ADR 0034 already did the language
+        # work).  SQLite (dev and tests) has no full-text index; the migration
+        # creates this index on PostgreSQL only, with the same expression.
+        Index(
+            "ix_retrieval_entry_text_fts",
+            RETRIEVAL_FTS_EXPRESSION,
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
+    )
+
+
+class RetrievalEmbedding(Base):
+    """One versioned embedding vector of one indexed entry (HOM-93, WP17-T02, F58).
+
+    ``postgres:17-alpine`` has no pgvector, so the vector lives as portable
+    bytes: float32 little-endian, ``4 * dimensions`` bytes.  ``embedding_version``
+    is the sha256 of a canonical JSON of the provider identity, the dimensions
+    and the index version (ADR 0068): a new model or a new index version never
+    overwrites an old vector, it writes a new row.  Written once, never
+    updated (the application role holds no UPDATE grant); a reader of PR 2
+    scores candidates inside one workspace through a ``VectorStore`` adapter.
+    Conversation content: the purge deletes the row and the backup
+    reconciliation counts it.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "retrieval_embeddings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # A copy of the entry's conversation: the purge and the backup
+    # reconciliation find content rows by ``meeting_id``.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    entry_id: Mapped[str] = mapped_column(
+        ForeignKey("retrieval_entries.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # sha256 hex that names the embedding space (ADR 0068, decision D4).
+    embedding_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    # From ``ProviderIdentity.provider`` and ``ProviderIdentity.model``.
+    provider: Mapped[str] = mapped_column(String(128), nullable=False)
+    model: Mapped[str] = mapped_column(String(256), nullable=False)
+    dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
+    # float32 little-endian, ``4 * dimensions`` bytes.
+    vector: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # sha256 of the exact text that was embedded.
+    text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "entry_id", "embedding_version", name="uq_retrieval_embedding_entry_version"
+        ),
+        CheckConstraint(
+            "dimensions >= 1 AND dimensions <= 4096", name="ck_retrieval_embedding_dimensions"
+        ),
+        CheckConstraint(
+            "length(vector) = 4 * dimensions", name="ck_retrieval_embedding_vector_size"
+        ),
+        CheckConstraint("length(embedding_version) = 64", name="ck_retrieval_embedding_version"),
+        Index("ix_retrieval_embedding_workspace_version", "workspace_id", "embedding_version"),
+    )
+
+
 class IngestionRecord(Base):
     """One row per accepted ingestion event: the canonical entry of every
     capture source into Homayar (WP05-T01, ADR 0016).

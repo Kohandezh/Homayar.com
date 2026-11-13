@@ -59,7 +59,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "47676f445509"
 BASE_REVISION = "f2c6a8e4b1d7"  # HOM-290: trend_extraction_judgments
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 TABLE = "scorecard_versions"
 NAMED_CONSTRAINTS = (
     "uq_scorecard_version",

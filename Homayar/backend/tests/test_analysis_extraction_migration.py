@@ -57,7 +57,7 @@ from backend.tests.test_privacy_routing import NID_FA, SEGMENTS, _SegmentedASR
 
 NEW_REVISION = "c7e2a9d4f1b6"
 BASE_REVISION = "e6c3a9f1d4b8"
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 TABLE = "analysis_extractions"
 
 
