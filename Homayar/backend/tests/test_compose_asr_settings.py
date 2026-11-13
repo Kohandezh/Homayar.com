@@ -8,6 +8,11 @@ used its defaults. Both ``x-app-environment`` anchors now carry every setting wh
 starts with ``asr_``, with the code default after ``:-``, so an unset variable keeps
 today's behaviour.
 
+HOM-41 exception: the warm-worker settings (``asr_warm_on_start``,
+``asr_batch_size``, ``asr_model_memory_mib`` and ``worker_memory_budget_mib``) reach the
+``worker`` service environment only: no other service loads a model or clamps its
+concurrency.
+
 The names are read from ``Settings.model_fields`` at test time, so a future ``asr_*``
 setting that is not added to Compose fails this file. Two kinds of check: the rendered
 config (``docker compose config``, skipped without docker unless ``CI`` is set) and a
@@ -99,6 +104,12 @@ def asr_env_defaults() -> dict[str, str]:
     }
     assert "ASR_PROVIDER" in defaults, "the ASR settings group of Settings is missing"
     return defaults
+
+
+# HOM-41: warm-worker settings that reach the worker service environment only
+# (no other service loads a model or clamps its concurrency).
+WORKER_ONLY_ASR_ENV = frozenset({"ASR_WARM_ON_START", "ASR_BATCH_SIZE", "ASR_MODEL_MEMORY_MIB"})
+WORKER_ONLY_ENV = WORKER_ONLY_ASR_ENV | {"WORKER_MEMORY_BUDGET_MIB"}
 
 
 def _anchor_default(anchor: dict[str, Any], env_name: str) -> str | None:
@@ -240,6 +251,8 @@ def test_defaults_reach_every_app_service(
     environment = _environment(rendered_defaults[setup][service])
 
     for env_name, default in asr_env_defaults().items():
+        if service != "worker" and env_name in WORKER_ONLY_ASR_ENV:
+            continue  # HOM-41: worker-only setting
         assert environment.get(env_name) == default, (setup, service, env_name)
 
 
@@ -319,5 +332,26 @@ def test_anchor_declares_every_asr_setting_with_the_code_default(
     anchor = compose_documents[file_name]["x-app-environment"]
 
     for env_name, default in asr_env_defaults().items():
+        if env_name in WORKER_ONLY_ASR_ENV:
+            # HOM-41: these reach the worker service only, never the anchor.
+            assert env_name not in anchor, (file_name, env_name)
+            continue
         assert env_name in anchor, (file_name, env_name)
         assert _anchor_default(anchor, env_name) == default, (file_name, env_name)
+
+
+@pytest.mark.parametrize("file_name", ["onprem", "cloud"])
+def test_worker_environment_declares_the_warm_worker_settings_with_the_code_default(
+    compose_documents: dict[str, Any], file_name: str
+) -> None:
+    """HOM-41: the warm-worker settings reach the worker service environment
+    only, with the code default after ``:-``."""
+    worker = compose_documents[file_name]["services"]["worker"]["environment"]
+    anchor = compose_documents[file_name]["x-app-environment"]
+    budget_default = str(Settings.model_fields["worker_memory_budget_mib"].default)
+    defaults = {**asr_env_defaults(), "WORKER_MEMORY_BUDGET_MIB": budget_default}
+
+    for env_name in WORKER_ONLY_ENV:
+        assert env_name in worker, (file_name, env_name)
+        assert _anchor_default(worker, env_name) == defaults[env_name], (file_name, env_name)
+        assert env_name not in anchor, (file_name, env_name)

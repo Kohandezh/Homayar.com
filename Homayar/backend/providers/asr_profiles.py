@@ -28,6 +28,9 @@ class ASRProfile:
     manifest_id: str  # a builtin manifest whose identity equals this profile's identity
     device_index: tuple[int, ...] = (0,)
     cpu_threads: int = 0  # 0 = library default
+    # Resident memory of one loaded model in one worker process (RAM, MiB).
+    # The worker capacity check reads it (HOM-41, ADR 0067).
+    memory_mib: int = 0
     notes: str = ""
 
 
@@ -38,6 +41,7 @@ _PROFILES = (
         device="cpu",
         compute_type="int8",
         manifest_id="asr.local-whisper.base",
+        memory_mib=512,
         notes="Smallest multilingual model. Today's default model.",
     ),
     ASRProfile(
@@ -46,6 +50,7 @@ _PROFILES = (
         device="cpu",
         compute_type="int8",
         manifest_id="asr.local-whisper.small",
+        memory_mib=1024,
     ),
     ASRProfile(
         name="cpu-medium",
@@ -53,6 +58,7 @@ _PROFILES = (
         device="cpu",
         compute_type="int8",
         manifest_id="asr.local-whisper.medium",
+        memory_mib=2048,
     ),
     ASRProfile(
         name="cpu-large-v3-turbo",
@@ -60,6 +66,7 @@ _PROFILES = (
         device="cpu",
         compute_type="int8",
         manifest_id="asr.local-whisper.large-v3-turbo",
+        memory_mib=2560,
         notes="large-v3 encoder with a 4-layer decoder: faster decoding.",
     ),
     ASRProfile(
@@ -68,6 +75,7 @@ _PROFILES = (
         device="cpu",
         compute_type="int8",
         manifest_id="asr.local-whisper.large-v3",
+        memory_mib=3584,
     ),
     ASRProfile(
         name="gpu-p40-large-v3",
@@ -75,6 +83,9 @@ _PROFILES = (
         device="cuda",
         compute_type="int8_float32",
         manifest_id="asr.local-whisper.large-v3-int8-float32",
+        # HOM-351 measured a 3.0 GiB peak on the P40; 4608 plus the 512 MiB
+        # worker base equals the demo's 5120 MiB limit.
+        memory_mib=4608,
         notes="Tesla P40 (compute capability 6.1): int8 weights, float32 for the other layers.",
     ),
 )

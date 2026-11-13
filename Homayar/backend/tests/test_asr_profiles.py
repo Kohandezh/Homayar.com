@@ -28,16 +28,23 @@ from backend.providers.whisper import LocalWhisperProvider
 from backend.speech.language_policy import LanguagePolicy
 
 EXPECTED = {
-    "cpu-base": ("base", "cpu", "int8", "asr.local-whisper.base"),
-    "cpu-small": ("small", "cpu", "int8", "asr.local-whisper.small"),
-    "cpu-medium": ("medium", "cpu", "int8", "asr.local-whisper.medium"),
-    "cpu-large-v3-turbo": ("large-v3-turbo", "cpu", "int8", "asr.local-whisper.large-v3-turbo"),
-    "cpu-large-v3": ("large-v3", "cpu", "int8", "asr.local-whisper.large-v3"),
+    "cpu-base": ("base", "cpu", "int8", "asr.local-whisper.base", 512),
+    "cpu-small": ("small", "cpu", "int8", "asr.local-whisper.small", 1024),
+    "cpu-medium": ("medium", "cpu", "int8", "asr.local-whisper.medium", 2048),
+    "cpu-large-v3-turbo": (
+        "large-v3-turbo",
+        "cpu",
+        "int8",
+        "asr.local-whisper.large-v3-turbo",
+        2560,
+    ),
+    "cpu-large-v3": ("large-v3", "cpu", "int8", "asr.local-whisper.large-v3", 3584),
     "gpu-p40-large-v3": (
         "large-v3",
         "cuda",
         "int8_float32",
         "asr.local-whisper.large-v3-int8-float32",
+        4608,
     ),
 }
 
@@ -58,16 +65,17 @@ def _settings(**overrides: Any) -> Settings:
 
 def test_profile_table_is_exact() -> None:
     assert set(ASR_PROFILES) == set(EXPECTED)
-    for name, (model, device, compute_type, manifest_id) in EXPECTED.items():
+    for name, (model, device, compute_type, manifest_id, memory_mib) in EXPECTED.items():
         profile = ASR_PROFILES[name]
         assert isinstance(profile, ASRProfile)
         assert profile.name == name
-        assert (profile.model, profile.device, profile.compute_type, profile.manifest_id) == (
-            model,
-            device,
-            compute_type,
-            manifest_id,
-        )
+        assert (
+            profile.model,
+            profile.device,
+            profile.compute_type,
+            profile.manifest_id,
+            profile.memory_mib,
+        ) == (model, device, compute_type, manifest_id, memory_mib)
         assert profile.device_index == (0,)
         assert profile.cpu_threads == 0
 

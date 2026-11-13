@@ -775,6 +775,19 @@ class Settings(BaseSettings):
     asr_chunk_target_seconds: float = 600.0
     asr_chunk_search_seconds: float = 30.0
     asr_chunk_overlap_seconds: float = 2.0
+    # Warm workers and memory budget (HOM-41, ADR 0067): load the ASR model
+    # when a worker process starts, so jobs reuse it instead of paying the
+    # load time and memory spike on every job.
+    asr_warm_on_start: bool = True
+    # Decode calls in batches of this many (1..16) through the batched
+    # pipeline; 1 keeps today's one-by-one path.
+    asr_batch_size: int = 1
+    # Total memory budget of the Celery worker container (MiB). 0: no budget
+    # known, no concurrency limit is applied.
+    worker_memory_budget_mib: int = 0
+    # Resident memory of one loaded ASR model (MiB). 0: use the built-in
+    # estimate from the profile or the model name.
+    asr_model_memory_mib: int = 0
     model_artifact_root: str = ""
     # Speech synthesis (P0 wave): "unavailable" (default), "piper" (local
     # CLI) or "local_http" (private /v1/audio/speech).  tts_voices maps
@@ -1228,6 +1241,14 @@ class Settings(BaseSettings):
         LanguagePolicy.from_settings(self)
         # Checked even when chunking is off, so turning it on cannot fail later.
         self.asr_chunk_settings()
+        # Warm workers and memory budget (HOM-41, ADR 0067): the bounds are
+        # checked here so a worker cannot start with unusable values.
+        if not 1 <= self.asr_batch_size <= 16:
+            raise ValueError("ASR_BATCH_SIZE must be between 1 and 16")
+        if self.worker_memory_budget_mib < 0:
+            raise ValueError("WORKER_MEMORY_BUDGET_MIB must be 0 (no budget) or more")
+        if self.asr_model_memory_mib < 0:
+            raise ValueError("ASR_MODEL_MEMORY_MIB must be 0 (built-in estimate) or more")
         return self
 
     def asr_chunk_settings(self) -> ChunkSettings:

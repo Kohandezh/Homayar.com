@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
+from backend.providers import warm_models
 from backend.providers.base import ASRProvider, ProviderError, ProviderIdentity
 from backend.providers.schemas import (
     ASRLanguageDecision,
@@ -88,6 +89,7 @@ class LocalWhisperProvider(ASRProvider):
         device_index: DeviceIndex = 0,
         cpu_threads: int = 0,
         language_policy: LanguagePolicy | None = None,
+        batch_size: int = 1,
     ) -> None:
         if not model_name.strip() or not device.strip() or not compute_type.strip():
             raise ValueError("Whisper model, device, and compute type are required")
@@ -98,6 +100,8 @@ class LocalWhisperProvider(ASRProvider):
             raise ValueError("Whisper device index must be one or more indexes of 0 or more")
         if cpu_threads < 0:
             raise ValueError("Whisper CPU threads must be 0 (library default) or more")
+        if not 1 <= batch_size <= 16:
+            raise ValueError("Whisper batch size must be between 1 and 16")
         self._model_name = model_name
         self._device = device
         self._compute_type = compute_type
@@ -113,6 +117,11 @@ class LocalWhisperProvider(ASRProvider):
         self._device_index = device_index if isinstance(device_index, int) else indexes
         self._cpu_threads = cpu_threads
         self._language_policy = language_policy if language_policy is not None else LanguagePolicy()
+        # An injected model bypasses the warm cache completely (HOM-41).
+        self._injected = model is not None
+        self._batch_size = batch_size
+        # Per-instance batched pipeline for an injected model (never cached).
+        self._injected_pipeline: Any = None
 
     def identity(self) -> ProviderIdentity:
         # The compute type changes the numerics of the transcript; the device
@@ -136,6 +145,10 @@ class LocalWhisperProvider(ASRProvider):
         return self._cpu_threads
 
     @property
+    def batch_size(self) -> int:
+        return self._batch_size
+
+    @property
     def language_policy(self) -> LanguagePolicy:
         return self._language_policy
 
@@ -146,37 +159,101 @@ class LocalWhisperProvider(ASRProvider):
             return None
         return self._language_policy.descriptor()
 
+    def decode_identity(self) -> dict | None:
+        """How a transcript is decoded; batching changes the numerics, so a
+        batched result must not be reused as an unbatched checkpoint (HOM-41).
+        ``None`` keeps the identity as before."""
+        if self._batch_size == 1:
+            return None
+        return {"batch_size": self._batch_size}
+
+    def _cache_key(self) -> tuple:
+        """Every value that changes what is loaded. The language policy is not
+        part of it: it changes decisions, not the loaded weights."""
+        indexes = (
+            (self._device_index,)
+            if isinstance(self._device_index, int)
+            else tuple(self._device_index)
+        )
+        factory: Any = (
+            self._model_factory
+            if self._model_factory is not None
+            else "faster_whisper.WhisperModel"
+        )
+        return (
+            "local_whisper",
+            self._model_path or self._model_name,
+            self._device,
+            self._compute_type,
+            indexes,
+            self._cpu_threads,
+            self._local_files_only,
+            factory,
+        )
+
+    def _load_model(self) -> Any:
+        # Runs on a warm-cache miss only, so the directory check cannot make a
+        # cached model fail (HOM-41).
+        if self._model_path is not None and not Path(self._model_path).is_dir():
+            raise ProviderError(
+                "asr_model_missing",
+                "The local Whisper model directory is not present",
+                retryable=False,
+            )
+        factory = self._model_factory
+        if factory is None:
+            from faster_whisper import WhisperModel
+
+            factory = WhisperModel
+        kwargs: dict[str, Any] = {
+            "device": self._device,
+            "compute_type": self._compute_type,
+        }
+        if self._local_files_only:
+            kwargs["local_files_only"] = True
+        # Only non-default values, so existing model factories keep working.
+        device_index = _device_index_kwarg(self._device_index)
+        if device_index is not None:
+            kwargs["device_index"] = device_index
+        if self._cpu_threads:
+            kwargs["cpu_threads"] = self._cpu_threads
+        return factory(self._model_path or self._model_name, **kwargs)
+
     def _get_model(self) -> Any:
         if self._model is not None:
             return self._model
         with self._model_lock:
             if self._model is None:
-                factory = self._model_factory
-                if factory is None:
-                    from faster_whisper import WhisperModel
-
-                    factory = WhisperModel
-                kwargs: dict[str, Any] = {
-                    "device": self._device,
-                    "compute_type": self._compute_type,
-                }
-                if self._local_files_only:
-                    kwargs["local_files_only"] = True
-                # Only non-default values, so existing model factories keep working.
-                device_index = _device_index_kwarg(self._device_index)
-                if device_index is not None:
-                    kwargs["device_index"] = device_index
-                if self._cpu_threads:
-                    kwargs["cpu_threads"] = self._cpu_threads
-                source = self._model_path or self._model_name
-                if self._model_path is not None and not Path(self._model_path).is_dir():
-                    raise ProviderError(
-                        "asr_model_missing",
-                        "The local Whisper model directory is not present",
-                        retryable=False,
-                    )
-                self._model = factory(source, **kwargs)
+                self._model = warm_models.get_or_load(self._cache_key(), self._load_model)
         return self._model
+
+    def _decode_engine(self, vad_filter: bool) -> Any:
+        """What a decode call runs on: the batched pipeline when batching
+        applies, else the model itself. Language detection never uses this."""
+        if self._batch_size == 1 or not vad_filter:
+            return self._get_model()
+        if self._injected:
+            if self._injected_pipeline is None:
+                from faster_whisper import BatchedInferencePipeline
+
+                self._injected_pipeline = BatchedInferencePipeline(model=self._model)
+            return self._injected_pipeline
+
+        def loader() -> Any:
+            from faster_whisper import BatchedInferencePipeline
+
+            return BatchedInferencePipeline(model=self._get_model())
+
+        # One pipeline per cached model, stored with the model in the warm
+        # cache under the model key plus ("batched",).
+        return warm_models.get_or_load((*self._cache_key(), ("batched",)), loader)
+
+    def _decode_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """The kwargs of a decode call: today's plus ``batch_size`` when the
+        call goes through the batched pipeline."""
+        if self._batch_size > 1 and kwargs.get("vad_filter"):
+            return {**kwargs, "batch_size": self._batch_size}
+        return kwargs
 
     @staticmethod
     def _checked_path(audio_path: str) -> str:
@@ -189,18 +266,19 @@ class LocalWhisperProvider(ASRProvider):
 
     @staticmethod
     def _transcribe_with_rescue(
-        model: Any, path: str, kwargs: dict[str, Any]
+        engine: Any, path: str, kwargs: dict[str, Any]
     ) -> tuple[Any, Any, dict[str, Any]]:
         """One ``transcribe`` call, and one rescue call with
-        ``RESCUE_VAD_PARAMETERS`` when VAD kept no audio (HOM-40).
+        ``RESCUE_VAD_PARAMETERS`` when VAD kept no audio (HOM-40). ``engine``
+        is the model, or the batched pipeline when batching applies.
 
         Returns the kwargs of the call that gave the result, so a second
         decode uses the same VAD options.
         """
-        raw_segments, info = model.transcribe(path, **kwargs)
+        raw_segments, info = engine.transcribe(path, **kwargs)
         if kwargs["vad_filter"] and _vad_kept_no_audio(info):
             kwargs = {**kwargs, "vad_parameters": RESCUE_VAD_PARAMETERS}
-            raw_segments, info = model.transcribe(path, **kwargs)
+            raw_segments, info = engine.transcribe(path, **kwargs)
         return raw_segments, info, kwargs
 
     def _detect(
@@ -224,7 +302,9 @@ class LocalWhisperProvider(ASRProvider):
         if requested is not None:
             decision = decide(requested, self._language_policy)
             raw_segments, info, _ = self._transcribe_with_rescue(
-                model, path, {**kwargs, "language": requested}
+                self._decode_engine(request.vad_filter),
+                path,
+                self._decode_kwargs({**kwargs, "language": requested}),
             )
             if request.vad_filter and _vad_kept_no_audio(info):
                 # The rescue call kept no audio either: no speech (F26).
@@ -238,7 +318,9 @@ class LocalWhisperProvider(ASRProvider):
             elif decision.language != normalize_language(getattr(info, "language", None)):
                 # The policy overrides the detection: never read the first
                 # generator, decode again with the decided language.
-                raw_segments, info = model.transcribe(path, **kwargs, language=decision.language)
+                raw_segments, info = self._decode_engine(request.vad_filter).transcribe(
+                    path, **self._decode_kwargs({**kwargs, "language": decision.language})
+                )
 
         segments = []
         text_parts = []
