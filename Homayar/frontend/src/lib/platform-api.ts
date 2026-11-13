@@ -75,6 +75,7 @@ import type {
   WorkspaceRole,
   WorkspaceSettings,
 } from "@/types/platform";
+import type { SpeakerTimeline } from "@/types/timeline";
 
 export const PLATFORM_POLL_INTERVAL_MS = 2_500;
 export const MAX_POLL_INTERVAL_MS = 30_000;
@@ -167,6 +168,13 @@ export const platformQueryKeys = {
   /** One exact revision, read only (HOM-246); revisions never change once written. */
   transcriptRevision: (meetingId: string, revisionId: string) =>
     ["platform", "meetings", meetingId, "transcript", "revision", revisionId] as const,
+  /**
+   * The speaker timeline (HOM-264, ADR 0069). Deliberately a sibling of the
+   * `transcript(id)` reads, not under their prefix: transcript invalidations
+   * must not re-read the timeline; its own invalidations name this key.
+   */
+  transcriptTimeline: (meetingId: string) =>
+    ["platform", "meetings", meetingId, "transcript-timeline"] as const,
   evidence: (meetingId: string) =>
     ["platform", "meetings", meetingId, "evidence"] as const,
   /** The playback descriptor (HOM-247); answers whether and how the recording plays. */
@@ -402,6 +410,16 @@ export async function listTranscriptRevisions(
   const response = await api.get<TranscriptRevisionListResponse>(
     `/meetings/${meetingId}/transcript/revisions`,
   );
+  return response.data;
+}
+
+/** Who speaks when: lanes, turns, overlaps and review reasons (ADR 0069, HOM-49). */
+export async function getSpeakerTimeline(
+  meetingId: string,
+  signal?: AbortSignal,
+): Promise<SpeakerTimeline> {
+  const path = `/meetings/${meetingId}/transcript/timeline`;
+  const response = signal ? await api.get<SpeakerTimeline>(path, { signal }) : await api.get<SpeakerTimeline>(path);
   return response.data;
 }
 
@@ -793,6 +811,7 @@ export function forgetMeetingContent(queryClient: QueryClient, meetingId: string
   for (const key of [
     platformQueryKeys.transcript(meetingId),
     platformQueryKeys.transcriptFilteredRoot(meetingId),
+    platformQueryKeys.transcriptTimeline(meetingId),
     platformQueryKeys.playback(meetingId),
     platformQueryKeys.summary(meetingId),
     platformQueryKeys.actions(meetingId),
@@ -886,6 +905,16 @@ export function useTranscript(meetingId: string | null | undefined) {
   return useQuery({
     queryKey: platformQueryKeys.transcript(id),
     queryFn: () => getTranscript(id),
+    enabled: Boolean(meetingId),
+  });
+}
+
+/** The speaker timeline (HOM-264); asked only while a page section shows it. */
+export function useTranscriptTimeline(meetingId: string | null | undefined) {
+  const id = meetingIdOrEmpty(meetingId);
+  return useQuery({
+    queryKey: platformQueryKeys.transcriptTimeline(id),
+    queryFn: ({ signal }) => getSpeakerTimeline(id, signal),
     enabled: Boolean(meetingId),
   });
 }
@@ -1003,6 +1032,10 @@ export function useCorrectTranscript() {
         queryClient.invalidateQueries({
           queryKey: platformQueryKeys.transcriptRevisions(variables.meetingId),
         }),
+        // A correction moves turns between speakers, so the timeline follows (HOM-264).
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcriptTimeline(variables.meetingId),
+        }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.summary(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.evidence(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.meeting(variables.meetingId) }),
@@ -1098,6 +1131,10 @@ export function useRenameSpeaker() {
         // A renamed speaker may move turns in the filtered view (HOM-247).
         queryClient.invalidateQueries({
           queryKey: platformQueryKeys.transcriptFilteredRoot(variables.meetingId),
+        }),
+        // The timeline's lane labels carry display names (HOM-264).
+        queryClient.invalidateQueries({
+          queryKey: platformQueryKeys.transcriptTimeline(variables.meetingId),
         }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.report(variables.meetingId) }),
         queryClient.invalidateQueries({ queryKey: platformQueryKeys.searchRoot() }),

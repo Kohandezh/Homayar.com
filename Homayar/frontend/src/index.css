@@ -1305,3 +1305,37 @@ button.pii-placeholder:focus-visible { outline: 2px solid #147d6f; outline-offse
 .segment-play:focus-visible { outline: 2px solid #147d6f; outline-offset: 1px; }
 .meeting-segment p.is-playable { cursor: pointer; }
 .meeting-segment.is-playing { border-inline-start-color: #147d6f; background: #eef7f5; }
+
+/* HOM-264: speaker timeline. Warning states reuse --warning from theme.css. */
+.speaker-timeline { display: grid; gap: 0.7rem; margin-bottom: 1rem; padding: 0.75rem 1rem; }
+.speaker-timeline h2 { margin: 0; font-size: 0.95rem; }
+.speaker-timeline h3 { margin: 0 0 0.35rem; font-size: 0.8rem; }
+.speaker-timeline-note { margin: 0; color: #53645f; font-size: 0.78rem; }
+.speaker-timeline-summary { display: flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; margin: 0; color: #53645f; font-size: 0.75rem; }
+/* The track scrolls inside its own box, so a 360 px page never scrolls sideways. */
+.speaker-timeline-scroll { overflow-x: auto; }
+.speaker-timeline-chart { position: relative; display: grid; gap: 0.35rem; min-width: 30rem; }
+.speaker-timeline-overlaps { position: relative; height: 0.55rem; margin: 0; padding: 0; list-style: none; }
+.speaker-timeline-overlaps li { position: absolute; inset-block: 0; }
+.speaker-timeline-overlap-band { display: block; height: 100%; border-radius: 999px; background: var(--warning); opacity: 0.55; }
+.speaker-timeline-lanes { display: grid; gap: 0.55rem; }
+.speaker-timeline-lane { display: grid; gap: 0.2rem; }
+/* The head stays in the scroller's visible area on the page's start side
+   (left in en, right in fa) at every scroll position and width. */
+.speaker-timeline-lane-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; font-size: 0.75rem; position: sticky; inset-inline-start: 0; width: max-content; max-width: 18rem; }
+.speaker-timeline-lane-head[dir="rtl"] { justify-self: end; }
+.speaker-timeline-lane-kind { color: #667772; }
+.speaker-timeline-track { position: relative; height: 1rem; }
+.speaker-timeline-turn { position: absolute; inset-block: 0; min-width: 3px; padding: 0; border: 0; border-radius: 3px; background: #147d6f; cursor: pointer; }
+.speaker-timeline-turn:focus-visible { outline: 2px solid #147d6f; outline-offset: 1px; }
+.speaker-timeline-turn.needs-review { box-shadow: 0 0 0 2px var(--warning); }
+.speaker-timeline-lane.is-unknown .speaker-timeline-turn { background: transparent; border: 1.5px dashed var(--warning); }
+.speaker-timeline-lane.is-unknown .speaker-timeline-lane-head strong { color: var(--warning); }
+.speaker-timeline-axis { position: relative; height: 1.1rem; }
+.speaker-timeline-axis span { position: absolute; inset-block-start: 0; transform: translateX(-50%); color: #7a8b86; font-size: 0.66rem; white-space: nowrap; }
+.speaker-timeline-axis span.is-first { transform: none; }
+.speaker-timeline-axis span.is-last { transform: translateX(-100%); }
+.speaker-timeline-position { position: absolute; inset-block: 0; inline-size: 2px; margin-inline-start: -1px; background: #147d6f; opacity: 0.7; }
+.speaker-timeline-review ul { display: grid; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+.speaker-timeline-review li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; font-size: 0.75rem; }
+.speaker-timeline-review-reasons { color: var(--warning); }
