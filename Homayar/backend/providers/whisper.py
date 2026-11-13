@@ -324,8 +324,8 @@ class LocalWhisperProvider(ASRProvider):
         Fail open: any error, including a missing numpy or faster-whisper,
         keeps the segments exactly as they are, and the result carries no
         non-speech spans. A segment whose clipped span is empty or under
-        0.3 s is speech (amendment 1); a removed segment keeps its own,
-        unclipped times.
+        1.5 s is speech (amendments 1 and 4); a removed segment keeps its
+        own, unclipped times.
         """
         try:
             from backend.speech.nonspeech import classify_span

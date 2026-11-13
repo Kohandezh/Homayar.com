@@ -146,8 +146,6 @@ def dial_tone(rate: int = RATE):
 
 
 def ringback(rate: int = RATE):
-    import numpy as np
-
     t = _time(10 * RATE, RATE)
     return _at_rate(dial_tone(RATE) * ((t % 5.0) < 1.0), rate)
 
@@ -210,6 +208,95 @@ def melody_five_harmonics(rate: int = RATE):
 
 def melody_octave_lower(rate: int = RATE):
     return _melody(rate, roots=tuple(root / 2.0 for root in C_MAJOR))
+
+
+def sawtooth_melody(rate: int = RATE):
+    """The SPEC melody with harmonics 1-8 at 1/k; harmonics at 4 kHz or above left out."""
+    import numpy as np
+
+    note_samples = round(0.4 * RATE)
+    fade = round(0.01 * RATE)
+    total = 10 * RATE
+    samples = np.zeros(total)
+    for note in range(total // note_samples):
+        root = C_MAJOR[note % len(C_MAJOR)]
+        t = _time(note_samples, RATE)
+        tone = np.zeros(note_samples)
+        for multiplier in _MAJOR_CHORD:
+            for harmonic in range(1, 9):
+                frequency = root * multiplier * harmonic
+                if frequency < 4_000.0:
+                    tone += np.sin(2 * np.pi * frequency * t) / harmonic
+        tone[:fade] *= np.linspace(0.0, 1.0, fade)
+        tone[-fade:] *= np.linspace(1.0, 0.0, fade)
+        start = note * note_samples
+        samples[start : start + note_samples] = tone
+    samples *= 0.3 / np.max(np.abs(samples))
+    noise = np.random.default_rng(0).standard_normal(total)
+    noise *= 10 ** (-35 / 20) / np.sqrt(np.mean(noise**2))
+    return _at_rate(samples + noise, rate)
+
+
+def _single_notes(
+    rate: int,
+    harmonics: tuple[tuple[float, float], ...],
+    *,
+    chord: tuple[float, ...] = (1.0,),
+    vibrato: float = 0.0,
+):
+    """The SPEC melody's notes, timing, fades, scaling and noise, with other partials.
+
+    ``vibrato`` is the peak frequency deviation as a share of each partial, at 5 Hz.
+    """
+    import numpy as np
+
+    note_samples = round(0.4 * RATE)
+    fade = round(0.01 * RATE)
+    total = 10 * RATE
+    samples = np.zeros(total)
+    for note in range(total // note_samples):
+        root = C_MAJOR[note % len(C_MAJOR)]
+        t = _time(note_samples, RATE)
+        tone = np.zeros(note_samples)
+        for multiplier in chord:
+            for harmonic, amplitude in harmonics:
+                frequency = root * multiplier * harmonic
+                if frequency < 4_000.0:
+                    wobble = (frequency * vibrato / 5.0) * np.sin(2 * np.pi * 5.0 * t)
+                    tone += amplitude * np.sin(2 * np.pi * frequency * t + wobble)
+        tone[:fade] *= np.linspace(0.0, 1.0, fade)
+        tone[-fade:] *= np.linspace(1.0, 0.0, fade)
+        start = note * note_samples
+        samples[start : start + note_samples] = tone
+    samples *= 0.3 / np.max(np.abs(samples))
+    noise = np.random.default_rng(0).standard_normal(total)
+    noise *= 10 ** (-35 / 20) / np.sqrt(np.mean(noise**2))
+    return _at_rate(samples + noise, rate)
+
+
+def melody_vibrato_chords(rate: int = RATE):
+    return _single_notes(rate, _THREE_HARMONICS, chord=_MAJOR_CHORD, vibrato=0.015)
+
+
+def melody_vibrato_single_notes(rate: int = RATE):
+    return _single_notes(rate, _THREE_HARMONICS, vibrato=0.015)
+
+
+def melody_square_single_notes(rate: int = RATE):
+    return _single_notes(rate, tuple((k, 1.0 / k) for k in range(1, 16, 2)))
+
+
+def melody_sine_single_notes(rate: int = RATE):
+    return _single_notes(rate, ((1.0, 1.0),))
+
+
+def dual_tone(rate: int = RATE):
+    """A steady 480 + 620 Hz dual tone, 0.25 each (criterion 2c)."""
+    import numpy as np
+
+    t = _time(10 * RATE, RATE)
+    samples = 0.25 * np.sin(2 * np.pi * 480 * t) + 0.25 * np.sin(2 * np.pi * 620 * t)
+    return _at_rate(samples, rate)
 
 
 def dtmf(rate: int = RATE):
@@ -364,6 +451,75 @@ def test_sliding_windows_over_fleurs_stay_speech(rate, length) -> None:
         span = classify_span(samples, rate, start, min(start + length, total))
         assert span == "speech", (rate, length, start, span)
         start += 0.1
+
+
+# --- criterion 2c: speech over music or a dual tone (amendment 5) ----------------------
+
+# (background, speech RMS over the background RMS in dB), all at 16 kHz.
+SPEECH_OVER_BACKGROUND = (
+    [("melody", decibels) for decibels in (0.0, 3.0, 5.0)]
+    + [("sawtooth_melody", decibels) for decibels in (0.0, 3.0, 5.0)]
+    + [("dual_tone", decibels) for decibels in (0.0, 3.0, 6.0, 9.0)]
+)
+
+
+def _fleurs_16k_over(background: str, decibels: float):
+    background_16k = {"melody": melody, "sawtooth_melody": sawtooth_melody, "dual_tone": dual_tone}
+    return _mixed_with(fleurs(16_000), background_16k[background](16_000), decibels)
+
+
+@pytest.mark.parametrize(("background", "decibels"), SPEECH_OVER_BACKGROUND)
+def test_speech_over_music_or_a_dual_tone_stays_speech(background, decibels) -> None:
+    from backend.speech.nonspeech import classify_span
+
+    assert classify_span(_fleurs_16k_over(background, decibels), 16_000, 0.0, 7.86) == "speech"
+
+
+@pytest.mark.parametrize("rate", [8_000, 16_000])
+@pytest.mark.parametrize(
+    ("builder", "expected"),
+    [(sawtooth_melody, "music"), (dual_tone, "tone")],
+)
+def test_the_criterion_2c_backgrounds_alone_stay_non_speech(rate, builder, expected) -> None:
+    from backend.speech.nonspeech import classify_span
+
+    assert classify_span(builder(rate), rate, 0.0, 10.0) == expected
+    assert classify_span(builder(rate), rate, 3.0, 5.0) == expected
+
+
+@pytest.mark.parametrize("rate", [8_000, 16_000])
+@pytest.mark.parametrize(
+    "builder",
+    [
+        melody_vibrato_chords,
+        melody_vibrato_single_notes,
+        melody_square_single_notes,
+        melody_sine_single_notes,
+    ],
+)
+def test_vibrato_square_and_sine_melodies_stay_non_speech(rate, builder) -> None:
+    from backend.speech.nonspeech import classify_span
+
+    assert classify_span(builder(rate), rate, 0.0, 10.0) in {"music", "tone"}
+    assert classify_span(builder(rate), rate, 3.0, 5.0) in {"music", "tone"}
+
+
+@pytest.mark.parametrize("language", ["en", None])
+@pytest.mark.parametrize(("background", "decibels"), SPEECH_OVER_BACKGROUND)
+def test_the_adapter_keeps_speech_over_music_or_a_dual_tone(
+    tmp_path, language, background, decibels
+) -> None:
+    loader = _Loader(_fleurs_16k_over(background, decibels))
+    result = _run(
+        _Segments(0.0, 7.86, "most riders wear riding boots"),
+        _audio(tmp_path),
+        language,
+        audio_loader=loader,
+    )
+
+    assert result.text == "most riders wear riding boots"
+    assert [segment.index for segment in result.segments] == [0]
+    assert result.non_speech == []
 
 
 def test_other_sample_rates_raise() -> None:
@@ -922,6 +1078,36 @@ def test_merge_results_maps_non_speech_spans_to_original_time() -> None:
         (9.0, 10.0, "tone"),
         (9.5 + 0.4, 9.5 + 0.6, "tone"),
         (9.5 + 0.4, 20.0, "music"),
+    ]
+
+
+def test_merge_results_clamps_a_span_start_past_the_chunk_audio() -> None:
+    rate = 16_000
+    plans = [
+        ChunkPlan(0, 0, 10 * rate, 0, 10 * rate, rate),
+        ChunkPlan(1, 10 * rate - int(0.5 * rate), 20 * rate, 10 * rate, 20 * rate, rate),
+    ]
+    first = ASRResult(
+        provider="p",
+        model="m",
+        language="fa",
+        text="",
+        non_speech=[ASRNonSpeechSpan(start_seconds=12.0, end_seconds=15.0, kind="tone")],
+    )
+    second = ASRResult(
+        provider="p",
+        model="m",
+        language="fa",
+        text="",
+        non_speech=[
+            ASRNonSpeechSpan(start_seconds=11.0, end_seconds=40.0, kind="music"),
+            ASRNonSpeechSpan(start_seconds=2.0, end_seconds=3.0, kind="tone"),
+        ],
+    )
+    merged = merge_results(plans, [first, second], decider=0)
+
+    assert [(s.start_seconds, s.end_seconds, s.kind) for s in merged.non_speech] == [
+        (9.5 + 2.0, 9.5 + 3.0, "tone")
     ]
 
 

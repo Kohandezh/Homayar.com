@@ -16,14 +16,19 @@ from one frame to the next, speech does not.
 - When at least ``_STEADY_FRACTION`` of the judged frames are steady, the span
   is non-speech; a smaller steady share means speech is present and the span
   stays speech whatever else it holds.
-- Speech can hide under one loud, stable partial (a dial tone under words): a
-  dominant-peak mask removes the span's strongest spectral peak and repeats
-  the steadiness test on the rest. Only when the rest is negligible (a pure
-  tonal core) or also steady is the span non-speech.
 - The steady frames' median number of prominent peaks then separates tones
   (at most two steady frequencies, DTMF included) from music (chords,
   melodies), per frame, with the median's tolerance: a resample that moves
   one harmonic across the peak floor changes nothing.
+- Speech can hide under steady partials (words over a dial tone, a dual tone
+  or music at about the same level): the steady frames then outnumber the
+  speech frames. So every partial that lasts ``_HOLD_FRAMES`` is removed
+  from each frame, and the span is speech when at least ``_SPEECH_SHARE`` of
+  the judged frames keep a clear share of their energy that changes shape.
+  "Clear" depends on how many steady partials the background has (counted
+  on the steady level within ``_LEVEL_PEAK_FLOOR_DB``): at most two (a tone)
+  leave almost nothing behind (``_TONE_LEFTOVER``); more (music) leave some
+  vibrato, beating and note-change energy (``_MUSIC_LEFTOVER``).
 
 Unsure is speech: dropping real speech is worse than keeping one invented
 word. numpy is imported inside the function, so importing this module is free
@@ -46,10 +51,13 @@ _SHAPE_LAGS_FRAMES: Final = (2, 3)  # the spectrum is compared 32 and 48 ms back
 _REFERENCE_ENERGY_DB: Final = 4.0  # a frame and its reference agree this far
 _STEADY_SHAPE_CHANGE: Final = 0.15  # 1 - cosine similarity under this: steady
 _STEADY_FRACTION: Final = 0.77  # this share of judged frames steady: non-speech
-_MASK_HALF_BINS: Final = 3  # the dominant peak mask is this wide, both sides
-_CORE_RESIDUAL_DB: Final = 20.0  # less than this left: a pure tonal core
+_HOLD_FRAMES: Final = 8  # a partial that lasts this long (128 ms) is steady
+_TONE_LEFTOVER: Final = 0.05  # energy share left over a tone: speech-like
+_MUSIC_LEFTOVER: Final = 0.20  # energy share left over music: speech-like
+_SPEECH_SHARE: Final = 0.09  # this share of judged frames speech-like: speech
 _PEAK_FLOOR_DB: Final = 14.0  # in-frame peaks this far under the loudest
 _TONE_PEAKS: Final = 2  # at most this many steady peaks: a tone
+_LEVEL_PEAK_FLOOR_DB: Final = 20.0  # steady-level peaks this far under the loudest
 _MIN_JUDGED_FRAMES: Final = 8  # fewer judged frames: not enough to judge
 
 _MAX_LAG_FRAMES: Final = max(_SHAPE_LAGS_FRAMES)
@@ -113,50 +121,65 @@ def classify_span(samples, sample_rate, start_seconds: float, end_seconds: float
     if judged_count < _MIN_JUDGED_FRAMES:
         return "speech"
 
-    def steady_share(spectra_to_compare: np.ndarray, norms: np.ndarray) -> float:
-        steady = np.ones(spectra_to_compare.shape[0], dtype=bool)
-        for lag in _SHAPE_LAGS_FRAMES:
-            with np.errstate(divide="ignore", invalid="ignore"):
-                similarity = (spectra_to_compare[lag:] * spectra_to_compare[:-lag]).sum(axis=1) / (
-                    norms[lag:] * norms[:-lag]
-                )
-            change = np.ones(spectra_to_compare.shape[0])
-            change[lag:] = 1.0 - np.clip(np.nan_to_num(similarity), -1.0, 1.0)
-            steady &= change < _STEADY_SHAPE_CHANGE
-        return float((judged & steady).sum()) / judged_count
-
     norms = np.linalg.norm(band, axis=1)
-    if steady_share(band, norms) < _STEADY_FRACTION:
-        return "speech"
-
-    # Speech under one loud, stable partial: mask the span's dominant peak
-    # (the strongest bin of the judged frames' mean spectrum) and judge the
-    # rest. A tone's rest is leakage only; chords keep their other notes.
-    mean_spectrum = band[judged].mean(axis=0)
-    center = int(np.argmax(mean_spectrum))
-    keep = np.ones(band.shape[1], dtype=bool)
-    keep[max(0, center - _MASK_HALF_BINS) : center + _MASK_HALF_BINS + 1] = False
-    residual = band[:, keep]
-    residual_share = float((residual[judged] ** 2).sum() / (band[judged] ** 2).sum())
-    if residual_share > 10.0 ** (-_CORE_RESIDUAL_DB / 10.0):
-        if steady_share(residual, np.linalg.norm(residual, axis=1)) < _STEADY_FRACTION:
-            return "speech"
-
     steady = np.ones(band.shape[0], dtype=bool)
     for lag in _SHAPE_LAGS_FRAMES:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            similarity = (band[lag:] * band[:-lag]).sum(axis=1) / (norms[lag:] * norms[:-lag])
-        change = np.ones(band.shape[0])
-        change[lag:] = 1.0 - np.clip(np.nan_to_num(similarity), -1.0, 1.0)
-        steady &= change < _STEADY_SHAPE_CHANGE
+        steady &= _shape_change(np, band, norms, lag) < _STEADY_SHAPE_CHANGE
     evidence = judged & steady
-    zeros = np.zeros((band.shape[0], 1))
-    padded = np.concatenate((zeros, band, zeros), axis=1)
+    if float(evidence.sum()) / judged_count < _STEADY_FRACTION:
+        return "speech"
+
+    frame_peaks = _peak_counts(np, band, _PEAK_FLOOR_DB)
+    kind = "tone" if float(np.median(frame_peaks[evidence])) <= _TONE_PEAKS else "music"
+
+    # Speech under steady partials: remove every partial that lasts, then
+    # look for what is left. The steady level of a bin is its lowest
+    # magnitude over the _HOLD_FRAMES frames that end at the frame or over
+    # those that start at it, whichever is higher, so a note that starts or
+    # ends inside the window still counts as steady. A frame is speech-like
+    # when the energy left above that level is a clear share of the frame
+    # and it changes shape like speech does. A background of at most two
+    # steady partials (a tone) leaves almost nothing above it; more partials
+    # (music) leave some (vibrato, beating partials, note changes), so they
+    # need a larger share. The partials are counted on the steady level, not
+    # on the frame, so the speech's own peaks never change the choice.
+    hold = _HOLD_FRAMES
+    edged = np.pad(band, ((hold - 1, hold - 1), (0, 0)), mode="edge")
+    lowest = np.lib.stride_tricks.sliding_window_view(edged, hold, axis=0).min(axis=2)
+    count = band.shape[0]
+    level = np.maximum(lowest[:count], lowest[hold - 1 : hold - 1 + count])
+    steady_partials = float(np.median(_peak_counts(np, level, _LEVEL_PEAK_FLOOR_DB)[judged]))
+    leftover = np.maximum(band - level, 0.0)
+    leftover_share = (leftover**2).sum(axis=1) / np.maximum(energy, 1e-30)
+    leftover_norms = np.linalg.norm(leftover, axis=1)
+    moving = np.ones(band.shape[0], dtype=bool)
+    for lag in _SHAPE_LAGS_FRAMES:
+        moving &= _shape_change(np, leftover, leftover_norms, lag) >= _STEADY_SHAPE_CHANGE
+    floor = _TONE_LEFTOVER if steady_partials <= _TONE_PEAKS else _MUSIC_LEFTOVER
+    speech_like = judged & moving & (leftover_share >= floor)
+    if float(speech_like.sum()) / judged_count >= _SPEECH_SHARE:
+        return "speech"
+    return kind
+
+
+def _peak_counts(np, spectra, floor_db: float):
+    """Prominent peaks per frame: local maxima within ``floor_db`` of its loudest bin."""
+    zeros = np.zeros((spectra.shape[0], 1))
+    padded = np.concatenate((zeros, spectra, zeros), axis=1)
     interior = padded[:, 1:-1]
-    peaks = (
-        (interior > padded[:, :-2])
-        & (interior >= padded[:, 2:])
-        & (interior >= band.max(axis=1, keepdims=True) * 10.0 ** (-_PEAK_FLOOR_DB / 20.0))
-    ).sum(axis=1)
-    median_peaks = float(np.median(peaks[evidence]))
-    return "tone" if median_peaks <= _TONE_PEAKS else "music"
+    floor = spectra.max(axis=1, keepdims=True) * 10.0 ** (-floor_db / 20.0)
+    return ((interior > padded[:, :-2]) & (interior >= padded[:, 2:]) & (interior >= floor)).sum(
+        axis=1
+    )
+
+
+def _shape_change(np, spectra, norms, lag: int):
+    """1 - cosine similarity of each frame's spectrum against ``lag`` frames back.
+
+    Frames without a reference, or with a silent spectrum, change fully (1.0).
+    """
+    with np.errstate(divide="ignore", invalid="ignore"):
+        similarity = (spectra[lag:] * spectra[:-lag]).sum(axis=1) / (norms[lag:] * norms[:-lag])
+    change = np.ones(spectra.shape[0])
+    change[lag:] = 1.0 - np.clip(np.nan_to_num(similarity), -1.0, 1.0)
+    return change
