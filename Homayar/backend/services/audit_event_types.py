@@ -61,6 +61,20 @@ class AuditEventType(StrEnum):
     COACHING_TASK_CREATED = "coaching_task.created", "coaching_task"
     COACHING_TASK_OVERDUE = "coaching_task.overdue", "coaching_task"
     COACHING_TASK_REASSIGNED = "coaching_task.reassigned", "coaching_task"
+    # IdP group mappings and federated deprovisioning (HOM-128, ADR 0066): the
+    # reconciler's per-workspace events carry the action in ``details``; a seat
+    # skip targets the workspace, because no membership row changed.
+    FEDERATION_GROUP_MAPPING_CREATED = (
+        "federation.group_mapping.created",
+        ("federation_group_mapping"),
+    )
+    FEDERATION_GROUP_MAPPING_REVOKED = (
+        "federation.group_mapping.revoked",
+        ("federation_group_mapping"),
+    )
+    FEDERATION_IDENTITY_DEPROVISIONED = "federation.identity.deprovisioned", "user"
+    FEDERATION_MEMBERSHIP_SEAT_SKIPPED = "federation.membership.seat_skipped", "workspace"
+    FEDERATION_MEMBERSHIP_SYNCED = "federation.membership.synced", "membership"
     INGESTION_ACCEPTED = "ingestion.accepted", "ingestion"
     INGESTION_CONFLICT = "ingestion.conflict", "ingestion"
     INGESTION_DUPLICATE_MEDIA = "ingestion.duplicate_media", "ingestion"

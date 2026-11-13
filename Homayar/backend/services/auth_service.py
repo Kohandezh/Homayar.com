@@ -41,6 +41,14 @@ class RefreshTokenReplayError(AuthenticationError):
     """Raised after the compromised session has been marked for revocation."""
 
 
+class FederationReauthenticationRequired(AuthenticationError):
+    """The IdP could not confirm the federated user (gone or unreachable).
+
+    Nothing is revoked for "unavailable"; "gone" already deprovisioned the
+    user in this transaction, which the caller must commit (HOM-128).
+    """
+
+
 class RegistrationConflictError(ValueError):
     pass
 
@@ -277,6 +285,17 @@ def create_login_session(
 ) -> SessionTokens:
     settings = settings or get_settings()
     now = datetime.now(UTC)
+    # Login freshness gate (HOM-128, 5e): every login path (password, OTP,
+    # Google) serves through here, so a federated user whose IdP confirmation
+    # is stale signs in again through the IdP first.  No IdP call, nothing
+    # revoked; the same rule gates API keys (5b).
+    # Imported here: federation_service revalidates back into this module.
+    from backend.services.federation_service import federated_identity_is_stale
+
+    if federated_identity_is_stale(db, user_id=user.id, now=now, settings=settings):
+        raise FederationReauthenticationRequired(
+            "Sign in again to confirm your identity provider account"
+        )
     session_id = new_id()
     refresh_token = make_refresh_token(session_id)
     csrf_token = random_token(32)
@@ -342,6 +361,34 @@ def rotate_refresh_token(
     if user is None or not user.is_active:
         session.revoked_at = now
         raise AuthenticationError("Account is unavailable")
+
+    # Every refresh of a federated user asks the IdP live (HOM-128, 5a); the
+    # check runs before the token is rotated, so a refused refresh leaves the
+    # presented token usable once the IdP answers again.
+    # Imported here: federation_service revalidates back into this module.
+    from backend.services.federation_service import (
+        get_federated_identity_checker,
+        revalidate_federated_identity,
+    )
+
+    federation_identity = db.scalar(
+        select(AuthIdentity).where(
+            AuthIdentity.user_id == user.id,
+            AuthIdentity.provider == IdentityProvider.OIDC,
+            AuthIdentity.revoked_at.is_(None),
+        )
+    )
+    if federation_identity is not None:
+        outcome = revalidate_federated_identity(
+            db,
+            identity=federation_identity,
+            checker=get_federated_identity_checker(),
+            settings=settings,
+        )
+        if outcome != "active":
+            raise FederationReauthenticationRequired(
+                "Sign in again to confirm your identity provider account"
+            )
 
     new_refresh = make_refresh_token(session.id)
     new_csrf = random_token(32)

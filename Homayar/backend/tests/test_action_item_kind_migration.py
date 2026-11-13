@@ -26,10 +26,11 @@ from backend.tests._database import (
     is_postgres_url,
 )
 from backend.tests.test_coaching_tasks_migration import remove_coaching_tasks
+from backend.tests.test_federation import remove_federation_group_mappings
 
 NEW_REVISION = "c4a8e2f7d913"
 BASE_REVISION = "0c51985fcf36"  # HOM-76: review appeals
-HEAD_REVISION = "5f3a91c0d7b2"  # HOM-77: coaching tasks, after HOM-133
+HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
 TABLE = "action_items"
 CHECK = "ck_action_kind"
 INSERT_WITHOUT_KIND = (
@@ -198,7 +199,9 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
     try:
         with engine.begin() as connection:
             Base.metadata.create_all(connection)
-            # HOM-77 adds ``coaching_tasks`` on top; take it out too.
+            # HOM-128 adds the federation mapping table and two columns, HOM-77
+            # ``coaching_tasks``, on top; take them out too.
+            remove_federation_group_mappings(connection)
             remove_coaching_tasks(connection)
             remove_action_item_kind(connection)
 

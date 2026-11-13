@@ -4710,8 +4710,10 @@ BASE_FINGERPRINTS: dict = {
         # HOM-336: registration gate
         ("available_auth_methods", "d07fd0aee8e06ee78ed831fc"),
         ("auth_methods", "02dba6ec316b12a85a623ae2"),
-        ("login", "e90c1f009ca453965a4651d0"),
-        ("refresh", "a78380eb83c85dc6184c9104"),
+        # HOM-128: federation re-check before login
+        ("login", "f1d16c199477a974b09a69c7"),
+        # HOM-128: federation re-check before refresh
+        ("refresh", "fabf1f17e3b027c505af39c1"),
         ("logout", "7b9060abc5a6a05e0188652b"),
         ("me", "10962d9a986e2417d4e9ff10"),
         ("verify_email_endpoint", "b751a03b12a0b36d4f84826a"),
@@ -4725,7 +4727,8 @@ BASE_FINGERPRINTS: dict = {
         ("google_start", "d14e104dc36f6d3223ce3473"),
         ("google_link_start", "82b1718e7e2f3e3ec4ba9b96"),
         # HOM-336: registration gate
-        ("google_callback", "5c6199e646bcdd382784ba21"),
+        # HOM-128: federation re-check before login
+        ("google_callback", "9b51dbd9433270e648fa8f74"),
     ],
     "voicemail/ingest.py": [
         ("Expr", "46f10c1143fabcc0d13523a7"),
@@ -4748,7 +4751,8 @@ BASE_FINGERPRINTS: dict = {
 }
 BASE_MASKED: dict[str, str] = {
     "security/normalization.py:normalize_iranian_mobile": "9d1c4b862e8e51f94b6894cf",
-    "routers/v1/auth.py:otp_verify": "04a605b3e9bb14bc08ced36a",  # HOM-336: registration gate
+    # HOM-128: federation re-check before login
+    "routers/v1/auth.py:otp_verify": "9dba4baff314ddcc0882f1b1",  # HOM-336: registration gate
     "voicemail/ingest.py:normalize_caller_number": "7ee4cb76bc47d81b36437e4d",
 }
 FROZEN_FILES: dict[str, str] = {

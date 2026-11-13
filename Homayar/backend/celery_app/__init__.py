@@ -29,6 +29,8 @@ RECOMPUTE_ANALYSIS_TASK = "backend.jobs.recompute_meeting_analysis"
 RECOMPUTE_SWEEP_TASK = "backend.jobs.sweep_stale_analyses"
 # Delayed CRM records (HOM-88): retries records that arrived before their conversation.
 CRM_RECONCILIATION_TASK = "backend.jobs.reconcile_crm_records"
+# Federated identity revalidation (HOM-128): reconfirms stale OIDC identities.
+FEDERATION_REVALIDATION_TASK = "backend.jobs.revalidate_federated_identities"
 # Signed webhook delivery (HOM-89, ADR 0050).
 DELIVER_WEBHOOK_TASK = "backend.jobs.deliver_webhook"
 WEBHOOK_SWEEP_TASK = "backend.jobs.sweep_webhook_deliveries"
@@ -46,7 +48,7 @@ def make_celery() -> Celery:
         "homayar",
         broker=broker_url,
         backend=broker_url,
-        include=["backend.jobs.tasks"],
+        include=["backend.jobs.tasks", "backend.jobs.federation_revalidation"],
     )
     celery.conf.update(
         task_serializer="json",
@@ -189,6 +191,17 @@ def make_celery() -> Celery:
                 "options": {
                     "queue": PROCESSING_QUEUE,
                     "expires": float(settings.crm_reconciliation_interval_seconds),
+                },
+            },
+            # - federated identity revalidation (HOM-128) reconfirms every
+            #   stale OIDC identity; without beat run
+            #   python -m backend.jobs.federation_revalidation
+            "federation-revalidation": {
+                "task": FEDERATION_REVALIDATION_TASK,
+                "schedule": float(settings.federation_revalidation_interval_seconds),
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.federation_revalidation_interval_seconds),
                 },
             },
             # - webhook delivery sweep (HOM-89) publishes a delivery task for

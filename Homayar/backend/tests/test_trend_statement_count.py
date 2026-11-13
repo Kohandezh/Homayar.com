@@ -42,7 +42,9 @@ ROW = "issue:intent_report_dissatisfaction"
 # so they too are base + M, nothing more.
 STATEMENTS = {
     "trends_issues": 17,  # A + M + P, G + coverage (the HOM-80 pin)
-    "trends_issues_api_key": 18,  # key, user, last_used_at write, membership + M + P, G + coverage
+    # key, user, last_used_at write, membership + M + P, G + coverage
+    # + the federation freshness read (HOM-128)
+    "trends_issues_api_key": 19,
     "trends_issues_supervisor": 18,  # A + M + the supervisor's assignments + P, G + coverage
     "trends_teams": 18,  # A + M + active teams + P, G + grouped coverage
     "trends_me": 18,  # A + M + the agent's assignments (restricted) + P, G + coverage
