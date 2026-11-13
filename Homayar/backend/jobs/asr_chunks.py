@@ -332,21 +332,24 @@ def _merge_non_speech(
     plans: Sequence[ChunkPlan], results: Sequence[ASRResult]
 ) -> list[ASRNonSpeechSpan]:
     """The chunks' non-speech spans in original time (HOM-348), kept by the
-    same ownership rule ``merge_chunk_segments`` uses for segments."""
+    same ownership rule ``merge_chunk_segments`` uses for segments. A span end
+    past the chunk audio is clipped to the chunk length first, so a Whisper
+    overrun cannot move the midpoint out of the owned range (amendment 4)."""
     spans: list[ASRNonSpeechSpan] = []
     for plan, result in zip(plans, results, strict=True):
         offset = Fraction(plan.start_sample, plan.sample_rate)
+        length = Fraction(plan.end_sample - plan.start_sample, plan.sample_rate)
         owned_start = Fraction(plan.owned_start_sample, plan.sample_rate)
         owned_end = Fraction(plan.owned_end_sample, plan.sample_rate)
         for span in result.non_speech:
-            start = Fraction(span.start_seconds) + offset
-            end = Fraction(span.end_seconds) + offset
-            if not owned_start <= (start + end) / 2 < owned_end:
+            start = Fraction(span.start_seconds)
+            end = min(Fraction(span.end_seconds), length)
+            if not owned_start <= offset + (start + end) / 2 < owned_end:
                 continue
             spans.append(
                 ASRNonSpeechSpan(
-                    start_seconds=float(start),
-                    end_seconds=float(end),
+                    start_seconds=float(offset + start),
+                    end_seconds=float(offset + end),
                     kind=span.kind,
                 )
             )

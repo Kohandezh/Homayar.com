@@ -121,44 +121,62 @@ def _time(count: int, rate: int):
     return np.arange(count) / rate
 
 
+def _at_rate(samples, rate: int):
+    """The 8 kHz signal as itself, or its 16 kHz resample (SPEC section 3)."""
+    return samples if rate == RATE else _resample_16k(samples)
+
+
 def mod_tone(rate: int = RATE):
     import numpy as np
 
-    t = _time(10 * rate, rate)
-    return 0.5 * np.sin(2 * np.pi * 425 * t) * 0.5 * (1 + np.sin(2 * np.pi * 4 * t))
+    t = _time(10 * RATE, RATE)
+    samples = 0.5 * np.sin(2 * np.pi * 425 * t) * 0.5 * (1 + np.sin(2 * np.pi * 4 * t))
+    return _at_rate(samples, rate)
 
 
 def mod_tone_mulaw(rate: int = RATE):
-    samples = _mulaw_roundtrip(mod_tone(RATE))
-    return samples if rate == RATE else _resample_16k(samples)
+    return _at_rate(_mulaw_roundtrip(mod_tone(RATE)), rate)
 
 
 def dial_tone(rate: int = RATE):
     import numpy as np
 
-    t = _time(10 * rate, rate)
-    return 0.5 * np.sin(2 * np.pi * 425 * t)
+    t = _time(10 * RATE, RATE)
+    return _at_rate(0.5 * np.sin(2 * np.pi * 425 * t), rate)
 
 
 def ringback(rate: int = RATE):
-    t = _time(10 * rate, rate)
-    return dial_tone(rate) * ((t % 5.0) < 1.0)
-
-
-def melody(rate: int = RATE):
     import numpy as np
 
-    roots = (261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25)
-    note_samples = round(0.4 * rate)
-    fade = round(0.01 * rate)
-    total = 10 * rate
+    t = _time(10 * RATE, RATE)
+    return _at_rate(dial_tone(RATE) * ((t % 5.0) < 1.0), rate)
+
+
+C_MAJOR = (261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25)
+_MAJOR_CHORD = (1.0, 1.26, 1.498)
+_THREE_HARMONICS = ((1.0, 1.0), (2.0, 0.5), (3.0, 0.25))
+
+
+def _melody(
+    rate: int = RATE,
+    *,
+    roots: tuple[float, ...] = C_MAJOR,
+    chord: tuple[float, ...] = _MAJOR_CHORD,
+    harmonics: tuple[tuple[float, float], ...] = _THREE_HARMONICS,
+    note_seconds: float = 0.4,
+):
+    import numpy as np
+
+    note_samples = round(note_seconds * RATE)
+    fade = round(0.01 * RATE)
+    total = 10 * RATE
     samples = np.zeros(total)
     for note in range(total // note_samples):
         root = roots[note % len(roots)]
-        t = _time(note_samples, rate)
+        t = _time(note_samples, RATE)
         tone = np.zeros(note_samples)
-        for multiplier in (1.0, 1.26, 1.498):
-            for harmonic, amplitude in ((1.0, 1.0), (2.0, 0.5), (3.0, 0.25)):
+        for multiplier in chord:
+            for harmonic, amplitude in harmonics:
                 tone += amplitude * np.sin(2 * np.pi * root * multiplier * harmonic * t)
         tone[:fade] *= np.linspace(0.0, 1.0, fade)
         tone[-fade:] *= np.linspace(1.0, 0.0, fade)
@@ -167,51 +185,87 @@ def melody(rate: int = RATE):
     samples *= 0.3 / np.max(np.abs(samples))
     noise = np.random.default_rng(0).standard_normal(total)
     noise *= 10 ** (-35 / 20) / np.sqrt(np.mean(noise**2))
-    return samples + noise
+    return _at_rate(samples + noise, rate)
+
+
+def melody(rate: int = RATE):
+    return _melody(rate)
+
+
+def melody_quarter_second_notes(rate: int = RATE):
+    return _melody(rate, note_seconds=0.25)
+
+
+def melody_long_notes(rate: int = RATE):
+    return _melody(rate, note_seconds=0.8)
+
+
+def melody_minor_chords(rate: int = RATE):
+    return _melody(rate, chord=(1.0, 1.19, 1.498))
+
+
+def melody_five_harmonics(rate: int = RATE):
+    return _melody(rate, harmonics=((1.0, 1.0), (2.0, 0.5), (3.0, 1 / 3), (4.0, 0.25), (5.0, 0.2)))
+
+
+def melody_octave_lower(rate: int = RATE):
+    return _melody(rate, roots=tuple(root / 2.0 for root in C_MAJOR))
 
 
 def dtmf(rate: int = RATE):
     import numpy as np
 
-    digit_samples = round(0.1 * rate)
-    samples = np.zeros(10 * rate)
-    for index in range(0, 10 * rate, 2 * digit_samples):
+    digit_samples = round(0.1 * RATE)
+    samples = np.zeros(10 * RATE)
+    for index in range(0, 10 * RATE, 2 * digit_samples):
         digit = DTMF_DIGITS[(index // (2 * digit_samples)) % len(DTMF_DIGITS)]
         row, column = _DTMF_LAYOUT[digit]
-        t = _time(digit_samples, rate)
+        t = _time(digit_samples, RATE)
         samples[index : index + digit_samples] = 0.25 * np.sin(
             2 * np.pi * _DTMF_ROWS[row] * t
         ) + 0.25 * np.sin(2 * np.pi * _DTMF_COLUMNS[column] * t)
-    return samples
+    return _at_rate(samples, rate)
 
 
 def fleurs(rate: int = RATE):
     samples, file_rate = _read_mulaw_wav(FIXTURE)
     assert file_rate == RATE
-    return samples if rate == RATE else _resample_16k(samples)
+    return _at_rate(samples, rate)
+
+
+def _mixed_with(speech, accompaniment, decibels: float):
+    import numpy as np
+
+    accompaniment = accompaniment[: speech.size]
+    accompaniment = accompaniment * (
+        np.sqrt(np.mean(speech**2)) / np.sqrt(np.mean(accompaniment**2)) * 10 ** (-decibels / 20)
+    )
+    return speech + accompaniment
 
 
 def fleurs_over_melody(rate: int = RATE):
-    import numpy as np
+    return _at_rate(_mixed_with(fleurs(RATE), melody(RATE), 15.0), rate)
 
-    speech = fleurs(RATE)
-    accompaniment = melody(RATE)[: speech.size]
-    accompaniment = accompaniment * (
-        np.sqrt(np.mean(speech**2)) / np.sqrt(np.mean(accompaniment**2)) * 10 ** (-15 / 20)
-    )
-    samples = speech + accompaniment
-    return samples if rate == RATE else _resample_16k(samples)
+
+def fleurs_over_tone(rate: int = RATE):
+    return _at_rate(_mixed_with(fleurs(RATE), dial_tone(RATE), 0.0), rate)
 
 
 SIGNALS: dict[str, Callable[[int], Any]] = {
     "mod_tone": mod_tone,
     "mod_tone_mulaw": mod_tone_mulaw,
     "melody": melody,
+    "melody_quarter_second_notes": melody_quarter_second_notes,
+    "melody_long_notes": melody_long_notes,
+    "melody_minor_chords": melody_minor_chords,
+    "melody_five_harmonics": melody_five_harmonics,
+    "melody_octave_lower": melody_octave_lower,
     "dtmf": dtmf,
     "dial_tone": dial_tone,
     "ringback": ringback,
     "fleurs": fleurs,
     "fleurs_over_melody": fleurs_over_melody,
+    "fleurs_over_tone": fleurs_over_tone,
 }
 
 # (name, start, end, expected class): the spans of SPEC section 3.
@@ -221,11 +275,21 @@ TABLE_SPANS = (
     ("melody", 0.0, 10.0, "music"),
     ("dtmf", 0.0, 10.0, "tone"),
     ("dial_tone", 0.0, 10.0, "tone"),
-    ("ringback", 0.1, 0.9, "tone"),
+    ("ringback", 0.0, 6.0, "tone"),
     ("fleurs", 0.0, 7.86, "speech"),
     ("fleurs", 0.0, 4.0, "speech"),
     ("fleurs", 3.5, 7.86, "speech"),
     ("fleurs_over_melody", 0.0, 7.86, "speech"),
+    ("fleurs_over_tone", 0.0, 7.86, "speech"),
+)
+
+# Other chord melodies (review round 1): all music, whole span.
+VARIANT_SPANS = (
+    "melody_quarter_second_notes",
+    "melody_long_notes",
+    "melody_minor_chords",
+    "melody_five_harmonics",
+    "melody_octave_lower",
 )
 
 # The 2 s sub-span check. ringback is 1 s on and 4 s off, so its 2 s window
@@ -252,6 +316,14 @@ def test_classify_span_matches_the_signal_table(rate, name, start, end, expected
 
 
 @pytest.mark.parametrize("rate", [8_000, 16_000])
+@pytest.mark.parametrize("name", VARIANT_SPANS)
+def test_other_chord_melodies_are_music(rate, name) -> None:
+    from backend.speech.nonspeech import classify_span
+
+    assert classify_span(SIGNALS[name](rate), rate, 0.0, 10.0) == "music"
+
+
+@pytest.mark.parametrize("rate", [8_000, 16_000])
 @pytest.mark.parametrize(("name", "start", "end", "expected"), SUB_SPANS)
 def test_non_speech_stays_non_speech_on_two_seconds(rate, name, start, end, expected) -> None:
     from backend.speech.nonspeech import classify_span
@@ -273,7 +345,25 @@ def test_unsure_spans_are_speech() -> None:
     assert classify_span(samples, RATE, 20.0, 30.0) == "speech"
     assert classify_span(samples, RATE, 4.0, 4.2) == "speech"
     assert classify_span(samples, RATE, 1.0, 1.29) == "speech"
+    assert classify_span(samples, RATE, 1.0, 2.4) == "speech"
     assert classify_span(np.zeros(10 * RATE), RATE, 0.0, 10.0) == "speech"
+
+
+# --- criterion 2b: speech is never judged music or tone --------------------------------
+
+
+@pytest.mark.parametrize("rate", [8_000, 16_000])
+@pytest.mark.parametrize("length", [0.5, 1.0, 1.5, 2.0, 3.0])
+def test_sliding_windows_over_fleurs_stay_speech(rate, length) -> None:
+    from backend.speech.nonspeech import classify_span
+
+    samples = fleurs(rate)
+    total = samples.size / rate
+    start = 0.0
+    while start + length <= total + 1e-9:
+        span = classify_span(samples, rate, start, min(start + length, total))
+        assert span == "speech", (rate, length, start, span)
+        start += 0.1
 
 
 def test_other_sample_rates_raise() -> None:
@@ -808,6 +898,7 @@ def test_merge_results_maps_non_speech_spans_to_original_time() -> None:
         non_speech=[
             ASRNonSpeechSpan(start_seconds=0.4, end_seconds=0.6, kind="music"),
             ASRNonSpeechSpan(start_seconds=2.0, end_seconds=3.0, kind="tone"),
+            # Also clipped: 11 s is past this chunk's 10 s of audio.
             ASRNonSpeechSpan(start_seconds=9.0, end_seconds=11.0, kind="tone"),
         ],
     )
@@ -816,14 +907,21 @@ def test_merge_results_maps_non_speech_spans_to_original_time() -> None:
         model="m",
         language="fa",
         text="",
-        non_speech=[ASRNonSpeechSpan(start_seconds=0.4, end_seconds=0.6, kind="tone")],
+        non_speech=[
+            ASRNonSpeechSpan(start_seconds=0.4, end_seconds=0.6, kind="tone"),
+            # A Whisper end far past the chunk audio (amendment 4): the end is
+            # clipped to the chunk length (10.5 s), then shifted and owned.
+            ASRNonSpeechSpan(start_seconds=0.4, end_seconds=40.0, kind="music"),
+        ],
     )
     merged = merge_results(plans, [first, second], decider=0)
 
     assert [(s.start_seconds, s.end_seconds, s.kind) for s in merged.non_speech] == [
         (0.4, 0.6, "music"),
         (2.0, 3.0, "tone"),
+        (9.0, 10.0, "tone"),
         (9.5 + 0.4, 9.5 + 0.6, "tone"),
+        (9.5 + 0.4, 20.0, "music"),
     ]
 
 
