@@ -125,11 +125,12 @@ def _expire_membership(membership_id: str) -> None:
         db.commit()
 
 
-# The query statements of one route call, made of a fixed part F (session, user, membership
-# and the HOM-80 population statements P and G, plus 9 coverage statements) and the view's own
-# statements.  ``/trends/issues`` is F = 14 for an unrestricted caller with a coverage candidate:
-# 3 (session, user, membership) + 2 (P and G) + 9 (coverage).
-ISSUES_STATEMENTS = 14
+# The query statements of one route call, made of a fixed part F (session, user, membership,
+# the HOM-229 module guard's billing read, the HOM-80 population statements P and G, plus 9
+# coverage statements) and the view's own statements.  ``/trends/issues`` is F = 17 for an
+# unrestricted caller with a coverage candidate: 3 (session, user, membership) + 3
+# (subscription, plan, plan version; the insights module guard) + 2 (P and G) + 9 (coverage).
+ISSUES_STATEMENTS = 17
 
 
 def _statements(send) -> tuple[int, Any]:
@@ -306,7 +307,9 @@ def test_workspace_views_allow_and_deny(client, email_outbox, monkeypatch):
         response = persona.get(path, params=_params(*extra))
         assert _answer(response) == expected, (label, response.text)
 
-    # the statements of a member who supervises: F + 1 (teams) + 1 (their assignments)
+    # the statements of a member who supervises: F + 1 (teams) + 1 (their assignments);
+    # the session-only view shares its one workspace resolution with the HOM-229
+    # module guard, so no extra membership read
     issues_count = _statements(lambda: sup.get(ISSUES, params=_params()))[0]
     teams_count = _statements(lambda: sup.get(TEAMS, params=_params()))[0]
     assert issues_count == ISSUES_STATEMENTS and teams_count == issues_count + 2, (
@@ -351,6 +354,8 @@ def test_workspace_views_allow_and_deny(client, email_outbox, monkeypatch):
         "unknown": _bearer("hk_00000000.nope"),
     }
     for label, headers in keys.items():
+        # every bearer that looks like a key gets the one session-only answer,
+        # before any key lookup, in every module state (HOM-82, HOM-229)
         for path in (TEAMS, ME):
             refused = client.get(path, params=_params(), headers=headers)
             assert _answer(refused) == (401, "api_key_not_accepted", None), (label, path)

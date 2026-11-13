@@ -39,6 +39,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.entitlement_service import QuotaExceededError
@@ -76,7 +77,7 @@ from backend.voicemail.search import (
     voicemail_analytics,
 )
 
-router = APIRouter(tags=["voicemail"])
+router = APIRouter(tags=["voicemail"], dependencies=[Depends(require_module("voicemail"))])
 
 _MAX_ANALYTICS_DAYS = 366
 

@@ -38,6 +38,7 @@ from backend.routers.v1 import api_keys as api_keys_v1
 from backend.routers.v1 import auth as auth_v1
 from backend.routers.v1 import billing as billing_v1
 from backend.routers.v1 import calibration_batches as calibration_batches_v1
+from backend.routers.v1 import capabilities as capabilities_v1
 from backend.routers.v1 import coaching_tasks as coaching_tasks_v1
 from backend.routers.v1 import ingestions as ingestions_v1
 from backend.routers.v1 import insights as insights_v1
@@ -266,6 +267,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(ai_policy_v1.router, prefix=settings.api_prefix)
     app.include_router(api_keys_v1.router, prefix=settings.api_prefix)
     app.include_router(billing_v1.router, prefix=settings.api_prefix)
+    app.include_router(capabilities_v1.router, prefix=settings.api_prefix)
     app.include_router(ingestions_v1.router, prefix=settings.api_prefix)
     app.include_router(integrations_v1.router, prefix=settings.api_prefix)
     app.include_router(meetings_v1.router, prefix=settings.api_prefix)
@@ -283,8 +285,10 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(shares_v1.router, prefix=settings.api_prefix)
     app.include_router(teams_v1.router, prefix=settings.api_prefix)
     app.include_router(trends_v1.router, prefix=settings.api_prefix)
+    app.include_router(trends_v1.session_router, prefix=settings.api_prefix)
     app.include_router(locations_v1.router, prefix=settings.api_prefix)
     app.include_router(voice_v1.router, prefix=settings.api_prefix)
+    app.include_router(voice_v1.operator_router, prefix=settings.api_prefix)
     app.include_router(voicemail_v1.router, prefix=settings.api_prefix)
     app.include_router(webhooks_v1.router, prefix=settings.api_prefix)
 

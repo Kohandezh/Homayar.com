@@ -182,6 +182,8 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 
 `+session` (HOM-82) is a read from a signed-in session only: every bearer that looks like an API key (valid, unknown, revoked, expired, over its rate limit) gets `401 api_key_not_accepted` before any key lookup, the workspace and the permission. Today: the team comparison `GET /api/v1/trends/teams`, the agent self-view `GET /api/v1/trends/me` and the supporting conversations `GET /api/v1/trends/conversations` (HOM-83).
 
+The routes of a product module (`quality`: scorecards, review items, calibration batches, appeals; `insights`: the workspace trend views; `voice`: the tenant voice routes; `voicemail`; `integrations`: CRM mapping and webhooks) are additionally guarded by the module check of HOM-229 (ADR 0065, `docs/architecture/decisions/0065-capability-registry-and-module-enforcement.md`): after the membership and before the route's own permission, a workspace whose install, plan license or admin switch has the module off is refused with `403 module_disabled`, whatever the caller's role. The four `+operator` voice node routes are install infrastructure and are never module-refused. `GET /api/v1/capabilities` reads the six modules' effective states and is itself never module-refused.
+
 `POST /api/v1/auth/register` stays `public`, but with `REGISTRATION_ENABLED=false` (HOM-336) it is refused with `403 registration_closed` unless the request carries an open workspace invitation token for the same e-mail. Phone OTP (`POST /api/v1/auth/otp/verify`) and Google (`GET /api/v1/auth/google/callback`) never create an account while that setting is false; existing accounts sign in as usual.
 
 <!-- matrix:routes:start -->
@@ -225,6 +227,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/trends/conversations | meeting:read +session |
 | GET | /api/v1/admin/audit-events | audit:read |
 | GET | /api/v1/admin/audit-event-types | audit:read |
+| PUT | /api/v1/admin/capabilities/{module_key} | workspace:manage +csrf |
 | GET | /api/v1/admin/shares | workspace:manage |
 | GET | /api/v1/admin/workspace-settings | workspace:manage |
 | PATCH | /api/v1/admin/workspace-settings | workspace:manage +csrf |
@@ -292,6 +295,7 @@ Policy column: `public`, `optional-session`, `session`, `session+csrf`, or a per
 | GET | /api/v1/billing/usage | billing:read |
 | GET | /api/v1/billing/usage/events | billing:read |
 | GET | /api/v1/billing/management | billing:manage |
+| GET | /api/v1/capabilities | workspace |
 | POST | /api/v1/uploads | meeting:create +csrf |
 | POST | /api/v1/uploads/ | meeting:create +csrf |
 | GET | /api/v1/meetings | meeting:read |

@@ -33,6 +33,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.crm_mapping_service import (
     CrmMappingError,
     get_item,
@@ -45,7 +46,7 @@ from backend.services.crm_mapping_service import (
     validate_profile,
 )
 
-router = APIRouter(tags=["integrations"])
+router = APIRouter(tags=["integrations"], dependencies=[Depends(require_module("integrations"))])
 
 
 def _http(error: CrmMappingError) -> HTTPException:

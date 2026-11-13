@@ -51,6 +51,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.audit_service import record_audit_event
 from backend.services.review_appeal_service import (
     AppealCaller,
@@ -71,7 +72,7 @@ from backend.services.review_appeal_service import (
 )
 from backend.services.review_queue_service import reviewer
 
-router = APIRouter(tags=["review-appeals"])
+router = APIRouter(tags=["review-appeals"], dependencies=[Depends(require_module("quality"))])
 
 require_appeal = require_permission(Permission.REVIEW_APPEAL)
 require_appeal_write = require_write_permission(Permission.REVIEW_APPEAL)

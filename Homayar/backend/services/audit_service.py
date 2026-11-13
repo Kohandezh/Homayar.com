@@ -228,6 +228,8 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.MEETING_SHARE_ACCESSED: "privacy_access",
     # Configuration and policy changes
     AuditEventType.WORKSPACE_SETTINGS_UPDATED: "configuration",
+    AuditEventType.WORKSPACE_MODULE_ENABLED: "configuration",
+    AuditEventType.WORKSPACE_MODULE_DISABLED: "configuration",
     AuditEventType.AI_POLICY_UPDATED: "configuration",
     AuditEventType.SCORECARD_PUBLISHED: "configuration",
     AuditEventType.MODEL_MANIFEST_REGISTERED: "configuration",

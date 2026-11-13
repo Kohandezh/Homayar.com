@@ -39,6 +39,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event
 from backend.services.scorecard_service import (
@@ -50,7 +51,11 @@ from backend.services.scorecard_service import (
     publish_version,
 )
 
-router = APIRouter(prefix="/scorecards", tags=["scorecards"])
+router = APIRouter(
+    prefix="/scorecards",
+    tags=["scorecards"],
+    dependencies=[Depends(require_module("quality"))],
+)
 
 
 def _invalid(error: ScorecardError) -> HTTPException:

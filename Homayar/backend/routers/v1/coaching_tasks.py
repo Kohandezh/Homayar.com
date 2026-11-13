@@ -51,6 +51,7 @@ from backend.security.context import (
     require_permission,
     require_write_permission,
 )
+from backend.security.modules import require_module
 from backend.services.audit_service import record_audit_event
 from backend.services.coaching_service import (
     TARGET_TYPE,
@@ -72,7 +73,10 @@ from backend.services.coaching_service import (
 )
 from backend.services.review_queue_service import reviewer
 
-router = APIRouter(tags=["coaching-tasks"])
+router = APIRouter(
+    tags=["coaching-tasks"],
+    dependencies=[Depends(require_module("quality"))],
+)
 
 require_respond = require_permission(Permission.COACHING_RESPOND)
 require_respond_write = require_write_permission(Permission.COACHING_RESPOND)
