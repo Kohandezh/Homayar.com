@@ -679,7 +679,8 @@ def test_contract_documents_the_transcript_export_pin():
     from backend.contracts import openapi_contract as contract
 
     snapshot = contract.load_snapshot()
-    assert snapshot["info"]["version"] == "1.9.0"
+    # HOM-138 moved the contract to 1.10.0 (additive); the 1.9.0 paragraph stays
+    assert snapshot["info"]["version"] == "1.10.0"
     description = snapshot["info"]["description"]
     assert "**Transcript export pinning (1.9.0).**" in description
     for text in (

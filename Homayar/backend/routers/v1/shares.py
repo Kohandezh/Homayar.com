@@ -27,7 +27,9 @@ from backend.routers.v1.insights import (
     _quality,
     _transcript_response,
     action_response,
+    conversation_retention_expired,
     export_privacy,
+    refuse_oversized_export,
     summary_response,
 )
 from backend.schemas.insights import (
@@ -52,9 +54,11 @@ from backend.services.download_service import deliver_recording, ensure_shared_r
 from backend.services.export_service import (
     ExportSegment,
     MeetingExport,
+    export_text_size,
     render_meeting_export,
 )
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
+from backend.services.retention_policy import is_expiry_due
 from backend.services.share_service import (
     ShareGrant,
     ShareOperation,
@@ -455,43 +459,45 @@ def export_share(
         settings=settings,
     )
     meeting = grant.meeting
+    # HOM-138 (D6): the share session cannot see jobs or media rows, so a
+    # due expiry is 410 even under a legal hold, as for the shared recording.
+    # Before the access audit: a refused request is not counted.
+    if is_expiry_due(grant.workspace, meeting, now=datetime.now(UTC)):
+        raise conversation_retention_expired()
     view = _share_view(db, grant=grant, settings=settings)
     revision = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
     transcript = _transcript_response(db, meeting=meeting, view=view, revision=revision)
     summary, actions = _summary_and_actions(db, grant=grant)
-    rendered = render_meeting_export(
-        MeetingExport(
-            meeting_id=meeting.id,
-            title=meeting.title,
-            language=meeting.language,
-            duration_seconds=meeting.duration_seconds,
-            created_at=meeting.created_at,
-            summary=view.text(summary.overview) if summary else None,
-            topics=view.texts(list(summary.topics or [])) if summary else [],
-            segments=[
-                ExportSegment(
-                    sequence=segment.sequence,
-                    speaker=segment.speaker_name,
-                    start_ms=segment.start_ms,
-                    end_ms=segment.end_ms,
-                    text=segment.text,
-                )
-                for segment in transcript.segments
-            ],
-            actions=[_export_action(action, view) for action in actions],
-            transcript_revision=_export_revision(revision),
-            summary_evidence_status=summary.evidence_status if summary else None,
-            quality=_quality(db, meeting, with_job=False, settings=settings).model_dump(),
-            privacy=export_privacy(
-                view=view,
-                revision=revision,
-                run=current_analysis_run(
-                    db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
-                ),
-            ),
+    export = MeetingExport(
+        meeting_id=meeting.id,
+        title=meeting.title,
+        language=meeting.language,
+        duration_seconds=meeting.duration_seconds,
+        created_at=meeting.created_at,
+        summary=view.text(summary.overview) if summary else None,
+        topics=view.texts(list(summary.topics or [])) if summary else [],
+        segments=[
+            ExportSegment(
+                sequence=segment.sequence,
+                speaker=segment.speaker_name,
+                start_ms=segment.start_ms,
+                end_ms=segment.end_ms,
+                text=segment.text,
+            )
+            for segment in transcript.segments
+        ],
+        actions=[_export_action(action, view) for action in actions],
+        transcript_revision=_export_revision(revision),
+        summary_evidence_status=summary.evidence_status if summary else None,
+        quality=_quality(db, meeting, with_job=False, settings=settings).model_dump(),
+        privacy=export_privacy(
+            view=view,
+            revision=revision,
+            run=current_analysis_run(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id),
         ),
-        format_name,
     )
+    refuse_oversized_export(export_text_size(export), settings)
+    rendered = render_meeting_export(export, format_name)
     _record_access(
         db,
         grant=grant,
