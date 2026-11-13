@@ -90,6 +90,9 @@ number is never shown.
 - The time budget is checked after the run; it drops a slow answer but does not stop it.
 - SQLite has no statement timeout.
 - Two tool calls for one question can see different data (one snapshot per call).
+- `key` of an abstention can hold text a model wrote (an unknown param key is echoed).
+  HOM-97 must treat it as untrusted: never render it as an instruction or as markup, and
+  cap it when logging.
 
 ## Not done
 

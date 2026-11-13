@@ -7,9 +7,9 @@ API takes; the model only ever sees these schemas, never SQL.
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from types import MappingProxyType
 from typing import Any
@@ -66,12 +66,37 @@ def check_limits(limits: object) -> ToolLimits:
 # --- the tools ------------------------------------------------------------------------------
 
 
+def _freeze(value: Any) -> Any:
+    """A deep read-only copy of a JSON value: every object a ``MappingProxyType``, every
+    array a tuple.  A frozen schema cannot change in place, so ``tool_schemas()`` always
+    sends what ``REGISTRY_DIGEST`` certifies."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, list | tuple):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    """A fresh plain JSON value (dicts and lists) of a frozen one."""
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
     description: str  # one English line
     required_permissions: tuple[Permission, ...]  # sorted by value; the caller needs all
-    input_schema: dict[str, Any]  # JSON Schema: type object, additionalProperties false
+    # JSON Schema: type object, additionalProperties false.  Stored deeply read-only
+    # (objects are MappingProxyType, arrays are tuples); tool_schemas() gives plain copies.
+    input_schema: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "input_schema", _freeze(self.input_schema))
 
 
 _UUID: dict[str, Any] = {"type": "string", "pattern": ID_VALUE_PATTERN}
@@ -249,7 +274,7 @@ def tool_schemas() -> list[dict[str, Any]]:
         {
             "name": spec.name,
             "description": spec.description,
-            "input_schema": copy.deepcopy(spec.input_schema),
+            "input_schema": _thaw(spec.input_schema),
         }
         for spec in sorted(TOOLS.values(), key=lambda spec: spec.name)
     ]

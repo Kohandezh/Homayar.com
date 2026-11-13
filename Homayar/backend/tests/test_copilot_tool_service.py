@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import time
 import types
 import uuid
 from collections.abc import Iterator
@@ -960,12 +961,21 @@ def _postgres(db: Session) -> bool:
 
 @pytest.mark.postgres
 def test_a_cancelled_statement_abstains_and_the_session_stays_usable(world):
+    """The tool's own ``statement_timeout`` (200 ms) cancels a lock wait (SQLSTATE 57014).
+
+    Review F2: the guard of the lock wait is ``lock_timeout`` (3 s, SQLSTATE 55P03), not an
+    outer ``statement_timeout``.  So if the tool did not set its own timeout, the wait would
+    end with ``LockNotAvailable`` (raised, not ``time_limit_exceeded``) after 3 s and this
+    test would fail.  The caller's own ``statement_timeout`` (30 s, longer than the guard)
+    must be the same after the run."""
     ctx = context_of(world.a)
     with inspection_session_factory()() as locker, bound(world.a) as db:
         if not _postgres(db):
             pytest.skip("PostgreSQL only")
-        db.execute(text("SELECT set_config('statement_timeout', '7s', true)"))
+        db.execute(text("SELECT set_config('statement_timeout', '30s', true)"))
+        db.execute(text("SELECT set_config('lock_timeout', '3s', true)"))
         locker.execute(text("LOCK TABLE meetings IN ACCESS EXCLUSIVE MODE"))
+        started = time.monotonic()
         try:
             result = run_tool(
                 db,
@@ -976,13 +986,16 @@ def test_a_cancelled_statement_abstains_and_the_session_stays_usable(world):
                 limits=_limits(statement_timeout_ms=200),
             )
         finally:
+            elapsed = time.monotonic() - started
             locker.rollback()
         assert reason(result.to_json()) == ("time_limit_exceeded", None, None)
+        assert elapsed < 3.0  # the tool's 200 ms timeout ended the wait, not the 3 s guard
         assert db.execute(text("SELECT 1")).scalar_one() == 1
-        assert db.execute(text("SHOW statement_timeout")).scalar_one() == "7s"
+        assert db.execute(text("SHOW statement_timeout")).scalar_one() == "30s"
+        assert db.execute(text("SHOW lock_timeout")).scalar_one() == "3s"
         again = run_tool(db, context=ctx, name="conversation_count", params=WINDOW, now=NOW)
         assert again.to_json()["facts"][0]["value"] == 4
-        assert db.execute(text("SHOW statement_timeout")).scalar_one() == "7s"
+        assert db.execute(text("SHOW statement_timeout")).scalar_one() == "30s"
 
 
 # --- determinism and read-only --------------------------------------------------------------

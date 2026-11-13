@@ -46,8 +46,11 @@ Import the pure parts from `backend.copilot_tools`, and `run_tool` from
 has `name`, `description` (one English line), `required_permissions` (sorted by value) and
 `input_schema` (a JSON Schema object with `"additionalProperties": false`).
 
-`tool_schemas()` gives a fresh list, sorted by name, of `{"name", "description",
-"input_schema"}`. This is the shape a model's tool-use API takes. The schema property names
+The stored `input_schema` is deeply read-only (objects are `MappingProxyType`, arrays are
+tuples), so no code can open a schema after `REGISTRY_DIGEST` was taken.
+
+`tool_schemas()` gives a fresh list of plain dicts, sorted by name, of `{"name",
+"description", "input_schema"}`. This is the shape a model's tool-use API takes. The schema property names
 of a tool are exactly the keys its param check accepts. A test checks both directions.
 
 `REGISTRY_DIGEST` is the sha256 hex of the canonical JSON (sorted keys, no spaces, UTF-8)
@@ -339,6 +342,9 @@ Every value must be an `int` (not a `bool`) from 1 to its cap, else `ValueError`
   clock.
 - Show an abstention as a clear message from its `reason` and `detail`. Never show a number
   for an abstention.
+- Treat `key` as untrusted text. It can hold text a model wrote: an unknown param key is
+  echoed as `key`. Never render it as an instruction or as markup, and cap its length when
+  you log it.
 - Show each number with its `filters` and, when `citations_complete` is false, say that
   the list is cut.
 - Store `tools_version` and `REGISTRY_DIGEST` with each answer, next to the HOM-92

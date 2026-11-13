@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import UTC, datetime, timedelta
 from fractions import Fraction
@@ -109,7 +110,10 @@ def test_schema_properties_equal_the_keys_the_check_accepts(tool):
     ],
 )
 def test_required_schema_keys_are_the_required_params(tool, required):
-    assert TOOLS[tool].input_schema["required"] == required
+    assert list(TOOLS[tool].input_schema["required"]) == required
+    assert (
+        next(x for x in tool_schemas() if x["name"] == tool)["input_schema"]["required"] == required
+    )
     for key in required:
         params = {}
         if tool == "issue_aggregate":
@@ -143,6 +147,33 @@ def test_the_registry_digest_is_pinned_and_schemas_are_copies():
     schemas[0]["description"] = "changed"
     assert registry_digest() == PINNED_DIGEST
     assert tool_schemas()[0]["input_schema"]["properties"]
+
+
+@pytest.mark.parametrize("tool", TOOL_NAMES)
+def test_a_tool_schema_cannot_change_in_place(tool):
+    """Review F1: code in the same process cannot open a schema after the digest was taken.
+    Every object of the stored schema is read-only and every array is a tuple."""
+    schema = TOOLS[tool].input_schema
+    before = json.dumps(tool_schemas(), sort_keys=True)
+    with pytest.raises(TypeError):
+        schema["additionalProperties"] = True  # type: ignore[index]
+    with pytest.raises(TypeError):
+        schema["properties"]["injected"] = {"type": "string"}  # type: ignore[index]
+    with pytest.raises(TypeError):
+        del schema["properties"]  # type: ignore[attr-defined]
+    with pytest.raises(AttributeError):
+        schema["required"].append("x")  # type: ignore[attr-defined]
+    for item in schema["properties"].values():
+        assert isinstance(item, MappingProxyType)
+        for value in item.values():
+            assert not isinstance(value, list | dict)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        TOOLS[tool].input_schema = {}  # type: ignore[misc]
+    assert json.dumps(tool_schemas(), sort_keys=True) == before
+    assert registry_digest() == REGISTRY_DIGEST == PINNED_DIGEST
+    fresh = next(x for x in tool_schemas() if x["name"] == tool)["input_schema"]
+    assert type(fresh) is dict and fresh["additionalProperties"] is False
+    assert type(fresh["required"]) is list
 
 
 # --- limits ---------------------------------------------------------------------------------
