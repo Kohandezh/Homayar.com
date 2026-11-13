@@ -27,10 +27,11 @@ from backend.tests._database import (
 )
 from backend.tests.test_coaching_tasks_migration import remove_coaching_tasks
 from backend.tests.test_federation import remove_federation_group_mappings
+from backend.tests.test_retrieval_index_migration import remove_retrieval_index_tables
 
 NEW_REVISION = "c4a8e2f7d913"
 BASE_REVISION = "0c51985fcf36"  # HOM-76: review appeals
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 TABLE = "action_items"
 CHECK = "ck_action_kind"
 INSERT_WITHOUT_KIND = (
@@ -204,6 +205,7 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             remove_federation_group_mappings(connection)
             remove_coaching_tasks(connection)
             remove_action_item_kind(connection)
+            remove_retrieval_index_tables(connection)
 
         monkeypatch.setenv("DATABASE_URL", url)
         monkeypatch.setenv("ENVIRONMENT", "test")

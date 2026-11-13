@@ -115,7 +115,7 @@ from backend.tests.test_scorecard_results_migration import (
 )
 
 NEW_REVISION = "02f616cbb655"
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 BASE_REVISION = "a651110b03c3"  # HOM-74: review decisions
 BATCHES = "calibration_batches"
 EXAMPLES = "calibration_examples"
@@ -1193,6 +1193,8 @@ def test_every_table_is_a_workspace_table_and_only_examples_refuse_updates():
         EXAMPLES,
         # HOM-76: a stored score after an appeal never changes.
         "review_appeal_results",
+        # HOM-93: a vector is written once; a new model writes a new row.
+        "retrieval_embeddings",
     )
 
 

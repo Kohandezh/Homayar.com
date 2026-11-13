@@ -1648,7 +1648,11 @@ def test_one_migration_adds_the_mapping_table():
     assert module.revision != HOM77_REVISION
     script = ScriptDirectory.from_config(Config(str(PROJECT_ROOT / "alembic.ini")))
     assert script.get_revision(module.revision) is not None
-    assert list(script.get_heads()) == [module.revision]
+    # A later head (HOM-93, the retrieval index) may sit on top of this one,
+    # but the chain stays single and still contains this revision.
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert module.revision in {revision.revision for revision in script.walk_revisions()}
 
 
 def _pg_scalar(sql: str, **params):

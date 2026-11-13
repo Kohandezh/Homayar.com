@@ -113,7 +113,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "a651110b03c3"
 BASE_REVISION = "484a6df74abf"  # HOM-73: review items
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 DECISIONS = "review_criterion_decisions"
 RESULTS = "review_results"
 ITEMS = "review_items"
@@ -973,6 +973,8 @@ def test_both_tables_are_workspace_tables_the_purge_can_delete():
         "calibration_examples",
         # HOM-76: a stored score after an appeal never changes.
         "review_appeal_results",
+        # HOM-93: a vector is written once; a new model writes a new row.
+        "retrieval_embeddings",
     )
 
 

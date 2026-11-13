@@ -14,10 +14,11 @@ Two steps, never merged:
    (``STORAGE_PRESIGN_TTL_SECONDS``); nothing here revokes it instantly.
 2. **Purge** (:func:`run_purge_attempt`, bounded, retried): removes the
    derived content rows (transcripts, segments, redacted versions, derived
-   text views and entities, analysis, calibration answers, adjudications and
-   examples, coaching tasks, appeal results, appeal criteria and appeals, review
-   decisions and human review results, review items, scorecard results,
-   evidence, summaries, action items, speakers, share recipients), scrubs the
+   text views and entities, retrieval index rows, analysis, calibration
+   answers, adjudications and examples, coaching tasks, appeal results,
+   appeal criteria and appeals, review decisions and human review results,
+   review items, scorecard results, evidence, summaries, action items,
+   speakers, share recipients), scrubs the
    free-text title and filename of the meeting/recording, removes object bytes
    state-first/bytes-second behind the media row lock and closes the purge
    when every store is clean.  Ledger history (usage, provider usage, stage
@@ -62,6 +63,8 @@ from backend.database.saas_models import (
     PurgeState,
     Recording,
     RedactedSegment,
+    RetrievalEmbedding,
+    RetrievalEntry,
     ReviewAppeal,
     ReviewAppealCriterion,
     ReviewAppealResult,
@@ -231,7 +234,12 @@ def _remove_content(db: Session, *, workspace_id: str, meeting: Meeting) -> int:
     )
     # Derived text views and entities (ADR 0034), then redacted versions and
     # their restricted mappings (WP07-T05): a view may point at a redaction.
+    # The retrieval index rows (HOM-93) first: the embeddings before their
+    # entries, and the entries before the text view rows, the segments and the
+    # revisions whose cascades would otherwise remove them uncounted.
     for model in (
+        RetrievalEmbedding,
+        RetrievalEntry,
         TextViewEntity,
         TextViewSegment,
         TranscriptTextView,

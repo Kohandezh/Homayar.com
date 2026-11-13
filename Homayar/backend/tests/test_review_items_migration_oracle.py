@@ -689,6 +689,8 @@ def test_on_sqlite_the_migration_builds_the_designed_table_and_drops_only_it(tmp
                 "review_appeal_results",
                 "review_appeal_criteria",
                 "review_appeals",
+                "retrieval_embeddings",
+                "retrieval_entries",
             ):
                 Base.metadata.tables[name].drop(connection)
             # HOM-133 adds ``action_items.kind``; take it out, so the head's own

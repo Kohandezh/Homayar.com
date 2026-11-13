@@ -113,6 +113,7 @@ from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
+from backend.tests.test_retrieval_index_migration import remove_retrieval_index_tables
 from backend.tests.test_review_decisions_migration import _decision, _human, _item_values
 from backend.tests.test_scorecard_results_migration import (
     RESULT as RESULT_JSON,
@@ -127,7 +128,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "0c51985fcf36"
 BASE_REVISION = "02f616cbb655"  # HOM-75: calibration batches
-HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
+HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
 APPEALS = "review_appeals"
 CRITERIA = "review_appeal_criteria"
 RESULTS = "review_appeal_results"
@@ -1425,6 +1426,8 @@ def test_every_table_is_a_workspace_table_and_only_results_refuse_updates():
         "review_results",
         "calibration_examples",
         RESULTS,
+        # HOM-93: a vector is written once; a new model writes a new row.
+        "retrieval_embeddings",
     )
 
 
@@ -1773,10 +1776,11 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
                 Base.metadata.tables[name].drop(connection)
             # HOM-128 adds the federation mapping table and two columns, HOM-77
             # ``coaching_tasks`` and HOM-133 ``action_items.kind`` on top; take
-            # them out too.
+            # them out too.  HOM-93 adds the retrieval index tables.
             remove_federation_group_mappings(connection)
             remove_coaching_tasks(connection)
             remove_action_item_kind(connection)
+            remove_retrieval_index_tables(connection)
             before_objects = _objects(connection)
 
         config = _alembic_at(monkeypatch, url)
