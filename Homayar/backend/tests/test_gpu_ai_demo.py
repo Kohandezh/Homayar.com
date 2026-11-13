@@ -10,15 +10,20 @@ confirms them against what the server verified.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import yaml
 from pydantic import ValidationError
 
 from backend.config import Settings
+from backend.providers import egress
 from backend.providers.artifacts import verify_artifacts
 from backend.providers.factory import (
     create_asr_provider,
@@ -32,6 +37,8 @@ from backend.providers.registry import (
     ManifestStatus,
     load_registry,
 )
+from backend.providers.schemas import IntelligenceRequest
+from backend.tests.test_provider_factory import _structured_content
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEMO_DIR = REPO_ROOT / "infra" / "manifests" / "hom351-demo"
@@ -43,6 +50,11 @@ ENV_EXAMPLE = Path(__file__).resolve().parents[2] / ".env.example"
 # The demo settings (SPEC item 4's overlay will set these in Compose).
 DEMO_BASE_URL = "http://local-ai:8080/v1"
 DEMO_LLM_MODEL = "qwen3-8b-q4km"
+# U5 amendment A2: the demo runs greedy sampling with the default 4096 cap
+# (measured on the P40 with the bounded schema: greedy 6 of 6 valid analyses,
+# qwen3-nonthinking 4 of 6).
+DEMO_SAMPLING = "greedy"
+DEMO_MAX_TOKENS = 4096
 ASR_MANIFEST_ID = "asr.local-whisper.large-v3-p40-demo"
 LLM_MANIFEST_ID = "intelligence.llama-cpp.qwen3-8b-q4km-demo"
 
@@ -81,14 +93,37 @@ def _demo_settings(**overrides: Any) -> Settings:
         "intelligence_provider": "openai_compatible",
         "local_ai_base_url": DEMO_BASE_URL,
         "llm_model": DEMO_LLM_MODEL,
+        "local_ai_sampling": DEMO_SAMPLING,
+        "local_ai_max_tokens": DEMO_MAX_TOKENS,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
 
 
-def _timeout_of(provider: Any) -> float:
-    # Test seam: the adapter keeps the httpx timeout; no public accessor exists.
-    return float(provider._timeout.read)
+def _sent_timeout(build: Callable[[httpx.AsyncClient], Any]) -> float:
+    """The read timeout the adapter really sends with its request.
+
+    Read from the request httpx hands to the transport, so no test reads the
+    adapter's private state (review u3-turn-1, low)."""
+    seen: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        content = json.dumps(_structured_content())
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            provider = build(client)
+            with egress.permit(str(provider.identity().params["endpoint"])):
+                await provider.analyze(IntelligenceRequest(transcript_text="Synthetic call."))
+
+    asyncio.run(run())
+    return float(seen[0].extensions["timeout"]["read"])
+
+
+def _primary(settings: Settings) -> Callable[[httpx.AsyncClient], Any]:
+    return lambda client: create_intelligence_provider(settings, client=client)
 
 
 # --- U3 item 1: the chat timeout setting (LOCAL_AI_TIMEOUT_SECONDS) -------------------------
@@ -108,7 +143,9 @@ def test_timeout_900_is_allowed() -> None:
     assert settings.local_ai_timeout_seconds == 900.0
 
 
-@pytest.mark.parametrize("value", ["0", "-30", "900.5", "901"])
+@pytest.mark.parametrize(
+    "value", ["0", "-30", "900.5", "901", "nan", "NaN", "inf", "-inf", "Infinity"]
+)
 def test_timeout_outside_the_range_is_a_settings_error(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
@@ -118,13 +155,11 @@ def test_timeout_outside_the_range_is_a_settings_error(
 
 
 def test_local_endpoint_gets_the_configured_timeout() -> None:
-    provider = create_intelligence_provider(_demo_settings(local_ai_timeout_seconds=300))
-    assert _timeout_of(provider) == 300.0
+    assert _sent_timeout(_primary(_demo_settings(local_ai_timeout_seconds=300))) == 300.0
 
 
 def test_local_endpoint_keeps_the_60_second_default() -> None:
-    provider = create_intelligence_provider(_demo_settings())
-    assert _timeout_of(provider) == 60.0
+    assert _sent_timeout(_primary(_demo_settings())) == 60.0
 
 
 def test_cloud_endpoint_keeps_60_seconds() -> None:
@@ -134,8 +169,7 @@ def test_cloud_endpoint_keeps_60_seconds() -> None:
         llm_provider="zai",
         zai_api_key="zai-test-key",
     )
-    provider = create_intelligence_provider(settings)
-    assert _timeout_of(provider) == 60.0
+    assert _sent_timeout(_primary(settings)) == 60.0
 
 
 def test_fallback_endpoint_keeps_60_seconds() -> None:
@@ -144,9 +178,11 @@ def test_fallback_endpoint_keeps_60_seconds() -> None:
         llm_fallback_base_url="http://fallback.test/v1",
         llm_fallback_model="fallback-model",
     )
-    fallbacks = create_intelligence_fallbacks(settings)
-    assert len(fallbacks) == 1
-    assert _timeout_of(fallbacks[0]) == 60.0
+    assert len(create_intelligence_fallbacks(settings)) == 1
+    assert (
+        _sent_timeout(lambda client: create_intelligence_fallbacks(settings, client=client)[0])
+        == 60.0
+    )
 
 
 def test_env_example_sets_a_valid_active_timeout() -> None:
@@ -163,6 +199,8 @@ def test_env_example_sets_a_valid_active_timeout() -> None:
     [
         ("LLM_MODEL", "default"),
         ("LOCAL_AI_TIMEOUT_SECONDS", "60"),
+        ("LOCAL_AI_MAX_TOKENS", "4096"),
+        ("LOCAL_AI_SAMPLING", "greedy"),
         ("WHISPER_MODEL_PATH", ""),
         ("WHISPER_LOCAL_FILES_ONLY", "false"),
         ("HF_HUB_OFFLINE", ""),
@@ -218,8 +256,10 @@ def test_intelligence_manifest_resolves_strict_for_the_demo_endpoint(demo_regist
     [
         {"local_ai_base_url": "http://other-ai:8080/v1"},
         {"llm_model": "qwen3-8b-q8_0"},
+        {"local_ai_sampling": "qwen3-nonthinking"},
+        {"local_ai_max_tokens": 8192},
     ],
-    ids=["other-endpoint", "other-model"],
+    ids=["other-endpoint", "other-model", "qwen3-profile", "other-cap"],
 )
 def test_another_endpoint_or_model_is_refused(demo_registry, update: dict[str, Any]) -> None:
     identity = create_intelligence_provider(_demo_settings(**update)).identity()
@@ -264,7 +304,20 @@ def test_llm_manifest_declares_no_artifacts_but_pins_the_gguf_in_notes(llm_manif
     assert len(llm_manifest.notes or "") <= 500
 
 
-def test_llm_manifest_identity_equals_the_local_llm_template(llm_manifest) -> None:
+def test_llm_manifest_identity_equals_the_demo_adapter(llm_manifest) -> None:
+    # U5 item 7 (amendment A2): the identity is the real adapter's for the
+    # demo settings (LOCAL_AI_SAMPLING=greedy, LOCAL_AI_MAX_TOKENS=4096).
+    identity = create_intelligence_provider(_demo_settings()).identity()
+    assert llm_manifest.provider == identity.provider
+    assert llm_manifest.model == identity.model
+    assert llm_manifest.identity_params == dict(identity.params)
+    assert llm_manifest.identity_params["max_tokens"] == DEMO_MAX_TOKENS
+    assert llm_manifest.identity_params["temperature"] == 0
+    assert llm_manifest.identity_params["turn_index_bound"] == "per_call_max"
+
+
+def test_llm_manifest_follows_the_local_llm_template(llm_manifest) -> None:
+    # The template builds a greedy adapter with the default cap, like the demo.
     template = local_llm_manifest_template(
         "llama_cpp", model=DEMO_LLM_MODEL, base_url=DEMO_BASE_URL
     )

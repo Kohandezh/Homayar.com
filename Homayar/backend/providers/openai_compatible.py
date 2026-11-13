@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -24,6 +25,7 @@ from backend.providers.base import (
     IntelligenceProvider,
     ProviderError,
     ProviderIdentity,
+    ScalarParam,
     text_digest,
 )
 from backend.providers.schemas import IntelligenceRequest, IntelligenceResult
@@ -92,7 +94,13 @@ _OUTPUT_KEYS = frozenset(
     }
 )
 _ACCEPTED_KEY_SETS = (_OUTPUT_KEYS, _OUTPUT_KEYS - {"extraction"})
-_INDEXES: dict[str, Any] = {"type": "array", "items": {"type": "integer", "minimum": 0}}
+# Turn-index arrays are bounded (HOM-351): without maxItems a grammar-constrained
+# model counted 0, 1, 2, ... into the thousands and never closed the array.
+_INDEXES: dict[str, Any] = {
+    "type": "array",
+    "maxItems": 10,
+    "items": {"type": "integer", "minimum": 0},
+}
 _STATUS: dict[str, Any] = {"type": "string", "enum": ["stated", "not_stated"]}
 _SUMMARY_FIELD: dict[str, Any] = {
     "type": "object",
@@ -166,6 +174,7 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
         "summary": {"type": "string"},
         "summary_source_turn_indexes": {
             "type": "array",
+            "maxItems": 20,
             "items": {"type": "integer", "minimum": 0},
         },
         "action_items": {
@@ -190,6 +199,7 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
                     "priority": {"type": "string", "enum": ["low", "medium", "high"]},
                     "source_turn_indexes": {
                         "type": "array",
+                        "maxItems": 10,
                         "items": {"type": "integer", "minimum": 0},
                     },
                     # HOM-133 (ADR 0058): the label and the exact grounding words.
@@ -220,6 +230,7 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
                     },
                     "source_turn_indexes": {
                         "type": "array",
+                        "maxItems": 10,
                         "items": {"type": "integer", "minimum": 0},
                     },
                 },
@@ -342,8 +353,61 @@ def _chat_completions_url(base_url: str) -> str:
     return endpoint
 
 
+DEFAULT_TIMEOUT_SECONDS = 60.0
+# Hard cap on generated tokens, sent to every endpoint (HOM-351). Without it a
+# model that loops (greedy decoding on Qwen3 can) runs on until the timeout.
+DEFAULT_MAX_TOKENS = 4096
+GREEDY = "greedy"
+# The sampling values each profile sends. ``greedy`` is the payload every
+# endpoint got before HOM-351. ``qwen3-nonthinking`` is the Qwen3 model card's
+# advice for non-thinking mode (greedy decoding can repeat without end). No
+# presence_penalty: on the P40 a penalty of 1.5 gave empty analyses. top_k and
+# min_p are llama.cpp fields that OpenAI-style cloud APIs can reject, so only
+# a local server gets them.
+SAMPLING_PROFILES: dict[str, dict[str, int | float]] = {
+    GREEDY: {"temperature": 0},
+    "qwen3-nonthinking": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0},
+}
+_TURN_INDEX_FIELDS = frozenset({"source_turn_indexes", "summary_source_turn_indexes"})
+# How the schema sent bounds each turn index; part of the identity so the rule
+# is visible. The output_schema_sha256 stays the digest of the static schema.
+TURN_INDEX_BOUND = "per_call_max"
+
+
+def _schema_for_turns(turn_count: int) -> dict[str, Any]:
+    """A deep copy of ``_OUTPUT_SCHEMA`` bounded to this call's turns.
+
+    Every turn index gets ``maximum`` = the last turn index, so the model cannot
+    cite a turn that does not exist. With no turns, every index array gets
+    ``maxItems`` 0. ``_OUTPUT_SCHEMA`` itself is never changed."""
+    schema = copy.deepcopy(_OUTPUT_SCHEMA)
+
+    def bound(node: object) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                for name, field in properties.items():
+                    if name in _TURN_INDEX_FIELDS and isinstance(field, dict):
+                        if turn_count > 0:
+                            field["items"]["maximum"] = turn_count - 1
+                        else:
+                            field["maxItems"] = 0
+            for value in node.values():
+                bound(value)
+        elif isinstance(node, list):
+            for value in node:
+                bound(value)
+
+    bound(schema)
+    return schema
+
+
 class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
-    """Requests strict JSON from an injected or internally managed async client."""
+    """Requests strict JSON from an injected or internally managed async client.
+
+    ``local_server`` marks the LOCAL_AI_BASE_URL endpoint (a llama.cpp style
+    server). Only that endpoint gets ``chat_template_kwargs`` (thinking off)
+    and a sampling profile other than greedy."""
 
     def __init__(
         self,
@@ -351,33 +415,55 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
         base_url: str,
         model: str,
         api_key: str = "",
-        timeout_seconds: float = 60.0,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        sampling: str = GREEDY,
+        local_server: bool = False,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         if not model.strip():
             raise ValueError("OpenAI-compatible model is required")
         if timeout_seconds <= 0:
             raise ValueError("OpenAI-compatible timeout must be positive")
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens < 1:
+            raise ValueError("OpenAI-compatible max_tokens must be a positive whole number")
+        if sampling not in SAMPLING_PROFILES:
+            raise ValueError(f"unknown sampling profile {sampling!r}")
+        if sampling != GREEDY and not local_server:
+            raise ValueError(f"sampling profile {sampling!r} needs the local server")
         self._endpoint = _chat_completions_url(base_url)
         self._model = model.strip()
         self._api_key = api_key.strip()
         self._timeout = httpx.Timeout(timeout_seconds)
+        self._max_tokens = max_tokens
+        self._sampling = sampling
+        self._local_server = local_server
         self._client = client
 
     def identity(self) -> ProviderIdentity:
-        # Endpoint (never the key), model, temperature and prompt contract:
-        # the same model name behind another endpoint is another provider.
+        # Endpoint (never the key), model, output cap, the sampling values
+        # sent and the prompt contract: the same model name behind another
+        # endpoint, cap or sampling profile is another provider. The greedy
+        # profile declares only temperature 0 (HOM-351 U5 item 5). On a local
+        # server it also sends enable_thinking false; that is left out here so
+        # a template-made manifest (local_llm.py) still matches a default
+        # local deployment.
+        sampling: dict[str, ScalarParam] = dict(SAMPLING_PROFILES[self._sampling])
+        if self._sampling != GREEDY:
+            sampling["enable_thinking"] = False
         return ProviderIdentity(
             provider="openai_compatible",
             model=self._model,
             params={
                 "endpoint": self._endpoint,
-                "temperature": 0,
+                **sampling,
+                "max_tokens": self._max_tokens,
                 "prompt_version": PROMPT_VERSION,
                 "prompt_sha256": text_digest(SYSTEM_PROMPT),
                 "output_schema_sha256": text_digest(
                     json.dumps(_OUTPUT_SCHEMA, sort_keys=True, separators=(",", ":"))
                 ),
+                "turn_index_bound": TURN_INDEX_BOUND,
             },
         )
 
@@ -387,9 +473,15 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
             "transcript_text": request.transcript_text,
             "turns": [turn.model_dump(mode="json") for turn in request.turns],
         }
+        local_only: dict[str, Any] = {}
+        if self._local_server:
+            # Qwen3 thinks by default; the analysis needs only the JSON answer.
+            local_only["chat_template_kwargs"] = {"enable_thinking": False}
         return {
             "model": self._model,
-            "temperature": 0,
+            **SAMPLING_PROFILES[self._sampling],
+            "max_tokens": self._max_tokens,
+            **local_only,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
@@ -402,7 +494,7 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
                 "json_schema": {
                     "name": "homayar_conversation_intelligence",
                     "strict": True,
-                    "schema": _OUTPUT_SCHEMA,
+                    "schema": _schema_for_turns(len(request.turns)),
                 },
             },
         }
@@ -494,7 +586,25 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
                     retry_after_seconds(response.headers.get("retry-after")) if retryable else None
                 ),
             )
+        if _finish_reason(response) == "length":
+            # The max_tokens cap cut the reply. Even JSON that parses may be
+            # missing items, so it is never a result. A sampled retry can finish.
+            raise ProviderError(
+                "intelligence_output_truncated",
+                "Intelligence provider output hit the token limit",
+                retryable=True,
+            )
         return self._parse_result(response, self._model)
+
+
+def _finish_reason(response: httpx.Response) -> object:
+    """``choices[0].finish_reason``, or ``None`` when the envelope has none.
+
+    A malformed envelope is left to ``_parse_result``, which refuses it."""
+    try:
+        return response.json()["choices"][0].get("finish_reason")
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return None
 
 
 OpenAICompatibleIntelligenceAdapter = OpenAICompatibleIntelligenceProvider

@@ -90,6 +90,10 @@ x-app-environment: &app-environment
   # endpoints and LLM_FALLBACK_BASE_URL keep the adapter's 60 s.
   LLM_MODEL: "${LLM_MODEL:-default}"
   LOCAL_AI_TIMEOUT_SECONDS: "${LOCAL_AI_TIMEOUT_SECONDS:-60}"
+  # Output cap (256 to 32768) and sampling profile (greedy or
+  # qwen3-nonthinking) for the LOCAL_AI_BASE_URL endpoint only (HOM-351).
+  LOCAL_AI_MAX_TOKENS: "${LOCAL_AI_MAX_TOKENS:-4096}"
+  LOCAL_AI_SAMPLING: "${LOCAL_AI_SAMPLING:-greedy}"
   WHISPER_MODEL: "${WHISPER_MODEL:-base}"
   WHISPER_DEVICE: "${WHISPER_DEVICE:-cpu}"
   WHISPER_COMPUTE_TYPE: "${WHISPER_COMPUTE_TYPE:-int8}"
