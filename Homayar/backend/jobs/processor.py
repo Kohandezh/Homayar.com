@@ -137,6 +137,7 @@ from backend.services.ai_policy_service import (
     record_run_snapshot,
 )
 from backend.services.analysis_claims import NO_CLAIMS, cite_claims
+from backend.services.analysis_dedupe import merge_duplicate_findings
 from backend.services.analysis_extraction import (
     cite_extraction,
     extraction_audit_details,
@@ -1053,6 +1054,10 @@ def persist_analysis(
     the answering model received, and gets its own row next to the new run.
     Runs in the caller's fenced transaction.
     """
+    if intelligence is not None:
+        # HOM-351: one entry per finding before grounding and storage, for the
+        # full job and the recompute alike.  A checkpoint keeps the raw output.
+        intelligence = merge_duplicate_findings(intelligence, language=revision.language)
     replace_filters = [
         ActionItem.meeting_id == meeting.id,
         ActionItem.created_by == "ai",

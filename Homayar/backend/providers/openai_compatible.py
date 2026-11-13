@@ -100,7 +100,10 @@ SYSTEM_PROMPT = (
     "day that has that weekday. "
     "When the calendar is present, use a date outside it only when a speaker states "
     "that full date; otherwise set due_date to null and never guess a date. "
-    "These date rules also apply to the due_date of a decision."
+    "These date rules also apply to the due_date of a decision. "
+    "List each action item, decision, key moment and extraction value once: when the "
+    "conversation repeats the same thing, give it one entry that cites every turn that "
+    "supports it."
 )
 
 # The call calendar (HOM-351): the call's local day and the 13 days after it, built
