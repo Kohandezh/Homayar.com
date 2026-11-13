@@ -63,12 +63,14 @@ async def require_session_workspace(
     actor: Actor = Depends(require_actor),
     workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> WorkspaceContext:
     """The workspace of a session-only trends route (HOM-82, HOM-229), resolved
     once per request: the module guard and ``require_session_permission`` share
-    this dependency, so a session caller gets workspace resolution, the module
-    check and the permission check, in that order, on one resolution."""
-    return await require_workspace(actor=actor, workspace_id=workspace_id, db=db)
+    this dependency, so a session caller gets workspace resolution (with the
+    privileged MFA gate of HOM-129), the module check and the permission check,
+    in that order, on one resolution."""
+    return await require_workspace(actor=actor, workspace_id=workspace_id, db=db, settings=settings)
 
 
 def require_session_permission(permission: Permission):

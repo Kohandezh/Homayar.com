@@ -50,7 +50,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import create_engine, delete, event, inspect, text
+from sqlalchemy import create_engine, delete, event, insert, inspect, text
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 
 from backend.backup.reconcile import CONTENT_TABLES as RECONCILED_TABLES
@@ -115,7 +115,7 @@ from backend.tests.test_scorecard_results_migration import (
 )
 
 NEW_REVISION = "02f616cbb655"
-HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
+HEAD_REVISION = "d3d1c7aa3cd8"  # HOM-129: privileged MFA and break-glass, after HOM-93
 BASE_REVISION = "a651110b03c3"  # HOM-74: review decisions
 BATCHES = "calibration_batches"
 EXAMPLES = "calibration_examples"
@@ -521,10 +521,14 @@ def _assert_one_position_once_per_batch(tenant: dict) -> None:
 def _assert_one_participant_once_per_batch(tenant: dict) -> None:
     setup = _batched(tenant, "one_participant")
     with inspection_session_factory()() as db:
-        colleague = User(email="calibration-colleague@example.com", display_name="Colleague")
-        db.add(colleague)
+        # A Core insert of the columns every revision has: the ORM would also name
+        # ``users.is_break_glass``, which a later revision adds (HOM-129).
+        colleague_id = db.execute(
+            insert(User.__table__).values(
+                email="calibration-colleague@example.com", display_name="Colleague"
+            )
+        ).inserted_primary_key[0]
         db.commit()
-        colleague_id = colleague.id
     # The same user twice in one batch is refused; another user in the same batch is
     # fine.
     _refused(CalibrationParticipant, _participant(setup), "uq_calibration_participants_user")

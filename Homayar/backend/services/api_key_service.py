@@ -112,6 +112,9 @@ def create_api_key(
     settings: Settings,
 ) -> tuple[ApiKey, str]:
     """Issue a key bound to ``membership.user_id``; returns the row and the raw key (once)."""
+    if membership.user.is_break_glass:
+        # HOM-129 (ADR 0076): a key would outlive the break-glass window.
+        raise ApiKeyError(403, "permission_denied", "A break-glass account cannot create API keys")
     requested = parse_scopes(scopes)
     beyond = sorted(scope.value for scope in requested if not role_has(membership.role, scope))
     if beyond:
@@ -201,7 +204,8 @@ def authenticate_api_key(
     if expires_at is not None and expires_at <= now:
         raise api_key_invalid()
     user = db.get(User, key.created_by_user_id)
-    if user is None or not user.is_active:
+    # A break-glass account never uses keys, whatever its window (HOM-129, ADR 0076).
+    if user is None or not user.is_active or user.is_break_glass:
         raise api_key_invalid()
     # Freshness gate (HOM-128, 5b): a federated user's key works only while a
     # recent IdP confirmation backs it; the same rule gates new login

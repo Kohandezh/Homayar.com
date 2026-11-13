@@ -374,6 +374,10 @@ def settings(request: pytest.FixtureRequest, tmp_path: Path) -> Settings:
         frontend_url="http://testserver/app",
         public_url="http://testserver",
         trend_judgment_warmup_enabled=False,
+        # The privileged MFA gate is tested in test_hom129_*.py, which turn it on.
+        privileged_mfa_required=False,
+        mfa_secret_keys="test1:dGVzdC1vbmx5LW1mYS10b3RwLWtleS0zMi1ieXRlcyE=",  # noqa: S106
+        mfa_secret_active_key_id="test1",  # noqa: S106 - a key id
         _env_file=None,
     )
 

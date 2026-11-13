@@ -49,6 +49,18 @@ class FederationReauthenticationRequired(AuthenticationError):
     """
 
 
+class BreakGlassLoginRefused(AuthenticationError):
+    """A break-glass account signs in only by password inside an open window (HOM-129).
+
+    Callers answer exactly like a wrong password, so the refusal reveals nothing.
+    """
+
+    def __init__(self, user_id: str, method: str) -> None:
+        super().__init__("Invalid credentials")
+        self.user_id = user_id
+        self.method = method
+
+
 class RegistrationConflictError(ValueError):
     pass
 
@@ -66,6 +78,7 @@ class VerificationNotApplicableError(ValueError):
 
 
 VERIFY_EMAIL_TTL_MINUTES = 24 * 60
+LOGIN_METHODS = frozenset({"password", "otp", "google"})
 
 
 @dataclass(frozen=True)
@@ -279,10 +292,13 @@ def create_login_session(
     db: Session,
     *,
     user: User,
+    method: str,
     user_agent: str | None,
     ip_address: str | None,
     settings: Settings | None = None,
 ) -> SessionTokens:
+    if method not in LOGIN_METHODS:
+        raise ValueError(f"Unknown login method {method!r}")
     settings = settings or get_settings()
     now = datetime.now(UTC)
     # Login freshness gate (HOM-128, 5e): every login path (password, OTP,
@@ -296,6 +312,24 @@ def create_login_session(
         raise FederationReauthenticationRequired(
             "Sign in again to confirm your identity provider account"
         )
+    expires_at = now + timedelta(days=settings.refresh_token_days)
+    window_id: str | None = None
+    if user.is_break_glass:
+        # HOM-129: password only, inside an open window, and never past its end.
+        from backend.services.privileged_access_service import current_break_glass_window
+
+        window = (
+            current_break_glass_window(db, user_id=user.id, settings=settings, now=now)
+            if method == "password"
+            else None
+        )
+        if window is None:
+            raise BreakGlassLoginRefused(user.id, method)
+        window_id = window.id
+        window_end = window.expires_at
+        if window_end.tzinfo is None:
+            window_end = window_end.replace(tzinfo=UTC)
+        expires_at = min(expires_at, window_end)
     session_id = new_id()
     refresh_token = make_refresh_token(session_id)
     csrf_token = random_token(32)
@@ -306,8 +340,9 @@ def create_login_session(
         csrf_token_hash=token_digest(f"csrf:{csrf_token}", settings),
         user_agent_hash=_hash_context(user_agent, settings),
         ip_prefix=_hash_context(ip_address, settings),
-        expires_at=now + timedelta(days=settings.refresh_token_days),
+        expires_at=expires_at,
         last_seen_at=now,
+        break_glass_window_id=window_id,
     )
     db.add(session)
     db.flush()
@@ -361,6 +396,11 @@ def rotate_refresh_token(
     if user is None or not user.is_active:
         session.revoked_at = now
         raise AuthenticationError("Account is unavailable")
+    if user.is_break_glass:
+        from backend.services.privileged_access_service import session_window_is_open
+
+        if not session_window_is_open(db, session=session, settings=settings, now=now):
+            raise AuthenticationError("Invalid refresh token")
 
     # Every refresh of a federated user asks the IdP live (HOM-128, 5a); the
     # check runs before the token is rotated, so a refused refresh leaves the
@@ -417,14 +457,16 @@ def revoke_session(db: Session, session_id: str) -> None:
         session.revoked_at = datetime.now(UTC)
 
 
-def revoke_all_user_sessions(db: Session, user: User) -> None:
+def revoke_all_user_sessions(db: Session, user: User) -> int:
+    """Revoke every unrevoked session of the user; returns how many."""
     now = datetime.now(UTC)
-    db.execute(
+    result = db.execute(
         update(LoginSession)
         .where(LoginSession.user_id == user.id, LoginSession.revoked_at.is_(None))
         .values(revoked_at=now)
     )
     user.session_version += 1
+    return result.rowcount or 0
 
 
 def request_password_reset(

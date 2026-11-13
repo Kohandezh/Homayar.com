@@ -53,6 +53,8 @@ def settings(tmp_path: Path) -> Settings:
         trusted_hosts="testserver,localhost,127.0.0.1",
         frontend_url="http://testserver/app",
         public_url="http://testserver",
+        # The privileged MFA gate is tested in test_hom129_*.py, which turn it on.
+        privileged_mfa_required=False,
         _env_file=None,
     )
 

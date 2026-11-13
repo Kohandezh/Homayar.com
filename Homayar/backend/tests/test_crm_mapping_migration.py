@@ -86,7 +86,7 @@ from backend.tests.conftest import login_user, register_user
 
 NEW_REVISION = "565d2ccd4fca"
 BASE_REVISION = "47676f445509"  # HOM-54: scorecard_versions
-HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
+HEAD_REVISION = "d3d1c7aa3cd8"  # HOM-129: privileged MFA and break-glass, after HOM-93
 PROFILES = "integration_mapping_profiles"
 RECORDS = "external_records"
 LEDGER = "integration_inbound_records"

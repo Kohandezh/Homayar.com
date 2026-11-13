@@ -33,6 +33,7 @@ SECRET_FIELDS = (
     "storage_secret_key",
     "pii_mapping_keys",
     "webhook_secret_keys",
+    "mfa_secret_keys",
     "llm_fallback_api_key",
     "zai_api_key",
     "gapgpt_api_key",
@@ -45,6 +46,7 @@ SECRET_FIELDS = (
 MARK = "Qz7fake"
 FAKE_PII_KEY = base64.b64encode(b"fake-pii-mapping-key-32-bytes-Qz").decode()
 FAKE_WEBHOOK_KEY = base64.b64encode(b"fake-webhook-secret-key-32bytesQ").decode()
+FAKE_MFA_KEY = base64.b64encode(b"fake-mfa-totp-secret-key-32bytQz").decode()
 FAKE_SECRETS: dict[str, str] = {
     "database_url": (
         f"postgresql+psycopg://homayar:fake-db-password-{MARK}@db.example.invalid/homayar"
@@ -59,6 +61,7 @@ FAKE_SECRETS: dict[str, str] = {
     "storage_secret_key": f"fake-storage-secret-key-{MARK}",
     "pii_mapping_keys": f"fake1:{FAKE_PII_KEY}",
     "webhook_secret_keys": f"fake1:{FAKE_WEBHOOK_KEY}",
+    "mfa_secret_keys": f"fake1:{FAKE_MFA_KEY}",
     "llm_fallback_api_key": f"fake-llm-fallback-api-key-{MARK}",
     "zai_api_key": f"fake-zai-api-key-{MARK}",
     "gapgpt_api_key": f"fake-gapgpt-api-key-{MARK}",
@@ -71,6 +74,7 @@ FAKE_SECRETS: dict[str, str] = {
 COMPANIONS: dict[str, dict[str, object]] = {
     "pii_mapping_keys": {"pii_mapping_active_key_id": "fake1"},
     "webhook_secret_keys": {"webhook_secret_active_key_id": "fake1"},
+    "mfa_secret_keys": {"mfa_secret_active_key_id": "fake1"},
 }
 
 
@@ -125,6 +129,7 @@ def all_secrets_kwargs(**overrides: object) -> dict[str, object]:
     kwargs: dict[str, object] = dict(FAKE_SECRETS)
     kwargs["pii_mapping_active_key_id"] = "fake1"
     kwargs["webhook_secret_active_key_id"] = "fake1"  # noqa: S105 - a key id
+    kwargs["mfa_secret_active_key_id"] = "fake1"  # noqa: S105 - a key id
     kwargs.update(overrides)
     return kwargs
 
@@ -662,6 +667,7 @@ def test_repr_hides_values_supplied_through_references(
         _env_file=None,
         pii_mapping_active_key_id="fake1",
         webhook_secret_active_key_id="fake1",  # noqa: S106 - a key id
+        mfa_secret_active_key_id="fake1",  # noqa: S106 - a key id
     )
 
     assert {field: getattr(settings, field) for field in SECRET_FIELDS} == FAKE_SECRETS

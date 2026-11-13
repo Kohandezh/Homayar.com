@@ -22,6 +22,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    false,
     func,
     inspect,
     text,
@@ -410,6 +411,10 @@ class User(Base, TimestampMixin):
     locale: Mapped[str] = mapped_column(String(10), default="fa", nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     session_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # HOM-129: a local emergency account; it signs in only inside an open
+    # break-glass window (ADR 0076).  Server default only, so an INSERT that does
+    # not set it also fits a schema before HOM-129 (older migration tests).
+    is_break_glass: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
 
     identities: Mapped[list[AuthIdentity]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
@@ -470,8 +475,75 @@ class LoginSession(Base, TimestampMixin):
     rotated_from_id: Mapped[str | None] = mapped_column(
         ForeignKey("login_sessions.id", ondelete="SET NULL")
     )
+    # HOM-129: when this session last passed the second factor, and how.  A
+    # refresh keeps both (same row); a new login starts without them.
+    mfa_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    mfa_method: Mapped[str | None] = mapped_column(String(16))
+    break_glass_window_id: Mapped[str | None] = mapped_column(
+        ForeignKey("break_glass_windows.id", ondelete="SET NULL")
+    )
 
     __table_args__ = (Index("ix_sessions_user_active", "user_id", "revoked_at"),)
+
+
+class UserMfaTotp(Base, TimestampMixin):
+    """A user's TOTP factor (HOM-129, ADR 0076), one row per user.
+
+    The secret is stored only encrypted (AES-256-GCM, ``MFA_SECRET_KEYS``).  The
+    confirmed factor and a pending re-enrolment live side by side, so the working
+    factor stays until the new one is confirmed with a code.
+    """
+
+    __tablename__ = "user_mfa_totp"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    encryption_key_id: Mapped[str | None] = mapped_column(String(64))
+    nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_step: Mapped[int | None] = mapped_column(BigInteger)
+    pending_encryption_key_id: Mapped[str | None] = mapped_column(String(64))
+    pending_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    pending_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    pending_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MfaRecoveryCode(Base):
+    """One single-use recovery code; only its peppered digest is stored (HOM-129)."""
+
+    __tablename__ = "mfa_recovery_codes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BreakGlassWindow(Base):
+    """A time-boxed period in which a break-glass account may sign in (HOM-129)."""
+
+    __tablename__ = "break_glass_windows"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    opened_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[str | None] = mapped_column(String(128))
 
 
 class OneTimeToken(Base):

@@ -355,6 +355,10 @@ UNPROTECTED_TABLES: frozenset[str] = frozenset(
         "one_time_tokens",
         "oauth_challenges",
         "otp_challenges",
+        # Privileged MFA and break-glass (HOM-129): user-scoped auth data.
+        "user_mfa_totp",
+        "mfa_recovery_codes",
+        "break_glass_windows",
         "plans",
         "plan_versions",
         "model_manifests",

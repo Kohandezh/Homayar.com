@@ -531,7 +531,9 @@ def test_the_operator_check_refuses_an_api_key_actor_by_itself():
         asyncio.run(dependency(context=context(api_key=None, system_role="user")))
     assert refused.value.detail["code"] == "platform_operator_required"
     allowed = context(api_key=None, system_role="operator")
-    assert asyncio.run(dependency(context=allowed)) is allowed
+    # The privileged MFA gate (HOM-129) is tested in test_hom129_mfa.py; here it is off.
+    gate_off = SimpleNamespace(privileged_mfa_required=False)
+    assert asyncio.run(dependency(context=allowed, db=None, settings=gate_off)) is allowed
 
 
 def test_an_operator_whose_membership_is_revoked_is_refused(client, email_outbox, heartbeat_store):

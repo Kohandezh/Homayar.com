@@ -129,6 +129,18 @@ x-app-environment: &app-environment
   # secret manager; empty refuses new webhook endpoints (503).
   WEBHOOK_SECRET_KEYS: "${WEBHOOK_SECRET_KEYS:-}"
   WEBHOOK_SECRET_ACTIVE_KEY_ID: "${WEBHOOK_SECRET_ACTIVE_KEY_ID:-}"
+  # Privileged MFA TOTP secrets at rest (ADR 0076): same keyring format, from the
+  # secret manager; empty refuses MFA enrolment (503), so privileged users stay refused.
+  MFA_SECRET_KEYS: "${MFA_SECRET_KEYS:-}"
+  MFA_SECRET_ACTIVE_KEY_ID: "${MFA_SECRET_ACTIVE_KEY_ID:-}"
+  # Privileged MFA gate and break-glass access (ADR 0076); defaults as in the code.
+  PRIVILEGED_MFA_REQUIRED: "${PRIVILEGED_MFA_REQUIRED:-true}"
+  PRIVILEGED_MFA_MAX_AGE_MINUTES: "${PRIVILEGED_MFA_MAX_AGE_MINUTES:-720}"
+  MFA_ENROLLMENT_FRESH_LOGIN_MINUTES: "${MFA_ENROLLMENT_FRESH_LOGIN_MINUTES:-15}"
+  MFA_TOTP_ISSUER: "${MFA_TOTP_ISSUER:-Homayar}"
+  BREAK_GLASS_ENABLED: "${BREAK_GLASS_ENABLED:-false}"
+  BREAK_GLASS_MAX_WINDOW_MINUTES: "${BREAK_GLASS_MAX_WINDOW_MINUTES:-60}"
+  BREAK_GLASS_ALERT_EMAILS: "${BREAK_GLASS_ALERT_EMAILS:-}"
   # Sign-in and delivery providers: disabled unless configured. The API
   # refuses to start with a method enabled but its credentials missing, and
   # GET /api/v1/auth/methods tells the console what is available.

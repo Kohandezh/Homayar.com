@@ -31,6 +31,30 @@ The session payload (`/auth/login`, `/auth/refresh`, `/auth/me`, `/auth/otp/veri
 - Workspaces created inside an organization (`organization:workspace:create`) carry no trial subscription or entitlement; the creator becomes the workspace owner.
 - Platform administration stays separate (`User.system_role`). No organization role confers it. Only the `+operator` routes (the voice node routes and `GET /api/v1/admin/system-health`) and the deployment data of `GET /api/v1/voice/capacity` use it (§1); everything else denies by default.
 
+### 1b. Privileged MFA gate (HOM-129, ADR 0076)
+
+- A **session** acting as a workspace `owner` or `admin`, an organization `owner` or `admin`,
+  or a platform operator (`User.system_role = operator`, on every `+operator` route whatever
+  the workspace role) must hold a fresh second-factor verification on **every** request:
+  `login_sessions.mfa_verified_at` within `PRIVILEGED_MFA_MAX_AGE_MINUTES` (default 720).
+- Refusal: `403 mfa_enrollment_required` when the user has no confirmed TOTP factor, else
+  `403 mfa_required`. The check runs where the role is resolved, before any permission
+  check: in the workspace resolution (`require_workspace`, `require_permission`,
+  `require_path_permission`, the module guard, the `+session` trends routes and plain
+  `workspace` routes such as `GET /api/v1/capabilities`), in `require_organization` (every
+  organization route), and after the operator check on `+operator` routes. Write variants
+  inherit it. Share links (`optional-session`), `GET /api/v1/organizations` and invitation
+  acceptance resolve no caller role and are not gated.
+- `member`, `viewer`, organization `analyst` and `executive` are never asked. API keys are
+  never gated (they cannot answer a factor); creating one is an owner/admin route, so it needs
+  a verified session.
+- The `/api/v1/auth/mfa*` routes, `/auth/me`, `/auth/refresh` and `/auth/logout` are outside
+  the gate, so a privileged user can always enrol and verify. `PRIVILEGED_MFA_REQUIRED=false`
+  turns the gate off.
+- A break-glass account (`User.is_break_glass`) is an owner by its memberships and passes the
+  same gate. It never uses API keys: its keys answer `401 api_key_invalid` and it cannot
+  create one (`403 permission_denied`).
+
 ## 2. Roles
 
 | Role | Kind | Notes |
@@ -209,6 +233,11 @@ The routes of a product module (`quality`: scorecards, review items, calibration
 | GET | /api/v1/auth/google/callback | public |
 | GET | /api/v1/auth/google/link/start | session+csrf |
 | GET | /api/v1/auth/me | session |
+| GET | /api/v1/auth/mfa | session |
+| POST | /api/v1/auth/mfa/totp/enroll | session+csrf |
+| POST | /api/v1/auth/mfa/totp/confirm | session+csrf |
+| POST | /api/v1/auth/mfa/verify | session+csrf |
+| POST | /api/v1/auth/mfa/recovery-codes | session+csrf |
 | POST | /api/v1/members/invitations/accept | session+csrf |
 | GET | /api/v1/members | member:read |
 | GET | /api/v1/members/invitations | member:manage |

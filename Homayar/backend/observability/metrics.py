@@ -113,6 +113,7 @@ AUTH_FAILURE_REASONS = (
     "other",
 )
 AUDIT_WRITE_DELIVERIES = ("transactional", "best_effort", "other")
+BREAK_GLASS_EVENTS = ("window_opened", "window_closed", "login", "login_refused")
 
 METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST
 
@@ -169,6 +170,14 @@ AUDIT_WRITE_FAILURES = Counter(
 )
 for _delivery in AUDIT_WRITE_DELIVERIES:
     AUDIT_WRITE_FAILURES.labels(_delivery)
+BREAK_GLASS_EVENTS_TOTAL = Counter(
+    "homayar_break_glass_events",
+    "Break-glass windows opened and closed, and break-glass logins (HOM-129).",
+    ("event",),
+    registry=_COUNTER_REGISTRY,
+)
+for _event in BREAK_GLASS_EVENTS:
+    BREAK_GLASS_EVENTS_TOTAL.labels(_event)
 
 
 def metrics_access(settings: Settings) -> Literal["disabled", "token", "open"]:
@@ -236,6 +245,11 @@ def observe_http(method: str, route: str, status_code: int, seconds: float) -> N
 def observe_auth_failure(reason: str) -> None:
     label = reason if reason in AUTH_FAILURE_REASONS else "other"
     guarded_write(lambda: AUTH_FAILURES.labels(label).inc())
+
+
+def observe_break_glass_event(event: str) -> None:
+    if event in BREAK_GLASS_EVENTS:
+        guarded_write(lambda: BREAK_GLASS_EVENTS_TOTAL.labels(event).inc())
 
 
 def observe_audit_write_failure(delivery: str) -> None:
