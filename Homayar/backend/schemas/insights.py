@@ -195,6 +195,105 @@ class TranscriptCorrectionRequest(BaseModel):
         return value
 
 
+class TimelineRevisionInfo(BaseModel):
+    """Provenance of the revision a timeline was built from (HOM-49).
+
+    ``diarization_status`` and ``diarization_provider`` come from the
+    *baseline* revision: a correction stores none of its own.
+    """
+
+    id: str
+    revision_number: int
+    source: str  # TranscriptRevision.source value: "asr" | "correction" | "backfill"
+    is_current: bool
+    diarization_status: str | None
+    diarization_provider: str | None
+    is_mock: bool
+
+
+class TimelineLane(BaseModel):
+    """One speaker's lane on the timeline (HOM-49)."""
+
+    speaker_key: str
+    display_name: str | None  # MeetingSpeaker.display_name, None when no row or no name
+    kind: Literal["identified", "anonymous", "unknown"]
+    identity_type: str | None  # MeetingSpeaker.identity_type, None when no row
+    speaker_confidence: float | None  # MeetingSpeaker.confidence, None when no row
+    turn_count: int
+    speech_ms: int  # sum of (end_ms - start_ms) of the lane's turns
+    overlap_ms: int  # union of cross_speaker overlap intervals this lane is in
+
+
+class TimelineTurn(BaseModel):
+    """One turn of the revision on its speaker's lane (HOM-49).
+
+    Carries no transcript text: the console joins it to text by ``segment_id``
+    through ``GET /transcript``.
+    """
+
+    segment_id: str
+    sequence: int
+    speaker_key: str
+    start_ms: int
+    end_ms: int
+    confidence: float | None  # TranscriptSegment.confidence as stored
+    attribution: Literal["diarization", "person", "backfill", "none"]
+    overlap_ids: list[int]  # indexes into `overlaps` this turn takes part in
+    review_reasons: list[Literal["unknown_speaker", "overlap", "outside_recording"]]
+
+
+class TimelineOverlap(BaseModel):
+    """One maximal range where two or more turns are active (HOM-49)."""
+
+    index: int  # position in `overlaps`, 0-based
+    start_ms: int
+    end_ms: int
+    kind: Literal["cross_speaker", "same_speaker"]
+    speaker_keys: list[str]  # distinct keys of the active turns, sorted ascending
+    segment_ids: list[str]  # the active turns, ordered by sequence
+    includes_unknown: bool
+
+
+class TimelineConfidenceInfo(BaseModel):
+    """What the stored turn confidence is (HOM-49).
+
+    ``calibrated`` stays false until WP10-T05 (HOM-48) lands.
+    """
+
+    origin: Literal["asr"]  # the stored turn confidence is the ASR segment confidence
+    calibrated: Literal[False]  # nothing is calibrated yet (HOM-48 / WP10-T05)
+
+
+class TimelineCorrectionInfo(BaseModel):
+    """What the console needs to send a speaker correction (HOM-49).
+
+    ``speaker_choices`` is exactly the set the existing correction route
+    accepts as a new speaker: every ``MeetingSpeaker`` key of the meeting plus
+    ``speaker_unknown``.
+    """
+
+    base_revision_id: str | None  # None when not correctable
+    correctable: bool  # True only when a revision exists and it is the current one
+    speaker_choices: list[str]
+
+
+class SpeakerTimelineResponse(BaseModel):
+    """The speaker timeline of one transcript revision (HOM-49, ADR 0069)."""
+
+    meeting_id: str
+    revision: TimelineRevisionInfo | None
+    overlap_basis: Literal["turns"]
+    recording_duration_ms: int | None  # Meeting.duration_seconds * 1000, None when 0
+    timeline_end_ms: int  # max(recording_duration_ms or 0, max turn end_ms or 0)
+    lanes: list[TimelineLane]
+    turns: list[TimelineTurn]  # every segment of the revision, ordered by sequence
+    overlaps: list[TimelineOverlap]  # ordered by start_ms, then end_ms
+    overlap_ms: int  # union of all cross_speaker overlap intervals
+    unknown_speech_ms: int  # speech of turns whose speaker is unknown
+    confidence: TimelineConfidenceInfo
+    correction: TimelineCorrectionInfo
+
+
 class EvidenceRefResponse(BaseModel):
     """A finding's citation, embedded in the finding (WP04-T03)."""
 

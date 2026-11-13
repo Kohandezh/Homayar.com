@@ -23,6 +23,7 @@ from backend.database.saas_models import (
     TranscriptRedaction,
     TranscriptRevision,
     TranscriptSegment,
+    TranscriptSource,
 )
 from backend.jobs import recompute
 from backend.privacy.redaction_service import RedactionError, reveal_placeholder
@@ -34,7 +35,7 @@ from backend.privacy.transcript_view import (
     ViewPolicy,
     choose_view,
 )
-from backend.providers.schemas import ClaimBasis
+from backend.providers.schemas import UNKNOWN_SPEAKER_LABEL, ClaimBasis
 from backend.schemas.insights import (
     ActionItemCreateRequest,
     ActionItemResponse,
@@ -49,8 +50,12 @@ from backend.schemas.insights import (
     SearchMeetingResponse,
     SearchResponse,
     SpeakerResponse,
+    SpeakerTimelineResponse,
     SpeakerUpdateRequest,
     SummaryResponse,
+    TimelineConfidenceInfo,
+    TimelineCorrectionInfo,
+    TimelineRevisionInfo,
     TranscriptCorrectionRequest,
     TranscriptFilters,
     TranscriptRedactionInfo,
@@ -92,6 +97,12 @@ from backend.services.quality_service import assess_meeting
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
 from backend.services.report_service import evidence_status_of, meeting_completeness
 from backend.services.retention_policy import is_retention_expired
+from backend.services.speaker_timeline import (
+    TimelineParts,
+    TimelineSegmentData,
+    TimelineSpeakerData,
+    build_timeline,
+)
 from backend.services.team_service import authorize_attribution_change
 from backend.services.transcript_service import (
     SegmentEdit,
@@ -519,6 +530,180 @@ def list_transcript_revisions(
         meeting_id=meeting.id,
         current_revision_id=next((r.id for r in revisions if r.is_current), None),
         items=[TranscriptRevisionResponse.model_validate(r) for r in revisions],
+    )
+
+
+def _source_value(source: object) -> str:
+    """The stored ``TranscriptSource`` as its string value."""
+    return source.value if isinstance(source, TranscriptSource) else str(source)
+
+
+def _baseline_revision(
+    db: Session, *, workspace_id: str, meeting_id: str, revision: TranscriptRevision
+) -> TranscriptRevision:
+    """The revision a timeline measures attribution from (HOM-49, SPEC 5.2).
+
+    The revision itself unless it is a correction; a correction walks
+    ``parent_revision_id`` up to the first revision whose source is not a
+    correction, and a broken chain (parent missing) ends at the last revision
+    reached.
+    """
+    current = revision
+    while current.source == TranscriptSource.CORRECTION:
+        if current.parent_revision_id is None:
+            return current
+        parent = db.scalar(
+            select(TranscriptRevision).where(
+                TranscriptRevision.id == current.parent_revision_id,
+                TranscriptRevision.workspace_id == workspace_id,
+                TranscriptRevision.meeting_id == meeting_id,
+            )
+        )
+        if parent is None:
+            return current
+        current = parent
+    return current
+
+
+@router.get(
+    "/meetings/{meeting_id}/transcript/timeline",
+    response_model=SpeakerTimelineResponse,
+)
+def get_speaker_timeline(
+    meeting_id: str,
+    revision_id: str | None = Query(default=None, min_length=1, max_length=36),
+    context: WorkspaceContext = Depends(require_permission(Permission.MEETING_READ)),
+    db: Session = Depends(get_db),
+) -> SpeakerTimelineResponse:
+    """Who speaks when, where turns overlap, and which turns need a person
+    to look at them (HOM-49, ADR 0069).
+
+    One read-only call per revision: it adds, changes and flushes no row,
+    writes no audit row and carries no transcript text, so it needs no view
+    and cannot leak text the caller's transcript view would hide.  Overlap is
+    measured from turn time ranges (``overlap_basis == "turns"``) until HOM-45
+    stores the raw diarization segments.  The correction block carries
+    everything the console needs to send a speaker correction through the
+    existing correction route.
+    """
+    meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
+    if revision_id is not None:
+        revision = revision_by_id(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            revision_id=revision_id,
+        )
+        if revision is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "revision_not_found",
+                    "message": "Transcript revision not found",
+                },
+            )
+    else:
+        revision = current_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    speakers = list(
+        db.scalars(
+            select(MeetingSpeaker)
+            .where(
+                MeetingSpeaker.workspace_id == meeting.workspace_id,
+                MeetingSpeaker.meeting_id == meeting.id,
+            )
+            .order_by(MeetingSpeaker.speaker_key.asc())
+        )
+    )
+    recording_duration_ms = meeting.duration_seconds * 1000 or None
+    if revision is None:
+        # With no revision the lanes are empty even when the meeting has
+        # speaker rows; speaker_choices below is still computed.
+        parts = TimelineParts()
+        baseline = None
+    else:
+        baseline = _baseline_revision(
+            db,
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            revision=revision,
+        )
+        segments = segments_of(db, revision)
+        # the baseline's speakers: loaded from the database only when the
+        # baseline differs from the revision, else the revision's own
+        if baseline.id == revision.id:
+            baseline_speakers = {s.sequence: s.speaker_key for s in segments}
+        else:
+            baseline_speakers = {
+                sequence: speaker_key
+                for sequence, speaker_key in db.execute(
+                    select(TranscriptSegment.sequence, TranscriptSegment.speaker_key).where(
+                        TranscriptSegment.revision_id == baseline.id
+                    )
+                )
+            }
+        parts = build_timeline(
+            segments=[
+                TimelineSegmentData(
+                    id=segment.id,
+                    sequence=segment.sequence,
+                    speaker_key=segment.speaker_key,
+                    start_ms=segment.start_ms,
+                    end_ms=segment.end_ms,
+                    confidence=segment.confidence,
+                )
+                for segment in segments
+            ],
+            speakers=[
+                TimelineSpeakerData(
+                    speaker_key=speaker.speaker_key,
+                    display_name=speaker.display_name,
+                    identity_type=speaker.identity_type,
+                    confidence=speaker.confidence,
+                )
+                for speaker in speakers
+            ],
+            baseline_speaker_by_sequence=baseline_speakers,
+            baseline_source=_source_value(baseline.source),
+            baseline_diarization_status=baseline.diarization_status,
+            recording_duration_ms=recording_duration_ms,
+        )
+    timeline_end_ms = max(
+        recording_duration_ms or 0,
+        max((turn.end_ms for turn in parts.turns), default=0),
+    )
+    return SpeakerTimelineResponse(
+        meeting_id=meeting.id,
+        revision=(
+            TimelineRevisionInfo(
+                id=revision.id,
+                revision_number=revision.revision_number,
+                source=_source_value(revision.source),
+                is_current=revision.is_current,
+                diarization_status=baseline.diarization_status if baseline is not None else None,
+                diarization_provider=baseline.diarization_provider
+                if baseline is not None
+                else None,
+                is_mock=revision.is_mock,
+            )
+            if revision is not None
+            else None
+        ),
+        overlap_basis="turns",
+        recording_duration_ms=recording_duration_ms,
+        timeline_end_ms=timeline_end_ms,
+        lanes=parts.lanes,
+        turns=parts.turns,
+        overlaps=parts.overlaps,
+        overlap_ms=parts.overlap_ms,
+        unknown_speech_ms=parts.unknown_speech_ms,
+        confidence=TimelineConfidenceInfo(origin="asr", calibrated=False),
+        correction=TimelineCorrectionInfo(
+            base_revision_id=revision.id if revision is not None and revision.is_current else None,
+            correctable=revision is not None and revision.is_current,
+            speaker_choices=sorted(
+                {speaker.speaker_key for speaker in speakers} | {UNKNOWN_SPEAKER_LABEL}
+            ),
+        ),
     )
 
 
