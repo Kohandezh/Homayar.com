@@ -23,12 +23,14 @@ from backend.voicemail.classify import CATEGORY_INTENT, TOPIC_RULES
 BACKEND = Path(__file__).resolve().parent.parent
 TAXONOMY = load_taxonomy("conversation", 1)
 # The only backend modules that use the package (HOM-53): the provider asks for the
-# extraction, the analysis stage judges it, and the trend definition loader checks its
-# label references (HOM-79).  Any other user fails the test below.
+# extraction, the analysis stage judges it, the trend definition loader checks its
+# label references (HOM-79), and the duplicate merge folds entity text the validator's
+# way (HOM-351).  Any other user fails the test below.
 PACKAGE_USERS = frozenset(
     {
         Path("issue_trends/definition.py"),
         Path("providers/openai_compatible.py"),
+        Path("services/analysis_dedupe.py"),
         Path("services/analysis_extraction.py"),
     }
 )
