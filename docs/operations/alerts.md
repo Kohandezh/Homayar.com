@@ -333,3 +333,20 @@ More than 50 refused logins in 10 minutes for 10 minutes. Look at `auth.login_fa
 (only an identifier-hash prefix is stored) and the proxy's request rate per client address.
 Rate-limit or block at the proxy for credential stuffing; check a client release if one
 identifier fails repeatedly.
+
+## HomayarBreakGlassUsed
+
+A break-glass account signed in through the API (`homayar_break_glass_events_total{event}`,
+HOM-129): `login` (a correct password inside an open window) or `login_refused` (a correct
+password outside a window, or any OTP or Google login of the account; a wrong password counts
+only in `homayar_auth_failures_total`). Every such event pages, and the alert emails in
+`BREAK_GLASS_ALERT_EMAILS` went out at the same time.
+
+The alert sees API logins only. Opening and closing a window happen in the host CLI, which
+runs in its own process that Prometheus does not scrape: those arrive by email and as
+`auth.break_glass_opened` / `auth.break_glass_closed` audit events.
+
+1. Find the `auth.break_glass_*` audit events: they name the account, the operator on the host
+   (`actor`) and the reason.
+2. If nobody planned it, close the window at once and follow
+   [break-glass.md](break-glass.md) (close, rotate the password, reset MFA).

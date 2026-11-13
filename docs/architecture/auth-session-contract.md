@@ -39,6 +39,39 @@ Login errors are generic; password-reset and OTP requests are not enumerable.
 - Revocation: `/logout` revokes the session; password reset and account
   deactivation bump `session_version` and revoke all sessions
   (`revoke_all_user_sessions`).
+- A break-glass account (`users.is_break_glass`, HOM-129) is also checked against its
+  window on every request and refresh: the session serves only while the window named in
+  `login_sessions.break_glass_window_id` is open.
+
+## Privileged MFA (HOM-129, ADR 0076)
+
+- Second factor: TOTP (RFC 6238, SHA-1, 6 digits, 30 s, +-1 step), offline, no SMS. The
+  secret is AES-256-GCM under `MFA_SECRET_KEYS`, bound to the user id; recovery codes (10,
+  single use) are stored as peppered digests.
+- Routes (`/api/v1/auth/mfa`, signed-in session; POSTs need CSRF; API keys get
+  `401 api_key_not_accepted`): `GET /mfa` (status), `POST /mfa/totp/enroll`,
+  `POST /mfa/totp/confirm`, `POST /mfa/verify`, `POST /mfa/recovery-codes`. Confirm and
+  verify share 10 attempts per 15 minutes per user.
+- A verification marks the session (`mfa_verified_at`, `mfa_method`); a refresh keeps it, a
+  new login starts without it. It counts for `PRIVILEGED_MFA_MAX_AGE_MINUTES` (720).
+- The gate runs on every request of a workspace or organization owner/admin and of a
+  platform operator: `403 mfa_enrollment_required` without a factor, `403 mfa_required` with
+  one. The MFA routes, `/me`, `/refresh` and `/logout` are outside it. API keys are never
+  gated (they cannot answer a factor).
+
+## Cut-off (HOM-129, ADR 0076)
+
+| Event | Takes effect |
+|---|---|
+| User disabled (`python -m backend.operator_access disable-user`) | next request: access token, refresh token and API key `401`; login refused |
+| All sessions revoked (`revoke-sessions`) | next request of each session |
+| MFA reset (`mfa-reset`) | factor and recovery codes gone, sessions revoked; enrol again after a new login |
+| Group removed at the IdP | ADR 0066: within 15 minutes |
+| Break-glass window expired or closed, or `BREAK_GLASS_ENABLED=false` | next request and refresh of the break-glass account |
+
+A break-glass account signs in by password only, only inside an open window; any other
+attempt answers like a wrong password (`401 invalid_credentials`). It never uses API keys.
+Runbook: `docs/operations/break-glass.md`.
 
 ## Transport
 
