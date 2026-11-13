@@ -2572,6 +2572,12 @@ def process_job(
             )
             if isinstance(language_policy, dict):
                 asr_request_identity["language_policy"] = language_policy
+            # Batching changes the transcript numerics, so a batched result
+            # must not be reused as an unbatched checkpoint (HOM-41).
+            decode_identity = getattr(active_providers.asr, "decode_identity", None)
+            decode = decode_identity() if callable(decode_identity) else None
+            if isinstance(decode, dict):
+                asr_request_identity["decode"] = decode
 
             def transcribe(request: ASRRequest) -> ASRResult:
                 return _call_provider(

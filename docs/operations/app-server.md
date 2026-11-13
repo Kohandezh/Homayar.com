@@ -335,6 +335,14 @@ count against the limit.
 - Later, the egress proxy (profile `egress`) adds 128 MiB, so the total becomes 6144 MiB (6 GiB).
   Local Whisper would need much more worker memory. Change the budget with homlead first: the
   Padyar services need the rest of the RAM.
+- `WORKER_MEMORY_BUDGET_MIB` (HOM-41, ADR 0067) tells the worker what its memory budget is.
+  The default 0 means no budget is known and nothing is limited. With a budget set, the worker
+  adds its base (512 MiB) and the memory of the configured ASR model, and checks how many
+  processes fit. Too many: it clamps its concurrency (and autoscale) to what fits and logs
+  `worker_concurrency_clamped`. A budget that fits not even one process, or an unknown model
+  size, stops the worker at start with exit code 78 and one `worker_memory_refused` error. So
+  the worker limit above and `WORKER_MEMORY_BUDGET_MIB` must agree: set the budget to the
+  `mem_limit` of the worker service.
 
 ## Health Checks
 

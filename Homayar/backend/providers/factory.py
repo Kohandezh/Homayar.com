@@ -69,6 +69,8 @@ def create_asr_provider(settings: Settings) -> ASRProvider:
             "model_path": getattr(settings, "whisper_model_path", None) or None,
         }
         language_policy = LanguagePolicy.from_settings(settings)
+        # Bounded batching of the decode calls (HOM-41, ADR 0067).
+        batch_size = int(getattr(settings, "asr_batch_size", 1))
         if settings.asr_profile:
             # A profile replaces whisper_model, whisper_device and whisper_compute_type.
             profile = get_asr_profile(settings.asr_profile)
@@ -79,6 +81,7 @@ def create_asr_provider(settings: Settings) -> ASRProvider:
                 device_index=profile.device_index,
                 cpu_threads=profile.cpu_threads,
                 language_policy=language_policy,
+                batch_size=batch_size,
                 **offline,
             )
         return LocalWhisperProvider(
@@ -86,6 +89,7 @@ def create_asr_provider(settings: Settings) -> ASRProvider:
             device=settings.whisper_device,
             compute_type=settings.whisper_compute_type,
             language_policy=language_policy,
+            batch_size=batch_size,
             **offline,
         )
     if name in {"mock", "mock_asr", "deterministic_mock"}:

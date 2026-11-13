@@ -11,9 +11,12 @@ import logging
 
 from celery import Celery
 from celery.signals import setup_logging as celery_setup_logging
+from celery.signals import worker_init, worker_process_init, worker_ready
 from kombu import Queue
 
 from backend.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 PROCESSING_QUEUE = "processing"
 PROCESS_MEETING_TASK = "backend.jobs.process_meeting"
@@ -38,6 +41,10 @@ WEBHOOK_SWEEP_TASK = "backend.jobs.sweep_webhook_deliveries"
 COACHING_REMINDER_TASK = "backend.jobs.sweep_coaching_reminders"
 # Grace between the cooperative attempt deadline and the hard kill.
 TIME_LIMIT_GRACE_SECONDS = 60
+# A prefork child warms the ASR model in its initializer, before it reports
+# up. Celery kills a child that stays silent for worker_proc_alive_timeout
+# (default 4.0 s); a large model loads in 12 to 14 s (HOM-351, SPEC 10.1).
+WORKER_PROC_ALIVE_TIMEOUT_SECONDS = 120.0
 
 
 def make_celery() -> Celery:
@@ -86,6 +93,9 @@ def make_celery() -> Celery:
         # recovery sweeper fences and requeues the job.
         task_soft_time_limit=settings.job_attempt_timeout_seconds,
         task_time_limit=settings.job_attempt_timeout_seconds + TIME_LIMIT_GRACE_SECONDS,
+        # Warm ASR workers (HOM-41, SPEC 10.1): a child that loads the model
+        # in its initializer needs longer than the 4 s default to report up.
+        worker_proc_alive_timeout=WORKER_PROC_ALIVE_TIMEOUT_SECONDS,
         # Redis transport (WP06-T07): an unacknowledged delivery becomes
         # visible to other consumers again after ``visibility_timeout``
         # (kombu default: one hour, shorter than the hard time limit above).
@@ -245,6 +255,109 @@ def use_homayar_logging(loglevel: int | str | None = None, **_options: object) -
 
     level = logging.getLevelName(loglevel) if isinstance(loglevel, int) else loglevel
     setup_logging(level if isinstance(level, str) and level else "INFO")
+
+
+def _decision_fields(decision: object) -> str:
+    return (
+        f"ok={decision.ok} reason={decision.reason} processes={decision.processes}"
+        f" allowed_processes={decision.allowed_processes}"
+        f" per_process_mib={decision.per_process_mib}"
+        f" required_mib={decision.required_mib} budget_mib={decision.budget_mib}"
+    )
+
+
+def _autoscale_bounds(value: object) -> tuple[int, int]:
+    """``(min, max)`` of a Celery autoscale value: ``"max,min"`` (min may be
+    empty, meaning 0), ``[max, min]`` or ``(max, min)``."""
+    if isinstance(value, str):
+        max_c, _, min_c = value.partition(",")
+        return (int(min_c) if min_c else 0, int(max_c))
+    max_c, min_c = value
+    return (int(min_c), int(max_c))
+
+
+# The CapacityDecision of the last worker_init, or None. Logged again at
+# worker_ready, when Celery's logging is set up (SPEC 10.3).
+_worker_memory_decision: object | None = None
+
+
+@worker_init.connect
+def on_worker_init(sender=None, **_kwargs: object) -> None:
+    """Clamp or refuse the worker's concurrency before the pool is created
+    (HOM-41, ADR 0067). Fires in the parent, after concurrency is final.
+
+    Never loads a model: the parent forks the children, and a CUDA context
+    made before a fork is not usable in the child. Celery's signal dispatch
+    swallows every ``Exception`` a receiver raises, but not ``SystemExit``,
+    so a refused configuration stops the worker with exit code 78.
+    """
+    global _worker_memory_decision
+
+    from backend.jobs.worker_capacity import check_worker_memory
+
+    settings = get_settings()
+    autoscale = getattr(sender, "autoscale", None)
+    options = getattr(sender, "options", None)
+    if not autoscale and isinstance(options, dict):
+        autoscale = options.get("autoscale")
+    # With autoscale the pool can grow to its maximum, so the maximum is the
+    # process count that must fit the budget (SPEC 10.4).
+    processes = _autoscale_bounds(autoscale)[1] if autoscale else sender.concurrency
+    decision = check_worker_memory(settings, pool=sender.pool_cls, concurrency=processes)
+    _worker_memory_decision = decision
+    logger.info("worker_memory_check %s", _decision_fields(decision))
+    if decision.ok:
+        return
+    if decision.reason == "over_budget":
+        allowed = decision.allowed_processes or 1
+        old_concurrency = sender.concurrency
+        sender.concurrency = min(old_concurrency, allowed)
+        # Celery's Pool bootstep re-reads autoscale from sender.options after
+        # this receiver, so both places must carry the clamped [max, min].
+        if autoscale:
+            old_min, _old_max = _autoscale_bounds(autoscale)
+            clamped = [allowed, min(old_min, allowed)]
+            if getattr(sender, "autoscale", None):
+                sender.autoscale = clamped
+            if isinstance(options, dict) and options.get("autoscale"):
+                options["autoscale"] = clamped
+        # WARNING, not INFO: at worker_init Celery has not set up logging,
+        # so INFO records are dropped (SPEC 10.3).
+        logger.warning(
+            "worker_concurrency_clamped old=%s new=%s allowed_processes=%s",
+            old_concurrency,
+            sender.concurrency,
+            allowed,
+        )
+        return
+    logger.error("worker_memory_refused %s", _decision_fields(decision))
+    raise SystemExit(78)
+
+
+@worker_ready.connect
+def on_worker_ready(sender=None, **_kwargs: object) -> None:
+    """Log the stored memory decision once Celery's logging is up (SPEC 10.3).
+
+    Never raises, and logs nothing when no decision was stored.
+    """
+    global _worker_memory_decision
+
+    decision = _worker_memory_decision
+    _worker_memory_decision = None
+    if decision is not None:
+        logger.info("worker_memory_check %s", _decision_fields(decision))
+
+
+@worker_process_init.connect
+def on_worker_process_init(sender=None, **_kwargs: object) -> None:
+    """Warm the ASR model in each prefork child (HOM-41). Never raises."""
+    from backend.providers.warm_models import warm_configured_asr
+
+    try:
+        warm_configured_asr(get_settings())
+    except Exception as exc:  # warm_configured_asr never raises on its own
+        # Error class only: no paths and no message text (log privacy).
+        logger.warning("asr_warm_failed error=%s", type(exc).__name__)
 
 
 celery_app = make_celery()
