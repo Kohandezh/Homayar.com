@@ -174,7 +174,12 @@ account's keys are refused (D7).
 
 ## Release note (operators)
 
-1. Generate an MFA key and set both variables before the release (keep the key in the
+1. **Keep the gate off until the console has enrolment screens.** The code default is
+   `PRIVILEGED_MFA_REQUIRED=true`, so set `PRIVILEGED_MFA_REQUIRED=false` on every
+   deployment (production, staging, development, CI end-to-end) before this release, and
+   keep it false until the console enrolment and verification screens ship. Without them a
+   privileged user would have to enrol through the API.
+2. When the screens ship, generate an MFA key and set both variables (keep the key in the
    secret manager, never in the repository):
 
    ```sh
@@ -183,10 +188,11 @@ account's keys are refused (D7).
    # MFA_SECRET_ACTIVE_KEY_ID=k1
    ```
 
-2. After the release every owner, admin and platform operator must enrol: privileged routes
-   answer `403 mfa_enrollment_required` until they do. Existing sessions start unverified.
-   Enrolment works within 15 minutes of a fresh login.
-3. Break-glass stays off until `BREAK_GLASS_ENABLED=true` is set; see
+3. Then set `PRIVILEGED_MFA_REQUIRED=true`, recreate the API container, and have every owner,
+   admin and platform operator enrol at once: privileged routes answer
+   `403 mfa_enrollment_required` until they do, existing sessions start unverified, and
+   enrolment works within 15 minutes of a fresh login (see the pre-enrolment risk below).
+4. Break-glass stays off until `BREAK_GLASS_ENABLED=true` is set; see
    `docs/operations/break-glass.md`.
 
 ## Consequences
@@ -208,7 +214,11 @@ account's keys are refused (D7).
   doing it, but not a fresh login. Mitigation: enrol every privileged account right after
   the release; an operator can undo a wrong enrolment with `mfa-reset`.
 - The console has no enrolment or verification screens yet; until the follow-up lands, a
-  privileged user enrols through the API. This must land before the release reaches users.
+  privileged user enrols through the API. This must land before the gate is turned on (see
+  the release note).
+- **Break-glass leftovers.** Share links and webhook endpoints that a break-glass account
+  creates during a window outlive the window: closing it ends the sessions, not what the
+  account made. The runbook's "after use" step reviews them and revokes what is not needed.
 - There is no admin HTTP route to disable a user; the host CLI is the only way.
 - HOM-127 (OIDC) may accept the IdP's `amr` claim as the second factor instead of TOTP.
 - The CLI runs in its own process, so its window events alert by email and audit; the API

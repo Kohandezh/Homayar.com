@@ -17,7 +17,11 @@ Each command prints one line and exits 0, or prints its refusal code on stderr a
 
 ## Before the first release with HOM-129
 
-1. Generate the MFA key and put both values in the secret manager (never in the repository):
+1. **Keep the gate off until the console has enrolment screens.** The code default is
+   `PRIVILEGED_MFA_REQUIRED=true`; set `PRIVILEGED_MFA_REQUIRED=false` on every deployment
+   before this release and keep it false until the console enrolment screens ship.
+2. When the screens ship, generate the MFA key and put both values in the secret manager
+   (never in the repository):
 
    ```sh
    python3 -c "import base64, os; print('k1:' + base64.b64encode(os.urandom(32)).decode())"
@@ -25,12 +29,12 @@ Each command prints one line and exits 0, or prints its refusal code on stderr a
 
    Set `MFA_SECRET_KEYS=k1:<the printed base64>` and `MFA_SECRET_ACTIVE_KEY_ID=k1`. Both
    compose files pass them to the containers.
-2. After the release every owner, admin and platform operator must enrol a TOTP app. Until
-   then privileged routes answer `403 mfa_enrollment_required`. Enrolment works within 15
-   minutes of a fresh login. Keep the 10 recovery codes offline.
-3. To add a new key later: append it (`k1:...,k2:...`), set the active id to `k2`, then
-   recreate the API container (see "Set up" below). Keep `k1` in the list while any user
-   enrolled under it.
+3. Then set `PRIVILEGED_MFA_REQUIRED=true`, recreate the API container (see "Set up"
+   below), and have every owner, admin and platform operator enrol a TOTP app at once.
+   Until they do, privileged routes answer `403 mfa_enrollment_required`. Enrolment works
+   within 15 minutes of a fresh login. Keep the 10 recovery codes offline.
+4. To add a new key later: append it (`k1:...,k2:...`), set the active id to `k2`, then
+   recreate the API container. Keep `k1` in the list while any user enrolled under it.
 
 ## Cut-off
 
@@ -85,7 +89,11 @@ password, its TOTP device (or seed) and its recovery codes together in the offli
 1. Rotate the password of the break-glass account.
 2. If a recovery code was used, or the TOTP device left the safe: run `mfa-reset`, open a
    short window, sign in and enrol again, then close the window.
-3. Review the `auth.break_glass_*` audit events and file the incident note.
+3. Review what the account created during the window: share links and webhook endpoints
+   outlive the window (closing it ends the sessions only). Revoke the ones that are not
+   needed (the `meeting.share_created` and `webhook.endpoint_created` audit events with the
+   account as actor list them).
+4. Review the `auth.break_glass_*` audit events and file the incident note.
 
 ### Retire an account
 
