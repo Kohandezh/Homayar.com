@@ -42,6 +42,7 @@ from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event, record_audit_event_best_effort
 from backend.services.auth_service import (
     AuthenticationError,
+    FederationReauthenticationRequired,
     InvalidOneTimeTokenError,
     RefreshTokenReplayError,
     RegistrationClosedError,
@@ -332,13 +333,26 @@ def login(
             status_code=401,
             detail={"code": "invalid_credentials", "message": "Invalid credentials"},
         ) from exc
-    tokens = create_login_session(
-        db,
-        user=user,
-        user_agent=request.headers.get("user-agent"),
-        ip_address=ip,
-        settings=settings,
-    )
+    try:
+        tokens = create_login_session(
+            db,
+            user=user,
+            user_agent=request.headers.get("user-agent"),
+            ip_address=ip,
+            settings=settings,
+        )
+    except FederationReauthenticationRequired as exc:
+        # Nothing was created and nothing is revoked; the user signs in again
+        # through the IdP first (HOM-128, 5e).
+        db.rollback()
+        observe_auth_failure("federation_reauthentication_required")
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "federation_reauthentication_required",
+                "message": str(exc),
+            },
+        ) from exc
     record_audit_event(
         db,
         event_type=AuditEventType.AUTH_LOGIN,
@@ -403,6 +417,21 @@ def refresh(
         raise HTTPException(
             status_code=401,
             detail={"code": "invalid_refresh", "message": str(exc)},
+        ) from exc
+    except FederationReauthenticationRequired as exc:
+        observe_auth_failure("federation_reauthentication_required")
+        # "gone" already deprovisioned the user in this transaction; like the
+        # replay branch, the revocation commits first so a failing later write
+        # can never undo it.  For "unavailable" nothing was changed and the
+        # commit is harmless.
+        db.commit()
+        _clear_session_cookies(response, settings)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "federation_reauthentication_required",
+                "message": str(exc),
+            },
         ) from exc
     except AuthenticationError as exc:
         db.rollback()
@@ -707,6 +736,20 @@ def otp_verify(
             settings=settings,
         )
         db.commit()
+    except FederationReauthenticationRequired as exc:
+        # The challenge is security state and stays consumed (HOM-128, 5e):
+        # the commit stores the consumed challenge and, when the code also
+        # linked the phone to the account, that link; the session was not
+        # built and nothing else was written.
+        db.commit()
+        observe_auth_failure("federation_reauthentication_required")
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "federation_reauthentication_required",
+                "message": str(exc),
+            },
+        ) from exc
     except OtpVerificationError as exc:
         # Failed attempts are security state and must survive the rejected request.
         db.commit()
@@ -792,6 +835,12 @@ async def google_callback(
             settings=settings,
         )
         db.commit()
+    except FederationReauthenticationRequired:
+        # Nothing was created and nothing is revoked; like the other refusals
+        # here the browser gets the login page with the error name (HOM-128, 5e).
+        db.rollback()
+        query = urlencode({"error": "federation_reauthentication_required"})
+        return RedirectResponse(f"{settings.frontend_url}/login?{query}", status_code=302)
     except AccountLinkRequiredError:
         db.rollback()
         query = urlencode({"error": "account_link_required"})

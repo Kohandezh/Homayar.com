@@ -109,6 +109,7 @@ from backend.tests._database import (
 from backend.tests.conftest import login_user, register_user
 from backend.tests.test_action_item_kind_migration import remove_action_item_kind
 from backend.tests.test_coaching_tasks_migration import remove_coaching_tasks
+from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
@@ -126,7 +127,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "0c51985fcf36"
 BASE_REVISION = "02f616cbb655"  # HOM-75: calibration batches
-HEAD_REVISION = "5f3a91c0d7b2"  # HOM-77: coaching tasks, after HOM-133
+HEAD_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings, after HOM-77
 APPEALS = "review_appeals"
 CRITERIA = "review_appeal_criteria"
 RESULTS = "review_appeal_results"
@@ -1770,8 +1771,10 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             orm = {table: _reflect(connection, table) for table in TABLES}
             for name in reversed(TABLES):
                 Base.metadata.tables[name].drop(connection)
-            # HOM-77 adds ``coaching_tasks`` and HOM-133 ``action_items.kind`` on top;
-            # take them out too.
+            # HOM-128 adds the federation mapping table and two columns, HOM-77
+            # ``coaching_tasks`` and HOM-133 ``action_items.kind`` on top; take
+            # them out too.
+            remove_federation_group_mappings(connection)
             remove_coaching_tasks(connection)
             remove_action_item_kind(connection)
             before_objects = _objects(connection)

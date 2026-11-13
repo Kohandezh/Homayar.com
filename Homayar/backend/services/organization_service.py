@@ -570,6 +570,10 @@ def install_workspace_member(
     ):
         raise SeatLimitReachedError()
     if existing is not None:
+        # An admin installation is a hand decision: the reconciler must never
+        # overwrite it later (HOM-128, "admin decision wins").
+        if existing.source == "federated":
+            existing.source = "direct"
         existing.role = role
         existing.is_active = True
         existing.valid_from = now
@@ -610,6 +614,10 @@ def remove_workspace_member(
         actor.role, membership.role
     ):
         raise DelegationDeniedError()
+    # An admin's removal sticks: the row turns direct, so a later sync never
+    # re-activates it (HOM-128).
+    if membership.source == "federated":
+        membership.source = "direct"
     membership.is_active = False
     db.flush()
     return membership

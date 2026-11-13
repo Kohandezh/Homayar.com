@@ -38,6 +38,7 @@ from backend.database.saas_models import ApiKey, Membership, User, Workspace
 from backend.database.tenant_context import bind_capability_context
 from backend.security.authorization import API_KEY_SCOPES, Permission, role_has
 from backend.security.tokens import token_digest
+from backend.services.federation_service import federated_identity_is_stale
 from backend.services.rate_limit_service import RateLimiter, RateLimitExceeded, RateLimitUnavailable
 
 KEY_PREFIX = "hk_"
@@ -202,6 +203,16 @@ def authenticate_api_key(
     user = db.get(User, key.created_by_user_id)
     if user is None or not user.is_active:
         raise api_key_invalid()
+    # Freshness gate (HOM-128, 5b): a federated user's key works only while a
+    # recent IdP confirmation backs it; the same rule gates new login
+    # sessions (5e).  No IdP call here (a request must not wait on it).
+    if federated_identity_is_stale(db, user_id=user.id, now=now, settings=settings):
+        raise ApiKeyError(
+            401,
+            "federation_reauthentication_required",
+            "The identity behind this API key must sign in again",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
         RateLimiter(settings).hit(
             f"api-key:{key.id}",

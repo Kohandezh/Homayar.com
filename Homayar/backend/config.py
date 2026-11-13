@@ -498,6 +498,14 @@ class Settings(BaseSettings):
     jwt_audience: str = "homayar-api"
     access_token_minutes: int = 15
     refresh_token_days: int = 30
+    # Federation deprovisioning (HOM-128, ADR 0066): how old an IdP confirmation
+    # of a federated identity may be before refresh and API keys fail closed,
+    # how stale the periodic revalidation sweep picks identities up, and how
+    # often it runs.  max_age + interval must fit inside max_unconfirmed, or
+    # the sweep could not keep the <= 15 minutes promise.
+    federation_max_unconfirmed_minutes: int = 15
+    federation_revalidation_max_age_minutes: int = 10
+    federation_revalidation_interval_seconds: int = 300
     secure_cookies: bool = False
     cookie_domain: str | None = None
     trusted_hosts: str = "localhost,127.0.0.1,testserver"
@@ -912,6 +920,27 @@ class Settings(BaseSettings):
         if not 1 <= self.retention_days_default <= 3650:
             raise ValueError(
                 "RETENTION_DAYS_DEFAULT must be between 1 and 3650 (new workspaces start FINITE)"
+            )
+        if (
+            self.federation_max_unconfirmed_minutes < 1
+            or self.federation_revalidation_max_age_minutes < 1
+        ):
+            raise ValueError("Federation revalidation minutes must be at least 1")
+        if self.federation_revalidation_interval_seconds < 30:
+            raise ValueError("FEDERATION_REVALIDATION_INTERVAL_SECONDS must be at least 30")
+        if (
+            self.federation_revalidation_max_age_minutes * 60
+            + self.federation_revalidation_interval_seconds
+            > self.federation_max_unconfirmed_minutes * 60
+        ):
+            raise ValueError(
+                "FEDERATION_REVALIDATION_MAX_AGE_MINUTES*60 + "
+                "FEDERATION_REVALIDATION_INTERVAL_SECONDS must not exceed "
+                "FEDERATION_MAX_UNCONFIRMED_MINUTES*60"
+            )
+        if self.access_token_minutes > self.federation_max_unconfirmed_minutes:
+            raise ValueError(
+                "ACCESS_TOKEN_MINUTES must not exceed FEDERATION_MAX_UNCONFIRMED_MINUTES"
             )
         if self.ffprobe_timeout_seconds <= 0 or self.upload_rate_limit_per_hour <= 0:
             raise ValueError("Upload inspection and rate limits must be positive")

@@ -340,6 +340,10 @@ def change_member_role(
         raise SeatLimitReachedError
 
     previous_role = target.role
+    # An admin's role change is a hand decision: the reconciler must never
+    # overwrite it later (HOM-128, "admin decision wins").
+    if target.source == "federated":
+        target.source = "direct"
     target.role = new_role
     user = db.get(User, target.user_id)
     if user is None:
@@ -366,6 +370,10 @@ def remove_member(
         actor_role=actor_role,
         target=target,
     )
+    # An admin's removal sticks: the row turns direct, so a later sync never
+    # re-activates it or creates a new one for this workspace (HOM-128).
+    if target.source == "federated":
+        target.source = "direct"
     target.is_active = False
     db.flush()
     return target
@@ -472,6 +480,9 @@ def accept_invitation(
     elif membership.role != WorkspaceRole.OWNER:
         membership.role = invitation.role
         membership.is_active = True
+        # Accepting an invitation is a hand decision too (HOM-128).
+        if membership.source == "federated":
+            membership.source = "direct"
 
     invitation.accepted_at = now
     db.flush()

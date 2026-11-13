@@ -80,6 +80,7 @@ from backend.tests._database import (
     is_postgres_url,
 )
 from backend.tests.conftest import login_user, register_user
+from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
@@ -1351,23 +1352,24 @@ def test_one_new_revision_follows_c4a8e2f7d913_and_is_the_single_head():
     revision = _new_revision()
     assert re.fullmatch(r"[0-9a-f]{12}", revision.revision)
     assert Path(revision.path).name == f"{revision.revision}_coaching_tasks.py"
-    assert _script().get_heads() == [revision.revision]
-    assert code_migration_head() == revision.revision
+    # A later head (HOM-128, the federation group mappings) may sit on top of
+    # this one, but the chain stays single.
+    heads = _script().get_heads()
+    assert heads == [code_migration_head()]
 
 
 def test_alembic_heads_prints_exactly_the_new_head():
-    revision = _new_revision()
     shown = io.StringIO()
     command.heads(Config(str(PROJECT_ROOT / "alembic.ini"), stdout=shown))
     lines = [line for line in shown.getvalue().splitlines() if line.strip()]
-    assert lines == [f"{revision.revision} (head)"], shown.getvalue()
+    assert lines == [f"{code_migration_head()} (head)"], shown.getvalue()
 
 
 def test_no_test_pins_c4a8e2f7d913_as_the_head_and_every_pin_names_the_new_head():
-    revision = _new_revision()
+    head = code_migration_head()
     for name in HEAD_PINS:
         module = importlib.import_module(f"backend.tests.{name}")
-        assert module.HEAD_REVISION == revision.revision, name
+        assert module.HEAD_REVISION == head, name
     stale = []
     for path in sorted(TESTS_DIR.glob("test_*.py")):
         source = path.read_text(encoding="utf-8")
@@ -1464,17 +1466,27 @@ def test_on_sqlite_the_migration_builds_the_orm_table_and_its_downgrade_removes_
             Base.metadata.create_all(connection)
             orm = _reflect(connection)
             table.drop(connection)
+            # HOM-128 adds the federation mapping table and two columns; take
+            # them out, so the head's own migration adds them again below.
+            remove_federation_group_mappings(connection)
             before = _sqlite_objects(connection)
         assert orm["checks"] == sorted(CHECKS)
 
         config = _alembic(monkeypatch, url)
         command.stamp(config, BASE_HEAD)
         command.upgrade(config, "head")
-        assert _version(engine) == revision.revision
+        assert _version(engine) == code_migration_head()
         with engine.connect() as connection:
             assert _reflect(connection) == orm
-            assert [row for row in _sqlite_objects(connection) if row[2] != TABLE] == before
+        # HOM-128 lands on top, so the head state holds objects this test never
+        # captured at BASE_HEAD; at this revision the state is exactly that
+        # snapshot, which keeps the object-set evidence.
         _check(config)
+        command.downgrade(config, revision.revision)
+        with engine.connect() as connection:
+            assert [row for row in _sqlite_objects(connection) if row[2] != TABLE] == before
+        command.upgrade(config, "head")
+        assert _version(engine) == code_migration_head()
 
         scratch = _Scratch(engine)
         for rules in (*CHECK_RULES, *UNIQUE_RULES):
@@ -1485,7 +1497,7 @@ def test_on_sqlite_the_migration_builds_the_orm_table_and_its_downgrade_removes_
         with engine.connect() as connection:
             assert _sqlite_objects(connection) == before
         command.upgrade(config, "head")
-        assert _version(engine) == revision.revision
+        assert _version(engine) == code_migration_head()
         with engine.connect() as connection:
             assert _reflect(connection) == orm
             count = connection.execute(select(func.count()).select_from(table)).scalar()

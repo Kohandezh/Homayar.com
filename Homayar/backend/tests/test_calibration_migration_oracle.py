@@ -386,7 +386,7 @@ HEAD_PINS = (
 )
 # HOM-76, HOM-133 and then HOM-77 moved the head past the calibration revision; the
 # pins carry the comment of the latest head.
-PIN_COMMENT = "# HOM-77: coaching tasks, after HOM-133"
+PIN_COMMENT = "# HOM-128: federation group mappings, after HOM-77"
 
 EXISTING_TABLES = (
     "scorecard_results",

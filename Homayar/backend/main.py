@@ -40,6 +40,7 @@ from backend.routers.v1 import billing as billing_v1
 from backend.routers.v1 import calibration_batches as calibration_batches_v1
 from backend.routers.v1 import capabilities as capabilities_v1
 from backend.routers.v1 import coaching_tasks as coaching_tasks_v1
+from backend.routers.v1 import federation as federation_v1
 from backend.routers.v1 import ingestions as ingestions_v1
 from backend.routers.v1 import insights as insights_v1
 from backend.routers.v1 import integrations as integrations_v1
@@ -278,6 +279,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(reports_v1.router, prefix=settings.api_prefix)
     app.include_router(review_items_v1.router, prefix=settings.api_prefix)
     app.include_router(calibration_batches_v1.router, prefix=settings.api_prefix)
+    app.include_router(federation_v1.router, prefix=settings.api_prefix)
     app.include_router(review_appeals_v1.router, prefix=settings.api_prefix)
     app.include_router(coaching_tasks_v1.router, prefix=settings.api_prefix)
     app.include_router(notifications_v1.router, prefix=settings.api_prefix)

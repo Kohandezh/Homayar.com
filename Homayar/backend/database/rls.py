@@ -312,6 +312,13 @@ POLICIES: dict[str, tuple[str, str]] = {
         f"organization_id = {ORGANIZATION}",
         f"organization_id = {ORGANIZATION}",
     ),
+    # IdP group mappings (HOM-128): the bound organization's only; the
+    # workspace a mapping points at is validated by the application, like a
+    # scope grant.
+    "federation_group_mappings": (
+        f"organization_id = {ORGANIZATION}",
+        f"organization_id = {ORGANIZATION}",
+    ),
 }
 
 # The ``workspaces`` / ``organizations`` expressions before the organization

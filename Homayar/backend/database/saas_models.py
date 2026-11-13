@@ -439,6 +439,9 @@ class AuthIdentity(Base, TimestampMixin):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     profile: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    # HOM-128: set when the IdP said the user is gone; HOM-127 clears it on a
+    # later successful OIDC login.
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="identities")
 
@@ -631,12 +634,19 @@ class Membership(Base, TimestampMixin):
         DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
     )
     valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # HOM-128: a row is "direct" when a person decided it (owner bootstrap,
+    # invitation, admin installation) and "federated" when the IdP group
+    # reconciler owns it.  An admin touch on a federated row makes it direct.
+    source: Mapped[str] = mapped_column(
+        String(16), default="direct", server_default="direct", nullable=False
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships")
 
     __table_args__ = (
         UniqueConstraint("workspace_id", "user_id", name="uq_membership_workspace_user"),
+        CheckConstraint("source IN ('direct','federated')", name="ck_membership_source"),
     )
 
 
@@ -768,6 +778,56 @@ class OrganizationScopeGrant(Base, TimestampMixin):
 
     __table_args__ = (
         Index("ix_org_scope_grant_membership_workspace", "membership_id", "workspace_id"),
+    )
+
+
+FEDERATION_MAPPING_ROLE_CHECK = "role IN ('ADMIN','MEMBER','VIEWER')"
+
+
+class FederationGroupMapping(Base, TimestampMixin):
+    """One (organization, issuer, IdP group) -> (workspace, workspace role) rule.
+
+    HOM-128, ADR 0066: an explicit, revocable mapping an organization admin
+    decides by hand; the reconciler turns a federated user's current groups into
+    workspace memberships through these rows.  A group never grants ``owner``.
+    """
+
+    __tablename__ = "federation_group_mappings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    issuer: Mapped[str] = mapped_column(String(512), nullable=False)
+    # The group value exactly as the IdP returns it (often an opaque id); never
+    # trimmed or case-folded.
+    group_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[WorkspaceRole] = mapped_column(
+        Enum(WorkspaceRole, native_enum=False, length=16), nullable=False
+    )
+    created_by_user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT")
+    )
+
+    __table_args__ = (
+        CheckConstraint(FEDERATION_MAPPING_ROLE_CHECK, name="ck_federation_mapping_role"),
+        Index(
+            "uq_federation_group_mappings_active",
+            "organization_id",
+            "issuer",
+            "group_name",
+            "workspace_id",
+            unique=True,
+            sqlite_where=text("revoked_at IS NULL"),
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
     )
 
 
