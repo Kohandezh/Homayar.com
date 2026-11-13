@@ -177,6 +177,7 @@ from backend.services.transcript_service import (
 from backend.services.trend_judgment_store import write_judgment
 from backend.speech.chunking import plan_chunks
 from backend.speech.dates import TEHRAN
+from backend.speech.speaker_alignment import AsrUnit, align_speakers
 from backend.speech.text_view import TextViewOutcome, derive_text_view
 from backend.storage import ObjectStorage, StorageError, create_object_storage
 from backend.voicemail.models import VoicemailMessage
@@ -641,42 +642,33 @@ def _materialize_recording(
     return destination
 
 
-def _speaker_for_segment(
-    start_seconds: float,
-    end_seconds: float,
-    diarization: DiarizationResult | None,
-) -> str:
-    if diarization is None or diarization.status != DiarizationStatus.AVAILABLE:
-        return UNKNOWN_SPEAKER_LABEL
-    best_label = UNKNOWN_SPEAKER_LABEL
-    best_overlap = 0.0
-    for segment in diarization.segments:
-        overlap = max(
-            0.0,
-            min(end_seconds, segment.end_seconds) - max(start_seconds, segment.start_seconds),
-        )
-        if overlap > best_overlap:
-            best_overlap = overlap
-            best_label = segment.speaker_label
-    return best_label
-
-
 def _transcript_turns(
     asr: ASRResult,
     diarization: DiarizationResult | None,
+    *,
+    recording_duration_seconds: int,
 ) -> list[TranscriptTurn]:
+    """Turns with speakers aligned to the diarization (HOM-47, ADR 0072).
+
+    A turn one speaker clearly dominates gets that label; a straddling or
+    uncovered turn stays ``speaker_unknown`` instead of being forced onto the
+    speaker with the most overlap. Every span lies inside the recording. The
+    turns come back one per ASR segment, in ASR input order, so ``turns[i]``
+    still pairs with ``asr.segments[i]`` in the transcript writer.
+    """
+    alignment = align_speakers(
+        [AsrUnit.from_segment(segment) for segment in asr.segments],
+        diarization,
+        recording_duration_seconds=recording_duration_seconds,
+    )
     return [
         TranscriptTurn(
-            text=segment.text,
-            speaker_label=_speaker_for_segment(
-                segment.start_seconds,
-                segment.end_seconds,
-                diarization,
-            ),
-            start_seconds=segment.start_seconds,
-            end_seconds=segment.end_seconds,
+            text=turn.text,
+            speaker_label=turn.speaker_label,
+            start_seconds=turn.start_seconds,
+            end_seconds=turn.end_seconds,
         )
-        for segment in asr.segments
+        for turn in sorted(alignment.turns, key=lambda turn: turn.unit_index)
     ]
 
 
@@ -2693,7 +2685,9 @@ def process_job(
                         storage=active_storage,
                         settings=settings,
                     )
-                turns = _transcript_turns(asr, diarization)
+                turns = _transcript_turns(
+                    asr, diarization, recording_duration_seconds=claim.recording_duration_seconds
+                )
                 if not turns and asr.text.strip():
                     turns = [TranscriptTurn(text=asr.text, speaker_label=UNKNOWN_SPEAKER_LABEL)]
                 delivered = _DeliveredTranscript(asr, diarization, turns, asr_identity)

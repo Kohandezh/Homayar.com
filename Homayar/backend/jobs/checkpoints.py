@@ -109,8 +109,11 @@ CONTRACT_VERSION = 1
 # stored SHA-256 and handed to the provider unchanged (no resampling, no
 # normalisation). Bump when preprocessing changes what a provider sees.
 MATERIALIZE_VERSION = 1
-# ``backend.jobs.processor._transcript_turns`` (speaker assignment by overlap).
-TURNS_VERSION = 1
+# ``backend.jobs.processor._transcript_turns``: speaker alignment (HOM-47,
+# ADR 0072). 2: a straddling or uncovered turn is stored ``speaker_unknown``
+# instead of forced onto the most-overlap speaker, so an analysis checkpoint
+# built from forced speakers must not be reused.
+TURNS_VERSION = 2
 ARTIFACT_CONTENT_TYPE = "application/json"
 
 ARTIFACT_SCHEMAS: dict[StageName, tuple[type[ProviderSchema], int]] = {
