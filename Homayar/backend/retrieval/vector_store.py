@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol
 
 from sqlalchemy import select
@@ -51,6 +52,7 @@ class VectorStore(Protocol):
         k: int = 20,
         candidate_limit: int = 2000,
         include_history: bool = False,
+        now: datetime | None = None,
     ) -> list[ScoredEntry]:
         """The ``k`` entries nearest to ``query`` that the caller may see now."""
         ...
@@ -70,6 +72,7 @@ class TableVectorStore:
         k: int = 20,
         candidate_limit: int = 2000,
         include_history: bool = False,
+        now: datetime | None = None,
     ) -> list[ScoredEntry]:
         """The ``k`` nearest entries, score descending, then entry id.
 
@@ -98,7 +101,11 @@ class TableVectorStore:
                 f"the query holds {len(query_values)} values, the version holds {dimensions}"
             )
         candidates = live_entries(
-            db, access=access, workspace_id=workspace_id, include_history=include_history
+            db,
+            access=access,
+            workspace_id=workspace_id,
+            include_history=include_history,
+            now=now,
         )
         if candidates is None:
             return []

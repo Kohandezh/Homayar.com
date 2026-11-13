@@ -23,8 +23,9 @@ Every read joins live rows and never trusts the stored snapshot alone
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from sqlalchemy import Select, and_, func, literal_column, select
+from sqlalchemy import Select, and_, func, literal_column, or_, select
 from sqlalchemy.orm import Session
 
 from backend.database.saas_models import (
@@ -84,8 +85,29 @@ def _reader_view(db: Session, workspace_id: str) -> ViewPolicy | None:
     return choose_view(policy_holder, requested=None, may_read_original=False)
 
 
+def checked_now(now: datetime | None) -> datetime:
+    """The shared ``now`` check of the retrieval package (HOM-94 SPEC 12).
+
+    ``None`` means the current UTC instant.  Anything that is not a
+    ``datetime``, or a ``datetime`` without a UTC offset, is a ``ValueError``
+    (never a ``TypeError`` or an ``AttributeError``).  An aware non-UTC value
+    is returned as its UTC instant: instants are compared, never wall-clock
+    text.
+    """
+    if now is None:
+        return datetime.now(UTC)
+    if not isinstance(now, datetime) or now.utcoffset() is None:
+        raise ValueError("now must be a datetime with a timezone")
+    return now.astimezone(UTC)
+
+
 def live_entries(
-    db: Session, *, access: RecordAccess, workspace_id: str, include_history: bool
+    db: Session,
+    *,
+    access: RecordAccess,
+    workspace_id: str,
+    include_history: bool,
+    now: datetime | None = None,
 ) -> Select | None:
     """The entries of ``workspace_id`` this caller may use as evidence now.
 
@@ -93,8 +115,11 @@ def live_entries(
     With ``include_history`` the ``is_current`` and ``superseded_at``
     conditions are dropped; the caller marks a row historical when its
     revision is not current.  None when the workspace is not visible (for
-    example another tenant under row-level security).
+    example another tenant under row-level security).  A meeting past its
+    retention (``retention_expires_at <= now``) is never evidence, on both
+    dialects, so the retention sweep only removes what reads already hide.
     """
+    moment = checked_now(now)
     policy = _reader_view(db, workspace_id)
     if policy is None:
         return None
@@ -115,6 +140,10 @@ def live_entries(
                 Meeting.id == RetrievalEntry.meeting_id,
                 Meeting.workspace_id == workspace_id,
                 Meeting.deleted_at.is_(None),
+                or_(
+                    Meeting.retention_expires_at.is_(None),
+                    Meeting.retention_expires_at > moment,
+                ),
                 access.meeting_clause(),
             ),
         )
@@ -163,6 +192,7 @@ def lexical_search(
     limit: int = 20,
     include_history: bool = False,
     language: str = "fa",
+    now: datetime | None = None,
 ) -> list[ScoredEntry]:
     """The live entries of the workspace whose indexed text matches ``query``.
 
@@ -184,7 +214,7 @@ def lexical_search(
     if len(tokens) > MAX_QUERY_TOKENS:
         raise ValueError(f"a query holds at most {MAX_QUERY_TOKENS} words")
     candidates = live_entries(
-        db, access=access, workspace_id=workspace_id, include_history=include_history
+        db, access=access, workspace_id=workspace_id, include_history=include_history, now=now
     )
     if candidates is None:
         return []
