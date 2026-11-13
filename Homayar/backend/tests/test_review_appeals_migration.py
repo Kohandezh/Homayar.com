@@ -110,6 +110,7 @@ from backend.tests.conftest import login_user, register_user
 from backend.tests.test_action_item_kind_migration import remove_action_item_kind
 from backend.tests.test_coaching_tasks_migration import remove_coaching_tasks
 from backend.tests.test_federation import remove_federation_group_mappings
+from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
@@ -128,7 +129,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "0c51985fcf36"
 BASE_REVISION = "02f616cbb655"  # HOM-75: calibration batches
-HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
+HEAD_REVISION = "d3d1c7aa3cd8"  # HOM-129: privileged MFA and break-glass, after HOM-93
 APPEALS = "review_appeals"
 CRITERIA = "review_appeal_criteria"
 RESULTS = "review_appeal_results"
@@ -1781,6 +1782,8 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             remove_coaching_tasks(connection)
             remove_action_item_kind(connection)
             remove_retrieval_index_tables(connection)
+            # HOM-129 adds the MFA and break-glass schema; take it out too.
+            remove_privileged_mfa_schema(connection)
             before_objects = _objects(connection)
 
         config = _alembic_at(monkeypatch, url)

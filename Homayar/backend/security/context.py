@@ -40,6 +40,15 @@ from backend.security.authorization import (
 )
 from backend.security.tokens import AccessTokenError, decode_access_token, token_digest
 from backend.services.api_key_service import authenticate_api_key, looks_like_api_key
+from backend.services.mfa_service import (
+    PRIVILEGED_ORGANIZATION_ROLES,
+    PRIVILEGED_WORKSPACE_ROLES,
+    has_confirmed_totp,
+    mfa_enrollment_required,
+    mfa_required,
+    session_passes_mfa_gate,
+)
+from backend.services.privileged_access_service import session_window_is_open
 
 __all__ = [
     "ACCESS_COOKIE",
@@ -170,6 +179,12 @@ def _resolve_actor(
         or expires_at <= now
         or not user.is_active
         or int(payload["sv"]) != user.session_version
+    ):
+        raise _unauthorized("Session is no longer valid")
+    # HOM-129: a break-glass account's session ends with its window (expired,
+    # closed, or the setting turned off); other users get no extra query.
+    if user.is_break_glass and not session_window_is_open(
+        db, session=session, settings=settings, now=now
     ):
         raise _unauthorized("Session is no longer valid")
     session.last_seen_at = now
@@ -316,6 +331,7 @@ async def require_workspace(
     actor: Actor = Depends(require_actor_or_api_key),
     workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> WorkspaceContext:
     """Resolve the caller's *current* membership from server-side state.
 
@@ -325,11 +341,14 @@ async def require_workspace(
     session loses access on the very next request after revocation.  An API
     key is pinned to the workspace it belongs to: a header naming another
     workspace is refused, and the bound user's membership there is required.
+    An owner or admin session must pass the privileged MFA gate (HOM-129).
     """
-    return _resolve_workspace(actor, workspace_id, db)
+    return _resolve_workspace(actor, workspace_id, db, settings)
 
 
-def _resolve_workspace(actor: Actor, workspace_id: str | None, db: Session) -> WorkspaceContext:
+def _resolve_workspace(
+    actor: Actor, workspace_id: str | None, db: Session, settings: Settings
+) -> WorkspaceContext:
     now = datetime.now(UTC)
     if actor.api_key is not None:
         if workspace_id and workspace_id != actor.api_key.workspace_id:
@@ -354,6 +373,11 @@ def _resolve_workspace(actor: Actor, workspace_id: str | None, db: Session) -> W
             detail={"code": "workspace_access_denied", "message": "Workspace access denied"},
         )
     workspace, membership = row
+    # HOM-129: every guard that resolves a workspace role goes through here, so
+    # an owner/admin session is gated wherever it acts (permission guards, the
+    # session-only trends guard, the module guard, plain workspace routes).
+    if membership.role in PRIVILEGED_WORKSPACE_ROLES:
+        _require_privileged_mfa(actor, db=db, settings=settings)
     # Only now, after the membership was validated server-side, does the
     # database transaction learn which tenant this request acts for.
     bind_tenant_context(db, workspace_id=workspace.id, organization_id=workspace.organization_id)
@@ -364,6 +388,21 @@ def _resolve_workspace(actor: Actor, workspace_id: str | None, db: Session) -> W
         membership=membership,
         record_access=record_access,
     )
+
+
+def _require_privileged_mfa(actor: Actor, *, db: Session, settings: Settings) -> None:
+    """The privileged MFA gate (HOM-129, ADR 0076), run on every privileged request.
+
+    Sessions only: an API key cannot answer a second factor (ADR 0076 D9).  The
+    factor lookup runs only on a refusal, to tell enrolment from verification.
+    """
+    if not settings.privileged_mfa_required or actor.session is None:
+        return
+    if session_passes_mfa_gate(actor.session, settings=settings):
+        return
+    if has_confirmed_totp(db, user_id=actor.user.id):
+        raise mfa_required()
+    raise mfa_enrollment_required()
 
 
 def require_permission(permission: Permission):
@@ -404,8 +443,9 @@ def require_path_permission(permission: Permission):
         workspace_id: str,
         actor: Actor = Depends(require_actor_or_api_key),
         db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ) -> WorkspaceContext:
-        context = _resolve_workspace(actor, workspace_id, db)
+        context = _resolve_workspace(actor, workspace_id, db, settings)
         if not context.scope_permits(permission):
             raise HTTPException(
                 status_code=403,
@@ -442,8 +482,11 @@ def require_write_permission(permission: Permission):
     return dependency
 
 
-def _platform_operator_only(context: WorkspaceContext) -> WorkspaceContext:
-    """Refuse an API key and any user whose ``system_role`` is not ``operator``."""
+def _platform_operator_only(
+    context: WorkspaceContext, *, db: Session, settings: Settings
+) -> WorkspaceContext:
+    """Refuse an API key and any user whose ``system_role`` is not ``operator``; an
+    operator always needs a verified second factor, whatever the workspace role."""
     if context.actor.api_key is not None or context.actor.user.system_role != "operator":
         raise HTTPException(
             status_code=403,
@@ -452,6 +495,7 @@ def _platform_operator_only(context: WorkspaceContext) -> WorkspaceContext:
                 "message": "Platform operator required",
             },
         )
+    _require_privileged_mfa(context.actor, db=db, settings=settings)
     return context
 
 
@@ -463,8 +507,10 @@ def require_platform_operator(permission: Permission):
 
     async def dependency(
         context: WorkspaceContext = Depends(write_dependency),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ) -> WorkspaceContext:
-        return _platform_operator_only(context)
+        return _platform_operator_only(context, db=db, settings=settings)
 
     dependency.homayar_permission = permission  # type: ignore[attr-defined]
     dependency.homayar_write = True  # type: ignore[attr-defined]
@@ -480,8 +526,10 @@ def require_platform_operator_read(permission: Permission):
 
     async def dependency(
         context: WorkspaceContext = Depends(permission_dependency),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ) -> WorkspaceContext:
-        return _platform_operator_only(context)
+        return _platform_operator_only(context, db=db, settings=settings)
 
     dependency.homayar_permission = permission  # type: ignore[attr-defined]
     dependency.homayar_write = False  # type: ignore[attr-defined]
@@ -496,6 +544,7 @@ async def require_organization(
     organization_id: str,
     actor: Actor = Depends(require_actor),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> OrganizationContext:
     """Resolve the caller's effective membership of the path organization.
 
@@ -503,7 +552,8 @@ async def require_organization(
     Revoked, inactive or expired memberships and non-active organizations are
     invisible, so a still-valid session loses the organization on the very
     next request — and an organization the caller does not belong to looks
-    exactly like one that does not exist (``404``).
+    exactly like one that does not exist (``404``).  An owner or admin session
+    must pass the privileged MFA gate (HOM-129).
     """
     now = datetime.now(UTC)
     row = db.execute(
@@ -525,6 +575,8 @@ async def require_organization(
             detail={"code": "organization_not_found", "message": "Organization not found"},
         )
     organization, membership = row
+    if membership.role in PRIVILEGED_ORGANIZATION_ROLES:
+        _require_privileged_mfa(actor, db=db, settings=settings)
     # Only now, after the membership was validated server-side, does the
     # transaction learn which organization this request acts for.
     bind_organization_context(db, organization.id)

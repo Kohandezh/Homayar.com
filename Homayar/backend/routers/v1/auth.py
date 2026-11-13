@@ -3,8 +3,18 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
+from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
@@ -23,6 +33,7 @@ from backend.schemas.auth import (
     RegisterRequest,
     ResetPasswordRequest,
     SessionResponse,
+    StrictRequest,
     UserResponse,
     VerificationResendResponse,
     VerifyEmailRequest,
@@ -42,6 +53,7 @@ from backend.services.audit_event_types import AuditEventType
 from backend.services.audit_service import record_audit_event, record_audit_event_best_effort
 from backend.services.auth_service import (
     AuthenticationError,
+    BreakGlassLoginRefused,
     FederationReauthenticationRequired,
     InvalidOneTimeTokenError,
     RefreshTokenReplayError,
@@ -68,6 +80,14 @@ from backend.services.google_oauth_service import (
 )
 from backend.services.logging_service import logger
 from backend.services.member_service import invitation_open_for_email
+from backend.services.mfa_service import (
+    MfaError,
+    confirm_totp_enrollment,
+    mfa_status,
+    regenerate_recovery_codes,
+    start_totp_enrollment,
+    verify_mfa,
+)
 from backend.services.otp_service import (
     IdentityLinkConflictError,
     OtpCooldownError,
@@ -76,6 +96,11 @@ from backend.services.otp_service import (
     PhoneAuthUnavailableError,
     request_otp,
     verify_otp,
+)
+from backend.services.privileged_access_service import (
+    notify_break_glass,
+    record_break_glass_login,
+    record_break_glass_login_refused,
 )
 from backend.services.rate_limit_service import (
     RateLimiter,
@@ -112,6 +137,56 @@ def _rate_limit(
             status_code=503,
             detail={"code": "rate_limiter_unavailable", "message": "Try again later"},
         ) from exc
+
+
+def _refused_like_a_wrong_password(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    settings: Settings,
+    *,
+    email: str | None,
+    method: str,
+) -> JSONResponse:
+    """The wrong-password answer, with the break-glass alert sent after the response
+    (HOM-129): the mail server's delay must not tell a right password from a wrong one.
+    Same body as the API's HTTPException handler renders."""
+    background_tasks.add_task(
+        notify_break_glass,
+        settings,
+        event="login_refused",
+        user_email=email,
+        details={"method": method},
+    )
+    return JSONResponse(
+        status_code=401,
+        content={
+            "error": {
+                "code": "invalid_credentials",
+                "message": "Invalid credentials",
+                "request_id": getattr(request.state, "request_id", None),
+            }
+        },
+        background=background_tasks,
+    )
+
+
+def _break_glass_refused(
+    db: Session, exc: BreakGlassLoginRefused, request: Request, settings: Settings
+) -> str | None:
+    """Audit a refused break-glass login after the caller rolled back or committed;
+    returns the account's email for the alert (HOM-129)."""
+    observe_auth_failure("invalid_credentials")
+    user = db.get(User, exc.user_id)
+    email = user.email if user is not None else None
+    record_break_glass_login_refused(
+        db,
+        user_id=exc.user_id,
+        method=exc.method,
+        request_id=getattr(request.state, "request_id", None),
+        ip_address=_client_ip(request),
+        settings=settings,
+    )
+    return email
 
 
 def _set_session_cookies(response: Response, tokens: SessionTokens, settings: Settings) -> None:
@@ -300,9 +375,10 @@ def login(
     payload: LoginRequest,
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> SessionResponse:
+) -> SessionResponse | JSONResponse:
     ip = _client_ip(request)
     identifier_key = token_digest(payload.identifier.casefold(), settings)
     _rate_limit(settings, f"login:ip:{token_digest(ip, settings)}", limit=20, window_seconds=900)
@@ -337,9 +413,17 @@ def login(
         tokens = create_login_session(
             db,
             user=user,
+            method="password",
             user_agent=request.headers.get("user-agent"),
             ip_address=ip,
             settings=settings,
+        )
+    except BreakGlassLoginRefused as exc:
+        # Outside an open window a break-glass account looks like a wrong password.
+        db.rollback()
+        email = _break_glass_refused(db, exc, request, settings)
+        return _refused_like_a_wrong_password(
+            request, background_tasks, settings, email=email, method="password"
         )
     except FederationReauthenticationRequired as exc:
         # Nothing was created and nothing is revoked; the user signs in again
@@ -364,7 +448,25 @@ def login(
         details={"method": "password"},
         settings=settings,
     )
+    break_glass = user.is_break_glass
+    if break_glass:
+        record_break_glass_login(
+            db,
+            user=user,
+            method="password",
+            request_id=getattr(request.state, "request_id", None),
+            ip_address=ip,
+            settings=settings,
+        )
     db.commit()
+    if break_glass:
+        background_tasks.add_task(
+            notify_break_glass,
+            settings,
+            event="login",
+            user_email=user.email,
+            details={"method": "password"},
+        )
     _set_session_cookies(response, tokens, settings)
     return _session_response(db, user, tokens.access_expires_in)
 
@@ -488,6 +590,154 @@ def me(
     settings: Settings = Depends(get_settings),
 ) -> SessionResponse:
     return _session_response(db, actor.user, settings.access_token_minutes * 60)
+
+
+# --- privileged MFA (HOM-129, ADR 0076) ------------------------------------------------
+# Not behind the privileged gate, so a privileged user can always enrol and verify.
+
+MFA_ATTEMPTS_PER_WINDOW = 10
+MFA_ATTEMPT_WINDOW_SECONDS = 900
+
+
+class MfaCodeRequest(StrictRequest):
+    code: str = Field(min_length=1, max_length=64)
+
+
+class MfaStatusResponse(BaseModel):
+    totp_enrolled: bool
+    recovery_codes_remaining: int
+    session_verified: bool
+    required: bool
+
+
+class MfaEnrollResponse(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class MfaRecoveryCodesResponse(BaseModel):
+    recovery_codes: list[str]
+
+
+class MfaVerifyResponse(BaseModel):
+    verified: bool
+    method: str
+    recovery_codes_remaining: int
+
+
+def _mfa_rate_limit(settings: Settings, user_id: str) -> None:
+    # Confirm and verify share one bucket per user: six digits must not be guessable.
+    _rate_limit(
+        settings,
+        f"mfa:verify:{token_digest(user_id, settings)}",
+        limit=MFA_ATTEMPTS_PER_WINDOW,
+        window_seconds=MFA_ATTEMPT_WINDOW_SECONDS,
+    )
+
+
+@router.get("/mfa", response_model=MfaStatusResponse)
+def read_mfa_status(
+    actor: Actor = Depends(require_actor),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MfaStatusResponse:
+    return MfaStatusResponse(
+        **mfa_status(db, user=actor.user, session=actor.session, settings=settings)
+    )
+
+
+@router.post("/mfa/totp/enroll", response_model=MfaEnrollResponse)
+def enroll_totp(
+    actor: Actor = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MfaEnrollResponse:
+    assert actor.session is not None
+    secret, uri = start_totp_enrollment(
+        db, user=actor.user, session=actor.session, settings=settings
+    )
+    db.commit()
+    return MfaEnrollResponse(secret=secret, otpauth_uri=uri)
+
+
+@router.post("/mfa/totp/confirm", response_model=MfaRecoveryCodesResponse)
+def confirm_totp(
+    payload: MfaCodeRequest,
+    request: Request,
+    actor: Actor = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MfaRecoveryCodesResponse:
+    assert actor.session is not None
+    _mfa_rate_limit(settings, actor.user.id)
+    codes = confirm_totp_enrollment(
+        db,
+        user=actor.user,
+        session=actor.session,
+        code=payload.code,
+        settings=settings,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    db.commit()
+    return MfaRecoveryCodesResponse(recovery_codes=codes)
+
+
+@router.post("/mfa/verify", response_model=MfaVerifyResponse)
+def verify_second_factor(
+    payload: MfaCodeRequest,
+    request: Request,
+    actor: Actor = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MfaVerifyResponse:
+    assert actor.session is not None
+    user_id = actor.user.id
+    _mfa_rate_limit(settings, user_id)
+    try:
+        method, remaining = verify_mfa(
+            db,
+            user=actor.user,
+            session=actor.session,
+            code=payload.code,
+            settings=settings,
+            request_id=getattr(request.state, "request_id", None),
+        )
+    except MfaError as exc:
+        db.rollback()
+        if exc.detail["code"] == "mfa_code_invalid":
+            record_audit_event_best_effort(
+                db,
+                event_type=AuditEventType.AUTH_MFA_VERIFY_FAILED,
+                outcome="failure",
+                actor_user_id=user_id,
+                target_type="user",
+                target_id=user_id,
+                request_id=getattr(request.state, "request_id", None),
+                ip_address=_client_ip(request),
+                settings=settings,
+            )
+        raise
+    db.commit()
+    return MfaVerifyResponse(verified=True, method=method, recovery_codes_remaining=remaining)
+
+
+@router.post("/mfa/recovery-codes", response_model=MfaRecoveryCodesResponse)
+def regenerate_mfa_recovery_codes(
+    request: Request,
+    actor: Actor = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MfaRecoveryCodesResponse:
+    assert actor.session is not None
+    codes = regenerate_recovery_codes(
+        db,
+        user=actor.user,
+        session=actor.session,
+        settings=settings,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    db.commit()
+    return MfaRecoveryCodesResponse(recovery_codes=codes)
 
 
 @router.post("/verify-email", response_model=MessageResponse)
@@ -712,9 +962,10 @@ def otp_verify(
     payload: OtpVerifyRequest,
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> SessionResponse:
+) -> SessionResponse | JSONResponse:
     _rate_limit(
         settings,
         f"otp-verify:{token_digest(payload.challenge_id, settings)}",
@@ -731,11 +982,20 @@ def otp_verify(
         tokens = create_login_session(
             db,
             user=user,
+            method="otp",
             user_agent=request.headers.get("user-agent"),
             ip_address=_client_ip(request),
             settings=settings,
         )
         db.commit()
+    except BreakGlassLoginRefused as exc:
+        # A break-glass account never signs in by OTP (HOM-129). The challenge
+        # is security state and stays consumed, as in the branch below.
+        db.commit()
+        email = _break_glass_refused(db, exc, request, settings)
+        return _refused_like_a_wrong_password(
+            request, background_tasks, settings, email=email, method="otp"
+        )
     except FederationReauthenticationRequired as exc:
         # The challenge is security state and stays consumed (HOM-128, 5e):
         # the commit stores the consumed challenge and, when the code also
@@ -820,9 +1080,10 @@ async def google_callback(
     request: Request,
     state: str,
     code: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> RedirectResponse:
+) -> Response:
     try:
         user, redirect_path = await complete_google_oauth(
             db, state=state, code=code, settings=settings
@@ -830,11 +1091,21 @@ async def google_callback(
         tokens = create_login_session(
             db,
             user=user,
+            method="google",
             user_agent=request.headers.get("user-agent"),
             ip_address=_client_ip(request),
             settings=settings,
         )
         db.commit()
+    except BreakGlassLoginRefused as exc:
+        # A break-glass account never signs in with Google (HOM-129).
+        db.rollback()
+        email = _break_glass_refused(db, exc, request, settings)
+        # The background task runs in a worker thread, so send_email_sync can
+        # start its own event loop.
+        return _refused_like_a_wrong_password(
+            request, background_tasks, settings, email=email, method="google"
+        )
     except FederationReauthenticationRequired:
         # Nothing was created and nothing is revoked; like the other refusals
         # here the browser gets the login page with the error name (HOM-128, 5e).

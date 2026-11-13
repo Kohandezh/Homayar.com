@@ -394,6 +394,17 @@ groups:
           description: "Possible credential stuffing or a broken client. auth.login_failed events carry only an identifier-hash prefix."
           runbook: docs/operations/alerts.md#homayarloginfailurespike
 
+      # HOM-129: every break-glass event pages, a refused attempt included. No counter-reset
+      # filter: a missed event is worse than a page after a worker restart.
+      - alert: HomayarBreakGlassUsed
+        expr: increase(homayar_break_glass_events_total[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Break-glass access was used ({{ $labels.event }})"
+          description: "A break-glass window was opened or closed, or a break-glass account signed in or was refused. The auth.break_glass_* audit events name the account, the operator and the reason."
+          runbook: docs/operations/alerts.md#homayarbreakglassused
+
 
   # Contract with the backup tooling (Lane C, ADR 0035): it writes
   # homayar_backup_last_success_timestamp_seconds{target="postgres"|"objects"|"offsite"} to a

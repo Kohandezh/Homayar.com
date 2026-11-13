@@ -27,11 +27,12 @@ from backend.tests._database import (
 )
 from backend.tests.test_coaching_tasks_migration import remove_coaching_tasks
 from backend.tests.test_federation import remove_federation_group_mappings
+from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
 from backend.tests.test_retrieval_index_migration import remove_retrieval_index_tables
 
 NEW_REVISION = "c4a8e2f7d913"
 BASE_REVISION = "0c51985fcf36"  # HOM-76: review appeals
-HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
+HEAD_REVISION = "d3d1c7aa3cd8"  # HOM-129: privileged MFA and break-glass, after HOM-93
 TABLE = "action_items"
 CHECK = "ck_action_kind"
 INSERT_WITHOUT_KIND = (
@@ -206,6 +207,8 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             remove_coaching_tasks(connection)
             remove_action_item_kind(connection)
             remove_retrieval_index_tables(connection)
+            # HOM-129 adds the MFA and break-glass schema; take it out too.
+            remove_privileged_mfa_schema(connection)
 
         monkeypatch.setenv("DATABASE_URL", url)
         monkeypatch.setenv("ENVIRONMENT", "test")

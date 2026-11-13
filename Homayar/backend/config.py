@@ -48,6 +48,7 @@ SECRET_FIELDS: tuple[str, ...] = (
     "storage_secret_key",
     "pii_mapping_keys",
     "webhook_secret_keys",
+    "mfa_secret_keys",
     "llm_fallback_api_key",
     "zai_api_key",
     "gapgpt_api_key",
@@ -506,6 +507,21 @@ class Settings(BaseSettings):
     federation_max_unconfirmed_minutes: int = 15
     federation_revalidation_max_age_minutes: int = 10
     federation_revalidation_interval_seconds: int = 300
+    # Privileged MFA (HOM-129, ADR 0076): owners, admins and platform operators
+    # need a TOTP-verified session on privileged routes. One verification counts
+    # for max_age; a session with no factor yet may enrol only within the fresh
+    # login window. MFA_SECRET_KEYS uses the PII_MAPPING_KEYS format and encrypts
+    # the TOTP secrets; empty means nobody can enrol (enrolment answers 503).
+    privileged_mfa_required: bool = True
+    privileged_mfa_max_age_minutes: int = 720
+    mfa_enrollment_fresh_login_minutes: int = 15
+    mfa_secret_keys: SecretSetting = ""
+    mfa_secret_active_key_id: str = ""
+    mfa_totp_issuer: str = "Homayar"
+    # Break-glass local account (HOM-129): off by default, opened from the host only.
+    break_glass_enabled: bool = False
+    break_glass_max_window_minutes: int = 60
+    break_glass_alert_emails: str = ""
     secure_cookies: bool = False
     cookie_domain: str | None = None
     trusted_hosts: str = "localhost,127.0.0.1,testserver"
@@ -1113,6 +1129,22 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "WEBHOOK_SECRET_ACTIVE_KEY_ID must name one of WEBHOOK_SECRET_KEYS"
                 )
+        if self.mfa_secret_keys or self.mfa_secret_active_key_id:
+            from backend.privacy.mapping_crypto import parse_keyring
+
+            try:
+                keyring = parse_keyring(self.mfa_secret_keys)
+            except ValueError as exc:
+                # parse_keyring names PII_MAPPING_KEYS in its errors (its file is frozen).
+                raise ValueError(str(exc).replace("PII_MAPPING_KEYS", "MFA_SECRET_KEYS")) from exc
+            if self.mfa_secret_active_key_id not in keyring:
+                raise ValueError("MFA_SECRET_ACTIVE_KEY_ID must name one of MFA_SECRET_KEYS")
+        if not 5 <= self.privileged_mfa_max_age_minutes <= 1440:
+            raise ValueError("PRIVILEGED_MFA_MAX_AGE_MINUTES must be between 5 and 1440")
+        if not 1 <= self.mfa_enrollment_fresh_login_minutes <= 60:
+            raise ValueError("MFA_ENROLLMENT_FRESH_LOGIN_MINUTES must be between 1 and 60")
+        if not 1 <= self.break_glass_max_window_minutes <= 240:
+            raise ValueError("BREAK_GLASS_MAX_WINDOW_MINUTES must be between 1 and 240")
         if self.webhook_delivery_timeout_seconds < 1:
             raise ValueError("WEBHOOK_DELIVERY_TIMEOUT_SECONDS must be positive")
         if self.webhook_sweep_interval_seconds < 1:
@@ -1216,6 +1248,18 @@ class Settings(BaseSettings):
             self.storage_bucket and self.storage_access_key and self.storage_secret_key
         ):
             raise ValueError("S3 storage requires bucket and credentials")
+        # Startup goes on in both cases (HOM-129, ADR 0076). Without a keyring nobody
+        # can enrol, so the gate stays closed for privileged users in any environment
+        # but the test suite's.
+        if self.environment == "production" and not self.privileged_mfa_required:
+            logging.getLogger(__name__).warning(
+                "PRIVILEGED_MFA_DISABLED privileged routes do not ask for a second factor"
+            )
+        if self.environment != "test" and self.privileged_mfa_required and not self.mfa_secret_keys:
+            logging.getLogger(__name__).warning(
+                "PRIVILEGED_MFA_KEYRING_MISSING MFA_SECRET_KEYS is empty; "
+                "privileged users cannot enrol and stay refused"
+            )
         if plaintext_hops:
             # The HOM-161 audit line names hops and variables only: the URLs carry
             # credentials. The logger is created here, not at import, because Alembic's

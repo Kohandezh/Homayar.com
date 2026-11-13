@@ -97,7 +97,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "484a6df74abf"
 BASE_REVISION = "5067ea773c0b"  # HOM-56: scorecard results
-HEAD_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index, after HOM-128
+HEAD_REVISION = "d3d1c7aa3cd8"  # HOM-129: privileged MFA and break-glass, after HOM-93
 TABLE = "review_items"
 # The index the HOM-74 head adds to this table; this migration alone does not build it.
 HEAD_INDEX = "uq_review_items_result"

@@ -1082,3 +1082,30 @@ tests:
       - eval_time: 30m
         alertname: HomayarLoginFailureSpike
         exp_alerts: []
+
+  # --- break-glass (HOM-129): the first event pages, and it clears 10 minutes later ------
+  - interval: 1m
+    input_series:
+      - series: 'homayar_break_glass_events_total{event="window_opened",instance="api-1",job="homayar-api"}'
+        values: '0x10 1x30'
+      - series: 'homayar_break_glass_events_total{event="login",instance="api-1",job="homayar-api"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HomayarBreakGlassUsed
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: HomayarBreakGlassUsed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              event: window_opened
+              instance: api-1
+              job: homayar-api
+            exp_annotations:
+              summary: "Break-glass access was used (window_opened)"
+              description: "A break-glass window was opened or closed, or a break-glass account signed in or was refused. The auth.break_glass_* audit events name the account, the operator and the reason."
+              runbook: docs/operations/alerts.md#homayarbreakglassused
+      - eval_time: 30m
+        alertname: HomayarBreakGlassUsed
+        exp_alerts: []

@@ -81,6 +81,7 @@ from backend.tests._database import (
 )
 from backend.tests.conftest import login_user, register_user
 from backend.tests.test_federation import remove_federation_group_mappings
+from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
@@ -1472,6 +1473,8 @@ def test_on_sqlite_the_migration_builds_the_orm_table_and_its_downgrade_removes_
             # HOM-93 adds the retrieval index tables likewise.
             remove_federation_group_mappings(connection)
             remove_retrieval_index_tables(connection)
+            # HOM-129 adds the MFA and break-glass schema; take it out too.
+            remove_privileged_mfa_schema(connection)
             before = _sqlite_objects(connection)
         assert orm["checks"] == sorted(CHECKS)
 

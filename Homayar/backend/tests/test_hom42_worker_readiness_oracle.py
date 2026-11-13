@@ -128,14 +128,14 @@ BASE_WORKER_COMMAND = [
 ]
 COMPOSE_GOLDEN = {
     "compose.onprem.yaml": {
-        "services": "bd6149b118d17a6c8ae9fd7d614aeb6dcdd477071a5200d1005a8d406ef74a80",
-        "worker_env": "d15407b852bd7f2537cf0b66f6901599dbfce6c0ef28dbe037125c69be963736",
-        "rest": "bc232e363889aebbe141da648d290e2a7ed44866f56442e91d5a540ecd375088",
+        "services": "ca4d5ec37dca0d044c3dfb9cbffdd5a1e9678aae9f0e1d32687171d08973051c",
+        "worker_env": "afc8ebebb0bb536b9ddb86d75309c0e52a44039998e72d04b2f4ce717873b289",
+        "rest": "8aa0d1257085c761c63f2db1214ad6ad63958fccf3662c9dfbec522d2a4c2957",
     },
     "compose.cloud.yaml": {
-        "services": "7a2a09c240fc44eaa29167dd7735a3defea0a524e6f8a0c41f24c470df5be24b",
-        "worker_env": "4672ff008c453c5c1e810eda15e4ef8a18e20379a84501d494d189e6b112ef7a",
-        "rest": "0b6dd12642d31c522a8ef068ae458ae2e054e498633496e99c4d2b9b0b7d3b5f",
+        "services": "8c1c58e1cc3d48e7d061391dd712b6bfecd1d89a315bf24341dd78eb26f4fb81",
+        "worker_env": "7ae5066d0d774a44b0b558477a523ca73063c05d4ac121d704a6a3dc9774a9d8",
+        "rest": "a2624b5596340e29b800fe966599a433ead060a5d49745c5c037afeb96425a27",
     },
 }
 HOST_CHECKS_GOLDEN = {
