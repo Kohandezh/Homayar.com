@@ -521,6 +521,12 @@ def _record_provider_outcome(
         db.commit()
 
 
+# Retryable, but about the answer, not the endpoint's availability: an answer
+# whose bounds are still broken after the corrective retry (HOM-351 F3). Like a
+# permanent error it never counts toward the circuit (R9).
+_NOT_CIRCUIT_FAILURES = frozenset({"intelligence_invalid_response"})
+
+
 def _call_provider[T](
     claim: ProviderWork,
     resolved: ResolvedManifest,
@@ -558,7 +564,7 @@ def _call_provider[T](
         else:
             result = _run_stage(heartbeat, make_call(), policy, deadline_at=claim.deadline_at)
     except ProviderError as exc:
-        if networked and exc.retryable:
+        if networked and exc.retryable and exc.code not in _NOT_CIRCUIT_FAILURES:
             _record_provider_outcome(
                 claim,
                 resolved,

@@ -737,7 +737,6 @@ REJECTED = [
     pytest.param(("decisions",), DROP, id="missing_decisions"),
     pytest.param(("key_moments",), DROP, id="missing_key_moments"),
     pytest.param(("summary_fields", "purpose", "text"), None, id="stated_field_text_null"),
-    pytest.param(("summary_fields", "purpose", "text"), "   ", id="stated_field_text_blank"),
     pytest.param(("summary_fields", "purpose", "basis"), None, id="stated_field_without_basis"),
     pytest.param(("summary_fields", "next_steps", "text"), "A guess", id="not_stated_with_text"),
     pytest.param(
@@ -750,8 +749,6 @@ REJECTED = [
         ("decisions", 0, "due_date", "value"), "2026-11-03", id="not_stated_due_with_value"
     ),
     pytest.param(("decisions", 0, "basis"), None, id="decision_without_basis"),
-    pytest.param(("decisions", 0, "source_turn_indexes"), [-1], id="negative_turn"),
-    pytest.param(("key_moments", 0, "kind"), "", id="key_moment_blank_kind"),
 ]
 
 
@@ -770,6 +767,31 @@ def test_a8_the_parser_rejects_each_invalid_shape(path, value):
         _analyze(_changed(path, value))
     assert refused.value.code == "intelligence_invalid_response"
     assert refused.value.retryable is False
+
+
+# HOM-351 F3 (R2, R10): bound kinds get one corrective retry. The transport
+# repeats the answer, so a negative turn is dropped by the repair and a blank
+# (minLength) value fails retryably after 2 calls.
+@pytest.mark.parametrize(
+    ("path", "value", "repaired"),
+    [
+        pytest.param(("decisions", 0, "source_turn_indexes"), [-1], [], id="negative_turn"),
+        pytest.param(
+            ("summary_fields", "purpose", "text"), "   ", None, id="stated_field_text_blank"
+        ),
+        pytest.param(("key_moments", 0, "kind"), "", None, id="key_moment_blank_kind"),
+    ],
+)
+def test_a8_a_bound_violation_follows_the_corrective_retry_contract(path, value, repaired):
+    seen: list = []
+    if repaired is None:
+        with pytest.raises(ProviderError) as refused:
+            _analyze(_changed(path, value), seen)
+        assert refused.value.code == "intelligence_invalid_response"
+        assert refused.value.retryable is True
+    else:
+        assert _analyze(_changed(path, value), seen).decisions[0].source_turn_indexes == repaired
+    assert len(seen) == 2
 
 
 def _model(**changes) -> dict:

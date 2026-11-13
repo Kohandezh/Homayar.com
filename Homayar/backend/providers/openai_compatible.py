@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
+import math
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -11,6 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 
 from backend.analysis_taxonomy import (
     DIMENSIONS,
@@ -29,6 +32,8 @@ from backend.providers.base import (
     text_digest,
 )
 from backend.providers.schemas import IntelligenceRequest, IntelligenceResult
+
+logger = logging.getLogger(__name__)
 
 # The analysis contract. PROMPT_VERSION changes whenever the prompt or the
 # output schema changes meaning; the prompt digest catches silent edits. Both
@@ -402,6 +407,189 @@ def _schema_for_turns(turn_count: int) -> dict[str, Any]:
     return schema
 
 
+class _InvalidResponse(Exception):
+    """The answer is not the strict JSON contract (unchanged failure class)."""
+
+
+# llama.cpp (b11960) enforces integer and string-length bounds in the grammar
+# but not ``minimum``/``maximum`` on ``number`` fields (``common/json-schema.cpp``
+# reads them only in ``build_integer``), and a server without schema enforcement
+# can miss every bound. Such violations get one corrective retry and a repair.
+_NUMERIC_BOUND_KINDS = frozenset(
+    {"greater_than", "greater_than_equal", "less_than", "less_than_equal"}
+)
+_STRING_LENGTH_BOUND_KINDS = frozenset({"string_too_short", "string_too_long"})
+_LIST_LENGTH_BOUND_KINDS = frozenset({"too_short", "too_long"})
+
+CORRECTIVE_RETRY_PROMPT = (
+    "Your previous answer broke these output rules:\n{violations}\n"
+    "Return the complete JSON again, satisfying every rule. Do not drop or "
+    "rename any field."
+)
+
+
+def _invalid_response(*, retryable: bool = False) -> ProviderError:
+    return ProviderError(
+        "intelligence_invalid_response",
+        "Intelligence provider returned an invalid response",
+        retryable=retryable,
+    )
+
+
+def _error_path(error: ErrorDetails) -> str:
+    """A pydantic error location as ``field[0].child`` text."""
+    parts: list[str] = []
+    for part in error["loc"]:
+        if isinstance(part, int):
+            parts[-1] = f"{parts[-1]}[{part}]"
+        else:
+            parts.append(str(part))
+    return ".".join(parts)
+
+
+def _rule_text(error: ErrorDetails) -> str:
+    """The violated rule, from the schema's real bound (no value text)."""
+    kind = error["type"]
+    ctx = error.get("ctx") or {}
+    if kind == "greater_than_equal":
+        return f"must be >= {ctx.get('ge')}"
+    if kind == "less_than_equal":
+        return f"must be <= {ctx.get('le')}"
+    if kind == "greater_than":
+        return f"must be > {ctx.get('gt')}"
+    if kind == "less_than":
+        return f"must be < {ctx.get('lt')}"
+    if kind == "string_too_short":
+        return f"must be at least {ctx.get('min_length')} characters"
+    if kind == "string_too_long":
+        return f"must be at most {ctx.get('max_length')} characters"
+    if kind == "too_short":
+        return f"must have at least {ctx.get('min_length')} items"
+    if kind == "too_long":
+        return f"must have at most {ctx.get('max_length')} items"
+    # Ruling R2: the non-negative turn-index validators report ``value_error``.
+    return "must be >= 0"
+
+
+def _is_non_finite(value: object) -> bool:
+    """NaN or an infinity, as a float or as a string pydantic's lax mode reads
+    as one (``"NaN"``, ``"inf"``, ``"1e400"``). A string that is no number at
+    all is not non-finite: it keeps its own type error."""
+    if not isinstance(value, (float, str)):
+        return False
+    try:
+        return not math.isfinite(float(value))
+    except ValueError:
+        return False
+
+
+def _is_bound_violation(error: ErrorDetails) -> bool:
+    """A bound the grammar may have let through: numeric or length bounds, and
+    (ruling R2) the non-negative turn-index validators, on a model-output
+    field. Everything else keeps the one-call non-retryable refusal."""
+    loc = error.get("loc") or ()
+    if not loc or not isinstance(loc[0], str) or loc[0] not in _OUTPUT_KEYS:
+        return False
+    if _is_non_finite(error.get("input")):
+        # NaN or an infinity is not a value out of range: it is refused,
+        # never clamped (R9).
+        return False
+    kind = error["type"]
+    if (
+        kind in _NUMERIC_BOUND_KINDS
+        or kind in _STRING_LENGTH_BOUND_KINDS
+        or kind in _LIST_LENGTH_BOUND_KINDS
+    ):
+        return True
+    return (
+        kind == "value_error"
+        and isinstance(loc[-1], str)
+        and loc[-1].endswith("turn_indexes")
+        and "non-negative" in error.get("msg", "")
+    )
+
+
+def _apply_repair(output: dict[str, Any], error: ErrorDetails) -> bool:
+    """Repair one bound violation on the raw output, in place.
+
+    Numbers are clamped to an inclusive bound, strings truncated to
+    ``maxLength`` on a character boundary, lists truncated to ``maxItems``, and
+    a turn-index list drops its invalid entries (R2: never invent or clamp an
+    index). A ``minLength``/``minItems`` violation, and a strict bound (no value
+    sits exactly on it, so a clamp would invent one), cannot be repaired."""
+    loc = list(error["loc"])
+    try:
+        node: Any = output
+        for part in loc[:-1]:
+            node = node[part]
+        value = node[loc[-1]]
+        kind = error["type"]
+        ctx = error.get("ctx") or {}
+        if kind == "less_than_equal":
+            node[loc[-1]] = ctx["le"]
+        elif kind == "greater_than_equal":
+            node[loc[-1]] = ctx["ge"]
+        elif kind == "string_too_long":
+            node[loc[-1]] = value[: ctx["max_length"]]
+        elif kind == "too_long":
+            # pydantic reports a list's ``maxItems`` as ``max_length``.
+            node[loc[-1]] = value[: ctx["max_length"]]
+        elif kind == "value_error":
+            node[loc[-1]] = [index for index in value if index >= 0]
+        else:
+            return False
+        return True
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
+def _log_repaired(violations: list[ErrorDetails], *, model: str) -> None:
+    """The repair record: field paths, rule kinds and a count; never values."""
+    fields = [_error_path(error) for error in violations]
+    rules = [error["type"] for error in violations]
+    logger.info(
+        "intelligence_output_repaired model=%s fields=%s rules=%s count=%d",
+        model,
+        ",".join(fields),
+        ",".join(rules),
+        len(violations),
+        extra={
+            "event": "intelligence_output_repaired",
+            "repaired_fields": fields,
+            "repaired_rules": rules,
+            "repaired_count": len(violations),
+        },
+    )
+
+
+def _combine_usage(
+    first: dict[str, int | None] | None, second: dict[str, int | None] | None
+) -> dict[str, int | None] | None:
+    """Both calls of one analysis count as one usage report (sum of what the
+    provider reported; an unreported field stays ``None``)."""
+    reports = [report for report in (first, second) if report]
+    if not reports:
+        return None
+    combined: dict[str, int | None] = {}
+    for key in ("input_tokens", "output_tokens"):
+        present = [value for report in reports if (value := report.get(key)) is not None]
+        combined[key] = sum(present) if present else None
+    if all(value is None for value in combined.values()):
+        return None
+    return combined
+
+
+def _validate(
+    candidate: dict[str, Any],
+) -> tuple[IntelligenceResult | None, list[ErrorDetails]]:
+    """The result, or its validation errors. The ``ValidationError`` itself
+    never leaves this function, so nothing raised later can chain it (R9)."""
+    try:
+        return IntelligenceResult.model_validate(candidate), []
+    except ValidationError as error:
+        return None, error.errors()
+
+
 class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
     """Requests strict JSON from an injected or internally managed async client.
 
@@ -520,7 +708,12 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
             return await client.post(self._endpoint, headers=self._headers(), json=payload)
 
     @staticmethod
-    def _parse_result(response: httpx.Response, model: str) -> IntelligenceResult:
+    def _extract_output(
+        response: httpx.Response,
+    ) -> tuple[str, dict[str, Any], dict[str, int | None] | None]:
+        """The raw answer text, its parsed output object and the usage report.
+
+        The envelope shape and the key set keep today's refusal semantics."""
         try:
             envelope = response.json()
             choices = envelope["choices"]
@@ -534,35 +727,51 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
             # records it as missing.  Any other key set is refused.
             if not isinstance(output, dict) or set(output) not in _ACCEPTED_KEY_SETS:
                 raise TypeError
-            extraction = output.get("extraction")
-            candidate = {
-                "provider": "openai_compatible",
-                "model": model,
-                "summary": output["summary"],
-                "summary_source_turn_indexes": output["summary_source_turn_indexes"],
-                "action_items": output["action_items"],
-                "insights": output["insights"],
-                "summary_fields": output["summary_fields"],
-                "decisions": output["decisions"],
-                "key_moments": output["key_moments"],
-                "extraction": extraction,
-                "extraction_missing": extraction is None,
-                "is_mock": False,
-                "usage": _usage(envelope.get("usage")),
-            }
-            return IntelligenceResult.model_validate(candidate)
         # RecursionError: ``json.loads`` gives up on very deep output (about 10 000
         # levels) before the result's own depth check can refuse it (HOM-53).
-        except (IndexError, KeyError, TypeError, ValueError, ValidationError, RecursionError):
-            raise ProviderError(
-                "intelligence_invalid_response",
-                "Intelligence provider returned an invalid response",
-                retryable=False,
-            ) from None
+        except (IndexError, KeyError, TypeError, ValueError, RecursionError):
+            raise _InvalidResponse from None
+        return content, output, _usage(envelope.get("usage"))
 
-    async def analyze(self, request: IntelligenceRequest) -> IntelligenceResult:
+    @classmethod
+    def _parse_result(cls, response: httpx.Response, model: str) -> IntelligenceResult:
+        """One answer to a result, with no corrective retry: any problem is the
+        non-retryable ``intelligence_invalid_response``. The parse the adapter
+        used before HOM-351 F3; tests read raw model output through it."""
         try:
-            response = await self._post(self._payload(request))
+            _raw, output, usage = cls._extract_output(response)
+        except _InvalidResponse:
+            raise _invalid_response() from None
+        result, _errors = _validate(cls._candidate(output, model, usage))
+        if result is None:
+            raise _invalid_response()
+        return result
+
+    @staticmethod
+    def _candidate(
+        output: dict[str, Any], model: str, usage: dict[str, int | None] | None
+    ) -> dict[str, Any]:
+        extraction = output.get("extraction")
+        return {
+            "provider": "openai_compatible",
+            "model": model,
+            "summary": output["summary"],
+            "summary_source_turn_indexes": output["summary_source_turn_indexes"],
+            "action_items": output["action_items"],
+            "insights": output["insights"],
+            "summary_fields": output["summary_fields"],
+            "decisions": output["decisions"],
+            "key_moments": output["key_moments"],
+            "extraction": extraction,
+            "extraction_missing": extraction is None,
+            "is_mock": False,
+            "usage": usage,
+        }
+
+    async def _post_checked(self, payload: dict[str, Any]) -> httpx.Response:
+        """One request, with the transport and status failures typed as before."""
+        try:
+            response = await self._post(payload)
         except httpx.TimeoutException:
             raise ProviderError(
                 "intelligence_timeout",
@@ -575,7 +784,6 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
                 "Intelligence provider is unavailable",
                 retryable=True,
             ) from None
-
         if not 200 <= response.status_code < 300:
             retryable = response.status_code == 429 or response.status_code >= 500
             raise ProviderError(
@@ -589,18 +797,90 @@ class OpenAICompatibleIntelligenceProvider(IntelligenceProvider):
         if _finish_reason(response) == "length":
             # The max_tokens cap cut the reply. Even JSON that parses may be
             # missing items, so it is never a result. A sampled retry can finish.
+            # Checked here, so the first and the corrective answer both get it.
             raise ProviderError(
                 "intelligence_output_truncated",
                 "Intelligence provider output hit the token limit",
                 retryable=True,
             )
-        return self._parse_result(response, self._model)
+        return response
+
+    def _corrective_payload(
+        self,
+        payload: dict[str, Any],
+        first_answer: str,
+        violations: list[ErrorDetails],
+    ) -> dict[str, Any]:
+        """The same request plus the model's answer and the rules it broke.
+
+        The corrective message lists paths and rules only, never field values."""
+        lines = "\n".join(f"{_error_path(error)}: {_rule_text(error)}" for error in violations)
+        return {
+            **payload,
+            "messages": [
+                *payload["messages"],
+                {"role": "assistant", "content": first_answer},
+                {
+                    "role": "user",
+                    "content": CORRECTIVE_RETRY_PROMPT.format(violations=lines),
+                },
+            ],
+        }
+
+    async def analyze(self, request: IntelligenceRequest) -> IntelligenceResult:
+        try:
+            response = await self._post_checked(self._payload(request))
+            raw, output, usage = self._extract_output(response)
+        except _InvalidResponse:
+            raise _invalid_response() from None
+        result, errors = _validate(self._candidate(output, self._model, usage))
+        if result is not None:
+            return result
+        # Raised outside any ``except`` block on purpose: a pydantic error
+        # prints the offending input (model output), so no error raised from
+        # here may chain one (R9).
+        violations = [item for item in errors if _is_bound_violation(item)]
+        if len(violations) != len(errors):
+            raise _invalid_response()
+        return await self._corrective_retry(request, raw, usage, violations)
+
+    async def _corrective_retry(
+        self,
+        request: IntelligenceRequest,
+        first_answer: str,
+        usage: dict[str, int | None] | None,
+        violations: list[ErrorDetails],
+    ) -> IntelligenceResult:
+        """One corrective retry for bound violations, then a repair (F3).
+
+        Anything still wrong after the retry is a retryable refusal (F3.5)."""
+        payload = self._corrective_payload(self._payload(request), first_answer, violations)
+        response = await self._post_checked(payload)
+        try:
+            _raw, second_output, second_usage = self._extract_output(response)
+        except _InvalidResponse:
+            raise _invalid_response(retryable=True) from None
+        combined = _combine_usage(usage, second_usage)
+        result, second_errors = _validate(self._candidate(second_output, self._model, combined))
+        if result is not None:
+            return result
+        second_violations = [item for item in second_errors if _is_bound_violation(item)]
+        if len(second_violations) != len(second_errors):
+            raise _invalid_response(retryable=True)
+        repaired = copy.deepcopy(second_output)
+        if not all(_apply_repair(repaired, item) for item in second_violations):
+            raise _invalid_response(retryable=True)
+        result, _errors = _validate(self._candidate(repaired, self._model, combined))
+        if result is None:
+            raise _invalid_response(retryable=True)
+        _log_repaired(second_violations, model=self._model)
+        return result
 
 
 def _finish_reason(response: httpx.Response) -> object:
     """``choices[0].finish_reason``, or ``None`` when the envelope has none.
 
-    A malformed envelope is left to ``_parse_result``, which refuses it."""
+    A malformed envelope is left to ``_extract_output``, which refuses it."""
     try:
         return response.json()["choices"][0].get("finish_reason")
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
