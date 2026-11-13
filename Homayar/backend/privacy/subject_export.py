@@ -9,12 +9,18 @@ detected spans, never substrings.
 
 Scope, stated in the export itself: live conversations of the workspace (a
 tombstoned conversation is already denied to every normal path, held or not),
-every transcript revision, the summary, the action items and the entity values of
-every stored taxonomy extraction (HOM-53, kept and withheld).  Not included:
-audio, backups, audit metadata, and anything that names the subject without
-one of the supported identifiers (names, addresses).  Segments are returned as
-they are, so they may also contain other people's words: the owner reviews the
-document before releasing it.  Nothing here logs or audits an identifier.
+every transcript revision, the summary, the action items, the entity values of
+every stored taxonomy extraction (HOM-53, kept and withheld) and the QA
+scorecard results with their criterion evidence (HOM-56) of the matched
+conversations.  A user whose account e-mail or phone is a requested identifier
+and who was the agent of a live conversation of the workspace also gets that
+conversation's scorecard results, scorecard rows only (ADR 0079).  Not
+included: audio, backups, audit metadata, anything that names the subject
+without one of the supported identifiers (names, addresses), supervisor review
+items, review decisions, appeals, calibration rows and coaching tasks.
+Segments are returned as they are, so they may also contain other people's
+words: the owner reviews the document before releasing it.  Nothing here logs
+or audits an identifier.
 """
 
 from __future__ import annotations
@@ -33,9 +39,12 @@ from sqlalchemy.orm import Session
 from backend.database.saas_models import (
     ActionItem,
     AnalysisExtraction,
+    CriterionResultRecord,
     Meeting,
     MeetingSpeaker,
     MeetingSummary,
+    ScorecardResultRecord,
+    User,
 )
 from backend.privacy.text_pii import (
     DETECTOR_VERSION,
@@ -54,10 +63,14 @@ SUBJECT_CLASSES = frozenset(
     {PiiClass.EMAIL, PiiClass.PHONE, PiiClass.IR_NATIONAL_ID, PiiClass.BANK_CARD, PiiClass.IBAN}
 )
 SUBJECT_NOTICE = (
-    "Conversations of this workspace that contain the given identifiers (any spelling). "
-    "Segments are shown in full and may contain other people's words; review before "
-    "release. Not included: audio, backups, audit metadata, deleted conversations, and "
-    "mentions without a supported identifier (names, addresses)."
+    "Conversations of this workspace that contain the given identifiers (any spelling), "
+    "with their QA scorecard results and criterion evidence. Also the scorecard results "
+    "of the conversations where the agent's account e-mail or phone is a requested "
+    "identifier (scorecard rows only). Segments are shown in full and may contain other "
+    "people's words; review before release. Not included: audio, backups, audit "
+    "metadata, deleted conversations, mentions without a supported identifier (names, "
+    "addresses), supervisor review items, review decisions, appeals, calibration rows "
+    "and coaching tasks."
 )
 
 
@@ -480,6 +493,155 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+# The criterion columns of one result (D3 of ADR 0079); the JSON blobs of the
+# result row itself never leave.
+_CRITERION_COLUMNS = (
+    "position",
+    "criterion_id",
+    "weight",
+    "auto_fail",
+    "na_allowed",
+    "outcome",
+    "reason",
+    "decided_by",
+    "review_required",
+    "review_reasons",
+    "check_outcome",
+    "check_reason",
+    "evidence",
+    "candidate_evidence",
+)
+
+
+def _scorecards_of(db: Session, workspace_id: str, meeting_id: str) -> list[dict[str, Any]]:
+    """One meeting's stored scorecard results and their criterion rows (HOM-56),
+    stored columns only, evidence spans exactly as stored."""
+    results: list[dict[str, Any]] = []
+    for row in db.scalars(
+        select(ScorecardResultRecord)
+        .where(
+            ScorecardResultRecord.workspace_id == workspace_id,
+            ScorecardResultRecord.meeting_id == meeting_id,
+        )
+        .order_by(ScorecardResultRecord.created_at.asc(), ScorecardResultRecord.id.asc())
+    ):
+        results.append(
+            {
+                "result_id": row.id,
+                "scorecard_version_id": row.scorecard_version_id,
+                "transcript_revision_id": row.transcript_revision_id,
+                "scorecards_version": row.scorecards_version,
+                "checks_version": row.checks_version,
+                "conversation_type": row.conversation_type,
+                "direction": row.direction,
+                "outcome": row.outcome,
+                "reason": row.reason,
+                "complete": row.complete,
+                "pass_threshold": row.pass_threshold,
+                "applicable_weight": row.applicable_weight,
+                "earned_weight": row.earned_weight,
+                "failed_weight": row.failed_weight,
+                "insufficient_weight": row.insufficient_weight,
+                "created_at": _iso(row.created_at),
+                "criteria": [
+                    {column: getattr(criterion, column) for column in _CRITERION_COLUMNS}
+                    for criterion in db.scalars(
+                        select(CriterionResultRecord)
+                        .where(
+                            CriterionResultRecord.workspace_id == workspace_id,
+                            CriterionResultRecord.meeting_id == meeting_id,
+                            CriterionResultRecord.result_id == row.id,
+                        )
+                        .order_by(CriterionResultRecord.position.asc())
+                    )
+                ],
+            }
+        )
+    return results
+
+
+def _agent_subject_ids(
+    db: Session, workspace_id: str, identifiers: list[SubjectIdentifier]
+) -> set[str]:
+    """The agents of this workspace's live meetings whose account e-mail or phone
+    is a requested identifier (ADR 0079).  The canonical value comes from the
+    same detector as the request; a stored value it cannot read one-of is
+    skipped, never an error."""
+    # Only an e-mail or a phone can name a user's account, so nothing else
+    # starts the candidate query.
+    if not any(item.pii_class in (PiiClass.EMAIL, PiiClass.PHONE) for item in identifiers):
+        return set()
+    agent_ids = set(
+        db.scalars(
+            select(Meeting.agent_user_id)
+            .where(
+                Meeting.workspace_id == workspace_id,
+                Meeting.deleted_at.is_(None),
+                Meeting.agent_user_id.is_not(None),
+            )
+            .distinct()
+        )
+    )
+    if not agent_ids:
+        return set()
+    wanted = {(item.pii_class, item.value) for item in identifiers}
+    subjects: set[str] = set()
+    for user in db.scalars(select(User).where(User.id.in_(agent_ids))):
+        for raw in (user.email, user.phone_e164):
+            if not raw:
+                continue
+            try:
+                parsed = parse_subject_identifier(raw)
+            except SubjectIdentifierError:
+                continue
+            if (parsed.pii_class, parsed.value) in wanted:
+                subjects.add(user.id)
+                break
+    return subjects
+
+
+def _agent_section(
+    db: Session,
+    workspace_id: str,
+    agent_ids: set[str],
+    meeting_clause,
+    limit: int,
+) -> dict[str, Any]:
+    """The agent path of ADR 0079: the live conversations of the agent subjects
+    under the caller's record access, scorecard rows only, newest first, bounded
+    like the customer path."""
+    meetings = list(
+        db.scalars(
+            select(Meeting)
+            .where(
+                Meeting.workspace_id == workspace_id,
+                Meeting.deleted_at.is_(None),
+                meeting_clause,
+                Meeting.agent_user_id.in_(agent_ids),
+            )
+            .order_by(Meeting.created_at.desc(), Meeting.id.asc())
+            .limit(limit + 1)
+        )
+    )
+    truncated = len(meetings) > limit
+    meetings = meetings[:limit]
+    entries = []
+    for meeting in meetings:
+        scorecards = _scorecards_of(db, workspace_id, meeting.id)
+        if not scorecards:
+            continue
+        entries.append(
+            {
+                "meeting_id": meeting.id,
+                "title": meeting.title,
+                "created_at": _iso(meeting.created_at),
+                "retention_expires_at": _iso(meeting.retention_expires_at),
+                "scorecards": scorecards,
+            }
+        )
+    return {"meetings_scanned": len(meetings), "truncated": truncated, "meetings": entries}
+
+
 def _meeting_matches(db: Session, meeting: Meeting, matcher: _Matcher) -> dict[str, Any] | None:
     names = {
         speaker.speaker_key: speaker.display_name or speaker.speaker_key
@@ -577,6 +739,7 @@ def _meeting_matches(db: Session, meeting: Meeting, matcher: _Matcher) -> dict[s
         "revisions": revisions,
         "summary": summary_items,
         "actions": actions,
+        "scorecards": _scorecards_of(db, meeting.workspace_id, meeting.id),
     }
     if extraction:
         match["extraction"] = extraction
@@ -658,6 +821,14 @@ def build_subject_export(
         },
         "matches": matches,
     }
+    agent_subjects = _agent_subject_ids(db, workspace_id, identifiers)
+    agent: dict[str, Any] | None = None
+    if agent_subjects:
+        agent = _agent_section(db, workspace_id, agent_subjects, meeting_clause, limit)
+        document["agent"] = agent
+    scorecard_results = sum(len(match["scorecards"]) for match in matches) + (
+        sum(len(entry["scorecards"]) for entry in agent["meetings"]) if agent else 0
+    )
     audit = {
         "identifier_classes": ",".join(classes),
         "identifier_count": len(identifiers),
@@ -665,5 +836,9 @@ def build_subject_export(
         "meetings_matched": len(matches),
         "segments_matched": matcher.segments,
         "truncated": truncated,
+        "scorecard_results": scorecard_results,
+        "agent_subjects": len(agent_subjects),
+        "agent_meetings_scanned": agent["meetings_scanned"] if agent else 0,
+        "agent_truncated": agent["truncated"] if agent else False,
     }
     return document, audit
