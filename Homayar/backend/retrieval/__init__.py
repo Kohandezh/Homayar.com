@@ -14,5 +14,9 @@ fills and reads ``retrieval_entries`` and ``retrieval_embeddings``:
 * :mod:`backend.retrieval.lexical` and :mod:`backend.retrieval.vector_store`
   read the index under the live record access, the live revision pointer and
   the workspace's current default reader view, never the stored snapshot
-  alone (HOM-94 owns the evidence read path that sits on top).
+  alone (HOM-94 owns the evidence read path that sits on top);
+* :mod:`backend.retrieval.evidence` re-resolves membership and record access
+  from live rows before every search and every evidence fetch, filters
+  before any candidate is scored, and serves id-asked fetches with the same
+  checks (HOM-94, ADR 0077).
 """
