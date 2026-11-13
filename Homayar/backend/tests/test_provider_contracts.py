@@ -293,24 +293,15 @@ MALFORMED_OUTPUTS = [
         json.dumps({k: v for k, v in VALID_OUTPUT.items() if k != "insights"}), id="missing-key"
     ),
     pytest.param(json.dumps(_with(summary=5)), id="summary-not-text"),
-    pytest.param(json.dumps(_with(summary_source_turn_indexes=[-1])), id="negative-index"),
     pytest.param(
         json.dumps(_with(action_items=[{**VALID_OUTPUT["action_items"][0], "priority": "urgent"}])),
         id="unknown-priority",
-    ),
-    pytest.param(
-        json.dumps(_with(action_items=[{**VALID_OUTPUT["action_items"][0], "description": ""}])),
-        id="empty-action",
     ),
     pytest.param(
         json.dumps(
             _with(action_items=[{**VALID_OUTPUT["action_items"][0], "due_date": "tomorrow"}])
         ),
         id="invalid-date",
-    ),
-    pytest.param(
-        json.dumps(_with(insights=[{**VALID_OUTPUT["insights"][0], "confidence": 1.7}])),
-        id="confidence-above-one",
     ),
     pytest.param(
         json.dumps(_with(action_items=[{**VALID_OUTPUT["action_items"][0], "surprise": True}])),
@@ -326,6 +317,59 @@ def test_an_api_adapter_never_turns_malformed_output_into_a_result(content):
         asyncio.run(adapter.analyze(REQUEST))
     assert refused.value.code == "intelligence_invalid_response"
     assert refused.value.retryable is False  # a schema violation is not transient
+
+
+def _dropped_the_invalid_summary_index(result: IntelligenceResult) -> None:
+    assert result.summary_source_turn_indexes == []
+
+
+def _clamped_confidence(result: IntelligenceResult) -> None:
+    assert result.insights[0].confidence == 1
+
+
+@pytest.mark.parametrize(
+    ("content", "verify"),
+    [
+        pytest.param(
+            json.dumps(_with(summary_source_turn_indexes=[-1])),
+            _dropped_the_invalid_summary_index,
+            id="negative-index",
+        ),
+        pytest.param(
+            json.dumps(_with(insights=[{**VALID_OUTPUT["insights"][0], "confidence": 1.7}])),
+            _clamped_confidence,
+            id="confidence-above-one",
+        ),
+        pytest.param(
+            json.dumps(
+                _with(action_items=[{**VALID_OUTPUT["action_items"][0], "description": ""}])
+            ),
+            None,
+            id="empty-action",
+        ),
+    ],
+)
+def test_an_api_adapter_repairs_or_retries_bound_violations(content, verify):
+    """HOM-351 F3: a bound violation gets one corrective retry, never the old
+    one-call refusal.  The transport replays the same answer, so the retry sees
+    it again: a repairable bound is repaired into a valid result, an
+    unrepairable ``minLength`` fails the analysis retryably.  Both take exactly
+    two calls."""
+    calls: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return _completion(content)
+
+    adapter = _api_adapter(respond)
+    if verify is None:
+        with pytest.raises(ProviderError) as refused:
+            asyncio.run(adapter.analyze(REQUEST))
+        assert refused.value.code == "intelligence_invalid_response"
+        assert refused.value.retryable is True
+    else:
+        verify(asyncio.run(adapter.analyze(REQUEST)))
+    assert len(calls) == 2
 
 
 @pytest.mark.parametrize(

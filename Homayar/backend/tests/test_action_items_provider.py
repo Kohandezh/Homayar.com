@@ -123,14 +123,28 @@ def test_the_parser_keeps_the_kind_and_the_quotes():
     ("key", "value"),
     [
         pytest.param("kind", "other", id="unknown-kind"),
-        pytest.param("owner_quote", "x" * 501, id="owner-quote-too-long"),
-        pytest.param("due_quote", "x" * 201, id="due-quote-too-long"),
     ],
 )
 def test_the_parser_refuses_a_bad_kind_or_quote(key, value):
     with pytest.raises(ProviderError) as refused:
         _run(_with_items(ITEM | {key: value}))
     assert refused.value.code == "intelligence_invalid_response"
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "limit"),
+    [
+        pytest.param("owner_quote", "x" * 501, 500, id="owner-quote-too-long"),
+        pytest.param("due_quote", "x" * 201, 200, id="due-quote-too-long"),
+    ],
+)
+def test_a_too_long_quote_is_truncated_after_the_corrective_retry(key, value, limit):
+    # HOM-351 F3 (R10): maxLength is a bound. The transport repeats the answer,
+    # so the retry sees it again and the repair cuts it to the bound.
+    seen: list = []
+    result = _run(_with_items(ITEM | {key: value}), seen)
+    assert getattr(result.action_items[0], key) == "x" * limit
+    assert len(seen) == 2
 
 
 def test_an_item_without_the_new_keys_is_an_unlabelled_next_step():

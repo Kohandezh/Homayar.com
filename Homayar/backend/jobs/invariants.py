@@ -22,7 +22,10 @@ broker outage, lost acknowledgement, duplicate delivery, storage fault):
 ``ledger_counters``                     entitlement counters equal the sums the
                                         reservation rows imply
 ``meeting_status``                      the meeting's status agrees with its
-                                        latest job
+                                        latest job (a failed or dead-lettered
+                                        job leaves it ``partial`` only when that
+                                        job wrote a transcript revision of it,
+                                        HOM-351 F4)
 ``checkpoint_state``                    a PUBLISHED checkpoint carries its
                                         verified digest, was published by a
                                         generation the job has seen and belongs
@@ -71,6 +74,7 @@ from backend.database.saas_models import (
     ProcessingStageRun,
     ReservationState,
     StageCheckpoint,
+    TranscriptRevision,
     UsageEvent,
     UsageReservation,
 )
@@ -380,6 +384,17 @@ def check_workspace(
             expected_statuses = {MeetingStatus.COMPLETED, MeetingStatus.PARTIAL}
         elif job.state in {JobState.FAILED, JobState.DEAD_LETTER}:
             expected_statuses = {MeetingStatus.FAILED}
+            # A terminally failed analysis keeps the transcript it wrote (F4).
+            kept_transcript = db.scalar(
+                select(TranscriptRevision.id)
+                .where(
+                    TranscriptRevision.meeting_id == meeting_id,
+                    TranscriptRevision.job_id == job.id,
+                )
+                .limit(1)
+            )
+            if kept_transcript is not None:
+                expected_statuses.add(MeetingStatus.PARTIAL)
         elif job.state == JobState.CANCELLED:
             expected_statuses = {MeetingStatus.CANCELLED}
         else:

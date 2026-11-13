@@ -184,7 +184,6 @@ REJECTED = [
     ),
     pytest.param(("decisions", 0, "description"), "", id="empty-decision"),
     pytest.param(("key_moments", 0, "kind"), "", id="empty-moment-kind"),
-    pytest.param(("key_moments", 0, "source_turn_indexes"), [-1], id="negative-moment-index"),
     pytest.param(("summary_fields", "extra"), NOT_STATED, id="extra-summary-field"),
 ]
 
@@ -195,6 +194,14 @@ def test_parser_rejects_a_malformed_claim(path, value):
     with pytest.raises(ProviderError) as refused:
         _analyze(output)
     assert refused.value.code == "intelligence_invalid_response"
+
+
+def test_a_negative_moment_index_is_dropped_after_the_corrective_retry():
+    # HOM-351 F3 (R2, R10): a bound violation, not a malformed claim. The
+    # transport repeats the answer, so the retry sees it again and the repair
+    # drops the invalid index.
+    result = _analyze(_changed(("key_moments", 0, "source_turn_indexes"), [-1]))
+    assert result.key_moments[0].source_turn_indexes == []
 
 
 def test_the_rejection_comes_from_the_field_under_test():
