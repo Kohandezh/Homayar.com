@@ -63,6 +63,8 @@ export interface MfaCopy {
   };
   common: {
     signOut: string;
+    /** Fallback for a failed sign-out (the Sidebar shows the same text). */
+    signOutFailed: string;
     checking: string;
   };
   errors: {
@@ -138,6 +140,7 @@ export const MFA_COPY: Record<Lang, MfaCopy> = {
     },
     common: {
       signOut: "Sign out",
+      signOutFailed: "Unable to sign out; try again.",
       checking: "Checking two-step verification",
     },
     errors: {
@@ -211,6 +214,7 @@ export const MFA_COPY: Record<Lang, MfaCopy> = {
     },
     common: {
       signOut: "خروج",
+      signOutFailed: "خروج انجام نشد؛ دوباره تلاش کنید.",
       checking: "در حال بررسی ورود دومرحله‌ای",
     },
     errors: {

@@ -4,11 +4,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import { ShieldCheck } from "lucide-react";
 import { apiErrorInfo } from "@/lib/api-errors";
+import { describeApiError } from "@/lib/error-messages";
 import { formatNumber } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { safeNextPath } from "@/lib/return-path";
-import { confirmTotp, enrollTotp, refreshMfaStatus } from "@/lib/mfa-api";
+import { confirmTotp, enrollTotp, markMfaSessionVerified } from "@/lib/mfa-api";
 import { AuthCard, FormAlert, SubmitButton } from "@/components/auth/AuthUi";
 import { MFA_COPY } from "@/components/mfa/mfa-copy";
 import RecoveryCodesView from "@/components/mfa/RecoveryCodesView";
@@ -44,6 +45,7 @@ export default function MfaSetupPage() {
   const [error, setError] = useState<MfaFormError | null>(null);
   const [busy, setBusy] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const codeInput = useRef<HTMLInputElement>(null);
   const { copied, failed, copy: copyText } = useCopyToClipboard();
 
@@ -61,10 +63,14 @@ export default function MfaSetupPage() {
   }
 
   async function handleSignOut() {
+    setSignOutError(null);
     try {
       await signOut();
-    } catch {
-      // A failed logout still leaves this page; the session ends server-side.
+    } catch (error) {
+      // The session is still live: stay here and say so, instead of
+      // bouncing the user back from /login (the Sidebar's own text).
+      setSignOutError(describeApiError(error, { lang, fallback: copy.common.signOutFailed }).text);
+      return;
     }
     navigate("/login", { replace: true });
   }
@@ -104,7 +110,9 @@ export default function MfaSetupPage() {
       // The secret and the typed code leave the screen with the state (AC8).
       setEnrollment(null);
       setCode("");
-      await refreshMfaStatus(queryClient);
+      // The server accepted the code: the cached status is verified at once,
+      // and a failing re-read cannot bounce the user back (AC5).
+      markMfaSessionVerified(queryClient, { totpEnrolled: true });
       setRecoveryCodes(recovery_codes);
     } catch (caught) {
       if (apiErrorInfo(caught).code === "mfa_required") {
@@ -123,9 +131,12 @@ export default function MfaSetupPage() {
   }
 
   const signOutButton = (
-    <button type="button" className="auth-text-button" onClick={() => void handleSignOut()}>
-      {copy.common.signOut}
-    </button>
+    <div className="flex flex-col items-start gap-2">
+      <button type="button" className="auth-text-button" onClick={() => void handleSignOut()}>
+        {copy.common.signOut}
+      </button>
+      {signOutError && <p className="m-0 platform-form-error" role="alert">{signOutError}</p>}
+    </div>
   );
 
   if (recoveryCodes) {
@@ -156,8 +167,10 @@ export default function MfaSetupPage() {
 
   return (
     <AuthCard title={copy.setup.title} description={copy.setup.intro} footer={signOutButton}>
-      {/* The QR is drawn in the browser from the otpauth URI; no network (AC4). */}
-      <div className="flex justify-center">
+      {/* The QR is drawn in the browser from the otpauth URI; no network (AC4).
+          The wrapper is explicit left to right, so the code stays upright in
+          the right-to-left page (AC9). */}
+      <div className="flex justify-center" dir="ltr">
         <QRCodeSVG
           value={enrollment.otpauth_uri}
           size={176}

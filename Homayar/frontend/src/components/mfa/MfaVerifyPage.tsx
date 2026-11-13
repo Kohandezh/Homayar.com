@@ -3,11 +3,12 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { apiErrorInfo } from "@/lib/api-errors";
+import { describeApiError } from "@/lib/error-messages";
 import { formatNumber } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { safeNextPath } from "@/lib/return-path";
-import { refreshMfaStatus, verifyMfa } from "@/lib/mfa-api";
+import { markMfaSessionVerified, verifyMfa } from "@/lib/mfa-api";
 import { AuthCard, FormAlert, SubmitButton } from "@/components/auth/AuthUi";
 import { MFA_COPY } from "@/components/mfa/mfa-copy";
 import { mfaFormError, type MfaFormError } from "@/components/mfa/mfa-errors";
@@ -34,6 +35,7 @@ export default function MfaVerifyPage() {
   const [error, setError] = useState<MfaFormError | null>(null);
   const [busy, setBusy] = useState(false);
   const [recoveryRemaining, setRecoveryRemaining] = useState<number | null>(null);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const codeInput = useRef<HTMLInputElement>(null);
 
   function errorText(formError: MfaFormError): string {
@@ -58,10 +60,14 @@ export default function MfaVerifyPage() {
   }
 
   async function handleSignOut() {
+    setSignOutError(null);
     try {
       await signOut();
-    } catch {
-      // A failed logout still leaves this page; the session ends server-side.
+    } catch (error) {
+      // The session is still live: stay here and say so, instead of
+      // bouncing the user back from /login (the Sidebar's own text).
+      setSignOutError(describeApiError(error, { lang, fallback: copy.common.signOutFailed }).text);
+      return;
     }
     navigate("/login", { replace: true });
   }
@@ -78,9 +84,9 @@ export default function MfaVerifyPage() {
     setError(null);
     try {
       const result = await verifyMfa(trimmed);
-      // Re-read the status before leaving, so the route gate does not send
-      // the user straight back (AC5).
-      await refreshMfaStatus(queryClient);
+      // The server accepted the code: the cached status is verified at once,
+      // so the route gate lets the user through even if the re-read fails.
+      markMfaSessionVerified(queryClient);
       if (result.method === "totp") {
         navigate(next, { replace: true });
       } else {
@@ -103,9 +109,12 @@ export default function MfaVerifyPage() {
   }
 
   const signOutButton = (
-    <button type="button" className="auth-text-button" onClick={() => void handleSignOut()}>
-      {copy.common.signOut}
-    </button>
+    <div className="flex flex-col items-start gap-2">
+      <button type="button" className="auth-text-button" onClick={() => void handleSignOut()}>
+        {copy.common.signOut}
+      </button>
+      {signOutError && <p className="m-0 platform-form-error" role="alert">{signOutError}</p>}
+    </div>
   );
 
   if (recoveryRemaining !== null) {

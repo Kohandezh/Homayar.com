@@ -5,7 +5,6 @@ import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router";
 import api from "@/lib/api";
 import { AppRoutes } from "@/AppRoutes";
-import AccountSecurityPage from "@/components/account/AccountSecurityPage";
 import { FIXTURE_USER, FIXTURE_WORKSPACE, apiError, okResponse, renderConsole } from "@/test/fixtures";
 import type { MfaStatus } from "@/types/mfa";
 
@@ -25,6 +24,16 @@ function LocationProbe() {
 
 function location() {
   return screen.getByTestId("location").textContent;
+}
+
+/** Everything a storage holds, read through the API (stringify of the setup's stub storage would be empty). */
+function storageText(storage: Storage): string {
+  const parts: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key !== null) parts.push(key, storage.getItem(key) ?? "");
+  }
+  return parts.join("\n");
 }
 
 /** GET /auth/mfa answers one status per call; POST is answered separately. */
@@ -121,25 +130,31 @@ describe("account security page (AC7)", () => {
     expect(screen.queryByRole("link", { name: "Use a new authenticator app" })).not.toBeInTheDocument();
   });
 
-  it("shows a failed read with a retry that recovers", async () => {
-    // Rendered directly (not through the route tree): the page's own states,
-    // without the layout's lazy suspension on a loaded run. One observer, so
-    // the first read errors and the retry read recovers.
-    mockReads([
+  it("shows the error and Try again when the status read fails, with no request storm (gate and page together)", async () => {
+    // Through the real route tree: the gate's read fails, the page's second
+    // observer must not refetch it (retryOnMount: false), and "Try again"
+    // recovers when the next read succeeds.
+    const answers: (MfaStatus | Error)[] = [
       apiError(500, "internal_error"),
       status({ totp_enrolled: true, session_verified: true, recovery_codes_remaining: 5 }),
-    ]);
+    ];
+    const urls = mockReads(answers);
     const user = userEvent.setup();
-    window.localStorage.removeItem("homayar_lang");
-    renderConsole(<Suspense fallback={<p>Loading page</p>}><AccountSecurityPage /></Suspense>, {
-      route: "/account/security",
-      lang: "en",
-      auth: { status: "authenticated", user: FIXTURE_USER, workspace: FIXTURE_WORKSPACE, workspaces: [FIXTURE_WORKSPACE] },
-    });
+    renderAccount();
 
+    expect(await screen.findByRole("heading", { level: 1, name: "Account security" })).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent("The service is not available right now; try again shortly.");
+
+    // Exactly the gate's one read; the page's observer adds nothing, and the
+    // count stays bounded after a settle wait (the review's request storm).
+    const mfaReads = () => urls.filter((url) => url === "/auth/mfa").length;
+    expect(mfaReads()).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(mfaReads()).toBe(1);
+
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("On")).toBeInTheDocument();
+    expect(mfaReads()).toBe(2);
   });
 
   it("makes new recovery codes through the confirm dialog, and Cancel sends nothing", async () => {
@@ -188,8 +203,8 @@ describe("account security page (AC7)", () => {
     await screen.findByRole("heading", { name: "Save your recovery codes" });
 
     const surfaces = [
-      JSON.stringify(window.localStorage),
-      JSON.stringify(window.sessionStorage),
+      storageText(window.localStorage),
+      storageText(window.sessionStorage),
       JSON.stringify(view.queryClient.getQueryCache().getAll()),
     ];
     for (const surface of surfaces) {

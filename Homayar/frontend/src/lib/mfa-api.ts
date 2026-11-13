@@ -27,10 +27,13 @@ export async function getMfaStatus(signal?: AbortSignal): Promise<MfaStatus> {
 
 /**
  * The status query: no secret, so the console's normal caching applies. The
- * status is read once per session; it is never refetched on a remount (the
- * route gate remounts while a lazy page loads, and a read that errored on an
- * old backend would otherwise refetch in a loop). "Try again" and the
- * post-confirm re-read call `refetch` / `refreshMfaStatus` on purpose.
+ * status is read once per session (`staleTime: Infinity`), and a query in
+ * `error` never resets and refetches on its own (`retry: false` +
+ * `retryOnMount: false`): the gate unmounts the page while a lazy route
+ * loads, and an old backend's error answer otherwise became an endless
+ * request storm on `/account/security`. "Try again" and the post-confirm
+ * re-read call `refetch` / `refreshMfaStatus` on purpose, and a cleared
+ * cache (a workspace switch) is re-read on the gate's next evaluation.
  */
 export function useMfaStatus() {
   return useQuery({
@@ -38,9 +41,7 @@ export function useMfaStatus() {
     queryFn: ({ signal }) => getMfaStatus(signal),
     staleTime: Infinity,
     retry: false,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    retryOnMount: false,
   });
 }
 
@@ -56,6 +57,23 @@ export async function refreshMfaStatus(queryClient: QueryClient): Promise<void> 
   } catch {
     queryClient.invalidateQueries({ queryKey: mfaQueryKeys.status() });
   }
+}
+
+/**
+ * After a successful confirm or verify, mark the cached status as verified at
+ * once (the server just accepted the code, so the optimistic value is true
+ * even if the re-read below fails), then re-read it in the background. The
+ * optimistic value is what lets the route gate wave the user through when
+ * the re-read cannot reach the server; `totpEnrolled` is set by the confirm
+ * flow, which just attached the factor.
+ */
+export function markMfaSessionVerified(queryClient: QueryClient, options: { totpEnrolled?: boolean } = {}): void {
+  queryClient.setQueryData<MfaStatus>(mfaQueryKeys.status(), (current) =>
+    current
+      ? { ...current, session_verified: true, ...(options.totpEnrolled ? { totp_enrolled: true } : {}) }
+      : current,
+  );
+  void refreshMfaStatus(queryClient);
 }
 
 /** Convenience wrapper for components that already hold a query client. */

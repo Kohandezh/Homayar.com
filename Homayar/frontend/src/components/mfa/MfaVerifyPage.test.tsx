@@ -227,6 +227,18 @@ describe("MFA verify page (AC5)", () => {
     expect(signOut).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(location()).toBe("/login"));
   });
+
+  it("stays on the page and explains when signing out fails", async () => {
+    mockVerify(apiError(400, "mfa_code_invalid"));
+    const signOut = vi.fn().mockRejectedValue(apiError(400, "logout_failed"));
+    const user = userEvent.setup();
+    renderVerify("/mfa/verify?next=/admin", "en", signOut);
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to sign out; try again.");
+    expect(location()).toBe("/mfa/verify?next=/admin");
+    expect(screen.getByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+  });
 });
 
 describe("MFA verify page in Persian (AC9)", () => {

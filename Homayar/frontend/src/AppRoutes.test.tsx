@@ -1,6 +1,7 @@
 import { Suspense, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router";
 import api, { MFA_REQUIRED_EVENT } from "@/lib/api";
 import { AuthContext, useAuth } from "@/lib/auth-context";
@@ -502,7 +503,9 @@ describe("MFA routes, proactive gate and reactive redirect (HOM-241)", () => {
   });
 
   it("renders no app shell while the check is pending, so no workspace request fires (AC2)", async () => {
-    const get = pendingReads();
+    // Its own mock: pendingReads answers /auth/mfa, and this case needs that
+    // read pending too (the review's item 8).
+    const get = vi.spyOn(api, "get").mockImplementation(() => new Promise(() => undefined));
     renderApp("/admin/teams");
 
     expect(await screen.findByText("Checking two-step verification")).toBeInTheDocument();
@@ -564,6 +567,79 @@ describe("MFA routes, proactive gate and reactive redirect (HOM-241)", () => {
     window.dispatchEvent(new CustomEvent(MFA_REQUIRED_EVENT, { detail: { code: "mfa_required" } }));
     expect(screen.getByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
     expect(location()).toBe("/mfa/verify");
+  });
+
+  it.each([
+    ["upper case", "/MFA/verify"],
+    ["percent escapes", "/%6Dfa/verify"],
+  ])("does not navigate again on an MFA page spelled with %s either (AC3)", async (_label, route) => {
+    // The router matches without case and decodes escapes, so these mount the
+    // verify page; the listener must recognize them as MFA pages too.
+    pendingReads();
+    renderApp(route);
+    expect(await screen.findByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+
+    window.dispatchEvent(new CustomEvent(MFA_REQUIRED_EVENT, { detail: { code: "mfa_required" } }));
+    expect(screen.getByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+    expect(location()).toBe(route);
+  });
+
+  it("lets a verified user back even when the status re-read fails after verify (turn 2 item 3)", async () => {
+    let statusReads = 0;
+    vi.spyOn(api, "get").mockImplementation(async (url: string) => {
+      if (url === "/auth/mfa") {
+        statusReads += 1;
+        // The first read redirects to /mfa/verify; the re-read after the
+        // successful verify fails.
+        if (statusReads === 1) return okResponse(ENROLLED);
+        throw apiError(503, "mfa_unavailable");
+      }
+      return new Promise(() => undefined);
+    });
+    vi.spyOn(api, "post").mockImplementation(async (url: string) => {
+      if (url === "/auth/mfa/verify") return okResponse({ verified: true, method: "totp", recovery_codes_remaining: 9 });
+      throw apiError(500, "unexpected_post");
+    });
+    const user = userEvent.setup();
+    renderApp("/admin");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Six-digit code"), "123456");
+    await user.click(screen.getByRole("button", { name: "Verify" }));
+
+    // The optimistic verified cache lets the gate wave the user through.
+    await waitFor(() => expect(location()).toBe("/admin"));
+    expect(screen.queryByRole("heading", { name: "Verify it's you" })).not.toBeInTheDocument();
+    expect(statusReads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps the shell while a later status re-read runs (a workspace switch cleared the cache)", async () => {
+    const answers = [
+      FREE,
+      { totp_enrolled: true, recovery_codes_remaining: 4, session_verified: false, required: true },
+    ];
+    let reads = 0;
+    vi.spyOn(api, "get").mockImplementation(async (url: string) => {
+      if (url === "/auth/mfa") {
+        const answer = answers[Math.min(reads, answers.length - 1)];
+        reads += 1;
+        return okResponse(answer);
+      }
+      return new Promise(() => undefined);
+    });
+    const view = renderApp("/account/security");
+    expect(await screen.findByRole("heading", { level: 1, name: "Account security" })).toBeInTheDocument();
+
+    // A workspace switch clears the whole query cache (AuthProvider).
+    act(() => view.queryClient.clear());
+
+    // The shell stays: no "Checking two-step verification" replacement.
+    expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
+    expect(screen.queryByText("Checking two-step verification")).not.toBeInTheDocument();
+
+    // The re-read says MFA is needed, and the gate still redirects.
+    expect(await screen.findByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+    await waitFor(() => expect(location()).toBe(`/mfa/verify?next=${encodeURIComponent("/account/security")}`));
   });
 
   it.each([

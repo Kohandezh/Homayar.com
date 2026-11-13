@@ -34,8 +34,18 @@ function location() {
   return screen.getByTestId("location").textContent;
 }
 
+/** Everything a storage holds, read through the API (stringify of the setup's stub storage would be empty). */
+function storageText(storage: Storage): string {
+  const parts: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key !== null) parts.push(key, storage.getItem(key) ?? "");
+  }
+  return parts.join("\n");
+}
+
 /** Renders /mfa/setup through the real route tree, signed in as an owner. */
-function renderSetup(route = "/mfa/setup?next=/admin", lang: "fa" | "en" = "en") {
+function renderSetup(route = "/mfa/setup?next=/admin", lang: "fa" | "en" = "en", signOut = vi.fn().mockResolvedValue(undefined)) {
   window.localStorage.removeItem("homayar_lang");
   return renderConsole(
     <Suspense fallback={<p>Loading page</p>}>
@@ -50,6 +60,7 @@ function renderSetup(route = "/mfa/setup?next=/admin", lang: "fa" | "en" = "en")
         user: FIXTURE_USER,
         workspace: FIXTURE_WORKSPACE,
         workspaces: [FIXTURE_WORKSPACE],
+        signOut,
       },
     },
   );
@@ -213,8 +224,9 @@ describe("MFA setup page (AC4)", () => {
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     await screen.findByRole("heading", { name: "Save your recovery codes" });
 
-    expect(urls).toContain("/auth/mfa");
-    expect(view.queryClient.getQueryData(mfaQueryKeys.status())).toEqual(fresh);
+    // The re-read runs in the background once the code is accepted.
+    await waitFor(() => expect(urls).toContain("/auth/mfa"));
+    await waitFor(() => expect(view.queryClient.getQueryData(mfaQueryKeys.status())).toEqual(fresh));
   });
 
   it.each([
@@ -320,22 +332,25 @@ describe("MFA setup page (AC4)", () => {
 
   it("signs out from the always-present Sign out button", async () => {
     const signOut = vi.fn().mockResolvedValue(undefined);
-    window.localStorage.removeItem("homayar_lang");
-    renderConsole(
-      <Suspense fallback={<p>Loading page</p>}>
-        <AppRoutes />
-        <LocationProbe />
-      </Suspense>,
-      {
-        route: "/mfa/setup",
-        lang: "en",
-        auth: { status: "authenticated", user: FIXTURE_USER, workspace: FIXTURE_WORKSPACE, workspaces: [FIXTURE_WORKSPACE], signOut },
-      },
-    );
+    mockMfaPost();
     const user = userEvent.setup();
+    renderSetup("/mfa/setup", "en", signOut);
     await user.click(await screen.findByRole("button", { name: "Sign out" }));
     expect(signOut).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(location()).toBe("/login"));
+  });
+
+  it("stays on the page and explains when signing out fails", async () => {
+    // A non-5xx failure, so the text is the sign-out fallback the Sidebar shows.
+    const signOut = vi.fn().mockRejectedValue(apiError(400, "logout_failed"));
+    mockMfaPost();
+    const user = userEvent.setup();
+    renderSetup("/mfa/setup?next=/admin", "en", signOut);
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to sign out; try again.");
+    expect(location()).toBe("/mfa/setup?next=/admin");
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 });
 
@@ -353,8 +368,10 @@ describe("MFA setup page in Persian (AC9)", () => {
     expect(screen.getByText("کلید راه‌اندازی")).toBeInTheDocument();
     expect(screen.getByLabelText("کد شش‌رقمی")).toHaveAttribute("inputmode", "numeric");
     expect(screen.getByRole("button", { name: "تأیید" })).toBeInTheDocument();
-    // The secret stays left to right (AC9).
+    // The secret stays left to right (AC9)...
     expect(screen.getByText(GROUPED)).toHaveAttribute("dir", "ltr");
+    // ...and so does the QR: its closest [dir] ancestor is the ltr wrapper.
+    expect(screen.getByRole("img", { name: "کد QR برای برنامهٔ احراز هویت" }).closest("[dir]")).toHaveAttribute("dir", "ltr");
   });
 });
 
@@ -370,8 +387,8 @@ describe("MFA secret handling (AC8)", () => {
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     await screen.findByRole("heading", { name: "Save your recovery codes" });
 
-    const local = JSON.stringify(window.localStorage);
-    const session = JSON.stringify(window.sessionStorage);
+    const local = storageText(window.localStorage);
+    const session = storageText(window.sessionStorage);
     const cache = JSON.stringify(view.queryClient.getQueryCache().getAll());
     for (const surface of [local, session, cache]) {
       expect(surface).not.toContain(SECRET);

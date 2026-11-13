@@ -6,12 +6,34 @@ interface ReturnLocation {
 
 const AUTH_PATHS = ["/login", "/register", "/verify-email", "/forgot-password", "/reset-password", "/phone"];
 
+/**
+ * A pathname as the router matches it: percent escapes decoded and the whole
+ * string lower-cased. A broken escape cannot be a page the app has, so it
+ * decodes to "".
+ */
+function normalizedPathname(pathname: string): string {
+  try {
+    return decodeURIComponent(pathname).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** Whether a pathname is an MFA page, however the router spells it (case, escapes). */
+export function isMfaPathname(pathname: string): boolean {
+  const normalized = normalizedPathname(pathname);
+  return normalized === "/mfa" || normalized.startsWith("/mfa/");
+}
+
 function isInternalPath(pathname: string): boolean {
   if (!pathname.startsWith("/") || pathname.startsWith("//") || pathname.includes("\\")) return false;
-  if (AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) return false;
+  // The router matches without case and decodes escapes, so the auth and MFA
+  // checks read the same normalized spelling; anything unreadable is refused.
+  const normalized = normalizedPathname(pathname);
+  if (!normalized) return false;
+  if (AUTH_PATHS.some((path) => normalized === path || normalized.startsWith(`${path}/`))) return false;
   // An MFA page is never a valid destination for an MFA `next` either (no loops).
-  if (pathname === "/mfa" || pathname.startsWith("/mfa/")) return false;
-  return true;
+  return !isMfaPathname(pathname);
 }
 
 /**
