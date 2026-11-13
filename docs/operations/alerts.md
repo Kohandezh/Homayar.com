@@ -131,16 +131,23 @@ Either Celery beat stopped, no worker consumes the `processing` queue, or the sw
    "failed twice in a row" alert: the heartbeat keeps only the latest run, and a sweep that keeps
    failing is stale after three intervals.
 4. Busy workers: `homayar_jobs{state="running"}` at the worker concurrency and
-   `homayar_broker_queue_length` above 0. Add workers rather than lengthening the intervals.
+   `homayar_broker_queue_length` above 0. The backlog is the sum over the `queue` label
+   (`processing`, `asr-cpu`, `asr-gpu`; HOM-42). Add workers rather than lengthening the
+   intervals.
 5. Run the sweep once by hand (each module has `python -m backend.jobs.<module>`). A manual
    run writes no heartbeat: the alert clears only after the next run started by beat.
 
 ## HomayarQueueBacklog
 
 A due job waited more than 15 minutes (`HomayarQueueStalled`: an hour). Compare
-`homayar_jobs_queued_due` with `homayar_broker_queue_length`: messages in the broker but not
-consumed means workers are missing or saturated (*Worker Backlog or Failure*); due jobs
-without broker messages means publication is stuck (see `HomayarDispatchOutboxStuck`).
+`homayar_jobs_queued_due` with `homayar_broker_queue_length` (the sum over its `queue` label):
+messages in the broker but not consumed means workers are missing or saturated (*Worker
+Backlog or Failure*); due jobs without broker messages means publication is stuck (see
+`HomayarDispatchOutboxStuck`). Meeting jobs wait in `asr-cpu` and `asr-gpu`, not in
+`processing` (HOM-42, ADR 0074). An ASR queue with messages and no consumer means no worker
+is qualified for it: run `python -m backend.jobs.worker_readiness --workers` in a worker
+container, and read the `worker_not_qualified` line in the worker log (see the worker
+readiness section of `app-server.md`).
 Scale by the measured bottleneck and keep workspace concurrency limits. While due jobs wait,
 `HomayarPeriodicSweepStopped` stays silent, so check the sweeps here too.
 

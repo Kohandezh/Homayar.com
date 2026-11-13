@@ -1,10 +1,19 @@
 """Celery app — background job processing for Homayar.
 
-Queue contract (WP06-T01): the producer (backend.jobs.dispatcher) and every
-worker agree on one explicit queue, PROCESSING_QUEUE. It is both the routed
-queue for backend.jobs.process_meeting and the worker default, so a worker
-started without ``--queues`` still consumes it; deployment commands pass
-``--queues processing`` anyway so the subscription is visible in process lists.
+Queue contract (WP06-T01, HOM-42 / ADR 0074): three declared queues.
+
+- ``processing`` (PROCESSING_QUEUE) is the default queue. Every periodic sweep,
+  recompute and webhook task goes there, and every worker consumes it.
+- ``asr-cpu`` and ``asr-gpu`` (ASR_QUEUES) carry backend.jobs.process_meeting.
+  The producer picks the queue from the job's ASR requirement
+  (``backend.jobs.worker_readiness.asr_queue_for``): ``asr-gpu`` only when the
+  ASR profile or device needs a GPU.
+
+A worker checks its readiness at start (``on_worker_init``) and adds the ASR
+queues it qualifies for to its selection: a GPU-qualified worker takes both,
+a CPU-qualified worker takes ``asr-cpu``, any other worker takes none.
+Deployment commands keep ``--queues processing``; the worker adds its ASR
+queues itself, so a command that does not name them still works.
 """
 
 import logging
@@ -12,6 +21,7 @@ import logging
 from celery import Celery
 from celery.signals import setup_logging as celery_setup_logging
 from celery.signals import worker_init, worker_process_init, worker_ready
+from celery.worker.control import inspect_command
 from kombu import Queue
 
 from backend.config import get_settings
@@ -19,6 +29,11 @@ from backend.config import get_settings
 logger = logging.getLogger(__name__)
 
 PROCESSING_QUEUE = "processing"
+# Meeting jobs, by their ASR requirement (HOM-42, ADR 0074).
+ASR_CPU_QUEUE = "asr-cpu"  # no GPU needed: a CPU model or a remote ASR provider
+ASR_GPU_QUEUE = "asr-gpu"  # a GPU ASR profile
+ASR_QUEUES = (ASR_GPU_QUEUE, ASR_CPU_QUEUE)
+DECLARED_QUEUES = (PROCESSING_QUEUE, ASR_CPU_QUEUE, ASR_GPU_QUEUE)
 PROCESS_MEETING_TASK = "backend.jobs.process_meeting"
 DISPATCH_SWEEP_TASK = "backend.jobs.sweep_dispatch_outbox"
 LEASE_RECOVERY_TASK = "backend.jobs.sweep_expired_leases"
@@ -48,6 +63,9 @@ WORKER_PROC_ALIVE_TIMEOUT_SECONDS = 120.0
 
 
 def make_celery() -> Celery:
+    # Imported here: worker_readiness reads the queue names of this module.
+    from backend.jobs.worker_readiness import asr_queue_for
+
     settings = get_settings()
     broker_url = settings.redis_url
 
@@ -69,12 +87,12 @@ def make_celery() -> Celery:
         worker_prefetch_multiplier=1,
         task_always_eager=settings.tasks_eager,
         task_eager_propagates=settings.environment == "test",
-        # Queue contract: one declared queue, also the default, so producer
-        # routing and worker subscriptions cannot drift apart.
+        # Queue contract: processing is the default; meeting jobs go to the
+        # ASR queue of their requirement (HOM-42, ADR 0074).
         task_default_queue=PROCESSING_QUEUE,
-        task_queues=(Queue(PROCESSING_QUEUE, routing_key=PROCESSING_QUEUE),),
+        task_queues=tuple(Queue(name, routing_key=name) for name in DECLARED_QUEUES),
         task_routes={
-            PROCESS_MEETING_TASK: {"queue": PROCESSING_QUEUE},
+            PROCESS_MEETING_TASK: {"queue": asr_queue_for(settings)},
             DISPATCH_SWEEP_TASK: {"queue": PROCESSING_QUEUE},
             LEASE_RECOVERY_TASK: {"queue": PROCESSING_QUEUE},
             USAGE_RECONCILIATION_TASK: {"queue": PROCESSING_QUEUE},
@@ -279,12 +297,29 @@ def _autoscale_bounds(value: object) -> tuple[int, int]:
 # The CapacityDecision of the last worker_init, or None. Logged again at
 # worker_ready, when Celery's logging is set up (SPEC 10.3).
 _worker_memory_decision: object | None = None
+# The WorkerReadiness of this worker (HOM-42), or None. Set at worker_init in
+# the parent, so every prefork child inherits it. Kept after worker_ready: the
+# task guard and the worker_readiness inspect command read it.
+_worker_readiness: object | None = None
+
+
+def current_worker_readiness() -> object | None:
+    """The stored readiness of this worker process, or ``None``."""
+    return _worker_readiness
+
+
+def remember_worker_readiness(readiness: object) -> None:
+    """Store a readiness assessed outside worker_init (the task guard does)."""
+    global _worker_readiness
+    _worker_readiness = readiness
 
 
 @worker_init.connect
 def on_worker_init(sender=None, **_kwargs: object) -> None:
     """Clamp or refuse the worker's concurrency before the pool is created
-    (HOM-41, ADR 0067). Fires in the parent, after concurrency is final.
+    (HOM-41, ADR 0067), then check the worker's readiness and select the ASR
+    queues it qualifies for (HOM-42, ADR 0074). Fires in the parent, after
+    concurrency is final.
 
     Never loads a model: the parent forks the children, and a CUDA context
     made before a fork is not usable in the child. Celery's signal dispatch
@@ -306,9 +341,10 @@ def on_worker_init(sender=None, **_kwargs: object) -> None:
     decision = check_worker_memory(settings, pool=sender.pool_cls, concurrency=processes)
     _worker_memory_decision = decision
     logger.info("worker_memory_check %s", _decision_fields(decision))
-    if decision.ok:
-        return
-    if decision.reason == "over_budget":
+    if not decision.ok:
+        if decision.reason != "over_budget":
+            logger.error("worker_memory_refused %s", _decision_fields(decision))
+            raise SystemExit(78)
         allowed = decision.allowed_processes or 1
         old_concurrency = sender.concurrency
         sender.concurrency = min(old_concurrency, allowed)
@@ -321,6 +357,7 @@ def on_worker_init(sender=None, **_kwargs: object) -> None:
                 sender.autoscale = clamped
             if isinstance(options, dict) and options.get("autoscale"):
                 options["autoscale"] = clamped
+        processes = allowed if autoscale else sender.concurrency
         # WARNING, not INFO: at worker_init Celery has not set up logging,
         # so INFO records are dropped (SPEC 10.3).
         logger.warning(
@@ -329,28 +366,111 @@ def on_worker_init(sender=None, **_kwargs: object) -> None:
             sender.concurrency,
             allowed,
         )
+    # Test fakes have no app; a real WorkController always has one.
+    if getattr(sender, "app", None) is None:
         return
-    logger.error("worker_memory_refused %s", _decision_fields(decision))
-    raise SystemExit(78)
+    _select_asr_queues(sender, settings, processes)
+
+
+def _select_asr_queues(sender, settings, processes: int) -> None:
+    """Assess readiness and make the worker consume only qualified ASR queues.
+
+    Without ``--queues`` Celery consumes every declared queue, ``asr-gpu``
+    included, and an empty selection means the same. So an explicit,
+    never-empty selection is always applied (SPEC 3.4).
+    """
+    global _worker_readiness
+
+    from backend.jobs import worker_readiness
+
+    try:
+        readiness = worker_readiness.assess_worker_readiness(
+            settings,
+            pool=sender.pool_cls,
+            concurrency=processes,
+            probes=worker_readiness.default_probes(),
+        )
+    except Exception as exc:  # assess never raises; this keeps the selection safe anyway
+        readiness = worker_readiness.WorkerReadiness(
+            qualified=False, reason="readiness_error", queues=(), error_type=type(exc).__name__
+        )
+    _worker_readiness = readiness
+
+    queues = sender.app.amqp.queues
+    # consume_from is the queue map itself when the worker has no --queues.
+    current = queues.consume_from
+    explicit = current is not queues
+    names = list(current) if explicit else [PROCESSING_QUEUE]
+    selected: list[str] = []
+    for name in names:
+        if name in ASR_QUEUES and name not in readiness.queues:
+            if explicit:
+                logger.error("worker_queue_refused queue=%s reason=%s", name, readiness.reason)
+            continue
+        selected.append(name)
+    selected += [name for name in readiness.queues if name not in selected]
+    queues.select(selected or [PROCESSING_QUEUE])
+
+
+def _readiness_fields(readiness) -> str:
+    queues = ",".join(readiness.queues) or "none"
+    return (
+        f"qualified={readiness.qualified} reason={readiness.reason}"
+        f" requirement={readiness.requirement} queues={queues}"
+        f" asr_profile={readiness.asr_profile} device={readiness.device}"
+        f" device_index={readiness.device_index} compute_type={readiness.compute_type}"
+        f" processes={readiness.processes} vram_required_mib={readiness.vram_required_mib}"
+        f" vram_free_mib={readiness.vram_free_mib} vram_budget_mib={readiness.vram_budget_mib}"
+        f" vram_allowed_processes={readiness.vram_allowed_processes}"
+        # Quoted: GPU names have spaces ("Tesla P40"), key=value parsing needs one token.
+        f" gpu_name={readiness.gpu_name!r} ram_budget_mib={readiness.ram_budget_mib}"
+        f" ram_per_process_mib={readiness.ram_per_process_mib}"
+        f" error_type={readiness.error_type}"
+    )
 
 
 @worker_ready.connect
 def on_worker_ready(sender=None, **_kwargs: object) -> None:
-    """Log the stored memory decision once Celery's logging is up (SPEC 10.3).
-
-    Never raises, and logs nothing when no decision was stored.
-    """
+    """Log the stored memory decision and readiness once Celery's logging is
+    up (SPEC 10.3). Never raises. Logs nothing for what was not stored. The
+    readiness stays stored."""
     global _worker_memory_decision
 
     decision = _worker_memory_decision
     _worker_memory_decision = None
     if decision is not None:
         logger.info("worker_memory_check %s", _decision_fields(decision))
+    readiness = _worker_readiness
+    if readiness is None:
+        return
+    try:
+        logger.info("worker_readiness %s", _readiness_fields(readiness))
+        if not readiness.qualified and readiness.requirement in ("cpu", "gpu"):
+            logger.error(
+                "worker_not_qualified reason=%s requirement=%s",
+                readiness.reason,
+                readiness.requirement,
+            )
+    except Exception as exc:  # a log line must never stop the worker
+        logger.warning("worker_readiness_log_failed error=%s", type(exc).__name__)
 
 
 @worker_process_init.connect
 def on_worker_process_init(sender=None, **_kwargs: object) -> None:
-    """Warm the ASR model in each prefork child (HOM-41). Never raises."""
+    """Warm the ASR model in each prefork child (HOM-41). Never raises.
+
+    A worker whose readiness holds no ASR queue runs no ASR job, so it skips
+    the warm (HOM-42). With no stored readiness it warms as before.
+    """
+    readiness = _worker_readiness
+    if (
+        readiness is not None
+        and ASR_CPU_QUEUE not in readiness.queues
+        and ASR_GPU_QUEUE not in readiness.queues
+    ):
+        logger.info("asr_warm_skipped reason=%s", readiness.reason)
+        return
+
     from backend.providers.warm_models import warm_configured_asr
 
     try:
@@ -358,6 +478,15 @@ def on_worker_process_init(sender=None, **_kwargs: object) -> None:
     except Exception as exc:  # warm_configured_asr never raises on its own
         # Error class only: no paths and no message text (log privacy).
         logger.warning("asr_warm_failed error=%s", type(exc).__name__)
+
+
+@inspect_command(name="worker_readiness")
+def inspect_worker_readiness(state, **_kwargs: object) -> dict:
+    """The readiness of this worker (HOM-42): what it qualified for and why."""
+    readiness = current_worker_readiness()
+    if readiness is None:
+        return {"reason": "unknown"}
+    return readiness.to_dict()
 
 
 celery_app = make_celery()

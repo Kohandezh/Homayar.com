@@ -156,6 +156,14 @@ def _status(fails: list[str], warns: list[str], ok_detail: str) -> tuple[str, st
 # --- the ASR runtime the adapter will use ---------------------------------------------
 
 
+def is_cuda_device(device: str | None) -> bool:
+    """Whether a Whisper device string names a CUDA GPU: ``cuda`` or ``cuda:<n>``.
+
+    The one rule for the host checks and the ASR queue routing (HOM-42).
+    """
+    return bool(device) and (device == "cuda" or device.startswith("cuda:"))
+
+
 _NO_ADAPTER = "The ASR adapter could not be built, so the speech runtime is not known."
 
 
@@ -170,11 +178,7 @@ class _Runtime:
 
     @property
     def gpu(self) -> bool:
-        return (
-            self.local
-            and bool(self.device)
-            and (self.device == "cuda" or self.device.startswith("cuda:"))
-        )
+        return self.local and is_cuda_device(self.device)
 
 
 def _runtime(bundle: Any) -> _Runtime:
@@ -862,6 +866,50 @@ def _check_topology(
     if warns:
         return _check("topology", "warn", " ".join(warns), **fields)
     return _check("topology", "pass", f"The host and the settings meet {name}.", **fields)
+
+
+@dataclass(frozen=True)
+class ASRHostChecks:
+    """The ASR runtime and GPU checks of one adapter (``check_asr_host``)."""
+
+    local: bool
+    gpu: bool
+    device: str | None
+    device_index: int
+    compute_type: str | None
+    target_gpu: dict[str, Any] | None  # the GPU CUDA gives the adapter, or None
+    checks: list[dict[str, Any]]
+
+
+def check_asr_host(
+    settings: Any, bundle: Any, probes: HostProbes, *, min_free_gpu_mib: int | None
+) -> ASRHostChecks:
+    """The ``asr_runtime``, ``gpu_driver`` and ``gpu_memory`` checks alone, for
+    the worker readiness check (HOM-42, ADR 0074).
+
+    The same functions as ``run_host_checks``, so both read the host the same
+    way. The GPU checks run only when the adapter runs on a GPU. ``gpu_memory``
+    needs ``min_free_gpu_mib`` and is left out when it is ``None``.
+    """
+    runtime = _runtime(bundle)
+    checks = [_check_asr_runtime(settings, runtime, probes)]
+    target = None
+    if runtime.gpu:
+        gpus, gpu_error = _query_gpus(probes)
+        target = _target_gpu(gpus, runtime, probes.environ) if gpu_error is None else None
+        checks.append(_check_gpu_driver(runtime, gpus, gpu_error, target))
+        if min_free_gpu_mib is not None:
+            options = HostOptions(min_free_gpu_mib=min_free_gpu_mib)
+            checks.append(_check_gpu_memory(runtime, gpu_error, target, options))
+    return ASRHostChecks(
+        local=runtime.local,
+        gpu=runtime.gpu,
+        device=runtime.device,
+        device_index=runtime.device_index,
+        compute_type=runtime.compute_type,
+        target_gpu=target,
+        checks=checks,
+    )
 
 
 def run_host_checks(

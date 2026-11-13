@@ -2,14 +2,15 @@
 
 Application code does not call this directly any more: the transactional
 outbox (``backend.jobs.outbox``) owns *when* a job is published and records
-the result. This module only knows *how* to publish to the declared queue.
+the result. This module only knows *how* to publish to the declared queue:
+the ASR queue of the job's requirement (HOM-42, ADR 0074).
 """
 
 from __future__ import annotations
 
-from backend.celery_app import PROCESSING_QUEUE
 from backend.config import Settings
 from backend.jobs.tasks import process_meeting_job
+from backend.jobs.worker_readiness import asr_queue_for
 from backend.services.logging_service import logger
 
 
@@ -22,8 +23,9 @@ def publish_processing_job(
     against the persisted job (``outbox.verify_job_payload``); it never
     confers tenant context.
     """
-    del settings  # the Celery app carries the broker configuration
-    options: dict = {"args": [job_id], "queue": PROCESSING_QUEUE}
+    # The Celery app carries the broker configuration; the settings pick the
+    # queue: asr-gpu when the ASR needs a GPU, else asr-cpu.
+    options: dict = {"args": [job_id], "queue": asr_queue_for(settings)}
     if workspace_id:
         options["kwargs"] = {"workspace_id": workspace_id}
     result = process_meeting_job.apply_async(**options)

@@ -3,6 +3,10 @@
 Before this contract the dispatcher published to the ``processing`` queue while
 every worker command consumed only Celery's default ``celery`` queue, so jobs
 were accepted but never executed.
+
+HOM-42 (ADR 0074): meeting jobs go to the ASR queue of their requirement
+(``asr-cpu`` or ``asr-gpu``) and a worker consumes it only when its readiness
+check qualifies it.
 """
 
 from __future__ import annotations
@@ -14,10 +18,18 @@ from celery.contrib.testing.worker import start_worker
 from celery.result import AsyncResult
 from sqlalchemy import select
 
-from backend.celery_app import PROCESS_MEETING_TASK, PROCESSING_QUEUE, celery_app
+import backend.celery_app as celery_module
+from backend.celery_app import (
+    ASR_CPU_QUEUE,
+    ASR_GPU_QUEUE,
+    PROCESS_MEETING_TASK,
+    PROCESSING_QUEUE,
+    celery_app,
+)
 from backend.database.saas_models import JobDispatch, JobState, ProcessingJob
-from backend.jobs import dispatcher, outbox
+from backend.jobs import dispatcher, outbox, worker_readiness
 from backend.jobs.tasks import process_meeting_job
+from backend.providers.host_checks import HostProbes
 from backend.tests._database import inspection_session_factory
 from backend.tests._transport import use_broker as _broker
 from backend.tests.test_job_processor import _providers, _queued_upload
@@ -27,9 +39,10 @@ def test_worker_default_queue_is_the_routed_queue() -> None:
     conf = celery_app.conf
     assert conf.task_default_queue == PROCESSING_QUEUE
     declared = {queue.name for queue in conf.task_queues}
-    assert declared == {PROCESSING_QUEUE}
+    assert declared == {PROCESSING_QUEUE, ASR_CPU_QUEUE, ASR_GPU_QUEUE}
+    # HOM-42: the meeting job is routed to the ASR queue of its requirement.
     routed = celery_app.amqp.router.route({}, PROCESS_MEETING_TASK)["queue"].name
-    assert routed == PROCESSING_QUEUE
+    assert routed == worker_readiness.asr_queue_for(celery_module.get_settings())
     assert process_meeting_job.name == PROCESS_MEETING_TASK
     assert PROCESS_MEETING_TASK in celery_app.tasks
 
@@ -52,7 +65,8 @@ def test_dispatcher_publishes_to_the_declared_queue(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(process_meeting_job, "apply_async", fake_apply_async)
     assert dispatcher.enqueue_processing_job("job-1", settings) is True
-    assert calls == [{"args": ["job-1"], "queue": PROCESSING_QUEUE}]
+    # HOM-42: local Whisper on the CPU (the test settings) goes to asr-cpu.
+    assert calls == [{"args": ["job-1"], "queue": ASR_CPU_QUEUE}]
 
 
 def test_dispatcher_reports_publish_failure(monkeypatch: pytest.MonkeyPatch, settings):
@@ -74,9 +88,43 @@ def _broker_params() -> list:
     return params
 
 
+class _CpuRuntime:
+    """CTranslate2 as the readiness check sees it on a CPU host (HOM-42)."""
+
+    def get_cuda_device_count(self) -> int:
+        return 0
+
+    def get_supported_compute_types(self, device: str, device_index: int = 0) -> set[str]:
+        return {"float32", "int8"}
+
+
+@pytest.fixture
+def qualified_cpu_worker(monkeypatch):
+    """The in-process worker passes its readiness check for local Whisper on
+    the CPU (fake probes), so it consumes asr-cpu, where the dispatcher
+    publishes. The selection and readiness it stores are restored after."""
+    queues = celery_app.amqp.queues
+    saved_selection = queues._consume_from
+    saved_readiness = celery_module._worker_readiness
+    monkeypatch.setattr(
+        worker_readiness,
+        "default_probes",
+        lambda: HostProbes(find_spec=lambda name: object(), ctranslate2=_CpuRuntime, environ={}),
+    )
+    yield
+    queues._consume_from = saved_selection
+    celery_module._worker_readiness = saved_readiness
+
+
 @pytest.mark.parametrize(("broker_url", "backend_url"), _broker_params())
 def test_worker_without_explicit_queues_consumes_dispatched_jobs(
-    broker_url: str, backend_url: str, client, settings, email_outbox, monkeypatch
+    broker_url: str,
+    backend_url: str,
+    client,
+    settings,
+    email_outbox,
+    monkeypatch,
+    qualified_cpu_worker,
 ) -> None:
     """Publish through the real dispatcher and let a worker started with no
     ``--queues`` option consume it. Without the queue contract this hangs and

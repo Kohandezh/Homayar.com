@@ -11,7 +11,9 @@ today's behaviour.
 HOM-41 exception: the warm-worker settings (``asr_warm_on_start``,
 ``asr_batch_size``, ``asr_model_memory_mib`` and ``worker_memory_budget_mib``) reach the
 ``worker`` service environment only: no other service loads a model or clamps its
-concurrency.
+concurrency. HOM-42 adds the worker readiness settings (``asr_model_vram_mib``,
+``worker_vram_budget_mib`` and ``worker_asr_queues``) to that worker-only group: no other
+service checks its readiness or picks queues.
 
 The names are read from ``Settings.model_fields`` at test time, so a future ``asr_*``
 setting that is not added to Compose fails this file. Two kinds of check: the rendered
@@ -107,9 +109,15 @@ def asr_env_defaults() -> dict[str, str]:
 
 
 # HOM-41: warm-worker settings that reach the worker service environment only
-# (no other service loads a model or clamps its concurrency).
-WORKER_ONLY_ASR_ENV = frozenset({"ASR_WARM_ON_START", "ASR_BATCH_SIZE", "ASR_MODEL_MEMORY_MIB"})
-WORKER_ONLY_ENV = WORKER_ONLY_ASR_ENV | {"WORKER_MEMORY_BUDGET_MIB"}
+# (no other service loads a model or clamps its concurrency). HOM-42 adds the
+# worker readiness settings.
+WORKER_ONLY_ASR_ENV = frozenset(
+    {"ASR_WARM_ON_START", "ASR_BATCH_SIZE", "ASR_MODEL_MEMORY_MIB", "ASR_MODEL_VRAM_MIB"}
+)
+WORKER_SETTINGS_ENV = frozenset(
+    {"WORKER_MEMORY_BUDGET_MIB", "WORKER_VRAM_BUDGET_MIB", "WORKER_ASR_QUEUES"}
+)
+WORKER_ONLY_ENV = WORKER_ONLY_ASR_ENV | WORKER_SETTINGS_ENV
 
 
 def _anchor_default(anchor: dict[str, Any], env_name: str) -> str | None:
@@ -348,8 +356,13 @@ def test_worker_environment_declares_the_warm_worker_settings_with_the_code_defa
     only, with the code default after ``:-``."""
     worker = compose_documents[file_name]["services"]["worker"]["environment"]
     anchor = compose_documents[file_name]["x-app-environment"]
-    budget_default = str(Settings.model_fields["worker_memory_budget_mib"].default)
-    defaults = {**asr_env_defaults(), "WORKER_MEMORY_BUDGET_MIB": budget_default}
+    defaults = {
+        **asr_env_defaults(),
+        **{
+            env_name: str(Settings.model_fields[env_name.lower()].default)
+            for env_name in WORKER_SETTINGS_ENV
+        },
+    }
 
     for env_name in WORKER_ONLY_ENV:
         assert env_name in worker, (file_name, env_name)

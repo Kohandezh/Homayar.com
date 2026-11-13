@@ -682,10 +682,10 @@ def collect_providers(snapshot: Snapshot, factory: sessionmaker[Session], *, now
 def collect_redis(snapshot: Snapshot, settings: Settings) -> None:
     import redis
 
-    from backend.celery_app import PROCESSING_QUEUE
+    from backend.celery_app import DECLARED_QUEUES
 
     started = time.perf_counter()
-    queue_length: int | None = None
+    queue_lengths: dict[str, int] | None = None
     try:
         client = redis.Redis.from_url(
             settings.redis_url,
@@ -694,7 +694,12 @@ def collect_redis(snapshot: Snapshot, settings: Settings) -> None:
         )
         try:
             client.ping()
-            queue_length = int(client.llen(PROCESSING_QUEUE))  # type: ignore[arg-type]
+            # One llen per declared queue (HOM-42): meeting jobs wait in the
+            # ASR queues, the sweeps in processing.
+            queue_lengths = {
+                name: int(client.llen(name))  # type: ignore[arg-type]
+                for name in DECLARED_QUEUES
+            }
         finally:
             client.close()
         up = True
@@ -712,12 +717,12 @@ def collect_redis(snapshot: Snapshot, settings: Settings) -> None:
         time.perf_counter() - started,
         dependency="redis",
     )
-    if queue_length is not None:
+    for name, length in (queue_lengths or {}).items():
         snapshot.add(
             "homayar_broker_queue_length",
             "Messages waiting in the broker queue (published, not yet taken by a worker).",
-            queue_length,
-            queue=PROCESSING_QUEUE,
+            length,
+            queue=name,
         )
 
 

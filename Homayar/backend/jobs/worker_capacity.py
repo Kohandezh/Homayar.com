@@ -35,6 +35,16 @@ def _provider_name(value: str) -> str:
     return value.strip().lower().replace("-", "_")
 
 
+def is_local_whisper(settings: Any) -> bool:
+    """Whether the ASR provider loads a local Whisper model (HOM-42 reuses it)."""
+    return _provider_name(settings.asr_provider) == "local_whisper"
+
+
+def model_memory_mib(model: str) -> int | None:
+    """The built-in memory estimate of a Whisper model name, or ``None``."""
+    return _MODEL_MEMORY_MIB.get(model)
+
+
 def asr_memory_estimate_mib(settings: Any) -> int | None:
     """Resident ASR memory per worker process (MiB), or ``None`` when unknown.
 
