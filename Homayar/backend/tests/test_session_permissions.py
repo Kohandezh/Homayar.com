@@ -68,11 +68,13 @@ def _set_system_role(user_id: str, system_role: str) -> None:
 
 def test_role_permission_lists_are_the_authorization_map():
     owner = _expected(WorkspaceRole.OWNER)
-    # HOM-76 adds review:appeal and notification:read to every role.
-    assert owner == sorted(ALL_PERMISSION_VALUES) and len(owner) == 25
-    assert len(_expected(WorkspaceRole.ADMIN)) == 21
-    assert len(_expected(WorkspaceRole.MEMBER)) == 11
+    # HOM-76 adds review:appeal and notification:read to every role, HOM-77
+    # coaching:respond.
+    assert owner == sorted(ALL_PERMISSION_VALUES) and len(owner) == 26
+    assert len(_expected(WorkspaceRole.ADMIN)) == 22
+    assert len(_expected(WorkspaceRole.MEMBER)) == 12
     assert _expected(WorkspaceRole.VIEWER) == [
+        "coaching:respond",
         "meeting:read",
         "member:read",
         "notification:read",
@@ -129,6 +131,7 @@ def test_each_membership_role_lists_exactly_its_permissions(client, email_outbox
 
     viewer = _workspace(_me(client, people["viewer"].cookies), shared)["permissions"]
     assert viewer == [
+        "coaching:respond",  # HOM-77
         "meeting:read",
         "member:read",
         "notification:read",  # HOM-76

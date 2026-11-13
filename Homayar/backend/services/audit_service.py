@@ -121,6 +121,9 @@ EXEMPT_DETAIL_KEYS = frozenset(
         # Ids before and after a voicemail follow-up action's assignee change (HOM-373).
         "assignee_user_id_before",
         "assignee_user_id_after",
+        # Ids before and after a coaching task's owner change (HOM-77).
+        "owner_user_id_before",
+        "owner_user_id_after",
     }
 )
 EXEMPT_DETAIL_SUFFIXES = (
@@ -259,6 +262,13 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.REVIEW_APPEAL_ASSIGNED: "administration",
     AuditEventType.REVIEW_APPEAL_WITHDRAWN: "administration",
     AuditEventType.REVIEW_APPEAL_DECIDED: "administration",
+    # Coaching tasks from accepted findings (HOM-77)
+    AuditEventType.COACHING_TASK_CREATED: "administration",
+    AuditEventType.COACHING_TASK_REASSIGNED: "administration",
+    AuditEventType.COACHING_TASK_ACKNOWLEDGED: "administration",
+    AuditEventType.COACHING_TASK_CLOSED: "administration",
+    AuditEventType.COACHING_TASK_CANCELLED: "administration",
+    AuditEventType.COACHING_TASK_OVERDUE: "administration",
     # Deletion, retention and legal hold
     AuditEventType.MEETING_DELETED: "deletion",
     AuditEventType.MEETING_RETENTION_EXPIRED: "deletion",

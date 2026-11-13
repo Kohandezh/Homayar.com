@@ -32,6 +32,8 @@ CRM_RECONCILIATION_TASK = "backend.jobs.reconcile_crm_records"
 # Signed webhook delivery (HOM-89, ADR 0050).
 DELIVER_WEBHOOK_TASK = "backend.jobs.deliver_webhook"
 WEBHOOK_SWEEP_TASK = "backend.jobs.sweep_webhook_deliveries"
+# Coaching due-soon reminders and overdue notices (HOM-77, ADR 0062 D4).
+COACHING_REMINDER_TASK = "backend.jobs.sweep_coaching_reminders"
 # Grace between the cooperative attempt deadline and the hard kill.
 TIME_LIMIT_GRACE_SECONDS = 60
 
@@ -74,6 +76,7 @@ def make_celery() -> Celery:
             RECOMPUTE_SWEEP_TASK: {"queue": PROCESSING_QUEUE},
             DELIVER_WEBHOOK_TASK: {"queue": PROCESSING_QUEUE},
             WEBHOOK_SWEEP_TASK: {"queue": PROCESSING_QUEUE},
+            COACHING_REMINDER_TASK: {"queue": PROCESSING_QUEUE},
         },
         # Attempt bound of last resort (WP06-T04): the soft limit raises inside
         # the task (finalised as a retryable ``attempt_timeout``); the hard
@@ -197,6 +200,17 @@ def make_celery() -> Celery:
                 "options": {
                     "queue": PROCESSING_QUEUE,
                     "expires": float(settings.webhook_sweep_interval_seconds),
+                },
+            },
+            # - coaching reminders (HOM-77) send each active coaching task's due-soon
+            #   reminder and overdue notice once. Without beat run
+            #   python -m backend.jobs.coaching_reminders
+            "coaching-reminders": {
+                "task": COACHING_REMINDER_TASK,
+                "schedule": float(settings.coaching_reminder_sweep_interval_seconds),
+                "options": {
+                    "queue": PROCESSING_QUEUE,
+                    "expires": float(settings.coaching_reminder_sweep_interval_seconds),
                 },
             },
         },

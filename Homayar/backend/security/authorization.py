@@ -106,6 +106,10 @@ class Permission(str, Enum):
     # The in-app notification inbox (HOM-76, ADR 0057 D6): every role reads their own
     # rows and marks them read.  Never carried by an API key.
     NOTIFICATION_READ = "notification:read"
+    # Coaching tasks (HOM-77, ADR 0062): every role sees the coaching tasks where they are
+    # the coachee and acknowledges them.  The supervisor side uses ``review:read`` and
+    # ``review:manage``.  Never carried by an API key.
+    COACHING_RESPOND = "coaching:respond"
 
 
 ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
@@ -133,6 +137,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.REVIEW_MANAGE,
             Permission.REVIEW_APPEAL,
             Permission.NOTIFICATION_READ,
+            Permission.COACHING_RESPOND,
         }
     ),
     WorkspaceRole.MEMBER: frozenset(
@@ -148,6 +153,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.REVIEW_MANAGE,
             Permission.REVIEW_APPEAL,
             Permission.NOTIFICATION_READ,
+            Permission.COACHING_RESPOND,
         }
     ),
     WorkspaceRole.VIEWER: frozenset(
@@ -158,6 +164,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.SCORECARD_READ,
             Permission.REVIEW_APPEAL,
             Permission.NOTIFICATION_READ,
+            Permission.COACHING_RESPOND,
         }
     ),
 }

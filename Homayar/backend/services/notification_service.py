@@ -1,9 +1,11 @@
-"""In-app notifications (HOM-76, ADR 0057 D6).
+"""In-app notifications (HOM-76, ADR 0057 D6; HOM-77, ADR 0062 D6).
 
 Rows live in the existing ``notifications`` table; it does not change.  Each row has a
 fixed English title and body per ``kind`` (the console translates by ``kind``), never a
-name, a note or transcript text, and ``data`` holds ids only.  At most one row exists per
-user, kind and ``data["appeal_id"]``: a second notify for the same three writes nothing.
+name, a note, an instruction or transcript text, and ``data`` holds ids only.  At most
+one row exists per user, kind and subject (``data["appeal_id"]`` for an appeal,
+``data["coaching_task_id"]`` for a coaching task): a second notify for the same three
+writes nothing.
 
 The inbox shows the caller's own rows of the current workspace, newest first
 (``created_at`` then ``id``), in keyset pages; ``unread_only`` keeps the rows with no
@@ -25,7 +27,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from backend.database.saas_models import Notification, ReviewAppeal, new_id
+from backend.database.saas_models import CoachingTask, Notification, ReviewAppeal, new_id
 from backend.jobs.leases import as_utc
 from backend.services.audit_event_types import AuditEventType
 from backend.services.review_queue_service import ReviewQueueError
@@ -35,6 +37,15 @@ FILED = AuditEventType.REVIEW_APPEAL_FILED.value
 ASSIGNED = AuditEventType.REVIEW_APPEAL_ASSIGNED.value
 DECIDED = AuditEventType.REVIEW_APPEAL_DECIDED.value
 WITHDRAWN = AuditEventType.REVIEW_APPEAL_WITHDRAWN.value
+# The coaching kinds (HOM-77, ADR 0062 D6).  Some have no audit event of their own: the
+# notice to the owner and the due-soon reminder are not changes of the task.
+COACHING_ASSIGNED = "coaching_task.assigned"
+COACHING_OWNER_ASSIGNED = "coaching_task.owner_assigned"
+COACHING_ACKNOWLEDGED = AuditEventType.COACHING_TASK_ACKNOWLEDGED.value
+COACHING_DUE_SOON = "coaching_task.due_soon"
+COACHING_OVERDUE = AuditEventType.COACHING_TASK_OVERDUE.value
+COACHING_CLOSED = AuditEventType.COACHING_TASK_CLOSED.value
+COACHING_CANCELLED = AuditEventType.COACHING_TASK_CANCELLED.value
 # The fixed texts of ADR 0057 D6, by kind: (title, body).
 TEXTS: dict[str, tuple[str, str]] = {
     FILED: (
@@ -47,36 +58,67 @@ TEXTS: dict[str, tuple[str, str]] = {
         "A reviewer decided your appeal. Open it to see the result.",
     ),
     WITHDRAWN: ("Appeal withdrawn", "The agent withdrew an appeal assigned to you."),
+    COACHING_ASSIGNED: (
+        "Coaching task assigned",
+        "A supervisor gave you a coaching task. Open it to see what to practise.",
+    ),
+    COACHING_OWNER_ASSIGNED: (
+        "Coaching task to follow",
+        "You are the coach of a coaching task. Open it to follow it up.",
+    ),
+    COACHING_ACKNOWLEDGED: (
+        "Coaching task acknowledged",
+        "The agent acknowledged a coaching task you follow.",
+    ),
+    COACHING_DUE_SOON: (
+        "Coaching task due soon",
+        "A coaching task of yours is due within 24 hours.",
+    ),
+    COACHING_OVERDUE: ("Coaching task overdue", "A coaching task is past its due date."),
+    COACHING_CLOSED: (
+        "Coaching task closed",
+        "Your coach closed a coaching task with a follow-up review.",
+    ),
+    COACHING_CANCELLED: ("Coaching task cancelled", "A coaching task was cancelled."),
 }
 # A filed appeal notifies at most this many possible deciders: the supervisors of the
 # call's current team first, then the owners and admins, each group by user id.
 MAX_FILED_RECIPIENTS = 50
 
 
-def notify_appeal(
-    db: Session, *, appeal: ReviewAppeal, kind: str, user_ids: Iterable[str | None], now: datetime
+def _notify(
+    db: Session,
+    *,
+    workspace_id: str,
+    subject_key: str,
+    subject_id: str,
+    since: datetime,
+    kind: str,
+    data: dict[str, Any],
+    user_ids: Iterable[str | None],
+    now: datetime,
 ) -> list[str]:
-    """Add one row per user for ``kind`` about ``appeal``; skip a ``None`` user (removed)
-    and a user who already has a row of this kind for this appeal.  Returns the users
-    who got a new row, in the given order."""
+    """Add one row per user for ``kind`` about the subject ``data[subject_key]``; skip a
+    ``None`` user (removed) and a user who already has a row of this kind for this
+    subject.  Returns the users who got a new row, in the given order."""
     wanted = [user_id for user_id in dict.fromkeys(user_ids) if user_id is not None]
     if not wanted:
         return []
-    # Bounded in SQL to this appeal's lifetime: every row about an appeal is written at or
-    # after its filing, so older rows (earlier appeals) are never read.  The ``data``
-    # check below then keeps only this appeal's rows.
+    # Bounded in SQL to the subject's lifetime: every row about a subject is written at or
+    # after ``since`` (its creation), so older rows (earlier subjects) are never read.
+    # The ``data`` check below then keeps only this subject's rows.
     existing = db.execute(
         select(Notification.user_id, Notification.data).where(
-            Notification.workspace_id == appeal.workspace_id,
+            Notification.workspace_id == workspace_id,
             Notification.kind == kind,
             Notification.user_id.in_(wanted),
-            Notification.created_at >= appeal.created_at,
+            Notification.created_at >= since,
         )
     ).all()
     already = {
         user_id
-        for user_id, data in existing
-        if isinstance(data, dict) and data.get("appeal_id") == appeal.id
+        for user_id, row_data in existing
+        if isinstance(row_data, dict) and row_data.get(subject_key) == subject_id
     }
     title, body = TEXTS[kind]
     added: list[str] = []
@@ -86,16 +128,12 @@ def notify_appeal(
         db.add(
             Notification(
                 id=new_id(),
-                workspace_id=appeal.workspace_id,
+                workspace_id=workspace_id,
                 user_id=user_id,
                 kind=kind,
                 title=title,
                 body=body,
-                data={
-                    "appeal_id": appeal.id,
-                    "review_item_id": appeal.review_item_id,
-                    "meeting_id": appeal.meeting_id,
-                },
+                data=dict(data),
                 created_at=now,
                 updated_at=now,
             )
@@ -103,6 +141,51 @@ def notify_appeal(
         added.append(user_id)
     db.flush()
     return added
+
+
+def notify_appeal(
+    db: Session, *, appeal: ReviewAppeal, kind: str, user_ids: Iterable[str | None], now: datetime
+) -> list[str]:
+    """Add one row per user for ``kind`` about ``appeal``; skip a ``None`` user (removed)
+    and a user who already has a row of this kind for this appeal.  Returns the users
+    who got a new row, in the given order."""
+    return _notify(
+        db,
+        workspace_id=appeal.workspace_id,
+        subject_key="appeal_id",
+        subject_id=appeal.id,
+        since=appeal.created_at,
+        kind=kind,
+        data={
+            "appeal_id": appeal.id,
+            "review_item_id": appeal.review_item_id,
+            "meeting_id": appeal.meeting_id,
+        },
+        user_ids=user_ids,
+        now=now,
+    )
+
+
+def notify_coaching_task(
+    db: Session, *, task: CoachingTask, kind: str, user_ids: Iterable[str | None], now: datetime
+) -> list[str]:
+    """The same rule for a coaching task (HOM-77): at most one row per user, kind and
+    ``coaching_task_id``; ``data`` holds the task, its review item and its meeting."""
+    return _notify(
+        db,
+        workspace_id=task.workspace_id,
+        subject_key="coaching_task_id",
+        subject_id=task.id,
+        since=task.created_at,
+        kind=kind,
+        data={
+            "coaching_task_id": task.id,
+            "review_item_id": task.review_item_id,
+            "meeting_id": task.meeting_id,
+        },
+        user_ids=user_ids,
+        now=now,
+    )
 
 
 # --- the inbox ----------------------------------------------------------------------------

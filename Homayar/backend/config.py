@@ -696,6 +696,9 @@ class Settings(BaseSettings):
     recompute_sweep_interval_seconds: int = 300
     # Manual recompute requests per workspace and minute (429 over it).
     recompute_manual_rate_limit_per_minute: int = 10
+    # HOM-77 (ADR 0062 D4): the coaching sweep's beat period.  Each run sends the due-soon
+    # reminders and the overdue notices that are due, each once per task.
+    coaching_reminder_sweep_interval_seconds: int = 900
     # HOM-312: the trend judgment cache of each API worker (ADR 0043).  At most this many
     # entries of both kinds together (judgments of analysis runs and coverage verdicts of
     # meetings: about 2 per conversation; measured about 1,444 bytes per judgment and 270 per
@@ -990,6 +993,8 @@ class Settings(BaseSettings):
             or self.recompute_manual_rate_limit_per_minute <= 0
         ):
             raise ValueError("Recompute attempts, sweep interval and rate limit must be positive")
+        if self.coaching_reminder_sweep_interval_seconds <= 0:
+            raise ValueError("COACHING_REMINDER_SWEEP_INTERVAL_SECONDS must be positive")
         if self.trend_judgment_cache_max_entries < 0:
             raise ValueError("TREND_JUDGMENT_CACHE_MAX_ENTRIES must be 0 or more")
         if self.trend_coverage_verdict_ttl_seconds < 0:

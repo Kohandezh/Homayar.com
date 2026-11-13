@@ -54,6 +54,7 @@ PERIODIC_TASKS: dict[str, str] = {
     "analysis_recompute": "recompute_sweep_interval_seconds",
     "crm_reconciliation": "crm_reconciliation_interval_seconds",
     "webhook_delivery": "webhook_sweep_interval_seconds",
+    "coaching_reminders": "coaching_reminder_sweep_interval_seconds",
 }
 # Operator-run jobs that report through the same store (no beat interval). The
 # protected audit sink (HOM-115) adds its export and verify runs with the tool.

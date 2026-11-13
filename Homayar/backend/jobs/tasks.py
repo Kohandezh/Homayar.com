@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backend.celery_app import (
     ARTIFACT_CLEANUP_TASK,
+    COACHING_REMINDER_TASK,
     CRM_RECONCILIATION_TASK,
     DELIVER_WEBHOOK_TASK,
     DISPATCH_SWEEP_TASK,
@@ -173,3 +174,12 @@ def sweep_webhook_deliveries_task():
         return {"published": len(webhook_delivery.sweep_webhook_deliveries())}
 
     return run_with_heartbeat("webhook_delivery", sweep)
+
+
+@celery_app.task(name=COACHING_REMINDER_TASK, acks_late=False, ignore_result=True)
+def sweep_coaching_reminders_task():
+    """Periodic: each active coaching task's due-soon reminder and overdue notice, once
+    (HOM-77, ADR 0062 D4)."""
+    from backend.jobs import coaching_reminders
+
+    return run_with_heartbeat("coaching_reminders", coaching_reminders.run_coaching_reminders)
