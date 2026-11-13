@@ -2,7 +2,7 @@ import { Suspense, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useLocation } from "react-router";
-import api from "@/lib/api";
+import api, { MFA_REQUIRED_EVENT } from "@/lib/api";
 import { AuthContext, useAuth } from "@/lib/auth-context";
 import { ADMIN_PAGES } from "@/components/admin/admin-pages";
 import { ADMIN_NAV } from "@/lib/navigation";
@@ -23,7 +23,16 @@ function workspace(role: WorkspaceRole, permissions?: string[]): AuthWorkspace {
 
 /** Page data never arrives, so a page shows its header and stays loading. */
 function pendingReads() {
-  return vi.spyOn(api, "get").mockImplementation(() => new Promise(() => undefined));
+  return vi.spyOn(api, "get").mockImplementation((url: string) => {
+    // The MFA gate must answer before the shell renders (HOM-241): an
+    // unanswered status read would block every existing case below.
+    if (url === "/auth/mfa") {
+      return Promise.resolve(
+        okResponse({ totp_enrolled: false, recovery_codes_remaining: 0, session_verified: false, required: false }),
+      );
+    }
+    return new Promise(() => undefined);
+  });
 }
 
 function requestedUrls(get: ReturnType<typeof pendingReads>) {
@@ -426,6 +435,145 @@ describe("old admin paths", () => {
     pendingReads();
     renderApp("/admin/unknown");
     await waitFor(() => expect(location()).toBe("/"));
+  });
+});
+
+describe("MFA routes, proactive gate and reactive redirect (HOM-241)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** GET /auth/mfa answered (or failed); every other read stays pending. */
+  function mfaReads(answer: unknown, options: { fail?: boolean } = {}) {
+    return vi.spyOn(api, "get").mockImplementation(async (url: string) => {
+      if (url === "/auth/mfa") {
+        if (options.fail) throw apiError(404, "not_found");
+        return okResponse(answer);
+      }
+      return new Promise(() => undefined);
+    });
+  }
+
+  const UNENROLLED = { totp_enrolled: false, recovery_codes_remaining: 0, session_verified: false, required: true };
+  const ENROLLED = { totp_enrolled: true, recovery_codes_remaining: 4, session_verified: false, required: true };
+  const FREE = { totp_enrolled: false, recovery_codes_remaining: 0, session_verified: false, required: false };
+
+  it.each([
+    ["mfa/setup", "Set up two-step verification"],
+    ["mfa/verify", "Verify it's you"],
+  ])("sends an anonymous visitor from /%s to the login page, as for other pages (AC1)", async (path, heading) => {
+    const get = mfaReads(FREE);
+    renderConsole(
+      <Suspense fallback={<p>Loading page</p>}>
+        <AppRoutes />
+        <LocationProbe />
+      </Suspense>,
+      { route: `/${path}`, lang: "en", auth: { status: "anonymous", user: null } },
+    );
+
+    await waitFor(() => expect(location()).toBe("/login"));
+    expect(screen.queryByRole("heading", { name: heading })).not.toBeInTheDocument();
+    // The MFA page never mounted, so no MFA status read happened.
+    expect(requestedUrls(get)).not.toContain("/auth/mfa");
+  });
+
+  it("sends a privileged unenrolled session to the setup page with the location as next (AC2)", async () => {
+    const get = mfaReads(UNENROLLED);
+    renderApp("/admin/teams");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Set up two-step verification" })).toBeInTheDocument();
+    expect(location()).toBe("/mfa/setup?next=%2Fadmin%2Fteams");
+    // The shell never rendered, so nothing else was requested.
+    expect(requestedUrls(get)).toEqual(["/auth/mfa"]);
+  });
+
+  it("sends a privileged enrolled session to the verify page (AC2)", async () => {
+    mfaReads(ENROLLED);
+    renderApp("/admin/teams");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+    expect(location()).toBe("/mfa/verify?next=%2Fadmin%2Fteams");
+  });
+
+  it("keeps the search and the hash of the current location in next (AC2)", async () => {
+    mfaReads(UNENROLLED);
+    renderApp("/admin/teams?tab=x#top");
+    await waitFor(() => expect(location()).toBe(`/mfa/setup?next=${encodeURIComponent("/admin/teams?tab=x#top")}`));
+  });
+
+  it("renders no app shell while the check is pending, so no workspace request fires (AC2)", async () => {
+    const get = pendingReads();
+    renderApp("/admin/teams");
+
+    expect(await screen.findByText("Checking two-step verification")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Main navigation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Teams" })).not.toBeInTheDocument();
+    expect(requestedUrls(get)).toEqual(["/auth/mfa"]);
+  });
+
+  it.each([
+    ["not required", FREE],
+    ["already verified", { totp_enrolled: true, recovery_codes_remaining: 4, session_verified: true, required: true }],
+  ])("renders the app as before when the status says %s (AC2 allow-control)", async (_label, answer) => {
+    mfaReads(answer);
+    renderApp("/admin/teams");
+    expect(await screen.findByRole("heading", { level: 1, name: "Teams" })).toBeInTheDocument();
+  });
+
+  it("renders the app as before when GET /auth/mfa fails, with no error screen (AC2 allow-control)", async () => {
+    mfaReads(null, { fail: true });
+    renderApp("/admin/teams");
+    expect(await screen.findByRole("heading", { level: 1, name: "Teams" })).toBeInTheDocument();
+  });
+
+  it("does not run the check on the MFA pages themselves (AC2)", async () => {
+    const get = pendingReads();
+    renderApp("/mfa/setup");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Set up two-step verification" })).toBeInTheDocument();
+    expect(requestedUrls(get)).toEqual([]);
+  });
+
+  it("moves to the verify page when a request answers 403 mfa_required (AC3)", async () => {
+    mfaReads({ ...ENROLLED, session_verified: true, required: false });
+    renderApp("/admin/teams");
+    expect(await screen.findByRole("heading", { level: 1, name: "Teams" })).toBeInTheDocument();
+
+    window.dispatchEvent(new CustomEvent(MFA_REQUIRED_EVENT, { detail: { code: "mfa_required" } }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+    expect(location()).toBe("/mfa/verify?next=%2Fadmin%2Fteams");
+  });
+
+  it("moves to the setup page on mfa_enrollment_required (AC3)", async () => {
+    mfaReads(FREE);
+    renderApp("/admin/teams");
+    expect(await screen.findByRole("heading", { level: 1, name: "Teams" })).toBeInTheDocument();
+
+    window.dispatchEvent(new CustomEvent(MFA_REQUIRED_EVENT, { detail: { code: "mfa_enrollment_required" } }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Set up two-step verification" })).toBeInTheDocument();
+    expect(location()).toBe("/mfa/setup?next=%2Fadmin%2Fteams");
+  });
+
+  it("does not navigate again on an MFA page (AC3, no loop)", async () => {
+    pendingReads();
+    renderApp("/mfa/verify");
+    expect(await screen.findByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+
+    window.dispatchEvent(new CustomEvent(MFA_REQUIRED_EVENT, { detail: { code: "mfa_required" } }));
+    expect(screen.getByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+    expect(location()).toBe("/mfa/verify");
+  });
+
+  it.each([
+    ["en", "Account security"],
+    ["fa", "امنیت حساب"],
+  ])("links every role to the account security page from the sidebar footer, in %s (AC7)", async (lang, label) => {
+    mfaReads(FREE);
+    renderApp("/", workspace("member"), lang as "fa" | "en");
+    const link = await screen.findByRole("link", { name: label });
+    expect(link).toHaveAttribute("href", "/account/security");
   });
 });
 

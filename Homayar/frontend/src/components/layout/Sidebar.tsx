@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { NavLink, useNavigate } from "react-router";
-import { AudioLines, LogOut } from "lucide-react";
+import { AudioLines, LogOut, ShieldCheck } from "lucide-react";
 import { Button, Separator, Spinner, buttonVariants } from "@heroui/react";
 import { useAuth } from "@/lib/auth-context";
 import { CONSOLE_BUILD } from "@/lib/build-info";
@@ -114,6 +114,21 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             {isolateLtr(`Homayar ${CONSOLE_BUILD.version} · ${CONSOLE_BUILD.sha ?? (isFa ? "منتشرنشده" : "unreleased")}`)}
           </p>
         )}
+        {/* Account security is for every role, not only admins (HOM-241 AC7). */}
+        <NavLink
+          to="/account/security"
+          onClick={onNavigate}
+          className={({ isActive }) =>
+            buttonVariants({
+              variant: isActive ? "secondary" : "ghost",
+              fullWidth: true,
+              className: "justify-start gap-3 font-normal",
+            })
+          }
+        >
+          <ShieldCheck size={16} aria-hidden="true" />
+          <span className="truncate">{isFa ? "امنیت حساب" : "Account security"}</span>
+        </NavLink>
         <Button
           variant="ghost"
           fullWidth
