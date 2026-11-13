@@ -63,8 +63,8 @@ def _with_items(*items: dict) -> dict:
     return output
 
 
-def test_the_prompt_version_is_5():
-    assert PROMPT_VERSION == 5
+def test_the_prompt_version_is_6():
+    assert PROMPT_VERSION == 6  # 5: HOM-133, 6: HOM-351
 
 
 def test_the_schema_requires_kind_and_both_quotes():

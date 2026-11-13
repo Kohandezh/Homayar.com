@@ -315,7 +315,7 @@ def test_a_schema_2_intelligence_artifact_still_validates():
 
 
 def test_versions_are_bumped():
-    assert PROMPT_VERSION == 5  # HOM-133: action item kind and quotes
+    assert PROMPT_VERSION == 6  # HOM-351: output language, call calendar, one entry
     assert ARTIFACT_SCHEMAS[StageName.INTELLIGENCE] == (IntelligenceResult, 4)
 
 

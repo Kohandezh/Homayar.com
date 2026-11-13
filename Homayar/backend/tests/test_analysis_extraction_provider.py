@@ -403,7 +403,7 @@ def test_a_missing_extraction_has_no_value():
 
 
 def test_versions_are_bumped_for_the_extraction():
-    assert PROMPT_VERSION == 5  # HOM-133: action item kind and quotes
+    assert PROMPT_VERSION == 6  # HOM-351: output language, call calendar, one entry
     assert ARTIFACT_SCHEMAS[StageName.INTELLIGENCE] == (IntelligenceResult, 4)
 
 

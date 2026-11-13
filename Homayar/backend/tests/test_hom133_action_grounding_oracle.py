@@ -933,7 +933,7 @@ def test_d6_the_strict_schema_requires_kind_and_both_quotes_and_the_prompt_moves
     with egress.permit(ENDPOINT):
         result = asyncio.run(adapter.analyze(D6_REQUEST))
 
-    assert adapter.identity().params["prompt_version"] == 5
+    assert adapter.identity().params["prompt_version"] == 6  # 6: HOM-351
     (body,) = sent
     item = body["response_format"]["json_schema"]["schema"]["properties"]["action_items"]["items"]
     assert {"kind", "owner_quote", "due_quote"} <= set(item["required"])

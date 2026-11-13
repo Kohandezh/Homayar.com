@@ -758,9 +758,10 @@ def test_the_system_prompt_states_the_extraction_rules():
         assert word in prompt, word
 
 
-def test_the_prompt_version_is_5():
-    # 4: the extraction (HOM-53); 5: the action item kind and quotes (HOM-133).
-    assert _adapter(_output()).identity().params["prompt_version"] == 5
+def test_the_prompt_version_is_6():
+    # 4: the extraction (HOM-53); 5: the action item kind and quotes (HOM-133);
+    # 6: output language, call calendar, one entry per item (HOM-351).
+    assert _adapter(_output()).identity().params["prompt_version"] == 6
 
 
 @pytest.mark.parametrize(
