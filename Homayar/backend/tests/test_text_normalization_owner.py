@@ -4849,8 +4849,8 @@ FROZEN_FILES: dict[str, str] = {
     "backend/privacy/redaction_service.py": (
         "6facb81af9244730d104e6e12a5bd3491141245dab66f144c38c14dd1b25053a"
     ),
-    "backend/privacy/subject_export.py": (  # HOM-298: _Matcher re-reads a cut mobile
-        "377c245f4a4a97001cf31999de14b3c700d60d6673d641a75d7632c65c05b317"
+    "backend/privacy/subject_export.py": (  # HOM-354: scorecard results and the agent path
+        "fb206270daa4e1d53ca2819888f3bb8a032abe129587679ce06c4ff50e93d28a"
     ),
     "backend/privacy/transcript_view.py": (
         "b65c3629ac444112d593f3c2e7071a4d27b4f229f09fcf9a5c3803d0533aa44e"
