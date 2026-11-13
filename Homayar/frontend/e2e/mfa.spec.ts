@@ -237,7 +237,7 @@ test("the Persian setup page is right to left and sends Persian digits as typed"
 
   await page.getByRole("button", { name: "شروع راه‌اندازی" }).click();
   await expect(page.getByRole("img", { name: "کد QR برای برنامهٔ احراز هویت" })).toBeVisible();
-  await expect(page.getByText("کلید راه‌اندازی")).toBeVisible();
+  await expect(page.getByText("کلید راه‌اندازی", { exact: true })).toBeVisible();
 
   // The code typed with Persian digits reaches the request exactly as typed
   // (the server normalizes; the mock only accepts ASCII, so the alert shows).
@@ -258,13 +258,13 @@ test("the account security page shows the mocked status for the owner", async ({
 
   await expect(page.getByRole("heading", { name: "Account security", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Two-step verification" })).toBeVisible();
-  await expect(page.getByText("On")).toBeVisible();
+  await expect(page.getByText("On", { exact: true })).toBeVisible();
   await expect(page.getByText("Required for your role")).toBeVisible();
   await expect(page.getByText("7 recovery codes left")).toBeVisible();
   await expect(page.getByRole("button", { name: "Make new recovery codes" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Use a new authenticator app" })).toBeVisible();
-  // The sidebar footer link (AC7) is there for the owner.
-  await expect(page.getByRole("link", { name: "Account security" })).toHaveAttribute("href", "/account/security");
+  // The sidebar footer link (AC7) is there for the owner (href includes the app base).
+  await expect(page.getByRole("link", { name: "Account security" })).toHaveAttribute("href", "/app/account/security");
 
   expect(blocked).toEqual([]);
 });
