@@ -29,7 +29,6 @@ from backend.database.saas_models import (
     User,
     Workspace,
 )
-from backend.providers.schemas import UNKNOWN_SPEAKER_LABEL
 from backend.services.speaker_timeline import (
     UNKNOWN_SPEAKER_KEYS,
     TimelineSegmentData,
@@ -169,18 +168,13 @@ def _insert_timeline_meeting(
         return meeting.id, revision.id
 
 
-def _counts(meeting_id: str) -> tuple[int, int]:
-    """Row counts of audit_events and transcript_revisions of one meeting."""
+def _counts() -> tuple[int, int, int, int]:
+    """Row counts of every table the route must never write to."""
     with inspection_session_factory()() as db:
-        audits = db.scalar(
-            select(func.count()).select_from(AuditEvent).where(AuditEvent.target_id == meeting_id)
+        return tuple(
+            int(db.scalar(select(func.count()).select_from(table)))
+            for table in (AuditEvent, TranscriptRevision, TranscriptSegment, MeetingSpeaker)
         )
-        revisions = db.scalar(
-            select(func.count())
-            .select_from(TranscriptRevision)
-            .where(TranscriptRevision.meeting_id == meeting_id)
-        )
-        return int(audits), int(revisions)
 
 
 # --- the builder (pure) -------------------------------------------------------
@@ -651,6 +645,52 @@ def test_timeline_reflects_corrections_and_correction_readiness(client, email_ou
     }
 
 
+def test_baseline_walks_a_chain_of_two_corrections(client, email_outbox):
+    # ASR -> correction -> correction: the baseline of the last correction is
+    # the ASR revision, so a turn corrected in the *first* correction still
+    # shows "person" on the second correction's timeline, and a turn the
+    # second correction did not touch keeps "diarization"
+    _, workspace_id, user_id = _tenant(client, email_outbox)
+    meeting_id, revision_id = _insert_timeline_meeting(
+        workspace_id,
+        user_id,
+        turns=((0, "SPEAKER_00", 0, 4000, None), (1, "SPEAKER_01", 5000, 9000, None)),
+        speakers=(
+            ("SPEAKER_00", "مدیر", "person", None),
+            ("SPEAKER_01", "کارشناس", "person", None),
+        ),
+    )
+    first = _timeline(client, workspace_id, meeting_id)
+    corrected_speaker = client.post(
+        f"/api/v1/meetings/{meeting_id}/transcript/corrections",
+        headers=_write_headers(client, workspace_id),
+        json={
+            "base_revision_id": revision_id,
+            "reason": "اصلاح گوینده",
+            "edits": [{"segment_id": first["turns"][0]["segment_id"], "speaker_key": "SPEAKER_01"}],
+        },
+    )
+    assert corrected_speaker.status_code == 201, corrected_speaker.text
+    second_revision_id = corrected_speaker.json()["revision"]["id"]
+    second = _timeline(client, workspace_id, meeting_id)
+    # the second correction touches only the other turn's text
+    corrected_text = client.post(
+        f"/api/v1/meetings/{meeting_id}/transcript/corrections",
+        headers=_write_headers(client, workspace_id),
+        json={
+            "base_revision_id": second_revision_id,
+            "reason": "اصلاح متن",
+            "edits": [{"segment_id": second["turns"][1]["segment_id"], "text": "متن اصلاح‌شده"}],
+        },
+    )
+    assert corrected_text.status_code == 201, corrected_text.text
+    body = _timeline(client, workspace_id, meeting_id)
+    assert [t["attribution"] for t in body["turns"]] == ["person", "diarization"]
+    # the diarization fields still come from the ASR baseline two links up
+    assert body["revision"]["diarization_status"] == "available"
+    assert body["revision"]["diarization_provider"] == "pyannote"
+
+
 def test_timeline_of_meeting_without_revision(client, email_outbox):
     _, workspace_id, user_id = _tenant(client, email_outbox)
     with inspection_session_factory()() as db:
@@ -700,10 +740,10 @@ def test_timeline_writes_nothing(client, email_outbox):
         turns=((0, "SPEAKER_00", 0, 1000, None),),
         speakers=(("SPEAKER_00", "مدیر", "person", None),),
     )
-    before = _counts(meeting_id)
+    before = _counts()
     for _ in range(2):
         _timeline(client, workspace_id, meeting_id)
-    assert _counts(meeting_id) == before
+    assert _counts() == before
 
 
 def test_timeline_denies_and_allows(client, email_outbox, monkeypatch):
@@ -827,12 +867,9 @@ def test_timeline_denies_and_allows(client, email_outbox, monkeypatch):
         ).status_code
         == 200
     )
-    assert (
-        member.get(
-            f"/api/v1/meetings/{other_meeting_id}/transcript/timeline",
-        ).status_code
-        == 404
-    )
+    outside = member.get(f"/api/v1/meetings/{other_meeting_id}/transcript/timeline")
+    assert outside.status_code == 404
+    assert outside.json()["error"]["code"] == "meeting_not_found"
 
 
 def test_timeline_reports_the_unknown_lane_for_both_unknown_keys(client, email_outbox):
@@ -883,5 +920,6 @@ def test_timeline_of_two_overlapping_unknown_turns_is_cross_speaker(client, emai
     assert all("overlap" in t["review_reasons"] for t in body["turns"])
 
 
-def test_unknown_speaker_label_constant():
-    assert UNKNOWN_SPEAKER_LABEL == "speaker_unknown"
+def test_unknown_key_set_is_exactly_the_two_stored_labels():
+    # the providers' label and the column default of the speaker key
+    assert UNKNOWN_SPEAKER_KEYS == {"speaker_unknown", "unknown"}

@@ -99,31 +99,41 @@ def _overlap_intervals(
     turns (SPEC 5.4).
 
     Half-open intervals ``[start_ms, end_ms)``: a zero-length turn takes part
-    in no overlap and two turns that only touch do not overlap.  A sweep over
-    the start and end points of every positive-length turn closes one entry
-    whenever the active set changes, so entries never merge and the list is
-    ordered by ``start_ms``, then ``end_ms``.
+    in no overlap and two turns that only touch do not overlap.  The start and
+    end events are walked over the sorted distinct time points in one pass, the
+    active set held up to date (at each point the turns ending there leave
+    first, then the turns starting there enter), so a range where the active
+    set holds two or more turns closes one entry.  Entries never merge and the
+    list is ordered by ``start_ms``, then ``end_ms``.
     """
     positive = [turn for turn in turns if turn.end_ms > turn.start_ms]
-    points = sorted({point for turn in positive for point in (turn.start_ms, turn.end_ms)})
+    starts: dict[int, list[TimelineSegmentData]] = {}
+    ends: dict[int, list[TimelineSegmentData]] = {}
+    for turn in positive:
+        starts.setdefault(turn.start_ms, []).append(turn)
+        ends.setdefault(turn.end_ms, []).append(turn)
+    points = sorted(set(starts) | set(ends))
+    active: dict[str, TimelineSegmentData] = {}
     intervals: list[TimelineOverlap] = []
-    for start_ms, end_ms in zip(points, points[1:], strict=False):
-        if end_ms <= start_ms:
-            continue
-        active = [turn for turn in positive if turn.start_ms <= start_ms < turn.end_ms]
+    for point, next_point in zip(points, points[1:], strict=False):
+        for turn in ends.get(point, ()):
+            active.pop(turn.id, None)
+        for turn in starts.get(point, ()):
+            active[turn.id] = turn
         if len(active) < 2:
             continue
-        keys = {turn.speaker_key for turn in active}
-        includes_unknown = any(_is_unknown(turn.speaker_key) for turn in active)
+        active_turns = sorted(active.values(), key=lambda turn: turn.sequence)
+        keys = {turn.speaker_key for turn in active_turns}
+        includes_unknown = any(_is_unknown(turn.speaker_key) for turn in active_turns)
         kind = "cross_speaker" if len(keys) >= 2 or includes_unknown else "same_speaker"
         intervals.append(
             TimelineOverlap(
                 index=len(intervals),
-                start_ms=start_ms,
-                end_ms=end_ms,
+                start_ms=point,
+                end_ms=next_point,
                 kind=kind,
                 speaker_keys=sorted(keys),
-                segment_ids=[turn.id for turn in sorted(active, key=lambda t: t.sequence)],
+                segment_ids=[turn.id for turn in active_turns],
                 includes_unknown=includes_unknown,
             )
         )

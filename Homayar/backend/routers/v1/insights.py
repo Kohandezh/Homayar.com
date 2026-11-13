@@ -539,28 +539,27 @@ def _source_value(source: object) -> str:
 
 
 def _baseline_revision(
-    db: Session, *, workspace_id: str, meeting_id: str, revision: TranscriptRevision
+    revisions_by_id: dict[str, TranscriptRevision], revision: TranscriptRevision
 ) -> TranscriptRevision:
     """The revision a timeline measures attribution from (HOM-49, SPEC 5.2).
 
     The revision itself unless it is a correction; a correction walks
     ``parent_revision_id`` up to the first revision whose source is not a
-    correction, and a broken chain (parent missing) ends at the last revision
-    reached.
+    correction.  The chain is walked in memory over the meeting's revisions
+    (``revisions_by_id``, loaded once): a parent missing from it ends at the
+    last revision reached, and so does a loop (an id seen before stops the
+    walk).
     """
     current = revision
+    visited = {revision.id}
     while current.source == TranscriptSource.CORRECTION:
-        if current.parent_revision_id is None:
+        parent_id = current.parent_revision_id
+        if parent_id is None or parent_id in visited:
             return current
-        parent = db.scalar(
-            select(TranscriptRevision).where(
-                TranscriptRevision.id == current.parent_revision_id,
-                TranscriptRevision.workspace_id == workspace_id,
-                TranscriptRevision.meeting_id == meeting_id,
-            )
-        )
+        parent = revisions_by_id.get(parent_id)
         if parent is None:
             return current
+        visited.add(parent.id)
         current = parent
     return current
 
@@ -621,12 +620,17 @@ def get_speaker_timeline(
         parts = TimelineParts()
         baseline = None
     else:
-        baseline = _baseline_revision(
-            db,
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            revision=revision,
-        )
+        if revision.source == TranscriptSource.CORRECTION:
+            # the meeting's revisions, loaded once for the whole parent walk
+            revisions_by_id = {
+                item.id: item
+                for item in list_revisions(
+                    db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+                )
+            }
+            baseline = _baseline_revision(revisions_by_id, revision)
+        else:
+            baseline = revision
         segments = segments_of(db, revision)
         # the baseline's speakers: loaded from the database only when the
         # baseline differs from the revision, else the revision's own

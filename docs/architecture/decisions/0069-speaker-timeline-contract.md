@@ -61,8 +61,10 @@ same sequence, or none; `backfill` when the baseline source is `backfill`;
 `diarization` when the baseline diarization is available; otherwise `none`.
 The baseline of a revision is the revision itself, unless it is a correction:
 then the chain of `parent_revision_id` is walked up to the first
-non-correction revision. The revision's `diarization_status` and
-`diarization_provider` in the response are the baseline's values.
+non-correction revision. When the parent chain is broken (a parent is
+missing) or loops, the baseline is the last revision reached. The revision's
+`diarization_status` and `diarization_provider` in the response are the
+baseline's values.
 
 ### D6. Review reasons
 
