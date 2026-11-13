@@ -268,14 +268,47 @@ The gate's own cost on a 10 min 8 kHz WAV: the second decode
   length. Past about 35 dB the speech frames fall under the active-frame floor (35 dB under
   the loudest frame) and are never judged. (Review round 2 measured `tone` from a 20 dB gap
   with 8 s of tone under the round 1 rule; the second speech test closes that.)
-- Speech over music or a tone needs a minimum level. Full FLEURS span: speech from -6 dB
-  under the chord melodies, at every measured level (from -12 dB) over the single and dual
-  tones. A short Whisper segment needs more. On 2 s windows over FLEURS (step 0.1 s), a few
-  windows over its slow start and end are lost: 5-6 of 59 with the speech 0 to +5 dB over a
-  chord melody, 1 of 59 at +7 dB over the SPEC melody, none from +9 dB (SPEC melody) or +7 dB
-  (sawtooth melody); 1-3 of 59 at 0 to +6 dB over the dual tone. In those windows the speech
-  is 2-3 dB quieter than the clip average. Of the 3 s and 4 s windows at the criterion 2c
-  levels, only one 3 s window over the dual tone at 0 dB is lost.
+- Speech over music or a tone needs a minimum level. Full spans (FLEURS, 0-7.86 s): speech
+  from -6 dB under the chord melodies of the measurement table, and at every measured level
+  (from -12 dB) over the single and dual tones. This holds for full spans only; short spans
+  need more (next item). A steady chord pad is stricter than a melody: FLEURS under a steady
+  4-note sine chord pad 6 dB louder than the speech (-6 dB) is `music` at 8 and 16 kHz, and
+  `speech` from -3 dB; `say` normal and fast under the same pad stay `speech` at -6 dB (team
+  review, 2026-11-14). `say` normal over the 480 + 620 Hz dual tone at -6 dB is `music` at
+  16 kHz only (team review, 2026-11-14).
+- A short Whisper segment (1.5-3 s) of speech at about the same level as music or a tone can
+  be removed: the speech-like share is counted over fewer frames, and a slow stretch of
+  speech falls under 0.09. Measured lost windows over FLEURS at 16 kHz, sliding windows with
+  step 0.1 s (team review, 2026-11-14):
+
+  | Background | Level (speech over background) | 1.5 s | 2 s | 3 s | 4 s |
+  | --- | --- | --- | --- | --- | --- |
+  | melody (SPEC) | 0 dB | 12/64 | 5/59 | 0/49 | 0/39 |
+  | melody (SPEC) | +3 dB | 8/64 | 5/59 | 0/49 | 0/39 |
+  | melody (SPEC) | +5 dB | 6/64 | 5/59 | 0/49 | 0/39 |
+  | melody (SPEC) | +9 dB | 0/64 | 0/59 | 0/49 | 0/39 |
+  | sawtooth melody | 0 / +3 / +5 dB | 11/64, 6/64, 6/64 | 5/59 each | 0/49 | 0/39 |
+  | dual tone 480 + 620 Hz | 0 dB | 10/64 | 3/59 | 1/49 | 0/39 |
+  | dual tone 480 + 620 Hz | +3 to +9 dB | 2/64 | 0-1/59 | 0/49 | 0/39 |
+  | dial tone 425 Hz | 0 dB | 7/64 | 4/59 | 0/49 | 0/39 |
+  | dial tone 425 Hz | +3 dB and up | 0/64 | 0/59 | 0/49 | 0/39 |
+
+  The lost windows sit over the slow start (0-2.4 s) and end (5.7-7.7 s) of FLEURS, where
+  the speech inside the window is 2-3 dB quieter than the clip average. The implementer's run
+  of the same 2 s windows is close: 5-6 of 59 at 0 to +5 dB over the melodies, 1 of 59 at
+  +7 dB over the SPEC melody, none at +7 dB over the sawtooth melody. `say` normal speech
+  over the melody or the dual tone at 0 and +3 dB loses no 2 s or 3 s window (team review,
+  2026-11-14).
+- Some music keeps its text (the safe direction: "when unsure, speech"). The second speech
+  test reads their changing energy as speech. Measured at 8 and 16 kHz, all `speech` (team
+  review, 2026-11-14):
+  - chords with vibrato of 2.0 % or more (2.0 % gives a speech-like share of 0.115-0.137;
+    2.5 %, 3 % and 5 % are also `speech`). 1.0 % and 1.5 % stay `music`. String and vocal
+    vibrato is often 3-6 % (0.5 to 1 semitone), so real string or vocal hold music can keep
+    its text.
+  - single notes of 0.1, 0.15 and 0.2 s. Notes of 0.25 s stay `music`.
+  - chords that decay with a T60 of about 1.2 s (speech-like 0.16-0.26). A T60 of 1.7 s or
+    more stays `music`.
 - The kind (`tone` vs `music`) is decided per frame, on the median count of peaks within
   14 dB of each steady frame's loudest bin, not on the distinct frequencies over the span. So
   a square-wave single-note melody is `music` at 8 kHz but `tone` at 16 kHz (the resample's
@@ -287,13 +320,23 @@ The gate's own cost on a 10 min 8 kHz WAV: the second decode
 - Singing is tonal and steady inside notes, so sung lyrics are removed as music: the macOS
   `say` voice "Good News" (sung) is `music` over its full 37 s (steady 0.94-0.95,
   speech-like 0.035-0.041) and in 270-301 of its 341-356 sliding windows.
-- Real hold music, real IVR prompts over music, real callers over a radio, Persian speech and
-  codec-damaged (AMR, GSM) phone audio were not measured. The judgement rests on synthetic
-  melodies (11 variants), synthetic phone tones, one English FLEURS clip and five macOS `say`
-  voices.
+- Real hold music, real string or vocal recordings, real IVR prompts over music, real callers
+  over a radio, Persian speech and codec-damaged (AMR, GSM) phone audio were not measured.
+  The judgement rests on synthetic melodies and pads, synthetic phone tones, one English
+  FLEURS clip and macOS `say` voices (five here, nine in the team review).
 - A tone that changes frequency faster than about every 150 ms keeps too few steady frames
-  and falls back to `speech`. DTMF at 100 ms on/off is the fastest changing signal that
-  passes.
+  and falls back to `speech`. DTMF at 100 ms on/off (two fixed tones with silence between)
+  is the fastest changing tone signal that passes. For melodies the edge is near 200-250 ms
+  per note (see the music item above).
 - Only 8 kHz and 16 kHz mono input is accepted (the adapter always decodes to 16 kHz).
 - Checkpoints written before HOM-348 are not reused by gated runs (the identity gains the
   `nonspeech` key). Old results still load unchanged.
+
+## Follow-ups
+
+- A stricter rule for short spans: require more judged frames, or a higher speech-like share,
+  before a 1.5-3 s span can be non-speech (see the short-segment table in "Limits").
+- Measure real hold music, string and vocal recordings, Persian speech, and codec (AMR, GSM)
+  phone audio, and re-check the thresholds against them.
+- Console and report copy for the stage reason `non_speech_audio` and the `non_speech` spans.
+  The console shows the raw code today.
