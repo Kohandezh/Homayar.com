@@ -139,6 +139,14 @@ WEEKDAYS_FA = {
     "سشنبه": 1, "چهارشنبه": 2, "پنجشنبه": 3, "جمعه": 4,
 }  # fmt: skip
 WEEKDAY_NAMES_FA = {v: k for k, v in WEEKDAYS_FA.items() if k != "سشنبه"}
+# Every accepted one-token spelling -> its WEEKDAYS_FA key.
+_WEEKDAY_SPELLINGS = {**{k: k for k in WEEKDAYS_FA}, "سهشنبه": "سه شنبه"}
+# "پنج‌شنبه" / "پنج شنبه": the shadow splits these into a number word plus
+# "شنبه". The head word -> the WEEKDAYS_FA key of the joined name.
+_SPLIT_WEEKDAY_HEADS = {
+    "یک": "یکشنبه", "دو": "دوشنبه", "سه": "سه شنبه",
+    "چهار": "چهارشنبه", "پنج": "پنجشنبه",
+}  # fmt: skip
 
 
 def format_jalali(d: date, *, month_name: bool = False) -> str:
@@ -302,6 +310,45 @@ class _Tok:
     end: int
 
 
+def _join_split_weekdays(toks: list[_Tok], text: str) -> list[_Tok]:
+    """Merge "پنج" + "شنبه" into one weekday token when exactly one space or
+    one ZWNJ separates them in ``text``, so the ZWNJ and space spellings read
+    like the joined one. Offsets stay those of the original text.
+
+    A ZWNJ pair always joins (ZWNJ never separates two words). A SPACE pair is
+    left alone after "و" + a number word ("بیست و پنج شنبه" is 25 + Saturday)
+    and after "ساعت" ("ساعت پنج شنبه" is a time + Saturday), as before."""
+    out: list[_Tok] = []
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        nxt = toks[i + 1] if i + 1 < len(toks) else None
+        if (
+            nxt is not None
+            and tok.text in _SPLIT_WEEKDAY_HEADS
+            and nxt.text == "شنبه"
+            and nxt.start == tok.end + 1
+            and (
+                text[tok.end] == "\u200c" or (text[tok.end] == " " and not _number_context(toks, i))
+            )
+        ):
+            out.append(_Tok(_SPLIT_WEEKDAY_HEADS[tok.text], tok.start, nxt.end))
+            i += 2
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
+def _number_context(toks: list[_Tok], i: int) -> bool:
+    """True when ``toks[i]`` is read as part of a number: it follows "ساعت",
+    or it follows "و" that follows a number word (a compound number)."""
+    prev = toks[i - 1].text if i >= 1 else None
+    if prev == "ساعت":
+        return True
+    return prev == "و" and i >= 2 and _word_value(toks[i - 2].text) is not None
+
+
 def _local_today(reference: datetime, tz: tzinfo) -> date:
     if reference.tzinfo is None:
         raise ValueError("reference must be timezone-aware")
@@ -400,7 +447,9 @@ def extract_temporal(
         emit("date", m.start(), m.end(), [value], 0.95, rule)
 
     # 2. HH:MM clock times (period word may follow).
-    toks_all = [_Tok(m.group(), m.start(), m.end()) for m in _WORD_SPLIT_RE.finditer(shadow)]
+    toks_all = _join_split_weekdays(
+        [_Tok(m.group(), m.start(), m.end()) for m in _WORD_SPLIT_RE.finditer(shadow)], text
+    )
 
     def period_after(end: int) -> tuple[str | None, int]:
         rest = [t for t in toks_all if t.start >= end][:2]
@@ -475,12 +524,13 @@ def extract_temporal(
             i += 2
             continue
 
-        # Weekdays: "سه شنبه" is two tokens in the shadow.
+        # Weekdays: split spellings were merged by _join_split_weekdays. "سه" +
+        # "شنبه" with any other gap stays Tuesday, as before HOM-351.
         wd_name, wd_end_idx = None, i
         if w == "سه" and nxt == "شنبه":
             wd_name, wd_end_idx = "سه شنبه", i + 1
-        elif w in WEEKDAYS_FA:
-            wd_name = w
+        elif w in _WEEKDAY_SPELLINGS:
+            wd_name = _WEEKDAY_SPELLINGS[w]
         if wd_name is not None:
             target = WEEKDAYS_FA[wd_name]
             after = words[wd_end_idx + 1] if wd_end_idx + 1 < len(words) else None

@@ -4768,7 +4768,8 @@ FROZEN_FILES: dict[str, str] = {
     "backend/voicemail/__init__.py": (
         "3430ad4b253381c0cf56b22b0715e6d90a58fde92bb9c951d33c60649bc2d670"
     ),
-    "backend/speech/dates.py": "bc88d518b1220fdb979623952e7dde521ac5fbd0b2a528b2d2af3fd5ffbcd60a",
+    # HOM-351: split weekday spellings (پنج‌شنبه / پنج شنبه) in dates.py.
+    "backend/speech/dates.py": "ef684e684dec95dfa46e8653e140e2f346833f175b5e78aa5fc7d44da7d0b51a",
     "backend/speech/entities.py": (
         "0839768afa68a411174e2e3085f7c38ce234d56e324fe5146fc56a3eeff52d8a"
     ),
