@@ -76,7 +76,9 @@ from backend.backup.verify import load_catalog
 from backend.database import relational
 from backend.database.rls import APP_ROLE, POLICIES, POLICY_NAME
 from backend.database.saas_models import (
+    ActionDeliveryRequest,
     ActionItem,
+    ActionProposal,
     AnalysisExtraction,
     AnalysisRun,
     CalibrationAdjudication,
@@ -132,6 +134,9 @@ CONTENT_TABLES = tuple(
         ReviewAppealResult,
         # The coaching tasks of a conversation (HOM-77).
         CoachingTask,
+        # The action proposals of a conversation and their delivery requests (HOM-135).
+        ActionProposal,
+        ActionDeliveryRequest,
         MeetingSummary,
         ActionItem,
         MeetingSpeaker,

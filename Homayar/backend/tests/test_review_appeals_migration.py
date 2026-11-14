@@ -108,6 +108,7 @@ from backend.tests._database import (
 )
 from backend.tests.conftest import login_user, register_user
 from backend.tests.test_action_item_kind_migration import remove_action_item_kind
+from backend.tests.test_action_proposals_migration import remove_action_proposals
 from backend.tests.test_coaching_tasks_migration import remove_coaching_tasks
 from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
@@ -129,7 +130,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "0c51985fcf36"
 BASE_REVISION = "02f616cbb655"  # HOM-75: calibration batches
-HEAD_REVISION = "d3d1c7aa3cd8"  # HOM-129: privileged MFA and break-glass, after HOM-93
+HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
 APPEALS = "review_appeals"
 CRITERIA = "review_appeal_criteria"
 RESULTS = "review_appeal_results"
@@ -1429,6 +1430,7 @@ def test_every_table_is_a_workspace_table_and_only_results_refuse_updates():
         RESULTS,
         # HOM-93: a vector is written once; a new model writes a new row.
         "retrieval_embeddings",
+        "action_delivery_requests",  # HOM-135: an approved request never changes.
     )
 
 
@@ -1784,6 +1786,8 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             remove_retrieval_index_tables(connection)
             # HOM-129 adds the MFA and break-glass schema; take it out too.
             remove_privileged_mfa_schema(connection)
+            # HOM-135 adds the action proposal tables; take them out too.
+            remove_action_proposals(connection)
             before_objects = _objects(connection)
 
         config = _alembic_at(monkeypatch, url)

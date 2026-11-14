@@ -15,7 +15,8 @@ Two steps, never merged:
 2. **Purge** (:func:`run_purge_attempt`, bounded, retried): removes the
    derived content rows (transcripts, segments, redacted versions, derived
    text views and entities, retrieval index rows, analysis, calibration
-   answers, adjudications and examples, coaching tasks, appeal results,
+   answers, adjudications and examples, coaching tasks, action delivery
+   requests and action proposals, appeal results,
    appeal criteria and appeals, review decisions and human review results,
    review items, scorecard results, evidence, summaries, action items,
    speakers, share recipients), scrubs the
@@ -42,7 +43,9 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings
 from backend.database.saas_models import (
+    ActionDeliveryRequest,
     ActionItem,
+    ActionProposal,
     AnalysisExtraction,
     AnalysisRun,
     CalibrationAdjudication,
@@ -275,6 +278,13 @@ def _remove_content(db: Session, *, workspace_id: str, meeting: Meeting) -> int:
         # cascades of the human result, the review item, the scorecard result and its
         # criterion rows would otherwise remove them uncounted.
         CoachingTask,
+        # The delivery requests, then the action proposals (HOM-135), before the action
+        # items, the review items and the transcript revisions: the revision's cascade
+        # would otherwise remove them uncounted (the items only clear the source id).
+        # The bulk delete fires no mapper event, so the request's ORM guard does not
+        # apply.
+        ActionDeliveryRequest,
+        ActionProposal,
         ReviewAppealResult,
         ReviewAppealCriterion,
         ReviewAppeal,

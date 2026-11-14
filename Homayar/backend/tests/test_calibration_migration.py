@@ -115,7 +115,7 @@ from backend.tests.test_scorecard_results_migration import (
 )
 
 NEW_REVISION = "02f616cbb655"
-HEAD_REVISION = "d3d1c7aa3cd8"  # HOM-129: privileged MFA and break-glass, after HOM-93
+HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
 BASE_REVISION = "a651110b03c3"  # HOM-74: review decisions
 BATCHES = "calibration_batches"
 EXAMPLES = "calibration_examples"
@@ -1199,6 +1199,7 @@ def test_every_table_is_a_workspace_table_and_only_examples_refuse_updates():
         "review_appeal_results",
         # HOM-93: a vector is written once; a new model writes a new row.
         "retrieval_embeddings",
+        "action_delivery_requests",  # HOM-135: an approved request never changes.
     )
 
 
