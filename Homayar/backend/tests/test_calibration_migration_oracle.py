@@ -386,7 +386,7 @@ HEAD_PINS = (
 )
 # HOM-76, HOM-133 and then HOM-77 moved the head past the calibration revision; the
 # pins carry the comment of the latest head.
-PIN_COMMENT = "# HOM-135: action proposals, after HOM-129"
+PIN_COMMENT = "# HOM-134: product alerts, after HOM-135"
 
 EXISTING_TABLES = (
     "scorecard_results",

@@ -113,7 +113,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "a651110b03c3"
 BASE_REVISION = "484a6df74abf"  # HOM-73: review items
-HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
+HEAD_REVISION = "1b1144f1d95b"  # HOM-134: product alerts, after HOM-135
 DECISIONS = "review_criterion_decisions"
 RESULTS = "review_results"
 ITEMS = "review_items"
@@ -976,6 +976,7 @@ def test_both_tables_are_workspace_tables_the_purge_can_delete():
         # HOM-93: a vector is written once; a new model writes a new row.
         "retrieval_embeddings",
         "action_delivery_requests",  # HOM-135: an approved request never changes.
+        "alert_events",  # HOM-134: a seen condition never changes.
     )
 
 

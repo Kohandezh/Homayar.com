@@ -57,7 +57,7 @@ from backend.tests.test_privacy_routing import NID_FA, SEGMENTS, _SegmentedASR
 
 NEW_REVISION = "c7e2a9d4f1b6"
 BASE_REVISION = "e6c3a9f1d4b8"
-HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
+HEAD_REVISION = "1b1144f1d95b"  # HOM-134: product alerts, after HOM-135
 TABLE = "analysis_extractions"
 
 

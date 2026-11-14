@@ -130,6 +130,15 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     # Never through a share token.
     "action_proposals",
     "action_delivery_requests",
+    # Product alert rules on calls (HOM-134): rules, alerts, deliveries and
+    # notification preferences are workspace data, the events are conversation
+    # content the purge deletes.  An event is never updated (NO_UPDATE_TABLES).
+    # Never through a share token.
+    "alert_rules",
+    "alerts",
+    "alert_events",
+    "alert_deliveries",
+    "notification_preferences",
     # Retrieval index entries and embeddings (HOM-93): the indexer of PR 2 writes
     # them, the purge deletes the conversation's rows.  The stored ACL snapshot is
     # a pre-filter; reads re-check the live meeting (HOM-94).  Never through a
@@ -416,8 +425,10 @@ NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records", "webhook_del
 # written once; a new model or a new text writes a new row with a new
 # ``embedding_version``.  ``action_delivery_requests`` (HOM-135): an approved
 # request is an exact copy of what was approved; a revoke changes the proposal, never
-# the request.  DELETE stays granted, because the conversation purge removes the rows
-# as the application role.
+# the request.  ``alert_events`` (HOM-134): an event is written once at the moment
+# the condition is seen; a recompute writes a new event only for a new condition, so
+# the row never changes.  DELETE stays granted, because the conversation purge removes
+# the rows as the application role.
 NO_UPDATE_TABLES: tuple[str, ...] = (
     "scorecard_results",
     "scorecard_criterion_results",
@@ -426,6 +437,7 @@ NO_UPDATE_TABLES: tuple[str, ...] = (
     "review_appeal_results",
     "retrieval_embeddings",
     "action_delivery_requests",
+    "alert_events",
 )
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on

@@ -16,7 +16,9 @@ Two steps, never merged:
    derived content rows (transcripts, segments, redacted versions, derived
    text views and entities, retrieval index rows, analysis, calibration
    answers, adjudications and examples, coaching tasks, action delivery
-   requests and action proposals, appeal results,
+   requests and action proposals, the product alert events of the
+   conversation with the alerts they leave empty and those alerts'
+   deliveries, appeal results,
    appeal criteria and appeals, review decisions and human review results,
    review items, scorecard results, evidence, summaries, action items,
    speakers, share recipients), scrubs the
@@ -38,7 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from sqlalchemy import Select, delete, func, select, update
+from sqlalchemy import Select, delete, exists, func, select, update
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
@@ -46,6 +48,9 @@ from backend.database.saas_models import (
     ActionDeliveryRequest,
     ActionItem,
     ActionProposal,
+    Alert,
+    AlertDelivery,
+    AlertEvent,
     AnalysisExtraction,
     AnalysisRun,
     CalibrationAdjudication,
@@ -258,6 +263,25 @@ def _remove_content(db: Session, *, workspace_id: str, meeting: Meeting) -> int:
             ).rowcount
             or 0
         )
+    removed += (
+        db.execute(
+            delete(AlertEvent).where(
+                AlertEvent.workspace_id == workspace_id, AlertEvent.meeting_id == meeting.id
+            )
+        ).rowcount
+        or 0
+    )
+    orphaned_alerts = select(Alert.id).where(
+        Alert.workspace_id == workspace_id,
+        ~exists(select(AlertEvent.id).where(AlertEvent.alert_id == Alert.id)),
+    )
+    removed += (
+        db.execute(
+            delete(AlertDelivery).where(AlertDelivery.alert_id.in_(orphaned_alerts))
+        ).rowcount
+        or 0
+    )
+    removed += db.execute(delete(Alert).where(Alert.id.in_(orphaned_alerts))).rowcount or 0
     # Calibration answers, adjudications and examples (HOM-75) first: the examples'
     # result cascade and the answers' and the adjudications' example cascade would
     # otherwise remove them uncounted.  The batches and the participants are not
