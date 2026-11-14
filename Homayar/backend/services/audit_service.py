@@ -291,6 +291,11 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.COACHING_TASK_CLOSED: "administration",
     AuditEventType.COACHING_TASK_CANCELLED: "administration",
     AuditEventType.COACHING_TASK_OVERDUE: "administration",
+    AuditEventType.ACTION_PROPOSAL_CREATED: "administration",
+    AuditEventType.ACTION_PROPOSAL_REFRESHED: "administration",
+    AuditEventType.ACTION_PROPOSAL_APPROVED: "administration",
+    AuditEventType.ACTION_PROPOSAL_REJECTED: "administration",
+    AuditEventType.ACTION_PROPOSAL_REVOKED: "administration",
     # Deletion, retention and legal hold
     AuditEventType.MEETING_DELETED: "deletion",
     AuditEventType.MEETING_RETENTION_EXPIRED: "deletion",

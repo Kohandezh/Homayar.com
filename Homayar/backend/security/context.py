@@ -73,6 +73,9 @@ __all__ = [
     "require_organization_write_permission",
     "require_path_permission",
     "require_permission",
+    "require_session_permission",
+    "require_session_workspace",
+    "require_session_write_permission",
     "require_workspace",
     "require_write_permission",
 ]
@@ -524,6 +527,68 @@ def require_write_permission(permission: Permission):
 
     dependency.homayar_permission = permission  # type: ignore[attr-defined]
     dependency.homayar_write = True  # type: ignore[attr-defined]
+    return dependency
+
+
+async def require_session_workspace(
+    actor: Actor = Depends(require_actor),
+    workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> WorkspaceContext:
+    """The workspace of a session-only trends route (HOM-82, HOM-229), resolved
+    once per request: the module guard and ``require_session_permission`` share
+    this dependency, so a session caller gets workspace resolution (with the
+    privileged MFA gate of HOM-129), the module check and the permission check,
+    in that order, on one resolution."""
+    return await require_workspace(actor=actor, workspace_id=workspace_id, db=db, settings=settings)
+
+
+def require_session_permission(permission: Permission):
+    """``permission`` from a signed-in session only (HOM-82).  ``require_actor``
+    answers every bearer that looks like an API key (valid, unknown, revoked,
+    expired, over its rate limit) with ``401 api_key_not_accepted`` before any
+    key lookup, so every key gets one answer, in every module state.  The
+    workspace comes from the shared ``require_session_workspace`` dependency:
+    the HOM-229 module guard has already run its check on that resolution
+    before this permission check."""
+
+    async def dependency(
+        context: WorkspaceContext = Depends(require_session_workspace),
+    ) -> WorkspaceContext:
+        if not context.has(permission):
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "permission_denied", "message": "Permission denied"},
+            )
+        return context
+
+    # Policy metadata read by the route-coverage test (never by the runtime).
+    dependency.homayar_permission = permission  # type: ignore[attr-defined]
+    dependency.homayar_write = False  # type: ignore[attr-defined]
+    dependency.homayar_session_only = True  # type: ignore[attr-defined]
+    return dependency
+
+
+def require_session_write_permission(permission: Permission):
+    """A session-only write (HOM-135): ``require_session_permission`` plus the CSRF
+    double-submit check of a cookie session (``require_csrf``, which also refuses
+    every API-key bearer).  The refusal order is authentication, workspace, module
+    guard, permission, then CSRF."""
+    permission_dependency = require_session_permission(permission)
+
+    async def dependency(
+        context: WorkspaceContext = Depends(permission_dependency),
+        csrf_actor: Actor = Depends(require_csrf),
+    ) -> WorkspaceContext:
+        if context.actor.user.id != csrf_actor.user.id:
+            raise _unauthorized("Session identity mismatch")
+        return context
+
+    # Policy metadata read by the route-coverage test (never by the runtime).
+    dependency.homayar_permission = permission  # type: ignore[attr-defined]
+    dependency.homayar_write = True  # type: ignore[attr-defined]
+    dependency.homayar_session_only = True  # type: ignore[attr-defined]
     return dependency
 
 

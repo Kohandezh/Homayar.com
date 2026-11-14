@@ -39,8 +39,9 @@ reviews (ADR 0057), maps CRM records (ADR 0048) and turns findings into coaching
   (`source_digest`, computed by the PR 2 service).
 - **Open proposal.** A proposal with status `pending` or `approved`.
 - **Stale proposal.** A proposal whose pin no longer matches the current state: the
-  meeting's current transcript revision changed, the source digest changed, the source
-  was removed, or a finding is no longer `failed`.
+  source was removed, the meeting's current transcript revision changed, the action item
+  is no longer open, a finding is no longer `failed`, the target is no longer valid, or
+  the source digest changed (D4 gives the order).
 - **Delivery request.** One row of `action_delivery_requests`: the immutable copy of
   an approved proposal.
 
@@ -153,11 +154,19 @@ sends. The request is a second row that never changes:
 ### D3. The status rules (PR 2)
 
 - `pending` to `approved` (approve), `pending` to `rejected` (reject), `approved` to
-  `revoked` (revoke). `rejected` and `revoked` are final.
-- Only a `pending` proposal is edited or refreshed. Each edit or refresh sets the new
-  payload and hash and adds one to `payload_version`.
-- Every change sends `expected_revision`. The service updates the row only when
-  `revision` still equals it, and adds one. Otherwise it answers 409.
+  `revoked` (revoke). `rejected` and `revoked` are final. Every other transition answers
+  409: `action_proposal_not_pending` for approve, reject and refresh of a proposal that
+  is not `pending`, `action_proposal_not_approved` for a revoke of one that is not
+  `approved`.
+- Only a `pending` proposal is refreshed, and only an approval stores an edit (there is
+  no stored edit before approve). Each refresh or edit sets the new payload and hash and
+  adds one to `payload_version`.
+- Every change sends `expected_revision`. The service locks the proposal row
+  (`SELECT ... FOR UPDATE`), checks the call's agent or the coachee of a `coaching_task`
+  proposal (D4), then the status, then the revision, and adds one to `revision`. A moved
+  revision answers `409 action_proposal_revision_conflict` with `current_revision` in the
+  details. So of two writes that read the same revision,
+  exactly one lands.
 - **Revoke lives on the proposal.** A revoke sets `revoked_at`, `revoke_reason` and the
   revoker on the proposal. The delivery request row never changes. HOM-136 reads the
   proposal's status, so the revoke reaches it without changing the request.
@@ -167,27 +176,118 @@ sends. The request is a second row that never changes:
   stays `approved`. So it keeps blocking any new proposal of the same action type for
   the same action item (`uq_action_proposals_open_item`), or for the same finding
   (`uq_action_proposals_open_finding`). This is the "one logical effect per source and
-  type" rule of F60. PR 2 answers such a create with 409 and its own error code (for
-  example `proposal_exists`), never with a 500 from the unique index. A rejected or
-  revoked proposal frees the slot.
+  type" rule of F60. PR 2 answers such a create with `409 action_proposal_exists`
+  (it catches the unique violation of those two indexes only), never with a 500 from the
+  unique index. A rejected or revoked proposal frees the slot.
+- Reasons come from their lists: `reject_reason` from `ACTION_PROPOSAL_REJECT_REASONS`,
+  `revoke_reason` from `ACTION_PROPOSAL_REVOKE_REASONS`; anything else answers
+  `422 action_proposal_invalid`.
 
-### D4. Approval binding and staleness (PR 2)
+### D4. Create, approval binding and staleness (PR 2)
 
-The approve body carries `expected_revision`, `payload_hash`,
-`source_transcript_revision_id` and an optional edited payload.
+**Create**, checks in this order; a refusal writes nothing:
 
-- The approval is refused with 409 when `payload_hash` differs from the stored hash
-  (the approver saw another payload), or `source_transcript_revision_id` differs from
-  the stored pin.
-- The approval is refused with 409 when the pin is stale: the meeting's current
-  transcript revision is not the pinned one, the source digest computed now differs
-  from `source_digest`, the source was removed (a NULL id), or a finding's final outcome
-  (ADR 0057 D4) is no longer `failed`.
-- Edit-then-approve: with an edited payload, the service checks the stored hash first,
-  stores the edit with a new hash and `payload_version + 1`, and approves that exact
-  payload, all in one transaction.
-- `refresh` rebuilds the payload from the current source, takes new pins, and adds one
-  to `payload_version`. A stale proposal is refreshed or rejected, never approved.
+1. Shape: `action_type` from the list; `crm_update` and `ticket_create` name an
+   `action_item_id` and no finding or coaching fields; `coaching_task` names a
+   `review_item_id` and a `criterion_id` and no `action_item_id`; the target fields
+   follow the D1 table (`target_system` a slug). Else `422 action_proposal_invalid`,
+   and the message names the field.
+2. The source is visible: the action item's call is in the caller's record scope and
+   not deleted (`404 action_item_not_found`), or the review item is visible under the
+   review-queue rule (`404 review_item_not_found`).
+3. The source is eligible: an action item is `open` or `in_progress`
+   (`409 action_item_not_actionable`). A finding passes exactly the coaching create
+   checks of ADR 0062 D3 route 1, with the same codes: the caller is not the call's
+   agent, a completed review with a human result, no open appeal, an agent to coach, a
+   criterion of the result, a final outcome of `failed`, no active coaching task, the
+   owner, the due date and the instruction. Both features run one function,
+   `coaching_service.check_create`, so the rules cannot drift apart.
+4. The pin: the call's current transcript revision (`409 transcript_missing` without
+   one). The source must have been read from it: an AI action item uses its analysis
+   run's revision, a person item (no run) the current one, a finding its scorecard
+   result's revision. A mismatch answers `409 action_proposal_source_stale`.
+5. The target: a `crm_update` names an active `external_records` row of the workspace,
+   of the target system, that is the call's current `customer` or `ticket` link in that
+   system; a `ticket_create` names the source system of an active mapping profile of the
+   workspace. Else `422 action_proposal_target_invalid`.
+6. The payload, its hash and the source digest; the row is inserted `pending` at
+   revision 1 and payload version 1.
+
+**Payloads** (exact keys, values from the source, no other keys):
+
+- `ticket_create.v1`: `title` (the first 120 characters of the description, trimmed),
+  `description`, `priority`, `due_at`, `assignee_text`, `kind`, `meeting_id`,
+  `action_item_id`.
+- `crm_update.v1`: `source_system`, `record_type` and `external_id` of the record,
+  `note` (the description), `due_at`, `priority`, `kind`, `meeting_id`,
+  `action_item_id`.
+- `coaching_task.v1`: `review_item_id`, `criterion_id`, `agent_user_id`,
+  `owner_user_id`, `due_at`, `instruction`.
+- `kind` is the HOM-133 label, so a proposed next step stays apart from a commitment
+  (F38). Dates are ISO 8601 in UTC.
+- Canonical JSON is `json.dumps(value, sort_keys=True, separators=(",", ":"),
+  ensure_ascii=False)` in UTF-8; every hash is its sha256 in lowercase hex.
+
+**Source digest**: of an action item, its `id`, `description`, `assignee_text`,
+`assignee_user_id`, `due_at`, `priority`, `status`, `kind` and `analysis_run_id`; of a
+finding, the review item, the criterion, the scorecard result, the final outcome and its
+source, and the call's agent.
+
+**Stale reasons**, checked in this order, the first one wins: `source_removed` (the
+source id is NULL or its row is gone), `revision_changed` (the call's current revision
+is not the pin), `source_not_actionable` (the action item is not open or in progress),
+`finding_not_failed` (the final outcome is no longer `failed`), `target_invalid` (step 5
+fails now), and last `source_changed` (the digest differs). The preview shows the
+reason of a `pending` proposal live.
+
+**Approve**, under the proposal row lock, in this order: the proposal is visible (404),
+the caller is not the call's agent or the coachee of a `coaching_task`
+proposal (`422 coaching_actor_is_agent`), `pending` (`409 action_proposal_not_pending`), the revision
+(`409 action_proposal_revision_conflict`), the body's `payload_hash` equals the stored
+hash (`409 action_proposal_payload_changed`: the approver saw another payload), the
+body's `source_transcript_revision_id` equals the pin (`409 action_proposal_pin_mismatch`),
+not stale (`409 action_proposal_stale` with the `reason`), then the optional edit.
+
+- **Nobody writes a coaching proposal about their own call.** An owner or admin passes
+  the review-queue rule on their own call, so they can read a `coaching_task` proposal
+  about it. Every write on it by the call's agent or the coachee (refresh, approve with
+  or without a payload, reject, revoke) answers `422 coaching_actor_is_agent`, after
+  visibility and before the status and revision checks, and writes only its `denied`
+  audit event. The coachee is the stored payload's `agent_user_id`, so the person a
+  proposal coaches stays refused after the call moves to another agent (the rule of
+  `coaching_service._is_party`).
+- Approve of a `coaching_task` proposal always runs the coaching create checks of step 3
+  (open appeal, active coaching task, owner, due date, instruction) on the payload it
+  approves: the stored one, or the edited one. So an approve with no payload answers
+  like one with the unchanged payload, with the coaching codes.
+
+- Edit-then-approve: the edited payload has exactly the stored keys. Only the editable
+  fields may change (ticket `title`, `description`, `priority`, `due_at`; CRM `note`,
+  `due_at`; coaching `owner_user_id`, `due_at`, `instruction`); any other changed value
+  answers `422 action_proposal_field_not_editable`. A value equal to the stored one is
+  not an edit: it keeps the stored value, never a normalized copy, and skips the field
+  checks. So an approve with the exact stored payload is an approve with no payload: the
+  same payload version, hash and idempotency key, and `edited` false. A changed value is
+  checked as on create (title 1 to 120 characters, description and note 1 to 4000 of
+  UTF-8 text, a priority of the list, a due date that fits in UTC, the coaching checks
+  for the owner, the due date and the instruction); an unknown key, a missing key or a
+  bad value answers `422 action_proposal_invalid`, an edited instruction that is empty,
+  blank or too long included. The coaching create checks still run on the whole approved
+  payload of a `coaching_task` (see above). The owner and the due date keep their
+  coaching codes. An instruction equal to the stored one is not an edit: if the stored
+  instruction is no longer valid, approve answers `422 coaching_instruction_required`,
+  with or without the payload, as create and refresh do. The service stores the edit
+  with a new hash and `payload_version + 1`, and approves that exact payload, all in one
+  transaction.
+- The approval writes one delivery request that copies the (possibly edited) payload,
+  hash and version, the target, the source type, the source id, the criterion, the pin,
+  the digest and the approver, with `idempotency_key` the sha256 of
+  `workspace_id|proposal_id|payload_hash`.
+- `refresh` rebuilds the payload from the current source (steps 2 to 5 again, with the
+  same codes), takes new pins, and adds one to `payload_version`. A stale proposal is
+  refreshed or rejected, never approved. A stale coaching proposal whose due date has
+  passed can only be rejected (refresh fails the due-date check, approve fails the stale
+  check); a person then creates a new proposal.
 - **Scope rule.** Before the insert, the service checks that the source item or finding
   and the pinned transcript revision belong to the proposal's own workspace and
   meeting, and that the external record belongs to the workspace. The single-column
@@ -214,20 +314,65 @@ happens before the delivery starts, and nothing leaves, or it is refused. A conn
 failure retries the same request with the same key (ADR 0050 for the retry and audit
 pattern of the webhook ledger).
 
+HOM-136 treats a violation of `uq_coaching_tasks_active_finding` at delivery as a refusal
+of that request, not a crash: the approve of a `coaching_task` proposal and a create on
+the coaching route are not atomic, so an active coaching task for the same finding can
+appear between the approval and the delivery.
+
+Approve locks the proposal row but not the source, so HOM-136 must not assume that the
+request's `source_digest` still matches the source when delivery starts.
+
 ### D6. Routes, permissions and audit (PR 2)
 
-- Routes under `/api/v1/action-proposals`, behind `require_module("integrations")`
-  (ADR 0065) with a session-only workspace dependency, like `require_session_workspace`
-  of the trends routes. API keys are refused: an outbound write needs a person.
-- Planned routes: create a proposal from a source, list the queue, read one proposal
-  (the preview), `approve`, `reject`, `revoke` and `refresh`. The PR 2 SPEC fixes the
-  bodies.
+| Method | Path | Permission | Success |
+| --- | --- | --- | --- |
+| POST | `/api/v1/action-proposals` | `action:propose` + CSRF | 201, the view |
+| GET | `/api/v1/action-proposals` | `action:propose` | 200, `{items, next_cursor}` |
+| GET | `/api/v1/action-proposals/{proposal_id}` | `action:propose` | 200, the view |
+| POST | `/api/v1/action-proposals/{proposal_id}/refresh` | `action:propose` + CSRF | 200 |
+| POST | `/api/v1/action-proposals/{proposal_id}/approve` | `action:approve` + CSRF | 201, with `delivery_request` |
+| POST | `/api/v1/action-proposals/{proposal_id}/reject` | `action:approve` + CSRF | 200 |
+| POST | `/api/v1/action-proposals/{proposal_id}/revoke` | `action:approve` + CSRF | 200 |
+
+- Every route sits behind `require_module("integrations")` (ADR 0065) with the
+  session-only workspace dependency `require_session_workspace` (it moved from the trends
+  router to `security/context.py`, unchanged). API keys are refused: every bearer that
+  looks like an API key gets `401 api_key_not_accepted` before any key lookup, in every
+  module state, because an outbound write needs a person. Writes use
+  `require_session_write_permission`, which adds the CSRF check. The refusal order is
+  authentication, workspace, module, permission, CSRF, then the route's own checks.
 - New permissions: `action:propose` (owner, admin, member) and `action:approve` (owner,
   admin). Neither is ever granted to an API key.
-- Record scope: a user acts only on proposals whose source meeting is in the user's
-  record scope.
-- Audit events for create, approve, reject, revoke and refresh. They carry ids, codes,
-  hashes and versions only, never payload text and never source text.
+- Visibility: a proposal is visible when its call passes the caller's record scope and
+  is not deleted. A `coaching_task` proposal whose review item still exists also needs
+  the HOM-73 review-queue rule; once the review item is gone, the record scope alone
+  decides, so the proposal can still be read, rejected or revoked. An invisible or
+  missing proposal answers `404 action_proposal_not_found`, never 403.
+- The view holds the ids, the target, the stored payload, its hash and version, the pin,
+  the status fields, the evidence span ids of an action item source (oldest first), the
+  live staleness of a `pending` proposal (`null` for other statuses) and the delivery
+  request (`id`, `idempotency_key`, approver, time) or `null`. The list returns the same
+  view without the payload and without the staleness check, oldest first, with the
+  filters `status` (repeatable), `action_type`, `meeting_id`, `limit` (ASCII digits, 1
+  to 100, default 50) and `cursor` (at most 512 characters, refused before any decoding).
+  A bad parameter answers `422 action_proposal_invalid`.
+- An id is 1 to 64 characters that the database can hold: no NUL byte and UTF-8 text.
+  It is not a UUID pattern, because `target_external_record_id` is an outside system's
+  id. A list or body id that breaks this rule answers `422 action_proposal_invalid`; a
+  path id answers `404 action_proposal_not_found`. Both are refused before any query. A
+  coaching `owner_user_id` that breaks it is no owner: on create and approve the coaching
+  checks answer `422 review_assignee_ineligible` at their owner step, after the
+  visibility checks, so the refusal does not tell whether the review item exists, and
+  the value never reaches a query.
+- Audit events `action_proposal.created`, `.refreshed`, `.approved`, `.rejected` and
+  `.revoked`, target `action_proposal`. Their details hold only `proposal_id`,
+  `meeting_id`, `action_type`, `source_type`, `payload_version`, `payload_hash`,
+  `revision`, `reason`, `reason_code`, `stale_reason`, `delivery_request_id` and
+  `edited`: ids, codes, hashes and versions only, never payload text and never source
+  text. A 409 or 422 refusal of a visible proposal's refresh, approve, reject or revoke
+  writes the same event type with outcome `denied` and the refusal code in
+  `reason_code` (the audit log redacts any key named `code`). A 404 and a refused
+  create write nothing.
 
 ### D7. Purge, backup and isolation (PR 1)
 
