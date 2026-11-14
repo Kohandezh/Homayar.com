@@ -45,12 +45,14 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.config import get_settings
 from backend.database.saas_models import (
     Entitlement,
     ReservationState,
     UsageEvent,
     UsageReservation,
 )
+from backend.licensing.offline_license import LicenseRestrictedError, current_license_status
 
 
 class QuotaExceededError(ValueError):
@@ -162,6 +164,15 @@ def get_usage_snapshot(
     )
 
 
+def _effective_limit(row_limit: int | None, license_cap: int | None) -> int | None:
+    """The smaller of the entitlement row limit and the licence cap (``None`` = no cap)."""
+    if license_cap is None:
+        return row_limit
+    if row_limit is None:
+        return license_cap
+    return min(row_limit, license_cap)
+
+
 def reserve_usage(
     db: Session,
     *,
@@ -185,10 +196,16 @@ def reserve_usage(
             or existing_entitlement is None
             or existing_entitlement.metric != metric
         ):
-            raise ReservationStateError(
-                "Idempotency key was reused with different parameters"
-            )
+            raise ReservationStateError("Idempotency key was reused with different parameters")
         return existing
+
+    # HOM-109 (ADR 0073): the offline licence gates new reservations only; a
+    # replayed key above and commit/release never read it. No row is read or
+    # written for a restricted licence.
+    license_status = current_license_status(get_settings())
+    if not license_status.processing_allowed:
+        raise LicenseRestrictedError(license_status.state, license_status.reason)
+    license_cap = license_status.cap_for(metric)
 
     entitlement = db.scalar(
         select(Entitlement).where(
@@ -205,26 +222,31 @@ def reserve_usage(
             metric=metric,
         )
 
+    conditions = [
+        Entitlement.id == entitlement.id,
+        or_(
+            Entitlement.limit_value.is_(None),
+            Entitlement.used_value + Entitlement.reserved_value + amount <= Entitlement.limit_value,
+        ),
+    ]
+    if license_cap is not None:
+        conditions.append(
+            Entitlement.used_value + Entitlement.reserved_value + amount <= license_cap
+        )
+
     reservation: UsageReservation
     try:
         with db.begin_nested():
             updated_id = db.scalar(
                 update(Entitlement)
-                .where(
-                    Entitlement.id == entitlement.id,
-                    or_(
-                        Entitlement.limit_value.is_(None),
-                        Entitlement.used_value + Entitlement.reserved_value + amount
-                        <= Entitlement.limit_value,
-                    ),
-                )
+                .where(*conditions)
                 .values(reserved_value=Entitlement.reserved_value + amount)
                 .returning(Entitlement.id)
             )
             if updated_id is None:
                 db.refresh(entitlement)
                 raise QuotaExceededError(
-                    limit=entitlement.limit_value,
+                    limit=_effective_limit(entitlement.limit_value, license_cap),
                     used=entitlement.used_value,
                     reserved=entitlement.reserved_value,
                     requested=amount,

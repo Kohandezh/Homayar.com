@@ -281,11 +281,144 @@ bash homayar-onprem.sh preflight [--offline]
 ```
 
 `status` prints the current version and SHA, the service rows, the image IDs,
-the alembic version and the latest state record. It prints no secrets.
+the alembic version, the offline licence line and the latest state record. It prints no secrets.
 `preflight` renders the Compose config, checks free disk and runs the model
 preflight with `--host` inside the api container
 ([deployment.md](deployment.md), "Host preflight"); the preflight exit code
 (0 ready, 1 not ready, 2 configuration error) is passed through.
+
+## Offline licence
+
+An install can enforce a signed offline licence (HOM-109, ADR 0073): what the
+customer may use (modules), how much (limits), and until when. It works with
+no network. Enforcement is **opt-in**: with `OFFLINE_LICENSE_FILE` empty the
+licence is not enforced and the install behaves exactly as without this
+feature.
+
+### Where the files go
+
+```text
+/opt/homayar/config/license/
+  license.json        the licence (UTF-8 JSON, at most 65536 bytes)
+  license.json.sig    its raw 64-byte Ed25519 signature
+  keys/*.pem          the vendor's Ed25519 public keys (trust)
+```
+
+The `api` and `worker` containers mount this folder read-only at
+`/app/license`. The container user (uid 10001) must be able to read it: mode
+`755` on the folders and `644` on the files. A file it cannot read counts as
+missing.
+
+Add two lines to `config/onprem.env`:
+
+```bash
+OFFLINE_LICENSE_DIR=/opt/homayar/config/license
+OFFLINE_LICENSE_FILE=/app/license/license.json
+```
+
+`OFFLINE_LICENSE_TRUST_DIR` defaults to `/app/license/keys`; set it only for
+another layout. Then recreate `api` and `worker` once so they read the new
+env:
+
+```bash
+docker compose --env-file /opt/homayar/config/onprem.env \
+  --file /opt/homayar/current/infra/compose/compose.onprem.yaml \
+  --profile onprem up -d --no-build --pull never api worker
+```
+
+Without `OFFLINE_LICENSE_DIR` the containers mount the empty default folder of
+the release (`infra/compose/license`).
+
+### Signing a licence (vendor side)
+
+Use a licence signing key of its own, kept offline like the bundle key
+("Package signing"):
+
+```bash
+openssl genpkey -algorithm ed25519 -out license-signing-key.pem   # keep offline
+chmod 600 license-signing-key.pem
+openssl pkey -in license-signing-key.pem -pubout -out license-public.pem
+```
+
+Write the licence (every key below is required; nothing else is allowed):
+
+```json
+{
+  "schema": "homayar-offline-license/1",
+  "license_id": "L-2027-001",
+  "customer_id": "acme",
+  "customer_name": "Acme Co",
+  "issued_at": "2027-01-01T00:00:00Z",
+  "expires_at": "2028-01-01T00:00:00Z",
+  "grace_days": 14,
+  "modules": ["insights", "quality"],
+  "limits": {"audio_seconds": 360000, "concurrent_jobs": 4}
+}
+```
+
+`modules` lists capability module keys (`quality`, `insights`, `copilot`,
+`voice`, `voicemail`, `integrations`). `limits` caps a metric per workspace;
+`null` or a missing metric means no licence cap. Unknown module keys and
+unknown metrics are ignored and reported. `grace_days` is 0 to 90.
+
+Sign the exact file bytes, then check the signature:
+
+```bash
+openssl pkeyutl -sign -rawin -inkey license-signing-key.pem \
+  -in license.json -out license.json.sig
+openssl pkeyutl -verify -rawin -pubin -inkey license-public.pem \
+  -in license.json -sigfile license.json.sig
+```
+
+Ship `license.json`, `license.json.sig` and `license-public.pem`. On the host,
+copy the public key to `config/license/keys/` out of band. Any trusted key
+verifies (rotation: add the new public key next to the old one). A `*.pem` in
+`keys/` that is not an Ed25519 public key makes the licence invalid.
+
+### Reading the state
+
+- `bash homayar-onprem.sh status` prints one line, for example
+  `license: state=grace reason=- id=L-2027-001 customer=acme expires=... days_left=12 ... key=<fingerprint>`.
+  `license: unreadable` means the api container did not answer, or could not
+  load its settings.
+- `GET /api/v1/admin/license` (a platform operator's signed-in session) gives
+  the full state, the warnings and the workspace counters.
+- Every API response carries `X-Homayar-License: <state>` when the licence is
+  enforced and not `valid`.
+- The api and worker log one `OFFLINE_LICENSE_STATE state=... reason=...
+  license_id=...` line when they first see a state and when it changes.
+
+### What each state does
+
+| State | When | New processing | Modules |
+| --- | --- | --- | --- |
+| `not_enforced` | `OFFLINE_LICENSE_FILE` empty | as without a licence | as without a licence |
+| `valid` | from `issued_at` minus one day until `expires_at` | allowed, licence limits apply | the licence modules that the plan also allows |
+| `grace` | from `expires_at` for `grace_days` days | allowed, licence limits apply, warnings | as `valid` |
+| `expired` | after the grace days | refused (read and export only) | read only |
+| `invalid` | bad signature, untrusted or bad key, malformed JSON or dates, file too large, or the clock is before `issued_at` minus one day | refused | read only |
+| `missing` | enforced, but `license.json` or `.sig` is missing or unreadable | refused | read only |
+
+A refused state never deletes, hides or changes data. Reading, listing,
+downloads, exports, sign-in and deletion requests keep working. Jobs that
+already started finish normally. New uploads, voicemail imports, job replays,
+manual analysis recomputes and every write to a module answer
+`403 license_restricted`. Transcript corrections and other edits of existing
+conversations stay allowed.
+
+### Renewing
+
+Replace `license.json` and `license.json.sig` with the new pair. No restart
+is needed: the next request sees the new files. Copy both to temporary names
+in the same folder first, then `mv` them into place, so the gap between the
+two files is as short as possible (a request in that gap can see `invalid`).
+
+### The host clock
+
+The licence states are based on the host clock (UTC). Keep the clock of an
+air-gapped host right: a clock set forward ends the licence early, and a clock
+set back extends it. A clock more than one day before `issued_at` makes the
+licence `invalid` (`not_yet_valid`).
 
 ## Limits
 
@@ -295,7 +428,7 @@ preflight with `--host` inside the api container
 - Settings changes between releases are manual: compare
   `releases/<old>/infra/compose/compose.onprem.yaml` with the new release
   and update `config/onprem.env` yourself before upgrading.
-- There is no licence check yet (HOM-109) and no network-denied install test
+- There is no network-denied install test yet
   (HOM-111). The upgrade rehearsal on real fixture data is HOM-112.
 - One operator at a time: a held lock (`ops/homayar-onprem.lock`) makes every
   state-changing command refuse with exit 2. A lock left behind by a killed

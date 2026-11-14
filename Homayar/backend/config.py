@@ -549,6 +549,12 @@ class Settings(BaseSettings):
     # HOM-336: false closes every self-sign-up path (register, phone OTP,
     # Google); only a workspace invitation lets a newcomer create an account.
     registration_enabled: bool = True
+    # HOM-109 (ADR 0073): the signed offline licence of an on-prem install.
+    # An empty OFFLINE_LICENSE_FILE licenses everything as today (cloud, CI);
+    # non-empty turns enforcement on. The trust dir holds the Ed25519 public
+    # key *.pem files that may verify the licence file.
+    offline_license_file: str = ""
+    offline_license_trust_dir: str = ""
 
     # STORAGE / UPLOAD
     storage_backend: Literal["local", "s3"] = "local"

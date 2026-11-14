@@ -26,6 +26,7 @@ from backend.database.saas_models import (
     TranscriptSource,
 )
 from backend.jobs import recompute
+from backend.licensing.offline_license import RESTRICTED_MESSAGE, current_license_status
 from backend.privacy.redaction_service import RedactionError, reveal_placeholder
 from backend.privacy.text_pii import DETECTOR_VERSION
 from backend.privacy.transcript_view import (
@@ -863,7 +864,19 @@ def recompute_analysis(
     status after the dispatch.  Allowed after ``failed``: a person may ask for
     one more attempt beyond the sweeper's cap.  Every request counts against
     the workspace's ``recompute_manual_rate_limit_per_minute`` (429 over it).
+    A restricted offline licence refuses it first (403 ``license_restricted``,
+    HOM-109): a recompute is new processing, so nothing is recorded or dispatched.
     """
+    license_status = current_license_status(settings)
+    if license_status.restricted:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "license_restricted",
+                "message": RESTRICTED_MESSAGE,
+                "details": {"state": license_status.state, "reason": license_status.reason},
+            },
+        )
     _enforce_recompute_rate_limit(settings, context.workspace.id)
     meeting = _meeting_or_404(db, context=context, meeting_id=meeting_id)
     quality = _quality(db, meeting, settings=settings)
