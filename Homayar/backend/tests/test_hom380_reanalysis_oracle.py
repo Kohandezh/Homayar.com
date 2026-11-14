@@ -45,10 +45,20 @@ from backend.tests.test_uploads_api import _valid_metadata
 from backend.voicemail.models import VoicemailMessage
 
 # HOM-133 (ADR 0058): the pipeline keeps an owner only when a cited turn names it,
-# so both texts name the owner and each action quotes the turn.
+# so both texts name the owner and each action quotes the turn.  The first run
+# writes commitments; every re-analysis writes next_steps, so no new action
+# matches a kept one (HOM-381 K2) and the kept rows stay untouched.  The
+# matching cases are test_voicemail_reanalysis_matches_kept_action.py.
 ORIGINAL_TEXT = "کارشناس فروش پیگیری قرارداد را انجام می‌دهد"
 CORRECTED_TEXT = "کارشناس فروش پیگیری فاکتور را انجام می‌دهد"
 OWNER_TEXT = "کارشناس فروش"
+FIRST_RUN_KIND = ActionKind.COMMITMENT
+REANALYSIS_KIND = ActionKind.NEXT_STEP
+# The re-analysis bundle also differs in its identity params, so the full job's
+# re-run cannot reuse the first attempt's intelligence checkpoint and replay
+# the first run's actions.
+FIRST_RUN_SUMMARY_CHARS = 500
+REANALYSIS_SUMMARY_CHARS = 499
 ACTIONS_PER_RUN = 2
 PATHS = ["recompute", "process_job"]
 _ids = itertools.count(1)
@@ -59,6 +69,15 @@ class _TwoActions(MockIntelligenceProvider):
     with an ``owner`` text, so ``assignee_text`` is set and ``assignee_user_id``
     is null on every action the run writes."""
 
+    def __init__(
+        self,
+        *,
+        kind: ActionKind = FIRST_RUN_KIND,
+        max_summary_chars: int = FIRST_RUN_SUMMARY_CHARS,
+    ) -> None:
+        super().__init__(allow_mock=True, max_summary_chars=max_summary_chars)
+        self._kind = kind
+
     async def analyze(self, request):
         result = await super().analyze(request)
         said = request.turns[0].text
@@ -67,7 +86,7 @@ class _TwoActions(MockIntelligenceProvider):
                 description=f"Call back {index}: {said}",
                 owner=OWNER_TEXT,
                 source_turn_indexes=[0],
-                kind=ActionKind.COMMITMENT,
+                kind=self._kind,
                 owner_quote=said,  # HOM-133: the words that name the owner
             )
             for index in range(ACTIONS_PER_RUN)
@@ -75,12 +94,18 @@ class _TwoActions(MockIntelligenceProvider):
         return result.model_copy(update={"action_items": actions})
 
 
-def _bundle() -> ProviderBundle:
+def _bundle(
+    kind: ActionKind = FIRST_RUN_KIND, max_summary_chars: int = FIRST_RUN_SUMMARY_CHARS
+) -> ProviderBundle:
     return ProviderBundle(
         asr=MockASRProvider(allow_mock=True, transcript=ORIGINAL_TEXT),
         diarization=SingleSpeakerDiarizationProvider(),
-        intelligence=_TwoActions(allow_mock=True),
+        intelligence=_TwoActions(kind=kind, max_summary_chars=max_summary_chars),
     )
+
+
+def _reanalysis_bundle() -> ProviderBundle:
+    return _bundle(REANALYSIS_KIND, max_summary_chars=REANALYSIS_SUMMARY_CHARS)
 
 
 @dataclass
@@ -115,7 +140,7 @@ def crew(client, settings, monkeypatch, email_outbox) -> Crew:
         lambda *args, **kwargs: _valid_metadata(duration_seconds=65.2),
     )
     monkeypatch.setattr("backend.routers.v1.meetings.dispatch_job", lambda *_a, **_k: True)
-    monkeypatch.setattr(recompute, "create_provider_bundle", lambda _settings: _bundle())
+    monkeypatch.setattr(recompute, "create_provider_bundle", lambda _settings: _reanalysis_bundle())
     owner, people, _ = _workspace_with_roles(
         client, email_outbox, monkeypatch, roles={"member": "member"}
     )
@@ -151,9 +176,9 @@ def _plain_meeting(crew: Crew) -> tuple[str, str]:
     return body["meeting"]["id"], body["job"]["id"]
 
 
-def _process(crew: Crew, job_id: str) -> None:
+def _process(crew: Crew, job_id: str, *, kind: ActionKind = FIRST_RUN_KIND) -> None:
     result = process_job(
-        job_id, worker_id="hom380-oracle", settings=crew.settings, providers=_bundle()
+        job_id, worker_id="hom380-oracle", settings=crew.settings, providers=_bundle(kind)
     )
     assert result["status"] == "completed", result
 
@@ -295,7 +320,13 @@ def _rerun(crew: Crew, meeting_id: str) -> str:
         job.completed_at = None
         db.commit()
         job_id = job.id
-    _process(crew, job_id)
+    result = process_job(
+        job_id,
+        worker_id="hom380-oracle",
+        settings=crew.settings,
+        providers=_reanalysis_bundle(),
+    )
+    assert result["status"] == "completed", result
     return job_id
 
 

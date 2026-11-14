@@ -156,6 +156,7 @@ from backend.services.evidence_service import (
     ResolvedReferences,
     resolve_turn_references,
 )
+from backend.services.kept_action_match import KeptAction, NewAction, match_kept_actions
 from backend.services.logging_service import logger
 from backend.services.media_lifecycle_service import (
     delete_objects,
@@ -1039,30 +1040,50 @@ def persist_analysis(
     The summary and the AI action items are replaced; a person's action items
     stay.  On a voicemail meeting (a ``VoicemailMessage`` row names the
     meeting) an AI action a person assigned (``assignee_user_id`` set through
-    the actions route, ADR 0054) is kept, every column unchanged; only AI
-    actions with a null ``assignee_user_id`` are replaced (HOM-380).  Every
-    other meeting replaces all of its AI actions, as before.  A kept action is
-    not written to, so the re-analysis never removes an assignment and writes
-    no ``action_item.assignee_changed`` row.  The new analysis run becomes
-    current and supersedes the previous one (``provenance`` is passed to
-    ``record_analysis_run``).  Evidence (WP04-T03): every reference the
-    provider offered is resolved against the segments of the revision it read;
-    anything else is rejected and counted, never repaired or guessed.  The
-    taxonomy extraction (HOM-53) is judged against ``model_turns``, the turns
-    the answering model received, and gets its own row next to the new run.
-    Runs in the caller's fenced transaction.
+    the actions route, ADR 0054) is kept, and when a new action of the run
+    matches it (same kind, close text; ``services.kept_action_match``) the kept
+    row takes the new description, evidence location and run id and no second
+    row is written (HOM-381); a kept action nothing matches stays every column
+    unchanged, and only AI actions with a null ``assignee_user_id`` are
+    replaced (HOM-380).  Every other meeting replaces all of its AI actions,
+    as before.  ``PersistedAnalysis.actions`` holds every AI action the run
+    wrote: the inserted rows and the updated kept rows, in run order.  No
+    ``action_item.assignee_changed`` row is written: the assignee never
+    changes.  The new analysis run becomes current and supersedes the previous
+    one (``provenance`` is passed to ``record_analysis_run``).  Evidence
+    (WP04-T03): every reference the provider offered is resolved against the
+    segments of the revision it read; anything else is rejected and counted,
+    never repaired or guessed.  The taxonomy extraction (HOM-53) is judged
+    against ``model_turns``, the turns the answering model received, and gets
+    its own row next to the new run.  Runs in the caller's fenced transaction.
     """
     if intelligence is not None:
         # HOM-351: one entry per finding before grounding and storage, for the
         # full job and the recompute alike.  A checkpoint keeps the raw output.
         intelligence = merge_duplicate_findings(intelligence, language=revision.language)
+    is_voicemail = _is_voicemail_meeting(db, meeting)
     replace_filters = [
         ActionItem.meeting_id == meeting.id,
         ActionItem.created_by == "ai",
     ]
-    if _is_voicemail_meeting(db, meeting):
+    if is_voicemail:
         replace_filters.append(ActionItem.assignee_user_id.is_(None))
     db.execute(delete(ActionItem).where(*replace_filters))
+    # HOM-380: the delete above skipped these rows; HOM-381 may merge a
+    # matching new action into one of them.
+    kept_actions: list[ActionItem] = []
+    if is_voicemail:
+        kept_actions = list(
+            db.scalars(
+                select(ActionItem)
+                .where(
+                    ActionItem.meeting_id == meeting.id,
+                    ActionItem.created_by == "ai",
+                    ActionItem.assignee_user_id.is_not(None),
+                )
+                .order_by(ActionItem.created_at.asc(), ActionItem.id.asc())
+            )
+        )
     db.execute(delete(MeetingSummary).where(MeetingSummary.meeting_id == meeting.id))
 
     plan = EvidencePlan()
@@ -1070,6 +1091,8 @@ def persist_analysis(
     key_points: list[dict[str, Any]] = []
     claims = NO_CLAIMS
     pending_actions: list[ActionItem] = []
+    run_action_rows: list[ActionItem] = []
+    merged_kept: list[tuple[ActionItem, str, TranscriptSegment | None, EvidenceStatus]] = []
     if intelligence is not None:
         summary_references = resolve_turn_references(
             intelligence.summary_source_turn_indexes, segments
@@ -1117,14 +1140,46 @@ def persist_analysis(
         # HOM-133 (ADR 0058): owner and due date are kept only when a cited turn
         # states them, judged against the turns the model received.
         grounding_reference = _grounding_reference(meeting)
-        for action in intelligence.action_items:
-            references = resolve_turn_references(action.source_turn_indexes, segments)
-            grounded = ground_action(
+        grounded_actions = [
+            (
                 action,
-                model_turns,
-                reference=grounding_reference,
+                ground_action(
+                    action,
+                    model_turns,
+                    reference=grounding_reference,
+                    language=revision.language,
+                ),
+                resolve_turn_references(action.source_turn_indexes, segments),
+            )
+            for action in intelligence.action_items
+        ]
+        # HOM-381 (ADR 0054): a grounded action that would be written as a row
+        # and matches a kept assigned action merges into it (K2, K3); the kept
+        # row then takes this run's text and evidence and no second row is
+        # written.  Every other meeting has no kept actions, so matches nothing.
+        matches = (
+            match_kept_actions(
+                [
+                    KeptAction(
+                        id=row.id,
+                        description=row.description,
+                        kind=row.kind,
+                        created_at=row.created_at,
+                    )
+                    for row in kept_actions
+                ],
+                [
+                    NewAction(kind=grounded.kind, description=action.description)
+                    for action, grounded, _references in grounded_actions
+                    if grounded is not None
+                ],
                 language=revision.language,
             )
+            if kept_actions
+            else {}
+        )
+        candidate_index = 0
+        for action, grounded, references in grounded_actions:
             if grounded is None:
                 # G1: no cited turn, so no row and no span.  Every reference the
                 # provider offered is still counted as rejected (no segments).
@@ -1136,7 +1191,11 @@ def persist_analysis(
                     now=now,
                 )
                 continue
-            action_id = new_id()
+            kept_match = (
+                kept_actions[matches[candidate_index]] if candidate_index in matches else None
+            )
+            candidate_index += 1
+            action_id = kept_match.id if kept_match is not None else new_id()
             plan.cite(
                 meeting=meeting,
                 revision=revision,
@@ -1146,24 +1205,32 @@ def persist_analysis(
                 now=now,
             )
             source_segment = references.segments[0] if references.segments else None
-            pending_actions.append(
-                ActionItem(
-                    id=action_id,
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    description=action.description,
-                    assignee_text=grounded.owner,
-                    due_at=_action_due_at(grounded.due_date),
-                    priority=action.priority.value,
-                    kind=grounded.kind,
-                    source_segment_id=(source_segment.id if source_segment is not None else None),
-                    source_timestamp_ms=(
-                        source_segment.start_ms if source_segment is not None else None
-                    ),
-                    created_by="ai",
-                    evidence_status=references.status.value,
+            if kept_match is not None:
+                # K4: the kept row keeps its id and every person-set field and
+                # takes the new text, evidence location and run id below.
+                merged_kept.append(
+                    (kept_match, action.description, source_segment, references.status)
                 )
+                run_action_rows.append(kept_match)
+                continue
+            pending = ActionItem(
+                id=action_id,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                description=action.description,
+                assignee_text=grounded.owner,
+                due_at=_action_due_at(grounded.due_date),
+                priority=action.priority.value,
+                kind=grounded.kind,
+                source_segment_id=(source_segment.id if source_segment is not None else None),
+                source_timestamp_ms=(
+                    source_segment.start_ms if source_segment is not None else None
+                ),
+                created_by="ai",
+                evidence_status=references.status.value,
             )
+            pending_actions.append(pending)
+            run_action_rows.append(pending)
     judged = cite_extraction(
         intelligence,
         model_turns=model_turns,
@@ -1209,6 +1276,17 @@ def persist_analysis(
     for pending in pending_actions:
         pending.analysis_run_id = analysis_run.id
         db.add(pending)
+    for kept_row, description, source_segment, status in merged_kept:
+        # K4: only what the run owns changes.  ``assignee_user_id`` and every
+        # person-set field stay as they are (HOM-380), and the new run's spans
+        # (written with ``finding_id`` = the kept id above) belong to this run.
+        kept_row.description = description
+        kept_row.source_segment_id = source_segment.id if source_segment is not None else None
+        kept_row.source_timestamp_ms = (
+            source_segment.start_ms if source_segment is not None else None
+        )
+        kept_row.evidence_status = status.value
+        kept_row.analysis_run_id = analysis_run.id
     extraction = (
         store_extraction(db, run=analysis_run, result=judged, now=now)
         if judged is not None
@@ -1221,7 +1299,7 @@ def persist_analysis(
         run=analysis_run,
         plan=plan,
         summary_status=summary_status,
-        actions=pending_actions,
+        actions=run_action_rows,
         extraction=extraction,
         extraction_reason=extraction_reason(intelligence, extraction),
     )
