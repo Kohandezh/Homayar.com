@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select, update
 
 from backend.database.saas_models import (
+    ConversationType,
     Meeting,
     Membership,
     RetrievalEmbedding,
@@ -46,11 +47,13 @@ from backend.database.saas_models import (
     TeamAssignment,
     TeamRole,
     TranscriptRevision,
+    TranscriptSegment,
     User,
     Workspace,
     WorkspaceRole,
 )
 from backend.retrieval.embeddings import pack_vector, unpack_vector
+from backend.retrieval.filters import SearchFilters
 from backend.retrieval.index import INDEX_VERSION
 from backend.security.authorization import resolve_record_access
 from backend.security.context import Actor, WorkspaceContext
@@ -82,6 +85,24 @@ EXPIRED_MEETINGS = (22, 23)
 SUPERSEDED_MEETING = 24
 OLD_POLICY_MEETING = 25
 B_MEETINGS = 5
+# HOM-95 filter metadata (SPEC 3.7).  Conversation types cycle over call,
+# meeting and voicemail by meeting index in blocks of three: ``index % 3`` is
+# already the team rule above, so a plain ``index % 3`` would give every
+# restricted persona one single type and any type filter would empty one
+# persona's truth.
+CONVERSATION_CYCLE = (
+    ConversationType.CALL.value,
+    ConversationType.MEETING.value,
+    ConversationType.VOICEMAIL.value,
+)
+# Normal meetings start ``index + 1`` days before NOW.  These indexes keep
+# ``started_at`` NULL, and every meeting without ``started_at`` gets a pinned
+# ``created_at`` (``index + 1`` days and 12 hours before NOW), so the
+# ``created_at`` fallback of the conversation time is exercised without the
+# real clock.
+NULL_STARTED_MEETINGS = (4, 13, 18)
+# A segment confidence per entry number ``eNNN``; every sixth one stays NULL.
+CONFIDENCE_LEVELS = (0.55, 0.65, 0.75, 0.85, 0.95)
 
 
 def _seeded_values(seed: str, count: int, scale: float) -> list[float]:
@@ -155,6 +176,10 @@ class CorpusEntry:
     old_policy: bool  # under a redacted view the workspace no longer reads
     text: str
     vector: list[float]
+    # HOM-95 filter metadata, written by ``build_corpus`` (SPEC 3.7).
+    conversation_type: str | None = None
+    conversation_at: datetime | None = None  # COALESCE(started_at, created_at)
+    confidence: float | None = None  # the entry's transcript segment
 
 
 @dataclass(frozen=True)
@@ -223,6 +248,127 @@ def lexical_truth(corpus: Corpus, persona: Persona, query: str) -> frozenset[str
         for entry in corpus.entries
         if authorized(persona, entry) and all(token in entry.text.split() for token in tokens)
     )
+
+
+def passes_filters(entry: CorpusEntry, filters: SearchFilters | None) -> bool:
+    """The SPEC 3.1 filter predicate in Python, from the fixture metadata.
+
+    The corpus records conversation type, conversation time and segment
+    confidence only; it has no source or channel-inspection metadata, so
+    those two filters are not part of the harness.
+    """
+    if filters is None:
+        return True
+    if filters.sources is not None or filters.exclude_audio_flags is not None:
+        raise AssertionError("the corpus has no source or audio metadata")
+    if filters.conversation_types is not None:
+        if entry.conversation_type not in filters.conversation_types:
+            return False
+    if filters.started_from is not None and entry.conversation_at < filters.started_from:
+        return False
+    if filters.started_before is not None and entry.conversation_at >= filters.started_before:
+        return False
+    if filters.min_confidence is not None:
+        if entry.confidence is None or entry.confidence < filters.min_confidence:
+            return False
+    return True
+
+
+def hybrid_truth(
+    corpus: Corpus,
+    persona: Persona,
+    query_vector: list[float],
+    filters: SearchFilters | None,
+    k: int = 10,
+) -> list[str]:
+    """The filtered hybrid truth: authorized entries that pass the filter
+    predicate, ranked by the exact cosine (as :func:`ranked_truth`)."""
+    scored = sorted(
+        (
+            (_cosine(query_vector, entry.vector), entry.entry_id)
+            for entry in corpus.entries
+            if authorized(persona, entry) and passes_filters(entry, filters)
+        ),
+        key=lambda pair: (-pair[0], pair[1]),
+    )
+    return [entry_id for _score, entry_id in scored[:k]]
+
+
+def _meeting_index(item: dict) -> int:
+    """The fixture index of a meeting item: every key ends in ``{index:02d}``."""
+    return int(item["key"][-2:])
+
+
+def _conversation_metadata(index: int) -> tuple[str, datetime | None, datetime | None]:
+    """(conversation_type, started_at, pinned created_at) of meeting ``index``."""
+    conversation_type = CONVERSATION_CYCLE[(index // 3) % len(CONVERSATION_CYCLE)]
+    if index < NORMAL_MEETINGS and index not in NULL_STARTED_MEETINGS:
+        return conversation_type, NOW - timedelta(days=index + 1), None
+    return conversation_type, None, NOW - timedelta(days=index + 1, hours=12)
+
+
+def _segment_confidence(number: int) -> float | None:
+    if number % 6 == 5:
+        return None
+    return CONFIDENCE_LEVELS[number % len(CONFIDENCE_LEVELS)]
+
+
+def _write_filter_metadata(
+    meetings: list[dict], seeded: dict[str, dict], entries: list[CorpusEntry]
+) -> list[CorpusEntry]:
+    """Write the HOM-95 metadata to the meeting and segment rows, and return
+    the entries with the same metadata recorded for the Python truth."""
+    times: dict[str, tuple[str, datetime]] = {}
+    with inspection_session_factory()() as db:
+        for item in meetings:
+            meeting_id = seeded[item["key"]]["meeting_id"]
+            conversation_type, started_at, created_at = _conversation_metadata(_meeting_index(item))
+            values: dict = {"conversation_type": conversation_type, "started_at": started_at}
+            if created_at is not None:
+                values["created_at"] = created_at
+            db.execute(update(Meeting).where(Meeting.id == meeting_id).values(**values))
+            times[meeting_id] = (conversation_type, started_at or created_at)
+        segment_of = dict(
+            db.execute(
+                select(RetrievalEntry.id, RetrievalEntry.segment_id).where(
+                    RetrievalEntry.id.in_([entry.entry_id for entry in entries])
+                )
+            ).all()
+        )
+        assert len(set(segment_of.values())) == len(entries), "one segment per entry"
+        recorded: list[CorpusEntry] = []
+        for entry in entries:
+            number = int(next(word for word in entry.text.split() if word.startswith("e"))[1:])
+            confidence = _segment_confidence(number)
+            db.execute(
+                update(TranscriptSegment)
+                .where(TranscriptSegment.id == segment_of[entry.entry_id])
+                .values(confidence=confidence)
+            )
+            conversation_type, conversation_at = times[entry.meeting_id]
+            recorded.append(
+                replace(
+                    entry,
+                    conversation_type=conversation_type,
+                    conversation_at=conversation_at,
+                    confidence=confidence,
+                )
+            )
+        db.commit()
+    return recorded
+
+
+def _assert_filter_shape(corpus: Corpus) -> None:
+    """The metadata the HOM-95 harness needs: every type, NULL starts and
+    NULL confidences among the authorized entries of workspace A."""
+    live_a = [e for e in corpus.entries if e.workspace == "A" and _alive(e)]
+    assert {e.conversation_type for e in live_a} == set(CONVERSATION_CYCLE)
+    assert any(e.confidence is None for e in live_a)
+    assert all(e.conversation_at is not None for e in corpus.entries)
+    for key in ("supervisor1", "agent2", "member"):
+        persona = corpus.persona(key)
+        types = {e.conversation_type for e in corpus.entries if authorized(persona, e)}
+        assert len(types) >= 2, key
 
 
 @dataclass(frozen=True)
@@ -534,6 +680,7 @@ def build_corpus(client, email_outbox) -> Corpus:
             )
         db.add_all(embeddings)
         db.commit()
+    entries = _write_filter_metadata(meetings, seeded, entries)
 
     corpus = Corpus(
         workspace_a=workspace_a,
@@ -544,6 +691,7 @@ def build_corpus(client, email_outbox) -> Corpus:
         embedding_version=EMBEDDING_VERSION,
     )
     _assert_shape(corpus)
+    _assert_filter_shape(corpus)
     return corpus
 
 
