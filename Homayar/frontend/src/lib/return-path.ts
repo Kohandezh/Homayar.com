@@ -23,21 +23,39 @@ function normalizedPathname(pathname: string): string {
   }
 }
 
-/** Whether a pathname is an MFA page, however the router spells it (case, escapes). */
-export function isMfaPathname(pathname: string): boolean {
-  const normalized = normalizedPathname(pathname);
+function isMfaNormalized(normalized: string): boolean {
   return normalized === "/mfa" || normalized.startsWith("/mfa/");
 }
 
+/** Whether a pathname is an MFA page, however the router spells it (case, escapes). */
+export function isMfaPathname(pathname: string): boolean {
+  return isMfaNormalized(normalizedPathname(pathname));
+}
+
+/**
+ * The only pathname shape a return path or `next` may have, after decoding:
+ * segments of letters, digits, `_` and `-`, each after one `/` (a trailing
+ * `/` is fine). Every console route has this shape (ids are UUIDs). It is an
+ * allowlist because a list of bad spellings never ends: dots, `%`, `#`, `?`,
+ * white space, control characters (the browser drops a tab or newline),
+ * non-ASCII, a backslash and `//` all fail it.
+ */
+const PLAIN_PATHNAME = /^(\/[A-Za-z0-9_-]+)*\/?$/;
+
 function isInternalPath(pathname: string): boolean {
-  if (!pathname.startsWith("/") || pathname.startsWith("//") || pathname.includes("\\")) return false;
-  // The router matches without case and decodes escapes, so the auth and MFA
-  // checks read the same normalized spelling; anything unreadable is refused.
-  const normalized = normalizedPathname(pathname);
-  if (!normalized) return false;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  if (!decoded.startsWith("/") || !PLAIN_PATHNAME.test(decoded)) return false;
+  // The router matches without case, so the auth and MFA checks read the
+  // lower-cased spelling.
+  const normalized = decoded.toLowerCase();
   if (AUTH_PATHS.some((path) => normalized === path || normalized.startsWith(`${path}/`))) return false;
   // An MFA page is never a valid destination for an MFA `next` either (no loops).
-  return !isMfaPathname(pathname);
+  return !isMfaNormalized(normalized);
 }
 
 /**
