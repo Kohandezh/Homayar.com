@@ -100,7 +100,9 @@ x-app-environment: &app-environment
   # Offline weights (HOM-351 GPU demo): load a pinned local model directory,
   # refuse runtime downloads, and verify manifest artifacts under
   # MODEL_ARTIFACT_ROOT (paths in the manifest are relative to it). HF_HUB_OFFLINE
-  # is read by huggingface_hub; empty behaves like unset.
+  # is read by huggingface_hub; empty behaves like unset. HOM-346: mount the
+  # model folder through WHISPER_MODEL_HOST_DIR (read-only at /app/models/whisper
+  # on api and worker) and point WHISPER_MODEL_PATH at it.
   WHISPER_MODEL_PATH: "${WHISPER_MODEL_PATH:-}"
   WHISPER_LOCAL_FILES_ONLY: "${WHISPER_LOCAL_FILES_ONLY:-false}"
   HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-}"
@@ -259,6 +261,9 @@ services:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
       - "${MODEL_MANIFEST_DIR:-../manifests}:/app/manifests:ro"
+      # Offline Whisper model folder (HOM-346): WHISPER_MODEL_HOST_DIR empty
+      # uses the named volume (empty, no model); a host path binds it read-only.
+      - "${WHISPER_MODEL_HOST_DIR:-whisper_models}:/app/models/whisper:ro"
       # The host licence folder; the default ships in every package (infra/compose/license).
       - "${OFFLINE_LICENSE_DIR:-./license}:/app/license:ro"
     depends_on:
@@ -348,6 +353,9 @@ services:
       - app_data:/app/data
       - "${TOMBSTONE_JOURNAL_PATH:-tombstone_journal}:/app/tombstones"
       - "${MODEL_MANIFEST_DIR:-../manifests}:/app/manifests:ro"
+      # Offline Whisper model folder (HOM-346), as on the api: the worker
+      # loads the model; the mount is read-only either way.
+      - "${WHISPER_MODEL_HOST_DIR:-whisper_models}:/app/models/whisper:ro"
       - "${OFFLINE_LICENSE_DIR:-./license}:/app/license:ro"
     depends_on:
       postgres:
@@ -686,6 +694,7 @@ services:
 volumes:
   app_data:
   tombstone_journal:
+  whisper_models:
   postgres_data:
   redis_data:
   minio_data:

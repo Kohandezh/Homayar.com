@@ -126,16 +126,17 @@ BASE_WORKER_COMMAND = [
     'exec celery -A backend.celery_app worker --queues processing --loglevel="$${LOG_LEVEL}"'
     ' --concurrency="$${CELERY_CONCURRENCY}" --hostname="celery@%h"',
 ]
+# HOM-346: Whisper offline settings and read-only model mount.
 COMPOSE_GOLDEN = {
     "compose.onprem.yaml": {
-        "services": "26411f1b0f215982a3e363a501d7fec0850e6146e0f0ffda629aa18ef7d41071",
+        "services": "dc9d0fc3187a7f4af1bbbf10af7f60e7da5f1a4ebff352277730edb854e56bd6",
         "worker_env": "1c0529c8ddc4e46f8973a67b962e545921879304685bc29163283d7a11e922d8",
-        "rest": "0a015c8d4983d13c9339bf090fc7de9497865848679b8fb1de831c41eb52b1ff",
+        "rest": "0d6d5f61435751ea62b72dcdac90f89defd0d996a958af2444adfe5effe68cf0",
     },
     "compose.cloud.yaml": {
-        "services": "1305912eefe9fc82741185428b98533c1edb12baff0c847b23e405013162e57c",
-        "worker_env": "d036878bc0abf752fbc3ab54c4ef8588001040cd8d53466b58d7c68d26bdaca0",
-        "rest": "b8d2fb1138c1a24b48043bb727958538970561afffffdb296206a5b10c3066e7",
+        "services": "291432ee4aeb2f670b10527809f169fe20375f7f99338ea8289f2168a8a8436a",
+        "worker_env": "43d2024c1f899458eb68c1bbcd74ca6edbcd85366d377a5219fccefecd160296",
+        "rest": "361af2072379ebd1aa8ccea35b6a5907f1ebbe681f501d217e43d13745548842",
     },
 }
 HOST_CHECKS_GOLDEN = {
