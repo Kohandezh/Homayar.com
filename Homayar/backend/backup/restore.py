@@ -37,6 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import psycopg
 from sqlalchemy import create_engine
 
 from backend.backup import faults
@@ -142,15 +143,23 @@ def _advisory_lock(admin_url: str, name: str, *, code: str, message: str) -> Ite
     """A session-level advisory lock on the maintenance database, held for the
     whole run and released by the server if the process dies."""
     connection = connect(with_database(admin_url, "postgres"), autocommit=True)
+    acquired = False
     try:
-        acquired = connection.execute(
-            "SELECT pg_try_advisory_lock(hashtext(%s))", (name,)
-        ).fetchone()[0]
+        acquired = bool(
+            connection.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (name,)).fetchone()[0]
+        )
         if not acquired:
             raise RestoreRefused(code, message)
         yield
     finally:
-        connection.close()
+        try:
+            if acquired:
+                try:
+                    connection.execute("SELECT pg_advisory_unlock(hashtext(%s))", (name,))
+                except psycopg.Error:
+                    pass
+        finally:
+            connection.close()
 
 
 @contextmanager

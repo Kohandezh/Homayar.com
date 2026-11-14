@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from contextlib import contextmanager
@@ -29,6 +30,7 @@ from backend.backup.restore import RestoreRefused
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BACKUP_SH = REPO_ROOT / "infra" / "scripts" / "backup.sh"
 RESTORE_ISOLATED_SH = REPO_ROOT / "infra" / "scripts" / "restore-isolated.sh"
+COMPOSE_LIB = REPO_ROOT / "infra" / "scripts" / "lib" / "compose.sh"
 BACKUP_ID = "20261023T020000Z-0a1b2c3d"
 NOW = datetime(2026, 10, 30, tzinfo=UTC)
 MALFORMED = {"malformed_note": True, "overdue": True}
@@ -115,6 +117,35 @@ def test_the_retired_command_prints_a_deep_note_as_malformed(monkeypatch, capsys
     assert json.loads(capsys.readouterr().out) == [
         {"database": "a_retired_20261018000000", **MALFORMED},
         {"database": "b_retired_20261018000000", **MALFORMED},
+    ]
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_a_note_with_a_non_strict_json_constant_is_malformed(constant):
+    name = "homayar_retired_20261018000000"
+    comment = RETIRED_PREFIX + f'{{"drop_after": {constant}, "n": 1}}'
+    entry = _retired_entry(name, comment, NOW)
+    assert entry == {"database": name, **MALFORMED}
+
+
+def test_the_retired_command_prints_strict_json_for_a_note_with_a_constant(monkeypatch, capsys):
+    monkeypatch.setenv("BACKUP_DATABASE_URL", "postgresql://admin@127.0.0.1:1/postgres")
+    _fake_catalog(
+        monkeypatch,
+        [
+            ("a_retired_20261018000000", RETIRED_PREFIX + '{"drop_after": NaN, "n": 1}'),
+            ("homayar", None),
+        ],
+    )
+    capsys.readouterr()
+    assert cli(["retired"]) == 0
+
+    def refuse(value):
+        raise AssertionError(f"non-strict constant printed: {value}")
+
+    out = capsys.readouterr().out
+    assert json.loads(out, parse_constant=refuse) == [
+        {"database": "a_retired_20261018000000", **MALFORMED}
     ]
 
 
@@ -391,3 +422,186 @@ def test_help_works_without_the_compose_directory(tmp_path, script):
     completed, calls = _run(script, tmp_path, env, "--help")
     assert completed.returncode == 0, completed.stderr
     assert "Usage:" in completed.stdout and calls == ""
+
+
+def _bash_source(tmp_path: Path, code: str, env: dict[str, str], cwd: Path | None = None):
+    if not COMPOSE_LIB.exists():
+        pytest.skip("infra/scripts is not part of this checkout")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is not installed")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "docker").write_text(FAKE_DOCKER, encoding="utf-8")
+    (bin_dir / "docker").chmod(0o755)
+    elsewhere = cwd or tmp_path / "elsewhere"
+    elsewhere.mkdir(parents=True, exist_ok=True)
+    return subprocess.run(  # noqa: S603 - fixed argv, values only through env
+        [bash, "-c", code],
+        env={
+            "PATH": os.pathsep.join([str(bin_dir), "/usr/bin", "/bin"]),
+            "HOME": str(tmp_path),
+            "FAKE_DOCKER_LOG": str(tmp_path / "docker-calls.log"),
+            **env,
+        },
+        cwd=elsewhere,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+def test_the_lib_resolves_a_relative_backup_root_against_the_compose_directory(tmp_path):
+    compose = _compose_dir(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    completed = _bash_source(
+        tmp_path,
+        f"source {shlex.quote(str(COMPOSE_LIB))} && printf '%s\\n' \"${{BACKUP_ROOT}}\"",
+        {
+            "COMPOSE_FILE": str(compose / "compose.onprem.yaml"),
+            "BACKUP_ROOT": "rel/dir",
+        },
+        cwd=elsewhere,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == str(compose / "rel" / "dir")
+    assert (compose / "rel" / "dir").is_dir()
+    assert not (elsewhere / "rel").exists()
+
+
+def test_the_lib_keeps_an_absolute_backup_root(tmp_path):
+    compose = _compose_dir(tmp_path)
+    absolute = tmp_path / "abs-root"
+    completed = _bash_source(
+        tmp_path,
+        f"source {shlex.quote(str(COMPOSE_LIB))} && printf '%s\\n' \"${{BACKUP_ROOT}}\"",
+        {
+            "COMPOSE_FILE": str(compose / "compose.onprem.yaml"),
+            "BACKUP_ROOT": str(absolute),
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == str(absolute)
+    assert absolute.is_dir()
+
+
+def test_backup_sh_dies_when_backup_root_cannot_be_resolved(tmp_path):
+    collector, root, offsite = _dirs(tmp_path, "collector", "root", "offsite")
+    root.chmod(0o000)
+    try:
+        env = _backup_env(tmp_path, str(root), str(offsite), str(collector))
+        completed, calls = _run(BACKUP_SH, tmp_path, env)
+        assert completed.returncode == 1
+        assert completed.stderr.splitlines() == [f"ERROR: path cannot be resolved: {root}"]
+        assert calls == ""
+    finally:
+        root.chmod(0o755)
+
+
+def test_the_lib_dies_when_a_relative_backup_root_cannot_be_resolved(tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    completed = _bash_source(
+        tmp_path,
+        f"source {shlex.quote(str(COMPOSE_LIB))} && printf '%s\\n' \"${{BACKUP_ROOT}}\"",
+        {
+            "COMPOSE_FILE": str(tmp_path / "missing" / "compose.onprem.yaml"),
+            "BACKUP_ROOT": "rel/dir",
+        },
+        cwd=elsewhere,
+    )
+    assert completed.returncode != 0
+    assert (
+        "ERROR: BACKUP_ROOT is relative and the Compose file's directory"
+        " cannot be resolved: rel/dir"
+    ) in completed.stderr.splitlines()
+    assert not (elsewhere / "rel").exists()
+
+
+@pytest.mark.parametrize("slashes", ["//", "///"])
+def test_backup_relative_path_accepts_a_double_slash_path_inside_the_root(tmp_path, slashes):
+    root = tmp_path / "root"
+    (root / "sets" / "s1").mkdir(parents=True)
+    compose = _compose_dir(tmp_path)
+    inside = slashes + str(root / "sets" / "s1").lstrip("/")
+    completed = _bash_source(
+        tmp_path,
+        f"source {shlex.quote(str(COMPOSE_LIB))} && backup_relative_path {shlex.quote(inside)}",
+        {
+            "COMPOSE_FILE": str(compose / "compose.onprem.yaml"),
+            "BACKUP_ROOT": str(root),
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == str(Path("sets") / "s1")
+
+
+def test_backup_relative_path_refuses_a_double_slash_path_outside_the_root(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    compose = _compose_dir(tmp_path)
+    outside = "//" + str(outside_dir).lstrip("/")
+    completed = _bash_source(
+        tmp_path,
+        f"source {shlex.quote(str(COMPOSE_LIB))} && backup_relative_path {shlex.quote(outside)}",
+        {
+            "COMPOSE_FILE": str(compose / "compose.onprem.yaml"),
+            "BACKUP_ROOT": str(root),
+        },
+    )
+    assert completed.returncode == 1
+    assert "must be below BACKUP_ROOT" in completed.stderr
+
+
+@pytest.mark.parametrize("broken", ["textfile", "offsite"])
+def test_backup_sh_dies_when_textfile_or_offsite_dir_cannot_be_resolved(tmp_path, broken):
+    collector, root, offsite = _dirs(tmp_path, "collector", "root", "offsite")
+    broken_dir = collector if broken == "textfile" else offsite
+    broken_dir.chmod(0o000)
+    try:
+        env = _backup_env(tmp_path, str(root), str(offsite), str(collector))
+        completed, calls = _run(BACKUP_SH, tmp_path, env)
+        assert completed.returncode == 1
+        assert completed.stderr.splitlines() == [f"ERROR: path cannot be resolved: {broken_dir}"]
+        assert "inside BACKUP_ROOT" not in completed.stderr
+        assert calls == ""
+    finally:
+        broken_dir.chmod(0o755)
+
+
+@pytest.mark.parametrize("slashes", ["//", "///"])
+def test_canonical_existing_path_collapses_leading_slashes(tmp_path, slashes):
+    target = tmp_path / "root"
+    target.mkdir()
+    compose = _compose_dir(tmp_path)
+    spelled = slashes + str(target).lstrip("/")
+    completed = _bash_source(
+        tmp_path,
+        f"source {shlex.quote(str(COMPOSE_LIB))} && canonical_existing_path {shlex.quote(spelled)}",
+        {
+            "COMPOSE_FILE": str(compose / "compose.onprem.yaml"),
+            "BACKUP_ROOT": str(target),
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == str(target)
+
+
+def test_backup_relative_path_with_a_double_slash_root(tmp_path):
+    root = tmp_path / "root"
+    (root / "sets" / "s1").mkdir(parents=True)
+    compose = _compose_dir(tmp_path)
+    spelled_root = "//" + str(root).lstrip("/")
+    completed = _bash_source(
+        tmp_path,
+        f"source {shlex.quote(str(COMPOSE_LIB))}"
+        f" && backup_relative_path {shlex.quote(str(root / 'sets' / 's1'))}",
+        {
+            "COMPOSE_FILE": str(compose / "compose.onprem.yaml"),
+            "BACKUP_ROOT": spelled_root,
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == str(Path("sets") / "s1")

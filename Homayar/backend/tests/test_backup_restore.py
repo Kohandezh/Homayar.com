@@ -1388,6 +1388,24 @@ def test_reconciliation_refuses_an_empty_or_stale_tombstone_journal(
     assert report["checks"]["tombstones"]["details"]["replay"]["reapplied"] == 1
 
 
+def test_three_reconciles_back_to_back_on_one_staging_database(
+    client, email_outbox, monkeypatch, settings, tmp_path, databases
+):
+    _patch_media(monkeypatch)
+    tenant = _tenant(client, email_outbox, "bk-three")
+    meeting = _processed(client, tenant, settings, key="bk-three-1", index=21)
+    _delete(client, tenant, meeting)  # journaled before the backup
+    _stamp_head(settings.database_url)
+    manifest = _backup(settings, tmp_path)
+    assert manifest["tombstone_journal"]["records"] == 1
+    staging, _ = _names("three", databases)
+    _, target_settings, storage = _restore(settings, tmp_path, manifest["path"], staging)
+    reports = [
+        _reconcile(manifest["path"], staging, target_settings, storage, tmp_path) for _ in range(3)
+    ]
+    assert all(report["status"] == "PASS" for report in reports), reports[0]["statuses"]
+
+
 def test_a_young_deployment_replays_its_journal_with_tenants_created_after_the_backup(
     client, email_outbox, monkeypatch, settings, tmp_path, databases
 ):

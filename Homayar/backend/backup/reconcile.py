@@ -53,6 +53,7 @@ from psycopg import sql
 
 from backend.backup.crypto import BackupKey
 from backend.backup.logical import (
+    _from_target,
     alembic_revisions,
     connect,
     database_name,
@@ -212,10 +213,14 @@ def _rls_structure(connection, app_role: str) -> dict[str, Any]:
     return _check(status, policy_tables=len(POLICIES), problems=problems)
 
 
-def _visible(connection, table: str, where: sql.Composable) -> int:
+def _visible(
+    connection, table: str, where: sql.Composable, *, target: sql.Composable | None = None
+) -> int:
     return int(
         connection.execute(
-            sql.SQL("SELECT count(*) FROM {} WHERE {}").format(sql.Identifier(table), where)
+            sql.SQL("SELECT count(*) FROM {} WHERE {}").format(
+                target if target is not None else _from_target(connection, table), where
+            )
         ).fetchone()[0]
     )
 
@@ -229,17 +234,27 @@ def _rls_behavior(
     with connect(admin_url) as connection:
         tables = [t for t in sorted(POLICIES) if t in set(list_tables(connection))]
         columns = {t: {c[0] for c in table_columns(connection, t)} for t in tables}
+        targets = {t: _from_target(connection, t) for t in [*tables, "meetings"]}
         own_meetings = dict(
-            connection.execute("SELECT workspace_id, count(*) FROM meetings GROUP BY 1").fetchall()
+            connection.execute(
+                sql.SQL("SELECT workspace_id, count(*) FROM {} GROUP BY 1").format(
+                    targets["meetings"]
+                )
+            ).fetchall()
         )
         try:
             connection.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(app_role)))
             # 1. No bound context: no tenant row at all.
             for table in tables:
                 if "workspace_id" in columns[table]:
-                    count = _visible(connection, table, sql.SQL("workspace_id IS NOT NULL"))
+                    count = _visible(
+                        connection,
+                        table,
+                        sql.SQL("workspace_id IS NOT NULL"),
+                        target=targets[table],
+                    )
                 elif table in _ORG_TABLES:
-                    count = _visible(connection, table, sql.SQL("true"))
+                    count = _visible(connection, table, sql.SQL("true"), target=targets[table])
                 else:
                     continue
                 if count:
@@ -258,10 +273,10 @@ def _rls_behavior(
                         foreign = sql.SQL("id <> {}").format(sql.Literal(workspace_id))
                     else:
                         continue
-                    count = _visible(connection, table, foreign)
+                    count = _visible(connection, table, foreign, target=targets[table])
                     if count:
                         leaks.append({"context": "tenant", "table": table, "rows": count})
-                seen = _visible(connection, "meetings", sql.SQL("true"))
+                seen = _visible(connection, "meetings", sql.SQL("true"), target=targets["meetings"])
                 if seen != int(own_meetings.get(workspace_id, 0)):
                     leaks.append(
                         {"context": "tenant", "table": "meetings", "problem": "own rows hidden"}
@@ -292,7 +307,7 @@ def _tenant_boundaries(admin_url: str, load: dict[str, Any]) -> dict[str, Any]:
                         sql.SQL(
                             "SELECT count(*) FROM {} t JOIN meetings m ON m.id = t.meeting_id "
                             "WHERE t.workspace_id <> m.workspace_id"
-                        ).format(sql.Identifier(table))
+                        ).format(_from_target(connection, table))
                     ).fetchone()[0]
                 )
                 if count:
@@ -305,7 +320,7 @@ def _tenant_boundaries(admin_url: str, load: dict[str, Any]) -> dict[str, Any]:
                         sql.SQL(
                             "SELECT count(*) FROM {} t JOIN workspaces w ON w.id = t.workspace_id "
                             "WHERE t.organization_id <> w.organization_id"
-                        ).format(sql.Identifier(table))
+                        ).format(_from_target(connection, table))
                     ).fetchone()[0]
                 )
                 if count:
@@ -332,7 +347,8 @@ def _tenant_boundaries(admin_url: str, load: dict[str, Any]) -> dict[str, Any]:
             "FROM pg_constraint con JOIN pg_class child ON child.oid = con.conrelid "
             "JOIN pg_class parent ON parent.oid = con.confrelid "
             "JOIN pg_namespace n ON n.oid = con.connamespace "
-            "WHERE con.contype = 'f' AND n.nspname = 'public' ORDER BY con.conname"
+            "WHERE con.contype = 'f' AND con.conparentid = 0 AND n.nspname = 'public' "
+            "ORDER BY con.conname"
         ).fetchall()
         tenant_links = 0
         for name, child, parent, child_columns, parent_columns in constraints:
@@ -350,7 +366,11 @@ def _tenant_boundaries(admin_url: str, load: dict[str, Any]) -> dict[str, Any]:
                     sql.SQL(
                         "SELECT count(*) FROM {} c JOIN {} p ON {} "
                         "WHERE c.workspace_id IS DISTINCT FROM p.workspace_id"
-                    ).format(sql.Identifier(child), sql.Identifier(parent), joined)
+                    ).format(
+                        _from_target(connection, child),
+                        _from_target(connection, parent),
+                        joined,
+                    )
                 ).fetchone()[0]
             )
             if count:
@@ -369,7 +389,7 @@ def _tenant_boundaries(admin_url: str, load: dict[str, Any]) -> dict[str, Any]:
                     sql.SQL(
                         "SELECT count(*) FROM {} WHERE left({}, length('tenants/' || workspace_id "
                         "|| '/objects/')) <> 'tenants/' || workspace_id || '/objects/'"
-                    ).format(sql.Identifier(table), sql.Identifier(column))
+                    ).format(_from_target(connection, table), sql.Identifier(column))
                 ).fetchone()[0]
             )
             if count:
@@ -724,7 +744,7 @@ def _non_resurrection(
                 count = int(
                     connection.execute(
                         sql.SQL("SELECT count(*) FROM {} WHERE meeting_id = %s").format(
-                            sql.Identifier(table)
+                            _from_target(connection, table)
                         ),
                         (record.meeting_id,),
                     ).fetchone()[0]
@@ -810,7 +830,7 @@ def _post_backup_state(
             counts[name] = int(
                 connection.execute(
                     sql.SQL("SELECT count(*) FROM {} WHERE {}").format(
-                        sql.Identifier(table), sql.SQL(where)
+                        _from_target(connection, table), sql.SQL(where)
                     )
                 ).fetchone()[0]
             )
@@ -1321,11 +1341,15 @@ def promote(
     }
 
 
+def _reject_constant(value: str) -> None:
+    raise ValueError(value)
+
+
 def _retired_entry(name: str, comment: str, now: datetime) -> dict[str, Any]:
     # Promote writes a flat object of strings. Anything else (not JSON, too
     # deep to parse, nested values that could not be printed) is malformed.
     try:
-        note = json.loads(comment[len(RETIRED_PREFIX) :])
+        note = json.loads(comment[len(RETIRED_PREFIX) :], parse_constant=_reject_constant)
     except (ValueError, RecursionError):
         note = None
     if not isinstance(note, dict) or not all(
