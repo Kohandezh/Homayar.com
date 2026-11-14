@@ -2,6 +2,8 @@
 
 Date: 2026-11-14 · Status: Proposed (HOM-94, WP17-T03, parent HOM-21, features F57 F58) · Builds on: ADR 0005, ADR 0068, ADR 0075
 
+Status note (HOM-95): D7 is superseded by [ADR 0080](0080-bounded-hybrid-search.md) D2.
+
 ## Context
 
 HOM-93 (ADR 0068) gave the conversation library a lexical index and versioned

@@ -36,6 +36,12 @@ from backend.database.saas_models import (
     Workspace,
 )
 from backend.privacy.transcript_view import ViewPolicy, choose_view
+from backend.retrieval.filters import (
+    SearchFilters,
+    apply_search_filters,
+    checked_filters,
+    conversation_at,
+)
 from backend.security.authorization import RecordAccess
 from backend.speech.text_normalize import get_normalizer
 
@@ -108,17 +114,23 @@ def live_entries(
     workspace_id: str,
     include_history: bool,
     now: datetime | None = None,
+    filters: SearchFilters | None = None,
 ) -> Select | None:
     """The entries of ``workspace_id`` this caller may use as evidence now.
 
-    Selects ``id``, ``meeting_id`` and the revision's live ``is_current``.
-    With ``include_history`` the ``is_current`` and ``superseded_at``
-    conditions are dropped; the caller marks a row historical when its
-    revision is not current.  None when the workspace is not visible (for
-    example another tenant under row-level security).  A meeting past its
-    retention (``retention_expires_at <= now``) is never evidence, on both
-    dialects, so the retention sweep only removes what reads already hide.
+    Selects ``id``, ``meeting_id``, the revision's live ``is_current`` and
+    ``conversation_at`` (``COALESCE(started_at, created_at)``, the column the
+    vector window orders by, HOM-95).  With ``include_history`` the
+    ``is_current`` and ``superseded_at`` conditions are dropped; the caller
+    marks a row historical when its revision is not current.  None when the
+    workspace is not visible (for example another tenant under row-level
+    security).  A meeting past its retention (``retention_expires_at <= now``)
+    is never evidence, on both dialects, so the retention sweep only removes
+    what reads already hide.  ``filters`` (HOM-95) only narrows: the set
+    conditions of :class:`SearchFilters` become extra AND conditions here,
+    before scoring and before any ``LIMIT``.
     """
+    checked_filters(filters)
     moment = checked_now(now)
     policy = _reader_view(db, workspace_id)
     if policy is None:
@@ -133,6 +145,7 @@ def live_entries(
             RetrievalEntry.id,
             RetrievalEntry.meeting_id,
             TranscriptRevision.is_current,
+            conversation_at().label("conversation_at"),
         )
         .join(
             Meeting,
@@ -170,6 +183,8 @@ def live_entries(
             TranscriptRevision.is_current.is_(True),
             RetrievalEntry.superseded_at.is_(None),
         )
+    if filters is not None:
+        query = apply_search_filters(query, filters, dialect_name=db.get_bind().dialect.name)
     return query
 
 
@@ -193,6 +208,7 @@ def lexical_search(
     include_history: bool = False,
     language: str = "fa",
     now: datetime | None = None,
+    filters: SearchFilters | None = None,
 ) -> list[ScoredEntry]:
     """The live entries of the workspace whose indexed text matches ``query``.
 
@@ -200,10 +216,11 @@ def lexical_search(
     ``language``.  A query that is empty after normalizing returns nothing.
     An oversized query is a ValueError before any SQL runs, on both
     dialects: more than 1000 characters after strip, or more than 32 tokens
-    after normalizing.
+    after normalizing.  ``filters`` only narrows the candidate select.
     """
     if not 1 <= limit <= MAX_LIMIT:
         raise ValueError(f"limit must be 1..{MAX_LIMIT}")
+    checked_filters(filters)
     stripped = query.strip()
     if len(stripped) > MAX_QUERY_CHARS:
         raise ValueError(f"a query holds at most {MAX_QUERY_CHARS} characters")
@@ -214,7 +231,12 @@ def lexical_search(
     if len(tokens) > MAX_QUERY_TOKENS:
         raise ValueError(f"a query holds at most {MAX_QUERY_TOKENS} words")
     candidates = live_entries(
-        db, access=access, workspace_id=workspace_id, include_history=include_history, now=now
+        db,
+        access=access,
+        workspace_id=workspace_id,
+        include_history=include_history,
+        now=now,
+        filters=filters,
     )
     if candidates is None:
         return []

@@ -47,6 +47,7 @@ from backend.database.saas_models import (
     Workspace,
 )
 from backend.database.tenant_context import current_context
+from backend.retrieval.filters import SearchFilters, checked_filters
 from backend.retrieval.lexical import checked_now, lexical_search, live_entries
 from backend.retrieval.vector_store import VectorStore
 from backend.security.authorization import (
@@ -260,18 +261,21 @@ def search_evidence_lexical(
     limit: int = 20,
     include_history: bool = False,
     language: str = "fa",
+    filters: SearchFilters | None = None,
 ) -> SearchOutcome:
     """Lexical search under a freshly resolved scope (see :func:`resolve_scope`).
 
     A denied caller returns before the query checks run, so its defects (a
     non-str query, a query the database cannot encode, an unknown language,
     ``limit``, an oversized query) never surface.  An answered caller gets a
-    ``ValueError`` for each of them.
+    ``ValueError`` for each of them.  ``filters`` (HOM-95) only narrows the
+    candidates, inside the same live joins.
     """
     scope = resolve_scope(db, context=context, now=now)
     if scope is None:
         return SearchOutcome("denied", ())
     _checked_query(query, language)
+    checked_filters(filters)
     scored = lexical_search(
         db,
         access=scope.access,
@@ -281,6 +285,7 @@ def search_evidence_lexical(
         include_history=include_history,
         language=language,
         now=scope.now,
+        filters=filters,
     )
     return SearchOutcome(
         "answered",
@@ -307,11 +312,16 @@ def search_evidence_vector(
     k: int = 20,
     candidate_limit: int = 2000,
     include_history: bool = False,
+    filters: SearchFilters | None = None,
 ) -> SearchOutcome:
-    """Vector search under a freshly resolved scope (see :func:`resolve_scope`)."""
+    """Vector search under a freshly resolved scope (see :func:`resolve_scope`).
+
+    ``filters`` (HOM-95) only narrows the candidate window.
+    """
     scope = resolve_scope(db, context=context, now=now)
     if scope is None:
         return SearchOutcome("denied", ())
+    checked_filters(filters)
     scored = store.nearest(
         db,
         access=scope.access,
@@ -322,6 +332,7 @@ def search_evidence_vector(
         candidate_limit=candidate_limit,
         include_history=include_history,
         now=scope.now,
+        filters=filters,
     )
     return SearchOutcome(
         "answered",

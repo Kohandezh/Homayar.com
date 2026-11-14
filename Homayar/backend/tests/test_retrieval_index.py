@@ -1471,7 +1471,9 @@ def test_vector_store_bounds_order_and_query_checks(client, email_outbox):
         assert [r.score for r in results] == sorted((r.score for r in results), reverse=True)
         assert {r.entry_id for r in results} == {entry.id for entry in entries}
         assert len(_nearest(db, workspace_id, "دو", k=1)) == 1
-        # At most candidate_limit vectors are loaded (the lowest entry ids).
+        # At most candidate_limit vectors are scored: the newest conversations
+        # first, ties by entry id (HOM-95, ADR 0080).  All three entries share
+        # one conversation here, so the window holds the lowest entry ids.
         limited = _nearest(db, workspace_id, "دو", candidate_limit=2)
         assert {r.entry_id for r in limited} == set(sorted(e.id for e in entries)[:2])
         # A version with no vector here gives nothing.
