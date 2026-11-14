@@ -29,10 +29,10 @@ checkout; no second repository or token is involved. Locally, run
 `infra/ci/check-source-contract.sh --mode local`; it also reports whether `Homayar/` is still
 identical to the imported product commit.
 
-The backend job runs `infra/ci/check-migrations.sh` (upgrade head, `alembic check`, head
+Each backend test part runs `infra/ci/check-migrations.sh` (upgrade head, `alembic check`, head
 verification) and then the test suite against the PostgreSQL service: `TEST_DATABASE_URL`
 selects the database and `HOMAYAR_REQUIRE_POSTGRES_TESTS=1` makes the suite refuse to fall back
-to SQLite, so a green backend job always means PostgreSQL. Locally, run
+to SQLite, so a green backend gate always means PostgreSQL. Locally, run
 `TEST_DATABASE_URL=postgresql+psycopg://user@127.0.0.1:5432/db uv run pytest backend/tests`
 inside `Homayar/`; without the variable the suite uses temporary SQLite files and skips the
 `postgres`-marked tests. The console and backend jobs still fail explicitly when their product
@@ -44,17 +44,55 @@ compares a catalog fingerprint with the one taken after the last build and, when
 only removes the rows. A test that changed the schema, ran a migration, dropped the tables or
 changed a role gets a full rebuild before the next test, without a marker. A test with
 `settings` but without `client` starts from an empty schema, as before.
-`backend/tests/test_database_isolation.py` proves these rules. The backend job is a matrix of
-two shards (`Backend tests and migrations (shard 1/2)` and `(shard 2/2)`), each on its own runner
-with its own PostgreSQL and Redis. The pytest option `--test-shard <index>/<count>` keeps the
-tests of the files whose shard is `index`; the shard of a file is CRC-32 of a fixed prefix and its
-file name, modulo the count (`backend/tests/_shard.py`; the prefix was chosen with measured
-per-file times so the two shards get about the same work), so every test runs in exactly one
-shard and a new file needs no list. Each shard prints `shard i/2: collected N tests, selected M`. Without the option
-every test runs; a nested pytest run that a test starts gets no option and is not sharded. The
-MinIO contract step runs in shard 1 only. Each shard runs its tests with four
-pytest-xdist workers (`-n 4 --dist loadfile`, the slowest files first): each worker uses its own
-database
+`backend/tests/test_database_isolation.py` proves these rules.
+
+The backend tests run in four parts (HOM-292,
+[ADR 0081](../architecture/decisions/0081-backend-ci-timed-parts-behind-gate-checks.md)). The job
+`backend-tests` is a matrix, `Backend tests part 1/4` to `Backend tests part 4/4`, each on its own
+runner with its own PostgreSQL and Redis. The parts are not required checks. Branch protection
+requires `Backend tests and migrations (shard 1/2)` and `(shard 2/2)`. These two names are now
+gate jobs (job id `backend`) that run no tests. Each gate runs with `if: always()` and fails
+unless both `source-contract` and `backend-tests` report `success`. GitHub reports one result for
+the whole part matrix, so a failed, cancelled or skipped part fails both gates.
+
+The pytest option `--test-shard=<index>/<count>` keeps the tests of the files whose part is
+`index`. Write both HOM-292 options in the `--opt=value` form: pytest reads the command line
+before `backend/tests/conftest.py` adds them, so in the `--opt value` form a value before the
+test paths is taken as a path and the options are "unrecognized". The part of a file comes from the checked-in timing map
+`backend/tests/shard_timings.json`: measured seconds per test file name. A duration plan sorts
+the map by seconds, largest first, and gives each file to the part with the smallest total so
+far (`part_of` in `backend/tests/_shard.py`). The plan reads the map only, never what a run
+collected. So all parts and every xdist worker agree on each file, and every test runs in exactly
+one part. A file that is not in the map falls back to CRC-32 of a fixed prefix and its file name,
+modulo the count (`shard_of`), so a new file runs without a map update. The map is keyed by file
+name, so test file names must be unique under `backend/tests` (a test checks this). Each part
+prints `shard i/4: collected N tests, selected M in F files (K files not in the timing map)`.
+Without the option every test runs; a nested pytest run that a test starts gets no option and is
+not split. The MinIO contract step runs in part 1 only.
+
+`backend/tests/test_shard_assignment.py` checks the map against the test files (the drift
+check). It fails when the map names a file that no longer exists, when more than 25 test files
+(`MAX_MISSING_FILES`) are missing from the map, or when the plan for four parts gives the
+heaviest part more than 1.10 times the seconds of the lightest one. Then refresh the map. Each
+part writes its measured seconds per file (setup, call and teardown) with
+`--shard-timings-out=<file>` and uploads them as the artifact `backend-shard-timings-part-<n>`, kept
+14 days (a re-run of one part overwrites its artifact). Take the four artifacts of one run where all four parts finished, and in `Homayar/`:
+
+```bash
+gh run download <run id> --repo Kohandezh/Homayar.com \
+  --pattern 'backend-shard-timings-part-*' --dir "$TMPDIR/shard-timings"
+uv run python -m backend.tests._shard merge backend/tests/shard_timings.json \
+  "$TMPDIR"/shard-timings/backend-shard-timings-part-*/shard-timings-part-*.json \
+  --source "CI run <run id>"
+```
+
+Then commit the new map. The merge stops with exit code 2 when a file name is in two inputs,
+because parts never share a file. A refresh moves files between parts; the next run measures
+the new split.
+
+Each part runs its tests with four pytest-xdist workers (`-n 4 --dist loadfile`). The files with
+the most seconds in the map start first, and files that are not in the map keep xdist's order
+after them, so a slow file does not end the run alone. Each worker uses its own database
 (`homayar_test_gw0` to `homayar_test_gw3`) and Redis index, and a test whose source changes
 roles, role memberships or runs an Alembic upgrade or downgrade runs alone under a cluster-wide
 lock (`backend/tests/_parallel.py`). A test that reads a wall clock and checks a time budget
@@ -71,7 +109,7 @@ cases with `HOMAYAR_REQUIRE_MINIO_TESTS=1`, so it stops with a usage error inste
 them ([ADR 0019](../architecture/decisions/0019-storage-contract.md), HOM-36). The credentials
 stay in that step, so the full test step skips the `s3-minio` cases as NOT_RUN.
 
-The backend job installs `ffmpeg` (which provides `ffprobe`) from the Ubuntu 24.04 archive and
+Each backend test part installs `ffmpeg` (which provides `ffprobe`) from the Ubuntu 24.04 archive and
 prints both versions, so the `ffmpeg`-marked media tests (`test_media_fixtures.py`,
 `test_media_adversarial_api.py`) run against real binaries. `HOMAYAR_REQUIRE_MEDIA_TOOLS=1` makes
 the suite stop with a usage error instead of skipping them when either binary is missing. The
@@ -80,24 +118,39 @@ it. Locally, without the variable, the suite still skips the marker when the bin
 The pytest summary (`-rs`) lists every remaining skip with its reason: the opt-in `live_s3` tests
 without a bucket, the Padyar AI Gateway tests without a contract, SQLite-only tests, and the three
 promtool cases of `test_alert_rules.py` (`check-rules`, `test-rules`, `check-config`), because the
-backend job has no `prom/prometheus` image. The *Container configuration* job runs the same three
+backend test parts have no `prom/prometheus` image. The *Container configuration* job runs the same three
 promtool commands and is the gate for the alert rules; do not drop its steps because pytest seems
 to cover them.
 
-Each backend shard job may run for 30 minutes. The test step took 1:19:49 on run 40769280687,
-when every test rebuilt the schema, and 48:00 on run 40795356019 with the schema built once and
-the tests run serially (HOM-292). One job with four xdist workers took 27:10, 18:43 and 28:09 on
-three commits of this branch with the same job shape (runs 40805797597, 40808843162 and
-40809285732; the third with PostgreSQL durability settings off, since reverted): shared runners
-vary by about 1.5 times. The final shape, two shards, took steps of 10:21 and 13:29 (jobs 11:34
-and 14:22) on run 40817325867. The limit is about twice the slower job, rounded up to a multiple
-of 5, and at least 30 minutes.
+Each backend test part may run for 40 minutes, each gate job for 5. The rule: about 1.5 times
+the slowest measured part job (24:26 on run 43542467792, below), rounded up to a multiple of 5.
+The history (HOM-292): the
+test step took 1:19:49 on run 40769280687, when every test rebuilt the schema, and 48:00 on run
+40795356019 with the schema built once and the tests run serially. One job with four xdist
+workers took 27:10, 18:43 and 28:09 (runs 40805797597, 40808843162 and 40809285732): shared
+runners vary by about 1.5 times. Two shards by CRC took steps of 10:21 and 13:29 on run
+40817325867. Then the suite grew. By 2026-11-14 the two shards took 26 to 36 minutes (run
+43498411851 on `main`: 27:10 and 35:55), and shard 2 hit the 45 minute limit three times. The
+workers already use about 68 % of the four vCPU next to PostgreSQL, so even a perfect two-way
+split would take about 31 minutes. Four timed parts aim at a test step under 25 minutes.
+
+The first measurement was run 43539360099: four parts by the CRC fallback, with an empty map.
+The test steps took 14:29, 20:24, 19:26 and 19:43, and pytest measured 14 278 s over 340
+files. That run's artifacts built the first map. Its plan gives each part 3 570 s.
+
+The first run with that map, run 43542467792, was green. The test steps took 22:55, 19:30,
+16:31 and 15:38 for parts 1 to 4 (jobs 24:26, 20:22, 17:27 and 16:57); the gates took 0:02 and
+0:03. Inside each part the four workers ended within 2 s of each other. The spread between the
+parts comes from runner speed: nearly every file of a part ran slower or faster together.
+Compared with the map, the median file ran 1.22, 1.06, 0.86 and 0.86 times as long in parts 1
+to 4, so about 1.4 to 1.5 times between the slowest and the fastest part runner. The map
+balances work, not runners; no map can fix that spread.
 
 The golden text-normalization module (`test_text_normalization_golden.py`, HOM-120/HOM-172) has a
 wall-clock budget, enforced by
 `test_text_normalization_owner.py::TestDeliverables::test_golden_module_is_green_fast_and_independent_of_the_registry`.
 The SPEC budget of 30 s is the default everywhere, including the owner's host. Owner decision of
-2026-10-10: on GitHub CI only, the backend job sets `HOMAYAR_GOLDEN_BUDGET_SECONDS=120`, because
+2026-10-10: on GitHub CI only, the backend test parts set `HOMAYAR_GOLDEN_BUDGET_SECONDS=120`, because
 shared runners took 37 to 77 s for the same module (51.14 s on `ecd77cc`, 38.12 s on `2ae3314`,
 37.35 s and 76.51 s on PR #18). 120 s is about 1.6 times the slowest run measured, so runner
 variance does not fail the job, but the gate still catches a module that gets several times
@@ -224,8 +277,8 @@ The 10 required checks, next to the job id in `.github/workflows/ci.yml` that re
 | `console-web` | `Product console lint, build, and tests` |
 | `console-e2e` | `Product console end-to-end tests` |
 | `linear-agent` | `Linear agent typecheck, lint, and tests` |
-| `backend` (shard 1) | `Backend tests and migrations (shard 1/2)` |
-| `backend` (shard 2) | `Backend tests and migrations (shard 2/2)` |
+| `backend` (gate, shard 1) | `Backend tests and migrations (shard 1/2)` |
+| `backend` (gate, shard 2) | `Backend tests and migrations (shard 2/2)` |
 | `secret-scan` | `Secret scan` |
 | `container-config` | `Container configuration` |
 | `release-manifest` | `Release manifest and build identity` |
@@ -237,7 +290,7 @@ that file must always list the same checks.
 
 `strict` (the branch must be up to date with `main` before merge) is false on purpose during
 the sprint. Six or more missions run at once. With strict on, every merge would force every
-other open PR to merge `main` in and re-run CI, and the backend shards take about 15 minutes.
+other open PR to merge `main` in and re-run CI, and the backend test parts take many minutes.
 Homlead already tests the merged state when two PRs touch the same files. To turn it on
 later, set `"strict": true` in the file in a PR, then apply it again with the command below.
 
@@ -266,7 +319,9 @@ PUT replaces the whole rule, so always send the full file. To read the rule back
 How to change the list of required checks, and the traps:
 
 - A check name is the job's `name:` after GitHub fills in the matrix values. Renaming a job,
-  or changing the backend shard count, changes the check name.
+  or changing the `shard` matrix of the `backend` gate job, changes the check name. The
+  backend test parts (`backend-tests`) are not required, so their count can change freely;
+  the gates check all of them (ADR 0081).
 - If a required name is no longer reported, every PR waits for it ("Expected, waiting for
   status to be reported") and cannot merge. A PR that renames, adds or removes a CI job must
   update `infra/ci/branch-protection-main.json` and this section in the same PR. The owner

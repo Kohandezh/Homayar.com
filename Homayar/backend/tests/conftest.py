@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import time
@@ -44,11 +45,12 @@ from backend.tests._parallel import (
     unconfigure_worker,
     worker_id,
 )
-from backend.tests._shard import SHARD_OPTION, parse_shard, shard_of
+from backend.tests._shard import SHARD_OPTION, load_timings, parse_shard, part_of
 from backend.tests._transport import APP_REDIS_URL, TEST_REDIS_ENV, configured_redis_url
 
 REQUIRE_MEDIA_TOOLS_ENV = "HOMAYAR_REQUIRE_MEDIA_TOOLS"
 REQUIRE_MINIO_TESTS_ENV = "HOMAYAR_REQUIRE_MINIO_TESTS"
+TIMINGS_OUT_OPTION = "--shard-timings-out"
 
 
 def media_tools_missing() -> list[str]:
@@ -68,7 +70,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         SHARD_OPTION,
         default=None,
         metavar="INDEX/COUNT",
-        help="HOM-292: run only the test files of this CI shard (backend/tests/_shard.py)",
+        help="HOM-292: run only the test files of this CI part (backend/tests/_shard.py)",
+    )
+    parser.addoption(
+        TIMINGS_OUT_OPTION,
+        default=None,
+        metavar="PATH",
+        help="HOM-292: write the measured seconds per test file to this JSON file at the end",
     )
 
 
@@ -78,6 +86,11 @@ def pytest_configure(config: pytest.Config) -> None:
     if worker is not None:
         configure_worker(worker)
         reset_settings_cache()
+    # HOM-292: only the controller writes the measured seconds (workers forward their
+    # reports to it, so the controller's sums cover a parallel run too).
+    global _TIMINGS_OUT
+    timings_out = config.getoption(TIMINGS_OUT_OPTION)
+    _TIMINGS_OUT = Path(timings_out) if timings_out and worker is None else None
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
@@ -148,6 +161,8 @@ def pytest_report_header(config: pytest.Config) -> str:
 
 _WORKER_SUMMARIES: list[str] = []
 _SHARD_LINES: list[str] = []
+_TIMINGS_OUT: Path | None = None
+_TIMING_SECONDS: dict[str, float] = {}
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
@@ -157,11 +172,26 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         lock_lines = lock.summary() if lock is not None else []
         workeroutput["database_isolation"] = summary_lines() + lock_lines
         workeroutput["shard"] = list(_SHARD_LINES)
+    elif _TIMINGS_OUT is not None:
+        _TIMINGS_OUT.parent.mkdir(parents=True, exist_ok=True)
+        _TIMINGS_OUT.write_text(
+            json.dumps({"seconds": dict(sorted(_TIMING_SECONDS.items()))}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    # HOM-292: the controller sums each file's setup, call and teardown seconds for
+    # the timing map (pytest-xdist forwards the worker reports to this hook).
+    if _TIMINGS_OUT is None:
+        return
+    name = report.nodeid.split("::")[0].rsplit("/", 1)[-1]
+    _TIMING_SECONDS[name] = _TIMING_SECONDS.get(name, 0.0) + float(report.duration)
 
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_xdist_make_scheduler(config: pytest.Config, log):
-    # HOM-292: the slowest files first under ``--dist loadfile`` (``_parallel.py``).
+    # HOM-292: the files of the timing map first, largest first (``_parallel.py``).
     if config.getvalue("dist") == "loadfile":
         return make_scheduler(config, log)
     return None
@@ -206,20 +236,28 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for marker, skip in skips:
             if item.get_closest_marker(marker) is not None:
                 item.add_marker(skip)
-    # HOM-292: a CI shard keeps the tests of its own files (``_shard.py``).
+    # HOM-292: a CI part keeps the tests of its own files (``_shard.py``): the plan of
+    # the checked-in timing map gives the part, the CRC shard of the name is the
+    # fallback for a file the map does not know.  Both are functions of the file name
+    # alone, so every part job and every xdist worker agrees without talking.
     try:
         shard = parse_shard(config.getoption(SHARD_OPTION))
     except ValueError as exc:
         raise pytest.UsageError(str(exc)) from exc
     if shard is not None:
         index, count = shard
-        keep = [item for item in items if shard_of(item.path.name, count) == index]
-        dropped = [item for item in items if shard_of(item.path.name, count) != index]
+        timings = load_timings()
+        # One part per file name, not per item: the plan lookup sorts the map for its cache key.
+        parts = {name: part_of(name, count, timings) for name in {item.path.name for item in items}}
+        keep = [item for item in items if parts[item.path.name] == index]
+        dropped = [item for item in items if parts[item.path.name] != index]
         if dropped:
             config.hook.pytest_deselected(items=dropped)
+        kept_files = {item.path.name for item in keep}
         _SHARD_LINES[:] = [
             f"shard {index}/{count}: collected {len(items)} tests, selected {len(keep)} "
-            f"in {len({item.path.name for item in keep})} files"
+            f"in {len(kept_files)} files "
+            f"({sum(1 for name in kept_files if name not in timings)} files not in the timing map)"
         ]
         items[:] = keep
 
