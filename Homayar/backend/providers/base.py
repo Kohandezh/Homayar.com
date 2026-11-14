@@ -115,6 +115,13 @@ class ASRProvider(_IdentifiedProvider, ABC):
         """
         return None
 
+    def nonspeech_identity(self) -> dict | None:
+        """Non-speech gate a checkpoint records for this adapter (HOM-348).
+
+        ``None``: the adapter applies no gate, so the identity is unchanged.
+        """
+        return None
+
 
 class DiarizationProvider(_IdentifiedProvider, ABC):
     @abstractmethod

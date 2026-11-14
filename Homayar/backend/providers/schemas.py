@@ -111,6 +111,20 @@ class ASRChunking(ProviderSchema):
     chunks: list[ASRChunkSpan] = Field(min_length=1)
 
 
+class ASRNonSpeechSpan(ProviderSchema):
+    """Audio the ASR gate removed as music or a tone (HOM-348, ADR 0078)."""
+
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(ge=0)
+    kind: Literal["music", "tone"]
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "ASRNonSpeechSpan":
+        if self.end_seconds < self.start_seconds:
+            raise ValueError("end_seconds must not precede start_seconds")
+        return self
+
+
 class ASRResult(ProviderSchema):
     provider: str = Field(min_length=1, max_length=128)
     model: str = Field(min_length=1, max_length=256)
@@ -123,6 +137,9 @@ class ASRResult(ProviderSchema):
     language_decision: ASRLanguageDecision | None = None
     # Set only on the merged result of a chunked call (HOM-40); None otherwise.
     chunking: ASRChunking | None = None
+    # Music and tone spans the gate removed (HOM-348). The default keeps
+    # results and checkpoints written before HOM-348 loadable.
+    non_speech: List[ASRNonSpeechSpan] = Field(default_factory=list)
 
 
 class DiarizationRequest(ProviderSchema):

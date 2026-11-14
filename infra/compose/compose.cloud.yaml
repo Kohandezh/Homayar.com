@@ -88,6 +88,7 @@ x-app-environment: &app-environment
   ASR_CHUNK_TARGET_SECONDS: "${ASR_CHUNK_TARGET_SECONDS:-600.0}"
   ASR_CHUNK_SEARCH_SECONDS: "${ASR_CHUNK_SEARCH_SECONDS:-30.0}"
   ASR_CHUNK_OVERLAP_SECONDS: "${ASR_CHUNK_OVERLAP_SECONDS:-2.0}"
+  ASR_NONSPEECH_GATE_ENABLED: "${ASR_NONSPEECH_GATE_ENABLED:-True}"
   # Restricted PII mappings (ADR 0023): "key_id:base64(32 bytes)" from the
   # secret manager; empty keeps redaction but retains no originals.
   PII_MAPPING_KEYS: "${PII_MAPPING_KEYS:-}"

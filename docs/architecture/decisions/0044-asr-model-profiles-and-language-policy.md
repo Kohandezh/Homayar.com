@@ -301,7 +301,7 @@ an answer the new code would give differently.
 - Already on the base, not caused by this change: a synthetic chord melody with noise at
   -35 dBFS keeps 0.46 s under the default VAD, and Whisper writes text for it (team review,
   2026-10-30). Non-speech that still produces text is an F26 follow-up: a music or tone check
-  before or after ASR.
+  before or after ASR. That follow-up is ADR 0078 (HOM-348).
 
 ## Sources
 

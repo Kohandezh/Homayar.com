@@ -688,6 +688,7 @@ ldap = [
 dev = [
     { name = "freezegun" },
     { name = "mypy" },
+    { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -732,6 +733,7 @@ provides-extras = ["ai-local", "ldap"]
 dev = [
     { name = "freezegun", specifier = "==1.5.5" },
     { name = "mypy", specifier = "==1.18.1" },
+    { name = "numpy", specifier = "==2.5.2" },
     { name = "pytest", specifier = "==8.4.2" },
     { name = "pytest-asyncio", specifier = "==1.2.0" },
     { name = "pytest-cov", specifier = "==7.0.0" },
