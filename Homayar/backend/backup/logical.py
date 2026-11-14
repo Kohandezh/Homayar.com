@@ -251,6 +251,28 @@ def open_snapshot(database_url: str, *, lock_timeout_ms: int = 60000) -> Iterato
             raise DatabaseBackupError(
                 "schema_changed", "tables were created or dropped while the backup started"
             )
+        unlisted = connection.execute(
+            "SELECT child_n.nspname, child.relname, parent_n.nspname, parent.relname "
+            "FROM pg_inherits i "
+            "JOIN pg_class parent ON parent.oid = i.inhparent "
+            "JOIN pg_namespace parent_n ON parent_n.oid = parent.relnamespace "
+            "JOIN pg_class child ON child.oid = i.inhrelid "
+            "JOIN pg_namespace child_n ON child_n.oid = child.relnamespace "
+            "WHERE parent.relkind = 'r' AND parent_n.nspname = 'public' "
+            "AND parent.relname = ANY(%s) "
+            "AND NOT (child_n.nspname = 'public' AND child.relname = ANY(%s)) "
+            "ORDER BY 1, 2",
+            (tables, tables),
+        ).fetchall()
+        if unlisted:
+            named = ", ".join(
+                f"{schema}.{name} (inherits from {parent_schema}.{parent_name})"
+                for schema, name, parent_schema, parent_name in unlisted
+            )
+            raise DatabaseBackupError(
+                "unlisted_inheritance_child",
+                f"every table that inherits from a listed table must be listed itself: {named}",
+            )
         server_version = connection.execute("SHOW server_version").fetchone()[0]
         snapshot = Snapshot(
             connection=connection,
@@ -304,7 +326,8 @@ def foreign_key_violations(connection: psycopg.Connection) -> list[dict[str, Any
         "JOIN pg_class child ON child.oid = con.conrelid "
         "JOIN pg_class parent ON parent.oid = con.confrelid "
         "JOIN pg_namespace n ON n.oid = con.connamespace "
-        "WHERE con.contype = 'f' AND n.nspname = 'public' ORDER BY con.conname"
+        "WHERE con.contype = 'f' AND con.conparentid = 0 AND n.nspname = 'public' "
+        "ORDER BY con.conname"
     ).fetchall()
     violations = []
     for name, child, parent, child_columns, parent_columns in constraints:
@@ -319,8 +342,8 @@ def foreign_key_violations(connection: psycopg.Connection) -> list[dict[str, Any
             "SELECT count(*) FROM {child} c WHERE {not_null} AND NOT EXISTS "
             "(SELECT 1 FROM {parent} p WHERE {joined})"
         ).format(
-            child=sql.Identifier(child),
-            parent=sql.Identifier(parent),
+            child=_from_target(connection, child),
+            parent=_from_target(connection, parent),
             not_null=not_null,
             joined=joined,
         )

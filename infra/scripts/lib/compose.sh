@@ -11,7 +11,6 @@ COMPOSE_FILE="${COMPOSE_FILE:-${INFRA_ROOT}/compose/compose.onprem.yaml}"
 BACKUP_ROOT="${BACKUP_ROOT:-${INFRA_ROOT}/backups}"
 BACKUP_UID="${BACKUP_UID:-$(id -u)}"
 BACKUP_GID="${BACKUP_GID:-$(id -g)}"
-export BACKUP_ROOT BACKUP_UID BACKUP_GID
 
 compose_args=(--file "${COMPOSE_FILE}")
 if [[ -n "${COMPOSE_ENV_FILE:-}" ]]; then
@@ -53,6 +52,11 @@ compose_path() {
       ;;
   esac
 }
+
+_resolved_backup_root="$(compose_path "${BACKUP_ROOT}")" ||
+  die "BACKUP_ROOT is relative and the Compose file's directory cannot be resolved: ${BACKUP_ROOT}"
+BACKUP_ROOT="${_resolved_backup_root}"
+export BACKUP_ROOT BACKUP_UID BACKUP_GID
 
 # compose_env_default NAME: when NAME is not set in the shell, take its value from the env
 # file Compose will read (COMPOSE_ENV_FILE, else .env next to the Compose file), as Compose
@@ -181,13 +185,18 @@ metadata_value() {
   awk -F= -v expected_key="${key}" '$1 == expected_key { sub(/^[^=]*=/, ""); print; exit }' "${file}"
 }
 
+collapse_leading_slashes() {
+  printf '/%s\n' "${1#"${1%%[!/]*}"}"
+}
+
 canonical_existing_path() {
   local path="$1"
   local directory basename
   [[ -e "${path}" ]] || die "Path does not exist: ${path}"
   directory="$(cd -- "$(dirname -- "${path}")" && pwd -P)"
+  directory="$(collapse_leading_slashes "${directory}")"
   basename="$(basename -- "${path}")"
-  printf '%s/%s\n' "${directory}" "${basename}"
+  printf '%s/%s\n' "${directory%/}" "${basename}"
 }
 
 backup_relative_path() {

@@ -52,8 +52,8 @@ done
 # sides of a containment check then use the same spelling.
 physical_dir() {
   local real
-  real="$(cd -- "$1" && pwd -P)" || return 1
-  printf '/%s\n' "${real#"${real%%[!/]*}"}"
+  real="$(cd -- "$1" 2>/dev/null && pwd -P)" || die "path cannot be resolved: ${1}"
+  collapse_leading_slashes "${real}"
 }
 
 require_env BACKUP_KEY_FILE
@@ -83,8 +83,10 @@ export NODE_EXPORTER_TEXTFILE_DIR
 # container user can write it is probed in the container below (textfile-check).
 [[ -d "${NODE_EXPORTER_TEXTFILE_DIR}" ]] ||
   die "NODE_EXPORTER_TEXTFILE_DIR does not exist; create it owned by BACKUP_UID:BACKUP_GID (${BACKUP_UID}:${BACKUP_GID}), mode 0755: ${NODE_EXPORTER_TEXTFILE_DIR}"
-case "$(physical_dir "${NODE_EXPORTER_TEXTFILE_DIR}")/" in
-  "$(physical_dir "${BACKUP_ROOT}")"/*)
+textfile_dir_real="$(physical_dir "${NODE_EXPORTER_TEXTFILE_DIR}")"
+backup_root_real="$(physical_dir "${BACKUP_ROOT}")"
+case "${textfile_dir_real}/" in
+  "${backup_root_real}"/*)
     die "NODE_EXPORTER_TEXTFILE_DIR is inside BACKUP_ROOT: node_exporter cannot read it through the 0700 backup root."
     ;;
 esac
