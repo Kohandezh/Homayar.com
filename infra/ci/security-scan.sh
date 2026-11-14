@@ -7,6 +7,7 @@
 #   security-scan.sh images <out-dir>   build the 3 images, then SBOM, guard and gate
 #   security-scan.sh canary <out-dir>   prove the gate denies a known finding
 #   security-scan.sh gate <name> <sbom> <out-dir>   gate one CycloneDX SBOM
+#   security-scan.sh unused-rules <reports-dir>   fail on an ignore rule that matches nothing
 #
 # Syft writes one CycloneDX JSON SBOM per target. Grype scans it with the triage
 # ignore file (.grype.yaml, or SECURITY_SCAN_CONFIG) and writes a JSON report.
@@ -17,8 +18,14 @@
 # The guard fails a target when its SBOM lacks a known component. Without it, a
 # Syft that stops reading a lockfile format would give an empty SBOM and a green gate.
 #
+# unused-rules reads the Grype JSON reports of a finished scan (canary reports are
+# skipped). A rule in .grype.yaml that hides no match in any report is dead: if the
+# package comes back, the old triage decision would hide it without a new review.
+# It needs only bash and jq, no Docker and no Grype database.
+#
 # Exit codes: 0 pass, 1 the gate found a fixable high/critical vulnerability,
-# 2 usage error, 3 the SBOM guard failed, 4 a tool failed, 5 the canary failed.
+# 2 usage error, 3 the SBOM guard failed, 4 a tool failed, 5 the canary failed,
+# 6 an ignore rule matches nothing.
 set -Eeuo pipefail
 
 # Official Anchore images, pinned to the multi-platform index digest of the tag
@@ -36,7 +43,8 @@ IMAGE_PREFIX="${SECURITY_SCAN_IMAGE_PREFIX:-homayar-scan}"
 DB_CACHE="${SECURITY_SCAN_DB_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/homayar-security-scan/grype-db}"
 
 usage() {
-  printf 'usage: %s deps|images|canary <out-dir>\n       %s gate <name> <sbom> <out-dir>\n' "$0" "$0" >&2
+  printf 'usage: %s deps|images|canary <out-dir>\n       %s gate <name> <sbom> <out-dir>\n       %s unused-rules <reports-dir>\n' \
+    "$0" "$0" "$0" >&2
   exit 2
 }
 
@@ -253,6 +261,47 @@ scan_canary() {
   exit 5
 }
 
+# unused_rules <reports-dir>: an own rule (non-empty vulnerability; the rules with an
+# empty one are Grype defaults) is used when an appliedIgnoreRules entry in any real
+# report has the same vulnerability and package name. All reports must come from the
+# same config, so they must list the same own rules.
+unused_rules() {
+  local dir="$1" report rules first_rules="" first_report="" used="" applied unused count=0
+  command -v jq >/dev/null || fail_tool "jq is required"
+  while IFS= read -r -d '' report; do
+    check_json "${report}" \
+      '(.descriptor.configuration.ignore | type == "array") and (.matches | type == "array") and ((.ignoredMatches // []) | type == "array")' \
+      "the Grype report"
+    rules="$(jq -r '.descriptor.configuration.ignore[]
+      | select((.vulnerability // "") != "")
+      | "\(.vulnerability) \(.package.name // "")"' "${report}" | LC_ALL=C sort -u)" ||
+      fail_tool "could not read the ignore rules of ${report}"
+    applied="$(jq -r '(.ignoredMatches // [])[] | (.appliedIgnoreRules // [])[]
+      | "\(.vulnerability // "") \(.package.name // "")"' "${report}")" ||
+      fail_tool "could not read the ignored matches of ${report}"
+    if [[ "${count}" -eq 0 ]]; then
+      first_rules="${rules}"
+      first_report="${report}"
+    elif [[ "${rules}" != "${first_rules}" ]]; then
+      fail_tool "${report} and ${first_report} list different ignore rules; they must come from the same scan"
+    fi
+    used+="${applied}"$'\n'
+    count=$((count + 1))
+  done < <(find "${dir}" -type f -name '*.grype.json' ! -name canary.grype.json -print0 | LC_ALL=C sort -z)
+  [[ "${count}" -gt 0 ]] || fail_tool "no Grype report (*.grype.json, canary excluded) found under ${dir}"
+  unused="$(LC_ALL=C comm -23 <(printf '%s\n' "${first_rules}" | sed '/^$/d') \
+    <(printf '%s' "${used}" | sed '/^$/d' | LC_ALL=C sort -u))" || fail_tool "could not compare the ignore rules"
+  if [[ -n "${unused}" ]]; then
+    sed 's/^/UNUSED /' <<<"${unused}"
+    printf 'DEAD RULES: %s own ignore rule(s) matched nothing in %s reports.\n' \
+      "$(wc -l <<<"${unused}" | tr -d ' ')" "${count}"
+    printf 'Remove each rule and its row in docs/security/vulnerability-triage.md.\n'
+    exit 6
+  fi
+  printf 'unused-rules: all %s own ignore rules matched a finding in %s reports.\n' \
+    "$(printf '%s\n' "${first_rules}" | sed '/^$/d' | wc -l | tr -d ' ')" "${count}"
+}
+
 guard_failed=0
 [[ $# -ge 1 ]] || usage
 command="$1"
@@ -274,6 +323,11 @@ case "${command}" in
     status=0
     gate_sbom "$1" "$2" || status=$?
     finish "${status}"
+    ;;
+  unused-rules)
+    [[ $# -eq 1 ]] || usage
+    [[ -d "$1" ]] || { printf 'ERROR: %s is not a directory.\n' "$1" >&2; exit 2; }
+    unused_rules "$1"
     ;;
   *) usage ;;
 esac

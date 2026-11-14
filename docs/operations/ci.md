@@ -207,14 +207,14 @@ providers.
 `.github/workflows/security-scans.yml` (`name: Security scans`, HOM-130) runs on every pull
 request, on each push to `main`, every Monday, and by hand. It is separate from CI on purpose:
 the website auto-deploy waits only for the workflow named `CI`, so a newly published CVE does not
-stop a deploy. Both jobs call `infra/ci/security-scan.sh`, so a local run with the same command is
-the CI run. Syft and Grype run from the official `anchore/syft` and `anchore/grype` images,
+stop a deploy. All three jobs call `infra/ci/security-scan.sh`, so a local run with the same command
+is the CI run. Syft and Grype run from the official `anchore/syft` and `anchore/grype` images,
 pinned by tag and digest in that script.
 
-Its two checks, `Dependency scan (lockfiles)` and `Container scan (images)`, are not required
-checks in `infra/ci/branch-protection-main.json`. Making them required is the owner's decision.
-If that happens, that file and the table in the branch protection section below must change in
-the same PR.
+Its three checks, `Dependency scan (lockfiles)`, `Container scan (images)` and
+`Unused ignore rules`, are not required checks in `infra/ci/branch-protection-main.json`. Making
+them required is the owner's decision. If that happens, that file and the table in the branch
+protection section below must change in the same PR.
 
 | Job | What it scans |
 | --- | --- |
@@ -234,6 +234,12 @@ For each target the job writes a CycloneDX JSON SBOM and a Grype JSON report.
   proves the scanner, its database and the gate are live.
 - **Artifacts.** `security-scan-dependencies` and `security-scan-containers` hold every SBOM and
   report, also when the gate fails (kept 30 days).
+- **Unused ignore rules (HOM-359).** The `Unused ignore rules` job runs after both scan jobs. It
+  downloads both artifacts and runs `infra/ci/security-scan.sh unused-rules` on them. It fails
+  (exit code 6) when a rule in `.grype.yaml` hides no finding in any report of the run (canary
+  reports do not count), and lists each one as `UNUSED <vulnerability> <package>`. Such a dead
+  rule would hide the finding again, without a new review, if the package or an old version came
+  back. The check needs only `bash` and `jq`.
 
 Run locally from the repository root (Docker and `jq` needed):
 
@@ -241,6 +247,7 @@ Run locally from the repository root (Docker and `jq` needed):
 infra/ci/security-scan.sh canary /tmp/scan/canary
 infra/ci/security-scan.sh deps /tmp/scan/deps
 infra/ci/security-scan.sh images /tmp/scan/images
+infra/ci/security-scan.sh unused-rules /tmp/scan
 ```
 
 When the gate fails on a new finding:
@@ -251,6 +258,12 @@ When the gate fails on a new finding:
    [vulnerability-triage.md](../security/vulnerability-triage.md) with the evidence and the
    decision (`accepted: not reachable` or `follow-up`), then add one ignore rule to `.grype.yaml`
    with exactly that vulnerability ID and package name, and a comment that names the row.
+
+When the `Unused ignore rules` job fails, remove each listed rule from `.grype.yaml` and its row
+from [vulnerability-triage.md](../security/vulnerability-triage.md), and note in that file why
+the finding is gone. If the finding is only gone for a while, you can explain in the PR why the
+rule stays, but the job stays red as long as the rule matches nothing. So removal is the normal
+path. Row IDs are never reused.
 
 An ignore rule hides that ID for that package in every target and every version. So when a
 package moves from a dev dependency into runtime code, or shows up in a new target, check its row

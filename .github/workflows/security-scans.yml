@@ -69,3 +69,30 @@ jobs:
           path: ${{ runner.temp }}/security/
           if-no-files-found: warn
           retention-days: 30
+
+  # HOM-359: an ignore rule in .grype.yaml that hides no finding in any report of
+  # this run is dead. It would hide the finding again, without a new review, if the
+  # package or an old version came back. Remove the rule and its triage row.
+  unused-ignore-rules:
+    name: Unused ignore rules
+    needs: [dependency-scan, container-scan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download the dependency scan reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: security-scan-dependencies
+          path: ${{ runner.temp }}/scan-reports/dependencies
+
+      - name: Download the container scan reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: security-scan-containers
+          path: ${{ runner.temp }}/scan-reports/containers
+
+      - name: Every ignore rule must match a finding
+        run: infra/ci/security-scan.sh unused-rules "${RUNNER_TEMP}/scan-reports"
