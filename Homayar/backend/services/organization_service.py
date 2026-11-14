@@ -40,6 +40,7 @@ from backend.database.saas_models import (
     IngestionRecord,
     IngestionStatus,
     Meeting,
+    MeetingStatus,
     Membership,
     Organization,
     OrganizationMembership,
@@ -831,7 +832,14 @@ def _population_counts(
     workspace, of the granted teams for a team grant, whose accepted ledger row was received
     in ``window``.  ``created_at`` plays no part.  A rejected ledger row has no meeting, and
     ``uq_ingestion_meeting`` allows one ledger row per meeting, so the join never repeats a
-    meeting.  Two statements; the workspace must be bound as the tenant."""
+    meeting.  Two statements; the workspace must be bound as the tenant.
+
+    HOM-341: ``meetings_by_status`` is built in the declaration order of ``MeetingStatus``
+    (the meeting life cycle), in Python after the query.  A GROUP BY without an ORDER BY
+    gives whatever order the database chooses (SQLite happens to sort alphabetically;
+    PostgreSQL promises no order for grouped rows: hash or sort, by plan), so the query's
+    row order must not reach the response.
+    """
     conditions = [
         Meeting.workspace_id == workspace.id,
         Meeting.deleted_at.is_(None),
@@ -848,7 +856,8 @@ def _population_counts(
         .where(*conditions)
         .group_by(Meeting.status)
     ).all()
-    by_status = {status.value: int(count) for status, count, _ in rows}
+    counts = {status: int(count) for status, count, _ in rows}
+    by_status = {status.value: counts[status] for status in MeetingStatus if status in counts}
     actions = db.scalar(
         select(func.count(ActionItem.id))
         .join(Meeting, Meeting.id == ActionItem.meeting_id)

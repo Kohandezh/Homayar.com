@@ -117,25 +117,18 @@ def _current_runs(*workspace_ids: str) -> set[str]:
 # --- the reference dataset ------------------------------------------------------------------------
 
 
-# Two things of ``/aggregates`` differ between calls with or without rows, outside HOM-290: the
-# time of the call (``generated_at``) and the key order of ``meetings_by_status``, which follows
-# the database (``organization_service.workspace_aggregates``: GROUP BY status, no ORDER BY).
+# One thing of ``/aggregates`` differs between calls with or without rows, outside HOM-290:
+# the time of the call (``generated_at``).
 GENERATED_AT = re.compile(r'"generated_at":"[^"]*"')
-BY_STATUS = re.compile(r'"meetings_by_status":(\{[^{}]*\})')
 
 
 def _stable(body: str) -> str:
-    body = GENERATED_AT.sub('"generated_at":"-"', body)
-    return BY_STATUS.sub(
-        lambda match: '"meetings_by_status":'
-        + json.dumps(json.loads(match.group(1)), sort_keys=True, separators=(",", ":")),
-        body,
-    )
+    return GENERATED_AT.sub('"generated_at":"-"', body)
 
 
 def _answers(ref: Reference) -> dict[str, tuple[int, str]]:
     """Every cell of the permission matrix and every statement-count route: the body of a 200
-    (byte for byte, but for the two parts ``_stable`` sorts out), or the status and error code
+    (byte for byte, but for the part ``_stable`` sorts out), or the status and error code
     (an error body has a request id)."""
     answers = {}
     requests = [(cell["id"], cell["caller"], cell["route"], cell["workspace"], cell["params"])
