@@ -112,6 +112,11 @@ class _Abstain(Exception):
         self.key = key
 
 
+# A4.4: the public name of the abstention above, so a caller outside this
+# module (the Copilot evidence tool) never imports the private class.
+ToolAbstention = _Abstain
+
+
 def _aware(now: object) -> bool:
     return isinstance(now, datetime) and now.tzinfo is not None and now.utcoffset() is not None
 
@@ -601,6 +606,28 @@ class _IssueAnswer:
             **trend_provenance(trend_definition(), SAMPLE_POLICY_V1),
             "disclosure": disclosure_block(self.kind, self.masked),
         }
+
+
+def counted_conversation_ids(
+    db: Session, *, context: WorkspaceContext, decision: RoutingDecision, limits: ToolLimits
+) -> frozenset[str]:
+    """The conversations an ``evidence_examples`` decision narrows to (ADR 0084 D4).
+
+    The union, over the decision's rows, of the window ids ``_IssueAnswer.counted``
+    gives, before any ``max_citations`` cut.  The decision is the evidence decision
+    itself, no second routing: the counted ids and the masks do not depend on the
+    decision's cell kind, so an ``issue_count`` decision with the same filters
+    gives the same cohort (an ``issue_count`` decision does have a ``cell_kind``:
+    ``count`` is a cell gate, and no gate is read here).  The checks are the
+    ones of ``issue_aggregate``: a population over ``limits.max_rows`` and a
+    withheld row raise ``ToolAbstention`` (``row_limit_exceeded``, ``withheld``);
+    no gate runs here.
+    """
+    answer = _IssueAnswer(db, context, decision, "none", limits)
+    _withheld(answer.rows)
+    return frozenset(
+        meeting_id for row in answer.rows for meeting_id in answer.counted.of(row)[0]
+    )
 
 
 def _issue_aggregate(

@@ -257,6 +257,62 @@ unstated values to stay unset. The dev gate is `backend/tests/test_action_ground
 over `tests/fixtures/evaluation/action_items/dev.jsonl`. The held-out set is
 `heldout.jsonl` in the same folder, scored by the reviewer's oracle test (ADR 0058).
 
+## Copilot question sets (HOM-98)
+
+`backend/evaluation/copilot.py` parses, scores and reports frozen Copilot question
+sets (ADR 0084). It is pure: standard library plus `copilot_guard.normalize_text`;
+file input only in `load_question_set` and the CLI. Import it from
+`backend.evaluation.copilot`: the package `__init__` does not re-export its names,
+so `python -m backend.evaluation.copilot` starts without a `RuntimeWarning`.
+
+The format is `copilot-questions/1`: one UTF-8 JSON object with `format`, `set_id`,
+`approved`, `notice` and `questions`. Every unknown key at any level is a defect: a
+frozen set must be exact. A repeated JSON key at any level is a defect too, and so is
+a question text with a lone surrogate (`answer_question` refuses it at step 0), a
+too deeply nested document and an explicit `null` for `expected_intent`. A question
+holds `id` (unique), `question` (at most 2000
+characters), `caller` (a key the harness maps to an identity), `kind` (`count`,
+`answer` or `unsupported`), `expected`, and the optional `expected_intent` and
+`slices`. `expected` per kind: `count` `{"values": [<decimal strings>]}`; `answer`
+optional `cited_conversations` and `must_include` lists, at least one non-empty;
+`unsupported` `{}` or `{"reason": ...}`. The approved 100 business questions are an
+owner artifact; the repository holds only the synthetic placeholder of the tests,
+clearly marked as NOT the approved set.
+
+`run_question_set(question_set, ask, conversation_ids=...)` asks every question
+through `ask` (which returns the `ObservedAnswer` of one `CopilotAnswer`) and scores
+it. Scoring, first failing rule decides:
+
+- `count`: answered, every expected decimal among the fact values, and every value
+  in the text as a whole number. Persian and Arabic-Indic digits read as ASCII, a
+  group separator between digits is ignored, and a decimal point touches the number
+  only when a digit follows it. The text match is sign-blind by design: Persian and
+  English writers say "fell by 3" or "کاهش ۳" for -3 with no minus sign, so the
+  expected value is matched without the sign. A known limit: a text that names the
+  wrong sign but the right digits still passes this rule (the fact values must
+  still match exactly).
+- `answer`: answered, every expected conversation alias (mapped through
+  `conversation_ids`; a missing alias is a `ValueError` before any rule) cited, and
+  every `must_include` text present after `normalize_text` and `casefold` on both
+  sides.
+- `unsupported`: refused or abstained, with the pinned reason when the set names
+  one.
+
+The report (`to_json`, version `copilot-eval/1`) holds the totals, `overall_accuracy`,
+the per-kind blocks (`exact_count_accuracy`, `answer_accuracy`, `abstention_rate`),
+`supported_abstained` and `false_abstention_rate`. A ratio is a float or `null` when
+its denominator is 0. The `f58` block is applicable only for an approved set of
+exactly 100 questions; it passes when at least 95 are correct, the exact-count
+accuracy is 1.0 and the abstention rate is 1.0.
+
+```bash
+uv run python -m backend.evaluation.copilot validate <questions.json>
+```
+
+Exit 0 prints one sorted JSON document (`format`, `set_id`, `approved`,
+`questions`, `by_kind`, `sha256`); exit 1 is bad data with one stderr line; exit 2 is
+bad arguments.
+
 ## Reason codes
 
 | Code | Metrics | Meaning |

@@ -16,10 +16,9 @@ It is pure. It uses no database, no network, no clock and no randomness. It read
 except through the `copilot_intents` and `issue_trends` loaders. The same input always
 gives the same output. It never changes its inputs.
 
-It calls no model. It builds the prompts, reads the model output, and checks it. HOM-96
-calls the models.
-
-Nothing in the backend uses it yet. There is no table, no API and no migration here.
+It calls no model. It builds the prompts, reads the model output, and checks it. The
+Copilot path that uses this package is `backend/services/copilot_answer_service.py`
+(HOM-98, ADR 0084). There is no table, no API and no migration here.
 
 The version of the guard rules is `copilot-guard/1` (`GUARD_VERSION`). Import everything
 from `backend.copilot_guard`.
