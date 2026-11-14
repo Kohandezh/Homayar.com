@@ -136,10 +136,12 @@ step "disable anonymous access" mc anonymous set none "local/${MINIO_BUCKET}"
 step "create the homayar-app policy" mc admin policy create local homayar-app /work/homayar-app-policy.json
 step "create the probe policy" mc admin policy create local homayar-contract-probe /work/probe-policy.json
 SHOW_OUTPUT=no
-step "add the app user" mc admin user add local "${APP_ACCESS_KEY}" "${APP_SECRET_KEY}"
+# The user keys reach mc on stdin, never as arguments (HOM-340). printf is a shell
+# builtin, so no process holds a key in its argv. step runs mc with this stdin.
+printf '%s\n%s\n' "${APP_ACCESS_KEY}" "${APP_SECRET_KEY}" | step "add the app user" mc admin user add local
 step "attach homayar-app to the app user" mc admin policy attach local homayar-app --user "${APP_ACCESS_KEY}"
-step "add the denied user" mc admin user add local "${DENIED_ACCESS_KEY}" "${DENIED_SECRET_KEY}"
-step "add the probe user" mc admin user add local "${PROBE_ACCESS_KEY}" "${PROBE_SECRET_KEY}"
+printf '%s\n%s\n' "${DENIED_ACCESS_KEY}" "${DENIED_SECRET_KEY}" | step "add the denied user" mc admin user add local
+printf '%s\n%s\n' "${PROBE_ACCESS_KEY}" "${PROBE_SECRET_KEY}" | step "add the probe user" mc admin user add local
 step "attach the probe policy" mc admin policy attach local homayar-contract-probe --user "${PROBE_ACCESS_KEY}"
 SHOW_OUTPUT=yes
 step "read versioning" mc version info --json "local/${MINIO_BUCKET}"
