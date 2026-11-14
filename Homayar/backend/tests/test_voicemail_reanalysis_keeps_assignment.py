@@ -12,7 +12,10 @@ Now (SPEC A1 to A6):
 
 * on a voicemail meeting, a re-analysis keeps every AI action whose
   ``assignee_user_id`` is not null, every column unchanged: after a member's
-  correction (A1) and after a full job re-run (A2);
+  correction (A1) and after a full job re-run (A2).  HOM-381: the re-analysis
+  here is deliberately far from the first run's text, so no new action matches
+  a kept one and the kept rows are untouched; the matching cases are
+  ``test_voicemail_reanalysis_matches_kept_action.py``;
 * on the same meeting, AI actions with a null ``assignee_user_id`` are
   removed and the new run's AI actions are written, as today (A3);
 * on a meeting no ``VoicemailMessage`` row names, an assigned AI action is
@@ -61,6 +64,9 @@ from backend.voicemail.models import VoicemailMessage
 
 FOLLOW_UP = "Follow up"
 CALL_BACK = "Call back"
+# A correction far from the original text (ratio about 0.45), so the new run's
+# actions never match a kept one (HOM-381 K2) and the A1/A2 rows stay untouched.
+REANALYSIS_TEXT = "گزارش ماهانه بودجه را برای مدیر ارسال کن"
 
 
 class _TwoActionIntelligence(_ActionIntelligence):
@@ -72,6 +78,25 @@ class _TwoActionIntelligence(_ActionIntelligence):
             description=f"{CALL_BACK}: {request.turns[0].text}", source_turn_indexes=[0]
         )
         return result.model_copy(update={"action_items": [*result.action_items, second]})
+
+
+class _FarActionsIntelligence(_TwoActionIntelligence):
+    """The same two actions with far texts, whatever the transcript says.
+
+    The different identity params also stop the re-run from reusing the first
+    attempt's intelligence checkpoint and replaying the first run's actions.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(allow_mock=True, max_summary_chars=499)
+
+    async def analyze(self, request):
+        result = await super().analyze(request)
+        actions = [
+            item.model_copy(update={"description": f"{label}: {REANALYSIS_TEXT}"})
+            for item, label in zip(result.action_items, (FOLLOW_UP, CALL_BACK), strict=True)
+        ]
+        return result.model_copy(update={"action_items": actions})
 
 
 @pytest.fixture
@@ -253,7 +278,7 @@ def test_a1_a_recompute_keeps_an_assigned_ai_action_on_a_voicemail_meeting(
     assert len(assignee_rows) == 1  # the owner's patch, nothing else
 
     login_user(client, member_credentials)
-    corrected = _correct(client, workspace_id, meeting_id)
+    corrected = _correct(client, workspace_id, meeting_id, text=REANALYSIS_TEXT)
 
     # The recompute ran: the new run is current and reads the corrected revision.
     run = _current_run(meeting_id)
@@ -268,8 +293,8 @@ def test_a1_a_recompute_keeps_an_assigned_ai_action_on_a_voicemail_meeting(
     assert unassigned_id not in after
     written = _written_by_the_run(meeting_id, run.id, kept=assigned_id)
     assert {row["description"] for row in written.values()} == {
-        f"{FOLLOW_UP}: {CORRECTED_TEXT}",
-        f"{CALL_BACK}: {CORRECTED_TEXT}",
+        f"{FOLLOW_UP}: {REANALYSIS_TEXT}",
+        f"{CALL_BACK}: {REANALYSIS_TEXT}",
     }
     assert all(row["assignee_user_id"] is None for row in written.values())
 
@@ -308,7 +333,7 @@ def test_a2_a_full_job_rerun_keeps_an_assigned_ai_action_on_a_voicemail_meeting(
         job_id,
         worker_id="test-hom380",
         settings=settings,
-        providers=_bundle(_TwoActionIntelligence(allow_mock=True)),
+        providers=_bundle(_FarActionsIntelligence()),
     )
     assert result["status"] == "completed"
 
@@ -325,8 +350,8 @@ def test_a2_a_full_job_rerun_keeps_an_assigned_ai_action_on_a_voicemail_meeting(
     assert unassigned_id not in after
     written = _written_by_the_run(meeting_id, run.id, kept=assigned_id)
     assert {row["description"] for row in written.values()} == {
-        f"{FOLLOW_UP}: {ORIGINAL_TEXT}",
-        f"{CALL_BACK}: {ORIGINAL_TEXT}",
+        f"{FOLLOW_UP}: {REANALYSIS_TEXT}",
+        f"{CALL_BACK}: {REANALYSIS_TEXT}",
     }
     assert all(row["assignee_user_id"] is None for row in written.values())
 

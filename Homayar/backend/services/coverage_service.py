@@ -304,6 +304,32 @@ def _cited_count(point: object, spans: Mapping[str, Any], finding_type: str) -> 
     return count
 
 
+def _action_span_counters(
+    all_spans: Sequence[Any],
+) -> tuple[Counter[tuple[str, str]], Counter[str], Counter[str]]:
+    """Per-meeting counters of action evidence, built once (linear in spans).
+
+    ``by_run`` counts (finding_id, run) over action spans with a run,
+    ``no_run`` counts finding_id over action spans without a run, and
+    ``any_run`` counts finding_id over all action spans.  Together they give
+    each action the same spans ``ActionItem.evidence`` shows (HOM-381
+    K6/K7 parity with the call report): its own run's spans plus the ones
+    without a run; an action without a run sees every span.
+    """
+    by_run: Counter[tuple[str, str]] = Counter()
+    no_run: Counter[str] = Counter()
+    any_run: Counter[str] = Counter()
+    for span in all_spans:
+        if span.finding_type != FINDING_ACTION_ITEM or span.finding_id is None:
+            continue
+        any_run[span.finding_id] += 1
+        if span.analysis_run_id is None:
+            no_run[span.finding_id] += 1
+        else:
+            by_run[(span.finding_id, span.analysis_run_id)] += 1
+    return by_run, no_run, any_run
+
+
 def unsupported_finding_count(
     *,
     summary: Any | None,
@@ -314,11 +340,11 @@ def unsupported_finding_count(
 
     ``summary`` has ``evidence_status``, ``key_points``, ``schema_version`` and
     ``analysis_run_id``; ``actions`` are the meeting's AI action items (``id``,
-    ``evidence_status``); ``spans`` are all evidence spans of the meeting (``id``,
-    ``finding_type``, ``finding_index``, ``finding_id``, ``analysis_run_id``).
-    It follows ``_summary_parts`` and ``_action_findings`` of
-    ``routers/v1/reports.py`` finding by finding; the coverage parity tests hold
-    the two together.
+    ``evidence_status``, ``analysis_run_id``); ``spans`` are all evidence spans
+    of the meeting (``id``, ``finding_type``, ``finding_index``,
+    ``finding_id``, ``analysis_run_id``).  It follows ``_summary_parts`` and
+    ``_action_findings`` of ``routers/v1/reports.py`` finding by finding; the
+    coverage parity tests hold the two together.
     """
     all_spans = list(spans)
     findings: list[tuple[str, int]] = []
@@ -363,13 +389,14 @@ def unsupported_finding_count(
                 findings.append((status, _cited_count(raw, visible, FINDING_SUMMARY)))
             elif section in (SECTION_DECISION, SECTION_KEY_MOMENT):
                 findings.append((status, _cited_count(raw, visible, FINDING_INSIGHT)))
-    by_action: Counter[str] = Counter(
-        span.finding_id
-        for span in all_spans
-        if span.finding_type == FINDING_ACTION_ITEM and span.finding_id is not None
-    )
+    by_run, no_run, any_run = _action_span_counters(all_spans)
     for action in actions:
-        findings.append((evidence_status_of(action.evidence_status), by_action[action.id]))
+        cited = (
+            any_run[action.id]
+            if action.analysis_run_id is None
+            else by_run[(action.id, action.analysis_run_id)] + no_run[action.id]
+        )
+        findings.append((evidence_status_of(action.evidence_status), cited))
     return sum(1 for status, cited in findings if not is_supported(status, cited))
 
 
@@ -747,6 +774,7 @@ def _load_facts(
             ActionItem.id,
             ActionItem.evidence_status,
             ActionItem.created_by,
+            ActionItem.analysis_run_id,
         ).where(
             ActionItem.workspace_id == workspace_id,
             ActionItem.meeting_id.in_(candidates),
@@ -818,6 +846,7 @@ def _load_verdicts(
             ActionItem.id,
             ActionItem.evidence_status,
             ActionItem.created_by,
+            ActionItem.analysis_run_id,
             ActionItem.updated_at,
         ).where(
             ActionItem.workspace_id == workspace_id,

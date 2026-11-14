@@ -1,6 +1,6 @@
 # ADR 0054: A voicemail's assignment needs the attribution right
 
-Date: 2026-11-05 · Status: Proposed (HOM-369; amended by HOM-373, HOM-375 and HOM-380) · Builds on: ADR 0052
+Date: 2026-11-05 · Status: Proposed (HOM-369; amended by HOM-373, HOM-375, HOM-380 and HOM-381) · Builds on: ADR 0052
 
 All code paths are under `Homayar/backend/`.
 
@@ -191,9 +191,9 @@ assigned and replaces only the rest.
   `assignee_user_id` is null. An AI action with a non-null `assignee_user_id`
   got that value from a person: the pipeline creates AI actions with a null
   `assignee_user_id` (only `assignee_text`).
-- **A3.** A kept action is not changed at all: same id, `assignee_user_id`,
-  description, status, due, priority, `analysis_run_id`, `source_segment_id`,
-  evidence.
+- **A3.** A kept action that no new action matches is not changed at all:
+  same id, `assignee_user_id`, description, status, due, priority,
+  `analysis_run_id`, `source_segment_id`, evidence (see HOM-381 below).
 - **A4.** On a meeting that is not a voicemail meeting, every AI action is
   replaced, an assigned one too: there the assignee is normal work assignment
   under `meeting:update` (R8, P2).
@@ -201,8 +201,60 @@ assigned and replaces only the rest.
   removed by a re-analysis, as before.
 - **A6.** A re-analysis writes no `action_item.assignee_changed` row, because
   no assigned action is removed. The recompute's `meeting.recompute_completed`
-  audit row keeps its shape, and `action_item_count` still counts only the new
-  AI actions written by the run.
+  audit row keeps its shape, and `action_item_count` counts every AI action
+  the run wrote: the inserted rows and the kept rows it updated (HOM-381 K8).
+
+## Matching a kept action (HOM-381)
+
+A3 left a gap. After a correction, a kept action still showed the text and
+evidence of the old transcript revision, while the new run often wrote a
+corrected, unassigned copy of the same action next to it. The user then saw
+two near-duplicate actions.
+
+Decision: when the new run produces an action that matches a kept action, the
+kept action takes the new text and the new evidence, keeps its assignee and
+every person-set field, and the matching new action is not written as its own
+row.
+
+- **K1.** Scope: only a voicemail meeting, only in `persist_analysis`, only
+  kept actions. Every other meeting replaces all of its AI actions, as A4 says.
+- **K2.** Match rule: same non-null `kind` on both sides, and close text. The
+  ratio of `difflib.SequenceMatcher(None, a, b, autojunk=False)` on the two
+  descriptions, after `normalize_for_matching` in the revision's language, is
+  at least `KEPT_ACTION_MATCH_RATIO = 0.8`. `a` is the kept action's text and
+  `b` is the new action's text, in this order: `ratio()` is not symmetric, so
+  for some pairs the order decides the answer, and the rule fixes it. Text
+  that normalizes to nothing never matches, and a kept action with a null
+  `kind` never matches.
+- **K3.** One to one, deterministic: every passing (kept, new) pair is sorted
+  by ratio descending, then by kept order (`created_at`, then `id`), then by
+  the new action's index in the run, and pairs are taken greedily while both
+  sides are free.
+- **K4.** A match writes onto the kept row, same id: the new `description`,
+  `source_segment_id`, `source_timestamp_ms`, `evidence_status` and
+  `analysis_run_id`. The new evidence spans are written with
+  `finding_id` = the kept action's id. Everything else stays, above all
+  `assignee_user_id`.
+- **K5.** A kept action with no match is not changed at all (A3). A new action
+  with no match is inserted as today, unassigned.
+- **K6.** Evidence spans stay immutable (ADR 0014), so a merged action keeps
+  its old spans in the table but shows only its own run's spans:
+  `ActionItem.evidence` also requires the span to have no run, or the action
+  to have no run, or both run ids to be equal. Every action that existed
+  before sees the same spans as before.
+- **K7.** The coverage counters count action evidence through the same scope
+  as `ActionItem.evidence`, so the call report and the coverage counts stay
+  equal.
+- **K8.** The run's output holds every AI action it wrote, inserted and
+  updated kept rows alike. The recompute audit and the quality grades read
+  that list. No new audit event type and no `action_item.assignee_changed`
+  row: the assignee does not change.
+- **K9.** `voicemail_rules` and `user` actions, the voicemail's follow-up
+  action and `follow_up_action_id` are never touched, and every other rule of
+  this ADR keeps its behaviour.
+
+There is no migration and no schema change. Evidence stays immutable, and an
+action shows the evidence of its own run, so the merge needs only row updates.
 
 ## Consequences
 
@@ -219,10 +271,14 @@ assigned and replaces only the rest.
 - A person-set assignment on a voicemail meeting survives a re-analysis (A2, A3): the
   full job and a correction's recompute keep every assigned AI action unchanged, and
   write no `action_item.assignee_changed` row for it.
+- HOM-381: when a re-analysis restates an assigned voicemail action, the kept
+  action takes the new text and evidence and no near-duplicate row appears
+  (K1 to K9). The assignee and every person-set field never change.
 
 ## Not built
 
 - The meetings and conversations routes do not change (ADR 0052 keeps its exact
   behaviour, status codes and messages).
 - No console screen changes a voicemail's assignment.
+- No fuzzy matching beyond K2; no console change.
 - No migration and no schema change.

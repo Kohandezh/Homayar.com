@@ -4748,10 +4748,17 @@ class ActionItem(Base, TimestampMixin):
     # HOM-133 on.  Person rows, voicemail rule rows and older rows stay NULL.
     kind: Mapped[str | None] = mapped_column(String(16))
 
+    # HOM-381 (ADR 0054): an action shows only the evidence of its own run
+    # (evidence spans are immutable, ADR 0014, so a merged action keeps its old
+    # spans in the table while showing only the current run's).  A span without
+    # a run (a person's citation) and an action without a run always meet.
     evidence: Mapped[list[EvidenceSpan]] = relationship(
         primaryjoin=(
             "and_(foreign(EvidenceSpan.finding_id) == ActionItem.id, "
-            "EvidenceSpan.finding_type == 'action_item')"
+            "EvidenceSpan.finding_type == 'action_item', "
+            "or_(EvidenceSpan.analysis_run_id.is_(None), "
+            "ActionItem.analysis_run_id.is_(None), "
+            "EvidenceSpan.analysis_run_id == ActionItem.analysis_run_id))"
         ),
         viewonly=True,
         order_by="EvidenceSpan.created_at",
