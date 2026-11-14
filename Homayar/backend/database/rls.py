@@ -124,6 +124,12 @@ WORKSPACE_TABLES: tuple[str, ...] = (
     # reassigns, closes and cancels them, the purge deletes the conversation's rows.
     # Never through a share token.
     "coaching_tasks",
+    # Action proposals and their approved delivery requests (HOM-135): the service
+    # of PR 2 approves, rejects and revokes the proposals, the purge deletes the
+    # conversation's rows.  A delivery request is never updated (NO_UPDATE_TABLES).
+    # Never through a share token.
+    "action_proposals",
+    "action_delivery_requests",
     # Retrieval index entries and embeddings (HOM-93): the indexer of PR 2 writes
     # them, the purge deletes the conversation's rows.  The stored ACL snapshot is
     # a pre-filter; reads re-check the live meeting (HOM-94).  Never through a
@@ -408,8 +414,10 @@ NO_DELETE_TABLES: tuple[str, ...] = ("integration_inbound_records", "webhook_del
 # at creation.  ``review_appeal_results`` (HOM-76): a stored score after an appeal
 # never changes, like a human score.  ``retrieval_embeddings`` (HOM-93): a vector is
 # written once; a new model or a new text writes a new row with a new
-# ``embedding_version``.  DELETE stays granted, because the conversation purge
-# removes the rows as the application role.
+# ``embedding_version``.  ``action_delivery_requests`` (HOM-135): an approved
+# request is an exact copy of what was approved; a revoke changes the proposal, never
+# the request.  DELETE stays granted, because the conversation purge removes the rows
+# as the application role.
 NO_UPDATE_TABLES: tuple[str, ...] = (
     "scorecard_results",
     "scorecard_criterion_results",
@@ -417,6 +425,7 @@ NO_UPDATE_TABLES: tuple[str, ...] = (
     "calibration_examples",
     "review_appeal_results",
     "retrieval_embeddings",
+    "action_delivery_requests",
 )
 
 # Protected audit sink reader (HOM-115, ADR 0036): a NOLOGIN role with SELECT on

@@ -80,6 +80,7 @@ from backend.tests._database import (
     is_postgres_url,
 )
 from backend.tests.conftest import login_user, register_user
+from backend.tests.test_action_proposals_migration import remove_action_proposals
 from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
@@ -1475,6 +1476,8 @@ def test_on_sqlite_the_migration_builds_the_orm_table_and_its_downgrade_removes_
             remove_retrieval_index_tables(connection)
             # HOM-129 adds the MFA and break-glass schema; take it out too.
             remove_privileged_mfa_schema(connection)
+            # HOM-135 adds the action proposal tables; take them out too.
+            remove_action_proposals(connection)
             before = _sqlite_objects(connection)
         assert orm["checks"] == sorted(CHECKS)
 
