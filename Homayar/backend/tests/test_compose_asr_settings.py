@@ -15,6 +15,12 @@ concurrency. HOM-42 adds the worker readiness settings (``asr_model_vram_mib``,
 ``worker_vram_budget_mib`` and ``worker_asr_queues``) to that worker-only group: no other
 service checks its readiness or picks queues.
 
+HOM-346 added the offline Whisper settings: ``WHISPER_MODEL_PATH`` and
+``WHISPER_LOCAL_FILES_ONLY`` are now in both ``x-app-environment`` anchors, and a
+read-only model volume mounts at ``/app/models/whisper`` on ``api`` and ``worker``
+(``WHISPER_MODEL_HOST_DIR`` unset: the named volume ``whisper_models``; set: a
+read-only bind mount of that host folder).
+
 The names are read from ``Settings.model_fields`` at test time, so a future ``asr_*``
 setting that is not added to Compose fails this file. Two kinds of check: the rendered
 config (``docker compose config``, skipped without docker unless ``CI`` is set) and a
@@ -215,6 +221,29 @@ def rendered_set(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str
 
 
 @pytest.fixture(scope="module")
+def rendered_offline(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """Renders with the three HOM-346 variables set, plus every service mount.
+
+    The model host dir is a real (empty) directory, so the bind source is a
+    plausible host path.
+    """
+    _require_compose_files()
+    env_file = tmp_path_factory.mktemp("compose-offline") / "empty.env"
+    env_file.write_text("", encoding="utf-8")
+    model_host_dir = tmp_path_factory.mktemp("whisper-models")
+    extra_env = {
+        "WHISPER_MODEL_PATH": "/app/models/whisper",
+        "WHISPER_LOCAL_FILES_ONLY": "true",
+        "WHISPER_MODEL_HOST_DIR": str(model_host_dir),
+    }
+    services = {
+        setup: _render(files, SETUP_PROFILES[setup], {**SETUP_ENV[setup], **extra_env}, env_file)
+        for setup, files in SETUPS.items()
+    }
+    return {"services": services, "model_host_dir": str(model_host_dir)}
+
+
+@pytest.fixture(scope="module")
 def compose_documents() -> dict[str, Any]:
     _require_compose_files()
     return {
@@ -368,3 +397,150 @@ def test_worker_environment_declares_the_warm_worker_settings_with_the_code_defa
         assert env_name in worker, (file_name, env_name)
         assert _anchor_default(worker, env_name) == defaults[env_name], (file_name, env_name)
         assert env_name not in anchor, (file_name, env_name)
+
+
+# --- HOM-346: offline Whisper settings and the read-only model volume -------------------------
+
+
+def offline_whisper_defaults() -> dict[str, str]:
+    """The two offline Whisper settings as ``ENV_NAME -> rendered code default``.
+
+    ``Settings`` renders ``False`` as ``False``; the compose default text is
+    ``false`` (the YAML boolean), so the code default is lower-cased here.
+    """
+    return {
+        "WHISPER_MODEL_PATH": str(Settings.model_fields["whisper_model_path"].default),
+        "WHISPER_LOCAL_FILES_ONLY": str(
+            Settings.model_fields["whisper_local_files_only"].default
+        ).lower(),
+    }
+
+
+MODEL_MOUNT_TARGET = "/app/models/whisper"
+MODEL_MOUNT_SOURCE = "${WHISPER_MODEL_HOST_DIR:-whisper_models}"
+MODEL_MOUNT = f"{MODEL_MOUNT_SOURCE}:{MODEL_MOUNT_TARGET}:ro"
+
+
+def _mounts(service: dict[str, Any], target: str) -> list[dict[str, Any]]:
+    """The rendered volume mounts of ``service`` whose target is ``target``."""
+    return [
+        dict(mount) for mount in service.get("volumes") or [] if mount.get("target") == target
+    ]
+
+
+@pytest.mark.parametrize("file_name", ["onprem", "cloud"])
+def test_anchor_declares_the_offline_whisper_settings_with_the_code_default(
+    compose_documents: dict[str, Any], file_name: str
+) -> None:
+    anchor = compose_documents[file_name]["x-app-environment"]
+
+    for env_name, default in offline_whisper_defaults().items():
+        assert env_name in anchor, (file_name, env_name)
+        assert _anchor_default(anchor, env_name) == default, (file_name, env_name)
+
+
+@pytest.mark.parametrize("setup", ["S1", "S2", "S3"])
+@pytest.mark.parametrize("service", APP_SERVICES)
+def test_offline_whisper_defaults_reach_every_app_service(
+    rendered_defaults: dict[str, dict[str, Any]], setup: str, service: str
+) -> None:
+    environment = _environment(rendered_defaults[setup][service])
+
+    for env_name, default in offline_whisper_defaults().items():
+        assert environment.get(env_name) == default, (setup, service, env_name)
+
+
+@pytest.mark.parametrize("setup", ["S1", "S2", "S3"])
+@pytest.mark.parametrize("service", ["api", "worker"])
+def test_offline_whisper_env_values_reach_the_model_services(
+    rendered_offline: dict[str, Any], setup: str, service: str
+) -> None:
+    environment = _environment(rendered_offline["services"][setup][service])
+
+    assert environment.get("WHISPER_MODEL_PATH") == "/app/models/whisper", (setup, service)
+    assert environment.get("WHISPER_LOCAL_FILES_ONLY") == "true", (setup, service)
+
+
+@pytest.mark.parametrize("setup", ["S1", "S2", "S3"])
+@pytest.mark.parametrize("service", ["api", "worker"])
+def test_unset_host_dir_gives_the_named_model_volume_read_only(
+    rendered_defaults: dict[str, dict[str, Any]], setup: str, service: str
+) -> None:
+    mounts = _mounts(rendered_defaults[setup][service], MODEL_MOUNT_TARGET)
+
+    assert len(mounts) == 1, (setup, service, mounts)
+    assert mounts[0]["type"] == "volume", (setup, service, mounts[0])
+    assert mounts[0]["source"] == "whisper_models", (setup, service, mounts[0])
+    assert mounts[0]["read_only"] is True, (setup, service, mounts[0])
+
+
+@pytest.mark.parametrize("setup", ["S1", "S2", "S3"])
+@pytest.mark.parametrize("service", ["api", "worker"])
+def test_a_host_model_dir_is_a_read_only_bind_mount(
+    rendered_offline: dict[str, Any], setup: str, service: str
+) -> None:
+    mounts = _mounts(rendered_offline["services"][setup][service], MODEL_MOUNT_TARGET)
+
+    assert len(mounts) == 1, (setup, service, mounts)
+    assert mounts[0]["type"] == "bind", (setup, service, mounts[0])
+    assert mounts[0]["source"] == rendered_offline["model_host_dir"], (setup, service, mounts[0])
+    assert mounts[0]["read_only"] is True, (setup, service, mounts[0])
+
+
+@pytest.mark.parametrize("setup", ["S1", "S2", "S3"])
+def test_no_other_service_gets_the_model_volume(
+    rendered_defaults: dict[str, dict[str, Any]], setup: str
+) -> None:
+    for service_name, service in rendered_defaults[setup].items():
+        if service_name in ("api", "worker"):
+            continue
+        assert not _mounts(service, MODEL_MOUNT_TARGET), (setup, service_name)
+
+
+def _volume_target(volume: Any) -> str | None:
+    """The container path of a volume entry, short or long syntax.
+
+    An interpolated source (``${VAR:-default}``) carries a colon of its own, so
+    it is cut off before the ``SOURCE:TARGET[:MODE]`` split. Trailing slashes
+    are dropped, because Compose normalizes them; a target of just ``/`` stays.
+    """
+    if isinstance(volume, dict):
+        target = volume.get("target")
+    elif isinstance(volume, str):
+        if volume.startswith("${"):
+            end = volume.find("}")
+            if end == -1:
+                return None
+            target = volume[end + 1 :].lstrip(":").split(":")[0] or None
+        else:
+            parts = volume.split(":")
+            # anonymous volume: the only field is the target
+            target = parts[0] if len(parts) == 1 else parts[1]
+    else:
+        target = None
+    if not target:
+        return None
+    return target.rstrip("/") or "/"
+
+
+@pytest.mark.parametrize("file_name", ["onprem", "cloud"])
+def test_the_model_mount_is_declared_on_api_and_worker_only(
+    compose_documents: dict[str, Any], file_name: str
+) -> None:
+    services = compose_documents[file_name]["services"]
+
+    for service_name, service in services.items():
+        volumes = service.get("volumes") or []
+        targets = {
+            target
+            for target in (_volume_target(volume) for volume in volumes)
+            if target is not None
+        }
+        if service_name in ("api", "worker"):
+            assert MODEL_MOUNT in volumes, (file_name, service_name)
+            assert MODEL_MOUNT_TARGET in targets, (file_name, service_name)
+        else:
+            # Deny by target, so any spelling of the mount (long syntax, no
+            # :ro, another source) on another service fails.
+            assert MODEL_MOUNT_TARGET not in targets, (file_name, service_name)
+    assert "whisper_models" in compose_documents[file_name].get("volumes", {}), file_name
