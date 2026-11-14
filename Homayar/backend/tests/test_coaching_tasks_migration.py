@@ -96,6 +96,7 @@ from backend.tests._database import (
     is_postgres_url,
 )
 from backend.tests.conftest import login_user, register_user
+from backend.tests.test_action_proposals_migration import remove_action_proposals
 from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
@@ -113,7 +114,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "5f3a91c0d7b2"
 BASE_REVISION = "c4a8e2f7d913"  # HOM-133: action item kind
-HEAD_REVISION = "d3d1c7aa3cd8"  # HOM-129: privileged MFA and break-glass, after HOM-93
+HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
 TABLE = "coaching_tasks"
 TABLES = (TABLE,)
 APPEALS = "review_appeals"
@@ -1153,6 +1154,8 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             remove_retrieval_index_tables(connection)
             # HOM-129 adds the MFA and break-glass schema; take it out too.
             remove_privileged_mfa_schema(connection)
+            # HOM-135 adds the action proposal tables; take them out too.
+            remove_action_proposals(connection)
             before_objects = _objects(connection)
 
         config = _alembic_at(monkeypatch, url)

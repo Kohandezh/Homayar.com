@@ -4774,6 +4774,342 @@ class ActionItem(Base, TimestampMixin):
     )
 
 
+# Approval-bound outbound actions (HOM-135, WP24-T03, F60, ADR 0082).  A proposal
+# previews one exact payload; a person approves, rejects or revokes it.  An approval
+# writes one immutable delivery request that HOM-136 delivers.
+ACTION_PROPOSAL_TYPES: tuple[str, ...] = ("crm_update", "ticket_create", "coaching_task")
+ACTION_PROPOSAL_SOURCES: tuple[str, ...] = ("action_item", "review_finding")
+ACTION_PROPOSAL_STATUSES: tuple[str, ...] = ("pending", "approved", "rejected", "revoked")
+# Open proposals: at most one per action item and action type, and one per finding.
+ACTION_PROPOSAL_OPEN_STATUSES: tuple[str, ...] = ("pending", "approved")
+ACTION_PROPOSAL_REJECT_REASONS: tuple[str, ...] = (
+    "not_needed",
+    "incorrect",
+    "duplicate",
+    "other",
+)
+ACTION_PROPOSAL_REVOKE_REASONS: tuple[str, ...] = ("approved_in_error", "no_longer_needed", "other")
+
+
+def _lowercase_hex_check(column: str) -> str:
+    """Exactly 64 characters of lowercase hex (a sha256 digest) without a regex, so
+    SQLite runs the same check."""
+    return f"length({column}) = 64 AND trim({column}, '0123456789abcdef') = ''"
+
+
+ACTION_TYPE_CHECK = f"action_type IN {_sql_list(ACTION_PROPOSAL_TYPES)}"
+ACTION_SOURCE_TYPE_CHECK = f"source_type IN {_sql_list(ACTION_PROPOSAL_SOURCES)}"
+ACTION_PROPOSAL_STATUS_CHECK = f"status IN {_sql_list(ACTION_PROPOSAL_STATUSES)}"
+ACTION_PROPOSAL_REVISION_CHECK = "revision >= 1"
+ACTION_PAYLOAD_VERSION_CHECK = "payload_version >= 1"
+ACTION_PROPOSAL_CRITERION_KEY_CHECK = f"criterion_id IS NULL OR ({CRITERION_KEY_CHECK})"
+ACTION_REQUEST_CRITERION_KEY_CHECK = (
+    "source_criterion_id IS NULL OR "
+    f"({SCORECARD_KEY_CHECK.replace('scorecard_key', 'source_criterion_id')})"
+)
+ACTION_TARGET_SYSTEM_CHECK = f"target_system IS NULL OR ({_slug_check('target_system')})"
+# The cross-field rules.  Each one passes when a value that another check owns is
+# outside its list, so a row that breaks one field fails only that field's own named
+# check, on both databases (PostgreSQL tests checks in name order, SQLite in its own).
+# ``action_type``, ``source_type`` and ``status`` are NOT NULL, so no rule is ever
+# NULL.  A source id (``action_item_id``, ``review_item_id``) may become NULL when
+# its row is removed; PR 2 treats that proposal as stale.
+ACTION_PROPOSAL_SOURCE_SHAPE_CHECK = (
+    "(source_type <> 'action_item' OR (review_item_id IS NULL AND criterion_id IS NULL)) "
+    "AND (source_type <> 'review_finding' OR (action_item_id IS NULL "
+    "AND criterion_id IS NOT NULL))"
+)
+ACTION_TYPE_SOURCE_CHECK = (
+    "NOT ((action_type IN ('crm_update','ticket_create') AND source_type = 'review_finding') "
+    "OR (action_type = 'coaching_task' AND source_type = 'action_item'))"
+)
+ACTION_TARGET_SHAPE_CHECK = (
+    "(action_type <> 'crm_update' OR (target_system IS NOT NULL "
+    "AND target_external_record_id IS NOT NULL)) "
+    "AND (action_type <> 'ticket_create' OR (target_system IS NOT NULL "
+    "AND target_external_record_id IS NULL)) "
+    "AND (action_type <> 'coaching_task' OR (target_system IS NULL "
+    "AND target_external_record_id IS NULL))"
+)
+ACTION_PROPOSAL_REJECT_REASON_CHECK = (
+    f"reject_reason IS NULL OR reject_reason IN {_sql_list(ACTION_PROPOSAL_REJECT_REASONS)}"
+)
+ACTION_PROPOSAL_REVOKE_REASON_CHECK = (
+    f"revoke_reason IS NULL OR revoke_reason IN {_sql_list(ACTION_PROPOSAL_REVOKE_REASONS)}"
+)
+# Each status has its own fields.  No check names a user column: the three user
+# columns are SET NULL when a user is removed, and a check on them would make the
+# removal fail.
+ACTION_PROPOSAL_PENDING_FIELDS_CHECK = (
+    "status <> 'pending' OR (decided_at IS NULL AND reject_reason IS NULL "
+    "AND revoked_at IS NULL AND revoke_reason IS NULL)"
+)
+ACTION_PROPOSAL_APPROVED_FIELDS_CHECK = (
+    "status <> 'approved' OR (decided_at IS NOT NULL AND reject_reason IS NULL "
+    "AND revoked_at IS NULL AND revoke_reason IS NULL)"
+)
+ACTION_PROPOSAL_REJECTED_FIELDS_CHECK = (
+    "status <> 'rejected' OR (decided_at IS NOT NULL AND reject_reason IS NOT NULL "
+    "AND revoked_at IS NULL AND revoke_reason IS NULL)"
+)
+ACTION_PROPOSAL_REVOKED_FIELDS_CHECK = (
+    "status <> 'revoked' OR (decided_at IS NOT NULL AND revoked_at IS NOT NULL "
+    "AND revoke_reason IS NOT NULL AND reject_reason IS NULL)"
+)
+ACTION_PROPOSAL_OPEN_WHERE = f"status IN {_sql_list(ACTION_PROPOSAL_OPEN_STATUSES)}"
+ACTION_PROPOSAL_OPEN_ITEM_WHERE = f"{ACTION_PROPOSAL_OPEN_WHERE} AND action_item_id IS NOT NULL"
+ACTION_PROPOSAL_OPEN_FINDING_WHERE = f"{ACTION_PROPOSAL_OPEN_WHERE} AND review_item_id IS NOT NULL"
+
+
+class ActionProposal(Base):
+    """One proposed outbound action and its exact payload (HOM-135, WP24-T03, F60).
+
+    A proposal is built from one source: an action item (``crm_update``,
+    ``ticket_create``) or a review finding, one criterion of a review item
+    (``coaching_task``).  It pins that source: the transcript revision it was read from
+    (``source_transcript_revision_id``) and a sha256 digest of the source fields
+    (``source_digest``).  It stores the exact payload it would send
+    (``payload_json``), its sha256 (``payload_hash``) and ``payload_version`` (1, and
+    one more on every edit or refresh).  ``revision`` starts at 1 and grows by one with
+    each state change, so a write is a compare-and-set on it, like
+    ``coaching_tasks``.  An approval (PR 2) writes one ``action_delivery_requests``
+    row; a revoke changes only the proposal.  At most one open (``pending`` or
+    ``approved``) proposal per action item and action type, and per finding.  A
+    removed source leaves its id NULL; PR 2 treats that proposal as stale.
+    Conversation content: the purge deletes the row and the backup reconciliation
+    counts it.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "action_proposals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The source's conversation: the purge and the backup reconciliation find content
+    # rows by ``meeting_id``, and the record scope of PR 2 is this meeting's.
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    action_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # The source.  The single-column keys do not tie it to this workspace and meeting;
+    # the service of PR 2 checks that before the insert (ADR 0082).
+    action_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("action_items.id", ondelete="SET NULL"), index=True
+    )
+    review_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("review_items.id", ondelete="SET NULL"), index=True
+    )
+    # The finding's criterion key, as in ``scorecard_criterion_results.criterion_id``.
+    criterion_id: Mapped[str | None] = mapped_column(String(64))
+    source_transcript_revision_id: Mapped[str] = mapped_column(
+        ForeignKey("transcript_revisions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The slug of the target system; NULL for an internal coaching task.
+    target_system: Mapped[str | None] = mapped_column(String(60))
+    # The CRM record a ``crm_update`` writes to (HOM-88).  RESTRICT: a named record
+    # cannot be deleted under a proposal.
+    target_external_record_id: Mapped[str | None] = mapped_column(
+        ForeignKey("external_records.id", ondelete="RESTRICT"), index=True
+    )
+    # The exact payload; never copied to the audit log.
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    # Who approved or rejected it.
+    decided_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    revoked_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reject_reason: Mapped[str | None] = mapped_column(String(30))
+    revoke_reason: Mapped[str | None] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # The target of the delivery request's composite key, so a request stays in its
+        # proposal's workspace and meeting.
+        UniqueConstraint("id", "workspace_id", "meeting_id", name="uq_action_proposals_scope"),
+        CheckConstraint(ACTION_TYPE_CHECK, name="ck_action_proposals_action_type"),
+        CheckConstraint(ACTION_SOURCE_TYPE_CHECK, name="ck_action_proposals_source_type"),
+        CheckConstraint(ACTION_PROPOSAL_STATUS_CHECK, name="ck_action_proposals_status"),
+        CheckConstraint(ACTION_PROPOSAL_REVISION_CHECK, name="ck_action_proposals_revision"),
+        CheckConstraint(ACTION_PAYLOAD_VERSION_CHECK, name="ck_action_proposals_payload_version"),
+        CheckConstraint(
+            _lowercase_hex_check("payload_hash"), name="ck_action_proposals_payload_hash"
+        ),
+        CheckConstraint(
+            _lowercase_hex_check("source_digest"), name="ck_action_proposals_source_digest"
+        ),
+        CheckConstraint(
+            ACTION_PROPOSAL_CRITERION_KEY_CHECK, name="ck_action_proposals_criterion_key"
+        ),
+        CheckConstraint(ACTION_TARGET_SYSTEM_CHECK, name="ck_action_proposals_target_system"),
+        CheckConstraint(
+            ACTION_PROPOSAL_SOURCE_SHAPE_CHECK, name="ck_action_proposals_source_shape"
+        ),
+        CheckConstraint(ACTION_TYPE_SOURCE_CHECK, name="ck_action_proposals_type_source"),
+        CheckConstraint(ACTION_TARGET_SHAPE_CHECK, name="ck_action_proposals_target_shape"),
+        CheckConstraint(
+            ACTION_PROPOSAL_REJECT_REASON_CHECK, name="ck_action_proposals_reject_reason"
+        ),
+        CheckConstraint(
+            ACTION_PROPOSAL_REVOKE_REASON_CHECK, name="ck_action_proposals_revoke_reason"
+        ),
+        CheckConstraint(
+            ACTION_PROPOSAL_PENDING_FIELDS_CHECK, name="ck_action_proposals_pending_fields"
+        ),
+        CheckConstraint(
+            ACTION_PROPOSAL_APPROVED_FIELDS_CHECK, name="ck_action_proposals_approved_fields"
+        ),
+        CheckConstraint(
+            ACTION_PROPOSAL_REJECTED_FIELDS_CHECK, name="ck_action_proposals_rejected_fields"
+        ),
+        CheckConstraint(
+            ACTION_PROPOSAL_REVOKED_FIELDS_CHECK, name="ck_action_proposals_revoked_fields"
+        ),
+        # At most one open proposal per action item and action type, and per finding.
+        # A rejected or revoked one does not block a new one; a removed source never
+        # blocks.
+        Index(
+            "uq_action_proposals_open_item",
+            "action_item_id",
+            "action_type",
+            unique=True,
+            postgresql_where=text(ACTION_PROPOSAL_OPEN_ITEM_WHERE),
+            sqlite_where=text(ACTION_PROPOSAL_OPEN_ITEM_WHERE),
+        ),
+        Index(
+            "uq_action_proposals_open_finding",
+            "review_item_id",
+            "criterion_id",
+            unique=True,
+            postgresql_where=text(ACTION_PROPOSAL_OPEN_FINDING_WHERE),
+            sqlite_where=text(ACTION_PROPOSAL_OPEN_FINDING_WHERE),
+        ),
+        # The approval queue (oldest first) and its keyset pages.
+        Index("ix_action_proposals_queue", "workspace_id", "status", "created_at", "id"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_action_proposals_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class ActionDeliveryRequest(Base):
+    """One approved action, waiting for delivery (HOM-135, WP24-T03, F60).
+
+    Written once, by the approval of PR 2, in the same transaction as the proposal's
+    move to ``approved``; immutable after the insert.  It is an exact copy of what was
+    approved: the payload, its hash and version, the source pins, the target and the
+    approver.  The source columns are plain strings, not keys, so the copy keeps them
+    when the source goes.  One request per proposal
+    (``uq_action_delivery_requests_proposal``), always in the proposal's own workspace
+    and meeting (``fk_action_delivery_requests_proposal``).  ``idempotency_key`` is the
+    sha256 of ``workspace_id|proposal_id|payload_hash``; HOM-136 sends it to the
+    connector.  A revoke changes the proposal, never this row: HOM-136 locks the
+    proposal row and checks its status before any external write.  The application
+    role may not UPDATE the table (``NO_UPDATE_TABLES``) and the ORM guard below
+    refuses an update.  Conversation content: the purge deletes the row and the backup
+    reconciliation counts it.  Tenant-only, never through a share token.
+    """
+
+    __tablename__ = "action_delivery_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    # Its foreign key is ``fk_action_delivery_requests_proposal`` below.
+    proposal_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_system: Mapped[str | None] = mapped_column(String(60))
+    target_external_record_id: Mapped[str | None] = mapped_column(
+        ForeignKey("external_records.id", ondelete="RESTRICT"), index=True
+    )
+    # The approved payload; never copied to the audit log.
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # The action item id or the review item id at approval: a copy, no key.
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_criterion_id: Mapped[str | None] = mapped_column(String(64))
+    # The pinned revision at approval: a copy, no key.
+    source_transcript_revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    approved_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # A request stays in its proposal's own workspace and meeting
+        # (``uq_action_proposals_scope``).
+        ForeignKeyConstraint(
+            ["proposal_id", "workspace_id", "meeting_id"],
+            [
+                "action_proposals.id",
+                "action_proposals.workspace_id",
+                "action_proposals.meeting_id",
+            ],
+            ondelete="CASCADE",
+            name="fk_action_delivery_requests_proposal",
+        ),
+        UniqueConstraint("proposal_id", name="uq_action_delivery_requests_proposal"),
+        UniqueConstraint("idempotency_key", name="uq_action_delivery_requests_idempotency_key"),
+        # For the delivery records of HOM-136.
+        UniqueConstraint(
+            "id", "workspace_id", "meeting_id", name="uq_action_delivery_requests_scope"
+        ),
+        CheckConstraint(ACTION_TYPE_CHECK, name="ck_action_delivery_requests_action_type"),
+        CheckConstraint(ACTION_SOURCE_TYPE_CHECK, name="ck_action_delivery_requests_source_type"),
+        CheckConstraint(
+            ACTION_PAYLOAD_VERSION_CHECK, name="ck_action_delivery_requests_payload_version"
+        ),
+        CheckConstraint(
+            _lowercase_hex_check("payload_hash"), name="ck_action_delivery_requests_payload_hash"
+        ),
+        CheckConstraint(
+            _lowercase_hex_check("source_digest"),
+            name="ck_action_delivery_requests_source_digest",
+        ),
+        CheckConstraint(
+            _lowercase_hex_check("idempotency_key"),
+            name="ck_action_delivery_requests_idempotency_key",
+        ),
+        CheckConstraint(
+            ACTION_REQUEST_CRITERION_KEY_CHECK, name="ck_action_delivery_requests_criterion_key"
+        ),
+        CheckConstraint(ACTION_TYPE_SOURCE_CHECK, name="ck_action_delivery_requests_type_source"),
+        CheckConstraint(ACTION_TARGET_SHAPE_CHECK, name="ck_action_delivery_requests_target_shape"),
+        # The purge and the backup reconciliation, by workspace and conversation.
+        Index("ix_action_delivery_requests_workspace_meeting", "workspace_id", "meeting_id"),
+        # The delivery list of HOM-136 (oldest approval first) and its keyset pages.
+        Index("ix_action_delivery_requests_approved", "workspace_id", "approved_at", "id"),
+    )
+
+
 class ShareLink(Base, TimestampMixin):
     __tablename__ = "share_links"
 
@@ -5339,6 +5675,22 @@ def _refuse_review_appeal_result_delete(_mapper, _connection, target: object) ->
     raise ReviewAppealResultImmutableError(
         f"{type(target).__name__} rows are immutable; only the conversation purge removes them"
     )
+
+
+class ActionDeliveryRequestImmutableError(RuntimeError):
+    """An ORM update tried to change a stored delivery request (HOM-135)."""
+
+
+# Only updates are refused.  A delete stays allowed: the proposal's cascade and the
+# conversation purge remove requests, and the application role keeps DELETE.
+@event.listens_for(ActionDeliveryRequest, "before_update")
+def _refuse_action_delivery_request_update(_mapper, _connection, target: object) -> None:
+    changed = _changed_columns(target)
+    if changed:
+        raise ActionDeliveryRequestImmutableError(
+            f"{type(target).__name__} rows are immutable; revoke the proposal instead "
+            f"(attempted: {', '.join(sorted(changed))})"
+        )
 
 
 class IngestionImmutableError(RuntimeError):
