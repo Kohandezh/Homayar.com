@@ -613,7 +613,7 @@ describe("MFA routes, proactive gate and reactive redirect (HOM-241)", () => {
     expect(statusReads).toBeGreaterThanOrEqual(2);
   });
 
-  it("keeps the shell while a later status re-read runs (a workspace switch cleared the cache)", async () => {
+  it("after a workspace switch: the shell stays and the next navigation re-reads and still redirects", async () => {
     const answers = [
       FREE,
       { totp_enrolled: true, recovery_codes_remaining: 4, session_verified: false, required: true },
@@ -627,19 +627,84 @@ describe("MFA routes, proactive gate and reactive redirect (HOM-241)", () => {
       }
       return new Promise(() => undefined);
     });
+    const user = userEvent.setup();
     const view = renderApp("/account/security");
     expect(await screen.findByRole("heading", { level: 1, name: "Account security" })).toBeInTheDocument();
 
-    // A workspace switch clears the whole query cache (AuthProvider).
+    // The workspace switch clears the cache while the gate stays mounted.
     act(() => view.queryClient.clear());
 
-    // The shell stays: no "Checking two-step verification" replacement.
+    // The shell stays: no "Checking two-step verification" replacement, and
+    // no status read fires at clear time.
     expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
     expect(screen.queryByText("Checking two-step verification")).not.toBeInTheDocument();
+    expect(reads).toBe(1);
 
-    // The re-read says MFA is needed, and the gate still redirects.
+    // The next navigation re-reads the status, which now needs MFA.
+    await user.click(screen.getByRole("link", { name: "Meetings" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
-    await waitFor(() => expect(location()).toBe(`/mfa/verify?next=${encodeURIComponent("/account/security")}`));
+    await waitFor(() => expect(location()).toBe(`/mfa/verify?next=${encodeURIComponent("/meetings")}`));
+    expect(reads).toBe(2);
+  });
+
+  it("keeps the shell after a workspace switch when the gate first mounted with a cached status", async () => {
+    // Coming back from /mfa/verify, the status is already in the cache when
+    // the shell mounts, so the gate's first render is already settled. A
+    // later workspace switch must still keep the shell during the re-read.
+    let reads = 0;
+    vi.spyOn(api, "get").mockImplementation(async (url: string) => {
+      if (url === "/auth/mfa") {
+        reads += 1;
+        if (reads === 1) return okResponse(ENROLLED);
+        if (reads === 2) return okResponse({ ...ENROLLED, session_verified: true });
+        // The re-read after the workspace switch never answers.
+        return new Promise(() => undefined);
+      }
+      return new Promise(() => undefined);
+    });
+    vi.spyOn(api, "post").mockImplementation(async (url: string) => {
+      if (url === "/auth/mfa/verify") return okResponse({ verified: true, method: "totp", recovery_codes_remaining: 9 });
+      throw apiError(500, "unexpected_post");
+    });
+    const user = userEvent.setup();
+    const view = renderApp("/admin");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Verify it's you" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Six-digit code"), "123456");
+    await user.click(screen.getByRole("button", { name: "Verify" }));
+    await waitFor(() => expect(location()).toBe("/admin"));
+    expect(await screen.findByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
+    await waitFor(() => expect(reads).toBe(2));
+
+    // The workspace switch clears the cache; the next navigation re-reads.
+    act(() => view.queryClient.clear());
+    await user.click(screen.getByRole("link", { name: "Meetings" }));
+    await waitFor(() => expect(reads).toBe(3));
+
+    // The re-read is still pending: the shell stays, no blocking screen.
+    expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
+    expect(screen.queryByText("Checking two-step verification")).not.toBeInTheDocument();
+    expect(location()).toBe("/meetings");
+  });
+
+  it("sends no status read when the cache is cleared on sign-out, while the gate is still mounted", async () => {
+    let reads = 0;
+    vi.spyOn(api, "get").mockImplementation(async (url: string) => {
+      if (url === "/auth/mfa") {
+        reads += 1;
+        return okResponse(FREE);
+      }
+      return new Promise(() => undefined);
+    });
+    const view = renderApp("/account/security");
+    expect(await screen.findByRole("heading", { level: 1, name: "Account security" })).toBeInTheDocument();
+    expect(reads).toBe(1);
+
+    // markAnonymous clears the query cache before the shell unmounts; the
+    // gate must not fire a session-less GET /auth/mfa for it.
+    act(() => view.queryClient.clear());
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(reads).toBe(1);
   });
 
   it.each([

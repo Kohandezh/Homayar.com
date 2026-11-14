@@ -1,3 +1,5 @@
+import { resolvePath } from "react-router";
+
 interface ReturnLocation {
   pathname?: unknown;
   search?: unknown;
@@ -7,13 +9,15 @@ interface ReturnLocation {
 const AUTH_PATHS = ["/login", "/register", "/verify-email", "/forgot-password", "/reset-password", "/phone"];
 
 /**
- * A pathname as the router matches it: percent escapes decoded and the whole
- * string lower-cased. A broken escape cannot be a page the app has, so it
- * decodes to "".
+ * A pathname as the router matches it: percent escapes decoded, `.` and `..`
+ * segments resolved (the router does this for absolute paths, so
+ * `/x/../mfa/verify` lands on an MFA page), and the whole string
+ * lower-cased. Anything unreadable or unresolvable cannot be a page the app
+ * has, so it normalizes to "".
  */
 function normalizedPathname(pathname: string): string {
   try {
-    return decodeURIComponent(pathname).toLowerCase();
+    return resolvePath(decodeURIComponent(pathname)).pathname.toLowerCase();
   } catch {
     return "";
   }

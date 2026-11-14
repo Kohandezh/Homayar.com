@@ -20,6 +20,10 @@ describe("safeNextPath refuses MFA and auth pages however they are spelled", () 
     ["/Login/Forgot", "an auth page child, mixed case"],
     ["/%6Cogin", "an auth page, escaped"],
     ["/%E0%A4%A", "a broken escape"],
+    ["/x/../mfa/verify", "a resolved dot segment"],
+    ["/./mfa/verify", "a leading dot segment"],
+    ["/x/%2E%2E/mfa/setup", "an escaped dot segment"],
+    ["/x/../login", "a dot segment onto an auth page"],
     ["//mfa/verify", "a protocol-relative path"],
     ["https://example.com/mfa/verify", "an absolute URL"],
     ["/mfa\\verify", "a backslash"],
@@ -29,6 +33,7 @@ describe("safeNextPath refuses MFA and auth pages however they are spelled", () 
 
   it.each([
     ["/admin", "/admin"],
+    ["/admin/settings", "/admin/settings"],
     ["/Meetings", "/Meetings"],
     ["/account/security", "/account/security"],
     ["/admin/teams?tab=x#top", "/admin/teams?tab=x#top"],
