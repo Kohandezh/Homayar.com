@@ -9,7 +9,8 @@ repeated JSON key (Amendment 5 A5.8) or a question text with a lone surrogate
 (A5.12: ``answer_question`` refuses such a question at step 0, A4.6).
 
 The module is pure: standard library plus ``backend.copilot_guard``
-(``normalize_text``, itself pure).  No database, no network, no clock.  File
+(``normalize_text``) and ``backend.speech.text_normalize`` (``normalize_digits``,
+the single owner of the digit tables).  No database, no network, no clock.  File
 input happens only in :func:`load_question_set` and the CLI.  The same input
 always gives the same output.
 
@@ -42,6 +43,7 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from backend.copilot_guard.signals import normalize_text
+from backend.speech.text_normalize import normalize_digits
 
 __all__ = [
     "QUESTION_SET_FORMAT",
@@ -73,10 +75,9 @@ _QUESTION_REQUIRED = frozenset({"id", "question", "caller", "kind", "expected"})
 _QUESTION_OPTIONAL = frozenset({"expected_intent", "slices"})
 _ANSWER_KEYS = frozenset({"cited_conversations", "must_include"})
 
-# Persian ۰-۹ and Arabic-Indic ٠-٩ digits read as ASCII digits.
-_EASTERN_DIGITS = "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩"
-_DIGIT_TABLE = str.maketrans(_EASTERN_DIGITS, "01234567890123456789")
 # A group separator (an ASCII or Persian thousands separator) between two digits.
+# The Persian and Arabic-Indic digits themselves are read by ``normalize_digits``
+# (the single owner of the digit tables, backend/speech/text_normalize.py).
 _GROUP_SEPARATOR = re.compile(r"(?<=[0-9])[,٬](?=[0-9])")
 
 
@@ -325,7 +326,7 @@ def _number_pattern(value: str) -> re.Pattern[str]:
 
 
 def _whole_number_in_text(value: str, text: str) -> bool:
-    folded = _GROUP_SEPARATOR.sub("", text.translate(_DIGIT_TABLE))
+    folded = _GROUP_SEPARATOR.sub("", normalize_digits(text))
     return _number_pattern(value).search(folded) is not None
 
 
