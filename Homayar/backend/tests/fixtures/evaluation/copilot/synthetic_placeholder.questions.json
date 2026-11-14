@@ -1,0 +1,122 @@
+{
+  "format": "copilot-questions/1",
+  "set_id": "synthetic-placeholder-v1",
+  "approved": false,
+  "notice": "SYNTHETIC PLACEHOLDER. NOT the approved 100 business questions. The approved set is an owner artifact that does not exist in this repository, and a result on this file says nothing about F58.",
+  "questions": [
+    {
+      "id": "c01",
+      "question": "چند گفتگو درباره گلایه از بازگشت وجه داشتیم؟",
+      "caller": "a_owner",
+      "kind": "count",
+      "expected_intent": "issue_count",
+      "expected": {"values": ["3"]},
+      "slices": {"lang": "fa"}
+    },
+    {
+      "id": "c02",
+      "question": "How many refund complaint conversations did team one have?",
+      "caller": "a_supervisor_t1",
+      "kind": "count",
+      "expected_intent": "issue_count",
+      "expected": {"values": ["2"]}
+    },
+    {
+      "id": "c03",
+      "question": "How many conversations mentioned a service complaint?",
+      "caller": "a_owner",
+      "kind": "count",
+      "expected_intent": "issue_count",
+      "expected": {"values": ["3"]}
+    },
+    {
+      "id": "c04",
+      "question": "How many dissatisfied callers did we have in the window?",
+      "caller": "a_owner",
+      "kind": "count",
+      "expected_intent": "issue_count",
+      "expected": {"values": ["3"]}
+    },
+    {
+      "id": "a01",
+      "question": "سلام",
+      "caller": "a_owner",
+      "kind": "answer",
+      "expected_intent": "evidence_examples",
+      "expected": {
+        "cited_conversations": ["conv_refund_first", "conv_second", "conv_third"],
+        "must_include": ["سلام"]
+      }
+    },
+    {
+      "id": "a02",
+      "question": "سلام",
+      "caller": "a_owner",
+      "kind": "answer",
+      "expected_intent": "conversation_lookup",
+      "expected": {
+        "cited_conversations": ["conv_refund_first"],
+        "must_include": ["وجه"]
+      }
+    },
+    {
+      "id": "a03",
+      "question": "سلام",
+      "caller": "a_owner",
+      "kind": "answer",
+      "expected_intent": "conversation_lookup",
+      "expected": {
+        "cited_conversations": ["conv_third"],
+        "must_include": ["سلام"]
+      }
+    },
+    {
+      "id": "a04",
+      "question": "سلام",
+      "caller": "a_owner",
+      "kind": "answer",
+      "expected_intent": "evidence_examples",
+      "expected": {"must_include": ["سلام"]}
+    },
+    {
+      "id": "u01",
+      "question": "How many refund complaints will we have next month?",
+      "caller": "a_owner",
+      "kind": "unsupported",
+      "expected_intent": "forecast",
+      "expected": {"reason": "forecast_not_supported"}
+    },
+    {
+      "id": "u02",
+      "question": "Why do long wait times cause refund complaints?",
+      "caller": "a_owner",
+      "kind": "unsupported",
+      "expected_intent": "causal_question",
+      "expected": {"reason": "causal_not_supported"}
+    },
+    {
+      "id": "u03",
+      "question": "Which agent has the worst refund complaint rate?",
+      "caller": "a_owner",
+      "kind": "unsupported",
+      "expected_intent": "agent_ranking",
+      "expected": {"reason": "individual_ranking_not_supported"}
+    },
+    {
+      "id": "u04",
+      "question": "What is the weather in Tehran today?",
+      "caller": "a_owner",
+      "kind": "unsupported",
+      "expected_intent": "out_of_scope",
+      "expected": {"reason": "out_of_scope"}
+    },
+    {
+      "id": "u05",
+      "question": "What was said in that conversation?",
+      "caller": "a_owner",
+      "kind": "unsupported",
+      "expected_intent": "conversation_lookup",
+      "expected": {"reason": "no_evidence"}
+    }
+  ]
+}

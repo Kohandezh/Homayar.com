@@ -20,6 +20,10 @@ media object or a NULL inspection is KEPT (unknown quality is not a flag).
 The JSON test is built per dialect with SQLAlchemy constructs (``json_*``
 functions, never ``jsonb_*``: the column is ``json`` on PostgreSQL), with
 every flag value as a bound parameter.  No value is ever put into SQL text.
+
+``meeting_ids`` (HOM-98, ADR 0084 D4) narrows a search to whole conversations,
+inside the same candidate SQL, so the asked conversation is never lost to a
+``LIMIT`` over unrelated hits.
 """
 
 from __future__ import annotations
@@ -56,6 +60,7 @@ __all__ = [
     "AUDIO_FLAGS",
     "CONVERSATION_TYPES",
     "LIST_FLAGS",
+    "MAX_FILTER_MEETING_IDS",
     "MAX_SOURCE_LENGTH",
     "SearchFilters",
     "apply_search_filters",
@@ -70,6 +75,11 @@ CONVERSATION_TYPES = frozenset(member.value for member in ConversationType)
 LIST_FLAGS = frozenset({"silent_channel", "duplicated_channels", "mono_as_stereo"})
 AUDIO_FLAGS = LIST_FLAGS | {"narrowband"}
 MAX_SOURCE_LENGTH = 30  # the length of ``meetings.source``
+_MAX_ID_LENGTH = 64  # a meeting id of ``meeting_ids``, the fetch bound of ADR 0077
+# The Copilot narrows ``evidence_examples`` to the cohort of the question (ADR 0084
+# D4).  A cohort of one window holds at most one meeting per conversation, and a
+# window holds at most 20000 conversations, so the bound is the cohort bound.
+MAX_FILTER_MEETING_IDS = 20000
 
 
 def _string_set(value: object, *, field: str) -> frozenset[str]:
@@ -136,6 +146,7 @@ class SearchFilters:
     started_before: datetime | None = None
     min_confidence: float | None = None
     exclude_audio_flags: frozenset[str] | None = None
+    meeting_ids: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         if self.conversation_types is not None:
@@ -181,6 +192,18 @@ class SearchFilters:
             if unknown:
                 raise ValueError(f"exclude_audio_flags holds unknown values: {sorted(unknown)}")
             object.__setattr__(self, "exclude_audio_flags", flags)
+        if self.meeting_ids is not None:
+            ids = _string_set(self.meeting_ids, field="meeting_ids")
+            for meeting_id in ids:
+                if not 1 <= len(meeting_id) <= _MAX_ID_LENGTH:
+                    raise ValueError(f"a meeting id must be 1..{_MAX_ID_LENGTH} characters")
+                if not sql_safe_text(meeting_id):
+                    raise ValueError("a meeting id must be encodable as UTF-8 and hold no NUL")
+            if len(ids) > MAX_FILTER_MEETING_IDS:
+                raise ValueError(
+                    f"meeting_ids holds at most {MAX_FILTER_MEETING_IDS} distinct ids"
+                )
+            object.__setattr__(self, "meeting_ids", ids)
 
 
 def conversation_at() -> ColumnElement[datetime]:
@@ -266,4 +289,8 @@ def apply_search_filters(query: Select, filters: SearchFilters, *, dialect_name:
         conditions.append(
             _audio_flag_predicate(filters.exclude_audio_flags, dialect_name=dialect_name)
         )
+    if filters.meeting_ids is not None:
+        # Sorted, so the same set always builds the same statement.  ``Meeting`` is
+        # already joined by ``live_entries``, and the ids are bound parameters.
+        conditions.append(Meeting.id.in_(sorted(filters.meeting_ids)))
     return query.where(*conditions) if conditions else query

@@ -27,7 +27,8 @@ never chooses a table.
 output.
 
 It is not the model. No model is called here, there is no prompt and no LLM client. There
-is no HTTP route either. HOM-97 (and the Copilot panel, HOM-239) will call `run_tool`.
+is no HTTP route either. The Copilot path that calls `run_tool` is
+`backend/services/copilot_answer_service.py` (HOM-98, ADR 0084).
 
 Import the pure parts from `backend.copilot_tools`, and `run_tool` from
 `backend.services.copilot_tool_service`.

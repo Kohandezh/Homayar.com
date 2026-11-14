@@ -1,0 +1,28 @@
+{
+  "plans": {
+    "c01": "{\"intent\": \"issue_count\", \"params\": {\"from\": \"2026-10-01T09:00:00+00:00\", \"to\": \"2026-10-02T09:00:00+00:00\", \"issue\": \"complaint_refund\"}}",
+    "c02": "{\"intent\": \"issue_count\", \"params\": {\"from\": \"2026-10-01T09:00:00+00:00\", \"to\": \"2026-10-02T09:00:00+00:00\", \"issue\": \"complaint_refund\", \"team_id\": \"6130cead-6332-5c1a-9ccc-7d2d22ac3d2e\"}}",
+    "c03": "{\"intent\": \"issue_count\", \"params\": {\"from\": \"2026-10-01T09:00:00+00:00\", \"to\": \"2026-10-02T09:00:00+00:00\", \"family\": \"service_complaint\"}}",
+    "c04": "{\"intent\": \"issue_count\", \"params\": {\"from\": \"2026-10-01T09:00:00+00:00\", \"to\": \"2026-10-02T09:00:00+00:00\", \"issue\": \"intent_report_dissatisfaction\"}}",
+    "a01": "{\"intent\": \"evidence_examples\", \"params\": {\"from\": \"2026-10-01T09:00:00+00:00\", \"to\": \"2026-10-02T09:00:00+00:00\", \"issue\": \"complaint_refund\", \"limit\": 3}}",
+    "a02": "{\"intent\": \"conversation_lookup\", \"params\": {\"conversation_id\": \"9c5fba9a-8993-570d-8e22-04c03045e9b4\", \"query\": \"وجه\"}}",
+    "a03": "{\"intent\": \"conversation_lookup\", \"params\": {\"conversation_id\": \"b161947d-40c9-52d2-8719-d6046b9b98d0\"}}",
+    "a04": "{\"intent\": \"evidence_examples\", \"params\": {\"from\": \"2026-10-01T09:00:00+00:00\", \"to\": \"2026-10-02T09:00:00+00:00\", \"issue\": \"complaint_refund\", \"limit\": 1}}",
+    "u01": "{\"intent\": \"forecast\", \"params\": {}}",
+    "u02": "{\"intent\": \"causal_question\", \"params\": {}}",
+    "u03": "{\"intent\": \"agent_ranking\", \"params\": {}}",
+    "u04": "{\"intent\": \"out_of_scope\", \"params\": {}}",
+    "u05": "{\"intent\": \"conversation_lookup\", \"params\": {\"conversation_id\": \"3f1e2d3c-4b5a-4f6e-8d7c-6b5a4f3e2d1c\"}}"
+  },
+  "answers": {
+    "c01": "There were {count} conversations.",
+    "c02": "There were {count} conversations.",
+    "c03": "There were {count} conversations.",
+    "c04": "There were {count} conversations.",
+    "a01": "{quotes}",
+    "a02": "The caller said \"{quote}\".",
+    "a03": "The caller said \"{quote}\".",
+    "a04": "The caller said \"{quote}\".",
+    "u01": "The caller said \"{quote}\"."
+  }
+}
