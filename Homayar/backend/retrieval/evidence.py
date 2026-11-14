@@ -57,7 +57,7 @@ from backend.security.authorization import (
     role_has,
     selectable_workspace_clause,
 )
-from backend.security.context import WorkspaceContext
+from backend.security.context import WorkspaceContext, effective_api_key_scopes
 from backend.speech.text_normalize import get_normalizer
 
 EVIDENCE_PERMISSION = Permission.MEETING_READ
@@ -84,15 +84,10 @@ def _required_now(now: datetime) -> datetime:
 
 
 def _live_key_scopes(row: ApiKey) -> frozenset[Permission]:
-    """The scopes of the live row, parsed the way ``Actor.scopes`` parses them
-    (an unparsable value is skipped, never an error)."""
-    scopes: set[Permission] = set()
-    for value in row.scopes:
-        try:
-            scopes.add(Permission(value))
-        except ValueError:
-            continue
-    return frozenset(scopes)
+    """The scopes of the live row, under the same rule as ``Actor.scopes``:
+    an unparsable value is skipped, never an error, and the result is
+    intersected with ``API_KEY_SCOPES`` (HOM-361)."""
+    return effective_api_key_scopes(row.scopes)
 
 
 def _refresh_assignments(db: Session, *, workspace_id: str, user_id: str) -> None:
