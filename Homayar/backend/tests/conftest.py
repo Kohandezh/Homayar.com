@@ -232,6 +232,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if minio_reason is not None:
         reason = f"NOT_RUN: {minio_reason}"
         skips.append(("minio_s3", pytest.mark.skip(reason=reason)))
+    if os.environ.get("HOMAYAR_PYANNOTE_TEST") != "1":
+        reason = (
+            "NOT_RUN/OPT_IN: set HOMAYAR_PYANNOTE_TEST=1 "
+            "(MODEL_ARTIFACT_ROOT must hold the pinned files)"
+        )
+        skips.append(("pyannote_local", pytest.mark.skip(reason=reason)))
     for item in items:
         for marker, skip in skips:
             if item.get_closest_marker(marker) is not None:

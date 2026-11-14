@@ -750,6 +750,8 @@ class Settings(BaseSettings):
     allow_mock_providers: bool = False
     asr_provider: str = "local_whisper"
     diarization_provider: str = "unavailable"
+    # Torch device for the local pyannote diarization pipeline ("cpu" or "cuda").
+    diarization_device: str = "cpu"
     intelligence_provider: str = "openai_compatible"
     whisper_model: str = "base"
     whisper_device: str = "cpu"

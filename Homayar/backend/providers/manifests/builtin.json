@@ -161,6 +161,53 @@
       "offline_capable": true,
       "structured_output": "none",
       "notes": "Processes nothing: every speaker stays unknown and the stage reports itself unavailable."
+    },
+    {
+      "manifest_id": "diarization.pyannote.community-1",
+      "version": 1,
+      "stage": "diarization",
+      "status": "development",
+      "provider": "pyannote_local",
+      "model": "pyannote/speaker-diarization-community-1",
+      "model_revision": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+      "identity_params": {},
+      "languages": ["*"],
+      "tasks": ["speaker_diarization", "overlap_detection"],
+      "license": "CC-BY-4.0",
+      "license_policy": "approved",
+      "endpoint_kind": "in_process",
+      "endpoint": null,
+      "region": "local",
+      "offline_capable": true,
+      "structured_output": "none",
+      "artifacts": [
+        {
+          "path": "diarization/pyannote-community-1/config.yaml",
+          "kind": "file",
+          "sha256": "5ce2bfa9a938dc132cec1172592d65173cbb8f444ea1e4133f10f9391de155be"
+        },
+        {
+          "path": "diarization/pyannote-community-1/segmentation/pytorch_model.bin",
+          "kind": "file",
+          "sha256": "7ad24338d844fb95985486eb1a464e32d229f6d7a03c9abe60f978bacf3f816e"
+        },
+        {
+          "path": "diarization/pyannote-community-1/embedding/pytorch_model.bin",
+          "kind": "file",
+          "sha256": "6f10ff60898a1d185fa22e1d11e0bfa8a92efec811f11bca48cb8cafebefd929"
+        },
+        {
+          "path": "diarization/pyannote-community-1/plda/plda.npz",
+          "kind": "file",
+          "sha256": "9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255"
+        },
+        {
+          "path": "diarization/pyannote-community-1/plda/xvec_transform.npz",
+          "kind": "file",
+          "sha256": "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"
+        }
+      ],
+      "notes": "CC-BY-4.0 attribution: author pyannote (pyannoteAI and contributors), model pyannote/speaker-diarization-community-1, licence https://creativecommons.org/licenses/by/4.0/. The weights are copied once into the artifact root at diarization/pyannote-community-1 and loaded only from there. DER not measured yet (HOM-50)."
     }
   ]
 }
