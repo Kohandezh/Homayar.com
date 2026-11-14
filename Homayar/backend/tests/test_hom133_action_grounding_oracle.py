@@ -1226,8 +1226,8 @@ class _ThreeTurnASR(ASRProvider):
 
 
 class _Actions(MockIntelligenceProvider):
-    def __init__(self, build) -> None:
-        super().__init__(allow_mock=True)
+    def __init__(self, build, *, max_summary_chars: int = 500) -> None:
+        super().__init__(allow_mock=True, max_summary_chars=max_summary_chars)
         self.build = build
         self.seen: list[TranscriptTurn] = []
 
@@ -1643,11 +1643,32 @@ def _voicemail_actions(_request) -> list[ProviderActionItem]:
     ]
 
 
-def _voicemail_bundle() -> ProviderBundle:
+def _voicemail_reanalysis_actions(request) -> list[ProviderActionItem]:
+    # HOM-381 (ADR 0054 K2/K5): the re-analysis restates both texts but labels
+    # the first one a next_step, so nothing matches the kept assigned
+    # commitment and the kept row stays untouched.  The matching cases live in
+    # test_voicemail_reanalysis_matches_kept_action.py.
+    first, second = _voicemail_actions(request)
+    return [
+        ProviderActionItem(
+            description=first.description,
+            kind="next_step",
+            owner=first.owner,
+            owner_quote=first.owner_quote,
+            source_turn_indexes=first.source_turn_indexes,
+        ),
+        second,
+    ]
+
+
+def _voicemail_bundle(*, reanalysis: bool = False) -> ProviderBundle:
+    build = _voicemail_reanalysis_actions if reanalysis else _voicemail_actions
     return ProviderBundle(
         asr=MockASRProvider(allow_mock=True, transcript=VOICEMAIL_TEXT),
         diarization=SingleSpeakerDiarizationProvider(),
-        intelligence=_Actions(_voicemail_actions),
+        # the different identity params also stop a job re-run from replaying
+        # the first attempt's intelligence checkpoint
+        intelligence=_Actions(build, max_summary_chars=499 if reanalysis else 500),
     )
 
 
@@ -1671,7 +1692,9 @@ def crew(client, voicemail_settings, monkeypatch, email_outbox):
         lambda *args, **kwargs: _valid_metadata(duration_seconds=42.3),
     )
     monkeypatch.setattr("backend.voicemail.ingest.dispatch_job", lambda job_id, _settings: True)
-    monkeypatch.setattr(recompute, "create_provider_bundle", lambda _settings: _voicemail_bundle())
+    monkeypatch.setattr(
+        recompute, "create_provider_bundle", lambda _settings: _voicemail_bundle(reanalysis=True)
+    )
     owner, people, _ = _workspace_with_roles(
         client, email_outbox, monkeypatch, roles={"member": "member"}
     )
@@ -1679,9 +1702,12 @@ def crew(client, voicemail_settings, monkeypatch, email_outbox):
     return owner, people["member"], voicemail_settings
 
 
-def _process_voicemail(settings, job_id: str) -> None:
+def _process_voicemail(settings, job_id: str, *, reanalysis: bool = False) -> None:
     result = process_job(
-        job_id, worker_id="hom133-voicemail", settings=settings, providers=_voicemail_bundle()
+        job_id,
+        worker_id="hom133-voicemail",
+        settings=settings,
+        providers=_voicemail_bundle(reanalysis=reanalysis),
     )
     assert result["status"] == "completed", result
 
@@ -1728,7 +1754,7 @@ def _reanalyse(owner, member, settings, path: str, meeting_id: str) -> AnalysisR
             job.completed_at = None
             db.commit()
             job_id = job.id
-        _process_voicemail(settings, job_id)
+        _process_voicemail(settings, job_id, reanalysis=True)
     run = _current_run(meeting_id)
     assert run.id != previous.id
     return run

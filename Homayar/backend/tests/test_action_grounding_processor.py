@@ -39,7 +39,6 @@ from backend.providers.schemas import (
 )
 from backend.tests._database import inspection_session_factory
 from backend.tests.test_analysis_recompute import (
-    CORRECTED_TEXT,
     ORIGINAL_TEXT,
     _correct,
     _current_run,
@@ -53,6 +52,7 @@ from backend.tests.test_evidence_spans import _get, _processed
 from backend.tests.test_insights_shares_api import _write_headers
 from backend.tests.test_job_processor import SingleSpeakerDiarizationProvider, _providers
 from backend.tests.test_voicemail_reanalysis_keeps_assignment import (
+    REANALYSIS_TEXT,
     _ai_actions,
     _assignee_changes,
     _link_voicemail,
@@ -331,7 +331,11 @@ def test_ac5_a_voicemail_reanalysis_keeps_a_person_assigned_ai_action_unchanged(
     from backend.tests.conftest import login_user
 
     login_user(client, credentials)
-    _correct(client, workspace_id, meeting_id)
+    # HOM-381 (ADR 0054 K2/K5): the correction is far from the original text,
+    # so the re-analysis writes no matching action and the kept row stays
+    # untouched.  The matching cases live in
+    # test_voicemail_reanalysis_matches_kept_action.py.
+    _correct(client, workspace_id, meeting_id, text=REANALYSIS_TEXT)
     run = _current_run(meeting_id)
     after = _snapshot(ActionItem, meeting_id)
 
@@ -347,7 +351,7 @@ def test_ac5_a_voicemail_reanalysis_keeps_a_person_assigned_ai_action_unchanged(
     assert len(new_rows) == 2
     assert all(row["kind"] == "next_step" for row in new_rows.values())
     assert all(row["assignee_user_id"] is None for row in new_rows.values())
-    assert all(CORRECTED_TEXT in row["description"] for row in new_rows.values())
+    assert all(REANALYSIS_TEXT in row["description"] for row in new_rows.values())
     assert _assignee_changes(workspace_id) == assignee_rows
 
 
