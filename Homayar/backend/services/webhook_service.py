@@ -42,7 +42,8 @@ from backend.database.saas_models import (
     WebhookSigningKey,
     new_id,
 )
-from backend.providers.egress import _METADATA_ADDRESSES, _METADATA_HOSTS, _address
+from backend.providers.egress import _METADATA_HOSTS, _address
+from backend.services.webhook_egress_guard import _embedded_ipv4, address_refusal
 from backend.services.webhook_signing import (
     WebhookSecretCipher,
     encode_payload,
@@ -66,10 +67,6 @@ _UNSAFE_CHARACTERS = re.compile(r"[\x00-\x20\x7f]")
 # as an IPv4 address (2852039166, 0xA9FEA9FE, 169.254.43518). No real domain
 # ends this way, so only the canonical dotted form of an address is accepted.
 _NUMERIC_LABEL = re.compile(r"(?:[0-9]+|0x[0-9a-f]*)")
-# IPv6 forms that carry an IPv4 address in their last 32 bits: NAT64 (well-known
-# prefix) and the old IPv4-compatible form. They are judged as that IPv4 address.
-_NAT64 = ipaddress.ip_network("64:ff9b::/96")
-_IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
 
 # Names that, in the deployed cloud, reach the internal compose services
 # (minio, postgres, api) instead of a customer: refused there (blind SSRF).
@@ -80,17 +77,6 @@ _INTERNAL_NAME_SUFFIXES = (".internal", ".local", ".localhost")
 _Address = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 
-def _embedded_ipv4(address: _Address | None) -> _Address | None:
-    if address is None or address.version == 4:
-        return address
-    if address.ipv4_mapped is not None:
-        return address.ipv4_mapped
-    # ``::`` and ``::1`` are the IPv6 unspecified and loopback addresses, not IPv4.
-    if address in _NAT64 or (address in _IPV4_COMPATIBLE and int(address) > 1):
-        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
-    return address
-
-
 def webhook_url_refusal(url: str, *, production: bool, cloud: bool = False) -> str | None:
     """Why ``url`` cannot be a webhook endpoint, or ``None``.
 
@@ -98,10 +84,12 @@ def webhook_url_refusal(url: str, *, production: bool, cloud: bool = False) -> s
     metadata, link-local, unspecified or multicast addresses. In production
     also plain http and loopback; in a production *cloud* deployment also a
     host name that is single-label, contains ``_`` or ends in ``.internal``,
-    ``.local`` or ``.localhost``. Private addresses stay allowed: on-premise CRMs live
-    there. What a hostname resolves to at send time is the network layer's
-    job (ADR 0031). The reason never repeats the URL, which can carry a token
-    in its query.
+    ``.local`` or ``.localhost``, and an IP literal that is not a global
+    address (RFC 1918, CGNAT, ULA, reserved: the connect-time guard of
+    ``webhook_egress_guard`` judges every address a *name* resolves to by the
+    same rule). Private addresses stay allowed on-premise and outside
+    production: on-premise CRMs live there. The reason never repeats the URL,
+    which can carry a token in its query.
 
     The URL is parsed by httpx, the client that sends, and every host check
     runs on the host it will connect to (lowercase, IDNA ``xn--`` form for an
@@ -129,18 +117,18 @@ def webhook_url_refusal(url: str, *, production: bool, cloud: bool = False) -> s
     address = _embedded_ipv4(_address(host))
     if address is None and (":" in host or _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1])):
         return "a webhook URL host is a name or a dotted IP address"
-    if host in _METADATA_HOSTS or address in _METADATA_ADDRESSES:
+    if host in _METADATA_HOSTS:
         return "cloud metadata services are never a webhook endpoint"
-    if address is not None and (
-        address.is_link_local or address.is_unspecified or address.is_multicast
-    ):
-        return "link-local, unspecified and multicast addresses are never a webhook endpoint"
+    if address is not None:
+        reason = address_refusal(address, production=production, cloud=cloud)
+        if reason is not None:
+            return reason
     if production:
         if parsed.scheme != "https":
             return "a webhook URL uses https in production"
         if _is_loopback(host, address):
             return "a webhook URL is not a loopback host in production"
-        # Names only: an IP literal was judged by the address rules above.
+        # Names only: an IP literal was judged by the address rule above.
         if (
             cloud
             and address is None
@@ -419,6 +407,41 @@ def rotate_signing_key(
         db.flush()
     key, secret = _add_signing_key(db, cipher, endpoint, created_by_user_id=user_id)
     return key, secret, previous
+
+
+def revoke_signing_key(
+    db: Session, *, endpoint: WebhookEndpoint, key_id: str, now: datetime | None = None
+) -> tuple[WebhookSigningKey, datetime, datetime]:
+    """End a retiring key at once: ``expires_at`` becomes ``now`` (HOM-357).
+
+    For a leaked retiring key that cannot wait for its overlap to end. The
+    caller holds the endpoint row lock. Returns the key, its scheduled
+    expiry and the revoke time. A key of another endpoint is not found; the
+    active key must be rotated away with ``overlap_seconds`` 0 instead; an
+    expired key is refused. Nothing changes on a refusal.
+    """
+    now = _as_utc(now or datetime.now(UTC))
+    key = db.scalar(
+        select(WebhookSigningKey).where(
+            WebhookSigningKey.endpoint_id == endpoint.id, WebhookSigningKey.key_id == key_id
+        )
+    )
+    if key is None:
+        raise WebhookError(404, "webhook_signing_key_not_found", "Webhook signing key not found")
+    if key.expires_at is None:
+        raise WebhookError(
+            409,
+            "webhook_signing_key_active",
+            "The active signing key is not revokable; rotate with overlap_seconds 0 instead",
+        )
+    scheduled = _as_utc(key.expires_at)
+    if scheduled <= now:
+        raise WebhookError(
+            409, "webhook_signing_key_expired", "The webhook signing key is already expired"
+        )
+    key.expires_at = now
+    db.flush()
+    return key, scheduled, now
 
 
 # --- events ----------------------------------------------------------------------------

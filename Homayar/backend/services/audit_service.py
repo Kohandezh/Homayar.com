@@ -343,6 +343,7 @@ AUDIT_EVENT_CATALOG: dict[str, str] = {
     AuditEventType.WEBHOOK_ENDPOINT_CREATED: "security",
     AuditEventType.WEBHOOK_ENDPOINT_UPDATED: "security",
     AuditEventType.WEBHOOK_SIGNING_KEY_ROTATED: "security",
+    AuditEventType.WEBHOOK_SIGNING_KEY_REVOKED: "security",
     AuditEventType.WEBHOOK_TEST_QUEUED: "configuration",
     AuditEventType.WEBHOOK_DELIVERY_REDELIVERED: "configuration",
     AuditEventType.WEBHOOK_DEAD_LETTERS_REDELIVERED: "configuration",

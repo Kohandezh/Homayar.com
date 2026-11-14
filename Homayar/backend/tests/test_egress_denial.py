@@ -152,6 +152,22 @@ def test_the_endpoint_policy(url, kind, allowed):
     assert (egress.validate_endpoint(url, kind=kind) is None) is allowed
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://instance-data.ec2.internal/latest",
+        "https://instance-data.ec2.internal/x",
+        "https://INSTANCE-DATA.EC2.INTERNAL/x",
+    ],
+)
+def test_the_ec2_metadata_service_name_is_never_an_endpoint(url):
+    """HOM-357: the AWS EC2 metadata service name was missing from the list."""
+    for kind in ("private", "local", None):
+        reason = egress.validate_endpoint(url, kind=kind)
+        assert reason == "cloud metadata services are never an endpoint", (kind, reason)
+    assert egress.is_local_endpoint(url) is False
+
+
 def test_manifests_and_adapters_refuse_unsafe_endpoints():
     base = {
         "manifest_id": "test.unsafe",
@@ -309,4 +325,3 @@ def test_the_egress_allowlist_mode_prints_proxy_lines_and_refuses_cloud_when_air
     assert model_preflight.main(["--egress-allowlist", "--require-no-cloud"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines == ["llm.internal:8000  # intelligence primary private"]
-

@@ -3,6 +3,8 @@
 Date: 2026-10-30 · Status: Proposed (HOM-89, WP16-T05) · Builds on: ADR 0007, ADR 0013,
 ADR 0023, ADR 0031
 
+Amended by HOM-357 (2026-11-14).
+
 All code paths are under `Homayar/backend/` unless they start with `Homayar/sdk/`.
 
 ## Context
@@ -58,6 +60,20 @@ receivers ignore versions they do not know.
   (`409 webhook_signing_key_limit` otherwise, and nothing changes). A rotation with
   `overlap_seconds: 0` expires the old active key at once, so it is never refused: a leaked
   active key can always be rotated away.
+- Revoke (`POST /api/v1/webhooks/endpoints/{endpoint_id}/signing-keys/{key_id}/revoke`,
+  `webhook:manage` like every change here) ends a retiring key early: its `expires_at`
+  becomes now, so a leaked retiring key does not keep signing until its overlap ends. The
+  active key is refused (`409 webhook_signing_key_active`; rotate with `overlap_seconds: 0`
+  instead), an already expired key too (`409 webhook_signing_key_expired`), and an unknown
+  key or a key of another endpoint is `404 webhook_signing_key_not_found`. Other keys of
+  the endpoint keep their `expires_at`, and the revoked key no longer counts as unexpired,
+  so a rotation refused at the 5-key cap works again after a revoke. The audit row is
+  `webhook.signing_key_revoked` with `key_id`, `scheduled_expires_at` and `revoked_at`.
+  The worker reads the key rows `FOR SHARE`, so a revoke cannot commit while a claim
+  reads the keys. That is not an exact revoke boundary: a delivery whose task started
+  before the revoke time may still sign with the revoked key, because the filter is
+  `expires_at > now` with one `now` per task and the claim commits before the send: a
+  window of milliseconds, wider under DB pool wait or clock skew between hosts.
 - The secret is in the create and rotate answers only. No other answer, log line, audit
   row or error message carries it.
 
@@ -158,9 +174,9 @@ verifier checks in this order and names the first failure: `missing_header`,
 - `webhook:manage` is granted to OWNER and ADMIN only, and is never an API key scope. A
   key that could add an endpoint could copy every future event out of the workspace.
 - Every change is audited (`webhook.endpoint_created`, `webhook.endpoint_updated`,
-  `webhook.signing_key_rotated`, `webhook.test_queued`, `webhook.delivery_redelivered`,
-  `webhook.dead_letters_redelivered`) with ids, key ids, event types, states, counts,
-  `is_active`, and only the scheme and host of the URL.
+  `webhook.signing_key_rotated`, `webhook.signing_key_revoked`, `webhook.test_queued`,
+  `webhook.delivery_redelivered`, `webhook.dead_letters_redelivered`) with ids, key ids,
+  event types, states, counts, `is_active`, and only the scheme and host of the URL.
 - The URL policy runs at create, at update and again before every send. Refused: more than
   1000 chars, not http(s), no host, a user name or password in the URL, cloud metadata
   names and addresses, link-local, unspecified and multicast addresses, and host spellings
@@ -170,9 +186,27 @@ verifier checks in this order and names the first failure: `missing_header`,
   `<service>.<network>` form, such as `api.homayar-cloud_private`) or ends in `.internal`,
   `.local` or `.localhost`: there such names reach the internal compose services, not a
   customer.
-  On-premise keeps them, and IP literals are judged by the address rules only. Private
-  addresses stay allowed: on-premise CRMs live there. What a name resolves to at send time
-  is the network layer's job, as for AI providers (ADR 0031).
+  On-premise keeps them, and IP literals follow the one address rule below.
+- One address rule, shared by the URL policy (for an IP literal) and every connect the
+  worker makes:
+
+  | Deployment | Refused addresses |
+  | --- | --- |
+  | every deployment | cloud metadata addresses, link-local, unspecified, multicast |
+  | production (any mode) | also loopback |
+  | production cloud (`DEPLOYMENT_MODE=cloud`) | also every address that is not global: RFC 1918 private, CGNAT `100.64.0.0/10`, IPv6 ULA `fc00::/7`, reserved and documentation ranges, and so on |
+
+  Outside production loopback and private addresses stay allowed (local development and
+  tests send to `127.0.0.1`); on-premise production keeps private addresses (on-premise
+  CRMs live there). At send time, when the worker builds its own client, the host is
+  resolved once and every returned address is judged with this rule; if any is refused no
+  socket is opened (the attempt is recorded as `address_refused` and follows the normal
+  retry schedule), otherwise the connect goes only to the checked addresses, in order, by
+  address, so the name is never resolved a second time (a DNS rebinding cannot swap it).
+  TLS still uses the URL's host name for SNI and the certificate check. With an
+  environment egress proxy (`HTTP_PROXY`/`HTTPS_PROXY`, as for AI providers, ADR 0031) the
+  request goes to the proxy unchanged and the proxy's rules apply; the proxy's own address
+  is never judged. A host in `NO_PROXY` goes direct and is judged by the rule.
 - The test route sends a real request to a customer's server, so it is rate limited per
   workspace like uploads: `WEBHOOK_TEST_RATE_LIMIT_PER_HOUR` (default 30). Over it the answer
   is `429 webhook_test_rate_limited` and no delivery is written.
@@ -294,14 +328,12 @@ holds a worker for seconds, not minutes. A follow-up ticket moves deliveries to 
 worker before any business event is wired. Retries (D9) wait in the database, not on the
 queue: a retry holds no worker until it is due.
 
-**Names that resolve to private addresses.** The URL policy judges what the URL says. A
-public DNS name that resolves to a private or metadata address at send time is the network
-layer's job (egress proxy or firewall), as for AI providers (ADR 0031). Private IP
-literals stay allowed everywhere (on-premise CRMs use them); limiting them in the cloud is
-also the network layer's job and goes to the follow-up worker and egress ticket. A gap from
-before this ticket: the metadata names in `backend/providers/egress.py` do not include
-`instance-data.ec2.internal`. A production cloud deployment refuses it as a `.internal`
-name; the gap remains only on-premise and outside production.
+**Names that resolve to private addresses.** Since HOM-357 every send the worker makes
+itself resolves the host once, judges every address with the one address rule (D7) and
+connects only to a checked address; the URL policy also refuses non-global IP literals in
+a production cloud deployment. One case stays with the network layer: a send through an
+environment egress proxy goes to the proxy unchanged and the proxy's rules apply
+(ADR 0031).
 
 **Test route rate limit.** 30 test events per workspace per hour by default. The limiter is
 the one uploads use: when its Redis is unavailable the route answers
@@ -309,8 +341,11 @@ the one uploads use: when its Redis is unavailable the route answers
 set.
 
 **Rotation cap.** At most 5 unexpired keys per endpoint. With 5, a rotation that keeps the
-old key (overlap above 0) is refused until a retiring key expires; a rotation with overlap 0
-always works. A leaked *retiring* key cannot be revoked early yet; that needs a follow-up.
+old key (overlap above 0) is refused until a retiring key expires or is revoked (D2); a
+rotation with overlap 0 always works. A revoke stops a key quickly, not exactly: a
+delivery whose task started before the revoke time may still sign with the revoked key
+(the in-flight window, milliseconds wide, wider under DB pool wait or clock skew between
+hosts).
 
 **Endpoint limit.** The limit of active endpoints per workspace is counted without a lock,
 like the API key limit, so two parallel creates can both pass at the 20th endpoint.

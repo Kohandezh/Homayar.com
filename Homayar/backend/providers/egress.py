@@ -29,7 +29,13 @@ EGRESS_NOT_PERMITTED = "egress_not_permitted"
 _PERMIT: ContextVar[str | None] = ContextVar("homayar_ai_egress_permit", default=None)
 
 _METADATA_HOSTS = frozenset(
-    {"metadata", "metadata.google.internal", "metadata.azure.com", "instance-data"}
+    {
+        "metadata",
+        "metadata.google.internal",
+        "metadata.azure.com",
+        "instance-data",
+        "instance-data.ec2.internal",
+    }
 )
 _METADATA_ADDRESSES = frozenset(
     ipaddress.ip_address(value)
