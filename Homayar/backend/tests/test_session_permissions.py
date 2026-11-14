@@ -70,9 +70,9 @@ def test_role_permission_lists_are_the_authorization_map():
     owner = _expected(WorkspaceRole.OWNER)
     # HOM-76 adds review:appeal and notification:read to every role, HOM-77
     # coaching:respond.
-    assert owner == sorted(ALL_PERMISSION_VALUES) and len(owner) == 26
-    assert len(_expected(WorkspaceRole.ADMIN)) == 22
-    assert len(_expected(WorkspaceRole.MEMBER)) == 12
+    assert owner == sorted(ALL_PERMISSION_VALUES) and len(owner) == 28
+    assert len(_expected(WorkspaceRole.ADMIN)) == 24
+    assert len(_expected(WorkspaceRole.MEMBER)) == 13
     assert _expected(WorkspaceRole.VIEWER) == [
         "coaching:respond",
         "meeting:read",

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
@@ -38,11 +38,10 @@ from backend.schemas.trends import (
 )
 from backend.security.authorization import Permission
 from backend.security.context import (
-    Actor,
     WorkspaceContext,
-    require_actor,
     require_permission,
-    require_workspace,
+    require_session_permission,
+    require_session_workspace,
 )
 from backend.security.modules import require_module
 from backend.services import role_trend_service as roles
@@ -57,47 +56,6 @@ from backend.services.issue_trend_service import (
     trend_definition,
     validate_series,
 )
-
-
-async def require_session_workspace(
-    actor: Actor = Depends(require_actor),
-    workspace_id: str | None = Header(default=None, alias="X-Workspace-ID"),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-) -> WorkspaceContext:
-    """The workspace of a session-only trends route (HOM-82, HOM-229), resolved
-    once per request: the module guard and ``require_session_permission`` share
-    this dependency, so a session caller gets workspace resolution (with the
-    privileged MFA gate of HOM-129), the module check and the permission check,
-    in that order, on one resolution."""
-    return await require_workspace(actor=actor, workspace_id=workspace_id, db=db, settings=settings)
-
-
-def require_session_permission(permission: Permission):
-    """``permission`` from a signed-in session only (HOM-82).  ``require_actor``
-    answers every bearer that looks like an API key (valid, unknown, revoked,
-    expired, over its rate limit) with ``401 api_key_not_accepted`` before any
-    key lookup, so every key gets one answer, in every module state.  The
-    workspace comes from the shared ``require_session_workspace`` dependency:
-    the HOM-229 module guard has already run its check on that resolution
-    before this permission check."""
-
-    async def dependency(
-        context: WorkspaceContext = Depends(require_session_workspace),
-    ) -> WorkspaceContext:
-        if not context.has(permission):
-            raise HTTPException(
-                status_code=403,
-                detail={"code": "permission_denied", "message": "Permission denied"},
-            )
-        return context
-
-    # Policy metadata read by the route-coverage test (never by the runtime).
-    dependency.homayar_permission = permission  # type: ignore[attr-defined]
-    dependency.homayar_write = False  # type: ignore[attr-defined]
-    dependency.homayar_session_only = True  # type: ignore[attr-defined]
-    return dependency
-
 
 router = APIRouter(
     prefix="/trends",

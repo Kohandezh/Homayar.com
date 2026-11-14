@@ -110,6 +110,11 @@ class Permission(str, Enum):
     # the coachee and acknowledges them.  The supervisor side uses ``review:read`` and
     # ``review:manage``.  Never carried by an API key.
     COACHING_RESPOND = "coaching:respond"
+    # Approval-bound outbound actions (HOM-135, ADR 0082): owners, admins and members
+    # propose a CRM update, a ticket or a coaching task; owners and admins approve,
+    # reject and revoke.  Session only, never carried by an API key.
+    ACTION_PROPOSE = "action:propose"
+    ACTION_APPROVE = "action:approve"
 
 
 ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
@@ -138,6 +143,8 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.REVIEW_APPEAL,
             Permission.NOTIFICATION_READ,
             Permission.COACHING_RESPOND,
+            Permission.ACTION_PROPOSE,
+            Permission.ACTION_APPROVE,
         }
     ),
     WorkspaceRole.MEMBER: frozenset(
@@ -154,6 +161,7 @@ ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[Permission]] = {
             Permission.REVIEW_APPEAL,
             Permission.NOTIFICATION_READ,
             Permission.COACHING_RESPOND,
+            Permission.ACTION_PROPOSE,
         }
     ),
     WorkspaceRole.VIEWER: frozenset(

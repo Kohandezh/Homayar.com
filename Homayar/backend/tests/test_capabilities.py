@@ -417,6 +417,7 @@ MODULE_ROUTE_PREFIXES = (
     ("/api/v1/voicemails", "voicemail"),
     ("/api/v1/integrations", "integrations"),
     ("/api/v1/webhooks", "integrations"),
+    ("/api/v1/action-proposals", "integrations"),
 )
 
 
@@ -527,6 +528,12 @@ def test_session_only_routes_take_their_guard_workspace_from_the_session(client)
         "/api/v1/trends/teams",
         "/api/v1/trends/me",
         "/api/v1/trends/conversations",
+        "/api/v1/action-proposals",
+        "/api/v1/action-proposals/{proposal_id}",
+        "/api/v1/action-proposals/{proposal_id}/refresh",
+        "/api/v1/action-proposals/{proposal_id}/approve",
+        "/api/v1/action-proposals/{proposal_id}/reject",
+        "/api/v1/action-proposals/{proposal_id}/revoke",
     }
 
 

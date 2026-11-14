@@ -33,6 +33,7 @@ from backend.observability.metrics import (
     render,
 )
 from backend.observability.release import code_migration_head
+from backend.routers.v1 import action_proposals as action_proposals_v1
 from backend.routers.v1 import admin as admin_v1
 from backend.routers.v1 import ai_policy as ai_policy_v1
 from backend.routers.v1 import api_keys as api_keys_v1
@@ -309,6 +310,7 @@ def create_app(runtime_settings: Settings | None = None) -> FastAPI:
     app.include_router(federation_v1.router, prefix=settings.api_prefix)
     app.include_router(review_appeals_v1.router, prefix=settings.api_prefix)
     app.include_router(coaching_tasks_v1.router, prefix=settings.api_prefix)
+    app.include_router(action_proposals_v1.router, prefix=settings.api_prefix)
     app.include_router(notifications_v1.router, prefix=settings.api_prefix)
     app.include_router(scorecards_v1.router, prefix=settings.api_prefix)
     app.include_router(shares_v1.router, prefix=settings.api_prefix)

@@ -72,6 +72,7 @@ ROUTER_MODULES = {
     "backend.routers.v1.voicemail": "voicemail",
     "backend.routers.v1.integrations": "integrations",
     "backend.routers.v1.webhooks": "integrations",
+    "backend.routers.v1.action_proposals": "integrations",
 }
 BASE_ROUTE_COUNTS = {
     "backend.routers.v1.scorecards": 5,

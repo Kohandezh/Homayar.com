@@ -553,10 +553,26 @@ def _insert(db: Session, task: CoachingTask) -> bool:
     return True
 
 
-def create_task(
+@dataclass(frozen=True)
+class CreateChecks:
+    """What a new task from one finding would get, once every create check passed."""
+
+    item: ReviewItem
+    meeting: Meeting
+    criterion_id: str
+    finding_source: str
+    owner_user_id: str
+    due_at: datetime
+    instruction: str
+
+
+def check_create(
     db: Session, caller: CoachingCaller, *, item_id: str, body: dict[str, Any], now: datetime
-) -> Outcome:
-    """The checks of ADR 0062 D3 route 1, in order; a refusal writes nothing."""
+) -> CreateChecks:
+    """The checks of ADR 0062 D3 route 1, in order, without writing anything.
+
+    ``create_task`` runs them before its insert; an action proposal of type
+    ``coaching_task`` (HOM-135, ADR 0082) runs the same checks with the same codes."""
     item, meeting = _visible_item(db, caller.reviewer, item_id)  # 404 review_item_not_found
     if meeting.agent_user_id is not None and caller.user_id == meeting.agent_user_id:
         raise _actor_is_agent()
@@ -603,6 +619,25 @@ def create_task(
             "coaching_instruction_required",
             f"instruction must be 1 to {REVIEW_NOTE_MAX_LENGTH} characters of text",
         )
+    return CreateChecks(
+        item=item,
+        meeting=meeting,
+        criterion_id=criterion_id,
+        finding_source=source,
+        owner_user_id=owner_user_id,
+        due_at=due_at,
+        instruction=instruction,
+    )
+
+
+def create_task(
+    db: Session, caller: CoachingCaller, *, item_id: str, body: dict[str, Any], now: datetime
+) -> Outcome:
+    """The checks of ADR 0062 D3 route 1, in order; a refusal writes nothing."""
+    checked = check_create(db, caller, item_id=item_id, body=body, now=now)
+    item, meeting = checked.item, checked.meeting
+    criterion_id, source = checked.criterion_id, checked.finding_source
+    owner_user_id, due_at = checked.owner_user_id, checked.due_at
 
     task = CoachingTask(
         id=new_id(),
@@ -615,7 +650,7 @@ def create_task(
         agent_user_id=meeting.agent_user_id,
         owner_user_id=owner_user_id,
         created_by_user_id=caller.user_id,
-        instruction=instruction,
+        instruction=checked.instruction,
         due_at=due_at,
         status="assigned",
         revision=1,

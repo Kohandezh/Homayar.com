@@ -33,6 +33,14 @@ class AuditEventType(StrEnum):
     ACTION_ITEM_CREATED = "action_item.created", "action_item"
     ACTION_ITEM_DELETED = "action_item.deleted", "action_item"
     ACTION_ITEM_UPDATED = "action_item.updated", "action_item"
+    # Approval-bound action proposals (HOM-135, ADR 0082): details hold ids, codes,
+    # hashes and versions only, never the payload or the source text.  A refused write
+    # stores the same type with outcome ``denied`` and the refusal in ``reason_code``.
+    ACTION_PROPOSAL_APPROVED = "action_proposal.approved", "action_proposal"
+    ACTION_PROPOSAL_CREATED = "action_proposal.created", "action_proposal"
+    ACTION_PROPOSAL_REFRESHED = "action_proposal.refreshed", "action_proposal"
+    ACTION_PROPOSAL_REJECTED = "action_proposal.rejected", "action_proposal"
+    ACTION_PROPOSAL_REVOKED = "action_proposal.revoked", "action_proposal"
     AI_POLICY_UPDATED = "ai_policy.updated", "ai_policy"
     API_KEY_CREATED = "api_key.created", "api_key"
     API_KEY_REVOKED = "api_key.revoked", "api_key"
