@@ -324,11 +324,12 @@ def test_an_allowed_url_is_created(client, email_outbox, monkeypatch, url):
         ("https://localhost/x", 422),
         ("https://127.0.0.1/x", 422),
         ("https://[::1]/x", 422),
+        ("https://10.0.0.5/x", 422),
         (HOOK, 201),
-        ("https://10.0.0.5/x", 201),
+        ("https://93.184.216.34/x", 201),
     ],
 )
-def test_production_also_refuses_http_and_loopback(
+def test_production_refuses_http_loopback_and_cloud_private_literals(
     client, email_outbox, monkeypatch, settings, url, status
 ):
     owner = _owner(client, email_outbox, monkeypatch)
@@ -350,12 +351,14 @@ def test_production_also_refuses_http_and_loopback(
         ("cloud", "https://printer.local/x", 422),
         ("cloud", "https://a.localhost/x", 422),
         ("cloud", "https://api.homayar-cloud_private:8000/x", 422),
-        ("cloud", "https://[2001:db8::1]/x", 201),
+        ("cloud", "https://[2001:db8::1]/x", 422),
         ("cloud", HOOK, 201),
+        ("cloud", "https://93.184.216.34/x", 201),
         ("onprem", "https://minio:9000/x", 201),
         ("onprem", "https://api/x", 201),
         ("onprem", "https://crm.internal/x", 201),
         ("onprem", "https://api.homayar-cloud_private:8000/x", 201),
+        ("onprem", "https://10.0.0.5/x", 201),
         ("onprem", HOOK, 201),
     ],
 )

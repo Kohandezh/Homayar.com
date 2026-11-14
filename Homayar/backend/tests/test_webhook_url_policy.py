@@ -133,6 +133,31 @@ def test_the_unspecified_and_loopback_ipv6_addresses_are_not_read_as_ipv4(url: s
     assert (webhook_url_refusal(url, production=False) is not None) is expected
 
 
+# --- the metadata name HOM-357 adds (SPEC part M) ---------------------------------------
+
+METADATA_NAMES = [
+    "https://instance-data.ec2.internal/x",
+    "https://INSTANCE-DATA.EC2.INTERNAL./x",
+    "https://instance-data.ec2.internal.:8443/x",
+]
+
+
+@pytest.mark.parametrize("production", [False, True])
+@pytest.mark.parametrize("url", METADATA_NAMES)
+def test_the_ec2_metadata_service_name_is_refused_everywhere(url: str, production: bool) -> None:
+    reason = webhook_url_refusal(url, production=production)
+
+    assert reason == "cloud metadata services are never a webhook endpoint"
+
+
+@pytest.mark.parametrize("cloud", [False, True])
+def test_the_ec2_metadata_service_name_is_refused_in_every_production_mode(cloud: bool) -> None:
+    assert (
+        webhook_url_refusal("https://instance-data.ec2.internal/x", production=True, cloud=cloud)
+        == "cloud metadata services are never a webhook endpoint"
+    )
+
+
 # --- the production cloud rule (SPEC A5.4) ---------------------------------------------
 
 INTERNAL_NAMES = [
@@ -156,11 +181,31 @@ def test_an_onprem_production_keeps_internal_host_names(url: str) -> None:
     assert webhook_url_refusal(url, production=True, cloud=False) is None
 
 
-@pytest.mark.parametrize(
-    "url", ["https://[2001:db8::1]/x", "https://10.0.0.5/x", "https://hooks.example.com/x"]
-)
-def test_the_cloud_rule_judges_names_only(url: str) -> None:
+@pytest.mark.parametrize("url", ["https://hooks.example.com/x", "https://93.184.216.34/x"])
+def test_a_production_cloud_allows_public_names_and_global_literals(url: str) -> None:
     assert webhook_url_refusal(url, production=True, cloud=True) is None
+
+
+# HOM-357 E6: in a production cloud deployment an IP literal must be a global
+# address.
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://10.0.0.5/x",
+        "https://172.16.0.9/x",
+        "https://100.64.0.1/x",
+        "https://[fd00::1]/x",
+        "https://[2001:db8::1]/x",
+        "https://[::ffff:10.1.2.3]/x",
+    ],
+)
+def test_a_production_cloud_refuses_non_global_ip_literals(url: str) -> None:
+    assert webhook_url_refusal(url, production=True, cloud=True)
+
+
+@pytest.mark.parametrize("url", ["https://10.0.0.5/x", "https://[fd00::1]/x"])
+def test_an_onprem_production_keeps_private_ip_literals(url: str) -> None:
+    assert webhook_url_refusal(url, production=True, cloud=False) is None
 
 
 @pytest.mark.parametrize(

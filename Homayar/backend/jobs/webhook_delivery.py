@@ -7,7 +7,11 @@ Transaction boundaries
   (an expired lease with no attempt left, inactive endpoint, refused URL, no
   usable key), else mark it ``sending`` with a lease and commit.
 * *Send* with no transaction open. Redirects are never followed; the response
-  body is never read, stored or logged.
+  body is never read, stored or logged. Without an injected ``http_client``
+  every direct TCP connect goes through the address guard of
+  ``webhook_egress_guard`` (HOM-357): resolve once, judge every address,
+  connect only to the checked addresses; a refusal is an ``address_refused``
+  attempt, not a connection error.
 * *Record*, one transaction: append the attempt row, then update the delivery
   only if it still holds this claim (``sending`` with this attempt count).
 * Delivery is **at-least-once**. A worker that stops after sending and before
@@ -54,6 +58,7 @@ from backend.database.tenant_context import (
     bind_tenant_context,
 )
 from backend.services.logging_service import logger
+from backend.services.webhook_egress_guard import WebhookAddressRefused, guarded_client
 from backend.services.webhook_service import url_refusal_for
 from backend.services.webhook_signing import (
     WebhookSecretCipher,
@@ -71,6 +76,9 @@ _CUT_GRACE_SECONDS = 2.0
 HTTP_STATUS = "http_status"
 TIMEOUT = "timeout"
 CONNECTION_ERROR = "connection_error"
+# The connect-time guard refused the request: any one address the URL host
+# resolves to is private, loopback or metadata (HOM-357); no socket opened.
+ADDRESS_REFUSED = "address_refused"
 ENDPOINT_INACTIVE = "endpoint_inactive"
 URL_REFUSED = "url_refused"
 SIGNING_UNAVAILABLE = "signing_unavailable"
@@ -146,15 +154,28 @@ def _lock_due(
 def _usable_keys(
     db: Session, endpoint: WebhookEndpoint, *, now: datetime, settings: Settings
 ) -> list[tuple[str, str]]:
-    """Unexpired keys whose keyring key is still configured: active first, then newest."""
+    """Unexpired keys whose keyring key is still configured: active first, then newest.
+
+    The key rows are read ``FOR SHARE``: a revoke (which updates the row)
+    cannot commit while a claim reads the keys (HOM-357). That is not an
+    exact revoke boundary: a delivery whose task started before the revoke
+    time may still sign with the revoked key, because the filter is
+    ``expires_at > now`` with one ``now`` per task and the claim commits
+    before the send (a window of milliseconds, wider under DB pool wait or
+    clock skew between hosts). The worker locks the delivery row first and
+    never the endpoint row, the API the endpoint row first and never a
+    delivery row, so the two never cycle.
+    """
     cipher = WebhookSecretCipher.from_settings(settings)
     if cipher is None:
         return []
     keys = db.scalars(
-        select(WebhookSigningKey).where(
+        select(WebhookSigningKey)
+        .where(
             WebhookSigningKey.endpoint_id == endpoint.id,
             or_(WebhookSigningKey.expires_at.is_(None), WebhookSigningKey.expires_at > now),
         )
+        .with_for_update(read=True)
     ).all()
     keys = sorted(
         keys,
@@ -362,7 +383,13 @@ def _send(
     deadline = float(settings.webhook_delivery_timeout_seconds)
     started = time.monotonic()
     own_client = http_client is None
-    client = http_client or httpx.Client(timeout=deadline, follow_redirects=False)
+    # The own client keeps the environment proxies and guards every direct
+    # connect: an address the URL policy would refuse never gets a socket.
+    client = http_client or guarded_client(
+        deadline,
+        production=settings.is_production,
+        cloud=settings.deployment_mode == "cloud",
+    )
     exchange = _Exchange(client, claim.url, claim.payload, headers)
     status_code: int | None = None
     error_code: str | None = None
@@ -375,6 +402,13 @@ def _send(
         # Celery's backstop fired while this task was sending.
         exchange.cut()
         error_code = TIMEOUT
+    except WebhookAddressRefused:
+        error_code = ADDRESS_REFUSED
+        logger.warning(
+            "WEBHOOK_DELIVERY_ADDRESS_REFUSED delivery_id=%s endpoint_id=%s",
+            claim.delivery_id,
+            claim.endpoint_id,
+        )
     except Exception as exc:
         error_code = CONNECTION_ERROR
         if not isinstance(exc, httpx.HTTPError):

@@ -80,6 +80,7 @@ from backend.services.webhook_service import (
     list_endpoints,
     redeliver,
     redeliver_dead_letters,
+    revoke_signing_key,
     rotate_signing_key,
     signing_keys_by_endpoint,
     update_endpoint,
@@ -385,6 +386,41 @@ def rotate_webhook_signing_key(
         previous_key_id=previous_key_id,
         previous_key_expires_at=previous_expires_at,
     )
+
+
+@router.post(
+    "/endpoints/{endpoint_id}/signing-keys/{key_id}/revoke",
+    response_model=WebhookEndpointView,
+)
+def revoke_webhook_signing_key(
+    endpoint_id: str,
+    key_id: str,
+    request: Request,
+    context: WorkspaceContext = Depends(require_write_permission(Permission.WEBHOOK_MANAGE)),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> WebhookEndpointView:
+    """End a retiring key's overlap at once (HOM-357): ``expires_at`` becomes now."""
+    endpoint = get_endpoint(
+        db, workspace_id=context.workspace.id, endpoint_id=endpoint_id, for_update=True
+    )
+    _key, scheduled, revoked_at = revoke_signing_key(db, endpoint=endpoint, key_id=key_id)
+    _audit(
+        db,
+        context,
+        request,
+        settings,
+        event_type=AuditEventType.WEBHOOK_SIGNING_KEY_REVOKED,
+        target_id=endpoint.id,
+        details={
+            "key_id": key_id,
+            "scheduled_expires_at": scheduled.isoformat(),
+            "revoked_at": revoked_at.isoformat(),
+        },
+    )
+    db.commit()
+    db.refresh(endpoint)
+    return _endpoint_view(db, endpoint)
 
 
 @router.post(
