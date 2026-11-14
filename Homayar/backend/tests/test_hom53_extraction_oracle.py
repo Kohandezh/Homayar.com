@@ -2179,6 +2179,8 @@ def test_the_backup_reconciliation_counts_the_table_as_content():
     assert TABLE in BACKUP_CONTENT_TABLES
 
 
+# SQLite reflection keeps no timezone on a datetime column.
+@pytest.mark.postgres
 def test_the_table_has_the_contracted_columns_keys_and_indexes(client):
     with inspection_session_factory()() as db:
         inspector = inspect(db.connection())
@@ -2279,6 +2281,8 @@ def test_the_table_checks_the_taxonomy_version_and_the_review_count(
         assert _extraction_ids() == set()
 
 
+# SQLite names the column, not the constraint, in a unique error.
+@pytest.mark.postgres
 def test_one_row_per_analysis_run(client, email_outbox):
     one, _ = _seeded(client, email_outbox)
     first = _add_extraction(one["workspace_id"], one["meeting_id"], one["run_id"])
@@ -2289,6 +2293,8 @@ def test_one_row_per_analysis_run(client, email_outbox):
     assert _extraction_ids() == {first, second}
 
 
+# SQLite keeps no timezone on stored datetimes.
+@pytest.mark.postgres
 def test_created_at_defaults_to_the_database_clock(client, email_outbox):
     one, _ = _seeded(client, email_outbox)
     result = _stored_result()
