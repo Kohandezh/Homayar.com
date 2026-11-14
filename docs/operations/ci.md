@@ -55,8 +55,10 @@ gate jobs (job id `backend`) that run no tests. Each gate runs with `if: always(
 unless both `source-contract` and `backend-tests` report `success`. GitHub reports one result for
 the whole part matrix, so a failed, cancelled or skipped part fails both gates.
 
-The pytest option `--test-shard <index>/<count>` keeps the tests of the files whose part is
-`index`. The part of a file comes from the checked-in timing map
+The pytest option `--test-shard=<index>/<count>` keeps the tests of the files whose part is
+`index`. Write both HOM-292 options in the `--opt=value` form: pytest reads the command line
+before `backend/tests/conftest.py` adds them, so in the `--opt value` form a value before the
+test paths is taken as a path and the options are "unrecognized". The part of a file comes from the checked-in timing map
 `backend/tests/shard_timings.json`: measured seconds per test file name. A duration plan sorts
 the map by seconds, largest first, and gives each file to the part with the smallest total so
 far (`part_of` in `backend/tests/_shard.py`). The plan reads the map only, never what a run
@@ -73,8 +75,8 @@ check). It fails when the map names a file that no longer exists, when more than
 (`MAX_MISSING_FILES`) are missing from the map, or when the plan for four parts gives the
 heaviest part more than 1.10 times the seconds of the lightest one. Then refresh the map. Each
 part writes its measured seconds per file (setup, call and teardown) with
-`--shard-timings-out` and uploads them as the artifact `backend-shard-timings-part-<n>`, kept
-14 days. Take the four artifacts of one run where all four parts finished, and in `Homayar/`:
+`--shard-timings-out=<file>` and uploads them as the artifact `backend-shard-timings-part-<n>`, kept
+14 days (a re-run of one part overwrites its artifact). Take the four artifacts of one run where all four parts finished, and in `Homayar/`:
 
 ```bash
 gh run download <run id> --repo Kohandezh/Homayar.com \
@@ -128,9 +130,15 @@ runners vary by about 1.5 times. Two shards by CRC took steps of 10:21 and 13:29
 40817325867. Then the suite grew. By 2026-11-14 the two shards took 26 to 36 minutes (run
 43498411851 on `main`: 27:10 and 35:55), and shard 2 hit the 45 minute limit three times. The
 workers already use about 68 % of the four vCPU next to PostgreSQL, so even a perfect two-way
-split would take about 31 minutes. Four timed parts aim at a test step under 25 minutes. The
-limit of 35 minutes holds until the parts are measured; then it becomes about twice the slowest
-part, rounded up to a multiple of 5.
+split would take about 31 minutes. Four timed parts aim at a test step under 25 minutes.
+
+The first measurement was run 43539360099: four parts by the CRC fallback, with an empty map.
+The test steps took 14:29, 20:24, 19:26 and 19:43, and pytest measured 14 278 s over 340
+files. That run's artifacts built the first map. Its plan gives each part 3 570 s. In that run a
+part's test step took 0.29 to 0.34 s per measured second (four workers, plus start-up), so a
+part should take about 18 to 19 minutes. The limit of 35 minutes holds until the timed parts
+have run a few times; then it becomes about twice the slowest part, rounded up to a multiple
+of 5.
 
 The golden text-normalization module (`test_text_normalization_golden.py`, HOM-120/HOM-172) has a
 wall-clock budget, enforced by

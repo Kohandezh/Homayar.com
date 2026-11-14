@@ -210,6 +210,19 @@ def test_the_merge_command_merges_inputs_and_rejects_a_shared_name(tmp_path):
     assert rejected.returncode == 2
     assert "test_c.py" in rejected.stderr, rejected.stderr
 
+    # Without --source the map records the input base names only: the map is checked in,
+    # so a local folder (often with a user name in it) must not end up in the repository.
+    default_source = subprocess.run(  # noqa: S603 - a fixed module command line
+        [sys.executable, "-m", "backend.tests._shard", "merge", str(out), str(first), str(second)],
+        cwd=HOMAYAR_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert default_source.returncode == 0, default_source.stdout + default_source.stderr
+    assert json.loads(out.read_text(encoding="utf-8"))["source"] == "part-1.json, part-2.json"
+
 
 def test_the_scheduler_hands_out_the_largest_files_first():
     # Under ``--dist loadfile`` xdist hands out whole files.  The slowest files of a
@@ -238,7 +251,7 @@ def test_the_scheduler_hands_out_the_largest_files_first():
 def _collected(part: str | None) -> set[str]:
     """Node ids a ``--collect-only`` run collects from three files, with this part."""
     files = ["test_api.py", "test_speech_normalize.py", "test_shard_assignment.py"]
-    option = [SHARD_OPTION, part] if part is not None else []
+    option = [f"{SHARD_OPTION}={part}"] if part is not None else []
     result = subprocess.run(  # noqa: S603 - a fixed pytest command line
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"]
         + option
@@ -251,6 +264,35 @@ def _collected(part: str | None) -> set[str]:
     )
     assert result.returncode in (0, 5), result.stdout[-3000:] + result.stderr[-3000:]
     return {line for line in result.stdout.splitlines() if "::" in line}
+
+
+def test_both_options_work_before_the_test_paths(tmp_path):
+    # pytest reads the command line before backend/tests/conftest.py adds these options.
+    # In the "--opt value" form a value before the test paths is taken as a path, the
+    # conftest is not loaded and both options are "unrecognized".  The "--opt=value" form
+    # (used in CI and the docs) works in any order.
+    out = tmp_path / "timings.json"
+    result = subprocess.run(  # noqa: S603 - a fixed pytest command line
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            f"{SHARD_OPTION}=1/1",
+            f"--shard-timings-out={out}",
+            "backend/tests/test_speech_normalize.py",
+        ],
+        cwd=HOMAYAR_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout[-3000:] + result.stderr[-3000:]
+    assert "shard 1/1: collected" in result.stdout, result.stdout[-3000:]
 
 
 def test_the_four_parts_split_the_collection_and_together_are_the_whole():

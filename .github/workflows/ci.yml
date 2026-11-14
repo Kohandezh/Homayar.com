@@ -309,12 +309,17 @@ jobs:
     # seconds per file) by a duration plan; a file missing from the map falls back to the
     # CRC of its name. So every test runs in exactly one part. Each part uploads its
     # measured seconds as an artifact; the map is rebuilt from them (docs/operations/ci.md).
+    # The first measurement, run 43539360099 (CRC split, empty map): test steps of 14:29,
+    # 20:24, 19:26 and 19:43 for 14 278 s measured over 340 files. The plan of that map gives
+    # 3 570 s to each part; at the measured 0.29 to 0.34 s of step per measured second, that
+    # is about 18 to 19 minutes per part.
     # fail-fast is off so every part always reports.
     strategy:
       fail-fast: false
       matrix:
         part: [1, 2, 3, 4]
-    # HOM-292: 35 minutes until the parts are measured; then about twice the slowest part.
+    # HOM-292: 35 minutes until the timed parts have run a few times; then about twice the
+    # slowest part.
     timeout-minutes: 35
     needs: source-contract
     services:
@@ -429,14 +434,17 @@ jobs:
       # each; a module stays on one worker in file order, the files with the most measured
       # seconds start first, and tests that change roles run alone
       # (backend/tests/_parallel.py). The measured seconds per file go to a JSON file.
+      # The options use the "--opt=value" form: pytest reads them before the conftest that
+      # adds them, and only that form works in any order.
       - name: Run backend tests
         run: >-
           uv run pytest backend/tests --quiet -rs -n 4 --dist loadfile --durations=30
-          --test-shard ${{ matrix.part }}/4
-          --shard-timings-out "${RUNNER_TEMP}/shard-timings-part-${{ matrix.part }}.json"
+          --test-shard=${{ matrix.part }}/4
+          --shard-timings-out="${RUNNER_TEMP}/shard-timings-part-${{ matrix.part }}.json"
 
       # HOM-292: the input of the timing map refresh (docs/operations/ci.md). It runs after
-      # a failed test step too; a part that did not reach the tests only warns.
+      # a failed test step too; a part that did not reach the tests only warns. overwrite
+      # lets a re-run of one part upload its timings again under the same name.
       - name: Upload the measured seconds per test file
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -445,6 +453,7 @@ jobs:
           path: ${{ runner.temp }}/shard-timings-part-${{ matrix.part }}.json
           retention-days: 14
           if-no-files-found: warn
+          overwrite: true
 
   # HOM-292 (ADR 0081): branch protection requires these two check names, so they stay as
   # gate jobs with no tests. GitHub reports one result for the whole part matrix, so each

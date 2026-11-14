@@ -26,7 +26,7 @@ and `Backend tests and migrations (shard 2/2)`. Only the owner account can chang
 
 A new matrix job `backend-tests` (`Backend tests part 1/4` to `part 4/4`) runs the suite in four
 parts. Each part has the steps of the old `backend` job: services, migrations check, ffmpeg, and
-the test step with `--test-shard <part>/4`. The MinIO contract step runs in part 1 only, so it
+the test step with `--test-shard=<part>/4`. The MinIO contract step runs in part 1 only, so it
 runs once per CI run, as before.
 
 ### D2. The two required names become gate jobs
@@ -70,18 +70,50 @@ stay valid.
 - the plan for four parts gives the heaviest part more than 1.10 times the seconds of the
   lightest one.
 
-Each part writes its measured seconds per file with the pytest option `--shard-timings-out`
+Each part writes its measured seconds per file with the pytest option `--shard-timings-out=<file>`
 (the sum of setup, call and teardown durations, summed on the xdist controller) and uploads them
 as the artifact `backend-shard-timings-part-<n>`. The command
 `python -m backend.tests._shard merge <out> <in>...` builds the map from the four files. It
 refuses a file name that is in two inputs, because parts never share a file. The refresh steps
-are in `docs/operations/ci.md`.
+are in `docs/operations/ci.md`. Both pytest options are written as `--opt=value`: pytest reads
+the command line before the conftest adds them, and only that form works in any order.
 
 ### D7. The scheduler uses the same map
 
 Under `--dist loadfile`, `make_scheduler` in `backend/tests/_parallel.py` hands out the files
 with the most seconds in the map first. Files not in the map keep xdist's order after them. This
 replaces the hand-written list `SLOW_FILES_FIRST`.
+
+### D8. The first map (CI run 43539360099)
+
+The first measurement ran the four parts on the CRC fallback, with an empty map. The test
+steps took 14:29, 20:24, 19:26 and 19:43. Pytest measured 14 278 s over 340 files (setup, call
+and teardown, summed per file). The merge of the four artifacts is the first checked-in map.
+Its plan for four parts gives each part 3 570 s (largest over smallest: 1.000). A part's test
+step took 0.29 to 0.34 s per measured second in that run, so a part should take about 18 to 19
+minutes, under the 25 minute goal.
+
+The 15 slowest files of that map:
+
+| Seconds | Test file |
+| ---: | --- |
+| 494.0 | `test_capabilities_oracle.py` |
+| 387.6 | `test_hom284_partial_pii_oracle.py` |
+| 315.9 | `test_demo_seed.py` |
+| 313.5 | `test_backup_restore.py` |
+| 296.4 | `test_coaching_tasks_api.py` |
+| 275.7 | `test_hom53_extraction_oracle.py` |
+| 265.7 | `test_call_attribution_lock.py` |
+| 258.6 | `test_review_appeals_api.py` |
+| 247.9 | `test_review_appeals_oracle.py` |
+| 245.9 | `test_copilot_tools_oracle.py` |
+| 226.7 | `test_review_decisions_api.py` |
+| 222.5 | `test_system_health.py` |
+| 212.6 | `test_coaching_tasks_oracle.py` |
+| 205.7 | `test_hom288_correction_placeholder_oracle.py` |
+| 188.8 | `test_hom53_report_oracle.py` |
+
+No single file is near a part's 3 570 s, so the plan can balance the parts closely.
 
 ## Alternatives
 

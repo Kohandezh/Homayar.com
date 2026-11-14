@@ -1,7 +1,7 @@
 """Split the backend test files into CI parts (HOM-292).
 
 CI runs the suite as a matrix of part jobs, each on its own runner, and passes
-``--test-shard <index>/<count>`` (for example ``1/4``): the run keeps the tests
+``--test-shard=<index>/<count>`` (for example ``1/4``): the run keeps the tests
 of the files whose part is ``index``.  Without the option every test runs, as
 before.  It is an option, not an environment variable, so a nested pytest run
 that a test starts (the golden-module budget, the audit runtime guard) is not
@@ -152,11 +152,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     merge.add_argument(
         "--source",
         default=None,
-        help="free text for the source field, e.g. the CI run ids",
+        help="free text for the source field, e.g. the CI run ids (default: the input file names)",
     )
     args = parser.parse_args(argv)
     try:
-        merge_timings(args.out, args.inputs, args.source or ", ".join(map(str, args.inputs)))
+        # Base names only: the map is checked in, and a local folder must not go with it.
+        source = args.source or ", ".join(path.name for path in args.inputs)
+        merge_timings(args.out, args.inputs, source)
     except ValueError as exc:
         print(f"merge: {exc}", file=sys.stderr)
         return 2
