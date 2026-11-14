@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hmac
+import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -26,6 +28,7 @@ from backend.database.tenant_context import (
     bind_user_context,
 )
 from backend.security.authorization import (
+    API_KEY_SCOPES,
     ROLE_PERMISSIONS,
     OrganizationAccess,
     OrganizationPermission,
@@ -60,6 +63,7 @@ __all__ = [
     "OrganizationPermission",
     "Permission",
     "WorkspaceContext",
+    "effective_api_key_scopes",
     "optional_actor",
     "require_actor",
     "require_actor_or_api_key",
@@ -78,6 +82,8 @@ REFRESH_COOKIE = "homayar_refresh"
 CSRF_COOKIE = "homayar_csrf"
 
 _bearer = HTTPBearer(auto_error=False)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -98,7 +104,7 @@ class Actor:
         """Permissions an API-key actor may exercise; ``None`` for a session actor."""
         if self.api_key is None:
             return None
-        return frozenset(_parse_scope(value) for value in self.api_key.scopes) - {None}
+        return effective_api_key_scopes(self.api_key.scopes)
 
 
 def _parse_scope(value: str) -> Permission | None:
@@ -106,6 +112,44 @@ def _parse_scope(value: str) -> Permission | None:
         return Permission(value)
     except ValueError:
         return None
+
+
+def effective_api_key_scopes(values: Iterable[str]) -> frozenset[Permission]:
+    """Stored key scopes as permissions, intersected with ``API_KEY_SCOPES``.
+
+    An unknown string is skipped, never an error (HOM-361, ADR 0013).
+    """
+    return frozenset(
+        permission
+        for permission in (_parse_scope(value) for value in values)
+        if permission is not None and permission in API_KEY_SCOPES
+    )
+
+
+def _warn_narrowed_scopes(key: ApiKey) -> None:
+    """One WARNING when a stored scope will not be honoured (HOM-361).
+
+    Ids, the dropped permission values and a count only: never the raw key,
+    its hash or prefix, or the text of an unknown stored value.
+    """
+    effective = effective_api_key_scopes(key.scopes)
+    dropped: set[str] = set()
+    unknown = 0
+    for value in key.scopes:
+        permission = _parse_scope(value)
+        if permission is None:
+            unknown += 1
+        elif permission not in effective:
+            dropped.add(permission.value)
+    if dropped or unknown:
+        logger.warning(
+            "API key %s in workspace %s stores scopes outside API_KEY_SCOPES; "
+            "dropped %s, unknown %d",
+            key.id,
+            key.workspace_id,
+            sorted(dropped),
+            unknown,
+        )
 
 
 @dataclass(frozen=True)
@@ -211,6 +255,7 @@ def _resolve_api_key_actor(
 ) -> Actor:
     """An API key acts as the user it is bound to (WP03-T07); validated per request."""
     key, user = authenticate_api_key(db, raw_key=raw_key, settings=settings)
+    _warn_narrowed_scopes(key)
     request.state.auth_token_source = "api_key"  # noqa: S105 - transport label
     request.state.api_key_id = key.id
     bind_user_context(db, user.id)
