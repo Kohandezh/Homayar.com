@@ -122,7 +122,9 @@ backend test parts have no `prom/prometheus` image. The *Container configuration
 promtool commands and is the gate for the alert rules; do not drop its steps because pytest seems
 to cover them.
 
-Each backend test part may run for 35 minutes, each gate job for 5. The history (HOM-292): the
+Each backend test part may run for 40 minutes, each gate job for 5. The rule: about 1.5 times
+the slowest measured part job (24:26 on run 43542467792, below), rounded up to a multiple of 5.
+The history (HOM-292): the
 test step took 1:19:49 on run 40769280687, when every test rebuilt the schema, and 48:00 on run
 40795356019 with the schema built once and the tests run serially. One job with four xdist
 workers took 27:10, 18:43 and 28:09 (runs 40805797597, 40808843162 and 40809285732): shared
@@ -134,11 +136,15 @@ split would take about 31 minutes. Four timed parts aim at a test step under 25 
 
 The first measurement was run 43539360099: four parts by the CRC fallback, with an empty map.
 The test steps took 14:29, 20:24, 19:26 and 19:43, and pytest measured 14 278 s over 340
-files. That run's artifacts built the first map. Its plan gives each part 3 570 s. In that run a
-part's test step took 0.29 to 0.34 s per measured second (four workers, plus start-up), so a
-part should take about 18 to 19 minutes. The limit of 35 minutes holds until the timed parts
-have run a few times; then it becomes about twice the slowest part, rounded up to a multiple
-of 5.
+files. That run's artifacts built the first map. Its plan gives each part 3 570 s.
+
+The first run with that map, run 43542467792, was green. The test steps took 22:55, 19:30,
+16:31 and 15:38 for parts 1 to 4 (jobs 24:26, 20:22, 17:27 and 16:57); the gates took 0:02 and
+0:03. Inside each part the four workers ended within 2 s of each other. The spread between the
+parts comes from runner speed: nearly every file of a part ran slower or faster together.
+Compared with the map, the median file ran 1.22, 1.06, 0.86 and 0.86 times as long in parts 1
+to 4, so about 1.4 to 1.5 times between the slowest and the fastest part runner. The map
+balances work, not runners; no map can fix that spread.
 
 The golden text-normalization module (`test_text_normalization_golden.py`, HOM-120/HOM-172) has a
 wall-clock budget, enforced by

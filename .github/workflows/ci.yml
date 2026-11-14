@@ -311,16 +311,19 @@ jobs:
     # measured seconds as an artifact; the map is rebuilt from them (docs/operations/ci.md).
     # The first measurement, run 43539360099 (CRC split, empty map): test steps of 14:29,
     # 20:24, 19:26 and 19:43 for 14 278 s measured over 340 files. The plan of that map gives
-    # 3 570 s to each part; at the measured 0.29 to 0.34 s of step per measured second, that
-    # is about 18 to 19 minutes per part.
+    # 3 570 s to each part. With that map, run 43542467792 took test steps of 22:55, 19:30,
+    # 16:31 and 15:38 (jobs 24:26, 20:22, 17:27 and 16:57; gates 0:02 and 0:03). Inside each
+    # part the four workers ended within 2 s of each other. The spread between parts is runner
+    # speed: nearly every file of a part ran slower or faster together, about 1.4 to 1.5 times
+    # between the slowest and the fastest part runner. The map balances work, not runners.
     # fail-fast is off so every part always reports.
     strategy:
       fail-fast: false
       matrix:
         part: [1, 2, 3, 4]
-    # HOM-292: 35 minutes until the timed parts have run a few times; then about twice the
-    # slowest part.
-    timeout-minutes: 35
+    # HOM-292: the limit is about 1.5 times the slowest measured part job (24:26 on run
+    # 43542467792), rounded up to a multiple of 5.
+    timeout-minutes: 40
     needs: source-contract
     services:
       postgres:

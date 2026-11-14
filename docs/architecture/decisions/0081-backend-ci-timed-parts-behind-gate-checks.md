@@ -89,9 +89,15 @@ replaces the hand-written list `SLOW_FILES_FIRST`.
 The first measurement ran the four parts on the CRC fallback, with an empty map. The test
 steps took 14:29, 20:24, 19:26 and 19:43. Pytest measured 14 278 s over 340 files (setup, call
 and teardown, summed per file). The merge of the four artifacts is the first checked-in map.
-Its plan for four parts gives each part 3 570 s (largest over smallest: 1.000). A part's test
-step took 0.29 to 0.34 s per measured second in that run, so a part should take about 18 to 19
-minutes, under the 25 minute goal.
+Its plan for four parts gives each part 3 570 s (largest over smallest: 1.000).
+
+The first run with that map, run 43542467792, was green. The test steps took 22:55, 19:30,
+16:31 and 15:38 for parts 1 to 4 (jobs 24:26, 20:22, 17:27 and 16:57), all under the 25 minute
+goal; the gates took 0:02 and 0:03. Inside each part the four workers ended within 2 s of each
+other. The spread between parts comes from runner speed: the median per-file ratio (this run
+over the map) was 1.22, 1.06, 0.86 and 0.86 for parts 1 to 4, about 1.4 to 1.5 times between
+the slowest and the fastest runner. The map balances work, not runners. The part job limit is about
+1.5 times the slowest measured part job, rounded up to a multiple of 5: 40 minutes.
 
 The 15 slowest files of that map:
 
