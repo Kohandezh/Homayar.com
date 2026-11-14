@@ -37,6 +37,12 @@ from backend.providers.mocks import (
     MockTTSProvider,
 )
 from backend.providers.openai_compatible import OpenAICompatibleIntelligenceProvider
+from backend.providers.pyannote_diarization import (
+    MANIFEST_ID,
+    MANIFEST_VERSION,
+    PyannoteDiarizationProvider,
+)
+from backend.providers.registry import ManifestError, load_registry
 from backend.providers.whisper import LocalWhisperProvider
 from backend.speech.language_policy import LanguagePolicy
 
@@ -111,6 +117,20 @@ def create_diarization_provider(settings: Settings) -> DiarizationProvider:
     if name in {"mock", "mock_diarization", "deterministic_mock"}:
         _require_mock_permission(settings)
         return MockDiarizationProvider(allow_mock=True)
+    if name in {"pyannote_local", "pyannote", "pyannote_community_1"}:
+        # Pins come from the manifest; pyannote itself is imported lazily by
+        # the provider (the gate refuses before any load when nothing is pinned).
+        # A broken manifest file is the same non-retryable refusal preflight
+        # raises (registry.resolve_bundle), not a generic processing failure.
+        try:
+            manifest = load_registry(settings).get(MANIFEST_ID, MANIFEST_VERSION)
+        except ManifestError as exc:
+            raise ProviderError(exc.code, str(exc), retryable=False) from exc
+        return PyannoteDiarizationProvider(
+            artifact_root=settings.model_artifact_root,
+            device=settings.diarization_device,
+            artifacts=manifest.artifacts if manifest is not None else (),
+        )
     if name in padyar.NAMES:
         raise padyar.contract_unavailable("diarization")
     raise _unsupported_provider("diarization")
