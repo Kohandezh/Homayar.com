@@ -29,11 +29,12 @@ from backend.tests.test_action_proposals_migration import remove_action_proposal
 from backend.tests.test_coaching_tasks_migration import remove_coaching_tasks
 from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
+from backend.tests.test_product_alerts_migration import remove_product_alerts
 from backend.tests.test_retrieval_index_migration import remove_retrieval_index_tables
 
 NEW_REVISION = "c4a8e2f7d913"
 BASE_REVISION = "0c51985fcf36"  # HOM-76: review appeals
-HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
+HEAD_REVISION = "1b1144f1d95b"  # HOM-134: product alerts, after HOM-135
 TABLE = "action_items"
 CHECK = "ck_action_kind"
 INSERT_WITHOUT_KIND = (
@@ -212,6 +213,8 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             remove_privileged_mfa_schema(connection)
             # HOM-135 adds the action proposal tables; take them out too.
             remove_action_proposals(connection)
+            # HOM-134 adds the product alert tables; take them out too.
+            remove_product_alerts(connection)
 
         monkeypatch.setenv("DATABASE_URL", url)
         monkeypatch.setenv("ENVIRONMENT", "test")

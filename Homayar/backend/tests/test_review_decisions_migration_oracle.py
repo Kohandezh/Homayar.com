@@ -93,6 +93,7 @@ from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
+from backend.tests.test_product_alerts_migration import remove_product_alerts
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
 from backend.tests.test_scorecard_results_migration import (
     _criterion,
@@ -1398,6 +1399,8 @@ def test_on_sqlite_the_migration_builds_the_orm_schema_and_its_downgrade_removes
             remove_privileged_mfa_schema(connection)
             # HOM-135 adds the action proposal tables; take them out too.
             remove_action_proposals(connection)
+            # HOM-134 adds the product alert tables; take them out too.
+            remove_product_alerts(connection)
             before = _sqlite_objects(connection)
         assert (ITEM_RESULT_INDEX, ("id", "scorecard_result_id"), True) in orm[ITEMS]["indexes"]
         assert sorted(name for name, _ in orm[DECISIONS]["checks"]) == sorted(DECISION_CHECKS)

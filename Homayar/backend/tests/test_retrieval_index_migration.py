@@ -101,10 +101,11 @@ from backend.tests._database import (
 from backend.tests.conftest import login_user, register_user
 from backend.tests.test_action_proposals_migration import remove_action_proposals
 from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
+from backend.tests.test_product_alerts_migration import remove_product_alerts
 
 NEW_REVISION = "a3c7e19d4b62"
 BASE_REVISION = "e8b4d2f7a9c1"  # HOM-128: federation group mappings
-HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
+HEAD_REVISION = "1b1144f1d95b"  # HOM-134: product alerts, after HOM-135
 ENTRIES = "retrieval_entries"
 EMBEDDINGS = "retrieval_embeddings"
 TABLES = (ENTRIES, EMBEDDINGS)
@@ -969,6 +970,8 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             remove_privileged_mfa_schema(connection)
             # HOM-135 adds the action proposal tables; take them out too.
             remove_action_proposals(connection)
+            # HOM-134 adds the product alert tables; take them out too.
+            remove_product_alerts(connection)
             before_objects = _objects(connection)
 
         config = _alembic_at(monkeypatch, url)

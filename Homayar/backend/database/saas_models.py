@@ -5110,6 +5110,447 @@ class ActionDeliveryRequest(Base):
     )
 
 
+# Product alert rules on calls (HOM-134, WP24-T02, F59, ADR 0085).  A rule names one
+# condition; an event is one occurrence of that condition on one call; an alert groups
+# the events of one rule and one dedupe group inside one deduplication window; a
+# delivery is one message to one user for one purpose; a preference holds the digest,
+# e-mail and mute choices of one user.  PR 1 is schema only: nothing writes the tables.
+ALERT_CONDITION_TYPES: tuple[str, ...] = (
+    "qa_criterion_failed",
+    "risk_finding",
+    "commitment_missed",
+)
+ALERT_SEVERITIES: tuple[str, ...] = ("info", "warning", "critical")
+ALERT_DELIVERY_MODES: tuple[str, ...] = ("immediate", "digest_only")
+# Used by the PR 2 validation of a rule's recipients; no column check names it.
+ALERT_RECIPIENT_ROLES: tuple[str, ...] = ("owner", "admin", "supervisor")
+ALERT_STATUSES: tuple[str, ...] = ("open", "acknowledged", "suppressed", "escalated")
+# Acknowledged and suppressed are final; open and escalated still wait for a person.
+ALERT_ACTIVE_STATUSES: tuple[str, ...] = ("open", "escalated")
+ALERT_SUPPRESS_REASONS: tuple[str, ...] = (
+    "false_positive",
+    "known_issue",
+    "duplicate",
+    "other",
+    "inherited",
+)
+ALERT_ESCALATION_REASONS: tuple[str, ...] = ("manual", "unacknowledged")
+ALERT_EVENT_SOURCES: tuple[str, ...] = ("review_result", "analysis_run", "action_item")
+ALERT_DELIVERY_PURPOSES: tuple[str, ...] = ("alert", "escalation", "digest")
+ALERT_DELIVERY_CHANNELS: tuple[str, ...] = ("in_app", "email")
+ALERT_DELIVERY_STATUSES: tuple[str, ...] = ("pending", "sent", "failed", "skipped")
+ALERT_DELIVERY_REASONS: tuple[str, ...] = (
+    "not_authorized",
+    "muted",
+    "digest_disabled",
+    "email_missing",
+    "email_send_failed",
+)
+
+ALERT_RULE_NAME_CHECK = "length(trim(name)) >= 1"
+ALERT_CONDITION_TYPE_CHECK = f"condition_type IN {_sql_list(ALERT_CONDITION_TYPES)}"
+ALERT_SEVERITY_CHECK = f"severity IN {_sql_list(ALERT_SEVERITIES)}"
+ALERT_DELIVERY_MODE_CHECK = f"delivery_mode IN {_sql_list(ALERT_DELIVERY_MODES)}"
+ALERT_RULE_CRITERION_KEY_CHECK = f"criterion_id IS NULL OR ({CRITERION_KEY_CHECK})"
+ALERT_RULE_CONDITION_SHAPE_CHECK = (
+    "condition_type NOT IN ('risk_finding','commitment_missed') OR criterion_id IS NULL"
+)
+ALERT_RULE_DEDUP_WINDOW_CHECK = "dedup_window_minutes >= 5 AND dedup_window_minutes <= 10080"
+ALERT_RULE_ESCALATE_AFTER_CHECK = (
+    "escalate_after_minutes IS NULL OR "
+    "(escalate_after_minutes >= 5 AND escalate_after_minutes <= 10080)"
+)
+ALERT_RULE_REVISION_CHECK = "revision >= 1"
+ALERT_STATUS_CHECK = f"status IN {_sql_list(ALERT_STATUSES)}"
+ALERT_SUPPRESS_REASON_CHECK = (
+    f"suppress_reason IS NULL OR suppress_reason IN {_sql_list(ALERT_SUPPRESS_REASONS)}"
+)
+ALERT_ESCALATION_REASON_CHECK = (
+    f"escalation_reason IS NULL OR escalation_reason IN {_sql_list(ALERT_ESCALATION_REASONS)}"
+)
+ALERT_CONDITION_GROUP_CHECK = "length(condition_group) >= 1"
+ALERT_DEDUPE_GROUP_CHECK = "length(dedupe_group) >= 1"
+ALERT_EVENT_COUNT_CHECK = "event_count >= 1"
+ALERT_ESCALATION_PAIR_CHECK = (
+    "(escalated_at IS NULL AND escalation_reason IS NULL) "
+    "OR (escalated_at IS NOT NULL AND escalation_reason IS NOT NULL)"
+)
+ALERT_SUPPRESSION_FIELDS_CHECK = (
+    "(suppressed_at IS NULL AND suppressed_until IS NULL AND suppress_reason IS NULL) "
+    "OR (suppressed_at IS NOT NULL AND suppressed_until IS NOT NULL "
+    "AND suppress_reason IS NOT NULL)"
+)
+# Each status has its own fields.  No check names a user column: the four user columns
+# are SET NULL when a user is removed, and a check on them would make the removal fail.
+# An acknowledged or suppressed alert may also carry its escalation fields: it was
+# escalated first, and the later move clears nothing.
+ALERT_OPEN_FIELDS_CHECK = (
+    "status <> 'open' OR (acknowledged_at IS NULL AND suppressed_at IS NULL "
+    "AND escalated_at IS NULL)"
+)
+ALERT_ACKNOWLEDGED_FIELDS_CHECK = (
+    "status <> 'acknowledged' OR (acknowledged_at IS NOT NULL AND suppressed_at IS NULL)"
+)
+ALERT_SUPPRESSED_FIELDS_CHECK = (
+    "status <> 'suppressed' OR (suppressed_at IS NOT NULL AND acknowledged_at IS NULL)"
+)
+ALERT_ESCALATED_FIELDS_CHECK = (
+    "status <> 'escalated' OR (escalated_at IS NOT NULL AND acknowledged_at IS NULL "
+    "AND suppressed_at IS NULL)"
+)
+ALERT_EVENT_SOURCE_CHECK = f"source_type IN {_sql_list(ALERT_EVENT_SOURCES)}"
+ALERT_CONDITION_REF_CHECK = "length(condition_ref) >= 1"
+ALERT_DELIVERY_PURPOSE_CHECK = f"purpose IN {_sql_list(ALERT_DELIVERY_PURPOSES)}"
+ALERT_DELIVERY_CHANNEL_CHECK = f"channel IN {_sql_list(ALERT_DELIVERY_CHANNELS)}"
+ALERT_DELIVERY_STATUS_CHECK = f"status IN {_sql_list(ALERT_DELIVERY_STATUSES)}"
+ALERT_DELIVERY_REASON_CHECK = f"reason IS NULL OR reason IN {_sql_list(ALERT_DELIVERY_REASONS)}"
+ALERT_DELIVERY_SUBJECT_REF_CHECK = "length(subject_ref) >= 1"
+ALERT_DELIVERY_ATTEMPT_COUNT_CHECK = "attempt_count >= 0"
+ALERT_DELIVERY_PURPOSE_SHAPE_CHECK = (
+    "(purpose <> 'digest' OR alert_id IS NULL) "
+    "AND (purpose NOT IN ('alert','escalation') OR alert_id IS NOT NULL)"
+)
+ALERT_DELIVERY_SENT_FIELDS_CHECK = "status <> 'sent' OR (sent_at IS NOT NULL AND reason IS NULL)"
+ALERT_DELIVERY_SKIPPED_FIELDS_CHECK = (
+    "status <> 'skipped' OR (reason IS NOT NULL AND sent_at IS NULL)"
+)
+ALERT_DELIVERY_FAILED_FIELDS_CHECK = (
+    "status <> 'failed' OR (reason IS NOT NULL AND sent_at IS NULL)"
+)
+ALERT_DELIVERY_PENDING_FIELDS_CHECK = "status <> 'pending' OR sent_at IS NULL"
+
+
+class AlertRule(Base):
+    """One alert rule of a workspace (HOM-134, WP24-T02, F59, ADR 0085).
+
+    A rule names one condition type: a failed QA criterion (with an optional
+    criterion id, NULL meaning any criterion), a risk finding of the meeting
+    analysis, or a missed commitment.  It carries a severity, recipient roles and
+    explicit recipient users, a dedup window in minutes (the window an alert stays
+    open for new events), an optional auto-escalation delay and a delivery mode.
+    ``immediate`` rules notify at open; ``digest_only`` rules notify only through the
+    daily digest.  ``revision`` starts at 1 and grows by one with each change, so a
+    PATCH is a compare-and-set on it, like ``coaching_tasks``.  Nothing writes the
+    table yet: PR 2 adds the service, the routes and the permissions.  Workspace
+    scoped, tenant only, never through a share token; not conversation content, so
+    the purge keeps it and the backup reconciliation does not count it.
+    """
+
+    __tablename__ = "alert_rules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    condition_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    criterion_id: Mapped[str | None] = mapped_column(String(64))
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    recipient_roles: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    recipient_user_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    delivery_mode: Mapped[str] = mapped_column(String(20), default="immediate", nullable=False)
+    dedup_window_minutes: Mapped[int] = mapped_column(Integer, default=1440, nullable=False)
+    escalate_after_minutes: Mapped[int | None] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    updated_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("id", "workspace_id", name="uq_alert_rules_scope"),
+        UniqueConstraint("workspace_id", "name", name="uq_alert_rules_name"),
+        CheckConstraint(ALERT_RULE_NAME_CHECK, name="ck_alert_rules_name"),
+        CheckConstraint(ALERT_CONDITION_TYPE_CHECK, name="ck_alert_rules_condition_type"),
+        CheckConstraint(ALERT_SEVERITY_CHECK, name="ck_alert_rules_severity"),
+        CheckConstraint(ALERT_DELIVERY_MODE_CHECK, name="ck_alert_rules_delivery_mode"),
+        CheckConstraint(ALERT_RULE_CRITERION_KEY_CHECK, name="ck_alert_rules_criterion_key"),
+        CheckConstraint(ALERT_RULE_CONDITION_SHAPE_CHECK, name="ck_alert_rules_condition_shape"),
+        CheckConstraint(ALERT_RULE_DEDUP_WINDOW_CHECK, name="ck_alert_rules_dedup_window"),
+        CheckConstraint(ALERT_RULE_ESCALATE_AFTER_CHECK, name="ck_alert_rules_escalate_after"),
+        CheckConstraint(ALERT_RULE_REVISION_CHECK, name="ck_alert_rules_revision"),
+        Index("ix_alert_rules_active", "workspace_id", "enabled", "condition_type"),
+    )
+
+
+class Alert(Base):
+    """One grouped alert of one rule and one dedupe group (HOM-134, WP24-T02, F59).
+
+    The window opens at the first event and lasts the rule's
+    ``dedup_window_minutes``: a later event of the same group inside the window joins
+    this alert (``event_count`` plus one, ``last_event_at`` moves) and notifies
+    nobody; an event at or after ``window_ends_at`` opens a new alert.
+    ``uq_alerts_window`` is the database backstop: one alert per rule, dedupe group
+    and window start.  States: ``open``, ``acknowledged``, ``suppressed``,
+    ``escalated``.  Acknowledged and suppressed are final; an acknowledged or
+    suppressed alert may still carry its escalation fields, because it was escalated
+    first.  A suppression ends at ``suppressed_until``; a new alert of the same rule
+    and group that opens before that time starts suppressed with reason
+    ``inherited`` and notifies nobody.  The user columns are SET NULL when a user is
+    removed; ``escalated_by_user_id`` NULL with ``escalated_at`` set means the
+    escalation was automatic.  Workspace scoped, tenant only, never through a share
+    token; not conversation content.
+    """
+
+    __tablename__ = "alerts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    rule_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    condition_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    condition_group: Mapped[str] = mapped_column(String(80), nullable=False)
+    dedupe_group: Mapped[str] = mapped_column(String(160), nullable=False)
+    subject_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    window_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    event_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledged_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    suppressed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    suppressed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    suppress_reason: Mapped[str | None] = mapped_column(String(30))
+    suppressed_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escalation_reason: Mapped[str | None] = mapped_column(String(30))
+    escalated_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("id", "workspace_id", name="uq_alerts_scope"),
+        UniqueConstraint("rule_id", "dedupe_group", "window_started_at", name="uq_alerts_window"),
+        ForeignKeyConstraint(
+            ["rule_id", "workspace_id"],
+            ["alert_rules.id", "alert_rules.workspace_id"],
+            ondelete="CASCADE",
+            name="fk_alerts_rule",
+        ),
+        CheckConstraint(ALERT_CONDITION_TYPE_CHECK, name="ck_alerts_condition_type"),
+        CheckConstraint(ALERT_SEVERITY_CHECK, name="ck_alerts_severity"),
+        CheckConstraint(ALERT_STATUS_CHECK, name="ck_alerts_status"),
+        CheckConstraint(ALERT_SUPPRESS_REASON_CHECK, name="ck_alerts_suppress_reason"),
+        CheckConstraint(ALERT_ESCALATION_REASON_CHECK, name="ck_alerts_escalation_reason"),
+        CheckConstraint(ALERT_CONDITION_GROUP_CHECK, name="ck_alerts_condition_group"),
+        CheckConstraint(ALERT_DEDUPE_GROUP_CHECK, name="ck_alerts_dedupe_group"),
+        CheckConstraint(ALERT_EVENT_COUNT_CHECK, name="ck_alerts_event_count"),
+        CheckConstraint(ALERT_RULE_REVISION_CHECK, name="ck_alerts_revision"),
+        CheckConstraint(ALERT_ESCALATION_PAIR_CHECK, name="ck_alerts_escalation_pair"),
+        CheckConstraint(ALERT_SUPPRESSION_FIELDS_CHECK, name="ck_alerts_suppression_fields"),
+        CheckConstraint(ALERT_OPEN_FIELDS_CHECK, name="ck_alerts_open_fields"),
+        CheckConstraint(ALERT_ACKNOWLEDGED_FIELDS_CHECK, name="ck_alerts_acknowledged_fields"),
+        CheckConstraint(ALERT_SUPPRESSED_FIELDS_CHECK, name="ck_alerts_suppressed_fields"),
+        CheckConstraint(ALERT_ESCALATED_FIELDS_CHECK, name="ck_alerts_escalated_fields"),
+        Index("ix_alerts_queue", "workspace_id", "status", "last_event_at", "id"),
+        Index("ix_alerts_rule_group", "rule_id", "dedupe_group", "window_ends_at"),
+    )
+
+
+class AlertEvent(Base):
+    """One occurrence of a rule's condition on one call (HOM-134, WP24-T02, F59).
+
+    Written once, immutable after the insert: the application role may not UPDATE the
+    table (``NO_UPDATE_TABLES``) and the ORM guard below refuses an update.  The same
+    condition on the same call is one event, ever (``uq_alert_events_condition``), so
+    a rerun or a recompute never counts twice.  ``source_type`` names where the
+    condition was seen (a human review result, an analysis run, an action item);
+    ``source_id`` and ``condition_ref`` are plain strings, no keys: the event
+    outlives its source.  Conversation content: the purge deletes the row and the
+    backup reconciliation counts it.  Tenant only, never through a share token.
+    """
+
+    __tablename__ = "alert_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    alert_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    rule_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    condition_ref: Mapped[str] = mapped_column(String(80), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "rule_id", "meeting_id", "condition_ref", name="uq_alert_events_condition"
+        ),
+        ForeignKeyConstraint(
+            ["alert_id", "workspace_id"],
+            ["alerts.id", "alerts.workspace_id"],
+            ondelete="CASCADE",
+            name="fk_alert_events_alert",
+        ),
+        ForeignKeyConstraint(
+            ["rule_id", "workspace_id"],
+            ["alert_rules.id", "alert_rules.workspace_id"],
+            ondelete="CASCADE",
+            name="fk_alert_events_rule",
+        ),
+        CheckConstraint(ALERT_EVENT_SOURCE_CHECK, name="ck_alert_events_source_type"),
+        CheckConstraint(ALERT_CONDITION_REF_CHECK, name="ck_alert_events_condition_ref"),
+        Index("ix_alert_events_alert", "alert_id", "occurred_at"),
+        Index("ix_alert_events_workspace_meeting", "workspace_id", "meeting_id"),
+    )
+
+
+class AlertDelivery(Base):
+    """One message to one user on one channel for one purpose (HOM-134, WP24-T02, F59).
+
+    A purpose is ``alert`` (an alert opened), ``escalation`` (an alert escalated) or
+    ``digest`` (the daily digest of one user); a digest delivery names no alert.  The
+    status is ``pending``, ``sent``, ``failed`` or ``skipped``, with a reason code
+    when a user got nothing (``not_authorized``, ``muted``, ``digest_disabled``,
+    ``email_missing``) or an e-mail failed for good (``email_send_failed`` after three
+    attempts).  In-app deliveries go through the notification service and are
+    ``sent`` or ``skipped`` at once, with ``notification_id`` naming the in-app row.
+    E-mail deliveries start ``pending`` and the PR 2 sweep sends them.  One delivery
+    per workspace, purpose, subject, recipient and channel
+    (``uq_alert_deliveries_target``): the digest reaches a user once per day and
+    channel.  The recipient is SET NULL when a user is removed; a digest delivery is
+    not conversation content and the purge keeps it.  Tenant only, never through a
+    share token.
+    """
+
+    __tablename__ = "alert_deliveries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    alert_id: Mapped[str | None] = mapped_column(String(36))
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    subject_ref: Mapped[str] = mapped_column(String(80), nullable=False)
+    recipient_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(40))
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notification_id: Mapped[str | None] = mapped_column(
+        ForeignKey("notifications.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "purpose",
+            "subject_ref",
+            "recipient_user_id",
+            "channel",
+            name="uq_alert_deliveries_target",
+        ),
+        ForeignKeyConstraint(
+            ["alert_id", "workspace_id"],
+            ["alerts.id", "alerts.workspace_id"],
+            ondelete="CASCADE",
+            name="fk_alert_deliveries_alert",
+        ),
+        CheckConstraint(ALERT_DELIVERY_PURPOSE_CHECK, name="ck_alert_deliveries_purpose"),
+        CheckConstraint(ALERT_DELIVERY_CHANNEL_CHECK, name="ck_alert_deliveries_channel"),
+        CheckConstraint(ALERT_DELIVERY_STATUS_CHECK, name="ck_alert_deliveries_status"),
+        CheckConstraint(ALERT_DELIVERY_REASON_CHECK, name="ck_alert_deliveries_reason"),
+        CheckConstraint(ALERT_DELIVERY_SUBJECT_REF_CHECK, name="ck_alert_deliveries_subject_ref"),
+        CheckConstraint(
+            ALERT_DELIVERY_ATTEMPT_COUNT_CHECK, name="ck_alert_deliveries_attempt_count"
+        ),
+        CheckConstraint(
+            ALERT_DELIVERY_PURPOSE_SHAPE_CHECK, name="ck_alert_deliveries_purpose_shape"
+        ),
+        CheckConstraint(ALERT_DELIVERY_SENT_FIELDS_CHECK, name="ck_alert_deliveries_sent_fields"),
+        CheckConstraint(
+            ALERT_DELIVERY_SKIPPED_FIELDS_CHECK, name="ck_alert_deliveries_skipped_fields"
+        ),
+        CheckConstraint(
+            ALERT_DELIVERY_FAILED_FIELDS_CHECK, name="ck_alert_deliveries_failed_fields"
+        ),
+        CheckConstraint(
+            ALERT_DELIVERY_PENDING_FIELDS_CHECK, name="ck_alert_deliveries_pending_fields"
+        ),
+        Index("ix_alert_deliveries_due", "workspace_id", "status", "next_attempt_at"),
+        Index("ix_alert_deliveries_alert_id", "alert_id"),
+    )
+
+
+class NotificationPreference(Base):
+    """The notification choices of one user of one workspace (HOM-134, WP24-T02, F59).
+
+    One row per workspace and user; no row means the defaults: the digest is on and
+    e-mail is off.  ``muted_alert_rule_ids`` is the list of rule ids the user mutes
+    for themselves; a muted rule gives the user a ``skipped`` delivery with reason
+    ``muted``.  N07 (quiet hours and timezones) extends this table later.  The row
+    goes when the user or the workspace goes.  Tenant only, never through a share
+    token; not conversation content.
+    """
+
+    __tablename__ = "notification_preferences"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    digest_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    email_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    muted_alert_rule_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_notification_preferences_user"),
+    )
+
+
 class ShareLink(Base, TimestampMixin):
     __tablename__ = "share_links"
 
@@ -5689,6 +6130,22 @@ def _refuse_action_delivery_request_update(_mapper, _connection, target: object)
     if changed:
         raise ActionDeliveryRequestImmutableError(
             f"{type(target).__name__} rows are immutable; revoke the proposal instead "
+            f"(attempted: {', '.join(sorted(changed))})"
+        )
+
+
+class AlertEventImmutableError(RuntimeError):
+    """An ORM update tried to change a stored alert event (HOM-134)."""
+
+
+# Only updates are refused.  A delete stays allowed: the alert's cascade and the
+# conversation purge remove events, and the application role keeps DELETE.
+@event.listens_for(AlertEvent, "before_update")
+def _refuse_alert_event_update(_mapper, _connection, target: object) -> None:
+    changed = _changed_columns(target)
+    if changed:
+        raise AlertEventImmutableError(
+            f"{type(target).__name__} rows are immutable; the purge removes them "
             f"(attempted: {', '.join(sorted(changed))})"
         )
 

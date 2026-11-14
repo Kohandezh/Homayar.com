@@ -24,10 +24,11 @@ from backend.tests._database import (
     is_postgres_url,
 )
 from backend.tests.test_action_proposals_migration import remove_action_proposals
+from backend.tests.test_product_alerts_migration import remove_product_alerts
 
 NEW_REVISION = "d3d1c7aa3cd8"
 BASE_REVISION = "a3c7e19d4b62"  # HOM-93: retrieval index
-HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
+HEAD_REVISION = "1b1144f1d95b"  # HOM-134: product alerts, after HOM-135
 TABLES = ("user_mfa_totp", "mfa_recovery_codes", "break_glass_windows")
 CHANGED_TABLES = ("users", "login_sessions")
 SESSION_COLUMNS = {"mfa_verified_at", "mfa_method", "break_glass_window_id"}
@@ -229,6 +230,8 @@ def test_on_sqlite_alembic_upgrades_checks_clean_downgrades_and_upgrades_again(
             remove_privileged_mfa_schema(connection)
             # HOM-135 adds the action proposal tables; take them out too.
             remove_action_proposals(connection)
+            # HOM-134 adds the product alert tables; take them out too.
+            remove_product_alerts(connection)
             before = _all_sqlite_shapes(connection)
 
         config = _alembic_at(monkeypatch, url)

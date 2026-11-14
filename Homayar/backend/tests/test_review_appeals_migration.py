@@ -114,6 +114,7 @@ from backend.tests.test_federation import remove_federation_group_mappings
 from backend.tests.test_hom129_mfa_migration import remove_privileged_mfa_schema
 from backend.tests.test_ingestion_ledger import _headers, _patch_media
 from backend.tests.test_ingestion_ledger import _tenant as _ledger_tenant
+from backend.tests.test_product_alerts_migration import remove_product_alerts
 from backend.tests.test_retention_purge import _media, _processed, _purge, _review, _sweep
 from backend.tests.test_retrieval_index_migration import remove_retrieval_index_tables
 from backend.tests.test_review_decisions_migration import _decision, _human, _item_values
@@ -130,7 +131,7 @@ from backend.tests.test_scorecard_results_migration import (
 
 NEW_REVISION = "0c51985fcf36"
 BASE_REVISION = "02f616cbb655"  # HOM-75: calibration batches
-HEAD_REVISION = "fc9730c5f039"  # HOM-135: action proposals, after HOM-129
+HEAD_REVISION = "1b1144f1d95b"  # HOM-134: product alerts, after HOM-135
 APPEALS = "review_appeals"
 CRITERIA = "review_appeal_criteria"
 RESULTS = "review_appeal_results"
@@ -1431,6 +1432,7 @@ def test_every_table_is_a_workspace_table_and_only_results_refuse_updates():
         # HOM-93: a vector is written once; a new model writes a new row.
         "retrieval_embeddings",
         "action_delivery_requests",  # HOM-135: an approved request never changes.
+        "alert_events",  # HOM-134: a seen condition never changes.
     )
 
 
@@ -1788,6 +1790,8 @@ def test_on_sqlite_alembic_upgrades_to_the_head_checks_clean_and_downgrades_one_
             remove_privileged_mfa_schema(connection)
             # HOM-135 adds the action proposal tables; take them out too.
             remove_action_proposals(connection)
+            # HOM-134 adds the product alert tables; take them out too.
+            remove_product_alerts(connection)
             before_objects = _objects(connection)
 
         config = _alembic_at(monkeypatch, url)

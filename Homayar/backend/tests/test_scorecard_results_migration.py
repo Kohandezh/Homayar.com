@@ -887,6 +887,7 @@ def test_both_tables_are_workspace_tables_the_purge_can_delete():
         # HOM-93: a vector is written once; a new model writes a new row.
         "retrieval_embeddings",
         "action_delivery_requests",  # HOM-135: an approved request never changes.
+        "alert_events",  # HOM-134: a seen condition never changes.
     )
 
 

@@ -80,6 +80,7 @@ from backend.database.saas_models import (
     ActionDeliveryRequest,
     ActionItem,
     ActionProposal,
+    AlertEvent,
     AnalysisExtraction,
     AnalysisRun,
     CalibrationAdjudication,
@@ -138,6 +139,10 @@ CONTENT_TABLES = tuple(
         # The action proposals of a conversation and their delivery requests (HOM-135).
         ActionProposal,
         ActionDeliveryRequest,
+        # The product alert events of a conversation (HOM-134).  The rules, the alerts,
+        # the deliveries and the preferences have no meeting of their own, so they are
+        # not content tables.
+        AlertEvent,
         MeetingSummary,
         ActionItem,
         MeetingSpeaker,
